@@ -12,7 +12,13 @@ export function useCreateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.createProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -27,7 +33,13 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.updateProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -42,7 +54,13 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.deleteProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -57,7 +75,13 @@ export function useActivateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.activateProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -72,7 +96,13 @@ export function useDeactivateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.deactivateProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -87,7 +117,13 @@ export function useCreateSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessions.createSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessions:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -102,7 +138,13 @@ export function useUpdateSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessions.updateSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessions:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -117,8 +159,14 @@ export function useCompleteSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessions.completeSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          (q.queryKey[1].startsWith("sessions:") ||
+            q.queryKey[1].startsWith("sessionPacks:")),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -133,7 +181,13 @@ export function useCancelSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessions.cancelSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessions:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -148,7 +202,13 @@ export function useCreateSessionPack() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.createSessionPack),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -163,7 +223,13 @@ export function useUpdateSessionPack() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.updateSessionPack),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -178,7 +244,13 @@ export function useUseSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.useSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -193,7 +265,13 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: useConvexMutation(api.users.updateUser),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("users:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -208,7 +286,13 @@ export function useCreateTestimonial() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.createTestimonial),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["testimonials"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -223,7 +307,13 @@ export function useCreateStudentResult() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.createStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
