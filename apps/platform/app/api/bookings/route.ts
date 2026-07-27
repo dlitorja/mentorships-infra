@@ -11,6 +11,7 @@ import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
 import { reportError } from "@/lib/observability";
+import { withRetries } from "@/lib/utils";
 
 const createSchema = z.object({
   instructorId: z.string().min(1),
@@ -28,25 +29,6 @@ const createSchema = z.object({
  * confirm call throws, we query the booking state; if it is already confirmed,
  * we treat the booking as successfully confirmed.
  */
-async function withRetries<T>(
-  fn: () => Promise<T>,
-  attempts: number,
-  delayMs: number
-): Promise<T> {
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (i < attempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
-      }
-    }
-  }
-  throw lastErr;
-}
-
 async function confirmBookingSafely(
   convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>,
   bookingId: string,
