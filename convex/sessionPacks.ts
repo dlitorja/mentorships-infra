@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { resolveActiveWorkspaceForPair } from "./workspaces";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
 export const getSessionPackById = query({
@@ -31,16 +32,16 @@ export const getUserSessionPacks = query({
   },
 });
 
-/** Returns active, non-expired session packs for a given user. */
+/** Returns active, non-expired session packs for the authenticated user, including the linked workspace ID. */
 export const getUserActiveSessionPacks = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    if (!user || user.subject !== args.userId) {
       return [];
     }
     const now = Date.now();
-    return await ctx.db
+    const packs = await ctx.db
       .query("sessionPacks")
       .withIndex("by_userId_status_expiresAt", (q) =>
         q.eq("userId", args.userId).eq("status", "active")
@@ -52,6 +53,23 @@ export const getUserActiveSessionPacks = query({
         )
       )
       .collect();
+
+    const uniqueInstructorIds = [...new Set(packs.map((pack) => pack.instructorId))];
+    const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
+    await Promise.all(
+      uniqueInstructorIds.map(async (instructorId) => {
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId,
+          studentUserId: args.userId,
+        });
+        workspaceByInstructorId.set(instructorId, workspace);
+      })
+    );
+
+    return packs.map((pack) => ({
+      ...pack,
+      workspaceId: workspaceByInstructorId.get(pack.instructorId)?._id ?? null,
+    }));
   },
 });
 

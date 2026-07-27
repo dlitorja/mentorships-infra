@@ -529,6 +529,59 @@ export const getWorkspaceBySeatReservation = query({
   },
 });
 
+/** Returns the active workspace ID for a session pack, or null if none exists. Requires auth. */
+export const getWorkspaceBySessionPackId = query({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) {
+      return null;
+    }
+    if (user.subject !== pack.userId) {
+      return null;
+    }
+    const workspace = await resolveActiveWorkspaceForPair(ctx, {
+      instructorId: pack.instructorId,
+      studentUserId: pack.userId,
+    });
+    return workspace?._id ?? null;
+  },
+});
+
+/**
+ * Links workspaces owned by a placeholder email ID to a real Clerk user ID.
+ * Called by the Clerk account-linking flow after a guest checkout user signs up.
+ * Only rewrites workspaces whose ownerId is an email placeholder, leaving
+ * already-linked workspaces untouched.
+ */
+export const linkWorkspacesByEmail = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase().trim();
+    const placeholderUserId = `email:${normalizedEmail}`;
+
+    const workspacesToLink = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", placeholderUserId))
+      .collect();
+
+    let linked = 0;
+    for (const workspace of workspacesToLink) {
+      await ctx.db.patch(workspace._id, { ownerId: args.clerkUserId });
+      linked++;
+    }
+
+    return { linked };
+  },
+});
+
 /** Returns workspaces past the 18-month retention period that are pending deletion. */
 export const getWorkspacesNeedingRetentionDeletion = query({
   args: {},

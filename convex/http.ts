@@ -846,6 +846,49 @@ export const httpLinkSeatReservationsByEmail = httpAction(async (ctx, request) =
   }
 });
 
+export const httpLinkWorkspacesByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let clerkUserId: string, email: string;
+  try {
+    ({ clerkUserId, email } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Presence validation
+  if (!clerkUserId || typeof clerkUserId !== "string" || !clerkUserId.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.workspaces.linkWorkspacesByEmail, {
+      clerkUserId: clerkUserId.trim(),
+      email: email.trim().toLowerCase(),
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 http.route({
   path: "/internal/link-session-packs",
   method: "POST",
@@ -856,6 +899,12 @@ http.route({
   path: "/internal/link-seat-reservations",
   method: "POST",
   handler: httpLinkSeatReservationsByEmail,
+});
+
+http.route({
+  path: "/internal/link-workspaces",
+  method: "POST",
+  handler: httpLinkWorkspacesByEmail,
 });
 
 /**

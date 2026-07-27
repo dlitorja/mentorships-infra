@@ -1,9 +1,10 @@
 export const dynamic = "force-dynamic";
 
-import { requireDbUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
+import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
+import { Id } from "@/convex/_generated/dataModel";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,8 +13,10 @@ import Link from "next/link";
 import { BookWithGoogle } from "@/components/calendar/book-with-google";
 
 export default async function CalendarPage() {
-  const user = await requireDbUser();
-  const convexUser = await fetchQuery(api.users.getCurrentUser, {});
+  const userId = await requireAuth();
+  const token = await getConvexAuthToken();
+  const tokenOption = { token: token ?? undefined };
+  const convexUser = await fetchQuery(api.users.getCurrentUser, {}, tokenOption);
   const userTimeZone = convexUser?.timeZone;
 
   if (!userTimeZone) {
@@ -38,56 +41,30 @@ export default async function CalendarPage() {
     );
   }
 
-  // Fetch upcoming sessions
-  const now = new Date();
-  const upcomingSessions: {
-    id: string;
-    scheduledAt: Date;
-    status: string;
-    packId: string;
-    remainingSessions: number;
-  }[] = await db
-    .select({
-      id: sessions.id,
-      scheduledAt: sessions.scheduledAt,
-      status: sessions.status,
-      packId: sessions.sessionPackId,
-      remainingSessions: sessionPacks.remainingSessions,
-    })
-    .from(sessions)
-    .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .where(
-      and(
-        eq(sessions.studentId, user.id),
-        eq(sessions.status, "scheduled"),
-        gte(sessions.scheduledAt, now)
-      )
-    )
-    .orderBy(sessions.scheduledAt)
-    .limit(10);
+  // Fetch upcoming sessions from Convex
+  const upcomingSessionsRaw = await fetchQuery(
+    api.sessions.getUpcomingSessions,
+    { studentId: userId },
+    tokenOption
+  );
+  const upcomingSessions = upcomingSessionsRaw.map((session) => ({
+    id: session._id,
+    scheduledAt: new Date(session.scheduledAt),
+    status: session.status,
+    packId: session.sessionPackId,
+  }));
 
-  // Fetch active session packs with remaining sessions
-  const activePacksRaw = await db
-    .select({
-      id: sessionPacks.id,
-      instructorId: sessionPacks.instructorId,
-      remainingSessions: sessionPacks.remainingSessions,
-      expiresAt: sessionPacks.expiresAt,
-      status: sessionPacks.status,
-    })
-    .from(sessionPacks)
-    .where(
-      and(
-        eq(sessionPacks.userId, user.id),
-        eq(sessionPacks.status, "active")
-      )
-    );
-
+  // Fetch active session packs with remaining sessions from Convex
+  const activePacksRaw = await fetchQuery(
+    api.sessionPacks.getUserActiveSessionPacks,
+    { userId },
+    tokenOption
+  );
   const activePacks = activePacksRaw.map((p) => ({
-    id: p.id,
-    instructorId: p.instructorId,
+    id: p._id as Id<"sessionPacks">,
+    instructorId: p.instructorId as Id<"instructors">,
     remainingSessions: p.remainingSessions,
-    expiresAt: p.expiresAt,
+    expiresAt: p.expiresAt ? new Date(p.expiresAt) : null,
     status: p.status,
   }));
 
@@ -100,7 +77,7 @@ export default async function CalendarPage() {
           <div className="mt-2 text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
             <p>
-              Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion. <a href="/workspace" className="underline">Open workspace</a>
+              Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion. <a href="/workspace" className="underline">Open workspace</a>
             </p>
           </div>
         </div>
@@ -125,7 +102,7 @@ export default async function CalendarPage() {
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {pack.expiresAt
-                          ? `Expires: ${new Date(pack.expiresAt).toLocaleDateString()}`
+                          ? `Expires: ${pack.expiresAt.toLocaleDateString()}`
                           : "No expiration"}
                       </p>
                     </div>
@@ -140,9 +117,9 @@ export default async function CalendarPage() {
         )}
 
         {/* Booking (Legacy Packs) */}
-        {activePacks.length > 0 && <BookSessionForm packs={activePacks} userId={user.id} />}
+        {activePacks.length > 0 && <BookSessionForm packs={activePacks} userId={userId} />}
 
-        {/* Booking (Google Calendar MVP) - uses the first active pack's instructor */}
+        {/* Booking (Google Calendar MVP) - uses the first active pack&apos;s instructor */}
         {activePacks.length > 0 && (
           <BookWithGoogle packs={activePacks.map((p) => ({ id: p.id, instructorId: p.instructorId }))} />
         )}

@@ -3,6 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
+import { resolveActiveWorkspaceForPair } from "./workspaces";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -296,27 +297,46 @@ export const getInstructorAllSessions = query({
   },
 });
 
-/** Returns upcoming scheduled sessions for a student. */
+/** Returns upcoming scheduled sessions for the authenticated student, including the linked workspace ID. */
 export const getUpcomingSessions = query({
-  args: { studentId: v.string() },
+  args: { studentId: v.string(), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    if (!user || user.subject !== args.studentId) {
       return [];
     }
+    const limit = Math.min(Math.max(1, args.limit ?? 50), 100);
     const now = Date.now();
-    return await ctx.db
+    const sessions = await ctx.db
       .query("sessions")
       .withIndex("by_studentId_status_scheduledAt", (q) =>
         q.eq("studentId", args.studentId)
           .eq("status", "scheduled")
       )
       .filter((q) => q.gt(q.field("scheduledAt"), now))
-      .collect();
+      .order("asc")
+      .take(limit);
+
+    const uniqueInstructorIds = [...new Set(sessions.map((session) => session.instructorId))];
+    const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
+    await Promise.all(
+      uniqueInstructorIds.map(async (instructorId) => {
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId,
+          studentUserId: args.studentId,
+        });
+        workspaceByInstructorId.set(instructorId, workspace);
+      })
+    );
+
+    return sessions.map((session) => ({
+      ...session,
+      workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
+    }));
   },
 });
 
-/** Returns upcoming scheduled sessions for a student with instructor information. Used by student dashboard. */
+/** Returns upcoming scheduled sessions for the authenticated student with instructor information and workspace ID. Used by student dashboard. */
 export const getUpcomingSessionsWithInstructor = query({
   args: {
     studentId: v.string(),
@@ -324,7 +344,9 @@ export const getUpcomingSessionsWithInstructor = query({
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
+    if (!identity || identity.subject !== args.studentId) {
+      throw new Error("Forbidden: cannot access another user's sessions");
+    }
 
     const limit = args.limit ?? 5;
     const now = Date.now();
@@ -340,6 +362,18 @@ export const getUpcomingSessionsWithInstructor = query({
 
     const sortedSessions = sessions.sort((a, b) => a.scheduledAt - b.scheduledAt);
     const limitedSessions = sortedSessions.slice(0, limit);
+
+    const uniqueInstructorIds = [...new Set(limitedSessions.map((session) => session.instructorId))];
+    const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
+    await Promise.all(
+      uniqueInstructorIds.map(async (instructorId) => {
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId,
+          studentUserId: args.studentId,
+        });
+        workspaceByInstructorId.set(instructorId, workspace);
+      })
+    );
 
     const sessionsWithInstructor = await Promise.all(
       limitedSessions.map(async (session) => {
@@ -359,6 +393,7 @@ export const getUpcomingSessionsWithInstructor = query({
           scheduledAt: session.scheduledAt,
           status: session.status,
           instructorId: session.instructorId,
+          workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
           instructorUser: instructorUser ? {
             email: instructorUser.email,
           } : null,
@@ -456,6 +491,18 @@ export const getAllStudentSessionsWithInstructor = query({
     const sortedSessions = sessions.sort((a, b) => b.scheduledAt - a.scheduledAt);
     const limitedSessions = sortedSessions.slice(0, limit);
 
+    const uniqueInstructorIds = [...new Set(limitedSessions.map((session) => session.instructorId))];
+    const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
+    await Promise.all(
+      uniqueInstructorIds.map(async (instructorId) => {
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId,
+          studentUserId: args.studentId,
+        });
+        workspaceByInstructorId.set(instructorId, workspace);
+      })
+    );
+
     const sessionsWithData = await Promise.all(
       limitedSessions.map(async (session) => {
         const instructor = await ctx.db.get(session.instructorId);
@@ -483,6 +530,7 @@ export const getAllStudentSessionsWithInstructor = query({
           notes: session.notes ?? null,
           instructorEmail,
           packId: session.sessionPackId,
+          workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
           remainingSessions: sessionPack?.remainingSessions ?? null,
         };
       })

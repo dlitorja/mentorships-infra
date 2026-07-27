@@ -51,6 +51,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     let sessionPacksLinked = 0;
     let seatReservationsLinked = 0;
+    let workspacesLinked = 0;
 
     const sessionPackResult = await step.run("link-session-packs", async () => {
       try {
@@ -110,11 +111,41 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     });
     seatReservationsLinked = seatReservationResult?.linked ?? 0;
 
+    const workspaceResult = await step.run("link-workspaces", async () => {
+      try {
+        const result = await convexServerCall<{ linked?: number }>(
+          "/internal/link-workspaces",
+          {
+            clerkUserId: userId,
+            email: normalizedEmail,
+          }
+        );
+
+        await reportInfo({
+          source: "inngest:clerk-user-linking",
+          message: `Linked ${result?.linked ?? 0} workspace(s) for user`,
+          level: "info",
+          context: {
+            userId,
+            emailDomain,
+            linkedCount: result?.linked ?? 0,
+          },
+        });
+
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to link workspaces: ${message}`);
+      }
+    });
+    workspacesLinked = workspaceResult?.linked ?? 0;
+
     return {
       linked: true,
       userId,
       sessionPacksLinked,
       seatReservationsLinked,
+      workspacesLinked,
     };
   }
 );

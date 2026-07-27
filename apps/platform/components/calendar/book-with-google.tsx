@@ -8,6 +8,7 @@ import { fetchInstructorAvailability } from "@/lib/queries/api-client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { CalendarSlotPicker } from "./calendar-slot-picker";
+import { Id } from "@/convex/_generated/dataModel";
 
 function addHours(dateIso: string, hours: number): string {
   const d = new Date(dateIso);
@@ -15,7 +16,7 @@ function addHours(dateIso: string, hours: number): string {
   return d.toISOString();
 }
 
-type Pack = { id: string; instructorId: string };
+type Pack = { id: Id<"sessionPacks">; instructorId: Id<"instructors"> };
 
 /**
  * Student-facing booking component that fetches live Google Calendar availability
@@ -24,8 +25,8 @@ type Pack = { id: string; instructorId: string };
  * @param instructorId - Pre-selected instructor ID (optional)
  * @param packs - Array of session pack options with instructor IDs for a multi-instructor selector (optional)
  */
-export function BookWithGoogle({ instructorId, packs }: { instructorId?: string; packs?: Pack[] }) {
-  const [selectedInstructorId, setSelectedInstructorId] = React.useState<string | null>(
+export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"instructors">; packs?: Pack[] }) {
+  const [selectedInstructorId, setSelectedInstructorId] = React.useState<Id<"instructors"> | null>(
     instructorId || packs?.[0]?.instructorId || null
   );
   const start = React.useMemo(() => new Date().toISOString(), []);
@@ -180,7 +181,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
             <select
               className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
               value={selectedInstructorId || ""}
-              onChange={(e) => setSelectedInstructorId(e.target.value || null)}
+              onChange={(e) => setSelectedInstructorId((e.target.value || null) as Id<"instructors"> | null)}
             >
               {packs.map((p) => (
                 <option key={p.id} value={p.instructorId}>{p.instructorId}</option>
