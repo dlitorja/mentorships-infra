@@ -697,7 +697,8 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
-    .index("by_sessionPackId", ["sessionPackId"]),
+    .index("by_sessionPackId", ["sessionPackId"])
+    .index("by_legacyId", ["legacyId"]),
 
   kajabiOffers: defineTable({
     instructorSlug: v.string(),

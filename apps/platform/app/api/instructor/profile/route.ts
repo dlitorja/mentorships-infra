@@ -152,17 +152,17 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
     const data = parsed.data;
 
-    const updated = await convex.mutation(api.instructors.updateInstructor, {
+    const updated = await convex.mutation(api.instructors.updateInstructorProfile, {
       id: instructor._id,
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.tagline !== undefined && data.tagline !== null && { tagline: data.tagline }),
-      ...(data.bio !== undefined && data.bio !== null && { bio: data.bio }),
-      ...(data.specialties !== undefined && { specialties: data.specialties }),
-      ...(data.background !== undefined && { background: data.background }),
-      ...(data.profileImageUrl !== undefined && data.profileImageUrl !== null && { profileImageUrl: data.profileImageUrl }),
-      ...(data.profileImageUploadPath !== undefined && data.profileImageUploadPath !== null && { profileImageUploadPath: data.profileImageUploadPath }),
-      ...(data.portfolioImages !== undefined && { portfolioImages: data.portfolioImages }),
-      ...(data.socials !== undefined && { socials: data.socials }),
+      name: data.name,
+      tagline: data.tagline ?? undefined,
+      bio: data.bio ?? undefined,
+      specialties: data.specialties,
+      background: data.background,
+      profileImageUrl: data.profileImageUrl ?? undefined,
+      profileImageUploadPath: data.profileImageUploadPath ?? undefined,
+      portfolioImages: data.portfolioImages,
+      socials: data.socials ?? undefined,
     });
 
     return NextResponse.json({

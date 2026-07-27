@@ -42,7 +42,9 @@ interface ProfileFormProps {
   initialData: ProfileData;
 }
 
-const UPLOAD_ENDPOINT = "/api/instructor/student-results/upload";
+const PROFILE_UPLOAD_ENDPOINT = "/api/instructor/upload-image?type=profile";
+const PORTFOLIO_UPLOAD_ENDPOINT = "/api/instructor/upload-image?type=portfolio";
+const STUDENT_RESULT_UPLOAD_ENDPOINT = "/api/instructor/student-results/upload";
 
 interface Testimonial {
   id: string;
@@ -369,7 +371,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             value={profileImageUrl}
             onChange={setProfileImageUrl}
             onUploadComplete={(_url, path) => setProfileImageUploadPath(path)}
-            uploadEndpoint={UPLOAD_ENDPOINT}
+            uploadEndpoint={PROFILE_UPLOAD_ENDPOINT}
             placeholder="https://example.com/profile.jpg"
           />
         </CardContent>
@@ -387,7 +389,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             label="Add Portfolio Image"
             value=""
             onChange={handlePortfolioAdd}
-            uploadEndpoint={UPLOAD_ENDPOINT}
+            uploadEndpoint={PORTFOLIO_UPLOAD_ENDPOINT}
             placeholder="https://example.com/portfolio.jpg"
           />
 
@@ -582,7 +584,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           <CardHeader>
             <div className="flex justify-between items-center">
               <div>
-                <CardTitle>Mentee Results</CardTitle>
+                <CardTitle>Student Results</CardTitle>
                 <CardDescription>Before/after images from students</CardDescription>
               </div>
               <Button size="sm" type="button" onClick={() => setShowStudentResultDialog(true)}>
@@ -599,7 +601,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                 {studentResults.map((r) => (
                   <div key={r.id} className="relative group">
                     {r.imageUrl ? (
-                      <img src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Mentee result"} loading="lazy" decoding="async" className="w-full h-20 object-cover rounded" />
+                      <img src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Student result"} loading="lazy" decoding="async" className="w-full h-20 object-cover rounded" />
                     ) : (
                       <div className="w-full h-20 bg-muted rounded flex items-center justify-center">
                         <ImageIcon className="h-6 w-6 text-muted-foreground" />
@@ -668,7 +670,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       <Dialog open={showStudentResultDialog} onOpenChange={setShowStudentResultDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Mentee Result</DialogTitle>
+            <DialogTitle>Add Student Result</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <InstructorImageUpload
@@ -676,7 +678,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
               value={studentResultForm.imageUrl}
               onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
               onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
-              uploadEndpoint={UPLOAD_ENDPOINT}
+              uploadEndpoint={STUDENT_RESULT_UPLOAD_ENDPOINT}
             />
             <div>
               <Label>Student Name (optional)</Label>
