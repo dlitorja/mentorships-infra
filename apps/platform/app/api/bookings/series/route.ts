@@ -14,7 +14,6 @@ import { reportError } from "@/lib/observability";
 import { withRetries } from "@/lib/utils";
 import {
   addDays,
-  addMinutes,
   getLocalDateTime,
   isValidTimeZone,
   localDateTimeToUtcMillis,
@@ -99,28 +98,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Decompose the base start into the target timezone so we can add weeks
     // while preserving the same local wall time across DST boundaries.
     const baseStartLocal = getLocalDateTime(new Date(start), timezone);
-    const baseEndLocal = addMinutes(baseStartLocal, 60);
+    const SESSION_DURATION_MS = 60 * 60 * 1000;
 
     const results: ResultItem[] = [];
     const createdTimes: number[] = [];
 
     for (let i = 1; i <= weeks; i++) {
-      // Add i weeks to the local calendar components, then convert each local
-      // wall time back to a UTC timestamp. This keeps 3pm as 3pm even when
-      // the UTC offset changes due to DST. If the target wall time does not
-      // exist (spring-forward gap), skip the slot.
+      // Add i weeks to the local calendar components, then convert the local
+      // wall time back to a UTC timestamp. This keeps 3pm as 3pm even when the
+      // UTC offset changes due to DST. If the target wall time does not exist
+      // (spring-forward gap), skip the slot. The end time is derived from the
+      // resolved start plus the fixed 60-minute duration so a session that
+      // crosses the fall-back DST window stays exactly 60 minutes instead of
+      // resolving start/end independently and producing a 2-hour interval.
       const targetStartLocal = addDays(baseStartLocal, i * 7);
-      const targetEndLocal = addDays(baseEndLocal, i * 7);
       const slotStartUtc = localDateTimeToUtcMillis(targetStartLocal, timezone);
-      const slotEndUtc = localDateTimeToUtcMillis(targetEndLocal, timezone);
-      if (slotStartUtc === null || slotEndUtc === null) {
+      if (slotStartUtc === null) {
         results.push({ weekOffset: i, status: "skipped", reason: "Selected time does not exist due to DST" });
         continue;
       }
-      if (slotEndUtc <= slotStartUtc) {
-        results.push({ weekOffset: i, status: "skipped", reason: "Invalid slot duration" });
-        continue;
-      }
+      const slotEndUtc = slotStartUtc + SESSION_DURATION_MS;
 
       try {
         // Freebusy check
