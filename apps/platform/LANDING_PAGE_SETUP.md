@@ -14,7 +14,7 @@
    - Large, bold "Huckleberry Art Mentorships" title
    - Refined copy about 1-on-1 and group mentorships
    - Mentions gaming, TV, film, and indie artists
-   - Two CTA buttons: "Browse Instructors" and "Find Your Match"
+   - CTA button: "View All Instructors"
    - Smooth scroll indicator
 
 2. **Instructor Carousel**
@@ -24,23 +24,17 @@
    - Responsive grid (1 col mobile, 2 tablet, 3 desktop)
    - Shows profile image, name, tagline, specialties, and "View Profile" button
 
-3. **AI Matching Section**
-   - Text area for art goals input
-   - "Find My Match" button (ready for AI integration)
-   - Currently shows "Coming Soon" message
-   - Beautiful card design with icon
-
-4. **How It Works**
+3. **How It Works**
    - Three-step process explanation
    - Icons for each step
    - Clean card layout
 
-5. **Testimonials**
+4. **Testimonials**
    - Three sample testimonials
    - Card-based layout
    - Easy to update with real testimonials later
 
-6. **Navigation & Footer**
+5. **Navigation & Footer**
    - Sticky header with navigation links
    - Footer with links and copyright
 
@@ -56,9 +50,7 @@ apps/web/
 │   │   ├── textarea.tsx
 │   │   └── badge.tsx
 │   ├── landing/              # Landing page sections
-│   │   ├── hero-section.tsx
 │   │   ├── instructor-carousel.tsx
-│   │   ├── ai-matching-section.tsx
 │   │   ├── how-it-works.tsx
 │   │   └── testimonials.tsx
 │   └── navigation/
@@ -137,7 +129,7 @@ Visit `http://localhost:3000` to see the landing page.
 ## 📝 Notes
 
 - **Images**: The carousel will work once you add profile images. Until then, you'll see broken image placeholders.
-- **AI Matching**: The form is ready but the backend integration is pending (as discussed).
+
 - **Responsive**: All components are fully responsive and tested for mobile/tablet/desktop.
 - **Accessibility**: Components include proper ARIA labels and semantic HTML.
 
@@ -146,8 +138,7 @@ Visit `http://localhost:3000` to see the landing page.
 When you're ready to connect to the database:
 1. Replace `lib/instructors.ts` mock data with database queries
 2. Update image paths if using a CDN or different storage
-3. Implement the AI matching backend endpoint
-4. Add real testimonials from your students
+3. Add real testimonials from your students
 
 ---
 

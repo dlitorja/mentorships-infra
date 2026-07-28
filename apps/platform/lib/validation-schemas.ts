@@ -51,30 +51,3 @@ export const productFormSchema = z
   );
 
 export type ProductFormData = z.infer<typeof productFormSchema>;
-
-/**
- * Matching form schema
- * artGoals is required, email is optional
- */
-export const matchingFormSchema = z.object({
-  artGoals: z
-    .string()
-    .min(1, "Please describe your art goals")
-    .trim(),
-  email: optionalEmailSchema,
-});
-
-export type MatchingFormData = z.infer<typeof matchingFormSchema>;
-
-/**
- * Simple matching form schema (AI matching section)
- * Only artGoals required
- */
-export const simpleMatchingFormSchema = z.object({
-  artGoals: z
-    .string()
-    .min(1, "Please describe your art goals")
-    .trim(),
-});
-
-export type SimpleMatchingFormData = z.infer<typeof simpleMatchingFormSchema>;

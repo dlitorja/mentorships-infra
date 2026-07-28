@@ -4,7 +4,6 @@ const footerLinks = {
   platform: [
     { label: "Browse Instructors", href: "/instructors" },
     { label: "View Courses", href: "https://home.huckleberry.art/store", external: true },
-    { label: "Find Your Instructor", href: "/#find-match" },
   ],
   community: [
     { label: "Discord", href: "https://discord.gg/4DqDyKZyA8", external: true },
