@@ -2,11 +2,10 @@ import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { AvailabilitySettingsForm } from "@/components/instructor/availability-settings-form";
+import { InstructorAvailabilityPreview } from "@/components/instructor/instructor-availability-preview";
+import { GoogleCalendarCard } from "@/components/settings/google-calendar-card";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 
 export default async function InstructorAvailabilityPage() {
   const user = await requireRole("instructor");
@@ -40,16 +39,6 @@ export default async function InstructorAvailabilityPage() {
   return (
     <ProtectedLayout currentPath="/instructor/availability">
       <div className="container mx-auto p-4 md:p-8 space-y-6">
-        <div className="flex items-center gap-4">
-          <Link
-            href="/instructor/settings"
-            className="flex items-center text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back to settings
-          </Link>
-        </div>
-
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Availability</h1>
           <p className="text-muted-foreground">
@@ -69,22 +58,12 @@ export default async function InstructorAvailabilityPage() {
           initialBlockedDateRanges={instructorRecord.blockedDateRanges ?? null}
         />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Calendar Integration</CardTitle>
-            <CardDescription>
-              Connect your Google Calendar to show real-time availability based on your existing events.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link
-              href="/settings"
-              className="text-sm text-primary hover:underline"
-            >
-              Manage Google Calendar connection
-            </Link>
-          </CardContent>
-        </Card>
+        <GoogleCalendarCard />
+
+        <InstructorAvailabilityPreview
+          instructorId={instructorRecord._id}
+          instructorName={instructorRecord.name ?? undefined}
+        />
       </div>
     </ProtectedLayout>
   );

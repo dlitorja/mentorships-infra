@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { MessageSquare, CalendarClock, type LucideIcon } from "lucide-react";
+import { MessageSquare, CalendarClock, UserCircle, type LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { IncomingCallToast } from "@/components/notifications/incoming-call-toast";
 
@@ -23,8 +23,8 @@ interface ProtectedLayoutProps {
 /**
  * Server component providing a fixed sidebar navigation for authenticated users.
  * Shows Workspace for all users, plus role-specific navigation items:
- * - Instructors: dashboard, sessions, onboarding, settings
- * - Students: dashboard, sessions, calendar, settings
+ * - Instructors: dashboard, workspace, sessions, availability, submissions, profile, settings
+ * - Students: dashboard, workspace, sessions, calendar, settings
  *
  * @param children - Page content to render in the main area
  * @param currentPath - Current URL path for highlighting the active nav item
@@ -47,8 +47,8 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         { href: "/workspace", label: "Workspace", icon: MessageSquare },
         { href: "/instructor/sessions", label: "My Sessions" },
         { href: "/instructor/availability", label: "Availability", icon: CalendarClock },
-        { href: "/instructor/onboarding", label: "Onboarding" },
-        { href: "/instructor/settings", label: "Instructor Settings" },
+        { href: "/instructor/onboarding", label: "Submissions" },
+        { href: "/instructor/profile", label: "Profile", icon: UserCircle },
         { href: "/settings", label: "Settings" },
       ]
     : [

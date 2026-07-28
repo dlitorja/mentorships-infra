@@ -376,7 +376,7 @@ export function DashboardContent() {
                 </p>
               </div>
               <Link
-                href="/settings"
+                href="/instructor/availability"
                 className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 shrink-0"
               >
                 Connect
