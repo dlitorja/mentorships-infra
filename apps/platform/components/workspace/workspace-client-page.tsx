@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { MessageSquare } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -110,20 +110,31 @@ function WorkspaceContent({
   // branch below), so `useWorkspaceMessagesPaginated` and `useMemo`
   // are declared up here even when `workspacesLoading` is false.
   const messagesQuery = useWorkspaceMessagesPaginated(selectedWorkspaceId);
+  // useConvexPaginatedQuery's loadMore reference is recreated on every
+  // render. Keep a ref to the latest callback and expose a stable
+  // wrapper so the ChatDataProvider value doesn't churn and cause
+  // WorkspaceChat / the call-overlay chat panel to re-render constantly.
+  const loadMoreRef = useRef(messagesQuery.loadMore);
+  loadMoreRef.current = messagesQuery.loadMore;
+  const stableLoadMore = useCallback(
+    (numItems: number) => loadMoreRef.current?.(numItems),
+    []
+  );
+
   const chatDataValue = useMemo(
     () => ({
       workspaceId: selectedWorkspaceId,
       messages: messagesQuery.results as ChatMessageRow[] | undefined,
       isLoading: messagesQuery.isLoading,
       status: messagesQuery.status,
-      loadMore: messagesQuery.loadMore,
+      loadMore: stableLoadMore,
     }),
     [
       selectedWorkspaceId,
       messagesQuery.results,
       messagesQuery.isLoading,
       messagesQuery.status,
-      messagesQuery.loadMore,
+      stableLoadMore,
     ]
   );
 
