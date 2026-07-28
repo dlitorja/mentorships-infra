@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { UserButton, useUser, useClerk } from "@clerk/nextjs";
 import { 
   LayoutDashboard, 
@@ -15,6 +16,7 @@ import {
   ListChecks,
   Folder,
   ScrollText,
+  LogOut,
 } from "lucide-react";
 
 const navItems = [
@@ -46,7 +48,7 @@ export function ClientAdminLayout({
       <aside className="w-64 border-r bg-muted/30 min-h-screen p-4 flex flex-col">
         <div className="mb-8">
           <h2 className="text-xl font-bold">Admin Panel</h2>
-          <p className="text-sm text-muted-foreground">Web App</p>
+          <p className="text-sm text-muted-foreground">Huckleberry Admin</p>
         </div>
 
         <nav className="space-y-2">
@@ -88,12 +90,14 @@ export function ClientAdminLayout({
                   </p>
                 </div>
               </div>
-              <button
+              <Button
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-3 rounded-lg px-4 py-2 hover:bg-muted transition-colors text-left text-sm text-muted-foreground"
+                variant="ghost"
+                className="w-full justify-start px-4 py-2 h-auto text-muted-foreground"
               >
+                <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
-              </button>
+              </Button>
             </>
           ) : (
             <Link

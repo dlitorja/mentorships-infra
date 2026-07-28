@@ -560,14 +560,14 @@ export default function EditInstructorPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="basic">Basic Info</TabsTrigger>
-          <TabsTrigger value="images">Images</TabsTrigger>
-          <TabsTrigger value="tags">Tags</TabsTrigger>
-          <TabsTrigger value="social">Social Links</TabsTrigger>
-          <TabsTrigger value="inventory">Inventory</TabsTrigger>
-          <TabsTrigger value="testimonials">Testimonials</TabsTrigger>
-          <TabsTrigger value="results">Results</TabsTrigger>
+        <TabsList className="flex w-full overflow-x-auto">
+          <TabsTrigger className="whitespace-nowrap" value="basic">Basic Info</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="images">Images</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="tags">Tags</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="social">Social Links</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="inventory">Inventory</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="testimonials">Testimonials</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="results">Results</TabsTrigger>
         </TabsList>
 
         <TabsContent value="basic">
