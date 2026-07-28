@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceMessagesPaginated, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceMessagesPaginated, useWorkspaceFileCounts, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
 import { useChatData, type ChatPaginationStatus } from '@/components/workspace/chat-data-context';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
@@ -379,6 +379,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   );
 
   const { data: existingImages } = useWorkspaceImages(workspaceId);
+  const { data: fileCounts } = useWorkspaceFileCounts(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
   const createFileMessage = useCreateWorkspaceFileMessage();
@@ -389,9 +390,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const remainingSlots = isAdmin
     ? WORKSPACE_IMAGE_CAPS.admin
     : (role === 'instructor' ? WORKSPACE_IMAGE_CAPS.instructor : WORKSPACE_IMAGE_CAPS.student) - currentCount;
-  const currentFileCount = messages?.filter(
-    (msg) => msg.type === 'file' && (msg.senderRole === role || msg.senderRole === undefined)
-  ).length || 0;
+  const currentFileCount = isAdmin
+    ? 0
+    : (fileCounts?.[role === 'instructor' ? 'instructor' : 'student'] ?? 0);
   const pendingFileCount = attachments.filter((attachment) => !attachment.isImage).length;
   const remainingFileSlots = isAdmin
     ? Number.MAX_SAFE_INTEGER

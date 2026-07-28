@@ -88,6 +88,29 @@ export function useWorkspaceMessagesPaginated(
 }
 
 /**
+ * Fetches the exact per-role file message counts for a workspace.
+ *
+ * PR #convex-egress-1: replaces the client-side count that was based on
+ * the loaded paginated slice. The server uses a narrow index so the
+ * count is cheap and accurate even when the chat history is large.
+ *
+ * Accepts `null` / `undefined` to disable the query via the `"skip"`
+ * sentinel.
+ */
+export function useWorkspaceFileCounts(
+  workspaceId: string | null | undefined
+) {
+  return useQuery(
+    convexQuery(
+      api.workspaces.getWorkspaceFileCounts,
+      workspaceId
+        ? { workspaceId: workspaceId as Id<"workspaces"> }
+        : "skip"
+    )
+  );
+}
+
+/**
  * Fetches all notes for a workspace.
  * Used in the Notes tab of the workspace page.
  */
