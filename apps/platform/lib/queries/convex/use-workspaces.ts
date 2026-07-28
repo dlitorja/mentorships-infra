@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -57,6 +57,52 @@ export function useWorkspaceMessages(
   return useQuery(
     convexQuery(
       api.workspaces.getWorkspaceMessages,
+      workspaceId
+        ? { workspaceId: workspaceId as Id<"workspaces"> }
+        : "skip"
+    )
+  );
+}
+
+/**
+ * Fetches a paginated list of chat messages for a workspace, newest first.
+ * Use this in apps/platform; the legacy {@link useWorkspaceMessages} remains
+ * for apps/web until it is migrated.
+ *
+ * The hook returns `results` in server order (newest first). The chat UI
+ * should reverse the array so messages render oldest-first.
+ *
+ * Accepts `null` / `undefined` to disable the query via the `"skip"`
+ * sentinel so the Convex subscription is short-circuited.
+ */
+export function useWorkspaceMessagesPaginated(
+  workspaceId: string | null | undefined
+) {
+  return useConvexPaginatedQuery(
+    api.workspaces.getWorkspaceMessagesPaginated,
+    workspaceId
+      ? { workspaceId: workspaceId as Id<"workspaces"> }
+      : "skip",
+    { initialNumItems: 50 }
+  );
+}
+
+/**
+ * Fetches the exact per-role file message counts for a workspace.
+ *
+ * PR #convex-egress-1: replaces the client-side count that was based on
+ * the loaded paginated slice. The server uses a narrow index so the
+ * count is cheap and accurate even when the chat history is large.
+ *
+ * Accepts `null` / `undefined` to disable the query via the `"skip"`
+ * sentinel.
+ */
+export function useWorkspaceFileCounts(
+  workspaceId: string | null | undefined
+) {
+  return useQuery(
+    convexQuery(
+      api.workspaces.getWorkspaceFileCounts,
       workspaceId
         ? { workspaceId: workspaceId as Id<"workspaces"> }
         : "skip"
@@ -124,22 +170,20 @@ export function useWorkspaceImages(workspaceId: string) {
 
 /**
  * Mutation hook for creating a new chat message in a workspace.
- * Creates a new chat message. Convex subscriptions update matching queries.
+ *
+ * The chat subscription is reactive, so the new message appears
+ * automatically without an explicit invalidation. PR #convex-egress-1
+ * removed the `getWorkspaceMessages` invalidation because it would
+ * reset the paginated subscription state and re-fetch the entire
+ * first page unnecessarily.
  *
  * Pass `sessionId` when posting during an active video call — the
  * message is then auto-tagged to that session for the Chat tab
  * in-call banner.
  */
 export function useCreateWorkspaceMessage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
-      });
-    },
   });
 }
 
@@ -331,6 +375,11 @@ export function useDeleteWorkspaceImage() {
 /**
  * Mutation hook for creating an image AND a chat message in one call.
  * Used for uploading images directly to chat.
+ *
+ * The chat subscription is reactive, so the new message appears
+ * automatically without an explicit invalidation. PR #convex-egress-1
+ * removed the `getWorkspaceMessages` invalidation to avoid resetting
+ * the paginated subscription state.
  */
 export function useCreateWorkspaceImageAndMessage() {
   const queryClient = useQueryClient();
@@ -339,9 +388,6 @@ export function useCreateWorkspaceImageAndMessage() {
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
-      });
     },
   });
 }
@@ -349,17 +395,15 @@ export function useCreateWorkspaceImageAndMessage() {
 /**
  * Mutation hook for creating a file chat message from an uploaded storage ID.
  * Used for uploading non-image files directly to chat.
+ *
+ * The chat subscription is reactive, so the new file message appears
+ * automatically without an explicit invalidation. PR #convex-egress-1
+ * removed the `getWorkspaceMessages` invalidation to avoid resetting
+ * the paginated subscription state.
  */
 export function useCreateWorkspaceFileMessage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceFileMessage),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
-      });
-    },
   });
 }
 
@@ -630,6 +674,11 @@ export function useUpdateInstructorResource() {
 /**
  * Mutation hook for sharing an instructor image resource to the workspace chat.
  * Also creates a workspaceImage record so it appears in the Images tab.
+ *
+ * The chat subscription is reactive, so the shared message appears
+ * automatically without an explicit invalidation. PR #convex-egress-1
+ * removed the `getWorkspaceMessages` invalidation to avoid resetting
+ * the paginated subscription state.
  */
 export function useShareResourceToChat() {
   const queryClient = useQueryClient();
@@ -638,7 +687,6 @@ export function useShareResourceToChat() {
     mutationFn: useConvexMutation(api.instructorResources.shareResourceToChat),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"] });
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
     },
   });

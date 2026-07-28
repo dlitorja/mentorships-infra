@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -151,14 +152,18 @@ export async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"work
 export async function countWorkspaceFilesByRole(
   ctx: any,
   workspaceId: Id<"workspaces">,
-  role: "instructor" | "student"
+  role: "instructor" | "student" | "admin"
 ): Promise<number> {
+  // PR #convex-egress-1: use the narrow index so we only scan file
+  // messages for the requested role instead of the entire chat history.
   const messages = await ctx.db
     .query("workspaceMessages")
-    .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
+    .withIndex("by_workspaceId_type_senderRole", (q: any) =>
+      q.eq("workspaceId", workspaceId).eq("type", "file").eq("senderRole", role)
+    )
     .collect();
 
-  return messages.filter((message: any) => message.type === "file" && message.senderRole === role).length;
+  return messages.length;
 }
 
 async function logWorkspaceAudit(
@@ -1616,6 +1621,9 @@ export const deleteWorkspaceImage = mutation({
 /**
  * Returns all messages for a workspace in chronological order.
  * Returns an empty array for callers who are not active participants.
+ *
+ * @deprecated Use {@link getWorkspaceMessagesPaginated} for new code;
+ *   kept for apps/web which has not yet been migrated.
  */
 export const getWorkspaceMessages = query({
   args: { workspaceId: v.id("workspaces") },
@@ -1629,6 +1637,59 @@ export const getWorkspaceMessages = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .order("asc")
       .collect();
+  },
+});
+
+/**
+ * Returns a paginated list of workspace messages, newest first.
+ * Callers who are not active participants receive an empty, done page.
+ *
+ * PR #convex-egress-1: pagination replaces the unbounded
+ * `getWorkspaceMessages` subscription in apps/platform to reduce Convex
+ * Data Egress. The query orders by `_creationTime` descending so the
+ * first page is the most recent messages; the UI reverses the
+ * concatenated results for chronological display.
+ */
+export const getWorkspaceMessagesPaginated = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+    return await ctx.db
+      .query("workspaceMessages")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .paginate(args.paginationOpts);
+  },
+});
+
+/**
+ * Returns the number of file messages in a workspace, broken down by
+ * sender role. Callers who are not active participants receive zeros.
+ *
+ * PR #convex-egress-1: drives the remaining-file-slots UI in the chat
+ * composer without needing the full paginated message list.
+ */
+export const getWorkspaceFileCounts = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
+      return { student: 0, instructor: 0, admin: 0 };
+    }
+
+    const [student, instructor, admin] = await Promise.all([
+      countWorkspaceFilesByRole(ctx, args.workspaceId, "student"),
+      countWorkspaceFilesByRole(ctx, args.workspaceId, "instructor"),
+      countWorkspaceFilesByRole(ctx, args.workspaceId, "admin"),
+    ]);
+
+    return { student, instructor, admin };
   },
 });
 

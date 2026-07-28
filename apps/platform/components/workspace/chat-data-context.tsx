@@ -14,10 +14,18 @@ export interface ChatMessageRow {
   sessionId?: Id<"sessions">;
 }
 
+export type ChatPaginationStatus =
+  | "LoadingFirstPage"
+  | "CanLoadMore"
+  | "LoadingMore"
+  | "Exhausted";
+
 export interface ChatDataContextValue {
   workspaceId: Id<"workspaces"> | null;
   messages: ChatMessageRow[] | undefined;
   isLoading: boolean;
+  status: ChatPaginationStatus;
+  loadMore: (numItems: number) => void;
 }
 
 const ChatDataContext = createContext<ChatDataContextValue | null>(null);

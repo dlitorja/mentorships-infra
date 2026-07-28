@@ -464,7 +464,10 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
-    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
+    // PR #convex-egress-1: bounded index for counting file messages by role
+    // without scanning the entire chat history.
+    .index("by_workspaceId_type_senderRole", ["workspaceId", "type", "senderRole"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
