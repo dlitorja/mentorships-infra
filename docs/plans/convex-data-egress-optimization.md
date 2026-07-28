@@ -61,6 +61,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
    - Reverse the newest-first server results for chronological display.
    - Add a "Load older messages" button at the top of the list.
    - Update auto-scroll so it jumps to the bottom on first load and when a new message arrives while the user is already near the bottom, but preserves scroll position when older pages are loaded.
+   - Clear the `lastMessageIdRef` and `scrollBeforeLoadRef` scroll anchors when the active workspace changes.
 
 4. **Remove unnecessary `getWorkspaceMessages` invalidations** in `apps/platform/lib/queries/convex/use-workspaces.ts`.
    - The paginated subscription is reactive, so new messages appear automatically. Explicit invalidation would reset the pagination state and re-fetch the full first page.
@@ -71,6 +72,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 - [x] Chat loads the last 50 messages and paginates older messages via the "Load older messages" button.
 - [x] Sending a new message appears in the list without re-fetching the entire history.
 - [x] Chat remains reactive during a video call in the call-overlay panel (provider still owns the subscription).
+- [x] File upload slot indicator uses server-side `getWorkspaceFileCounts` and stays accurate regardless of loaded chat history.
 - [x] `npm run typecheck` passes.
 - [x] `npm run lint` reports no new errors (128 pre-existing warnings remain on main).
 - [x] Greptile review passed at 5/5 confidence.
@@ -80,7 +82,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 - **Call-overlay chat may miss messages**: mitigated by keeping the `ChatDataProvider` hoisted at the `WorkspaceContent` level.
 - **Scroll behavior**: auto-scroll only fires when the newest message changes and the user is already near the bottom, so loading older history does not yank the user away.
 - **apps/web still uses unbounded query**: `apps/web` continues to use `useWorkspaceMessages`/`getWorkspaceMessages` and is out of scope for this PR.
-- **Client-side file cap count is now page-based**: `currentFileCount` in `chat.tsx` is computed from the loaded (paginated) message slice, so the remaining-file-slots hint may be slightly off until the user loads more history. The server enforces the actual cap, so uploads beyond the cap still fail gracefully. A small follow-up query can restore an exact count without re-subscribing to the full message history.
+- **File count accuracy**: the file-slot UI uses a dedicated `getWorkspaceFileCounts` query with a narrow `by_workspaceId_type_senderRole` index, so the remaining-file-slots hint is accurate regardless of how many chat pages are loaded.
 
 ---
 
@@ -262,7 +264,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
-| 1 | `fix/convex-egress-chat-pagination` | In review | https://github.com/dlitorja/mentorships-infra/pull/700 | typecheck/lint pass; Greptile 5/5 |
+| 1 | `fix/convex-egress-chat-pagination` | Ready to merge | https://github.com/dlitorja/mentorships-infra/pull/700 | typecheck/lint pass; Greptile 5/5 |
 | 2 | `fix/convex-egress-notes-pagination` | Not started | — | Independent of PR 1 |
 | 3 | `fix/convex-egress-images-links-pagination` | Not started | — | Independent of PR 1/2 |
 | 4 | `fix/convex-egress-query-tuning` | Not started | — | Can be done in parallel with PR 1–3 |
@@ -275,7 +277,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 ## One-paragraph summaries for future sessions
 
 ### PR 1: Paginate workspace chat
-Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 items/page) and wire it into `apps/platform` via `useWorkspaceMessagesPaginated`. Keep the `ChatDataProvider` hoisted at `WorkspaceContent` so the call-overlay chat stays reactive, but replace the unbounded `getWorkspaceMessages` subscription with the paginated one. Update `WorkspaceChat` to reverse the newest-first results for chronological display, add a "Load older messages" button, and preserve scroll position when loading older history. Remove `getWorkspaceMessages` invalidations from message/file/resource mutations because the paginated subscription is reactive. Leave the legacy `getWorkspaceMessages` in place for `apps/web`.
+Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 items/page) and wire it into `apps/platform` via `useWorkspaceMessagesPaginated`. Keep the `ChatDataProvider` hoisted at `WorkspaceContent` so the call-overlay chat stays reactive, but replace the unbounded `getWorkspaceMessages` subscription with the paginated one. Stabilise the `loadMore` callback with a ref + `useCallback` so the context value does not churn on every render. Update `WorkspaceChat` to reverse the newest-first results for chronological display, add a "Load older messages" button, preserve scroll position when loading older history, and clear the scroll anchors when the workspace changes. Remove `getWorkspaceMessages` invalidations from message/file/resource mutations because the paginated subscription is reactive. Add a server-side `getWorkspaceFileCounts` query backed by a `by_workspaceId_type_senderRole` index so the chat file-slot indicator stays exact without loading the full chat history. Leave the legacy `getWorkspaceMessages` in place for `apps/web`.
 
 ### PR 2: Paginate workspace notes
 Split `getWorkspaceNotes` into a metadata-only paginated list and a `getWorkspaceNoteById` detail query. Update the Notes tab to load the list first and fetch full TipTap content only when a note is selected, so auto-save does not re-push the entire note list.
