@@ -58,6 +58,24 @@ async function createInvitation(data: { email: string; instructorId: string }) {
 
 type Mode = "invitation_only" | "full_onboarding";
 
+function InvitationStatusBadge({ status }: { status: Invitation["status"] }) {
+  const variants: Record<Invitation["status"], "default" | "secondary" | "destructive" | "outline"> = {
+    pending: "default",
+    accepted: "secondary",
+    expired: "destructive",
+    cancelled: "outline",
+  };
+
+  const labels: Record<Invitation["status"], string> = {
+    pending: "Pending",
+    accepted: "Accepted",
+    expired: "Expired",
+    cancelled: "Cancelled",
+  };
+
+  return <Badge variant={variants[status]}>{labels[status]}</Badge>;
+}
+
 export default function InviteStudentPage() {
   const [mode, setMode] = useState<Mode>("invitation_only");
 
@@ -288,13 +306,7 @@ function PendingInvitationsCard() {
                   <div className="text-sm text-muted-foreground">{invitation.instructorName}</div>
                   <div className="text-xs text-muted-foreground">Expires: {new Date(invitation.expiresAt).toLocaleDateString()}</div>
                 </div>
-                <div className="ml-4">{(function(){return (
-                  invitation.status === "pending" ? <Badge variant="default">Pending</Badge> :
-                  invitation.status === "accepted" ? <Badge variant="secondary">Accepted</Badge> :
-                  invitation.status === "expired" ? <Badge variant="destructive">Expired</Badge> :
-                  invitation.status === "cancelled" ? <Badge variant="outline">Cancelled</Badge> :
-                  <Badge>{invitation.status}</Badge>
-                )})()}</div>
+                <div className="ml-4"><InvitationStatusBadge status={invitation.status} /></div>
               </div>
             ))}
           </div>

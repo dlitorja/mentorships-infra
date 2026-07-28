@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Upload } from "lucide-react";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 
@@ -20,6 +20,10 @@ function generateSlug(name: string): string {
     .trim();
 }
 
+const DEFAULT_ONE_ON_ONE_INVENTORY = 3;
+const DEFAULT_GROUP_INVENTORY = 2;
+const DEFAULT_MAX_ACTIVE_STUDENTS = 10;
+
 export default function CreateInstructorPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,9 +34,9 @@ export default function CreateInstructorPage() {
     discordVoiceChannelUrl: "",
     tagline: "",
     bio: "",
-    oneOnOneInventory: "3",
-    groupInventory: "2",
-    maxActiveStudents: "10",
+    oneOnOneInventory: String(DEFAULT_ONE_ON_ONE_INVENTORY),
+    groupInventory: String(DEFAULT_GROUP_INVENTORY),
+    maxActiveStudents: String(DEFAULT_MAX_ACTIVE_STUDENTS),
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,9 +78,9 @@ export default function CreateInstructorPage() {
           discordVoiceChannelUrl: formData.discordVoiceChannelUrl || undefined,
           tagline: formData.tagline || undefined,
           bio: formData.bio || undefined,
-          oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? 3 : v; })(),
-          groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? 2 : v; })(),
-          maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? 10 : v; })(),
+          oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? DEFAULT_ONE_ON_ONE_INVENTORY : v; })(),
+          groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? DEFAULT_GROUP_INVENTORY : v; })(),
+          maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? DEFAULT_MAX_ACTIVE_STUDENTS : v; })(),
           isActive: true,
         }),
       });
@@ -255,6 +259,9 @@ export default function CreateInstructorPage() {
         <Card>
           <CardHeader>
             <CardTitle>Inventory Settings</CardTitle>
+            <CardDescription>
+              Defaults: {DEFAULT_ONE_ON_ONE_INVENTORY} one-on-one slots, {DEFAULT_GROUP_INVENTORY} group slots, {DEFAULT_MAX_ACTIVE_STUDENTS} active students.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
@@ -272,6 +279,7 @@ export default function CreateInstructorPage() {
                     }))
                   }
                 />
+                <p className="text-xs text-muted-foreground mt-1">Available one-on-one slots</p>
               </div>
               <div>
                 <Label htmlFor="groupInventory">Group Inventory</Label>
@@ -287,6 +295,7 @@ export default function CreateInstructorPage() {
                     }))
                   }
                 />
+                <p className="text-xs text-muted-foreground mt-1">Available group slots</p>
               </div>
               <div>
                 <Label htmlFor="maxActiveStudents">Max Active Students</Label>
