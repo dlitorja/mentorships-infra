@@ -163,7 +163,7 @@ export function DashboardContent() {
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
 
   useEffect(() => {
-    if (!isLoaded || !userId) {
+    if (!isLoaded || !userId || !isInstructorOrAdmin) {
       setGoogleBookings([]);
       setLoadingGoogleBookings(false);
       return;
@@ -190,7 +190,7 @@ export function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, userId]);
+  }, [isLoaded, userId, isInstructorOrAdmin]);
 
   useEffect(() => {
     if (!isLoaded || !userId) {
@@ -501,78 +501,56 @@ export function DashboardContent() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Calendar Bookings</CardTitle>
-            <CardDescription>
-              <div className="space-y-2">
-                <p>Bookings created via Google Calendar</p>
-                <div className="text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
-                  <p>
-                    Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion.
-                  </p>
+        {isInstructorOrAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Calendar Bookings</CardTitle>
+              <CardDescription>
+                <div className="space-y-2">
+                  <p>Bookings created via Google Calendar</p>
+                  <div className="text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                    <p>
+                      Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loadingGoogleBookings ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
-              </div>
-            ) : googleBookings.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No bookings yet</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {googleBookings.map((b) => {
-                  const awaiting = b.status === "confirmed" && b.startUtc < Date.now();
-                  return (
-                    <div key={b.id} className="border rounded-lg p-4 flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{new Date(b.startUtc).toLocaleString()}</p>
-                        {awaiting ? (
-                          <p className="text-xs text-muted-foreground mt-1">Awaiting instructor confirmation</p>
-                        ) : null}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingGoogleBookings ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : googleBookings.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No bookings yet</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {googleBookings.map((b) => {
+                    const awaiting = b.status === "confirmed" && b.startUtc < Date.now();
+                    return (
+                      <div key={b.id} className="border rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{new Date(b.startUtc).toLocaleString()}</p>
+                          {awaiting ? (
+                            <p className="text-xs text-muted-foreground mt-1">Awaiting instructor confirmation</p>
+                          ) : null}
+                        </div>
+                        <Badge variant={b.status === "completed" ? "default" : b.status === "canceled" ? "destructive" : "outline"}>
+                          {b.status}
+                        </Badge>
                       </div>
-                      <Badge variant={b.status === "completed" ? "default" : b.status === "canceled" ? "destructive" : "outline"}>
-                        {b.status}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-4">
-            <Link
-              href="/instructors"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              Browse Instructors
-            </Link>
-            {(totalSessions ?? 0) > 0 && (
-              <Link
-                href="/calendar"
-                className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
-              >
-                Schedule Session
-              </Link>
-            )}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

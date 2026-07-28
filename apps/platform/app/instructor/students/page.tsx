@@ -120,7 +120,7 @@ export default function InstructorStudentsPage() {
   };
 
   const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "No sessions yet";
+    if (!dateStr) return null;
     return new Date(dateStr).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -282,10 +282,14 @@ export default function InstructorStudentsPage() {
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-muted-foreground">Last session:</span>
-                        <div className="flex items-center gap-1 text-sm">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          {formatDate(student.lastSessionCompletedAt)}
-                        </div>
+                        {formatDate(student.lastSessionCompletedAt) ? (
+                          <div className="flex items-center gap-1 text-sm">
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            {formatDate(student.lastSessionCompletedAt)}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">No completed sessions yet</span>
+                        )}
                       </div>
                     </div>
 

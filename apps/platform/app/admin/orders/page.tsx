@@ -475,6 +475,7 @@ export default function AdminOrdersPage() {
               size="sm"
               onClick={() => setPage(page - 1)}
               disabled={page === 1}
+              aria-label="Previous page"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -483,6 +484,7 @@ export default function AdminOrdersPage() {
               size="sm"
               onClick={() => setPage(page + 1)}
               disabled={page >= totalPages}
+              aria-label="Next page"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>

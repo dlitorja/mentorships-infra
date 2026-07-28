@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -396,13 +397,13 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           {portfolioImages.length > 0 && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {portfolioImages.map((url, index) => (
-                <div key={index} className="relative group">
-                  <img
+                <div key={index} className="relative group h-32">
+                  <Image
                     src={url}
                     alt={`Portfolio ${index + 1}`}
-                    loading="lazy"
-                    decoding="async"
-                    className="w-full h-32 object-cover rounded-lg border"
+                    fill
+                    unoptimized
+                    className="object-cover rounded-lg border"
                   />
                   <button
                     type="button"
@@ -599,9 +600,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {studentResults.map((r) => (
-                  <div key={r.id} className="relative group">
+                  <div key={r.id} className="relative group h-20">
                     {r.imageUrl ? (
-                      <img src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Student result"} loading="lazy" decoding="async" className="w-full h-20 object-cover rounded" />
+                      <Image src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Student result"} fill unoptimized className="object-cover rounded" />
                     ) : (
                       <div className="w-full h-20 bg-muted rounded flex items-center justify-center">
                         <ImageIcon className="h-6 w-6 text-muted-foreground" />

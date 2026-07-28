@@ -211,6 +211,11 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                           <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
                             {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
                           </Button>
+                          {selected.reviewedAt && (
+                            <p className="text-sm text-muted-foreground mt-2">
+                              Reviewed on {new Date(selected.reviewedAt).toLocaleDateString()}
+                            </p>
+                          )}
                         </>
                       ) : (
                         <p className="text-sm text-muted-foreground">Legacy ID not available for this submission.</p>
