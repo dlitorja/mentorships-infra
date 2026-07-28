@@ -58,7 +58,11 @@ export function AvailabilityPreview({ instructorId, instructorName }: Availabili
       <div className="border rounded-lg p-4 bg-muted/30">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Calendar className="h-4 w-4" />
-          <span>Availability shown after purchase</span>
+          <span>
+            {instructorName
+              ? `${instructorName} has not connected their calendar yet. Bookings will be available once they enable scheduling.`
+              : "This instructor has not connected their calendar yet. Bookings will be available once they enable scheduling."}
+          </span>
         </div>
       </div>
     );

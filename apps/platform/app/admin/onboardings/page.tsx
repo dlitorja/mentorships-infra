@@ -27,6 +27,7 @@ import {
   ArrowDown,
   ArrowUpDown,
   Download,
+  Inbox,
 } from "lucide-react";
 import { useListAdminOnboardings } from "@/lib/queries/convex/use-admin-onboardings";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
@@ -133,7 +134,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
   // filters (email OR any per-instructor name contains the substring).
   const trimmedSearch = debouncedSearch.trim();
 
-  const { data, isLoading, error } = useListAdminOnboardings({
+  const { data, isLoading, error, refetch } = useListAdminOnboardings({
     status: tab.status ?? undefined,
     emailSearch: trimmedSearch || undefined,
     instructorSearch: trimmedSearch || undefined,
@@ -285,10 +286,21 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                     <Loader2 className="h-8 w-8 animate-spin" />
                   </div>
                 ) : items.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    {bulkFilter !== "all" && allItems.length > 0
-                      ? "All submissions are hidden by the active filter."
-                      : "No onboardings in this state."}
+                  <div className="text-center py-12 text-muted-foreground flex flex-col items-center gap-3">
+                    <Inbox className="h-12 w-12 opacity-50" />
+                    <p>
+                      {bulkFilter !== "all" && allItems.length > 0
+                        ? "All submissions are hidden by the active filter."
+                        : "No onboardings in this state."}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => refetch()}
+                    >
+                      <Loader2 className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                      Refresh
+                    </Button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
