@@ -20,7 +20,7 @@ export interface Instructor {
   profileImage: string; // Path to profile image
   workImages: string[]; // Paths to portfolio/work images
   pricing: {
-    oneOnOne: number; // Price for 1-on-1 mentorship pack
+    oneOnOne: number; // Price for 1-on-1 sessions pack
     group?: number; // Optional group pricing
   };
   socialLinks?: {
@@ -136,7 +136,7 @@ export const mockInstructors: Instructor[] = [
     },
     testimonials: [
       {
-        text: "A month of mentoring was an impulse purchase that I don't regret. When I saw that Oliver was offering tutoring, I jumped at the chance because I knew he could teach me creature design, something I'd been trying and failing to learn on my own. I got that and more! In addition to giving me a run down on how creatures are designed in which I learned things I could tell are mainly passed down in a professional setting, he also quickly identified changes I could make to improve old art and to use going forward.\n\nOliver mentioned when things he was teaching me were also things one of his mentors taught him, and I found it really beautiful to be in a chain of information passed down from artist to artist. I can absolutely recommend Oliver!",
+        text: "A month of taking sessions was an impulse purchase that I don't regret. When I saw that Oliver was offering tutoring, I jumped at the chance because I knew he could teach me creature design, something I'd been trying and failing to learn on my own. I got that and more! In addition to giving me a run down on how creatures are designed in which I learned things I could tell are mainly passed down in a professional setting, he also quickly identified changes I could make to improve old art and to use going forward.\n\nOliver mentioned when things he was teaching me were also things one of his instructors taught him, and I found it really beautiful to be in a chain of information passed down from artist to artist. I can absolutely recommend Oliver!",
         author: "egitlin",
       },
     ],
@@ -190,19 +190,19 @@ export const mockInstructors: Instructor[] = [
     },
     testimonials: [
       {
-        text: "I've been working with Rakasa for just over a month now and it's been incredible. I've learned so much in such a short period of time that has really helped me improve as an artist - learning new techniques on painting, things to consider with composition, lighting, and color. Each lesson I learn something valuable, new, and get the chance to implement it into practice in a piece that I've been wanting to do! I think the aspect I am most pleased with having a mentor to hold me accountable to completing pieces. My portfolio has grown to feature works I'm incredibly of proud and far surpassed my previous art in just a month. All this to say I highly recommend working with her and she's an absolute blast to be around - I'm always looking forward to my lessons!",
+        text: "I've been working with Rakasa for just over a month now and it's been incredible. I've learned so much in such a short period of time that has really helped me improve as an artist - learning new techniques on painting, things to consider with composition, lighting, and color. Each lesson I learn something valuable, new, and get the chance to implement it into practice in a piece that I've been wanting to do! I think the aspect I am most pleased with having a instructor to hold me accountable to completing pieces. My portfolio has grown to feature works I'm incredibly of proud and far surpassed my previous art in just a month. All this to say I highly recommend working with her and she's an absolute blast to be around - I'm always looking forward to my lessons!",
         author: "Kell",
       },
       {
-        text: "I started Rakasa's mentorship because I'd admired her work for years and felt stuck in a place of wanting to improve my illustration skills but being overwhelmed with resources on where to start. Rakasa is very patient and her teaching methods are incredible and have been very trans-formative in my work within just a few weeks of having her as a mentor. I cannot recommend Rakasa enough as a mentor and have already expressed as much to anyone who will listen. :)",
+        text: "I started Rakasa's mentorships because I'd admired her work for years and felt stuck in a place of wanting to improve my illustration skills but being overwhelmed with resources on where to start. Rakasa is very patient and her teaching methods are incredible and have been very trans-formative in my work within just a few weeks of having her as a instructor. I cannot recommend Rakasa enough as a instructor and have already expressed as much to anyone who will listen. :)",
         author: "Persi",
       },
       {
-        text: "Rakasa is the BEST mentor. I made it my mission to learn how to draw portraits and more complex compositions. When I saw that one of my favorite artists was offering a mentorship, I immediately jumped at the opportunity. She is very thorough in her lessons and can break down seemingly complex topics effectively. Her critiques on the homework and artwork are also very detailed, and I learn just as much from the critiques as from the actual lessons. She is also available for questions and advice between lessons when I need guidance on the homework. As a fellow self-taught artist, she was able to relate to my struggles of trying to improve and helped guide me on how to improve my technical skills. She is a wealth of knowledge on the art business as well. I've been mentoring with her for almost four months, and every penny is worth it. She is super kind, funny, and engaging, and I",
+        text: "Rakasa is the BEST instructor. I made it my mission to learn how to draw portraits and more complex compositions. When I saw that one of my favorite artists was offering a mentorships, I immediately jumped at the opportunity. She is very thorough in her lessons and can break down seemingly complex topics effectively. Her critiques on the homework and artwork are also very detailed, and I learn just as much from the critiques as from the actual lessons. She is also available for questions and advice between lessons when I need guidance on the homework. As a fellow self-taught artist, she was able to relate to my struggles of trying to improve and helped guide me on how to improve my technical skills. She is a wealth of knowledge on the art business as well. I've been taking sessions with her for almost four months, and every penny is worth it. She is super kind, funny, and engaging, and I",
         author: "aurora",
       },
       {
-        text: "I've been working with Rakasa for the past few months and the artistic improvement I've seen in such a small amount of time is nothing short of astronomical. She continually pushes me to tackle tough concepts and studies that I can turn into full pieces and provides excellent feedback that can elevate me to the next level within my own art. It as if when we meet, I recognize that I have hit a wall in a piece and she helps me navigate around or break through it. With her guidance, I never feel stuck and am in a constant cycle of improvement. I find that I am more much confident to tackle larger pieces, I have clear goals with my art and am gearing up to send some pieces over to a few clients for freelancing gigs. I intend to fully continue with this mentorship and keep push myself along the path to improving as an artist!",
+        text: "I've been working with Rakasa for the past few months and the artistic improvement I've seen in such a small amount of time is nothing short of astronomical. She continually pushes me to tackle tough concepts and studies that I can turn into full pieces and provides excellent feedback that can elevate me to the next level within my own art. It as if when we meet, I recognize that I have hit a wall in a piece and she helps me navigate around or break through it. With her guidance, I never feel stuck and am in a constant cycle of improvement. I find that I am more much confident to tackle larger pieces, I have clear goals with my art and am gearing up to send some pieces over to a few clients for freelancing gigs. I intend to fully continue with this mentorships program and keep push myself along the path to improving as an artist!",
         author: "Kell",
       },
     ],
@@ -228,7 +228,7 @@ export const mockInstructors: Instructor[] = [
     },
     testimonials: [
       {
-        text: "Amanda provided clarity at a time when I truly needed it as an artist. Her capacity to see me, my work, and my aspirations, gave me the confidence to show up week after week. My mentorship assignments provided steady, yet manageable challenge and Amanda authored flexible assignments to meet that pace. I'd encourage anyone looking to sharpen their artistic selves to be Amanda's mentee.",
+        text: "Amanda provided clarity at a time when I truly needed it as an artist. Her capacity to see me, my work, and my aspirations, gave me the confidence to show up week after week. My session assignments provided steady, yet manageable challenge and Amanda authored flexible assignments to meet that pace. I'd encourage anyone looking to sharpen their artistic selves to be Amanda's student.",
         author: "Joshua",
       },
     ],
@@ -266,14 +266,14 @@ export const mockInstructors: Instructor[] = [
       },
       {
         text: "A down-to-earth instructor who provides solid lessons in basic to advanced skills, as well as valuable workflow and industry insight. Someone who truly cares about his students' learning and artistic growth.",
-        author: "Anonymous Mentee",
+        author: "Anonymous student",
       },
       {
-        text: "NRC Gray gave me deep insights into the core design concepts I'd been missing and struggling with. His critiques were strength-based yet laser-focused on skills I could build independently.\n\nBefore his mentorship, I rarely followed through on drawing ideas. Now, as I write this, I've completed 150 consecutive days of character designs—with dramatic improvement in my grasp of design principles.\n\nAny serious artist would be lucky to learn from his design philosophy",
+        text: "NRC Gray gave me deep insights into the core design concepts I'd been missing and struggling with. His critiques were strength-based yet laser-focused on skills I could build independently.\n\nBefore his mentorships program, I rarely followed through on drawing ideas. Now, as I write this, I've completed 150 consecutive days of character designs—with dramatic improvement in my grasp of design principles.\n\nAny serious artist would be lucky to learn from his design philosophy",
         author: "Mac",
       },
       {
-        text: "I had taken online drawing and painting classes for about four years before finding NRC Gray's Mentorship. I decided to give it a try, and I'm very glad I did. Neil's knowledge and guidance have been incredibly helpful. His sessions have clarified concepts I struggled with before, and I appreciate how direct and clear he is in his feedback. He tells me what I'm doing well and exactly what I need to improve.",
+        text: "I had taken online drawing and painting classes for about four years before finding NRC Gray's Mentorships. I decided to give it a try, and I'm very glad I did. Neil's knowledge and guidance have been incredibly helpful. His sessions have clarified concepts I struggled with before, and I appreciate how direct and clear he is in his feedback. He tells me what I'm doing well and exactly what I need to improve.",
         author: "diyi",
       },
     ],
@@ -302,15 +302,15 @@ export const mockInstructors: Instructor[] = [
     },
     testimonials: [
       {
-        text: "Ash is an excellent and kind mentor who goes above and beyond for their mentees. They have a wide breadth of knowledge whether that be character/shape design, composition, anatomy, etc and they know how to break down these topics to be understandable. I highly recommend Ash as they helped me improve tremendously in only a few months.",
+        text: "Ash is an excellent and kind instructor who goes above and beyond for their students. They have a wide breadth of knowledge whether that be character/shape design, composition, anatomy, etc and they know how to break down these topics to be understandable. I highly recommend Ash as they helped me improve tremendously in only a few months.",
         author: "ChrisJ",
       },
       {
-        text: "Ash is very diligent and puts a lot of effort into the mentorship and works with you depending on your goals, worth",
+        text: "Ash is very diligent and puts a lot of effort into the mentorships program and works with you depending on your goals, worth",
         author: "Gomlsauce",
       },
       {
-        text: "Ash is an awesome mentor. Very kind, but also firm on what you need to work on as an artist. I've found them incredibly knowledgeable on a wide variety of topics. I'm on my third month with Ash, how much my art has changed for the better is crazy.",
+        text: "Ash is an awesome instructor. Very kind, but also firm on what you need to work on as an artist. I've found them incredibly knowledgeable on a wide variety of topics. I'm on my third month with Ash, how much my art has changed for the better is crazy.",
         author: "Amanda",
       },
       {
@@ -318,7 +318,7 @@ export const mockInstructors: Instructor[] = [
         author: "tanner",
       },
       {
-        text: "Ash is an excellent mentor. They consistently made sure to listen to my personal goals and aspirations as an artist and gave me both daily mini assignments to tackle my weaknesses.\n\nIn addition to this, they gave me a manageable number of relevant and realistic weekly projects that they would go over in depth, and show me how to improve my work by showing me visually, by performing live demonstrations during class.\n\nAll of their critiques were honest and firm, but always was kind and respectful. Most importantly, any questions about problems I had along the way that were bothering me before each session they would also go above and beyond with written responses that were timely, honest, and helpful.",
+        text: "Ash is an excellent instructor. They consistently made sure to listen to my personal goals and aspirations as an artist and gave me both daily mini assignments to tackle my weaknesses.\n\nIn addition to this, they gave me a manageable number of relevant and realistic weekly projects that they would go over in depth, and show me how to improve my work by showing me visually, by performing live demonstrations during class.\n\nAll of their critiques were honest and firm, but always was kind and respectful. Most importantly, any questions about problems I had along the way that were bothering me before each session they would also go above and beyond with written responses that were timely, honest, and helpful.",
         author: "Subu",
       },
       {
@@ -326,15 +326,15 @@ export const mockInstructors: Instructor[] = [
         author: "Wroclawed",
       },
       {
-        text: "Ash's one-on-one mentorship helped me tackle challenges I didn't realize I was facing in my art development.\n\nTheir educational style was incredibly informative and helpful, they kept contact and provided great feedback and criticism that went a long way. I'm greatful I got to meet them and I can't wait to learn even more.",
+        text: "Ash's one-on-one mentorships program helped me tackle challenges I didn't realize I was facing in my art development.\n\nTheir educational style was incredibly informative and helpful, they kept contact and provided great feedback and criticism that went a long way. I'm greatful I got to meet them and I can't wait to learn even more.",
         author: "Zack",
       },
       {
-        text: "Ash was a wonderful mentor and an extremely passionate and kind person.\n\nThe way she is working with color is quite unique and it made me understand how enjoyable working with colors can be, challenging me to try new things in the field of painting and introducing me to new tools I never tried before!\n\nShe helped me move forward in my character design work and also introduced me to new techniques on how to polish my ideas further.\n\nIt was a wonderful experience overall and I am very happy to have had the opportunity to meet and work with Ash in this period of time .",
+        text: "Ash was a wonderful instructor and an extremely passionate and kind person.\n\nThe way she is working with color is quite unique and it made me understand how enjoyable working with colors can be, challenging me to try new things in the field of painting and introducing me to new tools I never tried before!\n\nShe helped me move forward in my character design work and also introduced me to new techniques on how to polish my ideas further.\n\nIt was a wonderful experience overall and I am very happy to have had the opportunity to meet and work with Ash in this period of time .",
         author: "Irida",
       },
       {
-        text: "Ash is a very talented mentor. We've worked together in two stints now. We started in 2023 for a couple of months and we've worked in 2025 for a couple of months. Both instances have been amazing. The level of personalized assignments, weakness drills, painting tutoring and resource management training is far above any class I've taken in the past. I'm always taken to my absolute limit and surprise myself with the quality and quantity I can get done in a week.\n\nI've taken many classes online with feedback from CGMA, and Ash has pushed me much farther in much less time. I look forward to working with Ash again after I've hit a new plateau, so we can break through that one together as well.",
+        text: "Ash is a very talented instructor. We've worked together in two stints now. We started in 2023 for a couple of months and we've worked in 2025 for a couple of months. Both instances have been amazing. The level of personalized assignments, weakness drills, painting tutoring and resource management training is far above any class I've taken in the past. I'm always taken to my absolute limit and surprise myself with the quality and quantity I can get done in a week.\n\nI've taken many classes online with feedback from CGMA, and Ash has pushed me much farther in much less time. I look forward to working with Ash again after I've hit a new plateau, so we can break through that one together as well.",
         author: "Jarell",
       },
     ],
@@ -373,11 +373,11 @@ export const mockInstructors: Instructor[] = [
         author: "Liminal",
       },
       {
-        text: "Having a newer background in art, I expected to go into Andrea's class to brush up on fundamentals and improve. To say I got way more value just my artistic skills than I would've dreamed is an understatement! Andrea taught me how to see things differently, design in a way that makes sense, and use methods that worked for the way that I learned. While the mentorship was fitted to my needs, I also got the value of learning what other students were curious about as well.\n\nShe doesn't pull her punches when she critiques your pieces, but she still somehow says it in a way that's easily digestible and easy to receive. If you're looking for a place where you learn fundamentals, build confidence, and learn different methods of looking at art, Andrea is the perfect mentor!",
+        text: "Having a newer background in art, I expected to go into Andrea's class to brush up on fundamentals and improve. To say I got way more value just my artistic skills than I would've dreamed is an understatement! Andrea taught me how to see things differently, design in a way that makes sense, and use methods that worked for the way that I learned. While the mentorships program was fitted to my needs, I also got the value of learning what other students were curious about as well.\n\nShe doesn't pull her punches when she critiques your pieces, but she still somehow says it in a way that's easily digestible and easy to receive. If you're looking for a place where you learn fundamentals, build confidence, and learn different methods of looking at art, Andrea is the perfect instructor!",
         author: "Quinn",
       },
       {
-        text: "I came to Andrea pretty new to painting, feeling rather directionless in how I was supposed to improve. Andrea has worked with me to find what I wanted to do, taught me a large number of techniques, and has been extremely encouraging throughout. I would highly recommend Andreas mentorship and am very grateful for the help and direction that I have been given.",
+        text: "I came to Andrea pretty new to painting, feeling rather directionless in how I was supposed to improve. Andrea has worked with me to find what I wanted to do, taught me a large number of techniques, and has been extremely encouraging throughout. I would highly recommend Andreas mentorships program and am very grateful for the help and direction that I have been given.",
         author: "MossyRock",
       },
     ],

@@ -338,7 +338,7 @@ export function DashboardContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Get started with your mentorship</CardTitle>
+          <CardTitle>Get started with your mentorships</CardTitle>
           <CardDescription>
             Complete these steps to make the most of your sessions.
           </CardDescription>

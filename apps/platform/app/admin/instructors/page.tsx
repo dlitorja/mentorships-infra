@@ -238,8 +238,10 @@ export default function InstructorsPage() {
                             size="sm"
                             onClick={() => setPurgeInstructor(instructor)}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            aria-label="Delete instructor"
                           >
                             <AlertTriangle className="h-4 w-4" />
+                            <span className="ml-2 hidden sm:inline">Delete</span>
                           </Button>
                         </div>
                       </td>

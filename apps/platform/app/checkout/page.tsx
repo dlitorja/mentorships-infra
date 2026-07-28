@@ -371,23 +371,21 @@ className="!bg-input !text-foreground"
                     <CreditCard className="h-5 w-5" />
                     <span className="font-medium">Stripe</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("paypal")}
-                    disabled={!selectedProduct.paypalProductId}
-                    className={clsx(
-                      "flex items-center justify-center gap-2 p-3 border rounded-lg transition-all",
-                      paymentMethod === "paypal"
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "hover:border-muted-foreground/50",
-                      !selectedProduct.paypalProductId && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    <Wallet className="h-5 w-5" />
-                    <span className="font-medium">
-                      {selectedProduct.paypalProductId ? "PayPal" : "PayPal (Coming Soon)"}
-                    </span>
-                  </button>
+                  {selectedProduct.paypalProductId && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod("paypal")}
+                      className={clsx(
+                        "flex items-center justify-center gap-2 p-3 border rounded-lg transition-all",
+                        paymentMethod === "paypal"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "hover:border-muted-foreground/50"
+                      )}
+                    >
+                      <Wallet className="h-5 w-5" />
+                      <span className="font-medium">PayPal</span>
+                    </button>
+                  )}
                 </div>
               </div>
 

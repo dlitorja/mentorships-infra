@@ -8,7 +8,7 @@ const testimonials = [
   {
     name: "Jake Posh",
     quote:
-      "After college I drifted between all types of art styles and my portfolio was a jumbled mess. Being a mentee to Pete really brought purpose and direction to my art. We found out together what type of art I wanted to do, and that was more important than anything I learned in art school. Expect to work a lot at it, but also expect to get even more out of it than you think.",
+      "After college I drifted between all types of art styles and my portfolio was a jumbled mess. Being a student of Pete really brought purpose and direction to my art. We found out together what type of art I wanted to do, and that was more important than anything I learned in art school. Expect to work a lot at it, but also expect to get even more out of it than you think.",
     link: "https://www.artstation.com/ub3600b64",
   },
 ];
