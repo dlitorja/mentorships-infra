@@ -13,7 +13,7 @@
 | [PR #694](#pr-694-p0-policy-link-and-button-fixes) | Policy, link, and button fixes | P0 | Merged |
 | [PR #695](#pr-695-p1-navigation-and-sidebar-consistency) | Navigation and sidebar consistency | P1 | Merged |
 | [PR #696](#pr-696-p1-dashboard-student-and-instructor-ux) | Dashboard, student, and instructor UX | P1 | Merged |
-| [PR #698](#pr-698-p2-polish-and-accessibility) | Polish and accessibility | P2 | In progress |
+| [PR #698](#pr-698-p2-polish-and-accessibility) | Polish and accessibility | P2 | Merged |
 | [Issue #697](#issue-697-ai-matching-backend) | AI matching backend | P2 | Open |
 
 ---
@@ -314,6 +314,7 @@
 | #694 | P0 policy, link, and button fixes | Merged |
 | #695 | P1 navigation and sidebar consistency | Merged |
 | #696 | P1 dashboard, student, and instructor UX | Merged |
+| #698 | P2 polish and accessibility | Merged |
 
 ---
 
