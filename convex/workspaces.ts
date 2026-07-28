@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -1616,6 +1617,9 @@ export const deleteWorkspaceImage = mutation({
 /**
  * Returns all messages for a workspace in chronological order.
  * Returns an empty array for callers who are not active participants.
+ *
+ * @deprecated Use {@link getWorkspaceMessagesPaginated} for new code;
+ *   kept for apps/web which has not yet been migrated.
  */
 export const getWorkspaceMessages = query({
   args: { workspaceId: v.id("workspaces") },
@@ -1629,6 +1633,34 @@ export const getWorkspaceMessages = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .order("asc")
       .collect();
+  },
+});
+
+/**
+ * Returns a paginated list of workspace messages, newest first.
+ * Callers who are not active participants receive an empty, done page.
+ *
+ * PR #convex-egress-1: pagination replaces the unbounded
+ * `getWorkspaceMessages` subscription in apps/platform to reduce Convex
+ * Data Egress. The query orders by `_creationTime` descending so the
+ * first page is the most recent messages; the UI reverses the
+ * concatenated results for chronological display.
+ */
+export const getWorkspaceMessagesPaginated = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+    return await ctx.db
+      .query("workspaceMessages")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .paginate(args.paginationOpts);
   },
 });
 

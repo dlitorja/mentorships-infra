@@ -37,7 +37,7 @@ import {
   ChatDataProvider,
   type ChatMessageRow,
 } from "@/components/workspace/chat-data-context";
-import { useWorkspaceMessages } from "@/lib/queries/convex/use-workspaces";
+import { useWorkspaceMessagesPaginated } from "@/lib/queries/convex/use-workspaces";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -99,17 +99,32 @@ function WorkspaceContent({
   // `WorkspaceContent` level keeps at least one observer alive
   // throughout the workspace lifecycle.
   //
+  // PR #convex-egress-1: switch from the unbounded `useWorkspaceMessages`
+  // subscription to a paginated `useWorkspaceMessagesPaginated`
+  // subscription. The provider still owns the subscription so the
+  // call-overlay chat panel continues to receive new messages without
+  // a manual refresh, but now only the most recent page is pushed on
+  // every write instead of the entire chat history.
+  //
   // Hooks must be called BEFORE any conditional return (the loading
-  // branch below), so `useWorkspaceMessages` and `useMemo` are
-  // declared up here even when `workspacesLoading` is false.
-  const messagesQuery = useWorkspaceMessages(selectedWorkspaceId);
+  // branch below), so `useWorkspaceMessagesPaginated` and `useMemo`
+  // are declared up here even when `workspacesLoading` is false.
+  const messagesQuery = useWorkspaceMessagesPaginated(selectedWorkspaceId);
   const chatDataValue = useMemo(
     () => ({
       workspaceId: selectedWorkspaceId,
-      messages: messagesQuery.data as ChatMessageRow[] | undefined,
+      messages: messagesQuery.results as ChatMessageRow[] | undefined,
       isLoading: messagesQuery.isLoading,
+      status: messagesQuery.status,
+      loadMore: messagesQuery.loadMore,
     }),
-    [selectedWorkspaceId, messagesQuery.data, messagesQuery.isLoading]
+    [
+      selectedWorkspaceId,
+      messagesQuery.results,
+      messagesQuery.isLoading,
+      messagesQuery.status,
+      messagesQuery.loadMore,
+    ]
   );
 
   if (workspacesLoading) {
