@@ -72,7 +72,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 - [x] Sending a new message appears in the list without re-fetching the entire history.
 - [x] Chat remains reactive during a video call in the call-overlay panel (provider still owns the subscription).
 - [x] `npm run typecheck` passes.
-- [x] `npm run lint` reports no new errors (123 pre-existing warnings remain).
+- [x] `npm run lint` reports no new errors (128 pre-existing warnings remain on main).
 - [x] Greptile review passed at 5/5 confidence.
 
 ### Risks and mitigations
@@ -80,6 +80,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 - **Call-overlay chat may miss messages**: mitigated by keeping the `ChatDataProvider` hoisted at the `WorkspaceContent` level.
 - **Scroll behavior**: auto-scroll only fires when the newest message changes and the user is already near the bottom, so loading older history does not yank the user away.
 - **apps/web still uses unbounded query**: `apps/web` continues to use `useWorkspaceMessages`/`getWorkspaceMessages` and is out of scope for this PR.
+- **Client-side file cap count is now page-based**: `currentFileCount` in `chat.tsx` is computed from the loaded (paginated) message slice, so the remaining-file-slots hint may be slightly off until the user loads more history. The server enforces the actual cap, so uploads beyond the cap still fail gracefully. A small follow-up query can restore an exact count without re-subscribing to the full message history.
 
 ---
 
