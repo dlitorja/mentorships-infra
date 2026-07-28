@@ -397,7 +397,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           {portfolioImages.length > 0 && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {portfolioImages.map((url, index) => (
-                <div key={index} className="relative group">
+                <div key={index} className="relative group h-32">
                   <Image
                     src={url}
                     alt={`Portfolio ${index + 1}`}
@@ -600,7 +600,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {studentResults.map((r) => (
-                  <div key={r.id} className="relative group">
+                  <div key={r.id} className="relative group h-20">
                     {r.imageUrl ? (
                       <Image src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Student result"} fill unoptimized className="object-cover rounded" />
                     ) : (
