@@ -528,10 +528,6 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
 
 **Navigation links fixed:**
 - "Browse Mentors" → "Browse Instructors" (3 landing preview footers)
-- "Find Your Mentor" → "Find Your Instructor" (3 landing preview footers)
-  - `apps/web/components/landing-preview/preview-footer.tsx`
-  - `apps/platform/components/landing-preview/preview-footer.tsx`
-  - `apps/home/components/landing-preview/preview-footer.tsx`
 
 **Error messages fixed:**
 - "Forbidden: mentor role required" → "Forbidden: instructor role required" (2 API routes)
