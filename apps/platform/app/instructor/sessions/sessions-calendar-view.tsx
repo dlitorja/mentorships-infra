@@ -179,22 +179,23 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
           </div>
         ))}
         {days.map((day, idx) => {
-          if (day === null) return <div key={`empty-${idx}`} className="min-h-[80px] border-b border-r bg-muted/20" />;
+          if (day === null) return <div key={`empty-${idx}`} className="min-h-[60px] sm:min-h-[80px] border-b border-r bg-muted/20" />;
           const dayKey = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
           const daySessionsList = sessionsByDay[dayKey] ?? [];
           const isPast = new Date(viewYear, viewMonth, day) < today;
+          const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
 
           return (
             <div
               key={day}
               className={[
-                "min-h-[80px] border-b border-r p-1 text-left",
+                "min-h-[60px] sm:min-h-[80px] border-b border-r p-1 text-left",
                 isPast ? "bg-muted/10" : "bg-background",
               ].join(" ")}
             >
               <div className={[
-                "text-xs font-medium mb-1",
-                isPast ? "text-muted-foreground" : "text-foreground",
+                "text-xs font-medium mb-1 inline-flex items-center justify-center w-6 h-6 rounded-full",
+                isToday ? "bg-primary text-primary-foreground" : isPast ? "text-muted-foreground" : "text-foreground",
               ].join(" ")}>
                 {day}
               </div>
@@ -230,6 +231,12 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
           );
         })}
       </div>
+
+      {sessions.length === 0 && (
+        <div className="text-center py-8 text-muted-foreground">
+          No sessions scheduled for this month.
+        </div>
+      )}
 
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">

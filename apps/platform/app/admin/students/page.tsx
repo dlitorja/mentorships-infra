@@ -105,7 +105,8 @@ export default function StudentsPage(): React.JSX.Element {
   const [addSessionsOpen, setAddSessionsOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentItem | null>(null);
   const [selectedInstructorId, setSelectedInstructorId] = useState("");
-  const [totalSessions, setTotalSessions] = useState("4");
+  const DEFAULT_ADD_SESSIONS_COUNT = 4;
+  const [totalSessions, setTotalSessions] = useState(String(DEFAULT_ADD_SESSIONS_COUNT));
   const [expiresAt, setExpiresAt] = useState("");
   const [addError, setAddError] = useState("");
 

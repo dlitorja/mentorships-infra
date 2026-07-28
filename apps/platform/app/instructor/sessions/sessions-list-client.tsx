@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -239,12 +240,20 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
 
       {filteredSessions.length === 0 && (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-6 flex flex-col items-center gap-3">
             <p className="text-center text-muted-foreground">
               {sessions.length === 0
                 ? "You don't have any sessions yet."
                 : "No sessions match your search criteria."}
             </p>
+            {sessions.length === 0 && (
+              <Button asChild variant="outline">
+                <Link href="/instructor/students">
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Book a session
+                </Link>
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

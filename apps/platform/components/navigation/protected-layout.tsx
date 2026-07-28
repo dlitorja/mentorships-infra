@@ -5,7 +5,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { MessageSquare, CalendarClock, UserCircle, type LucideIcon } from "lucide-react";
+import {
+  MessageSquare,
+  CalendarClock,
+  UserCircle,
+  LayoutDashboard,
+  Calendar,
+  ListChecks,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { IncomingCallToast } from "@/components/notifications/incoming-call-toast";
 
@@ -43,21 +52,21 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   const roleSpecificItems: NavItem[] = instructorRecord
     ? [
         // Instructor navigation - Dashboard first, then Workspace, then instructor-specific items
-        { href: "/instructor/dashboard", label: "Dashboard" },
+        { href: "/instructor/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/workspace", label: "Workspace", icon: MessageSquare },
-        { href: "/instructor/sessions", label: "My Sessions" },
+        { href: "/instructor/sessions", label: "My Sessions", icon: Calendar },
         { href: "/instructor/availability", label: "Availability", icon: CalendarClock },
-        { href: "/instructor/onboarding", label: "Submissions" },
+        { href: "/instructor/onboarding", label: "Onboarding", icon: ListChecks },
         { href: "/instructor/profile", label: "Profile", icon: UserCircle },
-        { href: "/settings", label: "Settings" },
+        { href: "/settings", label: "Settings", icon: Settings },
       ]
     : [
         // Student navigation - Dashboard first, then Workspace, then student-specific items
-        { href: "/dashboard", label: "Dashboard" },
+        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/workspace", label: "Workspace", icon: MessageSquare },
-        { href: "/sessions", label: "Sessions" },
-        { href: "/calendar", label: "Calendar" },
-        { href: "/settings", label: "Settings" },
+        { href: "/sessions", label: "Sessions", icon: Calendar },
+        { href: "/calendar", label: "Calendar", icon: CalendarClock },
+        { href: "/settings", label: "Settings", icon: Settings },
       ];
 
   const navItems = [...commonItems, ...roleSpecificItems];
@@ -69,13 +78,14 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         <nav className="p-4 space-y-2 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const isActive = currentPath === item.href || currentPath?.startsWith(`${item.href}/`);
             return (
               <Link key={item.href} href={item.href}>
                 <Button
-                  variant={currentPath === item.href ? "secondary" : "ghost"}
+                  variant={isActive ? "secondary" : "ghost"}
                   className={cn(
                     "w-full justify-start",
-                    currentPath === item.href && "bg-secondary"
+                    isActive && "bg-secondary"
                   )}
                 >
                   {Icon && <Icon className="mr-2 h-4 w-4" />}
