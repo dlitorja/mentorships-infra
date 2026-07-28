@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -164,7 +163,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
               <div className="text-sm text-muted-foreground">Start the OAuth flow to connect your account.</div>
             </div>
             <Button asChild>
-              <Link href="/api/auth/google">Connect Google Calendar</Link>
+              <a href="/api/auth/google">Connect Google Calendar</a>
             </Button>
           </div>
         ) : (

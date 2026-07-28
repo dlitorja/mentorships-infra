@@ -43,10 +43,10 @@ export function GoogleCalendarStatus({ isCalendarConnected, showManageLink = tru
         <span className="font-medium text-amber-700">Google Calendar Not Connected</span>
       </div>
       <Button size="sm" asChild>
-        <Link href="/api/auth/google">
+        <a href="/api/auth/google">
           <Calendar className="mr-1 h-4 w-4" />
           Connect Calendar
-        </Link>
+        </a>
       </Button>
     </div>
   );
@@ -101,10 +101,10 @@ export function GoogleCalendarAlertBanner({ isCalendarConnected, hasTimeZone, ha
         <div className="flex items-center gap-2">
           {!isCalendarConnected && (
             <Button size="sm" variant="outline" asChild>
-              <Link href="/api/auth/google">
+              <a href="/api/auth/google">
                 <Calendar className="mr-1 h-4 w-4" />
                 Connect
-              </Link>
+              </a>
             </Button>
           )}
           <Button size="sm" variant="outline" asChild>

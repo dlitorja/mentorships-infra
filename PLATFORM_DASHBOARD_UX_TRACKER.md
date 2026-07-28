@@ -42,19 +42,19 @@
 - **Fix:** Replace with `revenue/student`.
 - **PR:** #694
 
-### 4. Internal Google Calendar link uses native `<a>`
+### 4. Google Calendar OAuth link (intentional native `<a>`)
 - **File:** `apps/platform/components/settings/google-calendar-card.tsx`
 - **Line:** 166
 - **Issue:** `/api/auth/google` reached via native `<a>` inside `Button asChild`.
-- **Fix:** Use `next/link` `Link` inside `Button asChild`.
-- **PR:** #694
+- **Decision:** Kept as native `<a>`. The `/api/auth/google` route sets a CSRF cookie and returns a cross-origin redirect to Google; a hard browser navigation is required for the OAuth flow to work correctly.
+- **PR:** #694 (no change)
 
-### 5. Internal Google Calendar connect link uses native `<a>`
+### 5. Google Calendar connect link (intentional native `<a>`)
 - **File:** `apps/platform/components/instructor/google-calendar-status.tsx`
 - **Lines:** 46, 104
 - **Issue:** Same as #4.
-- **Fix:** Use `next/link` `Link`.
-- **PR:** #694
+- **Decision:** Same as #4.
+- **PR:** #694 (no change)
 
 ### 6. PayPal "Coming Soon" button is misleading
 - **File:** `apps/platform/app/checkout/page.tsx`
