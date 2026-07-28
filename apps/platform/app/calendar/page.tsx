@@ -52,6 +52,7 @@ export default async function CalendarPage() {
     scheduledAt: new Date(session.scheduledAt),
     status: session.status,
     packId: session.sessionPackId,
+    workspaceId: session.workspaceId,
   }));
 
   // Fetch active session packs with remaining sessions from Convex
@@ -77,7 +78,7 @@ export default async function CalendarPage() {
           <div className="mt-2 text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
             <p>
-              Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion. <a href="/workspace" className="underline">Open workspace</a>
+              Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion. <Link href="/workspace" className="underline">Open workspace</Link>
             </p>
           </div>
         </div>
@@ -106,9 +107,9 @@ export default async function CalendarPage() {
                           : "No expiration"}
                       </p>
                     </div>
-                    <Button disabled={pack.remainingSessions === 0} variant="outline">
-                      Select below
-                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      Choose a time slot below.
+                    </p>
                   </div>
                 ))}
               </div>
@@ -156,7 +157,11 @@ export default async function CalendarPage() {
                         Status: {session.status}
                       </p>
                     </div>
-                    <Button variant="outline">View Details</Button>
+                    <Button variant="outline" asChild>
+                      <Link href={session.workspaceId ? `/workspace/${session.workspaceId}` : "/sessions"}>
+                        View Details
+                      </Link>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -173,7 +178,7 @@ export default async function CalendarPage() {
             </CardHeader>
             <CardContent>
               <Button asChild>
-                <a href="/pricing">View Pricing</a>
+                <Link href="/instructors">Browse Instructors</Link>
               </Button>
             </CardContent>
           </Card>

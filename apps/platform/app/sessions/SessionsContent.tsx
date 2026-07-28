@@ -82,9 +82,14 @@ export function SessionsContent() {
       ) : !userSessions || userSessions.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              You don&apos;t have any sessions yet. Book your first session through the calendar!
-            </p>
+            <div className="text-center space-y-4">
+              <p className="text-muted-foreground">
+                You don&apos;t have any sessions yet. Book your first session through the calendar!
+              </p>
+              <Button asChild>
+                <Link href="/calendar">Book a session</Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (
