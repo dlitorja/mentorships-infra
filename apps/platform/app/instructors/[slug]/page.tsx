@@ -131,7 +131,7 @@ function InstructorExtras({
         {oneOnOneProduct ? (
           <div>
             <p className="text-lg">
-              <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
+              <span className="font-semibold">1-on-1 Mentorships:</span>{" "}
               ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
             </p>
             {renderSpotsAvailable(oneOnOneInventory)}
@@ -142,7 +142,7 @@ function InstructorExtras({
                 </Button>
               ) : (
                 <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                  <Link href={`/checkout?instructor=${instructorSlug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=one-on-one`}>Buy 1-on-1 pack</Link>
                 </Button>
               )}
             </div>
@@ -163,7 +163,7 @@ function InstructorExtras({
                 </Button>
               ) : (
                 <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                  <Link href={`/checkout?instructor=${instructorSlug}&type=group`}>Buy my group mentorship</Link>
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=group`}>Buy group pack</Link>
                 </Button>
               )}
             </div>
@@ -171,7 +171,7 @@ function InstructorExtras({
         ) : null}
 
         {isFetchedProducts && !isLoadingProducts && !oneOnOneProduct && !groupProduct ? (
-          <p className="text-muted-foreground">No mentorship packages available at this time.</p>
+          <p className="text-muted-foreground">No session packs available at this time.</p>
         ) : null}
       </div>
     </div>

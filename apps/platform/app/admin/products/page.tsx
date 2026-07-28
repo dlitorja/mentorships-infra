@@ -363,12 +363,9 @@ export default function ProductsPage() {
 
       {/* Header with Create button */}
       <div className="flex items-center justify-end">
-        <Link
-          href="/admin/products/create"
-          className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
-        >
-          Create New Product
-        </Link>
+        <Button asChild>
+          <Link href="/admin/products/create">Create New Product</Link>
+        </Button>
       </div>
 
       {loading && (

@@ -5,7 +5,7 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 /**
  * GET /api/admin/stats
  * Returns admin dashboard statistics placeholder.
- * Requires admin role. Currently returns zero values - revenue/mentee
+ * Requires admin role. Currently returns zero values - revenue/student
  * data sourced from SQL/Drizzle (not yet migrated to Convex-only app).
  */
 export async function GET(): Promise<NextResponse> {

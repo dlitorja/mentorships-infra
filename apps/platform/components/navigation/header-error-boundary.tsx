@@ -1,6 +1,7 @@
 "use client";
 
 import { Component, type ReactNode } from "react";
+import Link from "next/link";
 
 interface Props {
   children: ReactNode;
@@ -38,12 +39,12 @@ export class HeaderErrorBoundary extends Component<Props, State> {
       return (
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md">
           <div className="container mx-auto flex h-16 items-center justify-between px-4">
-            <a href="/" className="flex items-center space-x-2">
+            <Link href="/" className="flex items-center space-x-2">
               <span className="text-xl font-bold text-foreground drop-shadow-sm">
                 <span className="hidden sm:inline">Huckleberry Art Mentorships</span>
                 <span className="sm:hidden">HAM</span>
               </span>
-            </a>
+            </Link>
           </div>
         </header>
       );
