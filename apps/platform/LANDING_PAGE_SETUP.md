@@ -14,7 +14,7 @@
    - Large, bold "Huckleberry Art Mentorships" title
    - Refined copy about 1-on-1 and group mentorships
    - Mentions gaming, TV, film, and indie artists
-   - CTA button: "View All Instructors"
+   - CTA buttons: "View All Instructors" and "How It Works"
    - Smooth scroll indicator
 
 2. **Instructor Carousel**

@@ -11,20 +11,6 @@ export const emailSchema = z
   .transform((email) => email.trim().toLowerCase());
 
 /**
- * Optional email validation schema
- */
-export const optionalEmailSchema = z
-  .string()
-  .optional()
-  .refine(
-    (email) => !email || email.trim() === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
-    {
-      message: "Please enter a valid email address",
-    }
-  )
-  .transform((email) => (email?.trim() ? email.trim().toLowerCase() : undefined));
-
-/**
  * Waitlist form schema
  */
 export const waitlistFormSchema = z.object({
