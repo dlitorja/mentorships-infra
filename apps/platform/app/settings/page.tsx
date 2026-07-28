@@ -21,11 +21,13 @@ export default async function SettingsPage() {
           </p>
         </div>
 
-        {/* Timezone Settings */}
-        <TimeZoneSelector />
-
-        {/* Integrations */}
-        {(user.role === "instructor" || user.role === "admin") && <GoogleCalendarCard />}
+        {/* Timezone and calendar integration are managed from
+            /instructor/availability for instructors. Admins keep calendar access
+            here since they may not have an instructor record. */}
+        {user.role !== "instructor" && (
+          <TimeZoneSelector />
+        )}
+        {user.role === "admin" && <GoogleCalendarCard />}
 
         {/* Profile Information */}
         <Card>

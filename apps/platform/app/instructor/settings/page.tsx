@@ -1,56 +1,5 @@
-import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
-import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
-import { InstructorAvailabilityPreview } from "@/components/instructor/instructor-availability-preview";
-import { api } from "@/convex/_generated/api";
-import { getAuthenticatedConvexClient } from "@/lib/convex";
+import { redirect } from "next/navigation";
 
-export default async function InstructorSettingsPage() {
-  const user = await requireRole("instructor");
-  const token = await getConvexAuthToken();
-  if (!token) {
-    return (
-      <ProtectedLayout currentPath="/instructor/settings">
-        <div className="container mx-auto p-4 md:p-8">
-          <p className="text-muted-foreground">Authentication required. Please sign in again.</p>
-        </div>
-      </ProtectedLayout>
-    );
-  }
-
-  const convex = await getAuthenticatedConvexClient();
-  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
-
-  if (!instructorRecord) {
-    return (
-      <ProtectedLayout currentPath="/instructor/settings">
-        <div className="container mx-auto p-4 md:p-8">
-          <p className="text-muted-foreground">Instructor profile not found.</p>
-        </div>
-      </ProtectedLayout>
-    );
-  }
-
-  return (
-    <ProtectedLayout currentPath="/instructor/settings">
-      <div className="container mx-auto p-4 md:p-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Instructor Settings</h1>
-          <p className="text-muted-foreground">
-            Configure availability rules for bookings.
-          </p>
-        </div>
-
-        <SchedulingSettingsForm
-          initialTimeZone={instructorRecord.timeZone ?? null}
-          initialWorkingHours={instructorRecord.workingHours ?? null}
-        />
-
-        <InstructorAvailabilityPreview
-          instructorId={instructorRecord._id}
-          instructorName={instructorRecord.name ?? undefined}
-        />
-      </div>
-    </ProtectedLayout>
-  );
+export default function InstructorSettingsPage() {
+  redirect("/instructor/availability");
 }

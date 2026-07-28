@@ -3,9 +3,7 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
-import { GoogleCalendarStatus } from "@/components/instructor/google-calendar-status";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
@@ -17,9 +15,9 @@ type PageProps = {
 };
 
 /**
- * Instructor onboarding page for initial setup and profile completion.
- * Displays submission review status, Google Calendar connection,
- * and scheduling settings configuration.
+ * Instructor submissions page for reviewing student onboarding submissions.
+ * Profile, scheduling, and calendar integration are managed under
+ * /instructor/profile and /instructor/availability.
  */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
@@ -110,46 +108,28 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
       <EnsureInstructorRole />
       <div className="container mx-auto p-4 md:p-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Onboarding</h1>
+          <h1 className="text-3xl font-bold">Student Onboarding Submissions</h1>
           <p className="text-muted-foreground mt-1">
-            Complete your profile and scheduling, then review student onboarding submissions.
+            Review goals and artwork from students before their sessions.
           </p>
         </div>
 
-        {/* Scheduling setup section */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile & Scheduling</CardTitle>
-              <CardDescription>
-                Set your time zone and working hours. You can edit profile details from the admin if needed.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SchedulingSettingsForm
-                initialTimeZone={convexInstructor?.timeZone ?? null}
-                initialWorkingHours={convexInstructor?.workingHours ?? null}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Calendar connect section */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Connect Google Calendar</CardTitle>
-              <CardDescription>
-                Connect your calendar so students can book sessions and see your availability in real-time.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <GoogleCalendarStatus
-                isCalendarConnected={!!convexInstructor?.googleRefreshToken}
-              />
-            </CardContent>
-          </Card>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Instructor Setup</CardTitle>
+            <CardDescription>
+              Update your profile, availability, and calendar connection in one place.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Button variant="outline" asChild>
+              <Link href="/instructor/profile">Edit Profile</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/instructor/availability">Set Availability</Link>
+            </Button>
+          </CardContent>
+        </Card>
 
         {submissions.length === 0 ? (
           <Card>

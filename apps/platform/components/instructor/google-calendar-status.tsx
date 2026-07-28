@@ -26,7 +26,7 @@ export function GoogleCalendarStatus({ isCalendarConnected, showManageLink = tru
         </div>
         {showManageLink && (
           <Button variant="outline" size="sm" asChild>
-            <Link href="/settings#integrations">
+            <Link href="/instructor/availability">
               Manage Calendar
               <ExternalLink className="ml-1 h-3 w-3" />
             </Link>
@@ -108,7 +108,7 @@ export function GoogleCalendarAlertBanner({ isCalendarConnected, hasTimeZone, ha
             </Button>
           )}
           <Button size="sm" variant="outline" asChild>
-            <Link href={isCalendarConnected ? "/instructor/settings" : "/instructor/onboarding"}>
+            <Link href="/instructor/availability">
               {isCalendarConnected ? "Set Availability" : "Complete Setup"}
             </Link>
           </Button>
