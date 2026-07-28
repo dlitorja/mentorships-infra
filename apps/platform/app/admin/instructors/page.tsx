@@ -147,7 +147,6 @@ export default function InstructorsPage() {
               size="sm"
               onClick={() => setShowBackfill((prev) => !prev)}
               aria-expanded={showBackfill}
-              aria-controls="backfill-images-panel"
             >
               Advanced
               {showBackfill ? (
