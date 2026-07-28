@@ -163,7 +163,21 @@ export async function countWorkspaceFilesByRole(
     )
     .collect();
 
-  return messages.length;
+  const messagesWithRole = messages.length;
+
+  // Legacy file messages may have been inserted before senderRole became
+  // required. The old client-side count assigned those undefined-role files
+  // to the viewing user's quota, so we preserve that behaviour here to avoid
+  // making the cap enforcement looser.
+  const legacyFiles = await ctx.db
+    .query("workspaceMessages")
+    .withIndex("by_workspaceId_type", (q: any) =>
+      q.eq("workspaceId", workspaceId).eq("type", "file")
+    )
+    .filter((q: any) => q.eq(q.field("senderRole"), undefined))
+    .collect();
+
+  return messagesWithRole + legacyFiles.length;
 }
 
 async function logWorkspaceAudit(

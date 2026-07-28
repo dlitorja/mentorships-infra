@@ -461,13 +461,17 @@ export default defineSchema({
     // this replaces Daily's in-call chat. The Conversations subpanel
     // for the live call can be filtered through `by_workspaceId_sessionId`.
     sessionId: v.optional(v.id("sessions")),
-  }).index("by_workspaceId", ["workspaceId"])
+  })    .index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     // PR #convex-egress-1: bounded index for counting file messages by role
     // without scanning the entire chat history.
-    .index("by_workspaceId_type_senderRole", ["workspaceId", "type", "senderRole"]),
+    .index("by_workspaceId_type_senderRole", ["workspaceId", "type", "senderRole"])
+    // PR #convex-egress-1: index for counting legacy file messages that were
+    // inserted before senderRole was required (matches the old client-side
+    // count that assigned undefined senderRole to the viewing user's role).
+    .index("by_workspaceId_type", ["workspaceId", "type"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
