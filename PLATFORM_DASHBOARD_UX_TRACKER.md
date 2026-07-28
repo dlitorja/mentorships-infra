@@ -12,7 +12,7 @@
 |---|---|---|---|
 | [PR #694](#pr-694-p0-policy-link-and-button-fixes) | Policy, link, and button fixes | P0 | Merged |
 | [PR #695](#pr-695-p1-navigation-and-sidebar-consistency) | Navigation and sidebar consistency | P1 | Merged |
-| [PR #696](#pr-696-p1-dashboard-student-and-instructor-ux) | Dashboard, student, and instructor UX | P1 | Not started |
+| [PR #696](#pr-696-p1-dashboard-student-and-instructor-ux) | Dashboard, student, and instructor UX | P1 | Merged |
 | [PR #697](#pr-697-p2-polish-and-accessibility) | Polish and accessibility | P2 | Not started |
 
 ---
@@ -301,6 +301,7 @@
 | #693 | Dashboard UX quick wins (calendar, navigation, booking CTAs) | Merged |
 | #694 | P0 policy, link, and button fixes | Merged |
 | #695 | P1 navigation and sidebar consistency | Merged |
+| #696 | P1 dashboard, student, and instructor UX | Merged |
 
 ---
 
