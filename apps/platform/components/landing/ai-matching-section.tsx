@@ -16,7 +16,7 @@ export function MatchingSection() {
       onChange: simpleMatchingFormSchema,
     },
     onSubmit: async ({ value }) => {
-      // TODO: Implement matching when backend is ready
+      // TODO: Implement matching backend (see issue #697)
       console.log("Art goals submitted", value.artGoals);
       form.reset();
     },

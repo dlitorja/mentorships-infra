@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { useAllInstructors } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
@@ -55,6 +55,7 @@ export default function InstructorsPage() {
   const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
+  const [showBackfill, setShowBackfill] = useState(false);
 
   const { data: allInstructors, isLoading, refetch } = useAllInstructors();
 
@@ -133,16 +134,34 @@ export default function InstructorsPage() {
 
       {/* Storage Image Backfill */}
       <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Backfill Images to Convex Storage</CardTitle>
-          <CardDescription>
-            Migrate profile, portfolio, and student result images into Convex Storage so they always serve signed URLs.
-            Safe to run multiple times; already-migrated images are skipped.
-          </CardDescription>
+        <CardHeader className="pb-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Backfill Images to Convex Storage</CardTitle>
+              <CardDescription>
+                Migrate profile, portfolio, and student result images into Convex Storage so they always serve signed URLs.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowBackfill((prev) => !prev)}
+              aria-expanded={showBackfill}
+            >
+              Advanced
+              {showBackfill ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent>
-          <BackfillImagesPanel />
-        </CardContent>
+        {showBackfill && (
+          <CardContent id="backfill-images-panel" className="pt-6">
+            <BackfillImagesPanel />
+          </CardContent>
+        )}
       </Card>
 
       <Card>
