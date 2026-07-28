@@ -134,7 +134,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
   // filters (email OR any per-instructor name contains the substring).
   const trimmedSearch = debouncedSearch.trim();
 
-  const { data, isLoading, error, refetch } = useListAdminOnboardings({
+  const { data, isLoading, isFetching, error, refetch } = useListAdminOnboardings({
     status: tab.status ?? undefined,
     emailSearch: trimmedSearch || undefined,
     instructorSearch: trimmedSearch || undefined,
@@ -297,8 +297,9 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                       variant="outline"
                       size="sm"
                       onClick={() => refetch()}
+                      disabled={isFetching}
                     >
-                      <Loader2 className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                      <Loader2 className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
                       Refresh
                     </Button>
                   </div>
