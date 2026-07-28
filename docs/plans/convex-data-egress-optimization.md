@@ -262,7 +262,7 @@ Implemented. `npm run typecheck` and `npm run lint` pass; Greptile review passed
 
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
-| 1 | `fix/convex-egress-chat-pagination` | Implemented | — | typecheck/lint pass; Greptile 5/5; ready for PR |
+| 1 | `fix/convex-egress-chat-pagination` | In review | https://github.com/dlitorja/mentorships-infra/pull/700 | typecheck/lint pass; Greptile 5/5 |
 | 2 | `fix/convex-egress-notes-pagination` | Not started | — | Independent of PR 1 |
 | 3 | `fix/convex-egress-images-links-pagination` | Not started | — | Independent of PR 1/2 |
 | 4 | `fix/convex-egress-query-tuning` | Not started | — | Can be done in parallel with PR 1–3 |
