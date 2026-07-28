@@ -324,6 +324,16 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastMessageIdRef = useRef<string | null>(null);
+  const scrollBeforeLoadRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
+
+  // PR #convex-egress-1: reset the first-load scroll anchor when the
+  // workspace changes so the new workspace's messages are scrolled to
+  // the bottom on first load. Without this, the ref persists across
+  // workspace switches and the new workspace can bypass first-load
+  // positioning.
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+  }, [workspaceId]);
 
   // PR #4c-4: read the chat subscription from the hoisted
   // <ChatDataProvider> when it's available. The provider lives
@@ -455,6 +465,33 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       }
     }
   }, [messages]);
+
+  // Preserve the visible scroll anchor when older messages are loaded.
+  // After the pagination status leaves LoadingMore, adjust scrollTop by
+  // the height of the newly prepended content so the same message remains
+  // in view.
+  useEffect(() => {
+    if (paginationStatus !== "LoadingMore") {
+      const before = scrollBeforeLoadRef.current;
+      const container = messagesContainerRef.current;
+      if (before && container) {
+        const newScrollTop = before.scrollTop + (container.scrollHeight - before.scrollHeight);
+        container.scrollTop = newScrollTop;
+      }
+      scrollBeforeLoadRef.current = null;
+    }
+  }, [paginationStatus]);
+
+  const handleLoadMore = () => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      scrollBeforeLoadRef.current = {
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+      };
+    }
+    loadMore?.(50);
+  };
 
   const handleSendMessage = async () => {
     if (!message.trim() || !workspaceId) return;
@@ -755,7 +792,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => loadMore?.(50)}
+              onClick={handleLoadMore}
               disabled={paginationStatus === "LoadingMore"}
             >
               {paginationStatus === "LoadingMore" ? (
