@@ -81,8 +81,8 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
   const [viewYear, setViewYear] = useState(() => today.getFullYear());
   const [viewMonth, setViewMonth] = useState(() => today.getMonth());
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [selectedDaySessions, setSelectedDaySessions] = useState<Session[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   const days = useMemo(() => buildCalendarDays(viewYear, viewMonth), [viewYear, viewMonth]);
 
@@ -128,19 +128,34 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
   }
 
   function handleSessionClick(session: Session) {
+    setSelectedDaySessions([]);
     setSelectedSession(session);
     setIsDialogOpen(true);
   }
 
   function handleShowMore(day: number) {
-    setSelectedDay(day);
-    setSelectedSession(daySessions(day)[3]);
+    setSelectedSession(null);
+    setSelectedDaySessions(daySessions(day));
     setIsDialogOpen(true);
+  }
+
+  function handleSessionSelectFromDay(session: Session) {
+    setSelectedSession(session);
   }
 
   function handleRefresh() {
     router.refresh();
     setIsDialogOpen(false);
+    setSelectedSession(null);
+    setSelectedDaySessions([]);
+  }
+
+  function handleDialogOpenChange(open: boolean) {
+    setIsDialogOpen(open);
+    if (!open) {
+      setSelectedSession(null);
+      setSelectedDaySessions([]);
+    }
   }
 
   const isUpcoming = selectedSession ? selectedSession.status === "scheduled" && selectedSession.scheduledAt > Date.now() : false;
@@ -216,62 +231,6 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
         })}
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center">
-        {DAY_LABELS.map((d) => (
-          <div key={d} className="text-xs text-muted-foreground py-2 font-medium border-b">
-            {d}
-          </div>
-        ))}
-        {days.map((day, idx) => {
-          if (day === null) return <div key={`empty-${idx}`} className="min-h-[80px] border-b border-r bg-muted/20" />;
-          const dayKey = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-          const daySessionsList = sessionsByDay[dayKey] ?? [];
-          const isPast = new Date(viewYear, viewMonth, day) < today;
-          const hasScheduled = daySessionsList.some(s => s.status === "scheduled");
-
-          return (
-            <div
-              key={day}
-              className={[
-                "min-h-[80px] border-b border-r p-1 text-left",
-                isPast ? "bg-muted/10" : "bg-background",
-              ].join(" ")}
-            >
-              <div className={[
-                "text-xs font-medium mb-1",
-                isPast ? "text-muted-foreground" : "text-foreground",
-              ].join(" ")}>
-                {day}
-              </div>
-              <div className="space-y-0.5">
-                {daySessionsList.slice(0, 3).map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => handleSessionClick(session)}
-                    className={[
-                      "w-full text-left text-[10px] px-1 py-0.5 rounded border truncate",
-                      session.status === "scheduled" && session.scheduledAt > Date.now()
-                        ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-                        : session.status === "completed"
-                        ? "bg-green-50 text-green-700 border-green-200"
-                        : "bg-gray-50 text-gray-600 border-gray-200",
-                    ].join(" ")}
-                  >
-                    {formatTime(session.scheduledAt)} {session.studentEmail?.split("@")[0] ?? "?"}
-                  </button>
-                ))}
-                {daySessionsList.length > 3 && (
-                  <div className="text-[10px] text-muted-foreground text-center">
-                    +{daySessionsList.length - 3} more
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200" />
@@ -287,10 +246,16 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
         </div>
       </div>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Session Details</DialogTitle>
+            <DialogTitle>
+              {selectedSession
+                ? "Session Details"
+                : selectedDaySessions.length > 0
+                ? `${formatDate(selectedDaySessions[0].scheduledAt)} — ${selectedDaySessions.length} sessions`
+                : "Session Details"}
+            </DialogTitle>
           </DialogHeader>
           {selectedSession && (
             <div className="space-y-4">
@@ -322,19 +287,55 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
                 </div>
               )}
 
-              <div className="flex justify-end">
-                <SessionActions
-                  session={{
-                    id: selectedSession.id,
-                    scheduledAt: selectedSession.scheduledAt,
-                    studentEmail: selectedSession.studentEmail,
-                    notes: selectedSession.notes,
-                    status: selectedSession.status,
-                  }}
-                  onSessionUpdated={handleRefresh}
-                  allowedActions={isUpcoming ? ["reschedule", "cancel", "notes"] : ["notes"]}
-                />
+              <div className="flex justify-between items-center">
+                {selectedDaySessions.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedSession(null)}
+                  >
+                    ← Back to day
+                  </Button>
+                )}
+                <div className={selectedDaySessions.length > 0 ? "" : "ml-auto"}>
+                  <SessionActions
+                    session={{
+                      id: selectedSession.id,
+                      scheduledAt: selectedSession.scheduledAt,
+                      studentEmail: selectedSession.studentEmail,
+                      notes: selectedSession.notes,
+                      status: selectedSession.status,
+                    }}
+                    onSessionUpdated={handleRefresh}
+                    allowedActions={isUpcoming ? ["reschedule", "cancel", "notes"] : ["notes"]}
+                  />
+                </div>
               </div>
+            </div>
+          )}
+          {!selectedSession && selectedDaySessions.length > 0 && (
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+              {selectedDaySessions.map((session) => (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => handleSessionSelectFromDay(session)}
+                  className={[
+                    "w-full flex items-center justify-between p-3 rounded-lg border text-left hover:bg-muted",
+                    session.status === "scheduled" && session.scheduledAt > Date.now()
+                      ? "bg-blue-50 border-blue-200"
+                      : session.status === "completed"
+                      ? "bg-green-50 border-green-200"
+                      : "bg-gray-50 border-gray-200",
+                  ].join(" ")}
+                >
+                  <div>
+                    <p className="text-sm font-medium">{formatTime(session.scheduledAt)} {session.studentEmail?.split("@")[0] ?? "?"}</p>
+                    <p className="text-xs text-muted-foreground">{session.studentEmail}</p>
+                  </div>
+                  <Badge className={getStatusColor(session.status)}>{session.status}</Badge>
+                </button>
+              ))}
             </div>
           )}
         </DialogContent>

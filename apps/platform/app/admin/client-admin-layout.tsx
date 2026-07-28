@@ -13,6 +13,8 @@ import {
   Users,
   GraduationCap,
   ListChecks,
+  Folder,
+  ScrollText,
 } from "lucide-react";
 
 const navItems = [
@@ -22,6 +24,8 @@ const navItems = [
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/onboardings", label: "Onboardings", icon: ListChecks },
+  { href: "/admin/workspaces", label: "Workspaces", icon: Folder },
+  { href: "/admin/audit-logs", label: "Audit Logs", icon: ScrollText },
 ];
 
 export function ClientAdminLayout({
