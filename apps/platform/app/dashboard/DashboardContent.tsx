@@ -163,7 +163,7 @@ export function DashboardContent() {
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
 
   useEffect(() => {
-    if (!isLoaded || !userId) {
+    if (!isLoaded || !userId || !isInstructorOrAdmin) {
       setGoogleBookings([]);
       setLoadingGoogleBookings(false);
       return;
@@ -190,7 +190,7 @@ export function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, userId]);
+  }, [isLoaded, userId, isInstructorOrAdmin]);
 
   useEffect(() => {
     if (!isLoaded || !userId) {
