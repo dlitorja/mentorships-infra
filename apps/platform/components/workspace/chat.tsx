@@ -330,9 +330,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   // workspace changes so the new workspace's messages are scrolled to
   // the bottom on first load. Without this, the ref persists across
   // workspace switches and the new workspace can bypass first-load
-  // positioning.
+  // positioning. Also clear any in-progress load-more scroll snapshot so
+  // the scroll-preservation effect doesn't jump the new workspace's chat.
   useEffect(() => {
     lastMessageIdRef.current = null;
+    scrollBeforeLoadRef.current = null;
   }, [workspaceId]);
 
   // PR #4c-4: read the chat subscription from the hoisted
