@@ -461,7 +461,7 @@ export default defineSchema({
     // this replaces Daily's in-call chat. The Conversations subpanel
     // for the live call can be filtered through `by_workspaceId_sessionId`.
     sessionId: v.optional(v.id("sessions")),
-  })    .index("by_workspaceId", ["workspaceId"])
+  }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
