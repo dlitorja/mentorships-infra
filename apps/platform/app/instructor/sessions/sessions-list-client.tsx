@@ -250,7 +250,7 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
               <Button asChild variant="outline">
                 <Link href="/instructor/students">
                   <Calendar className="mr-2 h-4 w-4" />
-                  Book a session
+                  View students
                 </Link>
               </Button>
             )}

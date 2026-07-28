@@ -52,7 +52,7 @@ export function ClientAdminLayout({
         <nav className="space-y-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`));
             
             return (
               <Link

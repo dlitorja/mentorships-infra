@@ -99,6 +99,9 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
     return result;
   }, [sessions]);
 
+  const monthPrefix = useMemo(() => `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`, [viewYear, viewMonth]);
+  const hasSessionsInMonth = useMemo(() => Object.keys(sessionsByDay).some((key) => key.startsWith(monthPrefix)), [sessionsByDay, monthPrefix]);
+
   const monthName = useMemo(
     () => `${MONTH_NAMES[viewMonth]} ${viewYear}`,
     [viewYear, viewMonth]
@@ -232,9 +235,9 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
         })}
       </div>
 
-      {sessions.length === 0 && (
+      {!hasSessionsInMonth && (
         <div className="text-center py-8 text-muted-foreground">
-          No sessions scheduled for this month.
+          No sessions scheduled for {monthName}.
         </div>
       )}
 
