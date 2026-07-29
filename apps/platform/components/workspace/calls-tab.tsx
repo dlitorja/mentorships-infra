@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
-import { CALL_RECORDINGS_CAP } from "@/lib/workspace-constants";
 import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
 
