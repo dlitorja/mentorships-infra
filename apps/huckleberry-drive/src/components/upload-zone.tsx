@@ -246,13 +246,16 @@ export function UploadZone({
                 : f
             )
           );
-          try {
-            if (initiatedFileId && initiatedUploadId) {
-              await abortUpload(initiatedFileId, initiatedUploadId);
-            }
-          } catch {
-            // Ignore abort errors
+        }
+        // Abort any multipart upload we started on B2, even if the user
+        // paused the upload. Resuming always starts a fresh upload, so the
+        // previous upload ID is orphaned if we don't clean it up.
+        try {
+          if (initiatedFileId && initiatedUploadId) {
+            await abortUpload(initiatedFileId, initiatedUploadId);
           }
+        } catch {
+          // Ignore abort errors
         }
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
@@ -376,6 +379,7 @@ export function UploadZone({
       settleUpload(fileId);
     }
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
+    settledFileIdsRef.current.delete(fileId);
   }, [settleUpload]);
 
   const formatBytes = (bytes: number): string => {
