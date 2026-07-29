@@ -530,6 +530,9 @@ export function UploadZone({
                         prev.map((f) => (f.id === uploadingFile.id ? retryFile : f))
                       );
                       activeUploadsRef.current++;
+                      // The original file already decremented the batch counter when
+                      // it errored; re-count the retry so it settles exactly once.
+                      batchPendingRef.current++;
                       uploadFile(retryFile);
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
