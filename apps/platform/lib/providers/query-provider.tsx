@@ -64,33 +64,41 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   const convex = useConvex();
 
   const [queryClient] = useState(
-    () =>
-      new QueryClient({
+    () => {
+      const client = new QueryClient({
         defaultOptions: {
           queries: {
             queryKeyHashFn: convexQueryClient?.hashFn(),
             queryFn: convexQueryClient?.queryFn(),
-            // Convex subscriptions already push live updates. Keep staleTime
-            // high so React Query does not re-subscribe and re-fetch the
-            // current snapshot on every tab focus or mount. This dramatically
-            // reduces the bytes re-pushed for the same reactive data.
-            staleTime: 1000 * 60 * 5,
-            // @convex-dev/react-query can throw during query removal if its
-            // subscription bookkeeping has already been cleaned up. Keep entries
-            // alive across normal tab/workspace switches, but still eventually GC.
-            // Shorter than staleTime so unused subscriptions are cleaned up sooner.
-            gcTime: 1000 * 60 * 5,
             retry: 3,
-            // Convex subscriptions are already live; refetching on focus/mount
-            // just re-requests the current snapshot and amplifies egress.
-            refetchOnWindowFocus: false,
-            refetchOnMount: false,
+            refetchOnWindowFocus: true,
+            refetchOnMount: true,
           },
           mutations: {
             retry: 1,
           },
         },
-      })
+      });
+
+      // Convex subscriptions already push live updates, so React Query does not
+      // need to re-subscribe and re-fetch the current snapshot on every tab
+      // focus or mount. Scope these defaults to Convex-backed queries only so
+      // REST-backed queries still refetch on focus/mount as before.
+      client.setQueryDefaults(["convexQuery"], {
+        staleTime: 1000 * 60 * 5,
+        gcTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        refetchOnMount: false,
+      });
+      client.setQueryDefaults(["convexAction"], {
+        staleTime: 1000 * 60 * 5,
+        gcTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        refetchOnMount: false,
+      });
+
+      return client;
+    }
   );
 
   useEffect(() => {
