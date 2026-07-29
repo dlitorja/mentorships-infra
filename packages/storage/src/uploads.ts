@@ -130,25 +130,36 @@ export async function completeMultipartUpload(params: {
 
   const sortedParts = [...params.parts].sort((a, b) => a.partNumber - b.partNumber);
 
+  const partsForB2 = sortedParts.map((part) => {
+    const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
+    const etag = actualPart?.etag || part.etag;
+    if (!etag) {
+      throw new Error(
+        `Part ${part.partNumber} was not found in B2's ListParts response and no client ETag was provided`
+      );
+    }
+    return {
+      ETag: etag,
+      PartNumber: part.partNumber,
+    };
+  });
+
   const command = new CompleteMultipartUploadCommand({
     Bucket: B2_BUCKET_NAME,
     Key: params.key,
     UploadId: params.uploadId,
     MultipartUpload: {
-      Parts: sortedParts.map((part) => {
-        const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
-        return {
-          ETag: actualPart?.etag || part.etag || "",
-          PartNumber: part.partNumber,
-        };
-      }),
+      Parts: partsForB2,
     },
   });
 
   const response = await client.send(command);
+  if (!response.ETag) {
+    throw new Error("CompleteMultipartUpload succeeded but B2 returned no ETag");
+  }
   return {
     location: response.Location!,
-    etag: response.ETag || "",
+    etag: response.ETag,
     versionId: response.VersionId || "",
   };
 }

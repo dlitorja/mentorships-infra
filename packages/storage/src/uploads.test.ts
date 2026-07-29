@@ -259,4 +259,43 @@ describe("uploadFromUrl", () => {
       { PartNumber: 2, ETag: '"actual-etag-2"' },
     ]);
   });
+
+  it("throws a descriptive error when a part is missing and no client ETag is provided", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        // B2 only knows about part 1; part 2 is missing
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      return {};
+    });
+
+    await expect(
+      completeMultipartUpload({
+        key: "test.mp4",
+        uploadId: "upload-123",
+        parts: [{ partNumber: 1 }, { partNumber: 2 }],
+      })
+    ).rejects.toThrow(/Part 2 was not found in B2's ListParts response/);
+  });
+
+  it("throws when B2 returns no ETag after completing the multipart upload", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        // Missing ETag in response
+        return { Location: "https://example.com/test.mp4", VersionId: "v1" };
+      }
+      return {};
+    });
+
+    await expect(
+      completeMultipartUpload({
+        key: "test.mp4",
+        uploadId: "upload-123",
+        parts: [{ partNumber: 1 }],
+      })
+    ).rejects.toThrow(/B2 returned no ETag/);
+  });
 });
