@@ -244,34 +244,32 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 
 ### Scope
 
-1. **Tune `apps/platform/lib/providers/query-provider.tsx`**.
-   - Increase `staleTime` to a longer value (e.g., 5 minutes) for Convex-backed queries.
-   - Reduce `gcTime` to a shorter value (e.g., 5 minutes) so unused subscriptions are cleaned up sooner.
-   - Set `refetchOnWindowFocus: false` for Convex-backed queries.
-   - Set `refetchOnMount: false` for Convex-backed queries.
-   - Keep retry behavior unchanged.
+1. **Scope React Query tuning to Convex-backed queries only in `apps/platform/lib/providers/query-provider.tsx`**.
+   - Keep the global `defaultOptions.queries` defaults unchanged for REST-backed queries (`staleTime: 1 minute`, `gcTime: 1 hour`, `retry: 3`, `refetchOnWindowFocus: true`, `refetchOnMount: true`).
+   - Use `queryClient.setQueryDefaults(["convexQuery"], ...)` and `setQueryDefaults(["convexAction"], ...)` to apply 5-minute `staleTime` and disable `refetchOnWindowFocus` and `refetchOnMount` only for Convex subscriptions. The 1-hour `gcTime` safety margin is kept globally.
 
 2. **Replace `useWorkspaceExports` polling** in `apps/platform/lib/queries/convex/use-workspaces.ts`.
    - Remove the `refetchInterval: 2000` polling.
-   - Use a reactive query that watches the `workspaceExports` table directly.
-   - The `getWorkspaceExports` query already returns the 10 most recent exports; make sure it is used as a live subscription.
+   - Rely on the existing reactive `getWorkspaceExports` subscription, which pushes status transitions in real time.
 
 3. **Audit other `refetchInterval` usages**.
-   - Search the app for any other polling patterns and either remove them or use a reactive query.
+   - No other polling intervals were found that needed removal.
 
 ### Verification
 
-- [ ] Window focus no longer triggers a full refetch of all active Convex subscriptions.
-- [ ] Switching tabs no longer re-fetches subscriptions if the data is within `staleTime`.
-- [ ] Export status updates without polling.
-- [ ] The UI still feels fresh; no stale data is shown when returning to the app after a long period.
-- [ ] `npm run typecheck` and `npm run lint` pass.
-- [ ] Greptile review passes.
+- [x] Window focus no longer triggers a full refetch of Convex-backed queries.
+- [x] REST-backed queries keep their original 1-minute `staleTime` and focus/mount refetch behavior.
+- [x] Export status updates without polling.
+- [x] The UI still feels fresh; no stale data is shown when returning to the app after a long period.
+- [x] `npm run typecheck` and `npm run lint` pass.
+- [x] CI checks pass (`Lint & Type Check`, `build-apps`, `typecheck-apps`, `typecheck-convex`, `convex-codegen`, Vercel deployments).
+- [x] Greptile review passed at 5/5 confidence.
 
 ### Risks and mitigations
 
-- **UI staleness**: test across the main user flows (chat, notes, dashboard, sessions) to ensure no critical UI feels stale.
-- **Mutations still invalidate**: ensure all mutations still call `queryClient.invalidateQueries` for the correct query keys so the UI updates after writes.
+- **REST query freshness**: by keeping global defaults at 1-minute `staleTime` and focus/mount refetch, REST-backed pages still refresh as before. Convex-backed queries rely on live WebSocket pushes instead.
+- **UI staleness**: tested across the main user flows; mutations still call `queryClient.invalidateQueries` for the correct query keys so the UI updates after writes.
+- **Convex GC safety**: the 1-hour `gcTime` and the existing `@convex-dev/react-query` subscription bookkeeping workaround are preserved.
 
 ---
 
@@ -304,17 +302,20 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 
 ### Verification
 
-- [ ] Instructor dashboard loads without an unbounded student list.
-- [ ] Instructor sessions page paginates sessions.
-- [ ] Public instructor listing pages paginate.
-- [ ] Admin user lists paginate.
-- [ ] `npm run typecheck` and `npm run lint` pass.
-- [ ] Greptile review passes.
+- [x] Instructor dashboard loads without an unbounded student list (`getInstructorStudentsWithRemainingSessions` capped at 100).
+- [x] Instructor sessions page paginates sessions (`getInstructorAllSessions` 20 sessions/page, UI split into a server page + `InstructorSessionsClient`).
+- [x] Public instructor listing pages cap results at 100 (`getPublicInstructors`, `getActiveInstructors`, `listInstructors`).
+- [x] Admin user lists paginate (`listActiveUsers`, `listDeletedUsers`, `listUsers` with `paginationOptsValidator`).
+- [x] Huckleberry Drive admin users page can traverse active/deleted continuation cursors via "Load more".
+- [x] `npm run typecheck` and `npm run lint` pass.
+- [x] CI checks pass (`Lint & Type Check`, `build-apps`, `typecheck-apps`, `typecheck-convex`, `convex-codegen`, Vercel deployments).
+- [x] Greptile review passed at 5/5 confidence.
 
 ### Risks and mitigations
 
-- **Dashboard aggregation**: if the instructor dashboard needs totals, consider computing them in a scheduled function or storing them on the instructor/session pack rows instead of aggregating on every query.
-- **Search/filter UX**: decide whether search is server-side or client-side. Large lists should be server-side.
+- **Dashboard aggregation**: `getInstructorStudentsWithRemainingSessions` still aggregates per seat and workspace; capped at 100 so the dashboard is bounded. If totals are needed later, they can be stored on the instructor/session pack rows.
+- **Search/filter UX**: admin/instructor listing search/filter remains client-side on the capped page; the cap is high enough (100) for current volume.
+- **Dual-list fetch on Load More**: clicking "Load more" in Huckleberry Drive currently advances both active and deleted cursors in one request. This is acceptable because the page size is 100 and the request is admin-only; the cursors allow correct traversal.
 
 ---
 
@@ -336,22 +337,22 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 | 1 | `fix/convex-egress-chat-pagination` | Merged | [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700) | typecheck/lint pass; Greptile 5/5 |
 | 2 | `fix/convex-egress-notes-pagination` | Merged | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
 | 3 | `fix/convex-egress-images-links-pagination` | Merged | [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705) | typecheck/lint pass; Greptile 5/5 |
-| 4 | `fix/convex-egress-query-tuning` | Ready | — | typecheck/lint pass; commits on branch |
-| 5 | `fix/convex-egress-listing-caps` | Ready | — | typecheck/lint pass; Greptile 4/5 (no blocking comments) |
+| 4 | `fix/convex-egress-query-tuning` | Ready | [PR #708](https://github.com/dlitorja/mentorships-infra/pull/708) | all CI checks pass; Greptile 5/5 |
+| 5 | `fix/convex-egress-listing-caps` | Ready | [PR #707](https://github.com/dlitorja/mentorships-infra/pull/707) | all CI checks pass; Greptile 5/5 |
 
-*Last updated: 2026-07-29 after PR 5 implementation completed*
+*Last updated: 2026-07-29 after PR 5 fixes pushed; both PRs ready for review/merge*
 
 ---
 
 ## Remaining work summary
 
-PRs 1, 2, and 3 are merged. PR 4 (React Query tuning / export polling) and PR 5 (instructor/admin listings) are implemented on their respective branches and ready for PR creation.
+PRs 1, 2, and 3 are merged. PR 4 (React Query tuning / export polling) and PR 5 (instructor/admin listings) are implemented, pushed as PR #708 and PR #707, and all CI checks and Greptile reviews pass.
 
-### Next: PR 4 — Tune React Query defaults
-Branch `fix/convex-egress-query-tuning` is ready; tune React Query defaults and remove export polling.
+### Next: merge PR 4 and PR 5
+- [PR #708](https://github.com/dlitorja/mentorships-infra/pull/708): Tune React Query defaults and remove export polling.
+- [PR #707](https://github.com/dlitorja/mentorships-infra/pull/707): Cap and paginate instructor/admin listings.
 
-### PR 5 — Cap and paginate instructor/admin listings
-Branch `fix/convex-egress-listing-caps` is ready (PR #707). Added pagination/caps to `getInstructorStudentsWithRemainingSessions`, `getInstructorAllSessions`, public instructor listings, and admin user lists. Updated the instructor dashboard, sessions page, and admin pages.
+No further implementation work is required for the current scope.
 
 ---
 
