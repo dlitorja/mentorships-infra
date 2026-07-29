@@ -204,9 +204,9 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
    - Remove `getWorkspaceLinks` invalidations from `useCreateWorkspaceLink` and `useDeleteWorkspaceLink`.
 
 10. **Cap `getCallRecordingsForWorkspace`** in `convex/sessions.ts`.
-    - Reduce the `.take(200)` buffer to `.take(20)`.
-    - Update the surrounding comment to reflect the new cap.
-    - The `calls-section.tsx` and `calls-tab.tsx` consumers continue to use the query directly; full cursor-based pagination is left as a future follow-up if workspaces exceed 20 recordings.
+     - Reduce the `.take(200)` buffer to `.paginate({ cursor: null, numItems: 50 })` and return `{ recordings, isTruncated }`.
+     - Update the surrounding comment to reflect the new cap.
+     - The `calls-section.tsx` and `calls-tab.tsx` consumers consume the new response shape and show a truncation notice; full cursor-based pagination is left as a future follow-up if workspaces exceed 50 recordings.
 
 ### Verification
 
@@ -216,7 +216,7 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 - [ ] Uploading a new image or link appends locally without re-fetching the entire list.
 - [ ] Image and link slot/count indicators remain accurate without loading the full list.
 - [ ] Workspace export still finds all images/links for the export (export uses the one-off `getWorkspaceExportData` query).
-- [ ] Calls/Videos tabs show up to 20 recordings.
+- [ ] Calls/Videos tabs show up to 50 recordings.
 - [ ] `npx tsc --noEmit -p convex/tsconfig.json` passes.
 - [ ] `pnpm --filter @mentorships/platform typecheck` passes.
 - [ ] `pnpm --filter @mentorships/platform lint` reports no new errors.
@@ -228,7 +228,7 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 - **Export completeness**: `getWorkspaceExportData` is used for one-off exports and remains unbounded. This is acceptable because it is not a live subscription.
 - **Image URL expiry**: `ctx.storage.getUrl()` is called only for the visible page, so URLs are refreshed as the user loads more.
 - **Role-filtered page sizes**: `getWorkspaceImagesPaginated` filters by role after reading the page. In rare cases a student page may contain fewer visible images if many student-only images are loaded; the "Load more" button will fetch the next page.
-- **Recording cap correctness**: the `.take(20)` is on `by_instructorId_studentId` ordered by `_creationTime`. If a session was created earlier than the 20th most recent session but started later, the UI may omit it. This is a known pre-existing trade-off; full pagination by `callStartedAt` is out of scope for this PR.
+- **Recording cap correctness**: the query uses `.paginate({ cursor: null, numItems: 50 })` on `by_instructorId_studentId` and post-sorts by `callStartedAt`. If a session was created earlier than the 50th most recent session but started later, the UI may omit it. This is a known pre-existing trade-off; full cursor-based pagination by `callStartedAt` is out of scope for this PR.
 
 ---
 
@@ -344,7 +344,7 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 PRs 1 and 2 are merged. The next highest-impact work is PR 3 (workspace images and links), followed by PR 4 (React Query tuning / export polling), and PR 5 (instructor/admin listings). PRs 3–5 are independent of each other; PR 4 is cross-cutting and can be done in parallel with PR 3 or PR 5.
 
 ### Next: PR 3 — Paginate workspace images and links
-Add a `by_workspaceId_and_deletedAt` index for `workspaceLinks`, add `getWorkspaceImagesPaginated` (24/page) and `getWorkspaceLinksPaginated` (50/page), and wire them into `apps/platform`. Replace the full-list image count in `chat.tsx` and `images.tsx` with workspace counters from `useWorkspace`. Remove now-redundant `getWorkspaceImages`/`getWorkspaceLinks` invalidations from mutations. Cap `getCallRecordingsForWorkspace` at 20 recordings. Keep export queries separate. Also include the PR 2 follow-up fix for note auto-selection regressions.
+Add a `by_workspaceId_and_deletedAt` index for `workspaceLinks`, add `getWorkspaceImagesPaginated` (24/page) and `getWorkspaceLinksPaginated` (50/page), and wire them into `apps/platform`. Replace the full-list image count in `chat.tsx` and `images.tsx` with workspace counters from `useWorkspace`. Remove now-redundant `getWorkspaceImages`/`getWorkspaceLinks` invalidations from mutations. Cap `getCallRecordingsForWorkspace` at 50 recordings and return an `isTruncated` flag. Keep export queries separate. Also include the PR 2 follow-up fix for note auto-selection regressions.
 
 ### PR 4 — Tune React Query defaults
 Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
@@ -363,7 +363,7 @@ Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 item
 Add a new paginated `getWorkspaceNotesPaginated` query in `convex/workspaces.ts` that returns only metadata (`_id`, `title`, `updatedAt`, `createdBy`, `sessionId`, `isLiveSessionNote`, `deletedAt`) and add `getWorkspaceNoteById` for the full TipTap `content`. Update the `apps/platform` Notes tab to subscribe to the paginated list (50 notes initially, newest-first) and fetch content only after a note is selected. Add a per-note loading state, a "Load more notes" button, and a `pendingDeletedNoteId` guard so the auto-selection effect does not reselect a note while the deletion is still propagating through the reactive subscription. Update the resource `EmbedNoteDialog` to use the paginated hook and show a loading state. Remove `getWorkspaceNotes` invalidations from note-related mutations because the paginated list and detail query are reactive. Leave the legacy `getWorkspaceNotes` query in place for `apps/web`.
 
 ### PR 3: Paginate workspace images and links
-Add a `by_workspaceId_and_deletedAt` index for `workspaceLinks`, then add `getWorkspaceImagesPaginated` and `getWorkspaceLinksPaginated` (newest-first, 24 and 50 per page) and wire them into `apps/platform` via `useWorkspaceImagesPaginated` and `useWorkspaceLinksPaginated`. Replace the full-list image count in `chat.tsx` and `images.tsx` with workspace counters from `useWorkspace`. Remove the now-redundant `getWorkspaceImages` and `getWorkspaceLinks` invalidations from image/link/resource mutations. Cap `getCallRecordingsForWorkspace` at 20 recordings. Keep the one-off `getWorkspaceExportData` unbounded. Also include the PR 2 follow-up: fix the Notes tab auto-selection so it detects when a previously selected note disappears from the loaded list (external deletion) and reselects a survivor, while not treating a newly created note that has not yet appeared as deleted, and reset selection state on workspace switch.
+Add a `by_workspaceId_and_deletedAt` index for `workspaceLinks`, then add `getWorkspaceImagesPaginated` and `getWorkspaceLinksPaginated` (newest-first, 24 and 50 per page) and wire them into `apps/platform` via `useWorkspaceImagesPaginated` and `useWorkspaceLinksPaginated`. Replace the full-list image count in `chat.tsx` and `images.tsx` with workspace counters from `useWorkspace`. Remove the now-redundant `getWorkspaceImages` and `getWorkspaceLinks` invalidations from image/link/resource mutations. Cap `getCallRecordingsForWorkspace` at 50 recordings and return an `isTruncated` flag. Keep the one-off `getWorkspaceExportData` unbounded. Also include the PR 2 follow-up: fix the Notes tab auto-selection so it detects when a previously selected note disappears from the loaded list (external deletion) and reselects a survivor, while not treating a newly created note that has not yet appeared as deleted, and reset selection state on workspace switch.
 
 ### PR 4: Tune React Query defaults
 Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.

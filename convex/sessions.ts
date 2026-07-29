@@ -1827,7 +1827,7 @@ export const getCallRecordingsForWorkspace = query({
       ownerUser?.email ||
       null;
 
-    const recordings: CallRecording[] = candidateSessions
+    const visibleRecordings: CallRecording[] = candidateSessions
       .filter((s) => {
         if (s.deletedAt !== undefined) return false;
         // Include the row if EITHER the legacy gate (recordingUrl set)
@@ -1871,12 +1871,13 @@ export const getCallRecordingsForWorkspace = query({
         if (a.callStartedAt === null) return 1;
         if (b.callStartedAt === null) return -1;
         return b.callStartedAt - a.callStartedAt;
-      })
-      .slice(0, 50);
+      });
+
+    const recordings = visibleRecordings.slice(0, 50);
 
     return {
       recordings,
-      isTruncated: !isDone || recordings.length >= 50,
+      isTruncated: !isDone || visibleRecordings.length > 50,
     };
   },
 });
