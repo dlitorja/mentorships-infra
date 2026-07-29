@@ -362,9 +362,19 @@ export function UploadZone({
     if (controller) {
       controller.abort();
     }
-    pausedFileIdsRef.current.delete(fileId);
+    const wasPaused = pausedFileIdsRef.current.delete(fileId);
+    if (wasPaused) {
+      const file = uploadingFiles.find((f) => f.id === fileId);
+      if (file?.countedInBatch) {
+        file.countedInBatch = false;
+        batchPendingRef.current--;
+        if (batchPendingRef.current === 0) {
+          onBatchComplete?.();
+        }
+      }
+    }
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
-  }, []);
+  }, [uploadingFiles, onBatchComplete]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
