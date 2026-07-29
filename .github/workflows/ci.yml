@@ -58,6 +58,8 @@ jobs:
         run: pnpm --filter @mentorships/web run typecheck
       - name: Typecheck apps/platform
         run: NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @mentorships/platform run typecheck
+      - name: Typecheck apps/huckleberry-drive
+        run: pnpm --filter @mentorships/huckleberry-drive run typecheck
 
   build-apps:
     runs-on: ubuntu-latest
@@ -76,3 +78,5 @@ jobs:
         run: pnpm --filter @mentorships/web run build
       - name: Build apps/platform
         run: pnpm --filter @mentorships/platform run build
+      - name: Build apps/huckleberry-drive
+        run: pnpm --filter @mentorships/huckleberry-drive run build

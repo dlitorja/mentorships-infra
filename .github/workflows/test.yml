@@ -17,6 +17,7 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
       platform: ${{ steps.filter.outputs.platform }}
+      drive: ${{ steps.filter.outputs.drive }}
       marketing: ${{ steps.filter.outputs.marketing }}
       packages: ${{ steps.filter.outputs.packages }}
       convex: ${{ steps.filter.outputs.convex }}
@@ -46,6 +47,7 @@ jobs:
           declare -A patterns=(
             [web]='^apps/web/'
             [platform]='^apps/platform/'
+            [drive]='^apps/huckleberry-drive/'
             [marketing]='^apps/marketing/'
             [packages]='^packages/'
             [convex]='^convex/'
@@ -73,8 +75,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Lint apps/huckleberry-drive
+        run: pnpm --filter @mentorships/huckleberry-drive run lint
+
       - name: Type check
         run: pnpm typecheck
+
+      - name: Type check apps/huckleberry-drive
+        run: pnpm --filter @mentorships/huckleberry-drive run typecheck
 
   unit-tests:
     name: Unit Tests
@@ -201,6 +209,20 @@ jobs:
       - name: Build Marketing (optional)
         if: needs.changes.outputs.marketing == 'true' || needs.changes.outputs.packages == 'true'
         run: pnpm --filter @mentorships/marketing build || echo "Marketing build skipped or failed (non-blocking)"
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+
+      - name: Build Huckleberry Drive
+        if: needs.changes.outputs.drive == 'true' || needs.changes.outputs.packages == 'true' || needs.changes.outputs.convex == 'true'
+        run: pnpm --filter @mentorships/huckleberry-drive build
         env:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}

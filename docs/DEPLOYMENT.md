@@ -3,6 +3,7 @@
 This repo is a monorepo with multiple apps:
 - apps/web
 - apps/platform
+- apps/huckleberry-drive
 - apps/marketing
 
 ## CI (GitHub Actions)
@@ -21,6 +22,7 @@ Use the `scripts/ignored-build-step.sh` script to skip builds when no relevant f
 3. Provide `FOLDERS` env var per project:
    - Web: `FOLDERS="apps/web packages convex"`
    - Platform: `FOLDERS="apps/platform packages convex"`
+   - Huckleberry Drive: `FOLDERS="apps/huckleberry-drive packages convex"`
    - Marketing: `FOLDERS="apps/marketing packages"`
 
 Behavior:
