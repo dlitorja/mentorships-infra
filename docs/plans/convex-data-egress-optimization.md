@@ -271,12 +271,12 @@ Merged via [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700). `n
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
 | 1 | `fix/convex-egress-chat-pagination` | Merged | [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700) | typecheck/lint pass; Greptile 5/5 |
-| 2 | `fix/convex-egress-notes-pagination` | Not started | — | Independent of PR 1 |
+| 2 | `fix/convex-egress-notes-pagination` | Opened | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
 | 3 | `fix/convex-egress-images-links-pagination` | Not started | — | Independent of PR 1/2 |
 | 4 | `fix/convex-egress-query-tuning` | Not started | — | Can be done in parallel with PR 1–3 |
 | 5 | `fix/convex-egress-listing-caps` | Not started | — | Independent of PR 1–4 |
 
-*Last updated: 2026-07-28 after PR #700 merge*
+*Last updated: 2026-07-28 after PR #702 opened*
 
 ---
 
