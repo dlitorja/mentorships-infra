@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
+import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotesPaginated, InstructorResource } from '@/lib/queries/convex/use-workspaces';
 import { uploadFileForChat } from '@/lib/workspace-image-upload';
 import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { Button } from '@/components/ui/button';
@@ -423,7 +423,8 @@ interface EmbedNoteDialogProps {
 }
 
 function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, selectedNoteId, onNoteChange }: EmbedNoteDialogProps) {
-  const { data: notes } = useWorkspaceNotes(workspaceId as string);
+  const notesQuery = useWorkspaceNotesPaginated(workspaceId as string);
+  const notes = notesQuery.results;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

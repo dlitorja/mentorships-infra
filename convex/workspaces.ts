@@ -833,6 +833,90 @@ export const getWorkspaceNotes = query({
   },
 });
 
+/**
+ * Metadata-only paginated list of notes for a workspace.
+ *
+ * PR #convex-egress-2: returns only the fields the Notes list needs
+ * (`_id`, `title`, `updatedAt`, `createdBy`, `sessionId`,
+ * `isLiveSessionNote`, `deletedAt`) so the large TipTap `content`
+ * payload is not re-pushed on every note write. The full content is
+ * fetched separately via `getWorkspaceNoteById` when a note is selected.
+ *
+ * Notes are returned newest-first; the UI can load older notes via the
+ * pagination cursor. Callers who are not active participants receive an
+ * empty, done page.
+ */
+export const getWorkspaceNotesPaginated = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
+    if (!workspace) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+
+    const result = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+
+    return {
+      page: result.page.map((note) => ({
+        _id: note._id,
+        title: note.title,
+        updatedAt: note.updatedAt,
+        createdBy: note.createdBy,
+        sessionId: note.sessionId,
+        isLiveSessionNote: note.isLiveSessionNote,
+        deletedAt: note.deletedAt,
+      })),
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
+    };
+  },
+});
+
+/**
+ * Returns the full workspace note for a given ID, including the TipTap
+ * `content`. Verifies the caller has access to the note's workspace.
+ *
+ * PR #convex-egress-2: used by the Notes tab to load the full note body
+ * only after the user selects a note from the metadata-only list.
+ */
+export const getWorkspaceNoteById = query({
+  args: { noteId: v.id("workspaceNotes") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) return null;
+
+    const note = await ctx.db.get(args.noteId);
+    if (!note) return null;
+
+    const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
+    if (!workspace) return null;
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) return null;
+
+    return note;
+  },
+});
+
 /** Creates a new note in a workspace. */
 export const createWorkspaceNote = mutation({
   args: {

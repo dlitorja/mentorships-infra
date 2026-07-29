@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -8,7 +8,8 @@ import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
-  useWorkspaceNotes,
+  useWorkspaceNotesPaginated,
+  useWorkspaceNoteById,
   useCreateWorkspaceNote,
   useUpdateWorkspaceNote,
   useDeleteWorkspaceNote,
@@ -32,15 +33,24 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { ChatImageLightbox } from './chat-lightbox';
 import CallsSection from './calls-section';
 
-interface Note {
+/**
+ * Metadata-only note row used for the Notes list. PR #convex-egress-2:
+ * the list query no longer returns the TipTap `content` so the payload
+ * stays small on every note update.
+ */
+/**
+ * Metadata-only note row used for the Notes list. PR #convex-egress-2:
+ * the list query no longer returns the TipTap `content` so the payload
+ * stays small on every note update.
+ */
+interface NoteListItem {
   _id: Id<'workspaceNotes'>;
-  workspaceId: Id<'workspaces'>;
   title: string;
-  content: string;
-  createdBy: string;
   updatedAt: number;
+  createdBy: string;
   sessionId?: Id<'sessions'>;
   isLiveSessionNote?: boolean;
+  deletedAt?: number;
 }
 
 interface WorkspaceNotesProps {
@@ -140,8 +150,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [noteImageLightboxOpen, setNoteImageLightboxOpen] = useState(false);
   const [noteImageLightboxIndex, setNoteImageLightboxIndex] = useState(0);
 
-  const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
+  const notesQuery = useWorkspaceNotesPaginated(workspaceId);
+  const notes = notesQuery.results as NoteListItem[] | undefined;
+  const notesStatus = notesQuery.status;
+  const canLoadMoreNotes =
+    notesStatus === "CanLoadMore" || notesStatus === "LoadingMore";
+  const isLoadingMoreNotes = notesStatus === "LoadingMore";
   const { data: liveSessionNote } = useLiveSessionNote(activeSessionId);
+  const { data: selectedNote, isLoading: selectedNoteLoading } = useWorkspaceNoteById(selectedNoteId);
   // Local override so the toggle flips immediately even before the
   // Convex mutation round-trips back through the `notes` query.
   const [clearedSessionIdByNote, setClearedSessionIdByNote] = useState<
@@ -157,8 +173,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const { data: comments } = useNoteComments(selectedNoteId ?? null);
   const createComment = useCreateNoteComment();
   const deleteComment = useDeleteNoteComment();
-
-  const selectedNote = notes?.find(n => n._id === selectedNoteId);
 
   useEffect(() => {
     updateNoteRef.current = updateNote;
@@ -418,7 +432,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       setIsCreating(false);
       setTagNewNoteToCall(activeSessionId !== null);
       setSelectedNoteId(noteId as Id<'workspaceNotes'>);
-      await refetch();
     } catch (error) {
       console.error('Failed to create note:', error);
       toast.error('Failed to create note');
@@ -432,7 +445,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (selectedNoteId === noteId) {
         setSelectedNoteId(null);
       }
-      await refetch();
     } catch (error) {
       console.error('Failed to delete note:', error);
       toast.error('Failed to delete note');
@@ -474,7 +486,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         next.delete(noteId);
         return next;
       });
-      await refetch();
     } catch (error) {
       console.error('Failed to tag note to call', error);
       toast.error('Failed to tag note');
@@ -491,7 +502,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         clearSessionId: true,
       });
       setClearedSessionIdByNote((prev) => new Set(prev).add(noteId));
-      await refetch();
     } catch (error) {
       console.error('Failed to untag note', error);
       toast.error('Failed to untag note');
@@ -625,7 +635,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     }
   };
 
-  if (isLoading) {
+  if (notesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -717,24 +727,25 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
           )}
 
           {notes && notes.length > 0 ? (
-            notes
-              .filter((n) => n._id !== liveSessionNote?._id)
-              .map((note: Note) => {
-                const isTaggedToCall =
-                  !!activeSessionId &&
-                  note.sessionId === activeSessionId &&
-                  !clearedSessionIdByNote.has(note._id);
-                return (
-                  <div
-                    key={note._id}
-                    className={clsx(
-                      "group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors",
-                      selectedNoteId === note._id
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-muted"
-                    )}
-                    onClick={() => setSelectedNoteId(note._id)}
-                  >
+            <>
+              {notes
+                .filter((n) => n._id !== liveSessionNote?._id)
+                .map((note: NoteListItem) => {
+                  const isTaggedToCall =
+                    !!activeSessionId &&
+                    note.sessionId === activeSessionId &&
+                    !clearedSessionIdByNote.has(note._id);
+                  return (
+                    <div
+                      key={note._id}
+                      className={clsx(
+                        "group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors",
+                        selectedNoteId === note._id
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-muted"
+                      )}
+                      onClick={() => setSelectedNoteId(note._id)}
+                    >
                     {editingNoteId === note._id && editingTitleSurface === 'list' ? (
                       <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <Input
@@ -831,9 +842,24 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                         </div>
                       </>
                     )}
-                  </div>
-                );
-              })
+                    </div>
+                  );
+                })}
+              {canLoadMoreNotes && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-muted-foreground"
+                  onClick={() => notesQuery.loadMore(50)}
+                  disabled={isLoadingMoreNotes}
+                >
+                  {isLoadingMoreNotes ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  Load more notes
+                </Button>
+              )}
+            </>
           ) : (
             !liveSessionNote && (
               <div className="text-center py-8 text-muted-foreground">
@@ -1182,6 +1208,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
               open={noteImageLightboxOpen}
               onOpenChange={setNoteImageLightboxOpen}
             />
+          </Card>
+        ) : selectedNoteId && selectedNoteLoading ? (
+          <Card className="h-full flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </Card>
         ) : (
           <Card className="h-full flex items-center justify-center">
