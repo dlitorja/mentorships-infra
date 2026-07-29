@@ -1873,10 +1873,8 @@ export const getCallRecordingsForWorkspace = query({
         return b.callStartedAt - a.callStartedAt;
       });
 
-    const recordings = visibleRecordings.slice(0, 50);
-
     return {
-      recordings,
+      recordings: visibleRecordings,
       isTruncated: !isDone,
     };
   },
