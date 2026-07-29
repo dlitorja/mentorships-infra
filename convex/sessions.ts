@@ -1877,7 +1877,7 @@ export const getCallRecordingsForWorkspace = query({
 
     return {
       recordings,
-      isTruncated: !isDone || visibleRecordings.length > 50,
+      isTruncated: !isDone,
     };
   },
 });
