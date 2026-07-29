@@ -70,14 +70,21 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           queries: {
             queryKeyHashFn: convexQueryClient?.hashFn(),
             queryFn: convexQueryClient?.queryFn(),
-            staleTime: 1000 * 60,
+            // Convex subscriptions already push live updates. Keep staleTime
+            // high so React Query does not re-subscribe and re-fetch the
+            // current snapshot on every tab focus or mount. This dramatically
+            // reduces the bytes re-pushed for the same reactive data.
+            staleTime: 1000 * 60 * 5,
             // @convex-dev/react-query can throw during query removal if its
             // subscription bookkeeping has already been cleaned up. Keep entries
             // alive across normal tab/workspace switches, but still eventually GC.
-            gcTime: 1000 * 60 * 60,
+            // Shorter than staleTime so unused subscriptions are cleaned up sooner.
+            gcTime: 1000 * 60 * 5,
             retry: 3,
-            refetchOnWindowFocus: true,
-            refetchOnMount: true,
+            // Convex subscriptions are already live; refetching on focus/mount
+            // just re-requests the current snapshot and amplifies egress.
+            refetchOnWindowFocus: false,
+            refetchOnMount: false,
           },
           mutations: {
             retry: 1,

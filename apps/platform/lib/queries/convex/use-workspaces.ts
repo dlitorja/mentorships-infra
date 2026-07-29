@@ -523,16 +523,18 @@ export interface WorkspaceExport {
 
 /**
  * Fetches export jobs for a specific workspace.
+ *
+ * PR #convex-egress-4: this is a live Convex subscription to
+ * `workspaces.getWorkspaceExports`, so export status updates without
+ * any polling. The previous `refetchInterval: 2000` was removed
+ * because reactive queries already push changes as they happen.
+ *
  * Returns the 10 most recent exports in descending order by creation time.
  */
 export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
     enabled: !!workspaceId,
-    refetchInterval: ((queryResult: { data?: { status: string }[] }) => {
-      const latest = queryResult.data?.[0];
-      return latest?.status === 'pending' || latest?.status === 'processing' ? 2000 : false;
-    }) as unknown as (query: unknown) => number | false,
   });
 }
 
