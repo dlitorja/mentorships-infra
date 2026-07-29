@@ -1801,9 +1801,9 @@ export const getCallRecordingsForWorkspace = query({
     // by creation could omit the most-recently-started recording
     // if some sessions were created later than others.
     //
-    // PR #convex-egress-3: cap the buffer at 20 to reduce egress.
-    // A typical (instructor, student) pair is well under 20
-    // recordings; anything above 20 will require cursor-based
+    // PR #convex-egress-3: cap the buffer at 50 to reduce egress.
+    // A typical (instructor, student) pair is well under 50
+    // recordings; anything above 50 will require cursor-based
     // pagination in a follow-up PR (out of scope here).
     const candidateSessions = await ctx.db
       .query("sessions")
@@ -1813,7 +1813,7 @@ export const getCallRecordingsForWorkspace = query({
           .eq("studentId", workspace.ownerId)
       )
       .order("desc")
-      .take(20);
+      .take(50);
 
     const ownerUser = await ctx.db
       .query("users")

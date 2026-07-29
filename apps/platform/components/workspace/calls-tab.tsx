@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
+import { CALL_RECORDINGS_CAP } from "@/lib/workspace-constants";
 import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
 
@@ -114,6 +115,11 @@ export default function CallsTab({
           ({recordings.length})
         </span>
       </div>
+      {recordings.length >= CALL_RECORDINGS_CAP && (
+        <p className="text-xs text-muted-foreground">
+          Showing the most recent {CALL_RECORDINGS_CAP} recordings.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {recordings.map((recording) => (

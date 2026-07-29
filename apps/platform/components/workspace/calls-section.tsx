@@ -10,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
+import { CALL_RECORDINGS_CAP } from "@/lib/workspace-constants";
 import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
@@ -146,6 +147,11 @@ export default function CallsSection({
           ({recordings.length})
         </span>
       </div>
+      {recordings.length >= CALL_RECORDINGS_CAP && (
+        <p className="px-1 text-xs text-muted-foreground">
+          Showing the most recent {CALL_RECORDINGS_CAP} recordings.
+        </p>
+      )}
 
       <ul className="divide-y">
         {recordings.map((recording) => (
