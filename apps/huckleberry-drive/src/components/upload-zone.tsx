@@ -80,6 +80,9 @@ export function UploadZone({
   // Ensures each file attempt decrements the batch counter exactly once,
   // even if cancel races with the uploadFile catch block.
   const settledFileIdsRef = useRef<Set<string>>(new Set());
+  // Tracks which file attempts are still inside uploadFile so cancel can
+  // distinguish a pause-that-already-settled from an in-flight attempt.
+  const pendingUploadsRef = useRef<Set<string>>(new Set());
 
   const settleUpload = useCallback(
     (fileId: string) => {
@@ -98,6 +101,7 @@ export function UploadZone({
 
   const uploadFile = useCallback(
     async (uploadingFile: UploadingFile) => {
+      pendingUploadsRef.current.add(uploadingFile.id);
       const { file } = uploadingFile;
       let initiatedFileId: string | undefined;
       let initiatedUploadId: string | undefined;
@@ -113,9 +117,10 @@ export function UploadZone({
         initiatedFileId = initiateResult.fileId;
         initiatedUploadId = initiateResult.uploadId;
 
-        // If the user paused before initiateUpload returned, honour the pause
-        // immediately instead of starting the part uploads.
-        if (pausedFileIdsRef.current.has(uploadingFile.id)) {
+        // If the user paused or cancelled before initiateUpload returned,
+        // honour that immediately instead of starting the part uploads.
+        const reason = abortReasonRef.current.get(uploadingFile.id);
+        if (reason === "pause" || reason === "cancel") {
           throw new Error("Upload cancelled");
         }
 
@@ -234,6 +239,7 @@ export function UploadZone({
         abortControllersRef.current.delete(uploadingFile.id);
         abortReasonRef.current.delete(uploadingFile.id);
         pausedFileIdsRef.current.delete(uploadingFile.id);
+        pendingUploadsRef.current.delete(uploadingFile.id);
         settleUpload(uploadingFile.id);
         onUploadComplete?.();
       } catch (error) {
@@ -262,6 +268,7 @@ export function UploadZone({
         abortControllersRef.current.delete(uploadingFile.id);
         const reason = abortReasonRef.current.get(uploadingFile.id);
         abortReasonRef.current.delete(uploadingFile.id);
+        pendingUploadsRef.current.delete(uploadingFile.id);
         // A user-paused upload is only temporarily aborted; it stays counted
         // in the batch until it is resumed or cancelled. Cancelled or errored
         // uploads settle immediately.
@@ -375,13 +382,19 @@ export function UploadZone({
     if (controller) {
       abortReasonRef.current.set(fileId, "cancel");
       controller.abort();
+      // The catch block will settle; remove the guard so it can.
+      settledFileIdsRef.current.delete(fileId);
+    } else if (pendingUploadsRef.current.has(fileId)) {
+      // The upload is still in-flight (e.g., paused before initiateUpload
+      // returned). Mark it cancelled; the catch block will settle once the
+      // in-progress call reaches the early-pause/cancel check.
+      abortReasonRef.current.set(fileId, "cancel");
     } else if (wasPaused) {
       // The in-progress attempt already settled (skipped decrement because it
       // was a pause), so settle now that the user explicitly cancelled.
       settleUpload(fileId);
     }
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
-    settledFileIdsRef.current.delete(fileId);
   }, [settleUpload]);
 
   const formatBytes = (bytes: number): string => {

@@ -92,7 +92,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // mutation when etag was undefined; falling back to the key
       // gives a usable (if non-unique) identifier for storage
       // accounting. The soft-delete path can still match by legacyId.
-      b2FileId: result.versionId ?? result.etag?.replace(/"/g, "") ?? `b2-key:${key}`,
+      b2FileId: result.versionId || result.etag?.replace(/"/g, "") || `b2-key:${key}`,
     }, { token: convexToken });
 
     return NextResponse.json({
