@@ -1490,7 +1490,8 @@ export const getWorkspaceImagesPaginated = query({
       return { page: [], continueCursor: "", isDone: true };
     }
 
-    const result = await ctx.db
+    const numRequested = args.paginationOpts.numItems as number;
+    let result = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
         q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
@@ -1499,17 +1500,39 @@ export const getWorkspaceImagesPaginated = query({
       .paginate(args.paginationOpts);
 
     // Filter by role before generating signed URLs so we only create URLs for
-    // images the caller will actually see.
+    // images the caller will actually see. Because the caller role isn't part
+    // of the index, we keep fetching pages until we fill the requested page
+    // size or exhaust the index, and return the cursor from the last fetched
+    // page. This prevents a non-instructor user from getting stuck on an
+    // endless "Load more" button that only loads instructor-only images.
     let visiblePage = result.page;
     if (role !== "instructor") {
-      if (!workspace.instructorId) {
-        visiblePage = result.page.filter((img) => img.createdBy === user.subject);
-      } else {
-        const instructor = await ctx.db.get(workspace.instructorId);
-        const instructorUserId = instructor?.userId;
-        visiblePage = result.page.filter(
-          (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
-        );
+      const instructor = workspace.instructorId
+        ? await ctx.db.get(workspace.instructorId)
+        : null;
+      const instructorUserId = instructor?.userId;
+      visiblePage = result.page.filter(
+        (img) =>
+          img.createdBy === user.subject || img.createdBy === instructorUserId
+      );
+      while (visiblePage.length < numRequested && !result.isDone) {
+        result = await ctx.db
+          .query("workspaceImages")
+          .withIndex("by_workspaceId_and_deletedAt", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+          )
+          .order("desc")
+          .paginate({
+            numItems: numRequested - visiblePage.length,
+            cursor: result.continueCursor,
+          });
+        visiblePage = [
+          ...visiblePage,
+          ...result.page.filter(
+            (img) =>
+              img.createdBy === user.subject || img.createdBy === instructorUserId
+          ),
+        ];
       }
     }
 
@@ -1527,8 +1550,9 @@ export const getWorkspaceImagesPaginated = query({
     );
 
     return {
-      ...result,
       page: imagesWithUrls,
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
     };
   },
 });
