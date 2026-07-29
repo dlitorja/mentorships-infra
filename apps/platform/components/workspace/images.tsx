@@ -60,7 +60,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const canLoadMoreImages =
     imagesStatus === 'CanLoadMore' || imagesStatus === 'LoadingMore';
   const isLoadingMoreImages = imagesStatus === 'LoadingMore';
-  const { data: workspace } = useWorkspace(workspaceId);
+  const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspace(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
@@ -119,6 +119,12 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   };
 
   const processFiles = useCallback(async (files: File[]): Promise<void> => {
+    if (isLoadingWorkspace) {
+      for (const file of files) {
+        toast.error(`${file.name}: Workspace image count is still loading.`);
+      }
+      return;
+    }
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
     const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
 
@@ -131,7 +137,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     const previews = await createImagePreviews(valid);
     setPreviewImages((prev) => [...prev, ...previews]);
     setImageFiles((prev) => [...prev, ...valid]);
-  }, [remainingSlots, isAdmin, imageFiles.length]);
+  }, [remainingSlots, isAdmin, imageFiles.length, isLoadingWorkspace]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]): Promise<void> => {
     await processFiles(acceptedFiles);
@@ -267,6 +273,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   // "Paste from clipboard" affordance only appears during a call.
   useEffect(() => {
     if (!activeSessionId) return;
+    if (isLoadingWorkspace) return;
     if (remainingSlots <= 0) return;
 
     const onPaste = async (e: ClipboardEvent) => {
@@ -307,7 +314,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [activeSessionId, workspaceId, generateUploadUrl, createImage, remainingSlots]);
+  }, [activeSessionId, workspaceId, generateUploadUrl, createImage, remainingSlots, isLoadingWorkspace]);
 
   const removeImage = (index: number) => {
     setPreviewImages((prev) => prev.filter((_, i) => i !== index));
@@ -329,7 +336,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     accept: {
       'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp']
     },
-    disabled: remainingSlots <= 0 || isUploading,
+    disabled: isLoadingWorkspace || remainingSlots <= 0 || isUploading,
     noClick: true,
     noKeyboard: true,
   });
@@ -376,7 +383,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          {currentCount} / {maxImages} images used ({remainingSlots} remaining)
+          {isLoadingWorkspace
+            ? 'Loading image count...'
+            : `${currentCount} / ${maxImages} images used (${remainingSlots} remaining)`}
         </p>
         <div className="flex items-center gap-2">
           {downloadUrl ? (
@@ -458,7 +467,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         className={clsx(
           "mb-4 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
           isDragActive ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/30",
-          remainingSlots <= 0 || isUploading ? "cursor-not-allowed opacity-60" : "cursor-default hover:border-primary/60 hover:bg-muted/50"
+          isLoadingWorkspace || remainingSlots <= 0 || isUploading ? "cursor-not-allowed opacity-60" : "cursor-default hover:border-primary/60 hover:bg-muted/50"
         )}
       >
         <input {...getInputProps()} />
@@ -474,7 +483,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
             type="button"
             size="sm"
             variant="secondary"
-            disabled={remainingSlots <= 0 || isUploading}
+            disabled={isLoadingWorkspace || remainingSlots <= 0 || isUploading}
             onClick={open}
           >
             Browse files
@@ -486,7 +495,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               size="sm"
               variant="outline"
               className="gap-1"
-              disabled={remainingSlots <= 0 || isUploading}
+              disabled={isLoadingWorkspace || remainingSlots <= 0 || isUploading}
               onClick={() => {
                 // Focus the dropzone area so subsequent ⌘/Ctrl+V
                 // paste events target this component (the global

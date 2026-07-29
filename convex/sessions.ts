@@ -1808,7 +1808,8 @@ export const getCallRecordingsForWorkspace = query({
     // A typical (instructor, student) pair is well under 50
     // recordings; anything above 50 will require cursor-based
     // pagination in a follow-up PR (out of scope here).
-    const { page: candidateSessions, isDone } = await ctx.db
+    const targetRecordings = 50;
+    let result = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId_studentId", (q) =>
         q
@@ -1816,7 +1817,27 @@ export const getCallRecordingsForWorkspace = query({
           .eq("studentId", workspace.ownerId)
       )
       .order("desc")
-      .paginate({ cursor: null, numItems: 50 });
+      .paginate({ cursor: null, numItems: targetRecordings });
+
+    let candidateSessions = result.page;
+    // Keep fetching session pages until we have enough recording-eligible
+    // sessions to fill the cap or exhaust the index. This prevents a run of
+    // recent sessions without recordings from hiding older valid recordings.
+    while (candidateSessions.length < targetRecordings && !result.isDone) {
+      result = await ctx.db
+        .query("sessions")
+        .withIndex("by_instructorId_studentId", (q) =>
+          q
+            .eq("instructorId", workspace.instructorId!)
+            .eq("studentId", workspace.ownerId)
+        )
+        .order("desc")
+        .paginate({
+          cursor: result.continueCursor,
+          numItems: targetRecordings - candidateSessions.length,
+        });
+      candidateSessions = [...candidateSessions, ...result.page];
+    }
 
     const ownerUser = await ctx.db
       .query("users")
@@ -1875,7 +1896,7 @@ export const getCallRecordingsForWorkspace = query({
 
     return {
       recordings: visibleRecordings,
-      isTruncated: !isDone,
+      isTruncated: !result.isDone,
     };
   },
 });

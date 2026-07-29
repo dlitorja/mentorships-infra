@@ -369,7 +369,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     [messagesRaw]
   );
 
-  const { data: workspace } = useWorkspace(workspaceId);
+  const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspace(workspaceId);
   const { data: fileCounts } = useWorkspaceFileCounts(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
@@ -515,6 +515,12 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const processFiles = useCallback(async (files: File[]) => {
+    if (isLoadingWorkspace) {
+      for (const file of files) {
+        toast.error(`${file.name}: Workspace image/file count is still loading.`);
+      }
+      return;
+    }
     const imageFiles = files.filter((file) => file.type.startsWith('image/'));
     const otherFiles = files.filter((file) => !file.type.startsWith('image/'));
     const newAttachments: PendingAttachment[] = [];
@@ -579,7 +585,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     if (newAttachments.length > 0) {
       setAttachments((prev) => [...prev, ...newAttachments]);
     }
-  }, [attachments, isAdmin, remainingFileSlots, remainingSlots, role]);
+  }, [attachments, isAdmin, isLoadingWorkspace, remainingFileSlots, remainingSlots, role]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     await processFiles(acceptedFiles);

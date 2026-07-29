@@ -207,7 +207,9 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
         <div>
           <h3 className="font-semibold">Shared Links</h3>
           <p className="text-sm text-muted-foreground">
-            {activeLinks.length} link{activeLinks.length === 1 ? '' : 's'}
+            {canLoadMoreLinks
+              ? `${activeLinks.length}+ links`
+              : `${activeLinks.length} link${activeLinks.length === 1 ? '' : 's'}`}
           </p>
         </div>
         <Button
