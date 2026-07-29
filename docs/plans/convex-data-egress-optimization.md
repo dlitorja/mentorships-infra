@@ -336,22 +336,22 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 | 1 | `fix/convex-egress-chat-pagination` | Merged | [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700) | typecheck/lint pass; Greptile 5/5 |
 | 2 | `fix/convex-egress-notes-pagination` | Merged | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
 | 3 | `fix/convex-egress-images-links-pagination` | Merged | [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705) | typecheck/lint pass; Greptile 5/5 |
-| 4 | `fix/convex-egress-query-tuning` | Not started | — | Next up |
-| 5 | `fix/convex-egress-listing-caps` | Not started | — | Can be done in parallel with PR 4 |
+| 4 | `fix/convex-egress-query-tuning` | Ready | — | typecheck/lint pass; commits on branch |
+| 5 | `fix/convex-egress-listing-caps` | Ready | — | typecheck/lint pass; Greptile 4/5 (no blocking comments) |
 
-*Last updated: 2026-07-29 after PR #705 merged; planning updated*
+*Last updated: 2026-07-29 after PR 5 implementation completed*
 
 ---
 
 ## Remaining work summary
 
-PRs 1, 2, and 3 are merged. The next highest-impact work is PR 4 (React Query tuning / export polling), followed by PR 5 (instructor/admin listings). PRs 4 and 5 are independent of each other and can be done in parallel.
+PRs 1, 2, and 3 are merged. PR 4 (React Query tuning / export polling) and PR 5 (instructor/admin listings) are implemented on their respective branches and ready for PR creation.
 
 ### Next: PR 4 — Tune React Query defaults
-Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
+Branch `fix/convex-egress-query-tuning` is ready; tune React Query defaults and remove export polling.
 
 ### PR 5 — Cap and paginate instructor/admin listings
-Add pagination or caps to `getInstructorStudentsWithRemainingSessions`, `getInstructorAllSessions`, public instructor listings, and admin user lists. Update the instructor dashboard and admin pages to support pagination.
+Branch `fix/convex-egress-listing-caps` is ready (PR #707). Added pagination/caps to `getInstructorStudentsWithRemainingSessions`, `getInstructorAllSessions`, public instructor listings, and admin user lists. Updated the instructor dashboard, sessions page, and admin pages.
 
 ---
 
