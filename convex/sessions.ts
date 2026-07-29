@@ -1758,21 +1758,24 @@ export type CallRecording = {
 
 export const getCallRecordingsForWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args): Promise<CallRecording[]> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ recordings: CallRecording[]; isTruncated: boolean }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
 
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
     if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
     if (workspace.instructorId === undefined) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
@@ -1794,18 +1797,19 @@ export const getCallRecordingsForWorkspace = query({
     // most recent overall. The compound index makes the lookup
     // exact and unbounded by that cap.
     //
-    // Greptile R4 P2: the leftover `.take(50)` here is intentional
+    // Greptile R4 P2: the leftover `.take(50)` here was intentional
     // pagination for the Calls sub-section, not a correctness
     // bug — but the original ordering was by `_creationTime` while
     // the UI sorts by `callStartedAt`, which means the last 50
     // by creation could omit the most-recently-started recording
-    // if some sessions were created later than others. We bump
-    // the take to 200 as a generous pre-sort buffer (a typical
-    // (instructor, student) pair is well under 200 recordings;
-    // anything above 200 will require pagination in a follow-up
-    // PR — out of scope for PR #4c-1) and then sort the actual
-    // candidate set by `callStartedAt`.
-    const candidateSessions = await ctx.db
+    // if some sessions were created later than others.
+    //
+    // PR #convex-egress-3: cap the buffer at 50 to reduce egress.
+    // A typical (instructor, student) pair is well under 50
+    // recordings; anything above 50 will require cursor-based
+    // pagination in a follow-up PR (out of scope here).
+    const targetRecordings = 50;
+    let result = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId_studentId", (q) =>
         q
@@ -1813,7 +1817,28 @@ export const getCallRecordingsForWorkspace = query({
           .eq("studentId", workspace.ownerId)
       )
       .order("desc")
-      .take(200);
+      .paginate({ cursor: null, numItems: targetRecordings });
+
+    let candidateSessions = result.page;
+    // Keep fetching session pages until we have collected the target number of
+    // sessions or exhaust the index. Each session yields at most one recording,
+    // so this prevents a run of recent sessions without recordings from hiding
+    // older valid recordings.
+    while (candidateSessions.length < targetRecordings && !result.isDone) {
+      result = await ctx.db
+        .query("sessions")
+        .withIndex("by_instructorId_studentId", (q) =>
+          q
+            .eq("instructorId", workspace.instructorId!)
+            .eq("studentId", workspace.ownerId)
+        )
+        .order("desc")
+        .paginate({
+          cursor: result.continueCursor,
+          numItems: targetRecordings - candidateSessions.length,
+        });
+      candidateSessions = [...candidateSessions, ...result.page];
+    }
 
     const ownerUser = await ctx.db
       .query("users")
@@ -1824,7 +1849,7 @@ export const getCallRecordingsForWorkspace = query({
       ownerUser?.email ||
       null;
 
-    const recordings: CallRecording[] = candidateSessions
+    const visibleRecordings: CallRecording[] = candidateSessions
       .filter((s) => {
         if (s.deletedAt !== undefined) return false;
         // Include the row if EITHER the legacy gate (recordingUrl set)
@@ -1868,10 +1893,12 @@ export const getCallRecordingsForWorkspace = query({
         if (a.callStartedAt === null) return 1;
         if (b.callStartedAt === null) return -1;
         return b.callStartedAt - a.callStartedAt;
-      })
-      .slice(0, 50);
+      });
 
-    return recordings;
+    return {
+      recordings: visibleRecordings,
+      isTruncated: !result.isDone,
+    };
   },
 });
 

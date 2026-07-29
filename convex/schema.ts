@@ -415,6 +415,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     sessionId: v.optional(v.id("sessions")),
   }).index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   workspaceImages: defineTable({

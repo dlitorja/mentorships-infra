@@ -25,3 +25,8 @@ export const MAX_CHAT_IMAGES_PER_UPLOAD = PER_UPLOAD_CAP;
 
 export const MAX_CHAT_FILE_BYTES = 50 * 1024 * 1024;
 export const LARGE_CHAT_FILE_BYTES = 10 * 1024 * 1024;
+
+// PR #convex-egress-3: cap on call recordings returned by
+// getCallRecordingsForWorkspace. Keep in sync with the backend
+// take(N) in convex/sessions.ts.
+export const CALL_RECORDINGS_CAP = 50;

@@ -16,7 +16,7 @@ import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
->[number];
+>["recordings"][number];
 
 interface CallsTabProps {
   workspaceId: Id<"workspaces">;
@@ -82,7 +82,8 @@ export default function CallsTab({
     );
   }
 
-  const recordings: CallRecording[] = recordingsQuery.data ?? [];
+  const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
+  const isTruncated = recordingsQuery.data?.isTruncated ?? false;
 
   if (recordings.length === 0) {
     return (
@@ -114,6 +115,11 @@ export default function CallsTab({
           ({recordings.length})
         </span>
       </div>
+      {isTruncated && (
+        <p className="text-xs text-muted-foreground">
+          Showing the most recent recordings. Some calls may not be listed.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {recordings.map((recording) => (

@@ -201,6 +201,42 @@ export function useWorkspaceImages(workspaceId: string) {
   });
 }
 
+/**
+ * Fetches a paginated list of links for a workspace, newest first.
+ * Use this in apps/platform; the legacy {@link useWorkspaceLinks} remains
+ * for apps/web.
+ *
+ * PR #convex-egress-3: replaces the unbounded `getWorkspaceLinks`
+ * subscription in apps/platform to reduce Convex Data Egress.
+ */
+export function useWorkspaceLinksPaginated(
+  workspaceId: Id<"workspaces"> | null | undefined
+): UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceLinksPaginated> {
+  return useConvexPaginatedQuery(
+    api.workspaces.getWorkspaceLinksPaginated,
+    workspaceId ? { workspaceId } : "skip",
+    { initialNumItems: 50 }
+  );
+}
+
+/**
+ * Fetches a paginated list of images for a workspace, newest first.
+ * Use this in apps/platform; the legacy {@link useWorkspaceImages} remains
+ * for apps/web.
+ *
+ * PR #convex-egress-3: replaces the unbounded `getWorkspaceImages`
+ * subscription in apps/platform to reduce Convex Data Egress.
+ */
+export function useWorkspaceImagesPaginated(
+  workspaceId: Id<"workspaces"> | null | undefined
+): UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceImagesPaginated> {
+  return useConvexPaginatedQuery(
+    api.workspaces.getWorkspaceImagesPaginated,
+    workspaceId ? { workspaceId } : "skip",
+    { initialNumItems: 24 }
+  );
+}
+
 // Mutations
 
 /**
@@ -352,35 +388,28 @@ export function useDeleteNoteComment() {
 
 /**
  * Mutation hook for creating a shared link in a workspace.
- * Invalidates workspace links queries on success to refresh list.
+ *
+ * PR #convex-egress-3: the paginated links subscription is reactive,
+ * so the new link appears automatically without an explicit
+ * invalidation. Invalidating it would reset pagination state and
+ * re-fetch the first page unnecessarily.
  */
 export function useCreateWorkspaceLink() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceLink),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceLinks"],
-      });
-    },
   });
 }
 
 /**
  * Mutation hook for deleting a shared link from a workspace.
- * Invalidates workspace links queries on success to refresh list.
+ *
+ * PR #convex-egress-3: the paginated links subscription is reactive,
+ * so the deleted link is removed automatically without an explicit
+ * invalidation.
  */
 export function useDeleteWorkspaceLink() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceLink),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceLinks"],
-      });
-    },
   });
 }
 
@@ -408,19 +437,15 @@ export function useDeleteWorkspaceImage() {
  * Mutation hook for creating an image AND a chat message in one call.
  * Used for uploading images directly to chat.
  *
- * The chat subscription is reactive, so the new message appears
- * automatically without an explicit invalidation. PR #convex-egress-1
- * removed the `getWorkspaceMessages` invalidation to avoid resetting
- * the paginated subscription state.
+ * The chat and image subscriptions are reactive, so the new message and
+ * image appear automatically without explicit invalidation. PR
+ * #convex-egress-1 removed the `getWorkspaceMessages` invalidation
+ * and PR #convex-egress-3 removed the `getWorkspaceImages`
+ * invalidation to avoid resetting paginated subscription state.
  */
 export function useCreateWorkspaceImageAndMessage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-    },
   });
 }
 
@@ -585,17 +610,15 @@ export function useAcknowledgeRetentionNotification() {
  *
  * PR #convex-egress-2: the paginated note list and note detail query
  * are reactive, so the embedded image appears automatically in the
- * selected note without invalidating the note list. The Images tab
- * query is kept here for PR 3.
+ * selected note without invalidating the note list.
+ *
+ * PR #convex-egress-3: the paginated images subscription is reactive,
+ * so the new image also appears in the Images tab without an explicit
+ * invalidation.
  */
 export function useEmbedImageInNote() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.embedImageInNote),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-    },
   });
 }
 
@@ -711,10 +734,11 @@ export function useUpdateInstructorResource() {
  * Mutation hook for sharing an instructor image resource to the workspace chat.
  * Also creates a workspaceImage record so it appears in the Images tab.
  *
- * The chat subscription is reactive, so the shared message appears
- * automatically without an explicit invalidation. PR #convex-egress-1
- * removed the `getWorkspaceMessages` invalidation to avoid resetting
- * the paginated subscription state.
+ * The chat and images subscriptions are reactive, so the shared message
+ * and image appear automatically without explicit invalidation. PR
+ * #convex-egress-1 removed the `getWorkspaceMessages` invalidation
+ * and PR #convex-egress-3 removed the `getWorkspaceImages`
+ * invalidation to avoid resetting paginated subscription state.
  */
 export function useShareResourceToChat() {
   const queryClient = useQueryClient();
@@ -723,7 +747,6 @@ export function useShareResourceToChat() {
     mutationFn: useConvexMutation(api.instructorResources.shareResourceToChat),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
     },
   });
 }
@@ -734,8 +757,11 @@ export function useShareResourceToChat() {
  *
  * PR #convex-egress-2: the paginated note list and note detail query
  * are reactive, so the embedded resource appears automatically in the
- * selected note without invalidating the note list. The Images tab
- * query is kept here for PR 3.
+ * selected note without invalidating the note list.
+ *
+ * PR #convex-egress-3: the paginated images subscription is reactive,
+ * so the new image also appears in the Images tab without an explicit
+ * invalidation.
  */
 export function useEmbedResourceInNote() {
   const queryClient = useQueryClient();
@@ -744,7 +770,6 @@ export function useEmbedResourceInNote() {
     mutationFn: useConvexMutation(api.instructorResources.embedResourceInNote),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
     },
   });
 }
