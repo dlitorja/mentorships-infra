@@ -33,21 +33,6 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { ChatImageLightbox } from './chat-lightbox';
 import CallsSection from './calls-section';
 
-/**
- * Metadata-only note row used for the Notes list. PR #convex-egress-2:
- * the list query no longer returns the TipTap `content` so the payload
- * stays small on every note update.
- */
-interface NoteListItem {
-  _id: Id<'workspaceNotes'>;
-  title: string;
-  updatedAt: number;
-  createdBy: string;
-  sessionId?: Id<'sessions'>;
-  isLiveSessionNote?: boolean;
-  deletedAt?: number;
-}
-
 interface WorkspaceNotesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
@@ -100,6 +85,7 @@ function collectNoteImageUrls(
  */
 export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessionId }: WorkspaceNotesProps) {
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'workspaceNotes'> | null>(null);
+  const [pendingDeletedNoteId, setPendingDeletedNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   // PR #4b: per-create-form "Tag to current call" toggle. Defaults
@@ -146,7 +132,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [noteImageLightboxIndex, setNoteImageLightboxIndex] = useState(0);
 
   const notesQuery = useWorkspaceNotesPaginated(workspaceId);
-  const notes = notesQuery.results as NoteListItem[];
+  const notes = notesQuery.results;
   const notesStatus = notesQuery.status;
   const canLoadMoreNotes =
     notesStatus === "CanLoadMore" || notesStatus === "LoadingMore";
@@ -396,9 +382,26 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
 
   useEffect(() => {
     if (notes.length > 0 && !selectedNoteId) {
-      setSelectedNoteId(notes[0]._id);
+      const firstSurvivingNote = notes.find(
+        (note) => note._id !== pendingDeletedNoteId
+      );
+      if (firstSurvivingNote) {
+        setSelectedNoteId(firstSurvivingNote._id);
+      }
     }
-  }, [notes, selectedNoteId]);
+  }, [notes, selectedNoteId, pendingDeletedNoteId]);
+
+  // Clear the pending deletion marker once the deleted note has
+  // disappeared from the reactive paginated list, so subsequent empty
+  // states or auto-selection do not keep skipping survivors.
+  useEffect(() => {
+    if (
+      pendingDeletedNoteId &&
+      !notes.some((note) => note._id === pendingDeletedNoteId)
+    ) {
+      setPendingDeletedNoteId(null);
+    }
+  }, [notes, pendingDeletedNoteId]);
 
   useEffect(() => {
     if (editingNoteId && titleInputRef.current) {
@@ -426,7 +429,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       setNewTitle('');
       setIsCreating(false);
       setTagNewNoteToCall(activeSessionId !== null);
-      setSelectedNoteId(noteId as Id<'workspaceNotes'>);
+      setSelectedNoteId(noteId);
     } catch (error) {
       console.error('Failed to create note:', error);
       toast.error('Failed to create note');
@@ -436,6 +439,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const handleDeleteNote = async (noteId: Id<'workspaceNotes'>) => {
     try {
       clearAutosave(noteId);
+      setPendingDeletedNoteId(noteId);
       await deleteNote.mutateAsync({ id: noteId });
       if (selectedNoteId === noteId) {
         setSelectedNoteId(null);
@@ -443,6 +447,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     } catch (error) {
       console.error('Failed to delete note:', error);
       toast.error('Failed to delete note');
+      setPendingDeletedNoteId(null);
     }
   };
 
@@ -725,7 +730,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
             <>
               {notes
                 .filter((n) => n._id !== liveSessionNote?._id)
-                .map((note: NoteListItem) => {
+                .map((note) => {
                   const isTaggedToCall =
                     !!activeSessionId &&
                     note.sessionId === activeSessionId &&

@@ -1,9 +1,11 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { type UsePaginatedQueryReturnType } from "convex/react";
+import { type FunctionReturnType } from "convex/server";
 
 /**
  * Fetches a single workspace by ID.
@@ -124,13 +126,11 @@ export function useWorkspaceFileCounts(
  * the query via the `"skip"` sentinel.
  */
 export function useWorkspaceNotesPaginated(
-  workspaceId: string | null | undefined
-) {
+  workspaceId: Id<"workspaces"> | null | undefined
+): UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceNotesPaginated> {
   return useConvexPaginatedQuery(
     api.workspaces.getWorkspaceNotesPaginated,
-    workspaceId
-      ? { workspaceId: workspaceId as Id<"workspaces"> }
-      : "skip",
+    workspaceId ? { workspaceId } : "skip",
     { initialNumItems: 50 }
   );
 }
@@ -147,7 +147,7 @@ export function useWorkspaceNotesPaginated(
  */
 export function useWorkspaceNoteById(
   noteId: Id<"workspaceNotes"> | null | undefined
-) {
+): UseQueryResult<FunctionReturnType<typeof api.workspaces.getWorkspaceNoteById>> {
   return useQuery(
     convexQuery(
       api.workspaces.getWorkspaceNoteById,
@@ -233,7 +233,12 @@ export function useCreateWorkspaceMessage() {
  * Pass `sessionId` when posting during an active video call — the
  * note is then auto-tagged to that session for the Notes tab.
  */
-export function useCreateWorkspaceNote() {
+export function useCreateWorkspaceNote(): UseMutationResult<
+  Id<"workspaceNotes">,
+  Error,
+  { workspaceId: Id<"workspaces">; title: string; content: string; sessionId?: Id<"sessions"> },
+  unknown
+> {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceNote),
   });
@@ -724,11 +729,11 @@ export function useShareResourceToChat() {
 }
 
 /**
- * Mutation hook for embedding an instructor image resource in a workspace note.
- * Also creates a workspaceImage record and updates the note's imageUrl.
+ * Mutation hook for embedding an instructor resource in a workspace note.
+ * Also creates a workspaceImage record when the resource is an image.
  *
  * PR #convex-egress-2: the paginated note list and note detail query
- * are reactive, so the embedded image appears automatically in the
+ * are reactive, so the embedded resource appears automatically in the
  * selected note without invalidating the note list. The Images tab
  * query is kept here for PR 3.
  */

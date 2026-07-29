@@ -423,9 +423,10 @@ interface EmbedNoteDialogProps {
 }
 
 function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, selectedNoteId, onNoteChange }: EmbedNoteDialogProps) {
-  const notesQuery = useWorkspaceNotesPaginated(workspaceId as string);
+  const notesQuery = useWorkspaceNotesPaginated(workspaceId);
   const notes = notesQuery.results;
   const notesStatus = notesQuery.status;
+  const isLoadingNotes = notesQuery.isLoading;
   const canLoadMoreNotes =
     notesStatus === "CanLoadMore" || notesStatus === "LoadingMore";
   const isLoadingMoreNotes = notesStatus === "LoadingMore";
@@ -448,7 +449,12 @@ function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, 
               <SelectValue placeholder="Select a note" />
             </SelectTrigger>
             <SelectContent>
-              {notes.length === 0 ? (
+              {isLoadingNotes ? (
+                <div className="p-2 flex items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Loading notes…
+                </div>
+              ) : notes.length === 0 ? (
                 <div className="p-2 text-sm text-muted-foreground">No notes available. Create a note first.</div>
               ) : (
                 notes.map((note) => (
