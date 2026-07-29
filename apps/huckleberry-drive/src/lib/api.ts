@@ -203,7 +203,7 @@ export async function completeUpload(
   fileId: string,
   uploadId: string,
   key: string,
-  parts: Array<{ partNumber: number; etag: string }>
+  parts: Array<{ partNumber: number; etag?: string }>
 ): Promise<void> {
   await fetchApi("/api/uploads/complete", {
     method: "POST",

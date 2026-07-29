@@ -18,9 +18,17 @@ export interface UploadInit {
   presignedUrls: string[];
 }
 
+/**
+ * Represents a single part of a multipart upload. The etag is optional
+ * because browsers performing direct-to-S3 uploads may not be able to read
+ * the ETag response header when CORS does not expose it (Backblaze B2's
+ * S3-compatible endpoint does not expose ETag by default). The server-side
+ * completion path reads the real ETags from `ListParts` when the client omits
+ * them.
+ */
 export interface UploadPart {
   partNumber: number;
-  etag: string;
+  etag?: string;
 }
 
 const DEFAULT_PART_SIZE = 100 * 1024 * 1024; // 100MB
@@ -130,7 +138,7 @@ export async function completeMultipartUpload(params: {
       Parts: sortedParts.map((part) => {
         const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
         return {
-          ETag: actualPart?.etag || part.etag,
+          ETag: actualPart?.etag || part.etag || "",
           PartNumber: part.partNumber,
         };
       }),
@@ -140,7 +148,7 @@ export async function completeMultipartUpload(params: {
   const response = await client.send(command);
   return {
     location: response.Location!,
-    etag: response.ETag!,
+    etag: response.ETag || "",
     versionId: response.VersionId || "",
   };
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { ListPartsCommand, CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 
 vi.mock("@aws-sdk/client-s3", async () => {
   const actual = await vi.importActual<typeof import("@aws-sdk/client-s3")>(
@@ -16,7 +17,7 @@ vi.mock("./client", () => ({
   B2_BUCKET_REGION: "us-west-002",
 }));
 
-import { uploadFromUrl } from "./uploads";
+import { uploadFromUrl, completeMultipartUpload } from "./uploads";
 
 const originalFetch = globalThis.fetch;
 
@@ -217,5 +218,45 @@ describe("uploadFromUrl", () => {
 
     expect(result.bytes).toBe(400);
     expect(result.etag).toBe("etag-stream");
+  });
+
+  it("uses server-side ETags when the client omits them", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return {
+          Parts: [
+            { PartNumber: 1, ETag: '"actual-etag-1"' },
+            { PartNumber: 2, ETag: '"actual-etag-2"' },
+          ],
+        };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        return {
+          Location: "https://s3.us-west-002.backblazeb2.com/instructor-uploads/test.mp4",
+          ETag: '"final-etag"',
+          VersionId: "v1",
+        };
+      }
+      return {};
+    });
+
+    const result = await completeMultipartUpload({
+      key: "test.mp4",
+      uploadId: "upload-123",
+      parts: [{ partNumber: 1 }, { partNumber: 2 }],
+    });
+
+    expect(result.etag).toBe('"final-etag"');
+    expect(result.versionId).toBe("v1");
+
+    const completeCall = mockSend.mock.calls.find(
+      ([c]) => c instanceof CompleteMultipartUploadCommand
+    );
+    expect(completeCall).toBeDefined();
+    const parts = (completeCall as unknown as { input: { MultipartUpload: { Parts: { PartNumber: number; ETag: string }[] } } })[0].input.MultipartUpload.Parts;
+    expect(parts).toEqual([
+      { PartNumber: 1, ETag: '"actual-etag-1"' },
+      { PartNumber: 2, ETag: '"actual-etag-2"' },
+    ]);
   });
 });

@@ -25,11 +25,10 @@ const ACCEPTED_VIDEO_TYPES = {
 
 const MAX_FILE_SIZE = STORAGE_LIMIT_BYTES;
 const MAX_CONCURRENT_UPLOADS = 2;
-// PR1: B2 S3 multipart PUTs always return an ETag header. If the
-// server is misconfigured (e.g. behind a proxy stripping it) we must
-// fail-fast and surface a clear error instead of fabricating a fake
-// ETag that B2 will reject at `completeMultipartUpload`. Retry the
-// part up to this many times before declaring the upload failed.
+// The server-side complete route reads part ETags directly from B2,
+// so the client no longer needs the ETag header from the PUT response.
+// Keep a small retry budget for transient network failures (DNS, TLS,
+// offline blips) before declaring the upload failed.
 const PART_RETRY_ATTEMPTS = 3;
 const PART_RETRY_BASE_DELAY_MS = 500;
 
@@ -101,11 +100,11 @@ export function UploadZone({
         );
 
         const totalParts = initiateResult.partCount;
-        const parts: Array<{ partNumber: number; etag: string }> = [];
+        const parts: Array<{ partNumber: number; etag?: string }> = [];
         const abortController = new AbortController();
         abortControllersRef.current.set(uploadingFile.id, abortController);
 
-        const uploadPart = async (partNumber: number, chunk: Blob): Promise<string> => {
+        const uploadPart = async (partNumber: number, chunk: Blob): Promise<string | undefined> => {
           const presignedUrl = initiateResult.presignedUrls[partNumber - 1];
           if (!presignedUrl) {
             throw new Error(`Missing presigned URL for part ${partNumber}`);
@@ -162,13 +161,12 @@ export function UploadZone({
               continue;
             }
 
-            const etag = response.headers.get("ETag");
-            if (!etag) {
-              throw new Error(
-                `Part ${partNumber} succeeded but the response is missing the required ETag header — likely a proxy/CORS issue`
-              );
-            }
-            return etag;
+            // ETag is not always exposed to cross-origin fetch() callers
+            // (B2 does not include it in Access-Control-Expose-Headers by
+            // default). The server-side complete route lists the uploaded
+            // parts from B2 and reads the ETag directly, so we can safely
+            // continue without the client-side header.
+            return response.headers.get("ETag") ?? undefined;
           }
           throw new Error(`Unreachable: retry loop exited for part ${partNumber}`);
         };
