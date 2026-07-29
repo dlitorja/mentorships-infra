@@ -1249,6 +1249,34 @@ export const getWorkspaceLinks = query({
 });
 
 /**
+ * Paginated links for a workspace.
+ *
+ * PR #convex-egress-3: returns only non-deleted links, newest first,
+ * so the Links tab does not re-push the full workspace link array on
+ * every create/delete. The legacy {@link getWorkspaceLinks} remains
+ * for apps/web.
+ */
+export const getWorkspaceLinksPaginated = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+    return await ctx.db
+      .query("workspaceLinks")
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+  },
+});
+
+/**
  * PR #4c-3: returns links tagged to the currently active call
  * (`sessionId` set + non-deleted) for the given workspace. Drives
  * the "Shared during current call" subpanel in the Links tab while
@@ -1432,6 +1460,77 @@ export const getWorkspaceImages = query({
     return imagesWithUrls.filter(
       (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
     );
+  },
+});
+
+/**
+ * Paginated images for a workspace, newest first.
+ *
+ * PR #convex-egress-3: returns only non-deleted images, generates
+ * signed URLs only for the visible page, and applies the same role
+ * filter as {@link getWorkspaceImages}. The legacy `getWorkspaceImages`
+ * remains for apps/web.
+ */
+export const getWorkspaceImagesPaginated = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
+    if (!workspace) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return { page: [], continueCursor: "", isDone: true };
+    }
+
+    const result = await ctx.db
+      .query("workspaceImages")
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
+      .order("desc")
+      .paginate(args.paginationOpts);
+
+    const instructor = workspace.instructorId
+      ? await ctx.db.get(workspace.instructorId)
+      : null;
+    const instructorUserId = instructor?.userId;
+
+    const imagesWithUrls = await Promise.all(
+      result.page.map(async (img) => {
+        let imageUrl = img.imageUrl;
+        if (img.storageId) {
+          const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
+          if (url) {
+            imageUrl = url;
+          }
+        }
+        return { ...img, imageUrl };
+      })
+    );
+
+    let visiblePage;
+    if (role === "instructor") {
+      visiblePage = imagesWithUrls;
+    } else if (!workspace.instructorId) {
+      visiblePage = imagesWithUrls.filter((img) => img.createdBy === user.subject);
+    } else {
+      visiblePage = imagesWithUrls.filter(
+        (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
+      );
+    }
+
+    return {
+      ...result,
+      page: visiblePage,
+    };
   },
 });
 

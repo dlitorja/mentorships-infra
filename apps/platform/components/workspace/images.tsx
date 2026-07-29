@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
@@ -54,7 +54,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
   const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
 
-  const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
+  const imagesQuery = useWorkspaceImagesPaginated(workspaceId);
+  const images = imagesQuery.results;
+  const imagesStatus = imagesQuery.status;
+  const canLoadMoreImages =
+    imagesStatus === 'CanLoadMore' || imagesStatus === 'LoadingMore';
+  const isLoadingMoreImages = imagesStatus === 'LoadingMore';
+  const { data: workspace } = useWorkspace(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
@@ -63,7 +69,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
-  const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
+  const currentCount = isAdmin
+    ? 0
+    : (role === 'student'
+      ? (workspace?.studentImageCount ?? 0)
+      : (workspace?.instructorImageCount ?? 0));
   const maxImages = isAdmin
     ? WORKSPACE_IMAGE_CAPS.admin
     : (role === 'student' ? WORKSPACE_IMAGE_CAPS.student : WORKSPACE_IMAGE_CAPS.instructor);
@@ -324,7 +334,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     noKeyboard: true,
   });
 
-  if (isLoading) {
+  if (imagesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -332,7 +342,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     );
   }
 
-  const activeImages = images?.filter((img: Image) => !img.deletedAt) || [];
+  const activeImages = (images as Image[]) || [];
 
   return (
     <div className="flex flex-col">
@@ -346,22 +356,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={async () => {
               setIsRefreshing(true);
-              const toastId = toast.loading('Refreshing images and exports...');
+              const toastId = toast.loading('Refreshing exports...');
               try {
-                const [imagesResult, exportsResult] = await Promise.all([refetchImages(), refetchExports()]);
-                const hasError = imagesResult?.isError || exportsResult?.isError;
+                const exportsResult = await refetchExports();
                 setIsRefreshing(false);
-                if (hasError) {
+                if (exportsResult?.isError) {
                   toast.error('Failed to refresh', { id: toastId });
                 } else {
-                  toast.success('Images and exports refreshed', { id: toastId });
+                  toast.success('Exports refreshed', { id: toastId });
                 }
               } catch {
                 setIsRefreshing(false);
                 toast.error('Failed to refresh', { id: toastId });
               }
             }}
-            title="Refresh images and exports"
+            title="Refresh exports"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -589,7 +598,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Refreshing images...</span>
+              <span className="text-sm text-muted-foreground">Refreshing exports...</span>
             </div>
           </div>
         )}
@@ -644,6 +653,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           </div>
         )}
       </div>
+
+      {canLoadMoreImages && (
+        <div className="mt-4 flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => imagesQuery.loadMore(24)}
+            disabled={isLoadingMoreImages}
+          >
+            {isLoadingMoreImages && (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            )}
+            Load more images
+          </Button>
+        </div>
+      )}
 
       {/* Lightbox Modal */}
       {selectedImage && (

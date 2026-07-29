@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
-  useWorkspaceLinks,
+  useWorkspaceLinksPaginated,
   useSharedLinksForActiveSession,
   useSharedResourcesForActiveSession,
   useCreateWorkspaceLink,
@@ -72,7 +72,12 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
     setTagToCall(activeSessionId !== null);
   }, [activeSessionId]);
 
-  const { data: links, isLoading } = useWorkspaceLinks(workspaceId);
+  const linksQuery = useWorkspaceLinksPaginated(workspaceId);
+  const links = linksQuery.results;
+  const linksStatus = linksQuery.status;
+  const canLoadMoreLinks =
+    linksStatus === 'CanLoadMore' || linksStatus === 'LoadingMore';
+  const isLoadingMoreLinks = linksStatus === 'LoadingMore';
   // PR #4c-3: links tagged to the active session. Returns
   // `undefined` while loading or when no session is active — see
   // the `enabled` guard in `useSharedLinksForActiveSession`.
@@ -102,7 +107,7 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
 
-  const activeLinks = links?.filter((link: Link) => !link.deletedAt) || [];
+  const activeLinks = (links as Link[] | undefined) ?? [];
 
   // PR #5: union the two server-side results into a single row list
   // for rendering. Sort by `_creationTime` desc so the subpanel
@@ -187,7 +192,7 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
     }
   };
 
-  if (isLoading) {
+  if (linksQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -513,6 +518,20 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
               <p>No links shared yet</p>
               <p className="text-sm">Add useful links to share with your instructor</p>
             </div>
+          </div>
+        )}
+        {canLoadMoreLinks && (
+          <div className="mt-4 flex justify-center">
+            <Button
+              variant="outline"
+              onClick={() => linksQuery.loadMore(50)}
+              disabled={isLoadingMoreLinks}
+            >
+              {isLoadingMoreLinks && (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              )}
+              Load more links
+            </Button>
           </div>
         )}
       </div>

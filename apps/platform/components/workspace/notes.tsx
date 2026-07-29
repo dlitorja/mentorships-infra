@@ -110,12 +110,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
-  // Track whether the selected note has ever been present in the
-  // loaded paginated list. This lets us distinguish a note that was
+  // Tracks the note ID that has been confirmed present in the loaded
+  // paginated list. This lets us distinguish a note that was
   // previously visible and is now gone (e.g., deleted by another
   // participant) from a brand-new note that has not yet appeared in
-  // the reactive list.
-  const hasSelectedNoteBeenInListRef = useRef(false);
+  // the reactive list. The ref stores the note ID itself, so it
+  // resets automatically when the selection changes.
+  const confirmedSelectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
@@ -391,7 +392,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   useEffect(() => {
     setSelectedNoteId(null);
     setPendingDeletedNoteId(null);
-    hasSelectedNoteBeenInListRef.current = false;
+    confirmedSelectedNoteIdRef.current = null;
   }, [workspaceId]);
 
   // Auto-select a surviving note when the list is loaded and no note
@@ -412,22 +413,24 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   // If the selected note was previously visible and now disappears,
   // clear it so the auto-selection effect above can pick a survivor.
   // Newly created notes that have not yet appeared in the list are not
-  // treated as deleted.
+  // treated as deleted. The ref is scoped to the note ID so it does not
+  // leak state from a previously selected note when the user switches
+  // selection or creates a new note.
   useEffect(() => {
     if (!selectedNoteId) {
-      hasSelectedNoteBeenInListRef.current = false;
+      confirmedSelectedNoteIdRef.current = null;
       return;
     }
 
     const isInList = notes.some((note) => note._id === selectedNoteId);
     if (isInList) {
-      hasSelectedNoteBeenInListRef.current = true;
+      confirmedSelectedNoteIdRef.current = selectedNoteId;
     } else if (
-      hasSelectedNoteBeenInListRef.current &&
+      confirmedSelectedNoteIdRef.current === selectedNoteId &&
       selectedNoteId !== pendingDeletedNoteId
     ) {
       setSelectedNoteId(null);
-      hasSelectedNoteBeenInListRef.current = false;
+      confirmedSelectedNoteIdRef.current = null;
     }
   }, [notes, selectedNoteId, pendingDeletedNoteId]);
 
@@ -469,6 +472,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       setNewTitle('');
       setIsCreating(false);
       setTagNewNoteToCall(activeSessionId !== null);
+      // Reset the confirmed-ID ref before selecting the newly created
+      // note so the deletion-detection effect does not treat it as
+      // externally deleted while it is still propagating into the
+      // paginated list.
+      confirmedSelectedNoteIdRef.current = null;
       setSelectedNoteId(noteId);
     } catch (error) {
       console.error('Failed to create note:', error);

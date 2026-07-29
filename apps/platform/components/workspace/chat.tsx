@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceMessagesPaginated, useWorkspaceFileCounts, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceMessagesPaginated, useWorkspaceFileCounts, useWorkspace, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
 import { useChatData, type ChatPaginationStatus } from '@/components/workspace/chat-data-context';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
@@ -46,15 +46,6 @@ interface PendingAttachment {
   isImage: boolean;
   preview?: string;
   error?: string;
-}
-
-interface WorkspaceImageDoc {
-  _id: Id<'workspaceImages'>;
-  workspaceId: Id<'workspaces'>;
-  imageUrl: string;
-  storageId?: string;
-  createdBy: string;
-  deletedAt?: number;
 }
 
 interface WorkspaceChatProps {
@@ -378,7 +369,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     [messagesRaw]
   );
 
-  const { data: existingImages } = useWorkspaceImages(workspaceId);
+  const { data: workspace } = useWorkspace(workspaceId);
   const { data: fileCounts } = useWorkspaceFileCounts(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
@@ -386,7 +377,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
-  const currentCount = (existingImages as WorkspaceImageDoc[] | undefined)?.filter((img) => !img.deletedAt).length || 0;
+  const currentCount = isAdmin
+    ? 0
+    : (role === 'instructor'
+      ? (workspace?.instructorImageCount ?? 0)
+      : (workspace?.studentImageCount ?? 0));
   const remainingSlots = isAdmin
     ? WORKSPACE_IMAGE_CAPS.admin
     : (role === 'instructor' ? WORKSPACE_IMAGE_CAPS.instructor : WORKSPACE_IMAGE_CAPS.student) - currentCount;
