@@ -38,11 +38,6 @@ import CallsSection from './calls-section';
  * the list query no longer returns the TipTap `content` so the payload
  * stays small on every note update.
  */
-/**
- * Metadata-only note row used for the Notes list. PR #convex-egress-2:
- * the list query no longer returns the TipTap `content` so the payload
- * stays small on every note update.
- */
 interface NoteListItem {
   _id: Id<'workspaceNotes'>;
   title: string;
@@ -151,7 +146,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [noteImageLightboxIndex, setNoteImageLightboxIndex] = useState(0);
 
   const notesQuery = useWorkspaceNotesPaginated(workspaceId);
-  const notes = notesQuery.results as NoteListItem[] | undefined;
+  const notes = notesQuery.results as NoteListItem[];
   const notesStatus = notesQuery.status;
   const canLoadMoreNotes =
     notesStatus === "CanLoadMore" || notesStatus === "LoadingMore";
@@ -400,7 +395,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   }, []);
 
   useEffect(() => {
-    if (notes && notes.length > 0 && !selectedNoteId) {
+    if (notes.length > 0 && !selectedNoteId) {
       setSelectedNoteId(notes[0]._id);
     }
   }, [notes, selectedNoteId]);
@@ -726,7 +721,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
             </div>
           )}
 
-          {notes && notes.length > 0 ? (
+          {notes.length > 0 ? (
             <>
               {notes
                 .filter((n) => n._id !== liveSessionNote?._id)
