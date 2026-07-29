@@ -1758,21 +1758,24 @@ export type CallRecording = {
 
 export const getCallRecordingsForWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
-  handler: async (ctx, args): Promise<CallRecording[]> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ recordings: CallRecording[]; isTruncated: boolean }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
 
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
     if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
     if (workspace.instructorId === undefined) {
-      return [];
+      return { recordings: [], isTruncated: false };
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
@@ -1871,7 +1874,10 @@ export const getCallRecordingsForWorkspace = query({
       })
       .slice(0, 50);
 
-    return recordings;
+    return {
+      recordings,
+      isTruncated: candidateSessions.length >= 50,
+    };
   },
 });
 

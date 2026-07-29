@@ -15,7 +15,7 @@ import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
->[number];
+>["recordings"][number];
 
 /**
  * PR #4c-1 + video-recording-to-b2: Calls sub-section at the top of
@@ -107,7 +107,8 @@ export default function CallsSection({
   // `recordingsQuery.data ?? []` so any future shape change in
   // `getCallRecordingsForWorkspace` surfaces as a tsc error here
   // instead of silently being masked by the cast.
-  const recordings: CallRecording[] = recordingsQuery.data ?? [];
+  const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
+  const isTruncated = recordingsQuery.data?.isTruncated ?? false;
 
   if (recordings.length === 0) {
     return (
@@ -147,7 +148,7 @@ export default function CallsSection({
           ({recordings.length})
         </span>
       </div>
-      {recordings.length >= CALL_RECORDINGS_CAP && (
+      {isTruncated && (
         <p className="px-1 text-xs text-muted-foreground">
           Showing the most recent {CALL_RECORDINGS_CAP} recordings.
         </p>
