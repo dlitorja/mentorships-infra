@@ -150,7 +150,7 @@ export default function CallsSection({
       </div>
       {isTruncated && (
         <p className="px-1 text-xs text-muted-foreground">
-          Showing the most recent {CALL_RECORDINGS_CAP} recordings.
+          Showing the most recent recordings. Some calls may not be listed.
         </p>
       )}
 

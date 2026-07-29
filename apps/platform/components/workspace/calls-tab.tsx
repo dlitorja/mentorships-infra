@@ -118,7 +118,7 @@ export default function CallsTab({
       </div>
       {isTruncated && (
         <p className="text-xs text-muted-foreground">
-          Showing the most recent {CALL_RECORDINGS_CAP} recordings.
+          Showing the most recent recordings. Some calls may not be listed.
         </p>
       )}
 
