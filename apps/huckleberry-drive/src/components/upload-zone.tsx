@@ -330,6 +330,10 @@ export function UploadZone({
         )
       );
       activeUploadsRef.current++;
+      // A paused upload already decremented the batch counter when it was
+      // aborted, so re-count the resumed file so its eventual settlement
+      // decrements exactly once.
+      batchPendingRef.current++;
       uploadFile(uploadingFile);
     },
     [uploadFile]
