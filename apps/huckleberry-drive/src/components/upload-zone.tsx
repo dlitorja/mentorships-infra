@@ -233,6 +233,7 @@ export function UploadZone({
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
         abortReasonRef.current.delete(uploadingFile.id);
+        pausedFileIdsRef.current.delete(uploadingFile.id);
         settleUpload(uploadingFile.id);
         onUploadComplete?.();
       } catch (error) {
@@ -265,6 +266,7 @@ export function UploadZone({
         // in the batch until it is resumed or cancelled. Cancelled or errored
         // uploads settle immediately.
         if (message !== "Upload cancelled" || reason === "cancel") {
+          pausedFileIdsRef.current.delete(uploadingFile.id);
           settleUpload(uploadingFile.id);
         }
       }
