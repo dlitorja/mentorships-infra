@@ -43,9 +43,6 @@ interface UploadingFile {
   parts: Array<{ partNumber: number; etag?: string }>;
   uploadedParts: number;
   partSize?: number;
-  // Whether this file has been counted in batchPendingRef. Used to keep
-  // the batch-completion counter accurate across pause/resume/retry.
-  countedInBatch?: boolean;
 }
 
 interface UploadZoneProps {
@@ -71,13 +68,33 @@ export function UploadZone({
   >([]);
   const activeUploadsRef = useRef(0);
   // Tracks the number of files from the most recent drop that have been
-  // counted and still need to settle (complete, error, or be cancelled).
+  // started and still need to settle (complete, error, or be cancelled).
   // Paused uploads remain counted until they resume or are cancelled.
   const batchPendingRef = useRef(0);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
-  // Paused uploads are still counted in the batch until they are resumed or
-  // cancelled, so we need to distinguish pause (temporary) from cancel/error.
+  // Paused uploads remain in the batch until they resume or are cancelled.
   const pausedFileIdsRef = useRef<Set<string>>(new Set());
+  // Distinguishes a user pause from a user cancel so the abort catch block
+  // can settle the batch counter exactly once.
+  const abortReasonRef = useRef<Map<string, "pause" | "cancel">>(new Map());
+  // Ensures each file attempt decrements the batch counter exactly once,
+  // even if cancel races with the uploadFile catch block.
+  const settledFileIdsRef = useRef<Set<string>>(new Set());
+
+  const settleUpload = useCallback(
+    (fileId: string) => {
+      if (settledFileIdsRef.current.has(fileId)) {
+        return false;
+      }
+      settledFileIdsRef.current.add(fileId);
+      batchPendingRef.current--;
+      if (batchPendingRef.current === 0 && pausedFileIdsRef.current.size === 0) {
+        onBatchComplete?.();
+      }
+      return true;
+    },
+    [onBatchComplete]
+  );
 
   const uploadFile = useCallback(
     async (uploadingFile: UploadingFile) => {
@@ -209,15 +226,8 @@ export function UploadZone({
 
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // Decrement the batch counter only once for this file. A file that is
-        // paused keeps its countedInBatch flag so it can settle when resumed.
-        if (uploadingFile.countedInBatch) {
-          uploadingFile.countedInBatch = false;
-          batchPendingRef.current--;
-          if (batchPendingRef.current === 0) {
-            onBatchComplete?.();
-          }
-        }
+        abortReasonRef.current.delete(uploadingFile.id);
+        settleUpload(uploadingFile.id);
         onUploadComplete?.();
       } catch (error) {
         const message =
@@ -240,22 +250,17 @@ export function UploadZone({
         }
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // A paused upload is only temporarily aborted; it keeps its
-        // countedInBatch flag so it can settle when resumed. Cancelled or
-        // errored uploads settle immediately.
-        const isPause =
-          message === "Upload cancelled" &&
-          pausedFileIdsRef.current.has(uploadingFile.id);
-        if (!isPause && uploadingFile.countedInBatch) {
-          uploadingFile.countedInBatch = false;
-          batchPendingRef.current--;
-          if (batchPendingRef.current === 0) {
-            onBatchComplete?.();
-          }
+        const reason = abortReasonRef.current.get(uploadingFile.id);
+        abortReasonRef.current.delete(uploadingFile.id);
+        // A user-paused upload is only temporarily aborted; it stays counted
+        // in the batch until it is resumed or cancelled. Cancelled or errored
+        // uploads settle immediately.
+        if (message !== "Upload cancelled" || reason === "cancel") {
+          settleUpload(uploadingFile.id);
         }
       }
     },
-    [onUploadComplete, onBatchComplete, instructorId]
+    [onUploadComplete, settleUpload, instructorId]
   );
 
   const onDrop = useCallback(
@@ -282,7 +287,6 @@ export function UploadZone({
         // matches what `uploadFile` will decrement. Files that didn't fit
         // concurrency stay "pending" in the UI (pre-existing behaviour) and
         // are not part of this batch.
-        uploadingFile.countedInBatch = true;
         batchPendingRef.current++;
         setUploadingFiles((prev) =>
           prev.map((f) =>
@@ -327,9 +331,12 @@ export function UploadZone({
   const pauseUpload = useCallback((fileId: string) => {
     const controller = abortControllersRef.current.get(fileId);
     if (controller) {
-      controller.abort();
+      abortReasonRef.current.set(fileId, "pause");
     }
     pausedFileIdsRef.current.add(fileId);
+    if (controller) {
+      controller.abort();
+    }
     setUploadingFiles((prev) =>
       prev.map((f) =>
         f.id === fileId ? { ...f, status: "paused" } : f
@@ -345,13 +352,8 @@ export function UploadZone({
         )
       );
       pausedFileIdsRef.current.delete(uploadingFile.id);
+      abortReasonRef.current.delete(uploadingFile.id);
       activeUploadsRef.current++;
-      // Files that were pending (not yet counted) need to be added to the
-      // batch counter; paused files are already counted and stay counted.
-      if (!uploadingFile.countedInBatch) {
-        uploadingFile.countedInBatch = true;
-        batchPendingRef.current++;
-      }
       uploadFile(uploadingFile);
     },
     [uploadFile]
@@ -359,22 +361,18 @@ export function UploadZone({
 
   const cancelUpload = useCallback((fileId: string) => {
     const controller = abortControllersRef.current.get(fileId);
-    if (controller) {
-      controller.abort();
-    }
     const wasPaused = pausedFileIdsRef.current.delete(fileId);
-    if (wasPaused) {
-      const file = uploadingFiles.find((f) => f.id === fileId);
-      if (file?.countedInBatch) {
-        file.countedInBatch = false;
-        batchPendingRef.current--;
-        if (batchPendingRef.current === 0) {
-          onBatchComplete?.();
-        }
-      }
+    abortReasonRef.current.delete(fileId);
+    if (controller) {
+      abortReasonRef.current.set(fileId, "cancel");
+      controller.abort();
+    } else if (wasPaused) {
+      // The in-progress attempt already settled (skipped decrement because it
+      // was a pause), so settle now that the user explicitly cancelled.
+      settleUpload(fileId);
     }
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
-  }, [uploadingFiles, onBatchComplete]);
+  }, [settleUpload]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -554,7 +552,6 @@ export function UploadZone({
                         uploadedParts: 0,
                         fileId: undefined,
                         uploadId: undefined,
-                        countedInBatch: true,
                       };
                       setUploadingFiles((prev) =>
                         prev.map((f) => (f.id === uploadingFile.id ? retryFile : f))

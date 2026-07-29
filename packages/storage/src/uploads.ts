@@ -154,12 +154,15 @@ export async function completeMultipartUpload(params: {
   });
 
   const response = await client.send(command);
-  if (!response.ETag) {
-    throw new Error("CompleteMultipartUpload succeeded but B2 returned no ETag");
+  if (!response.Location) {
+    throw new Error("CompleteMultipartUpload succeeded but B2 returned no Location");
   }
   return {
-    location: response.Location!,
-    etag: response.ETag,
+    location: response.Location,
+    // B2 sometimes omits the final ETag in its response. The caller already
+    // falls back to the object key for storage accounting, so an empty string
+    // here is safe and keeps the upload record consistent.
+    etag: response.ETag || "",
     versionId: response.VersionId || "",
   };
 }

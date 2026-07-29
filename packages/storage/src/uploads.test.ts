@@ -219,6 +219,12 @@ describe("uploadFromUrl", () => {
     expect(result.bytes).toBe(400);
     expect(result.etag).toBe("etag-stream");
   });
+});
+
+describe("completeMultipartUpload", () => {
+  beforeEach(() => {
+    mockSend.mockReset();
+  });
 
   it("uses server-side ETags when the client omits them", async () => {
     mockSend.mockImplementation(async (command) => {
@@ -253,8 +259,8 @@ describe("uploadFromUrl", () => {
       ([c]) => c instanceof CompleteMultipartUploadCommand
     );
     expect(completeCall).toBeDefined();
-    const parts = (completeCall as unknown as { input: { MultipartUpload: { Parts: { PartNumber: number; ETag: string }[] } } })[0].input.MultipartUpload.Parts;
-    expect(parts).toEqual([
+    const completeCommand = completeCall![0] as CompleteMultipartUploadCommand;
+    expect(completeCommand.input.MultipartUpload?.Parts).toEqual([
       { PartNumber: 1, ETag: '"actual-etag-1"' },
       { PartNumber: 2, ETag: '"actual-etag-2"' },
     ]);
@@ -278,14 +284,36 @@ describe("uploadFromUrl", () => {
     ).rejects.toThrow(/Part 2 was not found in B2's ListParts response/);
   });
 
-  it("throws when B2 returns no ETag after completing the multipart upload", async () => {
+  it("succeeds when B2 omits the final ETag in the completion response", async () => {
     mockSend.mockImplementation(async (command) => {
       if (command instanceof ListPartsCommand) {
         return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
       }
       if (command instanceof CompleteMultipartUploadCommand) {
-        // Missing ETag in response
+        // B2 can finalize the object without returning an ETag header.
         return { Location: "https://example.com/test.mp4", VersionId: "v1" };
+      }
+      return {};
+    });
+
+    const result = await completeMultipartUpload({
+      key: "test.mp4",
+      uploadId: "upload-123",
+      parts: [{ partNumber: 1 }],
+    });
+
+    expect(result.location).toBe("https://example.com/test.mp4");
+    expect(result.etag).toBe("");
+    expect(result.versionId).toBe("v1");
+  });
+
+  it("throws when B2 omits the Location in the completion response", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        return { ETag: '"final-etag"', VersionId: "v1" };
       }
       return {};
     });
@@ -296,6 +324,6 @@ describe("uploadFromUrl", () => {
         uploadId: "upload-123",
         parts: [{ partNumber: 1 }],
       })
-    ).rejects.toThrow(/B2 returned no ETag/);
+    ).rejects.toThrow(/B2 returned no Location/);
   });
 });
