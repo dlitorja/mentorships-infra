@@ -43,6 +43,9 @@ interface UploadingFile {
   parts: Array<{ partNumber: number; etag?: string }>;
   uploadedParts: number;
   partSize?: number;
+  // Whether this file has been counted in batchPendingRef. Used to keep
+  // the batch-completion counter accurate across pause/resume/retry.
+  countedInBatch?: boolean;
 }
 
 interface UploadZoneProps {
@@ -67,12 +70,14 @@ export function UploadZone({
     Array<{ file: File; errors: string[] }>
   >([]);
   const activeUploadsRef = useRef(0);
-  // PR1 (review): tracks the number of files from the most recent
-  // drop that are still being processed. Decremented in `uploadFile`'s
-  // finally block; when it reaches zero we know the current batch has
-  // fully settled and can safely fire `onBatchComplete`.
+  // Tracks the number of files from the most recent drop that have been
+  // counted and still need to settle (complete, error, or be cancelled).
+  // Paused uploads remain counted until they resume or are cancelled.
   const batchPendingRef = useRef(0);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // Paused uploads are still counted in the batch until they are resumed or
+  // cancelled, so we need to distinguish pause (temporary) from cancel/error.
+  const pausedFileIdsRef = useRef<Set<string>>(new Set());
 
   const uploadFile = useCallback(
     async (uploadingFile: UploadingFile) => {
@@ -204,13 +209,14 @@ export function UploadZone({
 
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // PR1 (review): decrement the batch counter and only fire
-        // `onBatchComplete` once every upload in the most recent drop
-        // has settled. The per-file `onUploadComplete` callback fires
-        // immediately so callers can still track individual files.
-        batchPendingRef.current--;
-        if (batchPendingRef.current === 0) {
-          onBatchComplete?.();
+        // Decrement the batch counter only once for this file. A file that is
+        // paused keeps its countedInBatch flag so it can settle when resumed.
+        if (uploadingFile.countedInBatch) {
+          uploadingFile.countedInBatch = false;
+          batchPendingRef.current--;
+          if (batchPendingRef.current === 0) {
+            onBatchComplete?.();
+          }
         }
         onUploadComplete?.();
       } catch (error) {
@@ -234,11 +240,18 @@ export function UploadZone({
         }
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // PR1 (review): mirror the success path's batch decrement so
-        // paused/cancelled uploads still settle the current batch.
-        batchPendingRef.current--;
-        if (batchPendingRef.current === 0) {
-          onBatchComplete?.();
+        // A paused upload is only temporarily aborted; it keeps its
+        // countedInBatch flag so it can settle when resumed. Cancelled or
+        // errored uploads settle immediately.
+        const isPause =
+          message === "Upload cancelled" &&
+          pausedFileIdsRef.current.has(uploadingFile.id);
+        if (!isPause && uploadingFile.countedInBatch) {
+          uploadingFile.countedInBatch = false;
+          batchPendingRef.current--;
+          if (batchPendingRef.current === 0) {
+            onBatchComplete?.();
+          }
         }
       }
     },
@@ -265,10 +278,11 @@ export function UploadZone({
           break;
         }
         activeUploadsRef.current++;
-        // PR1 (review): only count files that were actually started so
-        // the batch counter matches what `uploadFile` will decrement.
-        // Files that didn't fit concurrency stay "pending" in the UI
-        // (pre-existing behaviour) and are not part of this batch.
+        // Only count files that were actually started so the batch counter
+        // matches what `uploadFile` will decrement. Files that didn't fit
+        // concurrency stay "pending" in the UI (pre-existing behaviour) and
+        // are not part of this batch.
+        uploadingFile.countedInBatch = true;
         batchPendingRef.current++;
         setUploadingFiles((prev) =>
           prev.map((f) =>
@@ -315,6 +329,7 @@ export function UploadZone({
     if (controller) {
       controller.abort();
     }
+    pausedFileIdsRef.current.add(fileId);
     setUploadingFiles((prev) =>
       prev.map((f) =>
         f.id === fileId ? { ...f, status: "paused" } : f
@@ -329,11 +344,14 @@ export function UploadZone({
           f.id === uploadingFile.id ? { ...f, status: "uploading" } : f
         )
       );
+      pausedFileIdsRef.current.delete(uploadingFile.id);
       activeUploadsRef.current++;
-      // A paused upload already decremented the batch counter when it was
-      // aborted, so re-count the resumed file so its eventual settlement
-      // decrements exactly once.
-      batchPendingRef.current++;
+      // Files that were pending (not yet counted) need to be added to the
+      // batch counter; paused files are already counted and stay counted.
+      if (!uploadingFile.countedInBatch) {
+        uploadingFile.countedInBatch = true;
+        batchPendingRef.current++;
+      }
       uploadFile(uploadingFile);
     },
     [uploadFile]
@@ -344,6 +362,7 @@ export function UploadZone({
     if (controller) {
       controller.abort();
     }
+    pausedFileIdsRef.current.delete(fileId);
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
   }, []);
 
@@ -525,13 +544,12 @@ export function UploadZone({
                         uploadedParts: 0,
                         fileId: undefined,
                         uploadId: undefined,
+                        countedInBatch: true,
                       };
                       setUploadingFiles((prev) =>
                         prev.map((f) => (f.id === uploadingFile.id ? retryFile : f))
                       );
                       activeUploadsRef.current++;
-                      // The original file already decremented the batch counter when
-                      // it errored; re-count the retry so it settles exactly once.
                       batchPendingRef.current++;
                       uploadFile(retryFile);
                     }}
