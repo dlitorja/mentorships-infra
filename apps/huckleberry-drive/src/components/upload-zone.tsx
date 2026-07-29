@@ -113,6 +113,12 @@ export function UploadZone({
         initiatedFileId = initiateResult.fileId;
         initiatedUploadId = initiateResult.uploadId;
 
+        // If the user paused before initiateUpload returned, honour the pause
+        // immediately instead of starting the part uploads.
+        if (pausedFileIdsRef.current.has(uploadingFile.id)) {
+          throw new Error("Upload cancelled");
+        }
+
         setUploadingFiles((prev) =>
           prev.map((f) =>
             f.id === uploadingFile.id
@@ -330,9 +336,7 @@ export function UploadZone({
 
   const pauseUpload = useCallback((fileId: string) => {
     const controller = abortControllersRef.current.get(fileId);
-    if (controller) {
-      abortReasonRef.current.set(fileId, "pause");
-    }
+    abortReasonRef.current.set(fileId, "pause");
     pausedFileIdsRef.current.add(fileId);
     if (controller) {
       controller.abort();
