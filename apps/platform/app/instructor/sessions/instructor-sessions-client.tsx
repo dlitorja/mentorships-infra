@@ -17,8 +17,10 @@ export function InstructorSessionsClient({
   } = useInstructorAllSessions(instructorId);
 
   const isLoading = sessionsStatus === "LoadingFirstPage";
-  const canLoadMore =
-    sessionsStatus === "CanLoadMore" || sessionsStatus === "LoadingMore";
+  // Only show the "Load more" button when there is a known next page and no
+  // request is in flight. The button is hidden while LoadingMore to avoid
+  // double-clicks and stale data.
+  const canLoadMore = sessionsStatus === "CanLoadMore";
 
   return (
     <div className="space-y-6">
