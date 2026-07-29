@@ -876,6 +876,7 @@ export const getWorkspaceNotesPaginated = query({
       .paginate(args.paginationOpts);
 
     return {
+      ...result,
       page: result.page.map((note) => ({
         _id: note._id,
         title: note.title,
@@ -885,8 +886,6 @@ export const getWorkspaceNotesPaginated = query({
         isLiveSessionNote: note.isLiveSessionNote,
         deletedAt: note.deletedAt,
       })),
-      continueCursor: result.continueCursor,
-      isDone: result.isDone,
     };
   },
 });
@@ -905,7 +904,7 @@ export const getWorkspaceNoteById = query({
     if (!user) return null;
 
     const note = await ctx.db.get(args.noteId);
-    if (!note) return null;
+    if (!note || note.deletedAt) return null;
 
     const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
     if (!workspace) return null;
