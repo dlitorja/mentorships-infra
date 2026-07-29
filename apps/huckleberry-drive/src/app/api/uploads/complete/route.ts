@@ -24,7 +24,7 @@ const completeSchema = z.object({
   parts: z.array(
     z.object({
       partNumber: z.number().int().positive(),
-      etag: z.string().min(1),
+      etag: z.string().min(1).optional(),
     })
   ),
 });
@@ -62,7 +62,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.log("completeMultipartUpload called with:", {
       key,
       uploadId,
-      parts: parts.map(p => ({ partNumber: p.partNumber, etagLength: p.etag.length, etagStart: p.etag.substring(0, 20) }))
+      parts: parts.map(p => ({
+        partNumber: p.partNumber,
+        etag: p.etag ? `${p.etag.substring(0, 20)} (${p.etag.length} chars)` : "<missing, will use B2 list>",
+      }))
     });
 
     let result;
@@ -89,7 +92,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // mutation when etag was undefined; falling back to the key
       // gives a usable (if non-unique) identifier for storage
       // accounting. The soft-delete path can still match by legacyId.
-      b2FileId: result.versionId ?? result.etag?.replace(/"/g, "") ?? `b2-key:${key}`,
+      b2FileId: result.versionId || result.etag?.replace(/"/g, "") || `b2-key:${key}`,
     }, { token: convexToken });
 
     return NextResponse.json({

@@ -25,11 +25,10 @@ const ACCEPTED_VIDEO_TYPES = {
 
 const MAX_FILE_SIZE = STORAGE_LIMIT_BYTES;
 const MAX_CONCURRENT_UPLOADS = 2;
-// PR1: B2 S3 multipart PUTs always return an ETag header. If the
-// server is misconfigured (e.g. behind a proxy stripping it) we must
-// fail-fast and surface a clear error instead of fabricating a fake
-// ETag that B2 will reject at `completeMultipartUpload`. Retry the
-// part up to this many times before declaring the upload failed.
+// The server-side complete route reads part ETags directly from B2,
+// so the client no longer needs the ETag header from the PUT response.
+// Keep a small retry budget for transient network failures (DNS, TLS,
+// offline blips) before declaring the upload failed.
 const PART_RETRY_ATTEMPTS = 3;
 const PART_RETRY_BASE_DELAY_MS = 500;
 
@@ -68,15 +67,41 @@ export function UploadZone({
     Array<{ file: File; errors: string[] }>
   >([]);
   const activeUploadsRef = useRef(0);
-  // PR1 (review): tracks the number of files from the most recent
-  // drop that are still being processed. Decremented in `uploadFile`'s
-  // finally block; when it reaches zero we know the current batch has
-  // fully settled and can safely fire `onBatchComplete`.
+  // Tracks the number of files from the most recent drop that have been
+  // started and still need to settle (complete, error, or be cancelled).
+  // Paused uploads remain counted until they resume or are cancelled.
   const batchPendingRef = useRef(0);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  // Paused uploads remain in the batch until they resume or are cancelled.
+  const pausedFileIdsRef = useRef<Set<string>>(new Set());
+  // Distinguishes a user pause from a user cancel so the abort catch block
+  // can settle the batch counter exactly once.
+  const abortReasonRef = useRef<Map<string, "pause" | "cancel">>(new Map());
+  // Ensures each file attempt decrements the batch counter exactly once,
+  // even if cancel races with the uploadFile catch block.
+  const settledFileIdsRef = useRef<Set<string>>(new Set());
+  // Tracks which file attempts are still inside uploadFile so cancel can
+  // distinguish a pause-that-already-settled from an in-flight attempt.
+  const pendingUploadsRef = useRef<Set<string>>(new Set());
+
+  const settleUpload = useCallback(
+    (fileId: string) => {
+      if (settledFileIdsRef.current.has(fileId)) {
+        return false;
+      }
+      settledFileIdsRef.current.add(fileId);
+      batchPendingRef.current--;
+      if (batchPendingRef.current === 0 && pausedFileIdsRef.current.size === 0) {
+        onBatchComplete?.();
+      }
+      return true;
+    },
+    [onBatchComplete]
+  );
 
   const uploadFile = useCallback(
     async (uploadingFile: UploadingFile) => {
+      pendingUploadsRef.current.add(uploadingFile.id);
       const { file } = uploadingFile;
       let initiatedFileId: string | undefined;
       let initiatedUploadId: string | undefined;
@@ -92,6 +117,13 @@ export function UploadZone({
         initiatedFileId = initiateResult.fileId;
         initiatedUploadId = initiateResult.uploadId;
 
+        // If the user paused or cancelled before initiateUpload returned,
+        // honour that immediately instead of starting the part uploads.
+        const reason = abortReasonRef.current.get(uploadingFile.id);
+        if (reason === "pause" || reason === "cancel") {
+          throw new Error("Upload cancelled");
+        }
+
         setUploadingFiles((prev) =>
           prev.map((f) =>
             f.id === uploadingFile.id
@@ -101,11 +133,11 @@ export function UploadZone({
         );
 
         const totalParts = initiateResult.partCount;
-        const parts: Array<{ partNumber: number; etag: string }> = [];
+        const parts: Array<{ partNumber: number; etag?: string }> = [];
         const abortController = new AbortController();
         abortControllersRef.current.set(uploadingFile.id, abortController);
 
-        const uploadPart = async (partNumber: number, chunk: Blob): Promise<string> => {
+        const uploadPart = async (partNumber: number, chunk: Blob): Promise<string | undefined> => {
           const presignedUrl = initiateResult.presignedUrls[partNumber - 1];
           if (!presignedUrl) {
             throw new Error(`Missing presigned URL for part ${partNumber}`);
@@ -162,13 +194,12 @@ export function UploadZone({
               continue;
             }
 
-            const etag = response.headers.get("ETag");
-            if (!etag) {
-              throw new Error(
-                `Part ${partNumber} succeeded but the response is missing the required ETag header — likely a proxy/CORS issue`
-              );
-            }
-            return etag;
+            // ETag is not always exposed to cross-origin fetch() callers
+            // (B2 does not include it in Access-Control-Expose-Headers by
+            // default). The server-side complete route lists the uploaded
+            // parts from B2 and reads the ETag directly, so we can safely
+            // continue without the client-side header.
+            return response.headers.get("ETag") ?? undefined;
           }
           throw new Error(`Unreachable: retry loop exited for part ${partNumber}`);
         };
@@ -206,14 +237,10 @@ export function UploadZone({
 
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // PR1 (review): decrement the batch counter and only fire
-        // `onBatchComplete` once every upload in the most recent drop
-        // has settled. The per-file `onUploadComplete` callback fires
-        // immediately so callers can still track individual files.
-        batchPendingRef.current--;
-        if (batchPendingRef.current === 0) {
-          onBatchComplete?.();
-        }
+        abortReasonRef.current.delete(uploadingFile.id);
+        pausedFileIdsRef.current.delete(uploadingFile.id);
+        pendingUploadsRef.current.delete(uploadingFile.id);
+        settleUpload(uploadingFile.id);
         onUploadComplete?.();
       } catch (error) {
         const message =
@@ -226,25 +253,32 @@ export function UploadZone({
                 : f
             )
           );
-          try {
-            if (initiatedFileId && initiatedUploadId) {
-              await abortUpload(initiatedFileId, initiatedUploadId);
-            }
-          } catch {
-            // Ignore abort errors
+        }
+        // Abort any multipart upload we started on B2, even if the user
+        // paused the upload. Resuming always starts a fresh upload, so the
+        // previous upload ID is orphaned if we don't clean it up.
+        try {
+          if (initiatedFileId && initiatedUploadId) {
+            await abortUpload(initiatedFileId, initiatedUploadId);
           }
+        } catch {
+          // Ignore abort errors
         }
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
-        // PR1 (review): mirror the success path's batch decrement so
-        // paused/cancelled uploads still settle the current batch.
-        batchPendingRef.current--;
-        if (batchPendingRef.current === 0) {
-          onBatchComplete?.();
+        const reason = abortReasonRef.current.get(uploadingFile.id);
+        abortReasonRef.current.delete(uploadingFile.id);
+        pendingUploadsRef.current.delete(uploadingFile.id);
+        // A user-paused upload is only temporarily aborted; it stays counted
+        // in the batch until it is resumed or cancelled. Cancelled or errored
+        // uploads settle immediately.
+        if (message !== "Upload cancelled" || reason === "cancel") {
+          pausedFileIdsRef.current.delete(uploadingFile.id);
+          settleUpload(uploadingFile.id);
         }
       }
     },
-    [onUploadComplete, onBatchComplete, instructorId]
+    [onUploadComplete, settleUpload, instructorId]
   );
 
   const onDrop = useCallback(
@@ -267,10 +301,10 @@ export function UploadZone({
           break;
         }
         activeUploadsRef.current++;
-        // PR1 (review): only count files that were actually started so
-        // the batch counter matches what `uploadFile` will decrement.
-        // Files that didn't fit concurrency stay "pending" in the UI
-        // (pre-existing behaviour) and are not part of this batch.
+        // Only count files that were actually started so the batch counter
+        // matches what `uploadFile` will decrement. Files that didn't fit
+        // concurrency stay "pending" in the UI (pre-existing behaviour) and
+        // are not part of this batch.
         batchPendingRef.current++;
         setUploadingFiles((prev) =>
           prev.map((f) =>
@@ -314,6 +348,8 @@ export function UploadZone({
 
   const pauseUpload = useCallback((fileId: string) => {
     const controller = abortControllersRef.current.get(fileId);
+    abortReasonRef.current.set(fileId, "pause");
+    pausedFileIdsRef.current.add(fileId);
     if (controller) {
       controller.abort();
     }
@@ -331,6 +367,8 @@ export function UploadZone({
           f.id === uploadingFile.id ? { ...f, status: "uploading" } : f
         )
       );
+      pausedFileIdsRef.current.delete(uploadingFile.id);
+      abortReasonRef.current.delete(uploadingFile.id);
       activeUploadsRef.current++;
       uploadFile(uploadingFile);
     },
@@ -339,11 +377,25 @@ export function UploadZone({
 
   const cancelUpload = useCallback((fileId: string) => {
     const controller = abortControllersRef.current.get(fileId);
+    const wasPaused = pausedFileIdsRef.current.delete(fileId);
+    abortReasonRef.current.delete(fileId);
     if (controller) {
+      abortReasonRef.current.set(fileId, "cancel");
       controller.abort();
+      // The catch block will settle; remove the guard so it can.
+      settledFileIdsRef.current.delete(fileId);
+    } else if (pendingUploadsRef.current.has(fileId)) {
+      // The upload is still in-flight (e.g., paused before initiateUpload
+      // returned). Mark it cancelled; the catch block will settle once the
+      // in-progress call reaches the early-pause/cancel check.
+      abortReasonRef.current.set(fileId, "cancel");
+    } else if (wasPaused) {
+      // The in-progress attempt already settled (skipped decrement because it
+      // was a pause), so settle now that the user explicitly cancelled.
+      settleUpload(fileId);
     }
     setUploadingFiles((prev) => prev.filter((f) => f.id !== fileId));
-  }, []);
+  }, [settleUpload]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -528,6 +580,7 @@ export function UploadZone({
                         prev.map((f) => (f.id === uploadingFile.id ? retryFile : f))
                       );
                       activeUploadsRef.current++;
+                      batchPendingRef.current++;
                       uploadFile(retryFile);
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"

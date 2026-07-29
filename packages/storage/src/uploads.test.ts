@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { ListPartsCommand, CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 
 vi.mock("@aws-sdk/client-s3", async () => {
   const actual = await vi.importActual<typeof import("@aws-sdk/client-s3")>(
@@ -16,7 +17,7 @@ vi.mock("./client", () => ({
   B2_BUCKET_REGION: "us-west-002",
 }));
 
-import { uploadFromUrl } from "./uploads";
+import { uploadFromUrl, completeMultipartUpload } from "./uploads";
 
 const originalFetch = globalThis.fetch;
 
@@ -217,5 +218,112 @@ describe("uploadFromUrl", () => {
 
     expect(result.bytes).toBe(400);
     expect(result.etag).toBe("etag-stream");
+  });
+});
+
+describe("completeMultipartUpload", () => {
+  beforeEach(() => {
+    mockSend.mockReset();
+  });
+
+  it("uses server-side ETags when the client omits them", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return {
+          Parts: [
+            { PartNumber: 1, ETag: '"actual-etag-1"' },
+            { PartNumber: 2, ETag: '"actual-etag-2"' },
+          ],
+        };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        return {
+          Location: "https://s3.us-west-002.backblazeb2.com/instructor-uploads/test.mp4",
+          ETag: '"final-etag"',
+          VersionId: "v1",
+        };
+      }
+      return {};
+    });
+
+    const result = await completeMultipartUpload({
+      key: "test.mp4",
+      uploadId: "upload-123",
+      parts: [{ partNumber: 1 }, { partNumber: 2 }],
+    });
+
+    expect(result.etag).toBe('"final-etag"');
+    expect(result.versionId).toBe("v1");
+
+    const completeCall = mockSend.mock.calls.find(
+      ([c]) => c instanceof CompleteMultipartUploadCommand
+    );
+    expect(completeCall).toBeDefined();
+    const completeCommand = completeCall![0] as CompleteMultipartUploadCommand;
+    expect(completeCommand.input.MultipartUpload?.Parts).toEqual([
+      { PartNumber: 1, ETag: '"actual-etag-1"' },
+      { PartNumber: 2, ETag: '"actual-etag-2"' },
+    ]);
+  });
+
+  it("throws a descriptive error when a part is missing and no client ETag is provided", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        // B2 only knows about part 1; part 2 is missing
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      return {};
+    });
+
+    await expect(
+      completeMultipartUpload({
+        key: "test.mp4",
+        uploadId: "upload-123",
+        parts: [{ partNumber: 1 }, { partNumber: 2 }],
+      })
+    ).rejects.toThrow(/Part 2 was not found in B2's ListParts response/);
+  });
+
+  it("succeeds when B2 omits the final ETag in the completion response", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        // B2 can finalize the object without returning an ETag header.
+        return { Location: "https://example.com/test.mp4", VersionId: "v1" };
+      }
+      return {};
+    });
+
+    const result = await completeMultipartUpload({
+      key: "test.mp4",
+      uploadId: "upload-123",
+      parts: [{ partNumber: 1 }],
+    });
+
+    expect(result.location).toBe("https://example.com/test.mp4");
+    expect(result.etag).toBe("");
+    expect(result.versionId).toBe("v1");
+  });
+
+  it("throws when B2 omits the Location in the completion response", async () => {
+    mockSend.mockImplementation(async (command) => {
+      if (command instanceof ListPartsCommand) {
+        return { Parts: [{ PartNumber: 1, ETag: '"actual-etag-1"' }] };
+      }
+      if (command instanceof CompleteMultipartUploadCommand) {
+        return { ETag: '"final-etag"', VersionId: "v1" };
+      }
+      return {};
+    });
+
+    await expect(
+      completeMultipartUpload({
+        key: "test.mp4",
+        uploadId: "upload-123",
+        parts: [{ partNumber: 1 }],
+      })
+    ).rejects.toThrow(/B2 returned no Location/);
   });
 });

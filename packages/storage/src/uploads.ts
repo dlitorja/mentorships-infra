@@ -18,9 +18,17 @@ export interface UploadInit {
   presignedUrls: string[];
 }
 
+/**
+ * Represents a single part of a multipart upload. The etag is optional
+ * because browsers performing direct-to-S3 uploads may not be able to read
+ * the ETag response header when CORS does not expose it (Backblaze B2's
+ * S3-compatible endpoint does not expose ETag by default). The server-side
+ * completion path reads the real ETags from `ListParts` when the client omits
+ * them.
+ */
 export interface UploadPart {
   partNumber: number;
-  etag: string;
+  etag?: string;
 }
 
 const DEFAULT_PART_SIZE = 100 * 1024 * 1024; // 100MB
@@ -122,25 +130,39 @@ export async function completeMultipartUpload(params: {
 
   const sortedParts = [...params.parts].sort((a, b) => a.partNumber - b.partNumber);
 
+  const partsForB2 = sortedParts.map((part) => {
+    const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
+    const etag = actualPart?.etag || part.etag;
+    if (!etag) {
+      throw new Error(
+        `Part ${part.partNumber} was not found in B2's ListParts response and no client ETag was provided`
+      );
+    }
+    return {
+      ETag: etag,
+      PartNumber: part.partNumber,
+    };
+  });
+
   const command = new CompleteMultipartUploadCommand({
     Bucket: B2_BUCKET_NAME,
     Key: params.key,
     UploadId: params.uploadId,
     MultipartUpload: {
-      Parts: sortedParts.map((part) => {
-        const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
-        return {
-          ETag: actualPart?.etag || part.etag,
-          PartNumber: part.partNumber,
-        };
-      }),
+      Parts: partsForB2,
     },
   });
 
   const response = await client.send(command);
+  if (!response.Location) {
+    throw new Error("CompleteMultipartUpload succeeded but B2 returned no Location");
+  }
   return {
-    location: response.Location!,
-    etag: response.ETag!,
+    location: response.Location,
+    // B2 sometimes omits the final ETag in its response. The caller already
+    // falls back to the object key for storage accounting, so an empty string
+    // here is safe and keeps the upload record consistent.
+    etag: response.ETag || "",
     versionId: response.VersionId || "",
   };
 }
