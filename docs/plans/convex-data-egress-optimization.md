@@ -97,35 +97,55 @@ Merged via [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700). `n
 
 **Goal:** reduce the note subscription payload by returning only metadata in the list and full content only when a note is selected.
 
-### Scope
+### Status
+
+Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `npx tsc --noEmit -p convex/tsconfig.json`, `pnpm --filter @mentorships/platform typecheck`, `pnpm --filter @mentorships/platform lint`, and `CI=true npm run test:convex` (37 tests) pass; Greptile review passed at 5/5 confidence.
+
+### Scope (as implemented)
 
 1. **Add a paginated note list query** in `convex/workspaces.ts`.
-   - `getWorkspaceNotes` should return only `_id`, `title`, `updatedAt`, `createdBy`, `sessionId`, `isLiveSessionNote`, and `deletedAt` (a metadata-only shape).
-   - Add a new query `getWorkspaceNoteById` that returns the full `content` (TipTap HTML) for a selected note.
-   - Use `take` + cursor pagination for the list (e.g., 50 notes).
+   - Added `getWorkspaceNotesPaginated`, which returns only `_id`, `title`, `updatedAt`, `createdBy`, `sessionId`, `isLiveSessionNote`, and `deletedAt` (a metadata-only shape) and uses `paginationOptsValidator` with the existing `by_workspaceId_and_deletedAt` index.
+   - Added `getWorkspaceNoteById` to return the full note, including TipTap `content`, for a selected note; guards against soft-deleted notes.
+   - Kept the legacy `getWorkspaceNotes` unbounded query in place for `apps/web` and other consumers not in this PR's scope.
 
 2. **Update the `notes.tsx` component** in `apps/platform/components/workspace/notes.tsx`.
-   - Load the list via the paginated metadata query.
-   - Fetch full note content only when a note is selected.
-   - Implement auto-save against the selected note; it should not re-fetch the entire note list on every keystroke.
+   - Load the list via `useWorkspaceNotesPaginated` (50 notes initially, newest-first).
+   - Fetch full note content only when a note is selected via `useWorkspaceNoteById`.
+   - Show a loading state while the selected note content loads.
+   - Added a "Load more notes" button at the bottom of the notes sidebar.
+   - Removed the `refetch()` call after creating/deleting notes; the paginated subscription is reactive.
+   - Added a `pendingDeletedNoteId` state to prevent the auto-selection effect from reselecting a note while the deletion is propagating through the reactive subscription.
 
 3. **Update live session note handling**.
-   - `getLiveSessionNote` can remain a small query; it already returns a single row.
-   - Ensure the live note is surfaced without subscribing to the full note list.
+   - `getLiveSessionNote` remains unchanged; it is already a single-row query.
+   - The live session note is surfaced at the top of the notes list independently of the paginated list.
+
+4. **Update the resource embed dialog** in `apps/platform/components/workspace/resources.tsx`.
+   - The `EmbedNoteDialog` now uses `useWorkspaceNotesPaginated` instead of the unbounded `useWorkspaceNotes`.
+   - Added a "Load more notes" button and a loading state for the initial note list.
+
+5. **Remove unnecessary `getWorkspaceNotes` invalidations** in `apps/platform/lib/queries/convex/use-workspaces.ts`.
+   - The paginated note list and the note detail query are reactive, so title/session changes, auto-saved content, and embedded resources appear automatically. Explicit invalidation would reset pagination state and re-fetch the first page unnecessarily.
+   - Removed the invalidation from `useEmbedResourceInNote`; kept the `getWorkspaceImages` invalidation for PR 3.
 
 ### Verification
 
-- [ ] Notes list loads metadata for the last 50 notes and paginates older notes.
-- [ ] Selecting a note fetches its full `content`.
-- [ ] Auto-save does not re-push the entire note list.
-- [ ] Live session note still appears at the top of the notes list.
-- [ ] `npm run typecheck` and `npm run lint` pass.
-- [ ] Greptile review passes.
+- [x] Notes list loads metadata for the last 50 notes and paginates older notes.
+- [x] Selecting a note fetches its full `content`.
+- [x] Auto-save does not re-push the entire note list.
+- [x] Live session note still appears at the top of the notes list.
+- [x] `npx tsc --noEmit -p convex/tsconfig.json` passes.
+- [x] `pnpm --filter @mentorships/platform typecheck` passes.
+- [x] `pnpm --filter @mentorships/platform lint` reports no new errors (122 pre-existing warnings remain).
+- [x] `CI=true npm run test:convex` passes (37 tests).
+- [x] Greptile review passed at 5/5 confidence.
 
 ### Risks and mitigations
 
-- **Note selection UX**: add a loading state for the note content while it is fetched.
-- **Auto-save debounce**: keep the existing debounce; only the selected note subscription should be updated.
+- **Note selection UX**: a loading state is shown while the selected note content is fetched.
+- **Auto-save debounce**: the existing debounce is kept; only the selected note detail subscription is updated on each auto-save.
+- **Deleted note reselection**: `pendingDeletedNoteId` suppresses the auto-selection effect from picking the deleted note until the reactive subscription removes it.
+- **Legacy `getWorkspaceNotes` consumers**: `apps/web` and other callers still use the unbounded query; migrate them in a future PR.
 
 ---
 
@@ -270,23 +290,20 @@ Merged via [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700). `n
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
 | 1 | `fix/convex-egress-chat-pagination` | Merged | [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700) | typecheck/lint pass; Greptile 5/5 |
-| 2 | `fix/convex-egress-notes-pagination` | Opened | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
-| 3 | `fix/convex-egress-images-links-pagination` | Not started | — | Independent of PR 1/2 |
+| 2 | `fix/convex-egress-notes-pagination` | Merged | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
+| 3 | `fix/convex-egress-images-links-pagination` | Not started | — | Independent of PR 1–2 |
 | 4 | `fix/convex-egress-query-tuning` | Not started | — | Can be done in parallel with PR 1–3 |
 | 5 | `fix/convex-egress-listing-caps` | Not started | — | Independent of PR 1–4 |
 
-*Last updated: 2026-07-28 after PR #702 opened*
+*Last updated: 2026-07-29 after PR #702 merged*
 
 ---
 
 ## Remaining work summary
 
-PR 1 is merged. The next highest-impact work is PR 2 (workspace notes), followed by PR 3 (images/links), PR 4 (React Query tuning / export polling), and PR 5 (instructor/admin listings). PRs 2–5 are independent of each other except that PR 4 is cross-cutting and can be done in parallel with any of PR 2–3.
+PRs 1 and 2 are merged. The next highest-impact work is PR 3 (workspace images and links), followed by PR 4 (React Query tuning / export polling), and PR 5 (instructor/admin listings). PRs 3–5 are independent of each other; PR 4 is cross-cutting and can be done in parallel with PR 3 or PR 5.
 
-### Next: PR 2 — Paginate workspace notes
-Notes are the second-largest live workspace subscription. Split `getWorkspaceNotes` into a metadata-only paginated list and a `getWorkspaceNoteById` detail query. Update the Notes tab to load the list first and fetch full TipTap content only when a note is selected, so auto-save does not re-push the entire note list.
-
-### PR 3 — Paginate workspace images and links
+### Next: PR 3 — Paginate workspace images and links
 Add cursor-based pagination to `getWorkspaceImages` and `getWorkspaceLinks`, cap `getCallRecordingsForWorkspace`, and update the Images and Links tabs with "load more" behavior. Keep export queries separate since they are one-off operations.
 
 ### PR 4 — Tune React Query defaults
@@ -303,7 +320,7 @@ Add pagination or caps to `getInstructorStudentsWithRemainingSessions`, `getInst
 Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 items/page) and wire it into `apps/platform` via `useWorkspaceMessagesPaginated`. Keep the `ChatDataProvider` hoisted at `WorkspaceContent` so the call-overlay chat stays reactive, but replace the unbounded `getWorkspaceMessages` subscription with the paginated one. Stabilise the `loadMore` callback with a ref + `useCallback` so the context value does not churn on every render. Update `WorkspaceChat` to reverse the newest-first results for chronological display, add a "Load older messages" button, preserve scroll position when loading older history, and clear the scroll anchors when the workspace changes. Remove `getWorkspaceMessages` invalidations from message/file/resource mutations because the paginated subscription is reactive. Add a server-side `getWorkspaceFileCounts` query backed by the `by_workspaceId_type_senderRole` index so the chat file-slot indicator stays accurate without loading the full chat history; note that legacy file messages with an undefined `senderRole` remain uncounted, matching the pre-PR client-side count. Leave the legacy `getWorkspaceMessages` in place for `apps/web`.
 
 ### PR 2: Paginate workspace notes
-Split `getWorkspaceNotes` into a metadata-only paginated list and a `getWorkspaceNoteById` detail query. Update the Notes tab to load the list first and fetch full TipTap content only when a note is selected, so auto-save does not re-push the entire note list.
+Add a new paginated `getWorkspaceNotesPaginated` query in `convex/workspaces.ts` that returns only metadata (`_id`, `title`, `updatedAt`, `createdBy`, `sessionId`, `isLiveSessionNote`, `deletedAt`) and add `getWorkspaceNoteById` for the full TipTap `content`. Update the `apps/platform` Notes tab to subscribe to the paginated list (50 notes initially, newest-first) and fetch content only after a note is selected. Add a per-note loading state, a "Load more notes" button, and a `pendingDeletedNoteId` guard so the auto-selection effect does not reselect a note while the deletion is still propagating through the reactive subscription. Update the resource `EmbedNoteDialog` to use the paginated hook and show a loading state. Remove `getWorkspaceNotes` invalidations from note-related mutations because the paginated list and detail query are reactive. Leave the legacy `getWorkspaceNotes` query in place for `apps/web`.
 
 ### PR 3: Paginate workspace images and links
 Add cursor-based pagination to `getWorkspaceImages` and `getWorkspaceLinks`, cap `getCallRecordingsForWorkspace`, and update the Images and Links tabs with "load more" behavior. Keep export queries separate since they are one-off operations.
