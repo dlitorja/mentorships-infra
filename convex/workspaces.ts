@@ -1498,13 +1498,23 @@ export const getWorkspaceImagesPaginated = query({
       .order("desc")
       .paginate(args.paginationOpts);
 
-    const instructor = workspace.instructorId
-      ? await ctx.db.get(workspace.instructorId)
-      : null;
-    const instructorUserId = instructor?.userId;
+    // Filter by role before generating signed URLs so we only create URLs for
+    // images the caller will actually see.
+    let visiblePage = result.page;
+    if (role !== "instructor") {
+      if (!workspace.instructorId) {
+        visiblePage = result.page.filter((img) => img.createdBy === user.subject);
+      } else {
+        const instructor = await ctx.db.get(workspace.instructorId);
+        const instructorUserId = instructor?.userId;
+        visiblePage = result.page.filter(
+          (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
+        );
+      }
+    }
 
     const imagesWithUrls = await Promise.all(
-      result.page.map(async (img) => {
+      visiblePage.map(async (img) => {
         let imageUrl = img.imageUrl;
         if (img.storageId) {
           const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
@@ -1516,20 +1526,9 @@ export const getWorkspaceImagesPaginated = query({
       })
     );
 
-    let visiblePage;
-    if (role === "instructor") {
-      visiblePage = imagesWithUrls;
-    } else if (!workspace.instructorId) {
-      visiblePage = imagesWithUrls.filter((img) => img.createdBy === user.subject);
-    } else {
-      visiblePage = imagesWithUrls.filter(
-        (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
-      );
-    }
-
     return {
       ...result,
-      page: visiblePage,
+      page: imagesWithUrls,
     };
   },
 });
