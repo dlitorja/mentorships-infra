@@ -155,6 +155,10 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 
 **Goal:** stop sending the full image and link arrays for a workspace on every upload or change.
 
+### Status
+
+Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `npx tsc --noEmit -p convex/tsconfig.json`, `pnpm --filter @mentorships/platform typecheck`, `pnpm --filter @mentorships/platform lint`, and `CI=true npm run test:convex` (37 tests) pass; Greptile review passed at 5/5 confidence.
+
 ### Scope
 
 1. **PR 2 follow-up: fix note selection regression** in `apps/platform/components/workspace/notes.tsx`.
@@ -211,17 +215,17 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 ### Verification
 
 - [x] Note selection in `notes.tsx` handles external deletion and workspace switches (`typecheck`, `lint`, and `test:convex` pass).
-- [ ] Images tab loads 24 images initially and loads more on request.
-- [ ] Links tab loads 50 links initially and loads more on request.
-- [ ] Uploading a new image or link appends locally without re-fetching the entire list.
-- [ ] Image and link slot/count indicators remain accurate without loading the full list.
-- [ ] Workspace export still finds all images/links for the export (export uses the one-off `getWorkspaceExportData` query).
-- [ ] Calls/Videos tabs show up to 50 recordings.
-- [ ] `npx tsc --noEmit -p convex/tsconfig.json` passes.
-- [ ] `pnpm --filter @mentorships/platform typecheck` passes.
-- [ ] `pnpm --filter @mentorships/platform lint` reports no new errors.
-- [ ] `CI=true npm run test:convex` passes.
-- [ ] Greptile review passes.
+- [x] Images tab loads 24 images initially and loads more on request.
+- [x] Links tab loads 50 links initially and loads more on request.
+- [x] Uploading a new image or link appends locally without re-fetching the entire list.
+- [x] Image and link slot/count indicators remain accurate without loading the full list.
+- [x] Workspace export still finds all images/links for the export (export uses the one-off `getWorkspaceExportData` query).
+- [x] Calls/Videos tabs show up to 50 recordings.
+- [x] `npx tsc --noEmit -p convex/tsconfig.json` passes.
+- [x] `pnpm --filter @mentorships/platform typecheck` passes.
+- [x] `pnpm --filter @mentorships/platform lint` reports no new errors.
+- [x] `CI=true npm run test:convex` passes.
+- [x] Greptile review passes.
 
 ### Risks and mitigations
 
@@ -341,12 +345,10 @@ Merged via [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702). `n
 
 ## Remaining work summary
 
-PRs 1 and 2 are merged. The next highest-impact work is PR 3 (workspace images and links), followed by PR 4 (React Query tuning / export polling), and PR 5 (instructor/admin listings). PRs 3–5 are independent of each other; PR 4 is cross-cutting and can be done in parallel with PR 3 or PR 5.
+PRs 1, 2, and 3 are merged. The next highest-impact work is PR 4 (React Query tuning / export polling), followed by PR 5 (instructor/admin listings). PRs 4 and 5 are independent of each other and can be done in parallel.
 
-### Next: PR 3 — Paginate workspace images and links
-Add a `by_workspaceId_and_deletedAt` index for `workspaceLinks`, add `getWorkspaceImagesPaginated` (24/page) and `getWorkspaceLinksPaginated` (50/page), and wire them into `apps/platform`. Replace the full-list image count in `chat.tsx` and `images.tsx` with workspace counters from `useWorkspace`. Remove now-redundant `getWorkspaceImages`/`getWorkspaceLinks` invalidations from mutations. Cap `getCallRecordingsForWorkspace` at 50 recordings and return an `isTruncated` flag. Keep export queries separate. Also include the PR 2 follow-up fix for note auto-selection regressions.
-
-### PR 4 — Tune React Query defaults
+### Next: PR 4 — Tune React Query defaults
+Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
 Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
 
 ### PR 5 — Cap and paginate instructor/admin listings
