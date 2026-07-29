@@ -335,11 +335,11 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 |---|---|---|---|---|
 | 1 | `fix/convex-egress-chat-pagination` | Merged | [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700) | typecheck/lint pass; Greptile 5/5 |
 | 2 | `fix/convex-egress-notes-pagination` | Merged | [PR #702](https://github.com/dlitorja/mentorships-infra/pull/702) | typecheck/lint pass; Greptile 5/5 |
-| 3 | `fix/convex-egress-images-links-pagination` | In progress | — | PR 2 follow-up note-selection fix already committed; images/links pagination in progress |
-| 4 | `fix/convex-egress-query-tuning` | Not started | — | Can be done in parallel with PR 3 |
-| 5 | `fix/convex-egress-listing-caps` | Not started | — | Independent of PR 1–4 |
+| 3 | `fix/convex-egress-images-links-pagination` | Merged | [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705) | typecheck/lint pass; Greptile 5/5 |
+| 4 | `fix/convex-egress-query-tuning` | Not started | — | Next up |
+| 5 | `fix/convex-egress-listing-caps` | Not started | — | Can be done in parallel with PR 4 |
 
-*Last updated: 2026-07-29 after PR #702 merged; PR 3 planning updated*
+*Last updated: 2026-07-29 after PR #705 merged; planning updated*
 
 ---
 
@@ -348,7 +348,6 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 PRs 1, 2, and 3 are merged. The next highest-impact work is PR 4 (React Query tuning / export polling), followed by PR 5 (instructor/admin listings). PRs 4 and 5 are independent of each other and can be done in parallel.
 
 ### Next: PR 4 — Tune React Query defaults
-Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
 Increase `staleTime`, reduce `gcTime`, and disable `refetchOnWindowFocus` / `refetchOnMount` for Convex-backed queries in `query-provider.tsx`. Replace the 2-second `useWorkspaceExports` polling with a live reactive query.
 
 ### PR 5 — Cap and paginate instructor/admin listings
