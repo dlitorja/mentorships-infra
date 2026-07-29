@@ -46,7 +46,12 @@ function formatDate(timestamp: number): string {
 export default function AdminUsersPage(): React.ReactElement {
   const [activeUsers, setActiveUsers] = useState<AdminUser[]>([]);
   const [deletedUsers, setDeletedUsers] = useState<DeletedUser[]>([]);
+  const [activeCursor, setActiveCursor] = useState<string | null>(null);
+  const [deletedCursor, setDeletedCursor] = useState<string | null>(null);
+  const [activeIsDone, setActiveIsDone] = useState(true);
+  const [deletedIsDone, setDeletedIsDone] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [activeTab, setActiveTab] = useState<"active" | "deleted">("active");
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -67,12 +72,38 @@ export default function AdminUsersPage(): React.ReactElement {
       const result = await getAdminUsers();
       setActiveUsers(result.active);
       setDeletedUsers(result.deleted);
+      setActiveCursor(result.activeContinueCursor);
+      setDeletedCursor(result.deletedContinueCursor);
+      setActiveIsDone(result.activeIsDone);
+      setDeletedIsDone(result.deletedIsDone);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load users");
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore) return;
+    const done = activeTab === "active" ? activeIsDone : deletedIsDone;
+    if (done) return;
+
+    setIsLoadingMore(true);
+    setError(null);
+    try {
+      const result = await getAdminUsers({ activeCursor, deletedCursor });
+      setActiveUsers((prev) => [...prev, ...result.active]);
+      setDeletedUsers((prev) => [...prev, ...result.deleted]);
+      setActiveCursor(result.activeContinueCursor);
+      setDeletedCursor(result.deletedContinueCursor);
+      setActiveIsDone(result.activeIsDone);
+      setDeletedIsDone(result.deletedIsDone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load more users");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [activeCursor, activeIsDone, activeTab, deletedCursor, deletedIsDone, isLoadingMore]);
 
   useEffect(() => {
     fetchUsers();
@@ -319,6 +350,24 @@ export default function AdminUsersPage(): React.ReactElement {
               })}
             </tbody>
           </table>
+          {(activeTab === "active" ? !activeIsDone : !deletedIsDone) && (
+            <div className="p-4 border-t border-slate-700/50 flex justify-center">
+              <button
+                onClick={handleLoadMore}
+                disabled={isLoadingMore}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading more...
+                  </>
+                ) : (
+                  "Load more users"
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
