@@ -1515,7 +1515,16 @@ export const getWorkspaceImagesPaginated = query({
         (img) =>
           img.createdBy === user.subject || img.createdBy === instructorUserId
       );
-      while (visiblePage.length < numRequested && !result.isDone) {
+      // Guard against pathological workspaces where a student is excluded from
+      // a very large run of instructor-only images. Cap how many pages we will
+      // scan before returning a partially-filled page.
+      const maxPages = 10;
+      let pagesFetched = 1;
+      while (
+        visiblePage.length < numRequested &&
+        !result.isDone &&
+        pagesFetched < maxPages
+      ) {
         result = await ctx.db
           .query("workspaceImages")
           .withIndex("by_workspaceId_and_deletedAt", (q) =>
@@ -1533,6 +1542,7 @@ export const getWorkspaceImagesPaginated = query({
               img.createdBy === user.subject || img.createdBy === instructorUserId
           ),
         ];
+        pagesFetched += 1;
       }
     }
 

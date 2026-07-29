@@ -1820,9 +1820,10 @@ export const getCallRecordingsForWorkspace = query({
       .paginate({ cursor: null, numItems: targetRecordings });
 
     let candidateSessions = result.page;
-    // Keep fetching session pages until we have enough recording-eligible
-    // sessions to fill the cap or exhaust the index. This prevents a run of
-    // recent sessions without recordings from hiding older valid recordings.
+    // Keep fetching session pages until we have collected the target number of
+    // sessions or exhaust the index. Each session yields at most one recording,
+    // so this prevents a run of recent sessions without recordings from hiding
+    // older valid recordings.
     while (candidateSessions.length < targetRecordings && !result.isDone) {
       result = await ctx.db
         .query("sessions")
