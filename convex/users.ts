@@ -635,6 +635,7 @@ export const listActiveUsers = query({
         .query("users")
         .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
         .filter((q) => q.eq(q.field("hardDeletedAt"), undefined))
+        .order("desc")
         .paginate(args.paginationOpts);
 
       const activeUsers = page.page.map((u) => ({

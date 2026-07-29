@@ -922,13 +922,12 @@ export const getPublicInstructors = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
-    // Fetch non-deleted instructors; then filter to public-visible ones only
-    const all = await ctx.db
+    // Fetch non-deleted, active instructors. Treat undefined isActive as active (legacy data).
+    const publicVisible = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .filter((q) => q.neq(q.field("isActive"), false))
       .take(limit);
-    // Filter to public-visible instructors. Treat undefined isActive as active (legacy data)
-    const publicVisible = all.filter((inst) => inst.isActive !== false);
 
     return Promise.all(
       publicVisible.map(async (inst) => {

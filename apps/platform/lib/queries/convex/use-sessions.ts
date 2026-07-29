@@ -69,10 +69,10 @@ export function useInstructorSessions(instructorId: string) {
  * Retrieves all sessions for a specific instructor, paginated by scheduledAt
  * descending. PR #convex-egress-5: default 20 sessions per page.
  */
-export function useInstructorAllSessions(instructorId: string) {
+export function useInstructorAllSessions(instructorId: string | null | undefined) {
   return useConvexPaginatedQuery(
     api.sessions.getInstructorAllSessions,
-    { instructorId: instructorId as Id<"instructors"> },
+    instructorId ? { instructorId: instructorId as Id<"instructors"> } : "skip",
     { initialNumItems: 20 }
   );
 }

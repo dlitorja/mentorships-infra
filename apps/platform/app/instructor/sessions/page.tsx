@@ -15,13 +15,13 @@ export default function InstructorSessionsPage() {
     results: sessions,
     status: sessionsStatus,
     loadMore,
-  } = useInstructorAllSessions(instructor?._id ?? "");
+  } = useInstructorAllSessions(instructor?._id);
 
   const isLoading = instructorLoading || sessionsStatus === "LoadingFirstPage";
   const canLoadMore =
     sessionsStatus === "CanLoadMore" || sessionsStatus === "LoadingMore";
 
-  if (isLoading) {
+  if (instructorLoading) {
     return (
       <ProtectedLayout currentPath="/instructor/sessions">
         <div className="container mx-auto p-4 md:p-8 flex justify-center">
