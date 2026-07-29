@@ -1,9 +1,11 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { type UsePaginatedQueryReturnType } from "convex/react";
+import { type FunctionReturnType } from "convex/server";
 
 /**
  * Fetches a single workspace by ID.
@@ -111,14 +113,47 @@ export function useWorkspaceFileCounts(
 }
 
 /**
- * Fetches all notes for a workspace.
- * Used in the Notes tab of the workspace page.
+ * Fetches a paginated metadata-only list of notes for a workspace.
+ * Used in the Notes tab and the resource "embed in note" dialog.
+ *
+ * PR #convex-egress-2: returns only the fields needed for the list
+ * (`_id`, `title`, `updatedAt`, `createdBy`, `sessionId`,
+ * `isLiveSessionNote`, `deletedAt`). Full TipTap content is loaded
+ * separately via {@link useWorkspaceNoteById} when a note is selected.
+ *
+ * Notes are returned newest-first; the UI can load older notes via
+ * `loadMore(50)`. Callers should pass `null` / `undefined` to disable
+ * the query via the `"skip"` sentinel.
  */
-export function useWorkspaceNotes(workspaceId: string) {
-  return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceNotes, { workspaceId: workspaceId as Id<"workspaces"> }),
-    enabled: !!workspaceId,
-  });
+export function useWorkspaceNotesPaginated(
+  workspaceId: Id<"workspaces"> | null | undefined
+): UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceNotesPaginated> {
+  return useConvexPaginatedQuery(
+    api.workspaces.getWorkspaceNotesPaginated,
+    workspaceId ? { workspaceId } : "skip",
+    { initialNumItems: 50 }
+  );
+}
+
+/**
+ * Fetches the full workspace note for a given ID, including TipTap
+ * `content`.
+ *
+ * PR #convex-egress-2: used by the Notes tab to load note content only
+ * after the user selects a note from the metadata-only list.
+ *
+ * Callers should pass `null` / `undefined` to disable the query via the
+ * `"skip"` sentinel.
+ */
+export function useWorkspaceNoteById(
+  noteId: Id<"workspaceNotes"> | null | undefined
+): UseQueryResult<FunctionReturnType<typeof api.workspaces.getWorkspaceNoteById>> {
+  return useQuery(
+    convexQuery(
+      api.workspaces.getWorkspaceNoteById,
+      noteId ? { noteId } : "skip"
+    )
+  );
 }
 
 /**
@@ -189,42 +224,42 @@ export function useCreateWorkspaceMessage() {
 
 /**
  * Mutation hook for creating a new note in a workspace.
- * Refetches workspace notes queries on success to refresh note list.
+ *
+ * PR #convex-egress-2: the paginated note list is a reactive Convex
+ * subscription, so the new note appears automatically without an
+ * explicit invalidation. Invalidating the list would reset pagination
+ * state and re-fetch the first page unnecessarily.
  *
  * Pass `sessionId` when posting during an active video call — the
  * note is then auto-tagged to that session for the Notes tab.
  */
-export function useCreateWorkspaceNote() {
-  const queryClient = useQueryClient();
-
+export function useCreateWorkspaceNote(): UseMutationResult<
+  Id<"workspaceNotes">,
+  Error,
+  { workspaceId: Id<"workspaces">; title: string; content: string; sessionId?: Id<"sessions"> },
+  unknown
+> {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceNote),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
-      });
-    },
   });
 }
 
 /**
  * Mutation hook for updating an existing workspace note.
- * Refetches workspace notes queries on success to refresh data.
+ *
+ * PR #convex-egress-2: the paginated note list and the note detail
+ * query are reactive Convex subscriptions, so title/session changes and
+ * auto-saved content appear automatically without an explicit
+ * invalidation. Invalidating the list would reset pagination state and
+ * re-fetch the first page unnecessarily.
  *
  * Pass `clearSessionId: true` from the "Tag to current call" untag
  * toggle to remove a note's `sessionId` while leaving title and
  * content untouched.
  */
 export function useUpdateWorkspaceNote() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.updateWorkspaceNote),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
-      });
-    },
   });
 }
 
@@ -253,18 +288,15 @@ export function useLiveSessionNote(sessionId: string | null | undefined) {
 
 /**
  * Mutation hook for deleting a workspace note.
- * Refetches workspace notes queries on success to refresh list.
+ *
+ * PR #convex-egress-2: the paginated note list is a reactive Convex
+ * subscription, so the deleted note disappears automatically without
+ * an explicit invalidation. Invalidating the list would reset
+ * pagination state and re-fetch the first page unnecessarily.
  */
 export function useDeleteWorkspaceNote() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceNote),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
-      });
-    },
   });
 }
 
@@ -550,6 +582,11 @@ export function useAcknowledgeRetentionNotification() {
  * Mutation hook for embedding an image in a workspace note.
  * Creates a workspaceImage record and updates the note's imageUrl.
  * Enforces instructor image caps.
+ *
+ * PR #convex-egress-2: the paginated note list and note detail query
+ * are reactive, so the embedded image appears automatically in the
+ * selected note without invalidating the note list. The Images tab
+ * query is kept here for PR 3.
  */
 export function useEmbedImageInNote() {
   const queryClient = useQueryClient();
@@ -558,7 +595,6 @@ export function useEmbedImageInNote() {
     mutationFn: useConvexMutation(api.workspaces.embedImageInNote),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"] });
     },
   });
 }
@@ -693,8 +729,13 @@ export function useShareResourceToChat() {
 }
 
 /**
- * Mutation hook for embedding an instructor image resource in a workspace note.
- * Also creates a workspaceImage record and updates the note's imageUrl.
+ * Mutation hook for embedding an instructor resource in a workspace note.
+ * Also creates a workspaceImage record when the resource is an image.
+ *
+ * PR #convex-egress-2: the paginated note list and note detail query
+ * are reactive, so the embedded resource appears automatically in the
+ * selected note without invalidating the note list. The Images tab
+ * query is kept here for PR 3.
  */
 export function useEmbedResourceInNote() {
   const queryClient = useQueryClient();
@@ -704,7 +745,6 @@ export function useEmbedResourceInNote() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"] });
     },
   });
 }

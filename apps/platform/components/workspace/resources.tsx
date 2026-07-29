@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
+import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotesPaginated, InstructorResource } from '@/lib/queries/convex/use-workspaces';
 import { uploadFileForChat } from '@/lib/workspace-image-upload';
 import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { Button } from '@/components/ui/button';
@@ -423,7 +423,13 @@ interface EmbedNoteDialogProps {
 }
 
 function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, selectedNoteId, onNoteChange }: EmbedNoteDialogProps) {
-  const { data: notes } = useWorkspaceNotes(workspaceId as string);
+  const notesQuery = useWorkspaceNotesPaginated(workspaceId);
+  const notes = notesQuery.results;
+  const notesStatus = notesQuery.status;
+  const isLoadingNotes = notesQuery.isLoading;
+  const canLoadMoreNotes =
+    notesStatus === "CanLoadMore" || notesStatus === "LoadingMore";
+  const isLoadingMoreNotes = notesStatus === "LoadingMore";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -443,7 +449,12 @@ function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, 
               <SelectValue placeholder="Select a note" />
             </SelectTrigger>
             <SelectContent>
-              {!notes || notes.length === 0 ? (
+              {isLoadingNotes ? (
+                <div className="p-2 flex items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Loading notes…
+                </div>
+              ) : notes.length === 0 ? (
                 <div className="p-2 text-sm text-muted-foreground">No notes available. Create a note first.</div>
               ) : (
                 notes.map((note) => (
@@ -454,6 +465,20 @@ function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, 
               )}
             </SelectContent>
           </Select>
+          {canLoadMoreNotes && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-muted-foreground"
+              onClick={() => notesQuery.loadMore(50)}
+              disabled={isLoadingMoreNotes}
+            >
+              {isLoadingMoreNotes && (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              )}
+              Load more notes
+            </Button>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
