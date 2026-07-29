@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -63,6 +63,18 @@ export function useInstructorSessions(instructorId: string) {
     ...convexQuery(api.sessions.getInstructorSessions, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
+}
+
+/**
+ * Retrieves all sessions for a specific instructor, paginated by scheduledAt
+ * descending. PR #convex-egress-5: default 20 sessions per page.
+ */
+export function useInstructorAllSessions(instructorId: string) {
+  return useConvexPaginatedQuery(
+    api.sessions.getInstructorAllSessions,
+    { instructorId: instructorId as Id<"instructors"> },
+    { initialNumItems: 20 }
+  );
 }
 
 /**

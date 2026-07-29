@@ -1,6 +1,7 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
@@ -235,40 +236,35 @@ export type InstructorAllSession = {
   sessionPackId: Id<"sessionPacks">;
 };
 
-/** Returns all sessions for an instructor with student info and session pack data. */
+/** Returns all sessions for an instructor with student info and session pack data, paginated by scheduledAt descending. */
 export const getInstructorAllSessions = query({
   args: {
     instructorId: v.id("instructors"),
-    limit: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
     const instructor = await ctx.db.get(args.instructorId);
     if (!instructor) {
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
     if (instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
-    const limit = args.limit ?? 100;
-
-    const allSessions = await ctx.db
+    const page = await ctx.db
       .query("sessions")
-      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
-      .collect();
-
-    const sortedSessions = allSessions
-      .sort((a, b) => b.scheduledAt - a.scheduledAt)
-      .slice(0, limit);
+      .withIndex("by_instructorId_scheduledAt", (q) => q.eq("instructorId", args.instructorId))
+      .order("desc")
+      .paginate(args.paginationOpts);
 
     const sessionsWithData = await Promise.all(
-      sortedSessions.map(async (session) => {
+      page.page.map(async (session) => {
         const studentUser = await ctx.db
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
@@ -293,7 +289,10 @@ export const getInstructorAllSessions = query({
       })
     );
 
-    return sessionsWithData;
+    return {
+      ...page,
+      page: sessionsWithData,
+    };
   },
 });
 

@@ -13,8 +13,8 @@ export function InstructorShowcase() {
 
   useEffect(() => {
     if (!instructorsData) return;
-    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
-    setFeatured(visible.slice(0, MAX_SHOWCASE_INSTRUCTORS));
+    // PR #convex-egress-5: public instructors are already filtered server-side.
+    setFeatured(instructorsData.slice(0, MAX_SHOWCASE_INSTRUCTORS));
   }, [instructorsData]);
 
   if (isError) {

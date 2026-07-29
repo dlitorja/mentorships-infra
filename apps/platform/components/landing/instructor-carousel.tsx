@@ -37,9 +37,8 @@ export function InstructorCarousel(): React.JSX.Element | null {
 
   useEffect(() => {
     if (!instructorsData) return;
-    
-    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
-    const shuffled = isClient ? shuffleArray(visible) : visible;
+    // PR #convex-egress-5: public instructors are already filtered server-side.
+    const shuffled = isClient ? shuffleArray(instructorsData) : instructorsData;
     setInstructors(shuffled);
   }, [instructorsData, isClient]);
 

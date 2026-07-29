@@ -185,6 +185,9 @@ export default function InstructorsPage() {
               />
               <span className="text-sm">Show inactive</span>
             </label>
+            <span className="text-xs text-muted-foreground">
+              (Showing up to 100 instructors)
+            </span>
           </div>
         </CardHeader>
         <CardContent>

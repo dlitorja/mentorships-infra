@@ -49,16 +49,6 @@ export function useUserByEmail(email: string) {
 }
 
 /**
- * Fetches all users.
- * @returns {UseQueryResult} Query result containing all users
- */
-export function useListUsers() {
-  return useQuery({
-    ...convexQuery(api.users.listUsers, {}),
-  });
-}
-
-/**
  * Mutation hook for updating a user.
  * Invalidates user queries on success.
  */

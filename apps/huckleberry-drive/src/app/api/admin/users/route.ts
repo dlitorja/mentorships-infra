@@ -11,13 +11,21 @@ export async function GET(): Promise<NextResponse> {
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const [activeUsers, deletedUsers] = await Promise.all([
-      fetchQuery(api.users.listActiveUsers, {}, { token: convexToken }),
-      fetchQuery(api.users.listDeletedUsers, {}, { token: convexToken }),
+      fetchQuery(
+        api.users.listActiveUsers,
+        { paginationOpts: { cursor: null, numItems: 100 } },
+        { token: convexToken }
+      ),
+      fetchQuery(
+        api.users.listDeletedUsers,
+        { paginationOpts: { cursor: null, numItems: 100 } },
+        { token: convexToken }
+      ),
     ]);
 
     return NextResponse.json({
-      active: activeUsers,
-      deleted: deletedUsers,
+      active: activeUsers.page,
+      deleted: deletedUsers.page,
     });
   } catch (error) {
     console.error("Users list error:", error);

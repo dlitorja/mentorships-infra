@@ -23,10 +23,12 @@ function getSessionBadgeVariant(remainingSessions: number): "default" | "seconda
   return "default";
 }
 
+const STUDENT_LIST_LIMIT = 100;
+
 async function fetchStudentSessionRows(instructorId: Id<"instructors">, token: string | null): Promise<StudentSessionRows> {
   return await fetchQuery(
     api.seatReservations.getInstructorStudentsWithRemainingSessions,
-    { instructorId },
+    { instructorId, limit: STUDENT_LIST_LIMIT },
     { token: token ?? undefined }
   );
 }
@@ -81,6 +83,11 @@ export default async function InstructorDashboardPage() {
             <CardTitle>Students & Remaining Sessions</CardTitle>
             <CardDescription>
               Active student session packs, sorted by lowest remaining sessions first.
+              {studentRows.length >= STUDENT_LIST_LIMIT && (
+                <span className="ml-1 text-muted-foreground">
+                  (Showing first {STUDENT_LIST_LIMIT} students)
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>

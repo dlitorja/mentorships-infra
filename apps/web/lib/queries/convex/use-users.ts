@@ -47,13 +47,3 @@ export function useUserByEmail(email: string) {
     enabled: !!email,
   });
 }
-
-/**
- * Fetches all users (admin only).
- * @returns {UseQueryResult} Query result containing all users
- */
-export function useListUsers() {
-  return useQuery({
-    ...convexQuery(api.users.listUsers, {}),
-  });
-}

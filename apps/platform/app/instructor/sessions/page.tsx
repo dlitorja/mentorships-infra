@@ -1,48 +1,37 @@
-import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
-import { getAuthenticatedConvexClient } from "@/lib/convex";
-import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
+"use client";
+
+import { useCurrentInstructor } from "@/lib/queries/convex/use-instructors";
+import { useInstructorAllSessions } from "@/lib/queries/convex/use-sessions";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 import { SessionsListClient } from "./sessions-list-client";
 
-type InstructorAllSession = {
-  id: Id<"sessions">;
-  scheduledAt: number;
-  status: "scheduled" | "completed" | "canceled" | "no_show";
-  notes: string | null;
-  recordingUrl: string | null;
-  completedAt: number | null;
-  canceledAt: number | null;
-  studentEmail: string | null;
-  remainingSessions: number | null;
-  sessionPackId: Id<"sessionPacks">;
-};
+const SESSIONS_PAGE_SIZE = 20;
 
-export default async function InstructorSessionsPage() {
-  const user = await requireRole("instructor");
-  const token = await getConvexAuthToken();
-  if (!token) {
+export default function InstructorSessionsPage() {
+  const { data: instructor, isLoading: instructorLoading } = useCurrentInstructor();
+  const {
+    results: sessions,
+    status: sessionsStatus,
+    loadMore,
+  } = useInstructorAllSessions(instructor?._id ?? "");
+
+  const isLoading = instructorLoading || sessionsStatus === "LoadingFirstPage";
+  const canLoadMore =
+    sessionsStatus === "CanLoadMore" || sessionsStatus === "LoadingMore";
+
+  if (isLoading) {
     return (
       <ProtectedLayout currentPath="/instructor/sessions">
-        <div className="container mx-auto p-4 md:p-8">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                Authentication required. Please sign in again.
-              </p>
-            </CardContent>
-          </Card>
+        <div className="container mx-auto p-4 md:p-8 flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
       </ProtectedLayout>
     );
   }
 
-  const convex = await getAuthenticatedConvexClient();
-
-  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
-
-  if (!instructorRecord) {
+  if (!instructor) {
     return (
       <ProtectedLayout currentPath="/instructor/sessions">
         <div className="container mx-auto p-4 md:p-8">
@@ -58,11 +47,6 @@ export default async function InstructorSessionsPage() {
     );
   }
 
-  const allSessions = await convex.query(api.sessions.getInstructorAllSessions, {
-    instructorId: instructorRecord._id as Id<"instructors">,
-    limit: 100,
-  });
-
   return (
     <ProtectedLayout currentPath="/instructor/sessions">
       <div className="container mx-auto p-4 md:p-8 space-y-6">
@@ -73,7 +57,13 @@ export default async function InstructorSessionsPage() {
           </p>
         </div>
 
-        <SessionsListClient sessions={allSessions as InstructorAllSession[]} />
+        <SessionsListClient
+          sessions={sessions ?? []}
+          isLoading={isLoading}
+          loadMore={loadMore}
+          isDone={!canLoadMore}
+          pageSize={SESSIONS_PAGE_SIZE}
+        />
       </div>
     </ProtectedLayout>
   );

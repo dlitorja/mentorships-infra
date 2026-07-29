@@ -825,67 +825,113 @@ export const getInstructorBySlug = query({
   },
 });
 
+// PR #convex-egress-5: cap public/admin instructor listings and return a
+// narrow shape so we don't stream full portfolios to listing pages.
+const DEFAULT_INSTRUCTOR_LIST_LIMIT = 100;
+
+type InstructorListItem = {
+  _id: Id<"instructors">;
+  _creationTime: number;
+  userId?: string;
+  name?: string;
+  slug?: string;
+  email?: string;
+  tagline?: string;
+  bio?: string;
+  profileImageUrl?: string;
+  specialties?: string[];
+  isActive?: boolean;
+  isNew?: boolean;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
+  deletedAt?: number;
+  isCompletelySoldOut?: boolean;
+};
+
+async function toInstructorListItem(
+  ctx: QueryCtx,
+  inst: Doc<"instructors">,
+  extra?: { isCompletelySoldOut?: boolean }
+): Promise<InstructorListItem> {
+  const profileImageUrl = await getFreshProfileUrl(
+    ctx,
+    inst.profileImageStorageId,
+    inst.profileImageUrl
+  );
+  return {
+    _id: inst._id,
+    _creationTime: inst._creationTime,
+    userId: inst.userId,
+    name: inst.name,
+    slug: inst.slug,
+    email: inst.email,
+    tagline: inst.tagline,
+    bio: inst.bio,
+    profileImageUrl,
+    specialties: inst.specialties,
+    isActive: inst.isActive,
+    isNew: inst.isNew,
+    oneOnOneInventory: (inst as any).oneOnOneInventory ?? 0,
+    groupInventory: (inst as any).groupInventory ?? 0,
+    deletedAt: inst.deletedAt,
+    isCompletelySoldOut: extra?.isCompletelySoldOut,
+  };
+}
+
 /** Returns all non-deleted instructors. Requires authentication. */
 export const listInstructors = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return [];
     }
+    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
     const instructors = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .collect();
+      .take(limit);
     return Promise.all(
-      instructors.map(async (inst) => {
-        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
-        return { ...inst, profileImageUrl };
-      })
+      instructors.map(async (inst) => toInstructorListItem(ctx, inst))
     );
   },
 });
 
 /** Returns active instructors with inventory, excluding sensitive fields. Requires authentication. */
 export const getActiveInstructors = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return [];
     }
+    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
     const instructors = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .filter((q) => q.gt(q.field("oneOnOneInventory"), 0))
-      .collect();
-    const refreshed = await Promise.all(
-      instructors.map(async (inst) => {
-        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
-        return { ...inst, profileImageUrl };
-      })
+      .take(limit);
+    return Promise.all(
+      instructors.map(async (inst) => toInstructorListItem(ctx, inst))
     );
-    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
 /** Returns publicly available instructors (non-deleted), with a computed sold-out flag per their active offerings. */
 export const getPublicInstructors = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
     // Fetch non-deleted instructors; then filter to public-visible ones only
     const all = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .collect();
+      .take(limit);
     // Filter to public-visible instructors. Treat undefined isActive as active (legacy data)
     const publicVisible = all.filter((inst) => inst.isActive !== false);
 
-    const refreshed = await Promise.all(
+    return Promise.all(
       publicVisible.map(async (inst) => {
-        const profileImageUrl = await getFreshProfileUrl(
-          ctx,
-          inst.profileImageStorageId,
-          inst.profileImageUrl
-        );
-
         // Determine offered mentorship types from active products
         const products = await ctx.db
           .query("products")
@@ -913,29 +959,32 @@ export const getPublicInstructors = query({
           });
         }
 
-        return { ...inst, profileImageUrl, isCompletelySoldOut };
+        return toInstructorListItem(ctx, inst, { isCompletelySoldOut });
       })
     );
-
-    // Strip sensitive fields
-    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
 export const getInstructorsForAdmin = query({
-  handler: async (ctx) => {
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
+      return [];
+    }
+    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
     const instructors = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .collect();
-    const refreshed = await Promise.all(
-      instructors.map(async (inst) => {
-        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
-        return { ...inst, profileImageUrl };
-      })
+      .take(limit);
+    return Promise.all(
+      instructors.map(async (inst) => toInstructorListItem(ctx, inst))
     );
-    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
