@@ -1,5 +1,6 @@
 import { query, mutation, internalQuery, internalMutation, action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { writeAuditLog } from "./auditLog";
@@ -94,14 +95,15 @@ export const getUsersByClerkIds = query({
   },
 });
 
-/** Returns all users in the database. */
+/** Returns all users in the database, paginated. */
 export const listUsers = query({
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
-    return await ctx.db.query("users").collect();
+    return await ctx.db.query("users").paginate(args.paginationOpts);
   },
 });
 
@@ -612,11 +614,13 @@ export const getAdminStats = query({
 });
 
 export const listActiveUsers = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     try {
       const identity = await ctx.auth.getUserIdentity();
-      if (!identity) return [];
+      if (!identity) {
+        return { page: [], isDone: true, continueCursor: "" };
+      }
 
       const currentUser = await ctx.db
         .query("users")
@@ -624,38 +628,44 @@ export const listActiveUsers = query({
         .first();
 
       if (!currentUser || currentUser.role !== "admin") {
-        return [];
+        return { page: [], isDone: true, continueCursor: "" };
       }
 
-      const allUsers = await ctx.db.query("users").collect();
+      const page = await ctx.db
+        .query("users")
+        .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+        .filter((q) => q.eq(q.field("hardDeletedAt"), undefined))
+        .order("desc")
+        .paginate(args.paginationOpts);
 
-      return allUsers
-        .filter((u) => !u.deletedAt && !u.hardDeletedAt)
-        .map((u) => ({
-          _id: u._id,
-          userId: u.userId,
-          email: u.email,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          role: u.role,
-          timeZone: u.timeZone,
-          clerkId: u.clerkId,
-          createdAt: u._creationTime,
-        }))
-        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+      const activeUsers = page.page.map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        timeZone: u.timeZone,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }));
+
+      return { ...page, page: activeUsers };
     } catch (e) {
       console.error("listActiveUsers error:", e);
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
   },
 });
 
 export const listDeletedUsers = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     try {
       const identity = await ctx.auth.getUserIdentity();
-      if (!identity) return [];
+      if (!identity) {
+        return { page: [], isDone: true, continueCursor: "" };
+      }
 
       const currentUser = await ctx.db
         .query("users")
@@ -663,29 +673,33 @@ export const listDeletedUsers = query({
         .first();
 
       if (!currentUser || currentUser.role !== "admin") {
-        return [];
+        return { page: [], isDone: true, continueCursor: "" };
       }
 
-      const allUsers = await ctx.db.query("users").collect();
+      const page = await ctx.db
+        .query("users")
+        .withIndex("by_deletedAt", (q) => q.gt("deletedAt", 0))
+        .filter((q) => q.eq(q.field("hardDeletedAt"), undefined))
+        .order("desc")
+        .paginate(args.paginationOpts);
 
-      return allUsers
-        .filter((u) => u.deletedAt && !u.hardDeletedAt)
-        .map((u) => ({
-          _id: u._id,
-          userId: u.userId,
-          email: u.email,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          role: u.role,
-          deletedAt: u.deletedAt,
-          deletedBy: u.deletedBy,
-          clerkId: u.clerkId,
-          createdAt: u._creationTime,
-        }))
-        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+      const deletedUsers = page.page.map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        deletedAt: u.deletedAt,
+        deletedBy: u.deletedBy,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }));
+
+      return { ...page, page: deletedUsers };
     } catch (e) {
       console.error("listDeletedUsers error:", e);
-      return [];
+      return { page: [], isDone: true, continueCursor: "" };
     }
   },
 });

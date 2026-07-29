@@ -1,48 +1,20 @@
 import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
-import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
+import { fetchQuery } from "convex/nextjs";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent } from "@/components/ui/card";
-import { SessionsListClient } from "./sessions-list-client";
-
-type InstructorAllSession = {
-  id: Id<"sessions">;
-  scheduledAt: number;
-  status: "scheduled" | "completed" | "canceled" | "no_show";
-  notes: string | null;
-  recordingUrl: string | null;
-  completedAt: number | null;
-  canceledAt: number | null;
-  studentEmail: string | null;
-  remainingSessions: number | null;
-  sessionPackId: Id<"sessionPacks">;
-};
+import { InstructorSessionsClient } from "./instructor-sessions-client";
 
 export default async function InstructorSessionsPage() {
   const user = await requireRole("instructor");
   const token = await getConvexAuthToken();
-  if (!token) {
-    return (
-      <ProtectedLayout currentPath="/instructor/sessions">
-        <div className="container mx-auto p-4 md:p-8">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                Authentication required. Please sign in again.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </ProtectedLayout>
-    );
-  }
+  const instructor = await fetchQuery(
+    api.instructors.getInstructorByUserId,
+    { userId: user.id },
+    { token: token ?? undefined }
+  );
 
-  const convex = await getAuthenticatedConvexClient();
-
-  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
-
-  if (!instructorRecord) {
+  if (!instructor) {
     return (
       <ProtectedLayout currentPath="/instructor/sessions">
         <div className="container mx-auto p-4 md:p-8">
@@ -58,22 +30,10 @@ export default async function InstructorSessionsPage() {
     );
   }
 
-  const allSessions = await convex.query(api.sessions.getInstructorAllSessions, {
-    instructorId: instructorRecord._id as Id<"instructors">,
-    limit: 100,
-  });
-
   return (
     <ProtectedLayout currentPath="/instructor/sessions">
-      <div className="container mx-auto p-4 md:p-8 space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">All Sessions</h2>
-          <p className="text-muted-foreground">
-            View and manage all your mentorship sessions
-          </p>
-        </div>
-
-        <SessionsListClient sessions={allSessions as InstructorAllSession[]} />
+      <div className="container mx-auto p-4 md:p-8">
+        <InstructorSessionsClient instructorId={instructor._id} />
       </div>
     </ProtectedLayout>
   );

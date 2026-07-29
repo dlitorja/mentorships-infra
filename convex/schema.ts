@@ -158,6 +158,7 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
   }).index("by_studentId", ["studentId"])
     .index("by_instructorId", ["instructorId"])
+    .index("by_instructorId_scheduledAt", ["instructorId", "scheduledAt"])
     .index("by_sessionPackId", ["sessionPackId"])
     .index("by_status", ["status"])
     .index("by_scheduledAt", ["scheduledAt"])

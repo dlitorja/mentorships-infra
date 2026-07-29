@@ -328,6 +328,10 @@ export interface DeletedUser extends AdminUser {
 export interface UsersListResponse {
   active: AdminUser[];
   deleted: DeletedUser[];
+  activeContinueCursor: string;
+  deletedContinueCursor: string;
+  activeIsDone: boolean;
+  deletedIsDone: boolean;
 }
 
 export interface UserWithFiles {
@@ -340,8 +344,15 @@ export interface UserWithFiles {
   };
 }
 
-export async function getAdminUsers(): Promise<UsersListResponse> {
-  return fetchApi<UsersListResponse>("/api/admin/users");
+export async function getAdminUsers(params?: {
+  activeCursor?: string | null;
+  deletedCursor?: string | null;
+}): Promise<UsersListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.activeCursor) searchParams.set("activeCursor", params.activeCursor);
+  if (params?.deletedCursor) searchParams.set("deletedCursor", params.deletedCursor);
+  const query = searchParams.toString();
+  return fetchApi<UsersListResponse>(`/api/admin/users${query ? `?${query}` : ""}`);
 }
 
 export async function updateUserRole(userId: string, role: UserRole): Promise<{ success: boolean; user: AdminUser }> {

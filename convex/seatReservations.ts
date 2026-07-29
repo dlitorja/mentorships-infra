@@ -103,7 +103,10 @@ export const getInstructorActiveSeats = query({
 
 /** Returns active students for an instructor with session pack counts. */
 export const getInstructorStudentsWithRemainingSessions = query({
-  args: { instructorId: v.id("instructors") },
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -114,6 +117,8 @@ export const getInstructorStudentsWithRemainingSessions = query({
     if (!instructor || instructor.userId !== user.subject) {
       return [];
     }
+
+    const limit = args.limit ?? 100;
 
     const [activeSeats, graceSeats] = await Promise.all([
       ctx.db
@@ -308,24 +313,26 @@ export const getInstructorStudentsWithRemainingSessions = query({
       };
     });
 
-    return [...dedupedSeatRowsWithWorkspace, ...workspaceRows].sort((a, b) => {
-      // Workspace-only rows are a background state, not urgent — push them to
-      // the end so they don't interleave with seat-based students who are
-      // genuinely running low. Within each group, sort by remaining sessions
-      // ascending so the most-urgent rows surface first.
-      const aIsWorkspace = a.status === "workspace";
-      const bIsWorkspace = b.status === "workspace";
-      if (aIsWorkspace !== bIsWorkspace) {
-        return aIsWorkspace ? 1 : -1;
-      }
-      if (a.remainingSessions !== b.remainingSessions) {
-        return a.remainingSessions - b.remainingSessions;
-      }
-      const aExpires = a.expiresAt ?? Number.POSITIVE_INFINITY;
-      const bExpires = b.expiresAt ?? Number.POSITIVE_INFINITY;
-      if (aExpires === bExpires) return 0;
-      return aExpires - bExpires;
-    });
+    return [...dedupedSeatRowsWithWorkspace, ...workspaceRows]
+      .sort((a, b) => {
+        // Workspace-only rows are a background state, not urgent — push them to
+        // the end so they don't interleave with seat-based students who are
+        // genuinely running low. Within each group, sort by remaining sessions
+        // ascending so the most-urgent rows surface first.
+        const aIsWorkspace = a.status === "workspace";
+        const bIsWorkspace = b.status === "workspace";
+        if (aIsWorkspace !== bIsWorkspace) {
+          return aIsWorkspace ? 1 : -1;
+        }
+        if (a.remainingSessions !== b.remainingSessions) {
+          return a.remainingSessions - b.remainingSessions;
+        }
+        const aExpires = a.expiresAt ?? Number.POSITIVE_INFINITY;
+        const bExpires = b.expiresAt ?? Number.POSITIVE_INFINITY;
+        if (aExpires === bExpires) return 0;
+        return aExpires - bExpires;
+      })
+      .slice(0, limit);
   },
 });
 

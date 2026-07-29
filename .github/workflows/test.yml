@@ -67,8 +67,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-pnpm
         env:
-          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
-          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
+          # Lint/Typecheck doesn't need to deploy Convex code; the dedicated
+          # convex-codegen job (ci.yml) validates generated files. Leaving the
+          # deploy key inherited from the job-level env causes the postinstall
+          # script to push, which can race with the codegen job and fail the lint
+          # job before it runs. Explicitly blank it out here.
+          CONVEX_DEPLOY_KEY: ''
+          CONVEX_DEPLOYMENT: ''
 
       - name: Lint
         run: pnpm lint

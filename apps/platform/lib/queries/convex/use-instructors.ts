@@ -15,15 +15,16 @@ export type PublicInstructor = {
   profileImageUrl?: string;
   specialties?: string[];
   isActive?: boolean;
-  isHidden?: boolean;
-  deletedAt?: number;
+  isNew?: boolean;
   isCompletelySoldOut?: boolean;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
 };
 
 /**
  * Fetches public instructors for the marketplace.
- * Filters out deleted, hidden, and inactive instructors.
- * Includes computed isCompletelySoldOut flag based on inventory.
+ * PR #convex-egress-5: `getPublicInstructors` already caps and filters the
+ * result, so the hook just returns the data. The default cap is 100.
  */
 export function usePublicInstructors() {
   const { data, isLoading, isError, error } = useQuery({
@@ -32,8 +33,9 @@ export function usePublicInstructors() {
 
   const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
-    const list = (data as unknown as PublicInstructor[]) ?? [];
-    return list.filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt && !(i as any).isHidden);
+    return (data as unknown as PublicInstructor[]).filter(
+      (i: PublicInstructor) => i.isActive !== false
+    );
   }, [data]);
 
   return {
@@ -70,8 +72,8 @@ export function useCurrentInstructor() {
 
 /**
  * Fetches all instructors for admin listing.
- * Filters out deleted and inactive instructors.
- * Randomizes order for display variety.
+ * PR #convex-egress-5: `listInstructors` already caps and filters the result,
+ * so the hook only filters inactive and randomizes order. The default cap is 100.
  */
 export function useInstructors(): {
   data: PublicInstructor[];
@@ -85,7 +87,7 @@ export function useInstructors(): {
   const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      .filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt)
+      .filter((i: PublicInstructor) => i.isActive !== false)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
 
@@ -115,8 +117,9 @@ export function useInstructorBySlug(slug: string) {
 }
 
 /**
- * Fetches all instructors including inactive/hidden for admin management.
- * No filtering applied - returns complete instructor list.
+ * Fetches instructors for admin management.
+ * PR #convex-egress-5: `getInstructorsForAdmin` is capped to 100 by default;
+ * inactive instructors are visible in the admin list so they can be edited.
  */
 export function useAllInstructors() {
   return useQuery({

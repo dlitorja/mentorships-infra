@@ -28,6 +28,10 @@ type Session = {
 
 type SessionsListClientProps = {
   sessions: Session[];
+  isLoading?: boolean;
+  loadMore?: (n: number) => void;
+  isDone?: boolean;
+  pageSize?: number;
 };
 
 function formatDateTime(date: Date | string | number): string {
@@ -137,7 +141,13 @@ function SessionCard({ session }: { session: Session }) {
   );
 }
 
-export function SessionsListClient({ sessions }: SessionsListClientProps) {
+export function SessionsListClient({
+  sessions,
+  isLoading,
+  loadMore,
+  isDone,
+  pageSize = 20,
+}: SessionsListClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
@@ -238,7 +248,13 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
         </>
       )}
 
-      {filteredSessions.length === 0 && (
+      {isLoading ? (
+        <Card>
+          <CardContent className="pt-6 flex flex-col items-center gap-3">
+            <p className="text-center text-muted-foreground">Loading sessions…</p>
+          </CardContent>
+        </Card>
+      ) : filteredSessions.length === 0 ? (
         <Card>
           <CardContent className="pt-6 flex flex-col items-center gap-3">
             <p className="text-center text-muted-foreground">
@@ -256,7 +272,16 @@ export function SessionsListClient({ sessions }: SessionsListClientProps) {
             )}
           </CardContent>
         </Card>
+      ) : null}
+
+      {!isLoading && loadMore && !isDone && (
+        <div className="flex justify-center">
+          <Button variant="outline" onClick={() => loadMore(pageSize)}>
+            Load more sessions
+          </Button>
+        </div>
       )}
+
     </div>
   );
 }
