@@ -65,7 +65,6 @@ Merged via [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700). `n
 
 4. **Add a server-side file count query**.
    - Add a `by_workspaceId_type_senderRole` index and a `getWorkspaceFileCounts` query in `convex/workspaces.ts`.
-   - Add a `by_workspaceId_type` index to count legacy file messages with an undefined `senderRole` and preserve the old quota behaviour.
    - Add `useWorkspaceFileCounts` in `apps/platform/lib/queries/convex/use-workspaces.ts`.
    - Replace the client-side `currentFileCount` slice in `chat.tsx` with the server-side count so the remaining-file-slots indicator is accurate regardless of how many chat pages are loaded.
 
@@ -88,7 +87,7 @@ Merged via [PR #700](https://github.com/dlitorja/mentorships-infra/pull/700). `n
 - **Call-overlay chat may miss messages**: mitigated by keeping the `ChatDataProvider` hoisted at the `WorkspaceContent` level.
 - **Scroll behavior**: auto-scroll only fires when the newest message changes and the user is already near the bottom, so loading older history does not yank the user away.
 - **apps/web still uses unbounded query**: `apps/web` continues to use `useWorkspaceMessages`/`getWorkspaceMessages` and is out of scope for this PR.
-- **File quota accuracy**: the file-slot UI uses a dedicated `getWorkspaceFileCounts` query backed by `by_workspaceId_type_senderRole` and `by_workspaceId_type` indexes; legacy file messages with an undefined `senderRole` are counted so quota enforcement is not loosened.
+- **File quota accuracy**: the file-slot UI uses a dedicated `getWorkspaceFileCounts` query backed by the `by_workspaceId_type_senderRole` index. This matches the pre-PR client-side count (which also only counted file messages whose `senderRole` matched the caller's role), so legacy file messages with an undefined `senderRole` are still not counted. The server enforces the real cap on new uploads, so quota enforcement is not loosened.
 
 ---
 
@@ -301,7 +300,7 @@ Add pagination or caps to `getInstructorStudentsWithRemainingSessions`, `getInst
 ## One-paragraph summaries for future sessions
 
 ### PR 1: Paginate workspace chat
-Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 items/page) and wire it into `apps/platform` via `useWorkspaceMessagesPaginated`. Keep the `ChatDataProvider` hoisted at `WorkspaceContent` so the call-overlay chat stays reactive, but replace the unbounded `getWorkspaceMessages` subscription with the paginated one. Stabilise the `loadMore` callback with a ref + `useCallback` so the context value does not churn on every render. Update `WorkspaceChat` to reverse the newest-first results for chronological display, add a "Load older messages" button, preserve scroll position when loading older history, and clear the scroll anchors when the workspace changes. Remove `getWorkspaceMessages` invalidations from message/file/resource mutations because the paginated subscription is reactive. Add a server-side `getWorkspaceFileCounts` query backed by `by_workspaceId_type_senderRole` and `by_workspaceId_type` indexes so the chat file-slot indicator stays exact without loading the full chat history. Leave the legacy `getWorkspaceMessages` in place for `apps/web`.
+Add a new paginated `getWorkspaceMessagesPaginated` query (newest-first, 50 items/page) and wire it into `apps/platform` via `useWorkspaceMessagesPaginated`. Keep the `ChatDataProvider` hoisted at `WorkspaceContent` so the call-overlay chat stays reactive, but replace the unbounded `getWorkspaceMessages` subscription with the paginated one. Stabilise the `loadMore` callback with a ref + `useCallback` so the context value does not churn on every render. Update `WorkspaceChat` to reverse the newest-first results for chronological display, add a "Load older messages" button, preserve scroll position when loading older history, and clear the scroll anchors when the workspace changes. Remove `getWorkspaceMessages` invalidations from message/file/resource mutations because the paginated subscription is reactive. Add a server-side `getWorkspaceFileCounts` query backed by the `by_workspaceId_type_senderRole` index so the chat file-slot indicator stays accurate without loading the full chat history; note that legacy file messages with an undefined `senderRole` remain uncounted, matching the pre-PR client-side count. Leave the legacy `getWorkspaceMessages` in place for `apps/web`.
 
 ### PR 2: Paginate workspace notes
 Split `getWorkspaceNotes` into a metadata-only paginated list and a `getWorkspaceNoteById` detail query. Update the Notes tab to load the list first and fetch full TipTap content only when a note is selected, so auto-save does not re-push the entire note list.
