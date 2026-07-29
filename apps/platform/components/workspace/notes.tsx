@@ -110,6 +110,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  // Track whether the selected note has ever been present in the
+  // loaded paginated list. This lets us distinguish a note that was
+  // previously visible and is now gone (e.g., deleted by another
+  // participant) from a brand-new note that has not yet appeared in
+  // the reactive list.
+  const hasSelectedNoteBeenInListRef = useRef(false);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
@@ -380,6 +386,18 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     };
   }, []);
 
+  // Reset selection state when the workspace changes so a stale note
+  // from a previous workspace does not leak into the new one.
+  useEffect(() => {
+    setSelectedNoteId(null);
+    setPendingDeletedNoteId(null);
+    hasSelectedNoteBeenInListRef.current = false;
+  }, [workspaceId]);
+
+  // Auto-select a surviving note when the list is loaded and no note
+  // is selected. Skip the note that is currently being deleted so it
+  // is not re-selected while the reactive subscription is still
+  // removing it.
   useEffect(() => {
     if (notes.length > 0 && !selectedNoteId) {
       const firstSurvivingNote = notes.find(
@@ -388,6 +406,28 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (firstSurvivingNote) {
         setSelectedNoteId(firstSurvivingNote._id);
       }
+    }
+  }, [notes, selectedNoteId, pendingDeletedNoteId]);
+
+  // If the selected note was previously visible and now disappears,
+  // clear it so the auto-selection effect above can pick a survivor.
+  // Newly created notes that have not yet appeared in the list are not
+  // treated as deleted.
+  useEffect(() => {
+    if (!selectedNoteId) {
+      hasSelectedNoteBeenInListRef.current = false;
+      return;
+    }
+
+    const isInList = notes.some((note) => note._id === selectedNoteId);
+    if (isInList) {
+      hasSelectedNoteBeenInListRef.current = true;
+    } else if (
+      hasSelectedNoteBeenInListRef.current &&
+      selectedNoteId !== pendingDeletedNoteId
+    ) {
+      setSelectedNoteId(null);
+      hasSelectedNoteBeenInListRef.current = false;
     }
   }, [notes, selectedNoteId, pendingDeletedNoteId]);
 
