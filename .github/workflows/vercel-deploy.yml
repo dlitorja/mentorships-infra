@@ -6,10 +6,10 @@ jobs:
   deploy-platform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@latest
+        run: npm install -g vercel@58.4.0
 
       - name: Deploy Platform to Vercel
         run: vercel --prod
@@ -21,10 +21,10 @@ jobs:
   deploy-marketing:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@latest
+        run: npm install -g vercel@58.4.0
 
       - name: Deploy Marketing to Vercel
         run: vercel --prod
@@ -36,10 +36,10 @@ jobs:
   deploy-drive:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Vercel CLI
-        run: npm install -g vercel@latest
+        run: npm install -g vercel@58.4.0
 
       - name: Deploy Huckleberry Drive to Vercel
         run: vercel --prod
