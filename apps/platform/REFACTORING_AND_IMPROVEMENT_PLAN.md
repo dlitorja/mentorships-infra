@@ -8,7 +8,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 | PR | Theme | Status |
 |----|-------|--------|
-| 1 | Security & architecture hardening | In progress / implemented |
+| 1 | Security & architecture hardening | Completed (#710) |
 | 2 | API / data layer consolidation | Not started |
 | 3 | Session actions consolidation & reschedule correctness | Not started |
 | 4 | Image upload consolidation & Next.js Image migration | Not started |
@@ -16,6 +16,23 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
+
+## Completed PRs
+
+### PR 1: Security & Architecture Hardening (#710)
+
+- Migrated onboarding images from Supabase to Convex Storage across `apps/web` and `apps/platform`.
+- Added authentication and ownership checks to all Convex onboarding storage functions.
+- Added upload record/verification to prevent arbitrary `storageId` submission.
+- Added cleanup of partial uploads on batch failure.
+- Added fetch timeout and Zod validation to the upload route.
+- Sanitized email preview HTML with `sanitize-html`.
+- Moved hardcoded admin emails to `ADMIN_EMAILS` env var.
+- Fixed N+1 product lookup in admin instructors with `getProductsByInstructorIds`.
+- Added `activeStudentCount` to instructor listing query and removed `as any` casts.
+- Added concrete types for `imageObjects` and handled legacy Postgres entries.
+- Added/expanded Convex tests.
+- Greptile review returned 0 comments after addressing initial feedback.
 
 ---
 
