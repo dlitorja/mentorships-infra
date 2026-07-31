@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { requireDbUser } from "@/lib/auth";
-import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type UploadResponse =
   | {
       success: true;
       submissionId: string;
-      images: Array<{ path: string; mimeType: string; sizeBytes: number }>;
+      images: Array<{
+        path: string;
+        storageId: string;
+        mimeType: string;
+        sizeBytes: number;
+      }>;
     }
   | { error: string; errorId: string };
 
@@ -22,6 +29,30 @@ function extForMime(mimeType: string): string | null {
       return ".webp";
     default:
       return null;
+  }
+}
+
+const storageUploadResponseSchema = z.object({
+  storageId: z.string(),
+});
+
+async function uploadWithTimeout(
+  uploadUrl: string,
+  mimeType: string,
+  bytes: ArrayBuffer,
+  timeoutMs: number = 60_000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": mimeType },
+      body: bytes,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -46,13 +77,14 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       );
     }
 
-    const supabase = createSupabaseAdminClient();
-    const uploaded: Array<{ path: string; mimeType: string; sizeBytes: number }> = [];
+    const convex = await getAuthenticatedConvexClient();
+    const uploaded: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }> = [];
 
     for (const file of files) {
       const mimeType = file.type;
       const ext = extForMime(mimeType);
       if (!ext) {
+        await cleanupUploaded(convex, uploaded);
         return NextResponse.json(
           { error: `Unsupported image type: ${mimeType || "unknown"}`, errorId },
           { status: 400 }
@@ -62,6 +94,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       // 10MB per image (keeps uploads snappy and avoids abuse)
       const maxBytes = 10 * 1024 * 1024;
       if (file.size > maxBytes) {
+        await cleanupUploaded(convex, uploaded);
         return NextResponse.json(
           { error: "Each image must be <= 10MB", errorId },
           { status: 400 }
@@ -71,25 +104,37 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       const objectPath = `onboarding/${user.id}/${submissionId}/${randomUUID()}${ext}`;
       const bytes = new Uint8Array(await file.arrayBuffer());
 
-      const { error } = await supabase.storage.from(ONBOARDING_BUCKET).upload(objectPath, bytes, {
-        contentType: mimeType,
-        upsert: false,
-      });
+      const uploadUrl = await convex.action(api.studentOnboarding.generateImageUploadUrl, {});
+      const uploadResponse = await uploadWithTimeout(uploadUrl, mimeType, bytes.buffer);
 
-      if (error) {
+      if (!uploadResponse.ok) {
+        await cleanupUploaded(convex, uploaded);
+        const text = await uploadResponse.text().catch(() => "Unknown error");
         return NextResponse.json(
-          { error: `Upload failed: ${error.message}`, errorId },
+          { error: `Upload failed: ${text}`, errorId },
           { status: 500 }
         );
       }
 
-      uploaded.push({ path: objectPath, mimeType, sizeBytes: file.size });
+      const parsed = storageUploadResponseSchema.safeParse(await uploadResponse.json());
+      if (!parsed.success || !parsed.data.storageId) {
+        await cleanupUploaded(convex, uploaded);
+        return NextResponse.json(
+          { error: "Upload failed: missing or invalid storageId", errorId },
+          { status: 500 }
+        );
+      }
+
+      uploaded.push({ path: objectPath, storageId: parsed.data.storageId, mimeType, sizeBytes: file.size });
     }
 
-    // Note: We don't create the submission record here because mentorId and sessionPackId
-    // are required. Instead, we verify the submissionId on submit by checking that
-    // uploaded images exist with the expected prefix pattern.
-    // The submissionId is generated server-side to prevent client manipulation and race conditions.
+    // Record the uploaded storage IDs so the submit route can verify the
+    // client has not substituted arbitrary storage IDs.
+    const storageIds = uploaded.map((img) => img.storageId as Id<"_storage">);
+    await convex.mutation(api.studentOnboarding.recordUpload, {
+      legacyId: submissionId,
+      storageIds,
+    });
 
     return NextResponse.json({ success: true, submissionId, images: uploaded });
   } catch (error) {
@@ -100,4 +145,13 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
   }
 }
 
-
+async function cleanupUploaded(
+  convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>,
+  uploaded: Array<{ storageId: string }>
+): Promise<void> {
+  if (uploaded.length === 0) return;
+  const storageIds = uploaded.map((img) => img.storageId as Id<"_storage">);
+  await convex.action(api.studentOnboarding.deleteStorageObjects, { storageIds }).catch(() => {
+    // Best-effort cleanup; don't hide the original error.
+  });
+}

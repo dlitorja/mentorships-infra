@@ -97,6 +97,39 @@ export const getProductsByInstructorId = query({
   },
 });
 
+/**
+ * Returns active products grouped by instructor ID for a batch of instructors.
+ * This avoids N+1 queries when rendering admin instructor lists.
+ *
+ * Note: This fetches all active products once and filters in memory. For very
+ * large product catalogs, denormalizing `productActiveOneOnOne` and
+ * `productActiveGroup` flags onto the instructor document is the better long-term
+ * fix.
+ */
+export const getProductsByInstructorIds = query({
+  args: { instructorIds: v.array(v.id("instructors")) },
+  handler: async (ctx, args) => {
+    const instructorIdSet = new Set(args.instructorIds.map((id) => id as string));
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .collect();
+
+    const grouped = new Map<string, typeof products>();
+    for (const product of products) {
+      const instructorId = product.instructorId;
+      if (!instructorId || !instructorIdSet.has(instructorId)) continue;
+      if (!grouped.has(instructorId)) {
+        grouped.set(instructorId, []);
+      }
+      grouped.get(instructorId)!.push(product);
+    }
+
+    return Object.fromEntries(grouped);
+  },
+});
+
 /** Returns products for an instructor, optionally filtered by mentorship type (no auth). */
 export const getProductsByInstructorAndType = query({
   args: {

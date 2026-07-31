@@ -7,8 +7,18 @@ import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
+
+/** Legacy image object stored in Supabase. */
+type LegacyImageObject = { path: string };
+
+/** Raw image value as stored in older imageObjects arrays. */
+type LegacyImageValue = LegacyImageObject | string;
+
+/** Shape of imageObjects stored on legacy onboarding submissions. */
+type SubmissionImageObjects = LegacyImageValue[] | undefined;
 
 type PageProps = {
   searchParams: Promise<{ submissionId?: string }>;
@@ -63,10 +73,11 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const { submissionId } = await searchParams;
 
   const submissions: {
-    _id: string;
+    _id: Id<"studentOnboardingSubmissions">;
     legacyId: string | undefined;
     goals: string;
-    imageObjects: any;
+    imageObjects: SubmissionImageObjects;
+    imageStorageIds: (Id<"_storage"> | string)[] | undefined;
     createdAt: number | undefined;
     reviewedAt: number | undefined;
     userId: string;
@@ -82,25 +93,37 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const selected =
     (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
 
-  const imageObjects = selected?.imageObjects;
-  const signedUrls =
-    selected && imageObjects && Array.isArray(imageObjects) && imageObjects.length > 0
-      ? await (async () => {
-          const supabase = createSupabaseAdminClient();
-          const out: Array<{ path: string; signedUrl: string }> = [];
+  const signedUrls: Array<{ storageId?: string; path?: string; signedUrl: string }> = await (async () => {
+    if (!selected) return [];
 
-          for (const img of imageObjects) {
-            const path = typeof img === "object" && img !== null && "path" in img ? (img as { path: string }).path : String(img);
-            const { data, error } = await supabase.storage
-              .from(ONBOARDING_BUCKET)
-              .createSignedUrl(path, 60 * 60);
-            if (error || !data?.signedUrl) continue;
-            out.push({ path, signedUrl: data.signedUrl });
-          }
+    // Prefer Convex Storage; only fall back to Supabase for legacy submissions
+    // that have not been migrated yet.
+    if (selected.imageStorageIds && selected.imageStorageIds.length > 0) {
+      const urls = await fetchQuery(
+        api.studentOnboarding.getSignedUrls,
+        { submissionId: selected._id },
+        { token }
+      );
+      return urls.map((u) => ({ storageId: u.storageId, signedUrl: u.signedUrl }));
+    }
 
-          return out;
-        })()
-      : [];
+    const imageObjects = selected.imageObjects;
+    if (!Array.isArray(imageObjects) || imageObjects.length === 0) return [];
+
+    const supabase = createSupabaseAdminClient();
+    const out: Array<{ storageId?: string; path: string; signedUrl: string }> = [];
+
+    for (const img of imageObjects) {
+      const path = typeof img === "object" && img !== null && "path" in img ? (img as { path: string }).path : String(img);
+      const { data, error } = await supabase.storage
+        .from(ONBOARDING_BUCKET)
+        .createSignedUrl(path, 60 * 60);
+      if (error || !data?.signedUrl) continue;
+      out.push({ path, signedUrl: data.signedUrl });
+    }
+
+    return out;
+  })();
 
   return (
     <ProtectedLayout currentPath="/instructor/onboarding">
@@ -194,7 +217,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                           {signedUrls.map((u) => (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              key={u.path}
+                              key={u.storageId ?? u.path}
                               src={u.signedUrl}
                               alt="Onboarding work"
                               className="w-full rounded-md border object-cover"

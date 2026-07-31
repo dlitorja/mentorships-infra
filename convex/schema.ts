@@ -694,7 +694,10 @@ export default defineSchema({
     instructorId: v.id("instructors"),
     sessionPackId: v.id("sessionPacks"),
     goals: v.string(),
+    // Legacy Supabase storage paths. Kept for backward compatibility while
+    // submissions migrate to Convex Storage (imageStorageIds).
     imageObjects: v.optional(v.any()),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     reviewedAt: v.optional(v.number()),
     reviewedByUserId: v.optional(v.string()),
     createdAt: v.optional(v.number()),
@@ -704,6 +707,18 @@ export default defineSchema({
     .index("by_instructorId", ["instructorId"])
     .index("by_sessionPackId", ["sessionPackId"])
     .index("by_legacyId", ["legacyId"]),
+
+  // Temporary upload records used to verify that the storageIds submitted by
+  // the student were actually uploaded by the authenticated upload flow.
+  // Records are keyed by the submission's legacyId and are validated at submit.
+  studentOnboardingUploadRecords: defineTable({
+    legacyId: v.string(),
+    userId: v.string(),
+    storageIds: v.array(v.id("_storage")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_legacyId", ["legacyId"])
+    .index("by_userId", ["userId"]),
 
   kajabiOffers: defineTable({
     instructorSlug: v.string(),

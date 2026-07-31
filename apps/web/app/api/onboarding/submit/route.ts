@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { and, db, discordActionQueue, eq, sessionPacks } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const imageObjectSchema = z.object({
   path: z.string().min(1),
+  storageId: z.string().min(1),
   mimeType: z.string().min(1),
   sizeBytes: z.number().int().positive(),
   width: z.number().int().positive().optional(),
@@ -57,16 +59,30 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     }
 
     const expectedPrefix = `onboarding/${user.id}/${parsed.submissionId}/`;
-    const allMatch = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
-    if (!allMatch) {
+    const allPathsValid = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
+    if (!allPathsValid) {
       return NextResponse.json(
         { error: "Invalid submission ID or image paths. Please upload images first.", errorId },
         { status: 400 }
       );
     }
 
+    const convex = await getAuthenticatedConvexClient();
+
+    // Verify the storageIds were recorded by the authenticated upload flow.
+    const storageIds = parsed.imageObjects.map((img) => img.storageId as Id<"_storage">);
+    const verification = await convex.query(api.studentOnboarding.verifyUpload, {
+      legacyId: parsed.submissionId,
+      storageIds,
+    });
+    if (!verification.valid) {
+      return NextResponse.json(
+        { error: "Invalid storage IDs. Please upload images first.", errorId },
+        { status: 400 }
+      );
+    }
+
     // Check Convex for idempotency
-    const convex = getConvexClient();
     const existing = await convex.query(api.studentOnboarding.getByLegacyId, { legacyId: parsed.submissionId });
     if (existing) {
       return NextResponse.json(
@@ -87,13 +103,14 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     }
 
     // Create submission in Convex (idempotent)
-    const created = await convex.mutation(api.studentOnboarding.create, {
+    await convex.mutation(api.studentOnboarding.create, {
       legacyId: parsed.submissionId,
       userId: user.id,
       instructorId: instructor._id,
       sessionPackId: sessionPack.id, // legacy UUID stored in Postgres; Convex maps by legacyId
       goals: parsed.goals,
       imageObjects: parsed.imageObjects,
+      imageStorageIds: parsed.imageObjects.map((img) => img.storageId as Id<"_storage">),
     });
 
     const baseUrl = getBaseUrl();
@@ -114,6 +131,7 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
         goals: parsed.goals,
         imageObjects: parsed.imageObjects.map((img) => ({
           path: img.path,
+          storageId: img.storageId,
           mimeType: img.mimeType,
           sizeBytes: img.sizeBytes,
         })),

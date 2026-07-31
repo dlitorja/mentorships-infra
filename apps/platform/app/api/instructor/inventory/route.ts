@@ -7,9 +7,20 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { inngest } from "@/inngest/client";
 
-const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(",").map((e) => e.trim()) || [
-  "admin@huckleberry.art",
-];
+function getAdminEmails(): string[] {
+  const raw = process.env.ADMIN_EMAILS;
+  if (raw) {
+    const emails = raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (emails.length === 0) {
+      throw new Error("ADMIN_EMAILS is configured but contains no valid email addresses");
+    }
+    return emails;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing required environment variable: ADMIN_EMAILS");
+  }
+  return ["admin@huckleberry.art"];
+}
 
 type InventoryResponse =
   | { oneOnOneInventory: number; groupInventory: number }
@@ -110,7 +121,8 @@ async function handlePut(
     const primaryEmail = primaryEmailId
       ? user.emailAddresses?.find(e => e.id === primaryEmailId)?.emailAddress
       : null;
-    const isAdmin = primaryEmail ? ADMIN_EMAILS.includes(primaryEmail) : false;
+    const adminEmails = getAdminEmails();
+    const isAdmin = primaryEmail ? adminEmails.includes(primaryEmail.toLowerCase()) : false;
 
     if (!isAdmin) {
       return NextResponse.json(

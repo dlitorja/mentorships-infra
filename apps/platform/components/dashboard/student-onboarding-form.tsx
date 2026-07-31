@@ -17,7 +17,7 @@ type PackOption = {
   instructorLabel: string;
 };
 
-type UploadedImage = { path: string; mimeType: string; sizeBytes: number };
+type UploadedImage = { path: string; storageId: string; mimeType: string; sizeBytes: number };
 
 const onboardingSchema = z.object({
   sessionPackId: z.string().min(1, "Please select a mentorship pack"),

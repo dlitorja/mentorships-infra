@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,11 @@ import {
   getInstructorByUserId,
   studentOnboardingSubmissions,
   users,
+  normalizeStudentOnboardingImageObjects,
+  type StudentOnboardingImageObject,
 } from "@mentorships/db";
-import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import { api } from "@/convex/_generated/api";
+import { fetchQuery } from "convex/nextjs";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +45,12 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const submissions: {
     id: string;
     goals: string;
-    imageObjects: { path: string }[];
+    imageObjects: StudentOnboardingImageObject[];
     createdAt: Date;
     reviewedAt: Date | null;
     studentId: string;
     studentEmail: string;
-  }[] = await db
+  }[] = (await db
     .select({
       id: studentOnboardingSubmissions.id,
       goals: studentOnboardingSubmissions.goals,
@@ -60,25 +63,21 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     .from(studentOnboardingSubmissions)
     .innerJoin(users, eq(users.id, studentOnboardingSubmissions.userId))
     .where(eq(studentOnboardingSubmissions.instructorId, instructorRecord.id))
-    .orderBy(desc(studentOnboardingSubmissions.createdAt));
+    .orderBy(desc(studentOnboardingSubmissions.createdAt)))
+    .map((s) => ({ ...s, imageObjects: normalizeStudentOnboardingImageObjects(s.imageObjects) }));
 
   const selected =
     (submissionId ? submissions.find((s) => s.id === submissionId) : null) ?? submissions[0] ?? null;
 
+  const token = await getConvexAuthToken();
   const signedUrls =
-    selected && selected.imageObjects.length > 0
+    selected && selected.imageObjects.length > 0 && token
       ? await (async () => {
-          const supabase = createSupabaseAdminClient();
-          const out: Array<{ path: string; signedUrl: string }> = [];
-
-          for (const img of selected.imageObjects) {
-            const { data, error } = await supabase.storage
-              .from(ONBOARDING_BUCKET)
-              .createSignedUrl(img.path, 60 * 60);
-            if (error || !data?.signedUrl) continue;
-            out.push({ path: img.path, signedUrl: data.signedUrl });
-          }
-
+          const out = await fetchQuery(
+            api.studentOnboarding.getSignedUrlsByLegacyId,
+            { legacyId: selected.id },
+            { token }
+          );
           return out;
         })()
       : [];
@@ -153,7 +152,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                           {signedUrls.map((u) => (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              key={u.path}
+                              key={u.storageId}
                               src={u.signedUrl}
                               alt="Onboarding work"
                               className="w-full rounded-md border object-cover"
