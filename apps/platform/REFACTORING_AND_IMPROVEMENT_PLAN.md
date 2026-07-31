@@ -8,7 +8,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 | PR | Theme | Status |
 |----|-------|--------|
-| 1 | Security & architecture hardening | Completed (#710) |
+| 1 | Security & architecture hardening | Merged (#710) |
 | 2 | API / data layer consolidation | Not started |
 | 3 | Session actions consolidation & reschedule correctness | Not started |
 | 4 | Image upload consolidation & Next.js Image migration | Not started |
@@ -20,6 +20,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 ## Completed PRs
 
 ### PR 1: Security & Architecture Hardening (#710)
+
+**Status:** Squash-merged.
 
 - Migrated onboarding images from Supabase to Convex Storage across `apps/web` and `apps/platform`.
 - Added authentication and ownership checks to all Convex onboarding storage functions.
