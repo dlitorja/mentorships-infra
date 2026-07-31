@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ApiFetchError, getAdminInstructors, getAdminProducts, deleteAdminProduct } from "@/lib/queries/api-client";
 import Image from "next/image";
 import Link from "next/link";
 import { z } from "zod";
@@ -106,10 +107,9 @@ export default function ProductsPage() {
 
   const fetchInstructors = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/instructors?pageSize=100");
-      const json = await res.json();
-      const parsed = instructorOptionSchema.array().safeParse(json.items);
-      if (res.ok && parsed.success) {
+      const json = await getAdminInstructors({ pageSize: 100 });
+      const parsed = instructorOptionSchema.array().safeParse(json.instructors);
+      if (parsed.success) {
         setInstructors(parsed.data);
       }
     } catch {
@@ -133,13 +133,15 @@ export default function ProductsPage() {
       if (sessionTypeFilter) params.set("mentorshipType", sessionTypeFilter);
       if (activeFilter) params.set("active", activeFilter);
 
-      const res = await fetch(`/api/admin/products?${params}`);
-      const json = await res.json();
+      const json = await getAdminProducts({
+        search: search || undefined,
+        instructorId: instructorId || undefined,
+        mentorshipType: sessionTypeFilter || undefined,
+        active: activeFilter || undefined,
+        page,
+        pageSize,
+      });
       const parsed = productsResponseSchema.safeParse(json);
-      
-      if (!res.ok) {
-        throw new Error(parsed.success ? parsed.data.error : "Failed to fetch products");
-      }
       
       if (!parsed.success) {
         throw new Error("Invalid API response");
@@ -181,19 +183,15 @@ export default function ProductsPage() {
     setDeleteError(null);
 
     try {
-      const res = await fetch(`/api/admin/products/${productToDelete.id}`, {
-        method: "DELETE",
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to delete product");
-      }
-
+      await deleteAdminProduct(productToDelete.id);
       setProductToDelete(null);
       fetchProducts();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "Failed to delete product");
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        setDeleteError(err.data.error);
+      } else {
+        setDeleteError(err instanceof Error ? err.message : "Failed to delete product");
+      }
     } finally {
       setIsDeleting(false);
     }

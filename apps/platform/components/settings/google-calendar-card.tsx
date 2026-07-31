@@ -5,21 +5,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY } from "@/lib/constants/storage-keys";
+import { ApiFetchError, getGoogleCalendars, saveGoogleCalendarSelection, disconnectGoogleCalendar } from "@/lib/queries/api-client";
 
 type Calendar = {
   id: string;
   summary: string;
   accessRole: string;
   primary: boolean;
-};
-
-type CalendarsResponse = {
-  connected: boolean;
-  calendars: Calendar[];
-  selected: {
-    eventCalendarId: string;
-    availabilityCalendarIds: string[];
-  };
 };
 
 function isOAuthCallback(): boolean {
@@ -64,17 +56,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch("/api/google/calendars");
-        if (res.status === 409) {
-          if (!cancelled) {
-            setConnected(false);
-            setCalendars([]);
-            sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
-          }
-          return;
-        }
-        if (!res.ok) throw new Error("Failed to load calendars");
-        const data: CalendarsResponse = await res.json();
+        const data = await getGoogleCalendars();
         if (!cancelled) {
           setConnected(true);
           setCalendars(data.calendars);
@@ -83,6 +65,14 @@ export function GoogleCalendarCard(): React.JSX.Element {
           sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
         }
       } catch (e) {
+        if (e instanceof ApiFetchError && e.status === 409) {
+          if (!cancelled) {
+            setConnected(false);
+            setCalendars([]);
+            sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
+          }
+          return;
+        }
         console.error(e);
         if (!cancelled) {
           toast.error(e instanceof Error ? e.message : "Failed to load calendars");
@@ -115,12 +105,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
         toast.error("Select event calendar and at least one availability calendar");
         return;
       }
-      const res = await fetch("/api/google/calendars/select", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventCalendarId, availabilityCalendarIds }),
-      });
-      if (!res.ok) throw new Error("Failed to save selection");
+      await saveGoogleCalendarSelection({ eventCalendarId, availabilityCalendarIds });
       toast.success("Calendar selection saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save selection");
@@ -132,8 +117,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
   const disconnect = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/auth/google/disconnect", { method: "POST" });
-      if (!res.ok) throw new Error("Failed to disconnect");
+      await disconnectGoogleCalendar();
       setConnected(false);
       setCalendars([]);
       sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);

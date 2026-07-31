@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { z } from "zod";
-import { ConvexHttpClient } from "convex/browser";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
@@ -43,21 +43,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const dryRun = parsed.data.dryRun ?? false;
     const limit = parsed.data.limit;
 
-    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!convexUrl) {
-      return NextResponse.json({ error: "NEXT_PUBLIC_CONVEX_URL is not set" }, { status: 500 });
-    }
     const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    let client: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>;
 
     // Ensure Convex recognizes this user as admin (idempotent)
     try {
-      const seedClient = new ConvexHttpClient(convexUrl);
-      seedClient.setAuth(token);
-      await seedClient.mutation(api.users.syncUser, {} as any);
+      client = await getAuthenticatedConvexClient();
+      await client.mutation(api.users.syncUser, {});
       if (clerkAuth.userId) {
         await convexServerCall("/users/set-role", {
           userId: clerkAuth.userId,
@@ -67,11 +59,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch (e) {
       // Non-fatal; admin role might already be set
       console.warn("Convex admin role seed failed:", e);
+      client = await getAuthenticatedConvexClient();
     }
-
-    // Inline backfill to avoid requiring a deployed Convex action
-    const client = new ConvexHttpClient(convexUrl);
-    client.setAuth(token);
 
     type Summary = {
       processedProfiles: number;

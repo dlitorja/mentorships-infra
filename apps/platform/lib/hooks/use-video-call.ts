@@ -15,6 +15,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DEFAULT_DAILY_DOMAIN } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
+import { getVideoToken } from "@/lib/queries/api-client";
 
 export type VideoCallStatus =
   | "idle"
@@ -287,14 +288,7 @@ export function useVideoCall(
     setErrorMessage(null);
     setStatus("joining");
     try {
-      const res = await fetch(`/api/video/token/${encodeURIComponent(roomName)}`);
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(
-          `Failed to fetch meeting token (${res.status})${detail ? `: ${detail}` : ""}`
-        );
-      }
-      const raw = await res.json();
+      const raw = await getVideoToken(roomName);
       const parsed = tokenResponseSchema.safeParse(raw);
       if (!parsed.success) {
         throw new Error("Invalid token response from server.");

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { z } from "zod";
+import { ApiFetchError, getAdminInstructors } from "@/lib/queries/api-client";
 import { ProductForm } from "../_components/product-form";
 
 const instructorSchema = z.object({
@@ -28,12 +29,7 @@ export default function CreateProductPage() {
   useEffect(() => {
     async function fetchInstructors() {
       try {
-        const res = await fetch("/api/admin/instructors");
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to fetch instructors");
-        }
-        const data = await res.json();
+        const data = await getAdminInstructors();
         const validated = instructorsResponseSchema.parse(data);
         setInstructors(
           validated.instructors.map((inst) => ({
@@ -43,7 +39,11 @@ export default function CreateProductPage() {
           }))
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load instructors");
+        if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+          setError(err.data.error);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to load instructors");
+        }
       } finally {
         setIsLoadingInstructors(false);
       }

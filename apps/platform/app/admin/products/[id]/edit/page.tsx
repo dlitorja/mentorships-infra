@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { z } from "zod";
-import { type MentorshipType } from "@/lib/queries/api-client";
+import { ApiFetchError, type MentorshipType, getAdminProduct, getAdminInstructors } from "@/lib/queries/api-client";
 import { ProductForm } from "../../_components/product-form";
 
 const instructorSchema = z.object({
@@ -55,44 +55,33 @@ export default function EditProductPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [productRes, instructorsRes] = await Promise.all([
-          fetch(`/api/admin/products/${productId}`),
-          fetch("/api/admin/instructors"),
+        const [product, instructorsData] = await Promise.all([
+          getAdminProduct(productId),
+          getAdminInstructors(),
         ]);
 
-        if (!productRes.ok) {
-          const errorData = await productRes.json();
-          throw new Error(errorData.error || "Failed to fetch product");
-        }
-
-        const product = await productRes.json();
         setProductData(product);
 
-        if (instructorsRes.ok) {
-          const instructorsData = await instructorsRes.json();
-          const validated = instructorsResponseSchema.parse(instructorsData);
-          setInstructors(
-            validated.instructors.map((inst) => ({
-              id: inst.instructorId,
-              email: inst.email || null,
-              name: inst.displayName,
-            }))
-          );
-          setIsLoadingInstructors(false);
-        } else {
-          setIsLoadingInstructors(false);
-        }
+        const validated = instructorsResponseSchema.parse(instructorsData);
+        setInstructors(
+          validated.instructors.map((inst) => ({
+            id: inst.instructorId,
+            email: inst.email || null,
+            name: inst.displayName,
+          }))
+        );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch product");
-        setIsLoadingInstructors(false);
+        if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+          setError(err.data.error);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to fetch product");
+        }
       } finally {
         setLoading(false);
+        setIsLoadingInstructors(false);
       }
     }
-
-    if (productId) {
-      fetchData();
-    }
+    fetchData();
   }, [productId]);
 
   if (loading) {

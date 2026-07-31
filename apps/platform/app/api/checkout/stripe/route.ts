@@ -2,22 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type Stripe from "stripe";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { sendEmail } from "@/lib/email";
-
-function getConvexClient() {
-  // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_URL must be set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),

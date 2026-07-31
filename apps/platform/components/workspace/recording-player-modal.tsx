@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Id } from "@/convex/_generated/dataModel";
+import { getVideoRecordingStreamUrl } from "@/lib/queries/api-client";
 import { formatRetentionCountdown, isRetentionUrgent } from "@/lib/recording-retention";
 
 /**
@@ -101,27 +102,13 @@ export default function RecordingPlayerModal({
       wasPlayingBeforeRefreshRef.current = false;
     }
     try {
-      const res = await fetch(
-        `/api/video/recording/${sessionId}?kind=stream`,
-        { credentials: "include", cache: "no-store" }
-      );
       // CodeRabbit R5 "outside diff": if the dialog was closed
       // while the fetch was in flight, drop the late result. We
       // check `open` after the await because it's the only signal
       // that's authoritative — by the time the response lands,
       // the user may have closed the dialog.
+      const data = await getVideoRecordingStreamUrl(sessionId);
       if (!open) return;
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        setLoadState({
-          kind: "error",
-          message: body?.error ?? `Request failed (HTTP ${res.status})`,
-        });
-        return;
-      }
-      const data = (await res.json()) as { url: string; expiresAt: number };
       setStreamUrl(data.url);
       setExpiresAt(data.expiresAt);
       setLoadState({ kind: "ready" });

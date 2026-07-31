@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * POST /api/admin/convex/seed-role
@@ -24,11 +18,8 @@ export async function POST() {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    convex.setAuth(token);
 
     const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

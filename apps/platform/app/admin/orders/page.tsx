@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { ApiFetchError, createAdminRefund, getAdminOrders } from "@/lib/queries/api-client";
 import { 
   Search,
   ChevronLeft,
@@ -33,13 +33,6 @@ type Order = {
     status: string;
     refundedAmount: string | null;
   }[];
-};
-
-type OrdersResponse = {
-  items: Order[];
-  total: number;
-  page: number;
-  pageSize: number;
 };
 
 function formatCurrency(amount: string, currency: string = "usd"): string {
@@ -106,27 +99,21 @@ function RefundModal({
     setError("");
 
     try {
-      const response = await fetch("/api/admin/refunds", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paymentId: payment.id,
-          refundType,
-          amount: refundType === "partial" ? amount : undefined,
-          reason,
-          customReason: reason === "Other" ? customReason : undefined,
-        }),
+      await createAdminRefund({
+        paymentId: payment.id,
+        refundType,
+        amount: refundType === "partial" ? amount : undefined,
+        reason,
+        customReason: reason === "Other" ? customReason : undefined,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to process refund");
-      }
 
       onSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process refund");
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        setError(err.data.error);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to process refund");
+      }
     } finally {
       setLoading(false);
     }
@@ -231,7 +218,6 @@ function RefundModal({
 }
 
 export default function AdminOrdersPage() {
-  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -252,18 +238,7 @@ export default function AdminOrdersPage() {
       params.set("pageSize", pageSize.toString());
       if (statusFilter) params.set("status", statusFilter);
 
-      const res = await fetch(`/api/admin/orders?${params}`);
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          router.push("/dashboard?error=unauthorized");
-          return;
-        }
-        setOrders([]);
-        setTotal(0);
-        return;
-      }
-
-      const data: OrdersResponse = await res.json();
+      const data = await getAdminOrders({ status: statusFilter || undefined, page, pageSize });
 
       setOrders(data.items);
       setTotal(data.total);
@@ -273,7 +248,7 @@ export default function AdminOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, router]);
+  }, [page, statusFilter]);
 
   useEffect(() => {
     fetchOrders();

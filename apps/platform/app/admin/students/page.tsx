@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, UserPlus } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminStudents, getAdminInstructors, addAdminStudentSessions } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
   Dialog,
@@ -75,27 +75,22 @@ const StudentsResponseSchema = z.object({
 type StudentsResponse = z.infer<typeof StudentsResponseSchema>;
 
 async function fetchStudents(search?: string): Promise<StudentsResponse> {
-  const params = new URLSearchParams();
-  if (search) params.set("search", search);
-  const data = await apiFetch<unknown>(`/api/admin/students?${params.toString()}`);
+  const data = await getAdminStudents({ search: search || undefined });
   return StudentsResponseSchema.parse(data);
 }
 
 async function fetchInstructors() {
-  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors?includeInactive=true");
+  const data = await getAdminInstructors({ includeInactive: true });
+  return {
+      instructors: data.instructors.map((inst) => ({
+        id: inst.instructorId,
+        name: inst.displayName || inst.email || inst.instructorId,
+      })),
+  };
 }
 
 async function addSessionsToStudent(userId: string, data: { instructorId: string; totalSessions: number; expiresAt?: string }) {
-  const response = await fetch(`/api/admin/students/${userId}/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to add sessions");
-  }
-  return response.json();
+  return addAdminStudentSessions(userId, data);
 }
 
 const DEFAULT_ADD_SESSIONS_COUNT = 4;

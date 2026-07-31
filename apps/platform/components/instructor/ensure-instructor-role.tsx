@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { syncInstructorRole } from "@/lib/queries/api-client";
 
 /**
  * Ensures the current Clerk user is recorded as role "instructor" in Convex.
@@ -13,7 +14,7 @@ export function EnsureInstructorRole() {
     if (called.current) return;
     called.current = true;
     // Silent best-effort POST; failures are non-fatal and will be retried on next visit
-    fetch("/api/instructor/sync-role", { method: "POST" }).catch(() => {});
+    syncInstructorRole().catch(() => {});
   }, []);
 
   // No UI — this is a silent bootstrap step

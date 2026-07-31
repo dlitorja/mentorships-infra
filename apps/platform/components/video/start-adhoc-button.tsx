@@ -15,6 +15,7 @@ import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
 import type { UserRole } from "@/lib/auth-helpers";
 import { useVideoCallContext } from "@/lib/video/video-context";
+import { startAdhocCall } from "@/lib/queries/api-client";
 
 export type StartAdhocButtonProps = {
   workspaceId: Id<"workspaces">;
@@ -140,18 +141,7 @@ export function StartAdhocButton({
       }
       // Branch (a): no session yet — POST to create the synthetic row
       // and provision the Daily room.
-      const res = await fetch("/api/video/start-adhoc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, recordingConsent }),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(
-          `Failed to start call (${res.status})${detail ? `: ${detail}` : ""}`
-        );
-      }
-      const body = startAdhocResponseSchema.parse(await res.json());
+      const body = startAdhocResponseSchema.parse(await startAdhocCall({ workspaceId, recordingConsent }));
       await markCallStarted.mutateAsync({
         sessionId: body.sessionId as Id<"sessions">,
       });

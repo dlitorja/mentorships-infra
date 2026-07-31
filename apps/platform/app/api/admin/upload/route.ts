@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
 import { z } from "zod";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
@@ -13,14 +13,6 @@ const ALLOWED_TYPES = [
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();

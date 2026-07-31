@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * GET /api/admin/instructors/[id]/students
@@ -30,13 +21,7 @@ export async function GET(
       return NextResponse.json({ error: "Bad Request" }, { status: 400 });
     }
 
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     // Use admin query to fetch students by instructor id
     const result = await convex.query(api.admin.getStudentsForAdmin, {

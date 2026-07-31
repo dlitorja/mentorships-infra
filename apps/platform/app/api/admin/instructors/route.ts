@@ -1,25 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
-
-/**
- * Returns a ConvexHttpClient using NEXT_PUBLIC_CONVEX_URL.
- * Note: This does not authenticate requests by itself; routes are expected to
- * enforce auth (e.g., requireRoleForApi("admin")) and attach a Clerk Convex
- * token to the client where needed.
- */
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * GET /api/admin/instructors
@@ -155,12 +141,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const data = parsed.data;
-    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!convexUrl) {
-      return NextResponse.json({ error: "Server misconfigured: NEXT_PUBLIC_CONVEX_URL" }, { status: 500 });
-    }
-
-    const convex = new ConvexHttpClient(convexUrl);
+    const convex = getConvexClient();
 
     // Convex createInstructor requires userId. If not explicitly provided, try to look up
     // Clerk user by email to enable proper OAuth linking. Falls back to admin-scoped placeholder

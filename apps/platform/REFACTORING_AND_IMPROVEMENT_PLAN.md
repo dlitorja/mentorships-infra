@@ -9,7 +9,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | PR | Theme | Status |
 |----|-------|--------|
 | 1 | Security & architecture hardening | Merged (#710) |
-| 2 | API / data layer consolidation | Not started |
+| 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Not started |
 | 4 | Image upload consolidation & Next.js Image migration | Not started |
 | 5 | Type safety & checkout UX | Not started |
@@ -36,6 +36,16 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Added/expanded Convex tests.
 - Greptile review returned 0 comments after addressing initial feedback.
 
+### PR 2: API / Data Layer Consolidation (#712)
+
+**Status:** Squash-merged.
+
+- Standardized server-side Convex client initialization on `getAuthenticatedConvexClient()` / `getConvexClient()` from `lib/convex.ts`, removing 16+ local `getConvexClient()` factories and manual Clerk token boilerplate.
+- Migrated all client-side direct `fetch()` calls for internal `/api/...` endpoints to typed `apiFetch` helpers or new helpers in `lib/queries/api-client.ts`.
+- Centralized all API endpoint strings in `lib/routes.ts` and routed existing and new call sites through `ApiRoutes`.
+- Replaced custom `convexQuery`/`convexMutation` wrappers in `inngest/functions/payments.ts` with `convexServerCall`, adding 15 matching HTTP actions in `convex/http.ts`.
+- Fixed `api.users.syncUser` calls in admin upload/backfill/seed-role routes to pass valid `{}` arguments and removed unnecessary `as any` casts.
+
 ---
 
 ## Summary
@@ -44,12 +54,12 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 |----|-------|----------|-------------------|
 | 1 | Security & architecture hardening | High | 4 |
 | 2 | API / data layer consolidation | Medium | 5 |
-| 3 | Session actions consolidation & reschedule correctness | Medium-High | 4 |
-| 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
+| 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
+| 4 | Image upload consolidation & Next.js Image migration | Medium | 3 |
 | 5 | Type safety & checkout UX | Medium | 4 |
 | 6 | Testing infrastructure | High | 3 |
-| 7 | Performance & loading states | Medium | 4 |
-| 8 | Accessibility, UI consistency, and cleanup | Low-Medium | 8 |
+| 7 | Performance & loading states | Medium | 6 |
+| 8 | Accessibility, UI consistency, and cleanup | Low-Medium | 9 |
 
 **Total PRs:** 8
 

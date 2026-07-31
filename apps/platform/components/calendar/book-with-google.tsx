@@ -4,7 +4,7 @@ import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchInstructorAvailability } from "@/lib/queries/api-client";
+import { ApiFetchError, fetchInstructorAvailability, createBooking, createBookingSeries, notifyBooking } from "@/lib/queries/api-client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { CalendarSlotPicker } from "./calendar-slot-picker";
@@ -55,37 +55,27 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       // Create the initial booking with notifications suppressed to avoid duplicates.
       // If the weekly series creation succeeds, a single consolidated summary will be sent.
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          instructorId: selectedInstructorId!,
-          start: slotIso,
-          end: addHours(slotIso, 1),
-          timezone,
-          studentName: studentName || "Student",
-          suppressNotifications: true,
-        }),
+      const json = await createBooking({
+        instructorId: selectedInstructorId!,
+        start: slotIso,
+        end: addHours(slotIso, 1),
+        timezone,
+        studentName: studentName || "Student",
+        suppressNotifications: true,
       });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json?.success) {
+      if (json?.success) {
         toast.success("Booked. Invite sent; Discord link is in the event. For changes, contact your instructor in your workspace (24-hour notice encouraged).");
         // Attempt weekly series for 3 future weeks by default (4-session program)
         let seriesOk = false;
         try {
-          const seriesRes = await fetch("/api/bookings/series", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              instructorId: selectedInstructorId!,
-              start: slotIso,
-              timezone,
-              weeks: 3,
-              studentName: studentName || "Student",
-            }),
+          const seriesJson = await createBookingSeries({
+            instructorId: selectedInstructorId!,
+            start: slotIso,
+            timezone,
+            weeks: 3,
+            studentName: studentName || "Student",
           });
-          const seriesJson = await seriesRes.json().catch(() => ({}));
-          if (seriesRes.ok && seriesJson?.success) {
+          if (seriesJson?.success) {
             seriesOk = true;
             const created = seriesJson.created ?? 0;
             const skipped = seriesJson.skipped ?? 0;
@@ -96,7 +86,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
                 }.`
               );
             }
-          } else if (seriesRes.status !== 404) {
+          } else {
             toast.error(seriesJson?.error || "Failed to create weekly reservations");
           }
         } catch (e) {
@@ -107,19 +97,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
           const bookingId = json?.booking?._id || json?.booking?.id;
           if (bookingId) {
             try {
-              const notifyRes = await fetch("/api/bookings/notify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bookingId }),
-              });
-              if (!notifyRes.ok) {
-                const notifyJson = await notifyRes.json().catch(() => ({}));
-                console.error(
-                  "Fallback booking notification request failed:",
-                  notifyRes.status,
-                  notifyJson
-                );
-              }
+              await notifyBooking({ bookingId });
             } catch (e) {
               console.error("Failed to send fallback booking notification:", e);
             }
@@ -128,15 +106,21 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
         // Refetch availability to reflect booking
         void refetch();
         setSelectedSlot(null);
-      } else if (res.status === 409) {
-        toast.error("Slot no longer available. Please pick another.");
-      } else if (res.status === 502) {
-        toast.error(json?.error || "Calendar provider error. Try again later.");
       } else {
         toast.error(json?.error || "Failed to create booking");
       }
     } catch (e) {
-      toast.error("Unexpected error while booking");
+      if (e instanceof ApiFetchError) {
+        if (e.status === 409) {
+          toast.error("Slot no longer available. Please pick another.");
+        } else if (e.status === 502) {
+          toast.error(typeof e.data === "object" && e.data !== null && "error" in e.data && typeof e.data.error === "string" ? e.data.error : "Calendar provider error. Try again later.");
+        } else {
+          toast.error(typeof e.data === "object" && e.data !== null && "error" in e.data && typeof e.data.error === "string" ? e.data.error : "Failed to create booking");
+        }
+      } else {
+        toast.error("Unexpected error while booking");
+      }
     } finally {
       setBookingInFlightIso(null);
     }

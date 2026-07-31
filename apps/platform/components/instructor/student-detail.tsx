@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getInstructorStudentDetails } from "@/lib/queries/api-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +67,7 @@ export function StudentDetail({ studentId }: StudentDetailProps) {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["student-details", studentId],
-    queryFn: () => apiFetch<StudentDetails>(`/api/instructor/students/${studentId}`),
+    queryFn: () => getInstructorStudentDetails(studentId),
   });
 
   if (isLoading) {

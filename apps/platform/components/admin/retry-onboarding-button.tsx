@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { ApiFetchError, retryAdminOnboarding } from "@/lib/queries/api-client";
 
 /**
  * Shared "Retry" button for the admin onboarding recovery dashboard.
@@ -61,21 +62,7 @@ export function RetryOnboardingButton({
     if (!confirmed) return;
     setPending(true);
     try {
-      const res = await fetch(`/api/admin/onboardings/${onboardingId}/retry`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        onboardingId?: string;
-        status?: string;
-        failureReason?: string;
-        attemptCount?: number;
-        error?: string;
-      };
-      if (!res.ok) {
-        toast.error(body.error ?? `Retry failed (${res.status})`);
-        return;
-      }
+      const body = await retryAdminOnboarding(onboardingId);
       toast.success(
         body.attemptCount != null
           ? `Retry queued (attempt ${body.attemptCount})`
@@ -83,7 +70,11 @@ export function RetryOnboardingButton({
       );
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Retry failed");
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        toast.error(err.data.error);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Retry failed");
+      }
     } finally {
       setPending(false);
     }

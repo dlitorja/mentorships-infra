@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, ArrowLeft, User, Users, Save } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { ApiRoutes } from "@/lib/routes";
+import { apiFetch, getAdminWorkspace, getAdminInstructors, updateAdminWorkspaceMembers } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type WorkspaceMember = {
@@ -51,34 +52,32 @@ type InstructorItem = {
 };
 
 async function fetchWorkspace(id: string): Promise<WorkspaceMember> {
-  return apiFetch<WorkspaceMember>(`/api/admin/workspaces/${id}`);
+  return getAdminWorkspace(id);
 }
 
 async function fetchStudents(search?: string): Promise<{ items: StudentItem[] }> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   params.set("includeInactive", "true");
-  return apiFetch<{ items: StudentItem[] }>(`/api/admin/students?${params.toString()}`);
+  return apiFetch<{ items: StudentItem[] }>(`${ApiRoutes.adminStudents}?${params.toString()}`);
 }
 
 async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
-  return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
+  const data = await getAdminInstructors({ includeInactive: true });
+  return {
+    items: data.instructors.map((inst) => ({
+      id: inst.instructorId,
+      userId: inst.userId,
+      name: inst.displayName || inst.email,
+    })),
+  };
 }
 
 async function updateWorkspaceMember(
   workspaceId: string,
   data: { newOwnerId?: string; newInstructorId?: string | null }
 ) {
-  const response = await fetch(`/api/admin/workspaces/${workspaceId}/members`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update workspace member");
-  }
-  return response.json();
+  return updateAdminWorkspaceMembers(workspaceId, data);
 }
 
 export default function WorkspaceMembersPage({ params }: { params: Promise<{ id: string }> }) {

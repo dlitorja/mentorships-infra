@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
@@ -19,14 +19,6 @@ const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 type UploadType = "profile" | "portfolio" | "result";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
@@ -78,13 +70,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
 
     // Ensure the current user exists in Convex, then elevate to admin
     // via the bearer-auth /users/set-role HTTP endpoint (R14).
@@ -92,7 +79,7 @@ export async function POST(req: NextRequest) {
     await convex.mutation(api.users.syncUser, {});
 
     // 2) Request admin role in Convex using bearer auth.
-    const { userId } = await auth();
+    const { userId } = clerkAuth;
     if (userId) {
       try {
         await convexServerCall("/users/set-role", {

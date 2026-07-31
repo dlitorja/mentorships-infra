@@ -10,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
+import { ApiRoutes } from "@/lib/routes";
 import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
@@ -216,7 +217,7 @@ function RecordingRow({
   // disappearing from history).
   const isPurged = status === "purged";
 
-  const downloadHref = `/api/video/recording/${recording.sessionId}?kind=download`;
+  const downloadHref = ApiRoutes.videoRecording(recording.sessionId, "download");
   const { retry, isPending: isRetryPending, error: retryError } =
     useRecordingRetry(recording.sessionId);
   const retryErrorMessage = retryError ? retryError.message : null;

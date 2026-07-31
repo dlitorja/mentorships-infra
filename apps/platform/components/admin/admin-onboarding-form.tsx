@@ -20,7 +20,7 @@ import {
   RefreshCw,
   ChevronRight,
 } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { previewAdminOnboarding, submitAdminOnboarding } from "@/lib/queries/api-client";
 import {
   useInstructorOptionsForOnboarding,
   useLookupExistingStudent,
@@ -98,11 +98,7 @@ async function postPreview(body: {
   notes?: string;
   capacityOverrideReason?: string;
 }): Promise<PreviewResponse> {
-  const raw = await apiFetch<unknown>("/api/admin/students/onboard/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const raw = await previewAdminOnboarding(body);
   const parsed = previewResponseSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error("Preview response did not match expected schema");
@@ -117,16 +113,7 @@ async function postCommit(body: {
   notes?: string;
   capacityOverrideReason?: string;
 }): Promise<CommitResponse> {
-  const res = await fetch("/api/admin/students/onboard", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, source: "kajabi" }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Failed to create onboarding" }));
-    throw new Error(err.error || "Failed to create onboarding");
-  }
-  const raw = await res.json();
+  const raw = await submitAdminOnboarding({ ...body, source: "kajabi" });
   const parsed = commitResponseSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error("Commit response did not match expected schema");

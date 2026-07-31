@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminAuditLogs } from "@/lib/queries/api-client";
 
 type AuditLog = {
   id: string;
@@ -33,11 +33,7 @@ type AuditLogsResponse = {
 const PAGE_SIZE = 50;
 
 async function fetchAuditLogs(cursor?: string | null): Promise<AuditLogsResponse> {
-  const params = new URLSearchParams();
-  params.set("numItems", String(PAGE_SIZE));
-  if (cursor) params.set("cursor", cursor);
-  
-  return apiFetch<AuditLogsResponse>(`/api/admin/audit-logs?${params.toString()}`);
+  return getAdminAuditLogs({ numItems: PAGE_SIZE, cursor: cursor || undefined });
 }
 
 export default function AuditLogsPage() {

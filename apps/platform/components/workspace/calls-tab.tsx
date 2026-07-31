@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
+import { ApiRoutes } from "@/lib/routes";
 import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
 
@@ -170,7 +171,7 @@ function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
   const isFailed = status === "failed";
   const isPurged = status === "purged";
 
-  const downloadHref = `/api/video/recording/${recording.sessionId}?kind=download`;
+  const downloadHref = ApiRoutes.videoRecording(recording.sessionId, "download");
   const { retry, isPending: isRetryPending, error: retryError } =
     useRecordingRetry(recording.sessionId);
   const retryErrorMessage = retryError ? retryError.message : null;

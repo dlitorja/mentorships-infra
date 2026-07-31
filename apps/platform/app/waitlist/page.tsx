@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { z } from "zod";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
+import { ApiFetchError, joinWaitlist } from "@/lib/queries/api-client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,22 +44,18 @@ function WaitlistContent() {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: parsed.data.email,
-          instructorSlug: parsed.data.instructorSlug,
-          type: parsed.data.type,
-        }),
+      await joinWaitlist({
+        email: parsed.data.email,
+        instructorSlug: parsed.data.instructorSlug,
+        type: parsed.data.type,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to join waitlist");
-      }
       setSuccess(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        setError(err.data.error);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setLoading(false);
     }

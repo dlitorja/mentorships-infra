@@ -1,21 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
 
 const listWorkspacesQuerySchema = z.object({
   type: z.enum(["mentorship", "admin_student", "admin_instructor"]).optional(),
   numItems: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * GET /api/admin/workspaces

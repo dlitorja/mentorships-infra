@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/card";
 import { Loader2, ArrowLeft, User, Users, X } from "lucide-react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/queries/api-client";
+import { ApiRoutes } from "@/lib/routes";
+import { apiFetch, getAdminInstructors, createAdminStudentWorkspace as createAdminStudentWorkspaceApi, createAdminInstructorWorkspace as createAdminInstructorWorkspaceApi } from "@/lib/queries/api-client";
 
 type StudentItem = {
   kind: "student";
@@ -49,12 +50,20 @@ async function fetchUsers(search?: string): Promise<{ items: StudentItem[] }> {
   if (search) params.set("search", search);
   params.set("includeInactive", "true");
   
-  return apiFetch<{ items: StudentItem[] }>(`/api/admin/students?${params.toString()}`);
+  return apiFetch<{ items: StudentItem[] }>(`${ApiRoutes.adminStudents}?${params.toString()}`);
 }
 
 /** Fetches all instructors from the admin API. */
 async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
-  return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
+  const data = await getAdminInstructors({ includeInactive: true });
+  return {
+    items: data.instructors.map((inst) => ({
+      kind: "instructor" as const,
+      id: inst.instructorId,
+      userId: inst.userId,
+      name: inst.displayName || inst.email,
+    })),
+  };
 }
 
 /** Creates an admin-student workspace and returns the result. */
@@ -64,16 +73,7 @@ async function createAdminStudentWorkspace(data: {
   description?: string;
   isPublic?: boolean;
 }) {
-  const response = await fetch("/api/admin/workspaces/admin-student", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create workspace");
-  }
-  return response.json();
+  return createAdminStudentWorkspaceApi(data);
 }
 
 /** Creates an admin-instructor workspace and returns the result. */
@@ -83,16 +83,7 @@ async function createAdminInstructorWorkspace(data: {
   description?: string;
   isPublic?: boolean;
 }) {
-  const response = await fetch("/api/admin/workspaces/admin-instructor", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create workspace");
-  }
-  return response.json();
+  return createAdminInstructorWorkspaceApi(data);
 }
 
 /** Page for creating admin workspaces (student or instructor type). */
