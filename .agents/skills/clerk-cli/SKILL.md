@@ -12,9 +12,15 @@ description: >-
 
 # Clerk CLI
 
+> **Note:** This skill was written for Clerk CLI 1.5.0. The current CLI (2.0+) adds
+> `clerk webhooks`, `clerk impersonate`, `clerk mcp`, and removes `clerk skill install`.
+> When the user asks about those newer commands, prefer running the live CLI
+> (`clerk <command> --help`) over the examples in this skill, since the bundled skill
+> may be stale.
+
 The `clerk` binary is a pre-authenticated gateway to Clerk's Backend API and Platform API, plus project-level tooling (auth, linking, env pulls, instance config). When the user asks anything that touches a Clerk resource, reach for `clerk` first instead of hand-rolling `curl`.
 
-> This skill was installed by `clerk init` (or `clerk skill install`) and is pinned to clerk `1.5.0`. If `clerk --version` disagrees, refresh it with `clerk skill install` (or `bunx clerk@1.5.0 skill install`). The binary is always the source of truth, so run `clerk <command> --help` to verify anything this skill claims.
+> This skill was originally installed by `clerk init` (or `clerk skill install`) and was pinned to clerk `1.5.0`. `clerk skill install` was removed in Clerk CLI 2.0, so the skill is now maintained manually. If the live CLI disagrees with this skill, trust the live CLI (`clerk <command> --help`).
 
 ## Execution environment (prefer the host, understand the sandbox warning)
 
