@@ -21,6 +21,7 @@ import {
 } from "@/lib/queries/use-session-actions";
 import {
   formatUtcMillisForDateTimeLocal,
+  isValidTimeZone,
   parseDateTimeLocalToUtcMillis,
 } from "@/lib/timezone";
 import { EmailPreviewTab } from "./email-preview-tab";
@@ -346,9 +347,10 @@ export function SessionActions({
     isLoading: isLoadingTimeZone,
     isError: isTimeZoneError,
   } = useCurrentInstructor();
-  const timeZone = instructor?.timeZone ?? "UTC";
-  const hasTimeZone = Boolean(instructor?.timeZone);
-  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError && hasTimeZone;
+  const rawTimeZone = instructor?.timeZone;
+  const timeZone = isValidTimeZone(rawTimeZone ?? "UTC") ? rawTimeZone! : "UTC";
+  const hasValidTimeZone = rawTimeZone != null && isValidTimeZone(rawTimeZone);
+  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError && hasValidTimeZone;
 
   const canReschedule = !allowedActions || allowedActions.includes("reschedule");
   const canCancel = !allowedActions || allowedActions.includes("cancel");
@@ -365,7 +367,7 @@ export function SessionActions({
             title={
               isTimeZoneError
                 ? "Unable to load your timezone. Please refresh and try again."
-                : !hasTimeZone
+                : !hasValidTimeZone
                   ? "Set your timezone in settings before rescheduling sessions."
                   : "Reschedule"
             }
