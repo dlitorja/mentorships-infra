@@ -27,8 +27,8 @@ export const handleClerkUserCreated = inngest.createFunction(
     id: "handle-clerk-user-created-instructor",
     name: "Handle Clerk User Created - Instructor Role",
     retries: 3,
+    triggers: [{ event: "clerk/user.created" }],
   },
-  { event: "clerk/user.created" },
   async ({ event, step }) => {
     const data = event.data as ClerkUserCreatedEventData;
     const { userId, email, role, firstName, lastName } = data;
@@ -133,8 +133,8 @@ export const handleClerkUserUpdated = inngest.createFunction(
     id: "handle-clerk-user-updated-instructor",
     name: "Handle Clerk User Updated - Instructor Role Changes",
     retries: 3,
+    triggers: [{ event: "clerk/user.updated" }],
   },
-  { event: "clerk/user.updated" },
   async ({ event, step }) => {
     const data = event.data as ClerkUserUpdatedEventData;
     const { userId, email, role, firstName, lastName, previousRole } = data;

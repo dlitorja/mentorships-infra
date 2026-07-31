@@ -36,8 +36,12 @@ function getBaseUrl(): string {
 const THIRTEEN_DAYS_MS = 13 * 24 * 60 * 60 * 1000;
 
 export const adminOnboardingStaleDigestFlow = inngest.createFunction(
-  { id: "admin-onboarding-stale-digest", name: "Admin Onboarding Stale Digest", retries: 0 },
-  { cron: "0 9 * * *" },
+  {
+    id: "admin-onboarding-stale-digest",
+    name: "Admin Onboarding Stale Digest",
+    retries: 0,
+    triggers: [{ cron: "0 9 * * *" }],
+  },
   async ({ step }) => {
     const baseUrl = getBaseUrl();
 

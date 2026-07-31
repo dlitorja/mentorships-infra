@@ -4,13 +4,14 @@ import type { Doc } from "../../../../convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { NonRetriableError } from "inngest";
+import { createDefer } from "inngest/experimental";
+import { z } from "zod";
 import { sendEmail, sendTemplateEmail, type SendEmailResult } from "@/lib/email";
 import { reportError, reportInfo } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
 import {
-  purchaseInstructorEventSchema,
   adminOnboardingCompletedEventSchema,
 } from "../types";
 import { inngest } from "../client";
@@ -63,15 +64,20 @@ function getBaseUrl(): string {
   return "http://localhost:3000";
 }
 
+const onboardingFlowInputSchema = z.object({
+  orderId: z.string().trim().min(1),
+  clerkId: z.string().trim().min(1),
+  packId: z.string().trim().min(1),
+  provider: z.enum(["stripe", "paypal"]),
+});
+
 /**
  * Handles post-purchase onboarding for students and instructors.
  *
- * Triggered by: `purchase/instructor` (canonical). The deprecated
- * `purchase/mentorship` event is NOT a trigger on this function because
- * `apps/web` already owns it — a shared Inngest namespace would otherwise
- * cause duplicate side effects (double emails, double seat allocations,
- * double Discord notifications). See PROJECT_STATUS.md → "Naming
- * compliance — deprecated aliases" for the cleanup checklist.
+ * Deferred from `processStripeCheckout` and `processPayPalCheckout` via
+ * `defer("trigger-onboarding", { function: onboardingFlow, ... })`.
+ * The legacy `purchase/instructor` event trigger is replaced by this typed
+ * defer call so payment flows don't need to emit a shared event.
  *
  * Skips guest purchases (no Clerk user to look up).
  *
@@ -90,23 +96,16 @@ function getBaseUrl(): string {
  * @returns Object with success status, orderId, clerkId, sessionPackId, instructorId,
  *          discordConnected flag, and emailSent status
  */
-export const onboardingFlow = inngest.createFunction(
+export const onboardingFlow = createDefer(
+  inngest,
   {
     id: "onboarding-flow",
     name: "Onboarding Flow",
     retries: 2,
+    schema: onboardingFlowInputSchema,
   },
-  // Canonical trigger only. The legacy `purchase/mentorship` event is
-  // owned by `apps/web`; do NOT add it here without first coordinating the
-  // namespace split or removing the web handler (target 2026-09-14).
-  { event: "purchase/instructor" },
   async ({ event, step }) => {
-    const parsed = purchaseInstructorEventSchema.parse({
-      name: event.name,
-      data: event.data,
-    });
-
-    const { orderId, clerkId, provider } = parsed.data;
+    const { orderId, clerkId, provider } = event.data;
 
     // Skip onboarding for guest purchases — no real Clerk user to look up.
     // The checkout flow already sends a generic Resend confirmation email.
@@ -588,8 +587,8 @@ export const adminOnboardingFlow = inngest.createFunction(
     // expectedStatus + expectedAttemptCount guard so re-deliveries and
     // retries land on a no-op rather than a duplicate write.
     concurrency: { limit: 5 },
+    triggers: [{ event: "admin/onboarding.completed" }],
   },
-  { event: "admin/onboarding.completed" },
   async ({ event, step }) => {
     let parsed;
     try {

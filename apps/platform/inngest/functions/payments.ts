@@ -7,6 +7,7 @@ import { reportInfo } from "@/lib/observability";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { z } from "zod";
 import type { PaypalPaymentCompletedEvent } from "../types";
+import { onboardingFlow } from "./onboarding";
 
 const clerkUserSchema = z.array(
   z.object({
@@ -109,14 +110,18 @@ function formatPrice(amount: string | null, currency: string): string {
  * 10. Ensures an admin-student workspace exists for post-purchase access
  * 11. Decrements instructor inventory (oneOnOne or group)
  * 12. Sends a purchase confirmation email with Clerk magic link for returning users
- * 13. Triggers the onboarding flow via purchase/instructor event
+ * 13. Defers the onboarding flow via `defer()` (typed, fire-and-forget)
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
 export const processStripeCheckout = inngest.createFunction(
-  { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
-  { event: "stripe/checkout.session.completed" },
-  async ({ event, step }) => {
+  {
+    id: "process-stripe-checkout",
+    name: "Process Stripe Checkout",
+    retries: 3,
+    triggers: [{ event: "stripe/checkout.session.completed" }],
+  },
+  async ({ event, step, defer }) => {
     const { sessionId, orderId, userId, packId, studentEmail } = event.data as {
       sessionId: string;
       orderId: string;
@@ -478,8 +483,8 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     await step.run("trigger-onboarding", async () => {
-      await inngest.send({
-        name: "purchase/instructor",
+      defer("trigger-onboarding", {
+        function: onboardingFlow,
         data: {
           orderId,
           clerkId: resolvedUserId,
@@ -518,8 +523,12 @@ const completedOrder = await step.run("update-order", async () => {
  * @returns Object with success status, sessionPackId, and paymentId
  */
 export const processStripeRefund = inngest.createFunction(
-  { id: "process-stripe-refund", name: "Process Stripe Refund", retries: 3 },
-  { event: "stripe/charge.refunded" },
+  {
+    id: "process-stripe-refund",
+    name: "Process Stripe Refund",
+    retries: 3,
+    triggers: [{ event: "stripe/charge.refunded" }],
+  },
   async ({ event, step }) => {
     const { paymentIntentId } = event.data;
 
@@ -653,14 +662,18 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
  * 7. Ensures an admin-student workspace exists for post-purchase access
  * 8. Decrements instructor inventory (oneOnOne or group)
  * 9. Sends a purchase confirmation email with Clerk magic link for returning users
- * 10. Triggers the onboarding flow via purchase/instructor event
+ * 10. Defers the onboarding flow via `defer()` (typed, fire-and-forget)
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
 export const processPayPalCheckout = inngest.createFunction(
-  { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
-  { event: "paypal/payment.capture.completed" },
-  async ({ event, step }) => {
+  {
+    id: "process-paypal-checkout",
+    name: "Process PayPal Checkout",
+    retries: 3,
+    triggers: [{ event: "paypal/payment.capture.completed" }],
+  },
+  async ({ event, step, defer }) => {
     const { captureId, orderId, packId } = event.data as unknown as PaypalPaymentCompletedEvent["data"];
 
     const order = await step.run("get-order", async () => {
@@ -934,8 +947,8 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     await step.run("trigger-onboarding", async () => {
-      await inngest.send({
-        name: "purchase/instructor",
+      defer("trigger-onboarding", {
+        function: onboardingFlow,
         data: {
           orderId,
           clerkId: order.userId,
@@ -975,8 +988,12 @@ export const processPayPalCheckout = inngest.createFunction(
  * @returns Object with success status, sessionPackId, and paymentId
  */
 export const processPayPalRefund = inngest.createFunction(
-  { id: "process-paypal-refund", name: "Process PayPal Refund", retries: 3 },
-  { event: "paypal/payment.capture.refunded" },
+  {
+    id: "process-paypal-refund",
+    name: "Process PayPal Refund",
+    retries: 3,
+    triggers: [{ event: "paypal/payment.capture.refunded" }],
+  },
   async ({ event, step }) => {
     const { captureId } = event.data;
 

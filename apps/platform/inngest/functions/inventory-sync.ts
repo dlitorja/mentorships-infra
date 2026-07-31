@@ -54,8 +54,8 @@ export const syncInstructorInventoryToConvex = inngest.createFunction(
     id: "sync-instructor-inventory-to-convex",
     name: "Sync Instructor Inventory to Convex",
     retries: 3,
+    triggers: [{ event: "instructor/created" }, { event: "instructor/updated" }],
   },
-  [{ event: "instructor/created" }, { event: "instructor/updated" }],
   async ({ event, step }) => {
     return await step.run("sync-inventory-to-convex", async () => {
       return postInventoryToConvex(event.data as z.infer<typeof inventorySyncPayload>);
