@@ -347,7 +347,8 @@ export function SessionActions({
     isError: isTimeZoneError,
   } = useCurrentInstructor();
   const timeZone = instructor?.timeZone ?? "UTC";
-  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError;
+  const hasTimeZone = Boolean(instructor?.timeZone);
+  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError && hasTimeZone;
 
   const canReschedule = !allowedActions || allowedActions.includes("reschedule");
   const canCancel = !allowedActions || allowedActions.includes("cancel");
@@ -364,7 +365,9 @@ export function SessionActions({
             title={
               isTimeZoneError
                 ? "Unable to load your timezone. Please refresh and try again."
-                : "Reschedule"
+                : !hasTimeZone
+                  ? "Set your timezone in settings before rescheduling sessions."
+                  : "Reschedule"
             }
             aria-label="Reschedule session"
             disabled={!canLoadTimeZone}
