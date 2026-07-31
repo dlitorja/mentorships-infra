@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 
@@ -75,6 +75,9 @@ export async function POST(
   } catch (error: unknown) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     const message = error instanceof Error ? error.message : "Failed to send message";
     console.error("Error sending message:", error);

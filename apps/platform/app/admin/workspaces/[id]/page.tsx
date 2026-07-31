@@ -71,17 +71,13 @@ type WorkspaceDetail = {
   };
 };
 
-async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
-  return getAdminWorkspace(id);
-}
-
 export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const workspaceId = resolvedParams.id;
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
+    queryFn: () => getAdminWorkspace(workspaceId) as Promise<WorkspaceDetail>,
   });
 
   if (isLoading) {

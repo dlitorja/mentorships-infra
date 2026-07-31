@@ -217,7 +217,7 @@ function RecordingRow({
   // disappearing from history).
   const isPurged = status === "purged";
 
-  const downloadHref = ApiRoutes.videoRecording(recording.sessionId, "download");
+  const downloadHref = `${ApiRoutes.videoRecording(recording.sessionId)}?kind=download`;
   const { retry, isPending: isRetryPending, error: retryError } =
     useRecordingRetry(recording.sessionId);
   const retryErrorMessage = retryError ? retryError.message : null;

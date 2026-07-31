@@ -13,8 +13,10 @@ export function EnsureInstructorRole() {
   useEffect(() => {
     if (called.current) return;
     called.current = true;
-    // Silent best-effort POST; failures are non-fatal and will be retried on next visit
-    syncInstructorRole().catch(() => {});
+    // Best-effort POST; failures are non-fatal and will be retried on next visit.
+    syncInstructorRole().catch((error) => {
+      console.warn("Failed to sync instructor role:", error);
+    });
   }, []);
 
   // No UI — this is a silent bootstrap step

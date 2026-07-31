@@ -12,31 +12,33 @@
 export const ApiRoutes = {
   // Admin instructors
   adminInstructors: "/api/admin/instructors",
-  adminInstructor: (id: string) => `/api/admin/instructors/${id}`,
-  adminInstructorStudents: (id: string) => `/api/admin/instructors/${id}/students`,
-  adminInstructorTestimonials: (id: string) => `/api/admin/instructors/${id}/testimonials`,
+  adminInstructor: (id: string) => `/api/admin/instructors/${encodeURIComponent(id)}`,
+  adminInstructorStudents: (id: string) => `/api/admin/instructors/${encodeURIComponent(id)}/students`,
+  adminInstructorTestimonials: (id: string) => `/api/admin/instructors/${encodeURIComponent(id)}/testimonials`,
   adminInstructorTestimonial: (id: string, testimonialId: string) =>
-    `/api/admin/instructors/${id}/testimonials/${testimonialId}`,
-  adminInstructorStudentResults: (id: string) => `/api/admin/instructors/${id}/student-results`,
+    `/api/admin/instructors/${encodeURIComponent(id)}/testimonials/${encodeURIComponent(testimonialId)}`,
+  adminInstructorStudentResults: (id: string) => `/api/admin/instructors/${encodeURIComponent(id)}/student-results`,
   adminInstructorStudentResult: (id: string, resultId: string) =>
-    `/api/admin/instructors/${id}/student-results/${resultId}`,
+    `/api/admin/instructors/${encodeURIComponent(id)}/student-results/${encodeURIComponent(resultId)}`,
   adminInstructorsUpload: "/api/admin/instructors/upload",
   adminInstructorsBackfillImages: "/api/admin/instructors/backfill-images",
 
   // Admin products
   adminProducts: "/api/admin/products",
-  adminProduct: (id: string) => `/api/admin/products/${id}`,
+  adminProduct: (id: string) => `/api/admin/products/${encodeURIComponent(id)}`,
   productsCreateFromStripe: "/api/products/create-from-stripe",
 
   // Admin students
   adminStudents: "/api/admin/students",
-  adminStudentSessions: (userId: string) => `/api/admin/students/${userId}/sessions`,
+  adminStudentSessions: (userId: string) => `/api/admin/students/${encodeURIComponent(userId)}/sessions`,
   adminStudentsInvite: "/api/admin/students/invite",
+  adminStudentsOnboard: "/api/admin/students/onboard",
+  adminStudentsOnboardPreview: "/api/admin/students/onboard/preview",
 
   // Admin workspaces
   adminWorkspaces: "/api/admin/workspaces",
-  adminWorkspace: (id: string) => `/api/admin/workspaces/${id}`,
-  adminWorkspaceMembers: (id: string) => `/api/admin/workspaces/${id}/members`,
+  adminWorkspace: (id: string) => `/api/admin/workspaces/${encodeURIComponent(id)}`,
+  adminWorkspaceMembers: (id: string) => `/api/admin/workspaces/${encodeURIComponent(id)}/members`,
   adminWorkspaceAdminStudent: "/api/admin/workspaces/admin-student",
   adminWorkspaceAdminInstructor: "/api/admin/workspaces/admin-instructor",
 
@@ -44,20 +46,19 @@ export const ApiRoutes = {
   adminStats: "/api/admin/stats",
   adminOrders: "/api/admin/orders",
   adminRefunds: "/api/admin/refunds",
-  adminOnboardingRetry: (id: string) => `/api/admin/onboardings/${id}/retry`,
-  adminStudentsOnboard: "/api/admin/students/onboard",
+  adminOnboardingRetry: (id: string) => `/api/admin/onboardings/${encodeURIComponent(id)}/retry`,
   adminAuditLogs: "/api/admin/audit-logs",
 
   // Public products
   products: "/api/products",
-  product: (id: string) => `/api/products/${id}`,
+  product: (id: string) => `/api/products/${encodeURIComponent(id)}`,
 
   // Session packs
   sessionPacks: "/api/session-packs",
   sessionPacksMe: "/api/session-packs/me",
 
   // Instructor session packs
-  instructorSessionPack: (id: string) => `/api/instructor/session-packs/${id}`,
+  instructorSessionPack: (id: string) => `/api/instructor/session-packs/${encodeURIComponent(id)}`,
 
   // Bookings
   bookings: "/api/bookings",
@@ -67,29 +68,29 @@ export const ApiRoutes = {
 
   // Sessions
   sessions: "/api/sessions",
-  sessionReschedule: (id: string) => `/api/sessions/${id}/reschedule`,
-  sessionCancel: (id: string) => `/api/sessions/${id}/cancel`,
-  sessionNotes: (id: string) => `/api/sessions/${id}/notes`,
+  sessionReschedule: (id: string) => `/api/sessions/${encodeURIComponent(id)}/reschedule`,
+  sessionCancel: (id: string) => `/api/sessions/${encodeURIComponent(id)}/cancel`,
+  sessionNotes: (id: string) => `/api/sessions/${encodeURIComponent(id)}/notes`,
 
   // Instructor endpoints
   instructorProfile: "/api/instructor/profile",
   instructorSettings: "/api/instructor/settings",
   instructorStudents: "/api/instructor/students",
-  instructorStudent: (id: string) => `/api/instructor/students/${id}`,
-  instructorStudentSessions: (id: string) => `/api/instructor/students/${id}/sessions`,
+  instructorStudent: (id: string) => `/api/instructor/students/${encodeURIComponent(id)}`,
+  instructorStudentSessions: (id: string) => `/api/instructor/students/${encodeURIComponent(id)}/sessions`,
   instructorTestimonials: "/api/instructor/testimonials",
-  instructorTestimonial: (id: string) => `/api/instructor/testimonials/${id}`,
+  instructorTestimonial: (id: string) => `/api/instructor/testimonials/${encodeURIComponent(id)}`,
   instructorStudentResults: "/api/instructor/student-results",
-  instructorStudentResult: (id: string) => `/api/instructor/student-results/${id}`,
+  instructorStudentResult: (id: string) => `/api/instructor/student-results/${encodeURIComponent(id)}`,
   instructorUploadImage: "/api/instructor/upload-image",
   instructorSyncRole: "/api/instructor/sync-role",
-  instructorSession: (id: string) => `/api/instructor/sessions/${id}`,
-  instructorSessionEmailPreview: (id: string) => `/api/instructor/sessions/${id}/email-preview`,
+  instructorSession: (id: string) => `/api/instructor/sessions/${encodeURIComponent(id)}`,
+  instructorSessionEmailPreview: (id: string) => `/api/instructor/sessions/${encodeURIComponent(id)}/email-preview`,
 
   // Instructor availability
-  instructorAvailability: (instructorId: string) => `/api/instructors/${instructorId}/availability`,
+  instructorAvailability: (instructorId: string) => `/api/instructors/${encodeURIComponent(instructorId)}/availability`,
   instructorAvailabilityPreview: (instructorId: string) =>
-    `/api/instructors/${instructorId}/availability-preview`,
+    `/api/instructors/${encodeURIComponent(instructorId)}/availability-preview`,
 
   // Google Calendar
   googleCalendars: "/api/google/calendars",
@@ -121,13 +122,10 @@ export const ApiRoutes = {
 
   // Video
   videoStartAdhoc: "/api/video/start-adhoc",
-  videoConsent: (target: string) => `/api/video/consent/${target}`,
+  videoConsent: (target: string) => `/api/video/consent/${encodeURIComponent(target)}`,
   videoToken: (roomName: string) => `/api/video/token/${encodeURIComponent(roomName)}`,
-  videoRecordingRetry: (sessionId: string) => `/api/video/recording/${sessionId}/retry`,
-  videoRecording: (sessionId: string, kind?: "stream" | "download") => {
-    const path = `/api/video/recording/${sessionId}`;
-    return kind ? `${path}?kind=${kind}` : path;
-  },
+  videoRecordingRetry: (sessionId: string) => `/api/video/recording/${encodeURIComponent(sessionId)}/retry`,
+  videoRecording: (sessionId: string) => `/api/video/recording/${encodeURIComponent(sessionId)}`,
 
   // Auth
   authSync: "/api/auth/sync",
@@ -151,6 +149,3 @@ export const ApiRoutes = {
   // Admin upload
   adminUpload: "/api/admin/upload",
 } as const;
-
-/** Backwards-compatible alias for code that already imports `apiRoutes`. */
-export const apiRoutes = ApiRoutes;

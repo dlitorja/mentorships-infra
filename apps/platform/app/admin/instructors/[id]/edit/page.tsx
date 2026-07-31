@@ -220,33 +220,7 @@ async function updateInstructor(
   return updateInstructorResponseSchema.parse(result);
 }
 
-/**
- * Adds a testimonial to an instructor.
- */
-async function addTestimonial(instructorId: string, data: { name: string; text: string }) {
-  return createAdminTestimonial(instructorId, data);
-}
 
-/**
- * Deletes a testimonial from an instructor.
- */
-async function deleteTestimonial(instructorId: string, testimonialId: string) {
-  return deleteAdminTestimonial(instructorId, testimonialId);
-}
-
-/**
-   * Adds a student result (before/after image) to an instructor.
- */
-async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
-  return createAdminStudentResult(instructorId, data);
-}
-
-/**
-   * Deletes a student result from an instructor.
- */
-async function deleteStudentResult(instructorId: string, resultId: string) {
-  return deleteAdminStudentResult(instructorId, resultId);
-}
 
 export default function EditInstructorPage() {
   const params = useParams();
@@ -378,7 +352,7 @@ export default function EditInstructorPage() {
   };
 
   const addTestimonialMutation = useMutation({
-    mutationFn: (data: { name: string; text: string }) => addTestimonial(instructorId, data),
+    mutationFn: (data: { name: string; text: string }) => createAdminTestimonial(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowTestimonialDialog(false);
@@ -391,7 +365,7 @@ export default function EditInstructorPage() {
   });
 
   const deleteTestimonialMutation = useMutation({
-    mutationFn: (testimonialId: string) => deleteTestimonial(instructorId, testimonialId),
+    mutationFn: (testimonialId: string) => deleteAdminTestimonial(instructorId, testimonialId),
     onSuccess: () => {
       setError(null);
       refetch();
@@ -402,7 +376,7 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; studentName: string }) => createAdminStudentResult(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowStudentResultDialog(false);
@@ -415,7 +389,7 @@ export default function EditInstructorPage() {
   });
 
   const deleteStudentResultMutation = useMutation({
-    mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
+    mutationFn: (resultId: string) => deleteAdminStudentResult(instructorId, resultId),
     onSuccess: () => {
       setError(null);
       refetch();

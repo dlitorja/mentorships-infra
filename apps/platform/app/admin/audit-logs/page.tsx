@@ -32,10 +32,6 @@ type AuditLogsResponse = {
 
 const PAGE_SIZE = 50;
 
-async function fetchAuditLogs(cursor?: string | null): Promise<AuditLogsResponse> {
-  return getAdminAuditLogs({ numItems: PAGE_SIZE, cursor: cursor || undefined });
-}
-
 export default function AuditLogsPage() {
   const {
     data,
@@ -45,7 +41,10 @@ export default function AuditLogsPage() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["admin-audit-logs"],
-    queryFn: ({ pageParam }) => fetchAuditLogs(pageParam),
+    queryFn: async ({ pageParam }) => {
+      const result = await getAdminAuditLogs({ numItems: PAGE_SIZE, cursor: pageParam || undefined });
+      return result as AuditLogsResponse;
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });

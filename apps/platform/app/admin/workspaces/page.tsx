@@ -41,10 +41,6 @@ type WorkspacesResponse = {
 
 const PAGE_SIZE = 20;
 
-async function fetchWorkspaces(type?: string, cursor?: string | null): Promise<WorkspacesResponse> {
-  return getAdminWorkspaces({ type: type || undefined, numItems: PAGE_SIZE, cursor: cursor || undefined });
-}
-
 export default function WorkspacesPage() {
   const [typeFilter, setTypeFilter] = useState<string>("");
 
@@ -56,7 +52,14 @@ export default function WorkspacesPage() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["admin-workspaces", typeFilter],
-    queryFn: ({ pageParam }) => fetchWorkspaces(typeFilter || undefined, pageParam),
+    queryFn: async ({ pageParam }) => {
+      const result = await getAdminWorkspaces({
+        type: typeFilter || undefined,
+        numItems: PAGE_SIZE,
+        cursor: pageParam || undefined,
+      });
+      return result as WorkspacesResponse;
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });

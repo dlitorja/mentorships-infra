@@ -23,30 +23,58 @@ export class ApiFetchError extends Error {
   }
 }
 
+async function parseJsonErrorBody(
+  response: Response
+): Promise<{ error: string; [key: string]: unknown }> {
+  const body = await response.json().catch(() => null);
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const message =
+      typeof body.error === "string"
+        ? body.error
+        : typeof body.message === "string"
+          ? body.message
+          : `HTTP ${response.status}: ${response.statusText}`;
+    return { ...(body as Record<string, unknown>), error: message };
+  }
+  return { error: `HTTP ${response.status}: ${response.statusText}` };
+}
+
+function throwApiFetchError(response: Response, data: unknown): never {
+  const body =
+    typeof data === "object" && data !== null && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  const message =
+    typeof body.error === "string"
+      ? body.error
+      : typeof body.message === "string"
+        ? body.message
+        : `Request failed: ${response.statusText}`;
+  throw new ApiFetchError(message, response.status, data);
+}
+
 /**
- * Type-safe fetch wrapper that handles errors and JSON parsing
+ * Type-safe fetch wrapper that handles errors and JSON parsing.
+ *
+ * Does not set Content-Type for FormData bodies so multipart uploads work.
  */
 export async function apiFetch<T>(
   url: string,
   options?: RequestInit
 ): Promise<T> {
+  const isFormData =
+    typeof FormData !== "undefined" && options?.body instanceof FormData;
   const response = await fetch(url, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...options?.headers,
     },
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-    throw new ApiFetchError(
-      error.error || `Request failed: ${response.statusText}`,
-      response.status,
-      error
-    );
+    const error = await parseJsonErrorBody(response);
+    throwApiFetchError(response, error);
   }
 
   return response.json() as Promise<T>;
@@ -169,7 +197,9 @@ export async function createPayPalCheckoutSession(
  * Verify checkout session
  */
 export async function verifyCheckoutSession(sessionId: string) {
-  return apiFetch<{ verified: boolean }>(`${ApiRoutes.checkoutVerify}?session_id=${sessionId}`);
+  return apiFetch<{ verified: boolean }>(
+    `${ApiRoutes.checkoutVerify}?session_id=${encodeURIComponent(sessionId)}`
+  );
 }
 
 /**
@@ -181,29 +211,32 @@ export async function fetchInstructorAvailability(
   end: string,
   slotMinutes: number = 60
 ) {
-  const response = await fetch(
-    `${ApiRoutes.instructorAvailability(instructorId)}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&slotMinutes=${slotMinutes}`
-  );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-    
-    // Preserve error code for special handling (e.g., GOOGLE_CALENDAR_NOT_CONNECTED)
-    const errorMessage = error.error || `Request failed: ${response.statusText}`;
-    const errorWithCode = new Error(errorMessage);
-    if (error.code) {
-      (errorWithCode as Error & { code?: string }).code = error.code;
+  try {
+    const data = await apiFetch<{
+      availableSlots?: string[];
+      truncated?: boolean;
+    }>(
+      `${ApiRoutes.instructorAvailability(instructorId)}?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&slotMinutes=${slotMinutes}`
+    );
+    return {
+      availableSlots: data.availableSlots ?? [],
+      truncated: data.truncated ?? false,
+    };
+  } catch (error) {
+    if (
+      error instanceof ApiFetchError &&
+      typeof error.data === "object" &&
+      error.data !== null
+    ) {
+      const code = (error.data as Record<string, unknown>).code;
+      if (typeof code === "string") {
+        const errorWithCode = new Error(error.message);
+        (errorWithCode as Error & { code?: string }).code = code;
+        throw errorWithCode;
+      }
     }
-    throw errorWithCode;
+    throw error;
   }
-
-  const data = await response.json();
-  return {
-    availableSlots: data.availableSlots ?? [],
-    truncated: data.truncated ?? false,
-  };
 }
 
 /**
@@ -219,7 +252,12 @@ export async function fetchInstructorAvailabilityPreview(
   slots: string[];
   message?: string;
 }> {
-  return apiFetch<any>(
+  return apiFetch<{
+    connected: boolean;
+    instructorTimeZone?: string | null;
+    slots: string[];
+    message?: string;
+  }>(
     `${ApiRoutes.instructorAvailabilityPreview(instructorId)}?slots=${slots}&days=${days}`
   );
 }
@@ -298,23 +336,14 @@ export async function updateInstructorSettings(data: {
  * Upload onboarding images
  */
 export async function uploadOnboardingImages(formData: FormData) {
-  const response = await fetch(ApiRoutes.onboardingUploads, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-    throw new Error(error.error || `Request failed: ${response.statusText}`);
-  }
-
-  return response.json() as Promise<{
+  return apiFetch<{
     success: true;
     submissionId: string;
     images: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }>;
-  }>;
+  }>(ApiRoutes.onboardingUploads, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 /**
@@ -488,6 +517,8 @@ export async function updateUserTimeZoneSetting(timeZone: string) {
   });
 }
 
+export type InstructorProfileSocials = Record<string, string | undefined> | null;
+
 /**
  * Update the authenticated instructor's profile.
  * Returns the raw response shape so callers can handle validationErrors.
@@ -501,19 +532,28 @@ export async function updateInstructorProfile(data: {
   profileImageUrl: string | null;
   profileImageUploadPath: string | null;
   portfolioImages: string[];
-  socials: Record<string, string | undefined> | null;
+  socials: InstructorProfileSocials;
 }) {
-  const response = await fetch(ApiRoutes.instructorProfile, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-
-  const responseData = await response.json().catch(() => ({
-    error: `HTTP ${response.status}: ${response.statusText}`,
-  }));
-
-  return { ok: response.ok, status: response.status, data: responseData as { success?: boolean; error?: string; validationErrors?: string[] } };
+  try {
+    const responseData = await apiFetch<{
+      success?: boolean;
+      error?: string;
+      validationErrors?: string[];
+    }>(ApiRoutes.instructorProfile, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return { ok: true as const, status: 200, data: responseData };
+  } catch (error) {
+    if (error instanceof ApiFetchError) {
+      return {
+        ok: false as const,
+        status: error.status,
+        data: error.data as { success?: boolean; error?: string; validationErrors?: string[] },
+      };
+    }
+    throw error;
+  }
 }
 
 /**
@@ -582,16 +622,19 @@ export type CalendarsResponse = {
  * List Google calendars for the current instructor
  */
 export async function getGoogleCalendars() {
-  const response = await fetch(ApiRoutes.googleCalendars);
-  if (response.status === 409) {
-    const data = await response.json().catch(() => ({ error: "Google Calendar not connected" }));
-    throw new Error(data.error || "Google Calendar not connected");
+  try {
+    return await apiFetch<CalendarsResponse>(ApiRoutes.googleCalendars);
+  } catch (error) {
+    if (error instanceof ApiFetchError && error.status === 409) {
+      const body =
+        typeof error.data === "object" && error.data !== null
+          ? (error.data as Record<string, unknown>)
+          : null;
+      const message = body && typeof body.error === "string" ? body.error : "Google Calendar not connected";
+      throw new Error(message);
+    }
+    throw error;
   }
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}: ${response.statusText}` }));
-    throw new Error(error.error || "Failed to load calendars");
-  }
-  return response.json() as Promise<CalendarsResponse>;
 }
 
 /**
@@ -685,26 +728,31 @@ export type SessionPackUpdateAction =
 
 /**
  * Update a session pack's counts.
- * Keeps the raw fetch so callers can handle the 409 conflict response.
+ * Returns the raw response so callers can handle the 409 conflict response.
  */
 export async function updateSessionPack(
   sessionPackId: string,
   action: SessionPackUpdateAction
 ) {
-  const response = await fetch(ApiRoutes.instructorSessionPack(sessionPackId), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(action),
-  });
-
-  let json: Partial<SessionPackUpdateResponse> & { error?: string } = {};
   try {
-    json = (await response.json()) as typeof json;
-  } catch {
-    // Non-JSON body, e.g. an HTML proxy error.
+    const json = await apiFetch<Partial<SessionPackUpdateResponse> & { error?: string }>(
+      ApiRoutes.instructorSessionPack(sessionPackId),
+      {
+        method: "PATCH",
+        body: JSON.stringify(action),
+      }
+    );
+    return { ok: true as const, status: 200, json };
+  } catch (error) {
+    if (error instanceof ApiFetchError) {
+      return {
+        ok: false as const,
+        status: error.status,
+        json: error.data as Partial<SessionPackUpdateResponse> & { error?: string },
+      };
+    }
+    return { ok: false as const, status: 500, json: { error: "Unexpected error" } };
   }
-
-  return { ok: response.ok, status: response.status, json };
 }
 
 /**
@@ -804,28 +852,17 @@ export async function bookSessionForStudent(
  * Get a Daily meeting token for a room
  */
 export async function getVideoToken(roomName: string) {
-  const response = await fetch(ApiRoutes.videoToken(roomName));
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Failed to fetch meeting token (${response.status})${detail ? `: ${detail}` : ""}`);
-  }
-  return response.json() as Promise<{ token: string }>;
+  return apiFetch<{ token: string }>(ApiRoutes.videoToken(roomName));
 }
 
 /**
  * Post recording consent for a session
  */
 export async function postVideoConsent(sessionId: string, consent: boolean) {
-  const response = await fetch(ApiRoutes.videoConsent(sessionId), {
+  return apiFetch<{ recordingConsent: boolean; changed: boolean }>(ApiRoutes.videoConsent(sessionId), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ consent }),
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Failed to save consent (${response.status})${detail ? `: ${detail}` : ""}`);
-  }
-  return response.json() as Promise<{ recordingConsent: boolean; changed: boolean }>;
 }
 
 /**
@@ -855,15 +892,10 @@ export async function retryRecordingTransfer(sessionId: string) {
  * Fetch a signed stream URL for a video recording
  */
 export async function getVideoRecordingStreamUrl(sessionId: string) {
-  const response = await fetch(ApiRoutes.videoRecording(sessionId, "stream"), {
+  return apiFetch<{ url: string; expiresAt: number }>(`${ApiRoutes.videoRecording(sessionId)}?kind=stream`, {
     credentials: "include",
     cache: "no-store",
   });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Request failed (HTTP ${response.status})`);
-  }
-  return response.json() as Promise<{ url: string; expiresAt: number }>;
 }
 
 /**
@@ -925,12 +957,33 @@ export async function getAdminInstructor(id: string) {
   }>(ApiRoutes.adminInstructor(id));
 }
 
+export type UpdateAdminInstructorInput = {
+  name?: string;
+  slug?: string;
+  email?: string | null;
+  discordVoiceChannelUrl?: string | null;
+  tagline?: string | null;
+  bio?: string | null;
+  specialties?: string[];
+  background?: string[];
+  profileImageUrl?: string | null;
+  profileImageUploadPath?: string | null;
+  portfolioImages?: string[];
+  socials?: Record<string, string> | null;
+  isActive?: boolean;
+  userId?: string | null;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
+  maxActiveStudents?: number;
+  instructorId?: string | null;
+};
+
 /**
  * Update an instructor as admin
  */
 export async function updateAdminInstructor(
   id: string,
-  data: Record<string, unknown>,
+  data: UpdateAdminInstructorInput,
   deactivateProducts: boolean = false
 ) {
   return apiFetch<{
@@ -1012,28 +1065,15 @@ export async function createAdminInstructor(data: {
  * Upload an instructor image (profile, portfolio, or result)
  */
 export async function uploadInstructorImage(formData: FormData) {
-  const response = await fetch(ApiRoutes.adminInstructorsUpload, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: `HTTP ${response.status}: ${response.statusText}`,
-    }));
-    throw new ApiFetchError(
-      error.error || `Upload failed: ${response.statusText}`,
-      response.status,
-      error
-    );
-  }
-
-  return response.json() as Promise<{
+  return apiFetch<{
     success: boolean;
     url: string;
     storageId: string;
     path: string;
-  }>;
+  }>(ApiRoutes.adminInstructorsUpload, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 /**
@@ -1185,7 +1225,7 @@ export async function getAdminProducts(params?: {
   if (params?.mentorshipType) searchParams.set("mentorshipType", params.mentorshipType);
   if (params?.active) searchParams.set("active", params.active);
   const query = searchParams.toString();
-  return apiFetch<{ items: any[]; total: number; page: number; pageSize: number; error?: string }>(
+  return apiFetch<{ items: unknown[]; total: number; page: number; pageSize: number; error?: string }>(
     `${ApiRoutes.adminProducts}${query ? `?${query}` : ""}`
   );
 }
@@ -1194,7 +1234,7 @@ export async function getAdminProducts(params?: {
  * Get a single product for admin
  */
 export async function getAdminProduct(id: string) {
-  return apiFetch<any>(ApiRoutes.adminProduct(id));
+  return apiFetch<unknown>(ApiRoutes.adminProduct(id));
 }
 
 /**
@@ -1312,7 +1352,7 @@ export async function previewAdminOnboarding(data: {
   notes?: string;
   capacityOverrideReason?: string;
 }) {
-  return apiFetch<unknown>(ApiRoutes.adminStudentsOnboard + "/preview", {
+  return apiFetch<unknown>(ApiRoutes.adminStudentsOnboardPreview, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -1376,7 +1416,7 @@ export async function getAdminWorkspaces(params?: { type?: string; numItems?: nu
   if (params?.numItems) searchParams.set("numItems", params.numItems.toString());
   if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
-  return apiFetch<{ items: any[]; continueCursor: string | null; isDone: boolean }>(
+  return apiFetch<{ items: unknown[]; continueCursor: string | null; isDone: boolean }>(
     `${ApiRoutes.adminWorkspaces}${query ? `?${query}` : ""}`
   );
 }
@@ -1385,7 +1425,7 @@ export async function getAdminWorkspaces(params?: { type?: string; numItems?: nu
  * Get a workspace for admin
  */
 export async function getAdminWorkspace(id: string) {
-  return apiFetch<any>(ApiRoutes.adminWorkspace(id));
+  return apiFetch<unknown>(ApiRoutes.adminWorkspace(id));
 }
 
 /**
@@ -1395,7 +1435,7 @@ export async function updateAdminWorkspace(
   id: string,
   data: { name?: string; description?: string; isPublic?: boolean }
 ) {
-  return apiFetch<any>(ApiRoutes.adminWorkspace(id), {
+  return apiFetch<unknown>(ApiRoutes.adminWorkspace(id), {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -1417,7 +1457,7 @@ export async function updateAdminWorkspaceMembers(
   id: string,
   data: { newOwnerId?: string; newInstructorId?: string | null }
 ) {
-  return apiFetch<any>(ApiRoutes.adminWorkspaceMembers(id), {
+  return apiFetch<unknown>(ApiRoutes.adminWorkspaceMembers(id), {
     method: "PATCH",
     body: JSON.stringify(data),
   });
@@ -1487,7 +1527,7 @@ export async function getAdminAuditLogs(params?: { numItems?: number; cursor?: s
   if (params?.numItems) searchParams.set("numItems", params.numItems.toString());
   if (params?.cursor) searchParams.set("cursor", params.cursor);
   const query = searchParams.toString();
-  return apiFetch<{ items: any[]; continueCursor: string | null; isDone: boolean }>(
+  return apiFetch<{ items: unknown[]; continueCursor: string | null; isDone: boolean }>(
     `${ApiRoutes.adminAuditLogs}${query ? `?${query}` : ""}`
   );
 }

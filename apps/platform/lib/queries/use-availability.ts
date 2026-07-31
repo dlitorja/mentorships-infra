@@ -19,7 +19,7 @@ const availabilityPreviewSchema = z.discriminatedUnion("connected", [
 
 export type AvailabilityPreviewResponse = z.infer<typeof availabilityPreviewSchema>;
 
-async function _fetchInstructorAvailabilityPreview(
+async function fetchAvailabilityPreview(
   instructorId: string,
   slots: number = 3,
   days: number = 14
@@ -39,7 +39,7 @@ export function useInstructorAvailabilityPreview(
   return useQuery({
     queryKey: ["instructor-availability-preview", instructorId, options?.slots, options?.days],
     queryFn: () =>
-      _fetchInstructorAvailabilityPreview(instructorId, options?.slots ?? 3, options?.days ?? 14),
+      fetchAvailabilityPreview(instructorId, options?.slots ?? 3, options?.days ?? 14),
     enabled: !!instructorId,
     staleTime: 60 * 1000,
   });

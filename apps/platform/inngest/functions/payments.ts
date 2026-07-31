@@ -342,7 +342,7 @@ const completedOrder = await step.run("update-order", async () => {
       if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
         return { skipped: true } as const;
       }
-      return await convexServerCall<any>("/workspaces/ensure-admin-student", { studentUserId: userId });
+      return await convexServerCall<any>("/workspaces/ensure-admin-student", { studentUserId: resolvedUserId });
     });
 
     await step.run("sync-seat-reservation-created", async () => {
@@ -482,7 +482,7 @@ const completedOrder = await step.run("update-order", async () => {
         name: "purchase/instructor",
         data: {
           orderId,
-          clerkId: userId,
+          clerkId: resolvedUserId,
           packId,
           provider: "stripe",
         },

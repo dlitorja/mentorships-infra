@@ -60,7 +60,7 @@ export default function EditProductPage() {
           getAdminInstructors(),
         ]);
 
-        setProductData(product);
+        setProductData(product as ProductInfo);
 
         const validated = instructorsResponseSchema.parse(instructorsData);
         setInstructors(

@@ -28,18 +28,6 @@ type WorkspaceDetail = {
   createdAt: number;
 };
 
-async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
-  return getAdminWorkspace(id);
-}
-
-async function updateWorkspace(id: string, data: {
-  name?: string;
-  description?: string;
-  isPublic?: boolean;
-}) {
-  return updateAdminWorkspace(id, data);
-}
-
 export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const workspaceId = resolvedParams.id;
@@ -47,7 +35,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
+    queryFn: () => getAdminWorkspace(workspaceId) as Promise<WorkspaceDetail>,
   });
 
   const [name, setName] = React.useState("");
@@ -65,7 +53,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
   }, [workspace]);
 
   const updateMutation = useMutation({
-    mutationFn: () => updateWorkspace(workspaceId, { name, description, isPublic }),
+    mutationFn: () => updateAdminWorkspace(workspaceId, { name, description, isPublic }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-workspace", workspaceId] });
       setIsSaved(true);
