@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, ArrowLeft, Save } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminWorkspace, updateAdminWorkspace } from "@/lib/queries/api-client";
 
 type WorkspaceDetail = {
   id: string;
@@ -28,27 +28,6 @@ type WorkspaceDetail = {
   createdAt: number;
 };
 
-async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
-  return apiFetch<WorkspaceDetail>(`/api/admin/workspaces/${id}`);
-}
-
-async function updateWorkspace(id: string, data: {
-  name?: string;
-  description?: string;
-  isPublic?: boolean;
-}) {
-  const response = await fetch(`/api/admin/workspaces/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update workspace");
-  }
-  return response.json();
-}
-
 export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const workspaceId = resolvedParams.id;
@@ -56,7 +35,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
+    queryFn: () => getAdminWorkspace(workspaceId) as Promise<WorkspaceDetail>,
   });
 
   const [name, setName] = React.useState("");
@@ -74,7 +53,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
   }, [workspace]);
 
   const updateMutation = useMutation({
-    mutationFn: () => updateWorkspace(workspaceId, { name, description, isPublic }),
+    mutationFn: () => updateAdminWorkspace(workspaceId, { name, description, isPublic }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-workspace", workspaceId] });
       setIsSaved(true);

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { ConvexHttpClient } from "convex/browser";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 
 const workspaceIdParamSchema = z.object({
@@ -12,14 +13,6 @@ const workspaceIdParamSchema = z.object({
 const sendMessageSchema = z.object({
   content: z.string().min(1, "Content is required"),
 });
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * POST /api/admin/workspaces/[id]/messages
@@ -59,13 +52,7 @@ export async function POST(
       );
     }
 
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
       id: validatedId,
@@ -86,6 +73,12 @@ export async function POST(
 
     return NextResponse.json({ id: messageId, success: true });
   } catch (error: unknown) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const message = error instanceof Error ? error.message : "Failed to send message";
     console.error("Error sending message:", error);
     return NextResponse.json({ error: message }, { status: 500 });

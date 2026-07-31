@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar, X, FileText } from "lucide-react";
 import { EmailPreviewTab } from "./email-preview-tab";
+import { rescheduleSession, cancelSession, updateSessionNotes } from "@/lib/queries/api-client";
 
 type Session = {
   id: Id<"sessions">;
@@ -72,15 +73,7 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
 
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/sessions/${session.id}/reschedule`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newScheduledAt }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error || "Failed to reschedule");
-        }
+        await rescheduleSession(session.id, newScheduledAt);
         toast.success("Session rescheduled.");
         onOpenChange(false);
         router.refresh();
@@ -167,15 +160,7 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
   async function handleCancel() {
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/sessions/${session.id}/cancel`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: reason.trim() || undefined }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error || "Failed to cancel");
-        }
+        await cancelSession(session.id, reason.trim() || undefined);
         toast.success("Session canceled.");
         onOpenChange(false);
         setReason("");
@@ -262,15 +247,7 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
   async function handleSave() {
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/sessions/${session.id}/notes`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notes: notes.trim() }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          throw new Error(json.error || "Failed to save notes");
-        }
+        await updateSessionNotes(session.id, notes.trim());
         toast.success("Notes saved");
         onOpenChange(false);
         router.refresh();

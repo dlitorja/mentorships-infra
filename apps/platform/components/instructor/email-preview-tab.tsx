@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Mail } from "lucide-react";
+import { previewSessionEmail } from "@/lib/queries/api-client";
 
 type PreviewType = "reschedule" | "cancel";
 
@@ -76,25 +77,12 @@ export function EmailPreviewTab({
         }
       }
 
-      const response = await fetch(
-        `/api/instructor/sessions/${sessionId}/email-preview`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
+      const data = await previewSessionEmail(sessionId, body);
 
       if (requestId !== previewRequestId.current) {
         return;
       }
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to load preview");
-      }
-
-      const data = await response.json();
       if (requestId === previewRequestId.current) {
         setPreview(data.preview);
       }

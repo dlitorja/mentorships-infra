@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Minus, Plus, Calendar, ChevronRight, Search, ArrowUpDown } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { ApiRoutes } from "@/lib/routes";
+import { apiFetch, updateSessionPack } from "@/lib/queries/api-client";
 
 type Student = {
   userId: string;
@@ -37,7 +38,7 @@ type Student = {
 };
 
 async function fetchStudents(): Promise<{ items: Student[] }> {
-  return apiFetch<{ items: Student[] }>("/api/instructor/students");
+  return apiFetch<{ items: Student[] }>(ApiRoutes.instructorStudents);
 }
 
 async function updateSessionCount(
@@ -45,18 +46,11 @@ async function updateSessionCount(
   action: "increment" | "decrement" | "set",
   amount: number = 1
 ) {
-  const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, amount }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update session count");
+  const { ok, json } = await updateSessionPack(sessionPackId, { action, amount });
+  if (!ok) {
+    throw new Error(json.error || "Failed to update session count");
   }
-
-  return response.json();
+  return json;
 }
 
 export default function InstructorStudentsPage() {

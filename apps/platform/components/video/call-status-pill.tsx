@@ -17,6 +17,7 @@ import { ConsentModal } from "@/components/video/consent-modal";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { cn } from "@/lib/utils";
 import { reportError } from "@/lib/observability";
+import { postVideoConsent } from "@/lib/queries/api-client";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
@@ -139,17 +140,7 @@ export function CallStatusPill({
       setPendingJoinSessionId(null);
       if (!target) return;
       try {
-        const res = await fetch(`/api/video/consent/${target}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ consent }),
-        });
-        if (!res.ok) {
-          const detail = await res.text().catch(() => "");
-          throw new Error(
-            `Failed to save consent (${res.status})${detail ? `: ${detail}` : ""}`
-          );
-        }
+        await postVideoConsent(target, consent);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         await reportError({

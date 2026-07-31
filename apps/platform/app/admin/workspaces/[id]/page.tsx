@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ArrowLeft, User, Users, MessageSquare, ScrollText } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminWorkspace } from "@/lib/queries/api-client";
 import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
 import { Settings2 } from "lucide-react";
 import { UserCircle } from "lucide-react";
@@ -71,17 +71,13 @@ type WorkspaceDetail = {
   };
 };
 
-async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
-  return apiFetch<WorkspaceDetail>(`/api/admin/workspaces/${id}`);
-}
-
 export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const workspaceId = resolvedParams.id;
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
+    queryFn: () => getAdminWorkspace(workspaceId) as Promise<WorkspaceDetail>,
   });
 
   if (isLoading) {

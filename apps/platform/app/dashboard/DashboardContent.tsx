@@ -9,6 +9,7 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
 import { useMemo, useEffect, useState, useRef } from "react";
+import { ApiFetchError, getMyBookings, getGoogleCalendars, syncDiscordRole } from "@/lib/queries/api-client";
 import { Id } from "@/convex/_generated/dataModel";
 
 function formatDate(date: number): string {
@@ -172,10 +173,9 @@ export function DashboardContent() {
     async function load() {
       setLoadingGoogleBookings(true);
       try {
-        const res = await fetch("/api/bookings/me");
-        const json = await res.json().catch(() => ({}));
+        const json = await getMyBookings();
         if (!cancelled) {
-          if (res.ok && json?.success) {
+          if (json?.success) {
             setGoogleBookings(json.bookings || []);
           } else {
             setGoogleBookings([]);
@@ -220,20 +220,20 @@ export function DashboardContent() {
     async function loadGoogleStatus(): Promise<void> {
       setLoadingGoogleCalendar(true);
       try {
-        const res = await fetch("/api/google/calendars");
+        await getGoogleCalendars();
         if (!cancelled) {
-          if (res.status === 409) {
+          setGoogleCalendarConnected(true);
+          sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          if (e instanceof ApiFetchError && e.status === 409) {
             setGoogleCalendarConnected(false);
             sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
           } else {
-            setGoogleCalendarConnected(res.ok);
-            if (res.ok) {
-              sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
-            }
+            setGoogleCalendarConnected(false);
           }
         }
-      } catch {
-        if (!cancelled) setGoogleCalendarConnected(false);
       }
       if (!cancelled) setLoadingGoogleCalendar(false);
     }
@@ -251,7 +251,7 @@ export function DashboardContent() {
     if (!discordConnected) return;
     if (discordSyncRef.current) return;
     discordSyncRef.current = true;
-    fetch("/api/user/discord/sync-role", { method: "POST" }).catch(() => {
+    syncDiscordRole().catch(() => {
     });
   }, [isLoaded, userId, isInstructorOrAdmin, discordConnected]);
 

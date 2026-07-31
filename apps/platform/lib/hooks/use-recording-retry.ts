@@ -1,12 +1,8 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
 import type { Id } from "@/convex/_generated/dataModel";
-
-const retryErrorResponseSchema = z.object({
-  error: z.string().optional(),
-});
+import { retryRecordingTransfer } from "@/lib/queries/api-client";
 
 /**
  * Re-triggers the Daily → B2 recording transfer for a session and
@@ -25,19 +21,7 @@ export function useRecordingRetry(sessionId: Id<"sessions">): {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: async (): Promise<void> => {
-      const response = await fetch(
-        `/api/video/recording/${sessionId}/retry`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
-      if (!response.ok) {
-        const raw = (await response.json().catch(() => ({}))) as unknown;
-        const parsed = retryErrorResponseSchema.safeParse(raw);
-        const message = parsed.success ? parsed.data.error : undefined;
-        throw new Error(message ?? `Retry failed (HTTP ${response.status})`);
-      }
+      await retryRecordingTransfer(sessionId);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({

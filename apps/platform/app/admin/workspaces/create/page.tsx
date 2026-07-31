@@ -17,15 +17,15 @@ import {
 } from "@/components/ui/card";
 import { Loader2, ArrowLeft, User, Users, X } from "lucide-react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminInstructors, getAdminStudents, createAdminStudentWorkspace, createAdminInstructorWorkspace } from "@/lib/queries/api-client";
 
 type StudentItem = {
   kind: "student";
   id: string;
   userId: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
+  email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
 };
 
 type InstructorItem = {
@@ -43,56 +43,17 @@ function isStudentItem(item: SelectableItem): item is StudentItem {
   return item.kind === "student";
 }
 
-/** Fetches students from the admin API, optionally filtered by search. */
-async function fetchUsers(search?: string): Promise<{ items: StudentItem[] }> {
-  const params = new URLSearchParams();
-  if (search) params.set("search", search);
-  params.set("includeInactive", "true");
-  
-  return apiFetch<{ items: StudentItem[] }>(`/api/admin/students?${params.toString()}`);
-}
-
 /** Fetches all instructors from the admin API. */
 async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
-  return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
-}
-
-/** Creates an admin-student workspace and returns the result. */
-async function createAdminStudentWorkspace(data: {
-  studentUserId: string;
-  name?: string;
-  description?: string;
-  isPublic?: boolean;
-}) {
-  const response = await fetch("/api/admin/workspaces/admin-student", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create workspace");
-  }
-  return response.json();
-}
-
-/** Creates an admin-instructor workspace and returns the result. */
-async function createAdminInstructorWorkspace(data: {
-  instructorId: string;
-  name?: string;
-  description?: string;
-  isPublic?: boolean;
-}) {
-  const response = await fetch("/api/admin/workspaces/admin-instructor", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create workspace");
-  }
-  return response.json();
+  const data = await getAdminInstructors({ includeInactive: true });
+  return {
+    items: data.instructors.map((inst) => ({
+      kind: "instructor" as const,
+      id: inst.instructorId,
+      userId: inst.userId,
+      name: inst.displayName || inst.email,
+    })),
+  };
 }
 
 /** Page for creating admin workspaces (student or instructor type). */
@@ -109,8 +70,21 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const [customIsPublic, setCustomIsPublic] = useState(false);
 
   const { data: usersData, isLoading: loadingUsers } = useQuery({
-    queryKey: ["users", debouncedSearch],
-    queryFn: () => fetchUsers(debouncedSearch),
+    queryKey: ["admin-students", debouncedSearch],
+    queryFn: async () => {
+      const result = await getAdminStudents({ search: debouncedSearch, includeInactive: true });
+      return {
+        items: result.items.map((student) => {
+          const item: StudentItem = {
+            kind: "student",
+            id: student.userId,
+            userId: student.userId,
+            email: student.email,
+          };
+          return item;
+        }),
+      };
+    },
     enabled: workspaceType === "admin_student",
   });
 

@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 /**
  * GET /api/admin/audit-logs
@@ -19,7 +11,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const url = new URL(req.url);
     const numItems = Math.min(parseInt(url.searchParams.get("numItems") || "50") || 50, 100);

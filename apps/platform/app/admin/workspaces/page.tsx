@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink, Plus } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminWorkspaces } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
 
@@ -41,16 +41,6 @@ type WorkspacesResponse = {
 
 const PAGE_SIZE = 20;
 
-async function fetchWorkspaces(type?: string, cursor?: string | null): Promise<WorkspacesResponse> {
-  const params = new URLSearchParams();
-  if (type) params.set("type", type);
-  params.set("numItems", String(PAGE_SIZE));
-  if (cursor) params.set("cursor", cursor);
-  
-  const url = `/api/admin/workspaces${params.toString() ? `?${params.toString()}` : ""}`;
-  return apiFetch<WorkspacesResponse>(url);
-}
-
 export default function WorkspacesPage() {
   const [typeFilter, setTypeFilter] = useState<string>("");
 
@@ -62,7 +52,14 @@ export default function WorkspacesPage() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["admin-workspaces", typeFilter],
-    queryFn: ({ pageParam }) => fetchWorkspaces(typeFilter || undefined, pageParam),
+    queryFn: async ({ pageParam }) => {
+      const result = await getAdminWorkspaces({
+        type: typeFilter || undefined,
+        numItems: PAGE_SIZE,
+        cursor: pageParam || undefined,
+      });
+      return result as WorkspacesResponse;
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });

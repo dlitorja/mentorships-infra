@@ -16,21 +16,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSessionPack } from "@/lib/queries/convex/use-session-packs";
+import { updateSessionPack } from "@/lib/queries/api-client";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type SessionCountControlsProps = {
   sessionPackId: Id<"sessionPacks">;
-};
-
-type SessionPackPatchResponse = {
-  success: boolean;
-  sessionPack: {
-    id: string;
-    totalSessions: number;
-    remainingSessions: number;
-    status: string;
-  };
 };
 
 type PendingAction = "edit" | "restore";
@@ -265,25 +256,15 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     latestCountRef.current = target;
 
     try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "setBoth",
-          totalSessions: target.totalSessions,
-          remainingSessions: target.remainingSessions,
-          expectedTotalSessions: expected.totalSessions,
-          expectedRemainingSessions: expected.remainingSessions,
-        }),
+      const { ok, status, json } = await updateSessionPack(sessionPackId, {
+        action: "setBoth",
+        totalSessions: target.totalSessions,
+        remainingSessions: target.remainingSessions,
+        expectedTotalSessions: expected.totalSessions,
+        expectedRemainingSessions: expected.remainingSessions,
       });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
-      }
 
-      if (response.status === 409) {
+      if (status === 409) {
         toast.error("This session pack changed — refresh to see the latest and try again.", {
           action: {
             label: "Reload",
@@ -297,7 +278,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         return;
       }
 
-      if (!response.ok || !json.sessionPack) {
+      if (!ok || !json.sessionPack) {
         throw new Error(json.error || "Failed to update session count");
       }
 
@@ -329,25 +310,15 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     latestCountRef.current = target;
 
     try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "restore",
-          remainingSessions: target.remainingSessions,
-          totalSessions: target.totalSessions,
-          expectedRemainingSessions: expected.remainingSessions,
-          expectedTotalSessions: expected.totalSessions,
-        }),
+      const { ok, json } = await updateSessionPack(sessionPackId, {
+        action: "restore",
+        remainingSessions: target.remainingSessions,
+        totalSessions: target.totalSessions,
+        expectedRemainingSessions: expected.remainingSessions,
+        expectedTotalSessions: expected.totalSessions,
       });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
-      }
 
-      if (!response.ok || !json.sessionPack) {
+      if (!ok || !json.sessionPack) {
         throw new Error(json.error || "Failed to restore sessions");
       }
 
@@ -406,25 +377,15 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     };
 
     try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "restore",
-          totalSessions: snapshot.totalSessions,
-          remainingSessions: snapshot.remainingSessions,
-          expectedTotalSessions: expected.totalSessions,
-          expectedRemainingSessions: expected.remainingSessions,
-        }),
+      const { ok, status, json } = await updateSessionPack(sessionPackId, {
+        action: "restore",
+        totalSessions: snapshot.totalSessions,
+        remainingSessions: snapshot.remainingSessions,
+        expectedTotalSessions: expected.totalSessions,
+        expectedRemainingSessions: expected.remainingSessions,
       });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
-      }
 
-      if (response.status === 409) {
+      if (status === 409) {
         toast.error("This session pack changed — refresh to see the latest and try again.", {
           action: {
             label: "Reload",
@@ -437,7 +398,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         return;
       }
 
-      if (!response.ok || !json.sessionPack) {
+      if (!ok || !json.sessionPack) {
         throw new Error(json.error || "Failed to reset sessions");
       }
 

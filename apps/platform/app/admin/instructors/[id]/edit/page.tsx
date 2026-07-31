@@ -16,7 +16,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2 } from "lucide-react";
 import { z } from "zod";
-import { apiFetch } from "@/lib/queries/api-client";
+import { ApiRoutes } from "@/lib/routes";
+import { apiFetch, getAdminInstructors, createAdminTestimonial, deleteAdminTestimonial, createAdminStudentResult, deleteAdminStudentResult } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 
@@ -181,7 +182,7 @@ const SOCIAL_PLATFORMS = [
  * Fetches instructor details by ID including testimonials and student results.
  */
 async function fetchInstructor(id: string): Promise<InstructorDetail> {
-  return apiFetch<InstructorDetail>(`/api/admin/instructors/${id}`);
+  return apiFetch<InstructorDetail>(ApiRoutes.adminInstructor(id));
 }
 
 /**
@@ -200,7 +201,7 @@ async function updateInstructor(
     deactivateProducts,
   };
 
-  const response = await fetch(`/api/admin/instructors/${id}`, {
+  const response = await fetch(ApiRoutes.adminInstructor(id), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -219,65 +220,7 @@ async function updateInstructor(
   return updateInstructorResponseSchema.parse(result);
 }
 
-/**
- * Adds a testimonial to an instructor.
- */
-async function addTestimonial(instructorId: string, data: { name: string; text: string }) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to add testimonial");
-  }
-  return response.json();
-}
 
-/**
- * Deletes a testimonial from an instructor.
- */
-async function deleteTestimonial(instructorId: string, testimonialId: string) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials/${testimonialId}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to delete testimonial");
-  }
-  return response.json();
-}
-
-/**
-   * Adds a student result (before/after image) to an instructor.
- */
-async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to add student result");
-  }
-  return response.json();
-}
-
-/**
-   * Deletes a student result from an instructor.
- */
-async function deleteStudentResult(instructorId: string, resultId: string) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/student-results/${resultId}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to delete student result");
-  }
-  return response.json();
-}
 
 export default function EditInstructorPage() {
   const params = useParams();
@@ -333,7 +276,7 @@ export default function EditInstructorPage() {
   const { data: instructorsData } = useQuery({
     queryKey: ["instructors-for-admin"],
     queryFn: async () => {
-      const result = await apiFetch<{ instructors: { instructorId: string; userId: string; email: string; displayName: string; oneOnOneInventory: number; groupInventory: number; maxActiveStudents: number; activeStudentCount: number; createdAt: string }[] }>("/api/admin/instructors?pageSize=100");
+      const result = await getAdminInstructors({ pageSize: 100 });
       return instructorsResponseSchema.parse(result);
     },
   });
@@ -409,7 +352,7 @@ export default function EditInstructorPage() {
   };
 
   const addTestimonialMutation = useMutation({
-    mutationFn: (data: { name: string; text: string }) => addTestimonial(instructorId, data),
+    mutationFn: (data: { name: string; text: string }) => createAdminTestimonial(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowTestimonialDialog(false);
@@ -422,7 +365,7 @@ export default function EditInstructorPage() {
   });
 
   const deleteTestimonialMutation = useMutation({
-    mutationFn: (testimonialId: string) => deleteTestimonial(instructorId, testimonialId),
+    mutationFn: (testimonialId: string) => deleteAdminTestimonial(instructorId, testimonialId),
     onSuccess: () => {
       setError(null);
       refetch();
@@ -433,7 +376,7 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; studentName: string }) => createAdminStudentResult(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowStudentResultDialog(false);
@@ -446,7 +389,7 @@ export default function EditInstructorPage() {
   });
 
   const deleteStudentResultMutation = useMutation({
-    mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
+    mutationFn: (resultId: string) => deleteAdminStudentResult(instructorId, resultId),
     onSuccess: () => {
       setError(null);
       refetch();

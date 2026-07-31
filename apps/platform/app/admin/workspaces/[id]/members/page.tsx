@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, ArrowLeft, User, Users, Save } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminWorkspace, getAdminInstructors, getAdminStudents, updateAdminWorkspaceMembers } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type WorkspaceMember = {
@@ -38,9 +38,9 @@ type WorkspaceMember = {
 type StudentItem = {
   id: string;
   userId: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
+  email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
 };
 
 type InstructorItem = {
@@ -50,35 +50,15 @@ type InstructorItem = {
   email?: string;
 };
 
-async function fetchWorkspace(id: string): Promise<WorkspaceMember> {
-  return apiFetch<WorkspaceMember>(`/api/admin/workspaces/${id}`);
-}
-
-async function fetchStudents(search?: string): Promise<{ items: StudentItem[] }> {
-  const params = new URLSearchParams();
-  if (search) params.set("search", search);
-  params.set("includeInactive", "true");
-  return apiFetch<{ items: StudentItem[] }>(`/api/admin/students?${params.toString()}`);
-}
-
 async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
-  return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
-}
-
-async function updateWorkspaceMember(
-  workspaceId: string,
-  data: { newOwnerId?: string; newInstructorId?: string | null }
-) {
-  const response = await fetch(`/api/admin/workspaces/${workspaceId}/members`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update workspace member");
-  }
-  return response.json();
+  const data = await getAdminInstructors({ includeInactive: true });
+  return {
+    items: data.instructors.map((inst) => ({
+      id: inst.instructorId,
+      userId: inst.userId,
+      name: inst.displayName || inst.email,
+    })),
+  };
 }
 
 export default function WorkspaceMembersPage({ params }: { params: Promise<{ id: string }> }) {
@@ -95,12 +75,24 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
-    queryFn: () => fetchWorkspace(workspaceId),
+    queryFn: () => getAdminWorkspace(workspaceId) as Promise<WorkspaceMember>,
   });
 
   const { data: studentsData, isLoading: loadingStudents } = useQuery({
     queryKey: ["admin-students-search", debouncedOwnerSearch],
-    queryFn: () => fetchStudents(debouncedOwnerSearch),
+    queryFn: async () => {
+      const result = await getAdminStudents({ search: debouncedOwnerSearch, includeInactive: true });
+      return {
+        items: result.items.map((student) => {
+          const item: StudentItem = {
+            id: student.userId,
+            userId: student.userId,
+            email: student.email,
+          };
+          return item;
+        }),
+      };
+    },
     enabled: debouncedOwnerSearch.length > 0,
   });
 
@@ -111,7 +103,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
 
   const updateMutation = useMutation({
     mutationFn: (data: { newOwnerId?: string; newInstructorId?: string | null }) =>
-      updateWorkspaceMember(workspaceId, data),
+      updateAdminWorkspaceMembers(workspaceId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-workspace", workspaceId] });
       setSelectedNewOwnerId(null);

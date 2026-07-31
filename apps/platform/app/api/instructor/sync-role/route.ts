@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { isUnauthorizedError } from "@/lib/errors";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexServerCall } from "@/lib/convex-server-call";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * POST /api/instructor/sync-role
@@ -18,8 +13,7 @@ function getConvexClient() {
 export async function POST() {
   try {
     const { userId, sessionClaims } = await auth();
-    const token = await auth().then((a) => a.getToken({ template: "convex" }));
-    if (!userId || !token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Guard: allow role sync only for users explicitly invited as instructors
     // Fast path via session claims; fallback to Clerk API if missing
@@ -43,8 +37,7 @@ export async function POST() {
       return NextResponse.json({ error: "Forbidden: Instructor invite required" }, { status: 403 });
     }
 
-    const convex = getConvexClient();
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     let existingInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
     if (!existingInstructor) {
@@ -68,6 +61,9 @@ export async function POST() {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("sync-role error:", error);
     return NextResponse.json({ error: "Failed to sync role" }, { status: 500 });
   }

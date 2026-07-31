@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminAuditLogs } from "@/lib/queries/api-client";
 
 type AuditLog = {
   id: string;
@@ -32,14 +32,6 @@ type AuditLogsResponse = {
 
 const PAGE_SIZE = 50;
 
-async function fetchAuditLogs(cursor?: string | null): Promise<AuditLogsResponse> {
-  const params = new URLSearchParams();
-  params.set("numItems", String(PAGE_SIZE));
-  if (cursor) params.set("cursor", cursor);
-  
-  return apiFetch<AuditLogsResponse>(`/api/admin/audit-logs?${params.toString()}`);
-}
-
 export default function AuditLogsPage() {
   const {
     data,
@@ -49,7 +41,10 @@ export default function AuditLogsPage() {
     isFetchingNextPage,
   } = useInfiniteQuery({
     queryKey: ["admin-audit-logs"],
-    queryFn: ({ pageParam }) => fetchAuditLogs(pageParam),
+    queryFn: async ({ pageParam }) => {
+      const result = await getAdminAuditLogs({ numItems: PAGE_SIZE, cursor: pageParam || undefined });
+      return result as AuditLogsResponse;
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });

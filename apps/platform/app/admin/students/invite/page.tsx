@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { getAdminStudentInvitations, createStudentInvitation, getAdminInstructors } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AdminOnboardingForm from "@/components/admin/admin-onboarding-form";
 
@@ -33,27 +33,21 @@ type InvitationsResponse = {
 };
 
 async function fetchInvitations(status?: string): Promise<InvitationsResponse> {
-  const params = new URLSearchParams();
-  if (status && status !== "all") params.set("status", status);
-  const url = `/api/admin/students/invite${params.toString() ? `?${params.toString()}` : ""}`;
-  return apiFetch<InvitationsResponse>(url);
+  return getAdminStudentInvitations(status);
 }
 
 async function fetchInstructors() {
-  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors");
+  const data = await getAdminInstructors();
+  return {
+    instructors: data.instructors.map((inst) => ({
+      id: inst.instructorId,
+      name: inst.displayName || inst.email || inst.instructorId,
+    })),
+  };
 }
 
 async function createInvitation(data: { email: string; instructorId: string }) {
-  const response = await fetch("/api/admin/students/invite", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to create invitation");
-  }
-  return response.json();
+  return createStudentInvitation(data);
 }
 
 type Mode = "invitation_only" | "full_onboarding";

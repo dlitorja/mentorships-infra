@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { auth } from "@clerk/nextjs/server";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 const listOrdersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -47,14 +38,7 @@ export async function GET(req: NextRequest) {
     const { page, pageSize } = parsedQuery.data;
     const offset = (page - 1) * pageSize;
 
-    const convex = getConvexClient();
-    // Authenticate Convex requests so admin-only queries work server-side
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
     const result = await convex.query(api.orders.getOrdersForAdmin, {
       limit: pageSize,
       offset,

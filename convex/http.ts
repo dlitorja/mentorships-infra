@@ -15,8 +15,14 @@ import {
   createRetentionNotification,
   updateWorkspaceExportStatus,
 } from "./mutations/http";
-import { decrementInventory, incrementInventory, updateInstructor } from "./instructors";
+import { decrementInventory, getInstructorNameById, incrementInventory, updateInstructor } from "./instructors";
 import { markNotifiedByInstructor } from "./waitlist";
+import { getOrderByIdPublic, completeOrder, refundOrder } from "./orders";
+import { createPayment, getPaymentByProviderId, refundPayment } from "./payments";
+import { getPublicProductById, getProductsByInstructorId } from "./products";
+import { createUser } from "./users";
+import { createSessionPack, getSessionPackByPaymentId, refundSessionPack } from "./sessionPacks";
+import { createSeatReservation, getSeatReservationBySessionPack } from "./seatReservations";
 
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
@@ -394,6 +400,128 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   }
 });
 
+/** HTTP action wrappers for Inngest payment processing.
+ *
+ * These expose the minimal set of internal/public Convex functions needed by
+ * `inngest/functions/payments.ts` so it can use the shared `convexServerCall`
+ * helper instead of hand-rolling raw HTTP requests to `/api/query` and
+ * `/api/mutation`. Each endpoint is protected by CONVEX_HTTP_KEY.
+ */
+
+const httpGetOrderByIdPublic = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(getOrderByIdPublic as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpCompleteOrder = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runMutation(completeOrder as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpRefundOrder = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runMutation(refundOrder as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpCreatePayment = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(createPayment as any, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { provider, providerPaymentId } = await request.json();
+  if (!provider || !providerPaymentId) {
+    return new Response(
+      JSON.stringify({ error: "Missing provider or providerPaymentId" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  const result = await ctx.runQuery(getPaymentByProviderId as any, {
+    provider,
+    providerPaymentId,
+  });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpRefundPayment = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id, refundedAmount } = await request.json();
+  const result = await ctx.runMutation(refundPayment as any, { id, refundedAmount });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetPublicProductById = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(getPublicProductById as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetProductsByInstructorId = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { instructorId } = await request.json();
+  const result = await ctx.runQuery(getProductsByInstructorId as any, { instructorId });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpCreateUser = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(createUser as any, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpCreateSessionPack = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(createSessionPack as any, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetSessionPackByPaymentId = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { paymentId } = await request.json();
+  const result = await ctx.runQuery(getSessionPackByPaymentId as any, { paymentId });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpRefundSessionPack = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runMutation(refundSessionPack as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpCreateSeatReservation = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(createSeatReservation as any, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetSeatReservationBySessionPack = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { sessionPackId } = await request.json();
+  const result = await ctx.runQuery(getSeatReservationBySessionPack as any, { sessionPackId });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpGetInstructorNameById = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(getInstructorNameById as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const http = httpRouter();
 
 http.route({
@@ -466,6 +594,96 @@ http.route({
   path: "/waitlist/notify",
   method: "POST",
   handler: httpNotifyWaitlist,
+});
+
+http.route({
+  path: "/orders/get-by-id-public",
+  method: "POST",
+  handler: httpGetOrderByIdPublic,
+});
+
+http.route({
+  path: "/orders/complete",
+  method: "POST",
+  handler: httpCompleteOrder,
+});
+
+http.route({
+  path: "/orders/refund",
+  method: "POST",
+  handler: httpRefundOrder,
+});
+
+http.route({
+  path: "/payments/create",
+  method: "POST",
+  handler: httpCreatePayment,
+});
+
+http.route({
+  path: "/payments/get-by-provider-id",
+  method: "POST",
+  handler: httpGetPaymentByProviderId,
+});
+
+http.route({
+  path: "/payments/refund",
+  method: "POST",
+  handler: httpRefundPayment,
+});
+
+http.route({
+  path: "/products/get-public-by-id",
+  method: "POST",
+  handler: httpGetPublicProductById,
+});
+
+http.route({
+  path: "/products/get-by-instructor-id",
+  method: "POST",
+  handler: httpGetProductsByInstructorId,
+});
+
+http.route({
+  path: "/users/create",
+  method: "POST",
+  handler: httpCreateUser,
+});
+
+http.route({
+  path: "/session-packs/create",
+  method: "POST",
+  handler: httpCreateSessionPack,
+});
+
+http.route({
+  path: "/session-packs/get-by-payment-id",
+  method: "POST",
+  handler: httpGetSessionPackByPaymentId,
+});
+
+http.route({
+  path: "/session-packs/refund",
+  method: "POST",
+  handler: httpRefundSessionPack,
+});
+
+http.route({
+  path: "/seat-reservations/create",
+  method: "POST",
+  handler: httpCreateSeatReservation,
+});
+
+http.route({
+  path: "/seat-reservations/get-by-session-pack",
+  method: "POST",
+  handler: httpGetSeatReservationBySessionPack,
+});
+
+http.route({
+  path: "/instructors/get-name-by-id",
+  method: "POST",
+  handler: httpGetInstructorNameById,
 });
 
 /**

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { z } from "zod";
 import { useRouter } from "next/navigation";
+import { ApiFetchError, getAdminStats, getAdminInstructors, updateAdminInstructor, getAdminInstructorStudents } from "@/lib/queries/api-client";
 import Link from "next/link";
 import { 
   Users,
@@ -160,27 +160,26 @@ function InstructorRow({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/instructors/${instructor.instructorId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await updateAdminInstructor(
+        instructor.instructorId,
+        {
           oneOnOneInventory: oneOnOne,
           groupInventory: group,
           maxActiveStudents: maxStudents,
-        }),
+        },
+        false
+      );
+      onInventoryUpdated(instructor.instructorId, {
+        oneOnOneInventory: oneOnOne,
+        groupInventory: group,
+        maxActiveStudents: maxStudents,
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(typeof json?.error === "string" ? json.error : "Failed to save");
-      } else {
-        onInventoryUpdated(instructor.instructorId, {
-          oneOnOneInventory: oneOnOne,
-          groupInventory: group,
-          maxActiveStudents: maxStudents,
-        });
-      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiFetchError && typeof e.data === "object" && e.data !== null && "error" in e.data && typeof e.data.error === "string") {
+        setError(e.data.error);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setSaving(false);
     }
@@ -302,19 +301,10 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [statsRes, instructorsRes] = await Promise.all([
-          fetch("/api/admin/stats"),
-          fetch("/api/admin/instructors"),
+        const [statsData, instructorsData] = await Promise.all([
+          getAdminStats(),
+          getAdminInstructors(),
         ]);
-
-        if (!statsRes.ok || !instructorsRes.ok) {
-          const status = !statsRes.ok ? statsRes.status : instructorsRes.status;
-          setError(status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
-          return;
-        }
-
-        const statsData = await statsRes.json();
-        const instructorsData = await instructorsRes.json();
 
         if (statsData.totalActiveStudents !== undefined) {
           setStats(statsData);
@@ -323,8 +313,12 @@ export default function AdminDashboard() {
         if (instructorsData.instructors) {
           setInstructors(instructorsData.instructors);
         }
-      } catch {
-        setError("Failed to load admin data. Please try again.");
+      } catch (e) {
+        if (e instanceof ApiFetchError) {
+          setError(e.status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
+        } else {
+          setError("Failed to load admin data. Please try again.");
+        }
       } finally {
         setLoading(false);
       }
@@ -350,31 +344,9 @@ export default function AdminDashboard() {
     if (!expandedStudents[instructorId]) {
       setLoadingStudents(instructorId);
       try {
-        const res = await fetch(`/api/admin/instructors/${instructorId}/students`);
-        const StudentSchema = z.object({
-          id: z.string(),
-          userId: z.string(),
-          email: z.string().nullable(),
-          instructorId: z.string(),
-          instructorName: z.string().nullable(),
-          instructorSlug: z.string().nullable(),
-          totalSessions: z.number(),
-          remainingSessions: z.number(),
-          purchasedAt: z.number(),
-          expiresAt: z.number().nullable(),
-          status: z.enum(["active", "depleted", "expired", "refunded"]),
-          createdAt: z.number(),
-        });
-        const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
-
-        if (!res.ok) {
-          setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
-        } else {
-          const json = await res.json();
-          const parsed = StudentsPayload.safeParse(json);
-          const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
-          setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
-        }
+        const json = await getAdminInstructorStudents(instructorId);
+        const students = json.students || [];
+        setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
       } catch {
         setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
       } finally {
@@ -389,31 +361,9 @@ export default function AdminDashboard() {
     for (const instructor of instructors) {
       if (!expandedStudents[instructor.instructorId]) {
         try {
-          const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/students`);
-          const StudentSchema = z.object({
-            id: z.string(),
-            userId: z.string(),
-            email: z.string().nullable(),
-            instructorId: z.string(),
-            instructorName: z.string().nullable(),
-            instructorSlug: z.string().nullable(),
-            totalSessions: z.number(),
-            remainingSessions: z.number(),
-            purchasedAt: z.number(),
-            expiresAt: z.number().nullable(),
-            status: z.enum(["active", "depleted", "expired", "refunded"]),
-            createdAt: z.number(),
-          });
-          const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
-
-          if (!res.ok) {
-            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
-          } else {
-            const json = await res.json();
-            const parsed = StudentsPayload.safeParse(json);
-            const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
-            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
-          }
+          const json = await getAdminInstructorStudents(instructor.instructorId);
+          const students = json.students || [];
+          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
         } catch {
           setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
         }

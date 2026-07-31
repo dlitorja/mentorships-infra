@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { bookSessionForStudent } from "@/lib/queries/api-client";
 
 type BookSessionDialogProps = {
   studentId: string;
@@ -74,20 +75,11 @@ export function BookSessionDialog({
 
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/instructor/students/${studentId}/sessions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            scheduledAt: new Date(scheduledAt).toISOString(),
-            sessionPackId,
-            notes: notes.trim() || undefined,
-          }),
+        await bookSessionForStudent(studentId, {
+          scheduledAt: new Date(scheduledAt).toISOString(),
+          sessionPackId,
+          notes: notes.trim() || undefined,
         });
-        const json = await res.json();
-        
-        if (!res.ok) {
-          throw new Error(json.error || "Failed to book session");
-        }
 
         toast.success("Session booked successfully");
         onOpenChange(false);

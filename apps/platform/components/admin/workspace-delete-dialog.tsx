@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
+import { ApiFetchError, deleteAdminWorkspace } from "@/lib/queries/api-client";
 import {
   Dialog,
   DialogContent,
@@ -37,20 +38,17 @@ export function WorkspaceDeleteDialog({
     setError(null);
 
     try {
-      const response = await fetch(`/api/admin/workspaces/${workspaceId}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to delete workspace");
-      }
+      await deleteAdminWorkspace(workspaceId);
 
       setOpen(false);
       queryClient.invalidateQueries({ queryKey: ["admin-workspaces"], exact: false });
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete workspace");
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        setError(err.data.error);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to delete workspace");
+      }
     } finally {
       setIsDeleting(false);
     }

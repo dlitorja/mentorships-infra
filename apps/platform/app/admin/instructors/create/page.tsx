@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Upload } from "lucide-react";
+import { ApiFetchError, createAdminInstructor, uploadInstructorImage } from "@/lib/queries/api-client";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 function generateSlug(name: string): string {
@@ -68,38 +68,20 @@ export default function CreateInstructorPage() {
         return;
       }
       // 1) Create instructor via platform API (enforces admin & validation)
-      const createRes = await fetch("/api/admin/instructors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: formData.name,
-          slug: formData.slug,
-          email: formData.email || undefined,
-          discordVoiceChannelUrl: formData.discordVoiceChannelUrl || undefined,
-          tagline: formData.tagline || undefined,
-          bio: formData.bio || undefined,
-          oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? DEFAULT_ONE_ON_ONE_INVENTORY : v; })(),
-          groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? DEFAULT_GROUP_INVENTORY : v; })(),
-          maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? DEFAULT_MAX_ACTIVE_STUDENTS : v; })(),
-          isActive: true,
-        }),
+      const createRes = await createAdminInstructor({
+        name: formData.name,
+        slug: formData.slug,
+        email: formData.email || undefined,
+        discordVoiceChannelUrl: formData.discordVoiceChannelUrl || undefined,
+        tagline: formData.tagline || undefined,
+        bio: formData.bio || undefined,
+        oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? DEFAULT_ONE_ON_ONE_INVENTORY : v; })(),
+        groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? DEFAULT_GROUP_INVENTORY : v; })(),
+        maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? DEFAULT_MAX_ACTIVE_STUDENTS : v; })(),
+        isActive: true,
       });
 
-      if (!createRes.ok) {
-        const err = await createRes.json().catch(() => ({}));
-        throw new Error(err?.error || "Failed to create instructor");
-      }
-      const CreateInstructorResponseSchema = z.object({
-        success: z.boolean(),
-        instructor: z.object({ id: z.string() }).passthrough(),
-      }).passthrough();
-
-      const createdUnknown = await createRes.json();
-      const parsed = CreateInstructorResponseSchema.safeParse(createdUnknown);
-      if (!parsed.success) {
-        throw new Error("Invalid server response when creating instructor");
-      }
-      const instructorId: string = parsed.data.instructor.id;
+      const instructorId: string = createRes.instructor.id;
       if (!instructorId) {
         throw new Error("Instructor created but no id returned");
       }
@@ -111,18 +93,20 @@ export default function CreateInstructorPage() {
         form.append("instructorId", instructorId);
         form.append("type", "profile");
 
-        const uploadRes = await fetch("/api/admin/instructors/upload", {
-          method: "POST",
-          body: form,
-        });
-        if (!uploadRes.ok) {
+        try {
+          await uploadInstructorImage(form);
+        } catch {
           // Non-fatal: instructor exists; let user proceed and fix image later
         }
       }
 
       router.push("/admin/instructors");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create instructor");
+      if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
+        setError(err.data.error);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to create instructor");
+      }
     } finally {
       setIsSubmitting(false);
     }

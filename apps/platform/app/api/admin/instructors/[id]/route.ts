@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 // Uses shared helper to avoid duplication across routes
 
@@ -83,13 +75,7 @@ export async function GET(
     await requireRoleForApi("admin");
 
     const { id } = await params;
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
 
@@ -214,13 +200,7 @@ export async function PUT(
     }
 
     const data = validationResult.data as UpdateInstructorInput;
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
     const existing = resolved.instructor;
@@ -412,13 +392,7 @@ export async function DELETE(
     const url = new URL(req.url);
     const hardDelete = url.searchParams.get("hard") === "true";
 
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
+    const convex = await getAuthenticatedConvexClient();
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
     const existing = resolved.instructor;

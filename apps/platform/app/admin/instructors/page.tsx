@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { deleteAdminInstructor, backfillInstructorImages } from "@/lib/queries/api-client";
 import { useAllInstructors } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
@@ -61,12 +62,7 @@ export default function InstructorsPage() {
 
   const hardDeleteInstructorMutation = useMutation({
     mutationFn: async (id: Id<"instructors">) => {
-      const res = await fetch(`/api/admin/instructors/${id}?hard=true`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to permanently delete instructor");
-      }
-      return res.json();
+      return deleteAdminInstructor(id, true);
     },
     onSuccess: () => {
       setPurgeInstructor(null);
@@ -351,14 +347,9 @@ function BackfillImagesPanel() {
       };
       const n = parseInt(limit, 10);
       if (!Number.isNaN(n) && n > 0) body.limit = n;
-      const res = await fetch("/api/admin/instructors/backfill-images", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json: BackfillResponse = await res.json();
-      if (!res.ok) {
-        setError(json?.error || `HTTP ${res.status}`);
+      const json = await backfillInstructorImages(body);
+      if (json.error) {
+        setError(json.error);
       } else {
         setSummary(json.summary ?? null);
         setRawResponse(json);

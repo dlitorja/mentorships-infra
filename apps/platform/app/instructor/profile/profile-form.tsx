@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { InstructorImageUpload } from "@/components/admin/instructor-image-upload";
 import { Loader2, Save, AlertCircle, CheckCircle2, Plus, Trash2, ImageIcon } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { apiFetch, createTestimonial, deleteTestimonial, createStudentResult, deleteStudentResult, updateInstructorProfile } from "@/lib/queries/api-client";
 
 interface Socials {
   twitter?: string;
@@ -70,53 +70,7 @@ async function fetchStudentResults(): Promise<{ items: StudentResult[] }> {
   return apiFetch<{ items: StudentResult[] }>("/api/instructor/student-results");
 }
 
-async function addTestimonial(data: { name: string; text: string }) {
-  const response = await fetch("/api/instructor/testimonials", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to add testimonial");
-  }
-  return response.json();
-}
 
-async function deleteTestimonial(id: string) {
-  const response = await fetch(`/api/instructor/testimonials/${id}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to delete testimonial");
-  }
-  return response.json();
-}
-
-async function addStudentResult(data: { imageUrl: string; imageUploadPath?: string; studentName?: string }): Promise<{ success: boolean }> {
-  const response = await fetch("/api/instructor/student-results", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to add result");
-  }
-  return response.json();
-}
-
-async function deleteStudentResult(id: string) {
-  const response = await fetch(`/api/instructor/student-results/${id}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to delete result");
-  }
-  return response.json();
-}
 
 export function ProfileForm({ initialData }: ProfileFormProps) {
   const router = useRouter();
@@ -156,7 +110,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   });
 
   const addTestimonialMutation = useMutation({
-    mutationFn: addTestimonial,
+    mutationFn: createTestimonial,
     onSuccess: () => {
       setShowTestimonialDialog(false);
       setTestimonialForm({ name: "", text: "" });
@@ -177,7 +131,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   const addStudentResultMutation = useMutation({
 
-    mutationFn: addStudentResult,
+    mutationFn: createStudentResult,
 
     onSuccess: () => {
       setShowStudentResultDialog(false);
@@ -262,19 +216,16 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         socials: Object.keys(socials).length > 0 ? socials : null,
       };
 
-      const response = await fetch("/api/instructor/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const result = await updateInstructorProfile({
+        ...payload,
+        socials: payload.socials as Record<string, string | undefined> | null,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.validationErrors) {
-          setError(data.validationErrors.join(". "));
+      if (!result.ok) {
+        if (result.data.validationErrors) {
+          setError(result.data.validationErrors.join(". "));
         } else {
-          setError(data.error || "Failed to update profile");
+          setError(result.data.error || "Failed to update profile");
         }
         return;
       }

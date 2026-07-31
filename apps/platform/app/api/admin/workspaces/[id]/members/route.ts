@@ -2,20 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { ConvexHttpClient } from "convex/browser";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 
 const workspaceIdParamSchema = z.object({
   id: convexIdSchema,
 });
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 const memberUpdateBodySchema = z.object({
   newOwnerId: z.string().min(1, "Owner ID is required").optional(),
@@ -64,7 +56,7 @@ export async function PATCH(
     }
 
     const validatedId = parsedParams.data.id as Id<"workspaces">;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     if (parsedBody.data.newOwnerId !== undefined) {
       const result = await convex.mutation(api.adminWorkspaces.updateWorkspaceOwner, {
