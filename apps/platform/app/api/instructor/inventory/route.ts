@@ -10,7 +10,11 @@ import { inngest } from "@/inngest/client";
 function getAdminEmails(): string[] {
   const raw = process.env.ADMIN_EMAILS;
   if (raw) {
-    return raw.split(",").map((e) => e.trim()).filter(Boolean);
+    const emails = raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (emails.length === 0) {
+      throw new Error("ADMIN_EMAILS is configured but contains no valid email addresses");
+    }
+    return emails;
   }
   if (process.env.NODE_ENV === "production") {
     throw new Error("Missing required environment variable: ADMIN_EMAILS");
@@ -118,7 +122,7 @@ async function handlePut(
       ? user.emailAddresses?.find(e => e.id === primaryEmailId)?.emailAddress
       : null;
     const adminEmails = getAdminEmails();
-    const isAdmin = primaryEmail ? adminEmails.includes(primaryEmail) : false;
+    const isAdmin = primaryEmail ? adminEmails.includes(primaryEmail.toLowerCase()) : false;
 
     if (!isAdmin) {
       return NextResponse.json(

@@ -6,6 +6,10 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+const STUDENT_ID = "user_student";
+const INSTRUCTOR_USER_ID = "user_instructor";
+const OTHER_USER_ID = "user_other";
+
 async function seedInstructorAndSessionPack(
   t: ReturnType<typeof convexTest>
 ): Promise<{ instructorId: string; sessionPackId: string; userId: string }> {
@@ -22,15 +26,15 @@ async function seedInstructorAndSessionPack(
       oneOnOneInventory: 0,
       groupInventory: 0,
       maxActiveStudents: 10,
-      userId: "user_instructor",
+      userId: INSTRUCTOR_USER_ID,
     });
     userId = await ctx.db.insert("users", {
-      userId: "user_student",
+      userId: STUDENT_ID,
       email: "student@example.com",
       clerkId: "clerk_student",
     });
     sessionPackId = await ctx.db.insert("sessionPacks", {
-      userId: "user_student",
+      userId: STUDENT_ID,
       instructorId: instructorId as any,
       totalSessions: 4,
       remainingSessions: 4,
@@ -57,21 +61,50 @@ async function createStorageIds(
   return ids;
 }
 
+async function recordUpload(
+  t: ReturnType<typeof convexTest>,
+  legacyId: string,
+  storageIds: string[]
+): Promise<void> {
+  await t.withIdentity({ subject: STUDENT_ID }).mutation(
+    api.studentOnboarding.recordUpload,
+    { legacyId, storageIds: storageIds as any }
+  );
+}
+
+/**
+ * Creates a submission with a recorded upload and the given storage IDs.
+ */
+async function createSubmission(
+  t: ReturnType<typeof convexTest>,
+  legacyId: string,
+  instructorId: string,
+  storageIds: string[] = []
+) {
+  if (storageIds.length > 0) {
+    await recordUpload(t, legacyId, storageIds);
+  }
+  return await t.withIdentity({ subject: STUDENT_ID }).mutation(
+    api.studentOnboarding.create,
+    {
+      legacyId,
+      userId: STUDENT_ID,
+      instructorId: instructorId as any,
+      sessionPackId: "legacy-sp-001",
+      goals: "I want to learn art",
+      imageStorageIds: storageIds as any,
+    }
+  );
+}
+
 test("create stores imageStorageIds and listByInstructor returns them", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
   const storageIds = await createStorageIds(t, 2);
 
-  await t.mutation(api.studentOnboarding.create, {
-    legacyId: "sub-001",
-    userId: "user_student",
-    instructorId: instructorId as any,
-    sessionPackId: "legacy-sp-001",
-    goals: "I want to learn art",
-    imageStorageIds: storageIds as any,
-  });
+  await createSubmission(t, "sub-001", instructorId, storageIds);
 
-  const submissions = await t.withIdentity({ subject: "user_instructor" }).query(
+  const submissions = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
     api.studentOnboarding.listByInstructor,
     { instructorId: instructorId as any }
   );
@@ -86,31 +119,56 @@ test("create is idempotent", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
 
-  const first = await t.mutation(api.studentOnboarding.create, {
-    legacyId: "sub-002",
-    userId: "user_student",
-    instructorId: instructorId as any,
-    sessionPackId: "legacy-sp-001",
-    goals: "First",
-  });
-
-  const second = await t.mutation(api.studentOnboarding.create, {
-    legacyId: "sub-002",
-    userId: "user_student",
-    instructorId: instructorId as any,
-    sessionPackId: "legacy-sp-001",
-    goals: "Second",
-  });
+  const first = await createSubmission(t, "sub-002", instructorId);
+  const second = await createSubmission(t, "sub-002", instructorId);
 
   expect(first.id).toBe(second.id);
   expect(first.legacyId).toBe("sub-002");
 
-  const submissions = await t.withIdentity({ subject: "user_instructor" }).query(
+  const submissions = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
     api.studentOnboarding.listByInstructor,
     { instructorId: instructorId as any }
   );
   expect(submissions).toHaveLength(1);
-  expect(submissions[0].goals).toBe("First");
+  expect(submissions[0].goals).toBe("I want to learn art");
+});
+
+test("create rejects mismatched userId", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedInstructorAndSessionPack(t);
+
+  await expect(
+    t.withIdentity({ subject: OTHER_USER_ID }).mutation(
+      api.studentOnboarding.create,
+      {
+        legacyId: "sub-bad-user",
+        userId: STUDENT_ID,
+        instructorId: instructorId as any,
+        sessionPackId: "legacy-sp-001",
+        goals: "Goals",
+      }
+    )
+  ).rejects.toThrow("Forbidden");
+});
+
+test("create rejects unrecorded storageIds", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedInstructorAndSessionPack(t);
+  const storageIds = await createStorageIds(t, 2);
+
+  await expect(
+    t.withIdentity({ subject: STUDENT_ID }).mutation(
+      api.studentOnboarding.create,
+      {
+        legacyId: "sub-bad-storage",
+        userId: STUDENT_ID,
+        instructorId: instructorId as any,
+        sessionPackId: "legacy-sp-001",
+        goals: "Goals",
+        imageStorageIds: storageIds as any,
+      }
+    )
+  ).rejects.toThrow("Invalid storageIds");
 });
 
 test("listByInstructor forbids non-instructor users", async () => {
@@ -118,70 +176,156 @@ test("listByInstructor forbids non-instructor users", async () => {
   const { instructorId } = await seedInstructorAndSessionPack(t);
 
   await expect(
-    t.withIdentity({ subject: "user_other" }).query(
+    t.withIdentity({ subject: OTHER_USER_ID }).query(
       api.studentOnboarding.listByInstructor,
       { instructorId: instructorId as any }
     )
   ).rejects.toThrow("Forbidden");
 });
 
-test("getSignedUrls and getSignedUrlsByStorageIds require storageIds", async () => {
+test("recordUpload and verifyUpload enforce ownership", async () => {
+  const t = convexTest(schema, modules);
+  await seedInstructorAndSessionPack(t);
+  const storageIds = await createStorageIds(t, 2);
+
+  await t.withIdentity({ subject: STUDENT_ID }).mutation(
+    api.studentOnboarding.recordUpload,
+    { legacyId: "sub-record", storageIds: storageIds as any }
+  );
+
+  const verification = await t.withIdentity({ subject: STUDENT_ID }).query(
+    api.studentOnboarding.verifyUpload,
+    { legacyId: "sub-record", storageIds: storageIds as any }
+  );
+  expect(verification.valid).toBe(true);
+
+  // Another user cannot verify the same upload.
+  const other = await t.withIdentity({ subject: OTHER_USER_ID }).query(
+    api.studentOnboarding.verifyUpload,
+    { legacyId: "sub-record", storageIds: storageIds as any }
+  );
+  expect(other.valid).toBe(false);
+});
+
+test("getSignedUrls requires authentication and ownership", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
   const storageIds = await createStorageIds(t, 2);
+  const { id: submissionId } = await createSubmission(t, "sub-003", instructorId, storageIds);
 
-  const { id: submissionId } = await t.mutation(api.studentOnboarding.create, {
-    legacyId: "sub-003",
-    userId: "user_student",
-    instructorId: instructorId as any,
-    sessionPackId: "legacy-sp-001",
-    goals: "Goals",
-    imageStorageIds: storageIds as any,
-  });
+  await expect(
+    t.query(api.studentOnboarding.getSignedUrls, { submissionId: submissionId as any })
+  ).rejects.toThrow("Unauthorized");
 
-  const bySubmission = await t.query(api.studentOnboarding.getSignedUrls, {
-    submissionId: submissionId as any,
-  });
-  expect(bySubmission).toHaveLength(2);
-  expect(bySubmission[0].storageId).toBe(storageIds[0]);
-  expect(bySubmission[0].signedUrl).toBeDefined();
+  await expect(
+    t.withIdentity({ subject: OTHER_USER_ID }).query(
+      api.studentOnboarding.getSignedUrls,
+      { submissionId: submissionId as any }
+    )
+  ).rejects.toThrow("Forbidden");
 
-  const byIds = await t.query(api.studentOnboarding.getSignedUrlsByStorageIds, {
-    storageIds: storageIds as any,
-  });
-  expect(byIds).toHaveLength(2);
+  const byInstructor = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
+    api.studentOnboarding.getSignedUrls,
+    { submissionId: submissionId as any }
+  );
+  expect(byInstructor).toHaveLength(2);
+
+  const byStudent = await t.withIdentity({ subject: STUDENT_ID }).query(
+    api.studentOnboarding.getSignedUrls,
+    { submissionId: submissionId as any }
+  );
+  expect(byStudent).toHaveLength(2);
+});
+
+test("getSignedUrlsByLegacyId requires authentication and ownership", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedInstructorAndSessionPack(t);
+  const storageIds = await createStorageIds(t, 2);
+  await createSubmission(t, "sub-legacy", instructorId, storageIds);
+
+  await expect(
+    t.query(api.studentOnboarding.getSignedUrlsByLegacyId, { legacyId: "sub-legacy" })
+  ).rejects.toThrow("Unauthorized");
+
+  await expect(
+    t.withIdentity({ subject: OTHER_USER_ID }).query(
+      api.studentOnboarding.getSignedUrlsByLegacyId,
+      { legacyId: "sub-legacy" }
+    )
+  ).rejects.toThrow("Forbidden");
+
+  const urls = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
+    api.studentOnboarding.getSignedUrlsByLegacyId,
+    { legacyId: "sub-legacy" }
+  );
+  expect(urls).toHaveLength(2);
+});
+
+test("getSignedUrlsByStorageIds requires authentication", async () => {
+  const t = convexTest(schema, modules);
+  const storageIds = await createStorageIds(t, 2);
+
+  await expect(
+    t.query(api.studentOnboarding.getSignedUrlsByStorageIds, { storageIds: storageIds as any })
+  ).rejects.toThrow("Unauthorized");
+
+  const urls = await t.withIdentity({ subject: STUDENT_ID }).query(
+    api.studentOnboarding.getSignedUrlsByStorageIds,
+    { storageIds: storageIds as any }
+  );
+  expect(urls).toHaveLength(2);
+});
+
+test("deleteStorageObjects requires authentication and removes files", async () => {
+  const t = convexTest(schema, modules);
+  const storageIds = await createStorageIds(t, 2);
+
+  await expect(
+    t.action(api.studentOnboarding.deleteStorageObjects, { storageIds: storageIds as any })
+  ).rejects.toThrow("Unauthorized");
+
+  await t.withIdentity({ subject: STUDENT_ID }).action(
+    api.studentOnboarding.deleteStorageObjects,
+    { storageIds: storageIds as any }
+  );
+
+  const remaining = await t.withIdentity({ subject: STUDENT_ID }).query(
+    api.studentOnboarding.getSignedUrlsByStorageIds,
+    { storageIds: storageIds as any }
+  );
+  expect(remaining).toHaveLength(0);
 });
 
 test("markReviewed records reviewedAt", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
-
-  await t.mutation(api.studentOnboarding.create, {
-    legacyId: "sub-004",
-    userId: "user_student",
-    instructorId: instructorId as any,
-    sessionPackId: "legacy-sp-001",
-    goals: "Goals",
-  });
+  await createSubmission(t, "sub-004", instructorId);
 
   const result = await t.mutation(api.studentOnboarding.markReviewed, {
     legacyId: "sub-004",
     instructorId: instructorId as any,
-    reviewedByUserId: "user_instructor",
+    reviewedByUserId: INSTRUCTOR_USER_ID,
   });
 
   expect(result.ok).toBe(true);
 
-  const submissions = await t.withIdentity({ subject: "user_instructor" }).query(
+  const submissions = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
     api.studentOnboarding.listByInstructor,
     { instructorId: instructorId as any }
   );
   expect(submissions[0].reviewedAt).toBeDefined();
 });
 
-test("generateImageUploadUrl returns a string URL", async () => {
+test("generateImageUploadUrl requires authentication", async () => {
   const t = convexTest(schema, modules);
-  const url = await t.action(api.studentOnboarding.generateImageUploadUrl, {});
+  await expect(t.action(api.studentOnboarding.generateImageUploadUrl, {})).rejects.toThrow(
+    "Unauthorized"
+  );
+
+  const url = await t.withIdentity({ subject: STUDENT_ID }).action(
+    api.studentOnboarding.generateImageUploadUrl,
+    {}
+  );
   expect(typeof url).toBe("string");
   expect(url.length).toBeGreaterThan(0);
 });

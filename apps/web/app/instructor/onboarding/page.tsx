@@ -10,10 +10,11 @@ import {
   getInstructorByUserId,
   studentOnboardingSubmissions,
   users,
+  normalizeStudentOnboardingImageObjects,
+  type StudentOnboardingImageObject,
 } from "@mentorships/db";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
-import type { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +45,12 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const submissions: {
     id: string;
     goals: string;
-    imageObjects: { path: string; storageId: string }[];
+    imageObjects: StudentOnboardingImageObject[];
     createdAt: Date;
     reviewedAt: Date | null;
     studentId: string;
     studentEmail: string;
-  }[] = await db
+  }[] = (await db
     .select({
       id: studentOnboardingSubmissions.id,
       goals: studentOnboardingSubmissions.goals,
@@ -62,7 +63,8 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     .from(studentOnboardingSubmissions)
     .innerJoin(users, eq(users.id, studentOnboardingSubmissions.userId))
     .where(eq(studentOnboardingSubmissions.instructorId, instructorRecord.id))
-    .orderBy(desc(studentOnboardingSubmissions.createdAt));
+    .orderBy(desc(studentOnboardingSubmissions.createdAt)))
+    .map((s) => ({ ...s, imageObjects: normalizeStudentOnboardingImageObjects(s.imageObjects) }));
 
   const selected =
     (submissionId ? submissions.find((s) => s.id === submissionId) : null) ?? submissions[0] ?? null;
@@ -71,21 +73,11 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const signedUrls =
     selected && selected.imageObjects.length > 0 && token
       ? await (async () => {
-          const storageIds = selected.imageObjects
-            .map((img) => img.storageId as Id<"_storage">)
-            .filter((id): id is Id<"_storage"> => Boolean(id));
-
-          const out: Array<{ storageId: string; signedUrl: string }> = [];
-
-          if (storageIds.length > 0) {
-            const urls = await fetchQuery(
-              api.studentOnboarding.getSignedUrlsByStorageIds,
-              { storageIds },
-              { token }
-            );
-            out.push(...urls);
-          }
-
+          const out = await fetchQuery(
+            api.studentOnboarding.getSignedUrlsByLegacyId,
+            { legacyId: selected.id },
+            { token }
+          );
           return out;
         })()
       : [];

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { requireDbUser } from "@/lib/auth";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type UploadResponse =
   | {
@@ -30,6 +32,30 @@ function extForMime(mimeType: string): string | null {
   }
 }
 
+const storageUploadResponseSchema = z.object({
+  storageId: z.string(),
+});
+
+async function uploadWithTimeout(
+  uploadUrl: string,
+  mimeType: string,
+  bytes: ArrayBuffer,
+  timeoutMs: number = 60_000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": mimeType },
+      body: bytes,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function POST(request: Request): Promise<NextResponse<UploadResponse>> {
   const errorId = randomUUID();
   try {
@@ -51,13 +77,14 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       );
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const uploaded: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }> = [];
 
     for (const file of files) {
       const mimeType = file.type;
       const ext = extForMime(mimeType);
       if (!ext) {
+        await cleanupUploaded(convex, uploaded);
         return NextResponse.json(
           { error: `Unsupported image type: ${mimeType || "unknown"}`, errorId },
           { status: 400 }
@@ -67,6 +94,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       // 10MB per image (keeps uploads snappy and avoids abuse)
       const maxBytes = 10 * 1024 * 1024;
       if (file.size > maxBytes) {
+        await cleanupUploaded(convex, uploaded);
         return NextResponse.json(
           { error: "Each image must be <= 10MB", errorId },
           { status: 400 }
@@ -77,13 +105,10 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       const bytes = new Uint8Array(await file.arrayBuffer());
 
       const uploadUrl = await convex.action(api.studentOnboarding.generateImageUploadUrl, {});
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": mimeType },
-        body: bytes,
-      });
+      const uploadResponse = await uploadWithTimeout(uploadUrl, mimeType, bytes.buffer);
 
       if (!uploadResponse.ok) {
+        await cleanupUploaded(convex, uploaded);
         const text = await uploadResponse.text().catch(() => "Unknown error");
         return NextResponse.json(
           { error: `Upload failed: ${text}`, errorId },
@@ -91,21 +116,25 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
         );
       }
 
-      const { storageId } = (await uploadResponse.json()) as { storageId: string };
-      if (!storageId) {
+      const parsed = storageUploadResponseSchema.safeParse(await uploadResponse.json());
+      if (!parsed.success || !parsed.data.storageId) {
+        await cleanupUploaded(convex, uploaded);
         return NextResponse.json(
-          { error: "Upload failed: missing storageId", errorId },
+          { error: "Upload failed: missing or invalid storageId", errorId },
           { status: 500 }
         );
       }
 
-      uploaded.push({ path: objectPath, storageId, mimeType, sizeBytes: file.size });
+      uploaded.push({ path: objectPath, storageId: parsed.data.storageId, mimeType, sizeBytes: file.size });
     }
 
-    // Note: We don't create the submission record here because mentorId and sessionPackId
-    // are required. The submissionId is generated server-side to prevent client manipulation
-    // and race conditions; the submit route verifies the returned storageIds belong to
-    // this submission.
+    // Record the uploaded storage IDs so the submit route can verify the
+    // client has not substituted arbitrary storage IDs.
+    const storageIds = uploaded.map((img) => img.storageId as Id<"_storage">);
+    await convex.mutation(api.studentOnboarding.recordUpload, {
+      legacyId: submissionId,
+      storageIds,
+    });
 
     return NextResponse.json({ success: true, submissionId, images: uploaded });
   } catch (error) {
@@ -116,4 +145,13 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
   }
 }
 
-
+async function cleanupUploaded(
+  convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>,
+  uploaded: Array<{ storageId: string }>
+): Promise<void> {
+  if (uploaded.length === 0) return;
+  const storageIds = uploaded.map((img) => img.storageId as Id<"_storage">);
+  await convex.action(api.studentOnboarding.deleteStorageObjects, { storageIds }).catch(() => {
+    // Best-effort cleanup; don't hide the original error.
+  });
+}

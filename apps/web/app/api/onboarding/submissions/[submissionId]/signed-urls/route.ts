@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireDbUser } from "@/lib/auth";
 
 type SignedUrlResponse =
@@ -19,26 +19,14 @@ export async function GET(
   const errorId = randomUUID();
 
   try {
-    const user = await requireDbUser();
+    await requireDbUser();
     const { submissionId } = await context.params;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const submission = await convex.query(api.studentOnboarding.getByLegacyId, { legacyId: submissionId });
 
     if (!submission) {
       return NextResponse.json({ error: "Submission not found", errorId }, { status: 404 });
-    }
-
-    const isStudentOwner = submission.userId === user.id;
-
-    let isInstructorOwner = false;
-    if (user.role === "instructor") {
-      const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
-      isInstructorOwner = Boolean(instructor && instructor._id === submission.instructorId);
-    }
-
-    if (!isStudentOwner && !isInstructorOwner) {
-      return NextResponse.json({ error: "Forbidden", errorId }, { status: 403 });
     }
 
     const urls = await convex.query(

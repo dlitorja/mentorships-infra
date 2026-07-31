@@ -61,12 +61,12 @@ export async function GET(): Promise<NextResponse> {
         displayName: name,
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
-        maxActiveStudents: (instructor as any).maxActiveStudents || 0,
-        activeStudentCount: (instructor as any).activeStudentCount || 0,
+        maxActiveStudents: instructor.maxActiveStudents || 0,
+        activeStudentCount: instructor.activeStudentCount || 0,
         productActiveOneOnOne: flags.oneOnOne,
         productActiveGroup: flags.group,
-        createdAt: (instructor as any).createdAt
-          ? new Date((instructor as any).createdAt).toISOString()
+        createdAt: instructor.createdAt
+          ? new Date(instructor.createdAt).toISOString()
           : new Date(instructor._creationTime).toISOString(),
       };
     });

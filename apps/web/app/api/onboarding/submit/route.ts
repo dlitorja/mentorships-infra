@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { and, db, discordActionQueue, eq, sessionPacks } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -60,16 +60,29 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
 
     const expectedPrefix = `onboarding/${user.id}/${parsed.submissionId}/`;
     const allPathsValid = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
-    const allStorageIdsPresent = parsed.imageObjects.every((img) => img.storageId.length > 0);
-    if (!allPathsValid || !allStorageIdsPresent) {
+    if (!allPathsValid) {
       return NextResponse.json(
-        { error: "Invalid submission ID, image paths, or missing storage IDs. Please upload images first.", errorId },
+        { error: "Invalid submission ID or image paths. Please upload images first.", errorId },
+        { status: 400 }
+      );
+    }
+
+    const convex = await getAuthenticatedConvexClient();
+
+    // Verify the storageIds were recorded by the authenticated upload flow.
+    const storageIds = parsed.imageObjects.map((img) => img.storageId as Id<"_storage">);
+    const verification = await convex.query(api.studentOnboarding.verifyUpload, {
+      legacyId: parsed.submissionId,
+      storageIds,
+    });
+    if (!verification.valid) {
+      return NextResponse.json(
+        { error: "Invalid storage IDs. Please upload images first.", errorId },
         { status: 400 }
       );
     }
 
     // Check Convex for idempotency
-    const convex = getConvexClient();
     const existing = await convex.query(api.studentOnboarding.getByLegacyId, { legacyId: parsed.submissionId });
     if (existing) {
       return NextResponse.json(

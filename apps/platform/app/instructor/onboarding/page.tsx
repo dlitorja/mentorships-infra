@@ -11,6 +11,15 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
 
+/** Legacy image object stored in Supabase. */
+type LegacyImageObject = { path: string };
+
+/** Raw image value as stored in older imageObjects arrays. */
+type LegacyImageValue = LegacyImageObject | string;
+
+/** Shape of imageObjects stored on legacy onboarding submissions. */
+type SubmissionImageObjects = LegacyImageValue[] | undefined;
+
 type PageProps = {
   searchParams: Promise<{ submissionId?: string }>;
 };
@@ -67,7 +76,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     _id: Id<"studentOnboardingSubmissions">;
     legacyId: string | undefined;
     goals: string;
-    imageObjects: any;
+    imageObjects: SubmissionImageObjects;
     imageStorageIds: (Id<"_storage"> | string)[] | undefined;
     createdAt: number | undefined;
     reviewedAt: number | undefined;

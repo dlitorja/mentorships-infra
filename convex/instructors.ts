@@ -844,6 +844,9 @@ type InstructorListItem = {
   isNew?: boolean;
   oneOnOneInventory?: number;
   groupInventory?: number;
+  maxActiveStudents?: number;
+  activeStudentCount?: number;
+  createdAt?: number;
   deletedAt?: number;
   isCompletelySoldOut?: boolean;
 };
@@ -851,7 +854,7 @@ type InstructorListItem = {
 async function toInstructorListItem(
   ctx: QueryCtx,
   inst: Doc<"instructors">,
-  extra?: { isCompletelySoldOut?: boolean }
+  extra?: { isCompletelySoldOut?: boolean; activeStudentCount?: number }
 ): Promise<InstructorListItem> {
   const profileImageUrl = await getFreshProfileUrl(
     ctx,
@@ -873,6 +876,9 @@ async function toInstructorListItem(
     isNew: inst.isNew,
     oneOnOneInventory: (inst as any).oneOnOneInventory ?? 0,
     groupInventory: (inst as any).groupInventory ?? 0,
+    maxActiveStudents: (inst as any).maxActiveStudents,
+    activeStudentCount: extra?.activeStudentCount,
+    createdAt: inst._creationTime,
     deletedAt: inst.deletedAt,
     isCompletelySoldOut: extra?.isCompletelySoldOut,
   };
@@ -970,19 +976,27 @@ export const getInstructorsForAdmin = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
-      return [];
+      throw new Error("Unauthorized");
     }
     const isAdmin = await isAdminUser(ctx, user.subject);
     if (!isAdmin) {
-      return [];
+      throw new Error("Forbidden");
     }
     const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
     const instructors = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .take(limit);
+
+    const seatReservations = await ctx.db.query("seatReservations").collect();
+
     return Promise.all(
-      instructors.map(async (inst) => toInstructorListItem(ctx, inst))
+      instructors.map(async (inst) => {
+        const activeStudentCount = seatReservations.filter(
+          (sr) => sr.instructorId === inst._id && sr.status === "active"
+        ).length;
+        return toInstructorListItem(ctx, inst, { activeStudentCount });
+      })
     );
   },
 });
