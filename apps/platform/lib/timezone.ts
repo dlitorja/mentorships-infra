@@ -198,3 +198,49 @@ export function addWeeksInTimeZone(
 export function utcMillisToIsoString(millis: number): string {
   return new Date(millis).toISOString();
 }
+
+/**
+ * Format a UTC millisecond timestamp as a value for an `<input type="datetime-local">`
+ * interpreted in the given IANA timezone.
+ */
+export function formatUtcMillisForDateTimeLocal(
+  timeZone: string,
+  millis: number
+): string {
+  const local = getLocalDateTime(new Date(millis), timeZone);
+  const year = String(local.year).padStart(4, "0");
+  const month = String(local.month).padStart(2, "0");
+  const day = String(local.day).padStart(2, "0");
+  const hour = String(local.hour).padStart(2, "0");
+  const minute = String(local.minute).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+/**
+ * Parse a value from an `<input type="datetime-local">` and convert it to a UTC
+ * millisecond timestamp assuming the wall-clock time is in the given IANA timezone.
+ *
+ * Returns `null` if the value is malformed or the local wall time does not exist
+ * in the target timezone (e.g. a DST spring-forward gap).
+ */
+export function parseDateTimeLocalToUtcMillis(
+  timeZone: string,
+  value: string
+): number | null {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (!match) return null;
+
+  const [, yearStr, monthStr, dayStr, hourStr, minuteStr, secondStr] = match;
+  const local: LocalDateTime = {
+    year: parseInt(yearStr, 10),
+    month: parseInt(monthStr, 10),
+    day: parseInt(dayStr, 10),
+    hour: parseInt(hourStr, 10),
+    minute: parseInt(minuteStr, 10),
+    second: secondStr ? parseInt(secondStr, 10) : 0,
+  };
+
+  return localDateTimeToUtcMillis(local, timeZone);
+}
