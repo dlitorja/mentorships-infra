@@ -341,8 +341,13 @@ export function SessionActions({
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const { data: instructor, isLoading: isLoadingTimeZone } = useCurrentInstructor();
+  const {
+    data: instructor,
+    isLoading: isLoadingTimeZone,
+    isError: isTimeZoneError,
+  } = useCurrentInstructor();
   const timeZone = instructor?.timeZone ?? "UTC";
+  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError;
 
   const canReschedule = !allowedActions || allowedActions.includes("reschedule");
   const canCancel = !allowedActions || allowedActions.includes("cancel");
@@ -356,9 +361,13 @@ export function SessionActions({
             variant="ghost"
             size="sm"
             onClick={() => setRescheduleOpen(true)}
-            title="Reschedule"
+            title={
+              isTimeZoneError
+                ? "Unable to load your timezone. Please refresh and try again."
+                : "Reschedule"
+            }
             aria-label="Reschedule session"
-            disabled={isLoadingTimeZone}
+            disabled={!canLoadTimeZone}
           >
             <Calendar className="h-4 w-4" />
           </Button>
