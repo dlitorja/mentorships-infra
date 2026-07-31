@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { z } from "zod";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
@@ -38,8 +38,8 @@ export async function POST(req: NextRequest) {
     const user = await requireRoleForApi("admin");
     console.log("[upload] Auth passed, user:", user?.id);
 
-    console.log("[upload] Creating Convex client");
-    const convex = getConvexClient();
+    console.log("[upload] Creating authenticated Convex client");
+    const convex = await getAuthenticatedConvexClient();
 
     console.log("[upload] Parsing form data");
     const formData = await req.formData();

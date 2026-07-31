@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 const listWorkspacesQuerySchema = z.object({
   type: z.enum(["mentorship", "admin_student", "admin_instructor"]).optional(),
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const { type, numItems, cursor } = parsedQuery.data;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const paginationOpts = {
       numItems,

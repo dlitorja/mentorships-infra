@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 /**
  * GET /api/admin/audit-logs
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const url = new URL(req.url);
     const numItems = Math.min(parseInt(url.searchParams.get("numItems") || "50") || 50, 100);

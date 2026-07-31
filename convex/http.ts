@@ -438,8 +438,17 @@ const httpCreatePayment = httpAction(async (ctx, request) => {
 
 const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
-  const { providerPaymentId } = await request.json();
-  const result = await ctx.runQuery(getPaymentByProviderId as any, { providerPaymentId });
+  const { provider, providerPaymentId } = await request.json();
+  if (!provider || !providerPaymentId) {
+    return new Response(
+      JSON.stringify({ error: "Missing provider or providerPaymentId" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  const result = await ctx.runQuery(getPaymentByProviderId as any, {
+    provider,
+    providerPaymentId,
+  });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 

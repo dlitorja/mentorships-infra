@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitations";
@@ -15,7 +15,7 @@ export async function GET(): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
 
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const data = parsed.data;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     // Convex createInstructor requires userId. If not explicitly provided, try to look up
     // Clerk user by email to enable proper OAuth linking. Falls back to admin-scoped placeholder
@@ -275,7 +275,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     }
 
     const { instructorId, userId } = parsed.data;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     try {
       await convex.mutation(api.instructors.updateInstructor, {

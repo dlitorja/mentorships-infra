@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 /**
  * POST /api/admin/workspaces/admin-student
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const body = await req.json();
     const { studentUserId, name, description, isPublic } = body;

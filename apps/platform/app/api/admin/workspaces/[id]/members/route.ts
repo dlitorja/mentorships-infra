@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 
 const workspaceIdParamSchema = z.object({
@@ -56,7 +56,7 @@ export async function PATCH(
     }
 
     const validatedId = parsedParams.data.id as Id<"workspaces">;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     if (parsedBody.data.newOwnerId !== undefined) {
       const result = await convex.mutation(api.adminWorkspaces.updateWorkspaceOwner, {

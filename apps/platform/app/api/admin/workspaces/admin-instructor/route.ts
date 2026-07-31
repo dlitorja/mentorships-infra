@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 
 const createAdminInstructorSchema = z.object({
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     let body: unknown;
     try {
