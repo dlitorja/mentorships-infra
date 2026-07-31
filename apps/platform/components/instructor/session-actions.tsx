@@ -66,7 +66,11 @@ function RescheduleSessionDialog({
     if (open) {
       setNewDateTime(formatUtcMillisForDateTimeLocal(timeZone, session.scheduledAt));
     }
-  }, [open, session.scheduledAt, timeZone]);
+    // Only reinitialize when the dialog opens; the timezone is guaranteed to be
+    // loaded before the dialog can open because the trigger button is disabled
+    // until useCurrentInstructor resolves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   function handleReschedule() {
     const newScheduledAt = parseDateTimeLocalToUtcMillis(timeZone, newDateTime);
@@ -337,7 +341,7 @@ export function SessionActions({
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const { data: instructor } = useCurrentInstructor();
+  const { data: instructor, isLoading: isLoadingTimeZone } = useCurrentInstructor();
   const timeZone = instructor?.timeZone ?? "UTC";
 
   const canReschedule = !allowedActions || allowedActions.includes("reschedule");
@@ -354,6 +358,7 @@ export function SessionActions({
             onClick={() => setRescheduleOpen(true)}
             title="Reschedule"
             aria-label="Reschedule session"
+            disabled={isLoadingTimeZone}
           >
             <Calendar className="h-4 w-4" />
           </Button>
