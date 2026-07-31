@@ -33,30 +33,22 @@ export async function GET(): Promise<NextResponse> {
 
     const instructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
 
-    // Compute product-active flags with bounded concurrency to avoid N+1 spikes
+    // Compute product-active flags in a single query to avoid N+1 lookups
+    const instructorIds = instructors.map((inst) => inst._id);
+    const productsByInstructor = await convex.query(
+      api.products.getProductsByInstructorIds,
+      { instructorIds }
+    );
     const productFlags = new Map<string, { oneOnOne: boolean; group: boolean }>();
-    const list = instructors as any[];
-    const chunkSize = 8;
-    for (let i = 0; i < list.length; i += chunkSize) {
-      const chunk = list.slice(i, i + chunkSize);
-      const results = await Promise.all(
-        chunk.map(async (inst) => {
-          try {
-            const products = (await convex.query(api.products.getProductsByInstructorId, { instructorId: inst._id })) as any[] | null;
-            const activeProducts = (products ?? []).filter((p) => p.active && !p.deletedAt);
-            const hasOneOnOne = activeProducts.some((p) => p.mentorshipType === "one-on-one");
-            const hasGroup = activeProducts.some((p) => p.mentorshipType === "group");
-            return { id: inst._id as string, oneOnOne: hasOneOnOne, group: hasGroup };
-          } catch (e) {
-            console.error("Failed to load products for instructor", inst._id, e);
-            return { id: inst._id as string, oneOnOne: false, group: false };
-          }
-        })
-      );
-      results.forEach((r) => productFlags.set(r.id, { oneOnOne: r.oneOnOne, group: r.group }));
+    for (const [id, products] of Object.entries(productsByInstructor)) {
+      const typedProducts = products as Array<{ mentorshipType?: string }>;
+      productFlags.set(id, {
+        oneOnOne: typedProducts.some((p) => p.mentorshipType === "one-on-one"),
+        group: typedProducts.some((p) => p.mentorshipType === "group"),
+      });
     }
 
-    const instructorsWithStats = list.map((instructor) => {
+    const instructorsWithStats = instructors.map((instructor) => {
       const flags = productFlags.get(instructor._id) || { oneOnOne: false, group: false };
       const name = instructor.name || instructor.email || "";
       return {
@@ -69,12 +61,12 @@ export async function GET(): Promise<NextResponse> {
         displayName: name,
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
-        maxActiveStudents: instructor.maxActiveStudents || 0,
-        activeStudentCount: instructor.activeStudentCount || 0,
+        maxActiveStudents: (instructor as any).maxActiveStudents || 0,
+        activeStudentCount: (instructor as any).activeStudentCount || 0,
         productActiveOneOnOne: flags.oneOnOne,
         productActiveGroup: flags.group,
-        createdAt: instructor.createdAt
-          ? new Date(instructor.createdAt).toISOString()
+        createdAt: (instructor as any).createdAt
+          ? new Date((instructor as any).createdAt).toISOString()
           : new Date(instructor._creationTime).toISOString(),
       };
     });

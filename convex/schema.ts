@@ -694,7 +694,10 @@ export default defineSchema({
     instructorId: v.id("instructors"),
     sessionPackId: v.id("sessionPacks"),
     goals: v.string(),
+    // Legacy Supabase storage paths. Kept for backward compatibility while
+    // submissions migrate to Convex Storage (imageStorageIds).
     imageObjects: v.optional(v.any()),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
     reviewedAt: v.optional(v.number()),
     reviewedByUserId: v.optional(v.string()),
     createdAt: v.optional(v.number()),

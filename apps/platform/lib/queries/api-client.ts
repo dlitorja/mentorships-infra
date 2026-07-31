@@ -232,7 +232,7 @@ export async function uploadOnboardingImages(formData: FormData) {
   return response.json() as Promise<{
     success: true;
     submissionId: string;
-    images: Array<{ path: string; mimeType: string; sizeBytes: number }>;
+    images: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }>;
   }>;
 }
 
@@ -243,7 +243,7 @@ export async function submitOnboarding(data: {
   submissionId: string;
   sessionPackId: string;
   goals: string;
-  imageObjects: Array<{ path: string; mimeType: string; sizeBytes: number }>;
+  imageObjects: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }>;
 }) {
   return apiFetch<{ success: boolean }>("/api/onboarding/submit", {
     method: "POST",

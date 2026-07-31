@@ -1,6 +1,21 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+
+async function getSignedUrlsForStorageIds(
+  ctx: { storage: { getUrl(id: Id<"_storage">): Promise<string | null> } },
+  storageIds: (Id<"_storage"> | string)[] | undefined
+): Promise<Array<{ storageId: string; signedUrl: string }>> {
+  if (!storageIds || storageIds.length === 0) return [];
+  const results = await Promise.all(
+    storageIds.map(async (storageId) => {
+      const signedUrl = await ctx.storage.getUrl(storageId as Id<"_storage">);
+      if (!signedUrl) return null;
+      return { storageId: storageId as string, signedUrl };
+    })
+  );
+  return results.filter((r): r is { storageId: string; signedUrl: string } => r !== null);
+}
 
 /**
  * Fetches a student onboarding submission by its legacy ID (UUID used by the web app).
@@ -29,7 +44,8 @@ export const create = mutation({
     instructorId: v.id("instructors"),
     sessionPackId: v.string(),
     goals: v.string(),
-    imageObjects: v.any(),
+    imageObjects: v.optional(v.any()),
+    imageStorageIds: v.optional(v.array(v.id("_storage"))),
   },
   handler: async (ctx, args) => {
     // Idempotency: if already exists, no-op
@@ -56,6 +72,7 @@ export const create = mutation({
       sessionPackId: sp._id,
       goals: args.goals,
       imageObjects: args.imageObjects,
+      imageStorageIds: args.imageStorageIds,
       createdAt: now,
       updatedAt: now,
     });
@@ -118,6 +135,7 @@ export const listByInstructor = query({
       userId: string;
       goals: string;
       imageObjects: any;
+      imageStorageIds: (Id<"_storage"> | string)[] | undefined;
       createdAt: number | undefined;
       reviewedAt: number | undefined;
       studentEmail: string;
@@ -134,6 +152,7 @@ export const listByInstructor = query({
         userId: sub.userId,
         goals: sub.goals,
         imageObjects: sub.imageObjects,
+        imageStorageIds: sub.imageStorageIds,
         createdAt: sub.createdAt,
         reviewedAt: sub.reviewedAt,
         studentEmail: user?.email ?? "unknown",
@@ -142,5 +161,46 @@ export const listByInstructor = query({
 
     out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
     return out;
+  },
+});
+
+/**
+ * Returns signed URLs for the Convex Storage IDs associated with a submission.
+ * Falls back to an empty array if the submission or its storage IDs are missing.
+ */
+export const getSignedUrls = query({
+  args: {
+    submissionId: v.id("studentOnboardingSubmissions"),
+  },
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission) return [];
+    return await getSignedUrlsForStorageIds(ctx, submission.imageStorageIds);
+  },
+});
+
+/**
+ * Returns signed URLs for an arbitrary list of Convex Storage IDs.
+ * Useful for callers that already have the storage IDs (e.g. from Postgres)
+ * and only need signed URLs.
+ */
+export const getSignedUrlsByStorageIds = query({
+  args: {
+    storageIds: v.array(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    return await getSignedUrlsForStorageIds(ctx, args.storageIds);
+  },
+});
+
+/**
+ * Generates a Convex Storage upload URL for onboarding images.
+ * Called from the Next.js upload route so the server can stream the bytes
+ * to Convex Storage and store the resulting storageId.
+ */
+export const generateImageUploadUrl = action({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
   },
 });

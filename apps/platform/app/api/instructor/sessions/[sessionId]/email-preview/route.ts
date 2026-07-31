@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import sanitizeHtml from "sanitize-html";
 import { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import {
@@ -136,7 +137,13 @@ export async function POST(
       preview: {
         subject: emailPreview.subject,
         text: emailPreview.text,
-        html: emailPreview.html,
+        html: sanitizeHtml(emailPreview.html, {
+          allowedTags: sanitizeHtml.defaults.allowedTags.concat(["h1", "h2"]),
+          allowedAttributes: {
+            ...sanitizeHtml.defaults.allowedAttributes,
+            a: ["href", "target", "rel"],
+          },
+        }),
       },
     });
   } catch (error) {

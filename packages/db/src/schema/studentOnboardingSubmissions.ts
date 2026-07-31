@@ -5,6 +5,7 @@ import { users } from "./users";
 
 export type StudentOnboardingImageObject = {
   path: string;
+  storageId: string;
   mimeType: string;
   sizeBytes: number;
   width?: number;

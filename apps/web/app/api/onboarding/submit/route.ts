@@ -5,9 +5,11 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { and, db, discordActionQueue, eq, sessionPacks } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const imageObjectSchema = z.object({
   path: z.string().min(1),
+  storageId: z.string().min(1),
   mimeType: z.string().min(1),
   sizeBytes: z.number().int().positive(),
   width: z.number().int().positive().optional(),
@@ -57,10 +59,11 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     }
 
     const expectedPrefix = `onboarding/${user.id}/${parsed.submissionId}/`;
-    const allMatch = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
-    if (!allMatch) {
+    const allPathsValid = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
+    const allStorageIdsPresent = parsed.imageObjects.every((img) => img.storageId.length > 0);
+    if (!allPathsValid || !allStorageIdsPresent) {
       return NextResponse.json(
-        { error: "Invalid submission ID or image paths. Please upload images first.", errorId },
+        { error: "Invalid submission ID, image paths, or missing storage IDs. Please upload images first.", errorId },
         { status: 400 }
       );
     }
@@ -87,13 +90,14 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     }
 
     // Create submission in Convex (idempotent)
-    const created = await convex.mutation(api.studentOnboarding.create, {
+    await convex.mutation(api.studentOnboarding.create, {
       legacyId: parsed.submissionId,
       userId: user.id,
       instructorId: instructor._id,
       sessionPackId: sessionPack.id, // legacy UUID stored in Postgres; Convex maps by legacyId
       goals: parsed.goals,
       imageObjects: parsed.imageObjects,
+      imageStorageIds: parsed.imageObjects.map((img) => img.storageId as Id<"_storage">),
     });
 
     const baseUrl = getBaseUrl();
@@ -114,6 +118,7 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
         goals: parsed.goals,
         imageObjects: parsed.imageObjects.map((img) => ({
           path: img.path,
+          storageId: img.storageId,
           mimeType: img.mimeType,
           sizeBytes: img.sizeBytes,
         })),

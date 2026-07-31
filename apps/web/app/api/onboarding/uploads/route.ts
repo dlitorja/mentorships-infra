@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { randomUUID } from "crypto";
 import { requireDbUser } from "@/lib/auth";
-import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 
 type UploadResponse =
   | {
       success: true;
       submissionId: string;
-      images: Array<{ path: string; mimeType: string; sizeBytes: number }>;
+      images: Array<{
+        path: string;
+        storageId: string;
+        mimeType: string;
+        sizeBytes: number;
+      }>;
     }
   | { error: string; errorId: string };
 
@@ -46,8 +51,8 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       );
     }
 
-    const supabase = createSupabaseAdminClient();
-    const uploaded: Array<{ path: string; mimeType: string; sizeBytes: number }> = [];
+    const convex = getConvexClient();
+    const uploaded: Array<{ path: string; storageId: string; mimeType: string; sizeBytes: number }> = [];
 
     for (const file of files) {
       const mimeType = file.type;
@@ -71,25 +76,36 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
       const objectPath = `onboarding/${user.id}/${submissionId}/${randomUUID()}${ext}`;
       const bytes = new Uint8Array(await file.arrayBuffer());
 
-      const { error } = await supabase.storage.from(ONBOARDING_BUCKET).upload(objectPath, bytes, {
-        contentType: mimeType,
-        upsert: false,
+      const uploadUrl = await convex.action(api.studentOnboarding.generateImageUploadUrl, {});
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": mimeType },
+        body: bytes,
       });
 
-      if (error) {
+      if (!uploadResponse.ok) {
+        const text = await uploadResponse.text().catch(() => "Unknown error");
         return NextResponse.json(
-          { error: `Upload failed: ${error.message}`, errorId },
+          { error: `Upload failed: ${text}`, errorId },
           { status: 500 }
         );
       }
 
-      uploaded.push({ path: objectPath, mimeType, sizeBytes: file.size });
+      const { storageId } = (await uploadResponse.json()) as { storageId: string };
+      if (!storageId) {
+        return NextResponse.json(
+          { error: "Upload failed: missing storageId", errorId },
+          { status: 500 }
+        );
+      }
+
+      uploaded.push({ path: objectPath, storageId, mimeType, sizeBytes: file.size });
     }
 
     // Note: We don't create the submission record here because mentorId and sessionPackId
-    // are required. Instead, we verify the submissionId on submit by checking that
-    // uploaded images exist with the expected prefix pattern.
-    // The submissionId is generated server-side to prevent client manipulation and race conditions.
+    // are required. The submissionId is generated server-side to prevent client manipulation
+    // and race conditions; the submit route verifies the returned storageIds belong to
+    // this submission.
 
     return NextResponse.json({ success: true, submissionId, images: uploaded });
   } catch (error) {

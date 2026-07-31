@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,9 @@ import {
   studentOnboardingSubmissions,
   users,
 } from "@mentorships/db";
-import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import { api } from "@/convex/_generated/api";
+import { fetchQuery } from "convex/nextjs";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +44,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const submissions: {
     id: string;
     goals: string;
-    imageObjects: { path: string }[];
+    imageObjects: { path: string; storageId: string }[];
     createdAt: Date;
     reviewedAt: Date | null;
     studentId: string;
@@ -65,18 +67,23 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const selected =
     (submissionId ? submissions.find((s) => s.id === submissionId) : null) ?? submissions[0] ?? null;
 
+  const token = await getConvexAuthToken();
   const signedUrls =
-    selected && selected.imageObjects.length > 0
+    selected && selected.imageObjects.length > 0 && token
       ? await (async () => {
-          const supabase = createSupabaseAdminClient();
-          const out: Array<{ path: string; signedUrl: string }> = [];
+          const storageIds = selected.imageObjects
+            .map((img) => img.storageId as Id<"_storage">)
+            .filter((id): id is Id<"_storage"> => Boolean(id));
 
-          for (const img of selected.imageObjects) {
-            const { data, error } = await supabase.storage
-              .from(ONBOARDING_BUCKET)
-              .createSignedUrl(img.path, 60 * 60);
-            if (error || !data?.signedUrl) continue;
-            out.push({ path: img.path, signedUrl: data.signedUrl });
+          const out: Array<{ storageId: string; signedUrl: string }> = [];
+
+          if (storageIds.length > 0) {
+            const urls = await fetchQuery(
+              api.studentOnboarding.getSignedUrlsByStorageIds,
+              { storageIds },
+              { token }
+            );
+            out.push(...urls);
           }
 
           return out;
@@ -153,7 +160,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                           {signedUrls.map((u) => (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              key={u.path}
+                              key={u.storageId}
                               src={u.signedUrl}
                               alt="Onboarding work"
                               className="w-full rounded-md border object-cover"
