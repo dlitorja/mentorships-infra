@@ -1,20 +1,35 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Calendar, X, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { useCurrentInstructor } from "@/lib/queries/convex";
+import {
+  useRescheduleSession,
+  useCancelSession,
+  useUpdateSessionNotes,
+} from "@/lib/queries/use-session-actions";
+import {
+  formatUtcMillisForDateTimeLocal,
+  isValidTimeZone,
+  parseDateTimeLocalToUtcMillis,
+} from "@/lib/timezone";
 import { EmailPreviewTab } from "./email-preview-tab";
-import { rescheduleSession, cancelSession, updateSessionNotes } from "@/lib/queries/api-client";
 
-type Session = {
-  id: Id<"sessions">;
+export type SessionActionSession = {
+  id: string;
   scheduledAt: number;
-  studentEmail: string | null;
+  studentEmail?: string | null;
   notes?: string | null;
   status?: string;
 };
@@ -27,74 +42,77 @@ function formatDateTime(ms: number): string {
   }
 }
 
-function formatDateForInput(ms: number): string {
-  const date = new Date(ms);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
 type RescheduleDialogProps = {
-  session: Session;
+  session: SessionActionSession;
+  timeZone: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
 };
 
-/**
- * Dialog for rescheduling a session to a new date/time.
- * Shows an email preview of the reschedule notification before confirming.
- *
- * @param session - Session object with id, scheduledAt, studentEmail
- * @param open - Dialog open state
- * @param onOpenChange - Callback to update dialog open state
- * @param onSuccess - Optional callback fired after successful reschedule
- */
-export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess }: RescheduleDialogProps) {
-  const [newDateTime, setNewDateTime] = useState(() => formatDateForInput(session.scheduledAt));
-  const [isPending, startTransition] = useTransition();
+function RescheduleSessionDialog({
+  session,
+  timeZone,
+  open,
+  onOpenChange,
+  onSuccess,
+}: RescheduleDialogProps) {
+  const [newDateTime, setNewDateTime] = useState(() =>
+    formatUtcMillisForDateTimeLocal(timeZone, session.scheduledAt)
+  );
+  const { mutate, isPending } = useRescheduleSession();
   const router = useRouter();
 
   useEffect(() => {
     if (open) {
-      setNewDateTime(formatDateForInput(session.scheduledAt));
+      setNewDateTime(formatUtcMillisForDateTimeLocal(timeZone, session.scheduledAt));
     }
-  }, [open, session.scheduledAt]);
+    // Only reinitialize when the dialog opens; the timezone is guaranteed to be
+    // loaded before the dialog can open because the trigger button is disabled
+    // until useCurrentInstructor resolves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  async function handleReschedule() {
-    const newScheduledAt = new Date(newDateTime).getTime();
-    if (isNaN(newScheduledAt)) {
-      toast.error("Invalid date/time selected");
+  function handleReschedule() {
+    const newScheduledAt = parseDateTimeLocalToUtcMillis(timeZone, newDateTime);
+    if (newScheduledAt === null) {
+      toast.error("Invalid date/time selected for the selected timezone");
       return;
     }
 
-    startTransition(async () => {
-      try {
-        await rescheduleSession(session.id, newScheduledAt);
-        toast.success("Session rescheduled.");
-        onOpenChange(false);
-        router.refresh();
-        onSuccess?.();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to reschedule session");
+    mutate(
+      { sessionId: session.id, newScheduledAt },
+      {
+        onSuccess: () => {
+          toast.success("Session rescheduled.");
+          onOpenChange(false);
+          router.refresh();
+          onSuccess?.();
+        },
+        onError: (e) => {
+          toast.error(e instanceof Error ? e.message : "Failed to reschedule session");
+        },
       }
-    });
+    );
   }
 
-  const newScheduledAtMs = new Date(newDateTime).getTime();
+  const newScheduledAtMs = parseDateTimeLocalToUtcMillis(timeZone, newDateTime);
 
   const actionContent = (
     <>
       <div className="space-y-4">
         <div className="text-sm text-muted-foreground">
-          <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
-          <p><strong>Current time:</strong> {formatDateTime(session.scheduledAt)}</p>
+          <p>
+            <strong>Student:</strong> {session.studentEmail ?? "Unknown"}
+          </p>
+          <p>
+            <strong>Current time:</strong> {formatDateTime(session.scheduledAt)}
+          </p>
         </div>
         <div className="space-y-2">
-          <label htmlFor="new-datetime" className="text-sm font-medium">New date and time</label>
+          <label htmlFor="new-datetime" className="text-sm font-medium">
+            New date and time
+          </label>
           <input
             id="new-datetime"
             type="datetime-local"
@@ -105,7 +123,9 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
         </div>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
         <Button onClick={handleReschedule} disabled={isPending}>
           {isPending ? "Rescheduling..." : "Reschedule"}
         </Button>
@@ -122,7 +142,9 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
         <EmailPreviewTab
           sessionId={session.id}
           previewType="reschedule"
-          newScheduledAt={!isNaN(newScheduledAtMs) ? newScheduledAtMs : undefined}
+          newScheduledAt={
+            newScheduledAtMs !== null ? newScheduledAtMs : undefined
+          }
           actionContent={actionContent}
         />
       </DialogContent>
@@ -131,24 +153,20 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
 }
 
 type CancelDialogProps = {
-  session: Session;
+  session: SessionActionSession;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
 };
 
-/**
- * Dialog for canceling a session with an optional reason.
- * Shows an email preview of the cancellation notification before confirming.
- *
- * @param session - Session object with id, scheduledAt, studentEmail
- * @param open - Dialog open state
- * @param onOpenChange - Callback to update dialog open state
- * @param onSuccess - Optional callback fired after successful cancellation
- */
-export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: CancelDialogProps) {
+function CancelSessionDialog({
+  session,
+  open,
+  onOpenChange,
+  onSuccess,
+}: CancelDialogProps) {
   const [reason, setReason] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const { mutate, isPending } = useCancelSession();
   const router = useRouter();
 
   useEffect(() => {
@@ -157,30 +175,39 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
     }
   }, [open]);
 
-  async function handleCancel() {
-    startTransition(async () => {
-      try {
-        await cancelSession(session.id, reason.trim() || undefined);
-        toast.success("Session canceled.");
-        onOpenChange(false);
-        setReason("");
-        router.refresh();
-        onSuccess?.();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to cancel session");
+  function handleCancel() {
+    mutate(
+      { sessionId: session.id, reason: reason.trim() || undefined },
+      {
+        onSuccess: () => {
+          toast.success("Session canceled.");
+          onOpenChange(false);
+          setReason("");
+          router.refresh();
+          onSuccess?.();
+        },
+        onError: (e) => {
+          toast.error(e instanceof Error ? e.message : "Failed to cancel session");
+        },
       }
-    });
+    );
   }
 
   const actionContent = (
     <>
       <div className="space-y-4">
         <div className="text-sm text-muted-foreground">
-          <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
-          <p><strong>Scheduled time:</strong> {formatDateTime(session.scheduledAt)}</p>
+          <p>
+            <strong>Student:</strong> {session.studentEmail ?? "Unknown"}
+          </p>
+          <p>
+            <strong>Scheduled time:</strong> {formatDateTime(session.scheduledAt)}
+          </p>
         </div>
         <div className="space-y-2">
-          <label htmlFor="cancel-reason" className="text-sm font-medium">Reason (optional)</label>
+          <label htmlFor="cancel-reason" className="text-sm font-medium">
+            Reason (optional)
+          </label>
           <Textarea
             id="cancel-reason"
             value={reason}
@@ -192,7 +219,9 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
         </div>
       </div>
       <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>Keep Session</Button>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Keep Session
+        </Button>
         <Button variant="destructive" onClick={handleCancel} disabled={isPending}>
           {isPending ? "Canceling..." : "Cancel Session"}
         </Button>
@@ -218,24 +247,20 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
 }
 
 type NotesDialogProps = {
-  session: Session;
+  session: SessionActionSession;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
 };
 
-/**
- * Dialog for adding or editing notes on a session.
- * Notes are only visible to the instructor.
- *
- * @param session - Session object with id, scheduledAt, studentEmail, and existing notes
- * @param open - Dialog open state
- * @param onOpenChange - Callback to update dialog open state
- * @param onSuccess - Optional callback fired after successful save
- */
-export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: NotesDialogProps) {
+function SessionNotesDialog({
+  session,
+  open,
+  onOpenChange,
+  onSuccess,
+}: NotesDialogProps) {
   const [notes, setNotes] = useState(session.notes ?? "");
-  const [isPending, startTransition] = useTransition();
+  const { mutate, isPending } = useUpdateSessionNotes();
   const router = useRouter();
 
   useEffect(() => {
@@ -244,18 +269,21 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
     }
   }, [open, session.notes]);
 
-  async function handleSave() {
-    startTransition(async () => {
-      try {
-        await updateSessionNotes(session.id, notes.trim());
-        toast.success("Notes saved");
-        onOpenChange(false);
-        router.refresh();
-        onSuccess?.();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to save notes");
+  function handleSave() {
+    mutate(
+      { sessionId: session.id, notes: notes.trim() },
+      {
+        onSuccess: () => {
+          toast.success("Notes saved");
+          onOpenChange(false);
+          router.refresh();
+          onSuccess?.();
+        },
+        onError: (e) => {
+          toast.error(e instanceof Error ? e.message : "Failed to save notes");
+        },
       }
-    });
+    );
   }
 
   return (
@@ -266,11 +294,17 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
         </DialogHeader>
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground">
-            <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
-            <p><strong>Session:</strong> {formatDateTime(session.scheduledAt)}</p>
+            <p>
+              <strong>Student:</strong> {session.studentEmail ?? "Unknown"}
+            </p>
+            <p>
+              <strong>Session:</strong> {formatDateTime(session.scheduledAt)}
+            </p>
           </div>
           <div className="space-y-2">
-            <label htmlFor="session-notes" className="text-sm font-medium">Notes</label>
+            <label htmlFor="session-notes" className="text-sm font-medium">
+              Notes
+            </label>
             <Textarea
               id="session-notes"
               value={notes}
@@ -282,7 +316,9 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={handleSave} disabled={isPending}>
             {isPending ? "Saving..." : "Save Notes"}
           </Button>
@@ -292,24 +328,29 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
   );
 }
 
-type SessionActionsProps = {
-  session: Session;
+export type SessionActionsProps = {
+  session: SessionActionSession;
   onSessionUpdated?: () => void;
   allowedActions?: Array<"reschedule" | "cancel" | "notes">;
 };
 
-/**
- * Action menu for a session with reschedule, cancel, and notes dialogs.
- * Renders icon buttons that open the appropriate dialogs.
- *
- * @param session - Session object with id, scheduledAt, studentEmail, notes
- * @param onSessionUpdated - Optional callback fired after any action modifies the session
- * @param allowedActions - Optional list of permitted actions (defaults to all)
- */
-export function SessionActions({ session, onSessionUpdated, allowedActions }: SessionActionsProps) {
+export function SessionActions({
+  session,
+  onSessionUpdated,
+  allowedActions,
+}: SessionActionsProps) {
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const {
+    data: instructor,
+    isLoading: isLoadingTimeZone,
+    isError: isTimeZoneError,
+  } = useCurrentInstructor();
+  const rawTimeZone = instructor?.timeZone;
+  const timeZone = isValidTimeZone(rawTimeZone ?? "UTC") ? rawTimeZone! : "UTC";
+  const hasValidTimeZone = rawTimeZone != null && isValidTimeZone(rawTimeZone);
+  const canLoadTimeZone = !isLoadingTimeZone && !isTimeZoneError && hasValidTimeZone;
 
   const canReschedule = !allowedActions || allowedActions.includes("reschedule");
   const canCancel = !allowedActions || allowedActions.includes("cancel");
@@ -323,7 +364,15 @@ export function SessionActions({ session, onSessionUpdated, allowedActions }: Se
             variant="ghost"
             size="sm"
             onClick={() => setRescheduleOpen(true)}
-            title="Reschedule"
+            title={
+              isTimeZoneError
+                ? "Unable to load your timezone. Please refresh and try again."
+                : !hasValidTimeZone
+                  ? "Set your timezone in settings before rescheduling sessions."
+                  : "Reschedule"
+            }
+            aria-label="Reschedule session"
+            disabled={!canLoadTimeZone}
           >
             <Calendar className="h-4 w-4" />
           </Button>
@@ -334,6 +383,7 @@ export function SessionActions({ session, onSessionUpdated, allowedActions }: Se
             size="sm"
             onClick={() => setCancelOpen(true)}
             title="Cancel"
+            aria-label="Cancel session"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -344,6 +394,7 @@ export function SessionActions({ session, onSessionUpdated, allowedActions }: Se
             size="sm"
             onClick={() => setNotesOpen(true)}
             title="Notes"
+            aria-label="Session notes"
           >
             <FileText className="h-4 w-4" />
           </Button>
@@ -352,6 +403,7 @@ export function SessionActions({ session, onSessionUpdated, allowedActions }: Se
 
       <RescheduleSessionDialog
         session={session}
+        timeZone={timeZone}
         open={rescheduleOpen}
         onOpenChange={setRescheduleOpen}
         onSuccess={onSessionUpdated}

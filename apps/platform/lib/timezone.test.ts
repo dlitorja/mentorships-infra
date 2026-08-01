@@ -7,6 +7,8 @@ import {
   localDateTimeToUtcMillis,
   addWeeksInTimeZone,
   utcMillisToIsoString,
+  formatUtcMillisForDateTimeLocal,
+  parseDateTimeLocalToUtcMillis,
 } from "./timezone";
 
 describe("timezone helpers", () => {
@@ -148,6 +150,46 @@ describe("timezone helpers", () => {
     it("returns an ISO string", () => {
       const millis = new Date("2026-07-15T18:00:00Z").getTime();
       expect(utcMillisToIsoString(millis)).toBe("2026-07-15T18:00:00.000Z");
+    });
+  });
+
+  describe("formatUtcMillisForDateTimeLocal", () => {
+    it("formats a UTC instant in the target timezone", () => {
+      const millis = new Date("2026-07-15T18:00:00Z").getTime();
+      // 18:00 UTC is 14:00 EDT (UTC-4) in July
+      expect(formatUtcMillisForDateTimeLocal("America/New_York", millis)).toBe(
+        "2026-07-15T14:00"
+      );
+    });
+
+    it("pads single-digit months, days, hours, and minutes", () => {
+      const millis = new Date("2026-01-02T05:06:00Z").getTime();
+      expect(formatUtcMillisForDateTimeLocal("UTC", millis)).toBe("2026-01-02T05:06");
+    });
+  });
+
+  describe("parseDateTimeLocalToUtcMillis", () => {
+    it("converts a datetime-local value in the target timezone to UTC millis", () => {
+      const millis = parseDateTimeLocalToUtcMillis("America/New_York", "2026-07-15T14:00");
+      expect(millis).toBe(new Date("2026-07-15T18:00:00Z").getTime());
+    });
+
+    it("round-trips with formatUtcMillisForDateTimeLocal", () => {
+      const original = new Date("2026-07-15T18:00:00Z").getTime();
+      const formatted = formatUtcMillisForDateTimeLocal("America/New_York", original);
+      const parsed = parseDateTimeLocalToUtcMillis("America/New_York", formatted);
+      expect(parsed).toBe(original);
+    });
+
+    it("returns null for a nonexistent spring-forward DST wall time", () => {
+      const millis = parseDateTimeLocalToUtcMillis("America/New_York", "2026-03-08T02:30");
+      expect(millis).toBeNull();
+    });
+
+    it("returns null for malformed input", () => {
+      expect(parseDateTimeLocalToUtcMillis("America/New_York", "not-a-date")).toBeNull();
+      expect(parseDateTimeLocalToUtcMillis("America/New_York", "2026-07-15")).toBeNull();
+      expect(parseDateTimeLocalToUtcMillis("America/New_York", "")).toBeNull();
     });
   });
 });

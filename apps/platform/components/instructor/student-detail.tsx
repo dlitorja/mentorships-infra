@@ -8,31 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, Calendar, Mail, Clock, FileText } from "lucide-react";
 import { BookSessionDialog } from "./book-session-dialog";
-import { StudentDetailSessionActions } from "./student-detail-session-actions";
-
-type StudentDetails = {
-  userId: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  timeZone: string | null;
-  sessionPack: {
-    id: string;
-    totalSessions: number;
-    remainingSessions: number;
-    expiresAt: number | null;
-    status: string;
-  } | null;
-  sessions: Array<{
-    id: string;
-    scheduledAt: number;
-    completedAt: number | null;
-    canceledAt: number | null;
-    status: string;
-    notes: string | null;
-    cancelReason: string | null;
-  }>;
-};
+import { SessionActions } from "./session-actions";
 
 type StudentDetailProps = {
   studentId: string;
@@ -214,7 +190,7 @@ export function StudentDetail({ studentId }: StudentDetailProps) {
                         </div>
                       )}
                     </div>
-                    <StudentDetailSessionActions 
+                    <SessionActions
                       session={session}
                       allowedActions={session.status === "scheduled" ? ["reschedule", "cancel", "notes"] : ["notes"]}
                     />
