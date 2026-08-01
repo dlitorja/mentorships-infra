@@ -11,7 +11,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 1 | Security & architecture hardening | Merged (#710) |
 | 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
-| 4 | Image upload consolidation & Next.js Image migration | Opened (#717) |
+| 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
 | 5 | Type safety & checkout UX | Not started |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
@@ -45,6 +45,16 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Centralized all API endpoint strings in `lib/routes.ts` and routed existing and new call sites through `ApiRoutes`.
 - Replaced custom `convexQuery`/`convexMutation` wrappers in `inngest/functions/payments.ts` with `convexServerCall`, adding 15 matching HTTP actions in `convex/http.ts`.
 - Fixed `api.users.syncUser` calls in admin upload/backfill/seed-role routes to pass valid `{}` arguments and removed unnecessary `as any` casts.
+
+### PR 4: Image Upload Consolidation & Next.js Image Migration (#717)
+
+**Status:** Squash-merged.
+
+- Consolidated `admin-image-upload`, `instructor-image-upload`, and `image-upload-field` into a single `ImageUploadField` component in both `apps/platform` and `apps/web`.
+- Added Zod runtime validation for upload responses, `onCommit` for URL inputs, and upload-path callbacks for profile and student-result images.
+- Migrated image previews to Next.js `Image` with `unoptimized` for dynamic Convex Storage URLs.
+- Added `images.remotePatterns` for `**.convex.cloud` in `apps/web/next.config.ts`.
+- Removed committed `.bak` files from the source tree.
 
 ---
 
