@@ -42,7 +42,7 @@ npm view inngest version
 npm view inngest-cli version
 npm view @clerk/nextjs version
 npm view convex version
-npm view supabase version
+npm view @supabase/supabase-js version
 npm view @trigger.dev/sdk version
 npm view @trigger.dev/build version
 npm view @trigger.dev/cli version
@@ -56,11 +56,12 @@ Current known version snapshots (verify before relying on these):
 | `inngest` (web) | `^3.54.0` | `4.14.0` | Legacy; upgrade to v4 is a separate initiative. |
 | `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
 | `@clerk/nextjs` (platform) | `^7.3.4` | `7.6.4` | Newer patch/minor available. |
-| `@clerk/nextjs` (web) | `^6.39.1` | `7.6.4` | Major version behind; upgrade separately. |
+| `@clerk/nextjs` (web) | `^6.36.5` | `7.6.4` | Major version behind; upgrade separately. |
 | `convex` | `^1.42.0` | `1.43.0` | Minor update available. |
-| `@supabase/supabase-js` | `^2.101.1` | `2.111.0` | Minor update available. |
+| `@supabase/supabase-js` | `^2.81.1` | `2.111.0` | Minor update available. |
 | `@trigger.dev/sdk` | `4.4.6` | `4.5.9` | Minor update available. |
 | `@trigger.dev/build` | `4.4.6` | `4.5.9` | Minor update available. |
+| `@trigger.dev/cli` | not installed | `3.3.12` | Not currently in project; add if needed. |
 
 When an upgrade is needed:
 1. Update the relevant `package.json`.
@@ -183,10 +184,9 @@ clerk users list --email-address alice@example.com
 clerk api /users/user_abc123
 clerk api '/sessions?user_id=user_abc123&status=active'
 clerk api /organizations/org_abc123/memberships
-
-# Pull env keys into .env.local
-clerk env pull
 ```
+
+> **Note:** `clerk env pull` writes Clerk keys into local `.env*` files. That is prohibited by the Clerk Changes Policy without explicit user approval. Do not run it unless the user explicitly asks for it.
 
 ## Impersonation (for debugging)
 
@@ -217,9 +217,10 @@ This exposes Clerk operations to Cursor, VS Code, and OpenCode agents so you can
 
 ## Important limits
 
-- **Read-only by default**: use `--dry-run` before any mutating `clerk api` or `clerk config` call.
+- **Read-only by default**: never run a mutating `clerk api` or `clerk config` call without first doing a `--dry-run` and then getting explicit user approval to execute it.
 - **Do not modify instance config** (`clerk config patch`, `clerk config put`) without explicit user approval.
-- **Do not change Clerk code or env vars**; this section is for inspection, debugging, and pulling keys only.
+- **Do not change Clerk code or env vars**; this section is for inspection and debugging only. Use `clerk env pull` only when the user explicitly approves it.
+- **Do not create, update, or delete users, orgs, sessions, or memberships** via the Clerk CLI unless the user explicitly asks for it.
 
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
