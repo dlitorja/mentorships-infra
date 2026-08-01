@@ -69,6 +69,7 @@ type InstructorFormData = {
   specialties: string[];
   background: string[];
   profileImageUrl: string;
+  profileImageUploadPath: string;
   portfolioImages: string[];
   socials: Socials;
   isActive: boolean;
@@ -132,6 +133,7 @@ const updateInstructorResponseSchema = z.object({
     specialties: z.array(z.string()),
     background: z.array(z.string()),
     profileImageUrl: z.string().nullable(),
+    profileImageUploadPath: z.string().nullable(),
     portfolioImages: z.array(z.string()),
     socials: z.record(z.string(), z.string().optional()).nullable(),
     isActive: z.boolean(),
@@ -237,6 +239,7 @@ export default function EditInstructorPage() {
     specialties: [],
     background: [],
     profileImageUrl: "",
+    profileImageUploadPath: "",
     portfolioImages: [],
     socials: {},
     isActive: true,
@@ -293,6 +296,7 @@ export default function EditInstructorPage() {
         specialties: data.specialties || [],
         background: data.background || [],
         profileImageUrl: data.profileImageUrl || "",
+        profileImageUploadPath: data.profileImageUploadPath || "",
         portfolioImages: data.portfolioImages || [],
         socials: data.socials && typeof data.socials === "object" && !Array.isArray(data.socials) ? data.socials : {},
         isActive: data.isActive ?? true,
@@ -637,14 +641,15 @@ export default function EditInstructorPage() {
               <CardTitle>Images</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ImageUploadField
-                label="Profile Picture"
-                value={formData.profileImageUrl}
-                onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
-                instructorId={instructorId}
-                type="profile"
-                enableCrop
-              />
+                <ImageUploadField
+                  label="Profile Picture"
+                  value={formData.profileImageUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url, profileImageUploadPath: "" }))}
+                  onUploadComplete={(_url, path) => setFormData((prev) => ({ ...prev, profileImageUploadPath: path }))}
+                  instructorId={instructorId}
+                  type="profile"
+                  enableCrop
+                />
               <div>
                 <Label>Portfolio Images</Label>
                 <div className="flex gap-2 mt-2">
