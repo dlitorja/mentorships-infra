@@ -2,7 +2,7 @@
 
 **PR number:** 6
 **Theme:** Add automated test coverage for critical UI, API, and E2E paths.
-**Status:** Ready for review
+**Status:** Squash-merged (#721)
 **Target branch:** `main`
 **Estimated size:** Medium-Large
 **Primary app:** `apps/platform` (with shared tests in `tests/`)
@@ -395,17 +395,17 @@ npx greptile@latest review
 
 ## 14. Acceptance criteria
 
-- [ ] All new unit tests pass.
-- [ ] All new API route tests pass.
-- [ ] Existing E2E specs still pass.
+- [x] All new unit tests pass.
+- [x] All new API route tests pass.
+- [x] Existing E2E specs still pass.
 - [ ] At least one new E2E spec is implemented (even if others are skipped pending credentials) — deferred to follow-up PR with seeded backend fixtures.
-- [ ] `pnpm typecheck` passes.
-- [ ] `pnpm run lint` passes.
-- [ ] Greptile review returns no new issues.
-- [ ] PR description links to this plan and lists all test files added.
+- [x] `pnpm typecheck` passes.
+- [x] `pnpm run lint` passes.
+- [x] Greptile review returns no new issues.
+- [x] PR description links to this plan and lists all test files added.
 
 ## 15. Follow-up after merge
 
-- Update `REFACTORING_AND_IMPROVEMENT_PLAN.md` to mark PR 6 as merged.
-- Before PR 7, add a CI check that runs `pnpm test:unit` and `pnpm test:convex` on pull requests.
-- Consider requiring E2E tests to pass on staging before production deploys.
+- [x] Update `REFACTORING_AND_IMPROVEMENT_PLAN.md` to mark PR 6 as merged.
+- [ ] Before PR 7, add a CI check that runs `pnpm test:unit` and `pnpm test:convex` on pull requests.
+- [ ] Consider requiring E2E tests to pass on staging before production deploys.

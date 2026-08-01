@@ -14,7 +14,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) |
 | 5 | Type safety & checkout UX | Merged (#720) |
-| 6 | Testing infrastructure | [Ready for review](#pr-6-testing-infrastructure-detailed-plan) |
+| 6 | Testing infrastructure | Merged (#721) |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
 
