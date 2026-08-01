@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -9,7 +8,7 @@ import {
   saveGoogleCalendarSelection,
   disconnectGoogleCalendar,
 } from "@/lib/queries/api-client";
-import { useGoogleCalendars } from "@/lib/queries/use-google-calendar";
+import { useGoogleCalendars, useInvalidateGoogleCalendarQueries } from "@/lib/queries/use-google-calendar";
 
 function isOAuthCallback(): boolean {
   if (typeof window === "undefined") return false;
@@ -24,7 +23,7 @@ function isOAuthCallback(): boolean {
  * Provides connect, disconnect, and reconnect actions.
  */
 export function GoogleCalendarCard(): React.JSX.Element {
-  const queryClient = useQueryClient();
+  const invalidateGoogleCalendar = useInvalidateGoogleCalendarQueries();
   const {
     data: calendarsData,
     isLoading,
@@ -51,8 +50,8 @@ export function GoogleCalendarCard(): React.JSX.Element {
     const url = new URL(window.location.href);
     url.search = "";
     window.history.replaceState({}, "", url.toString());
-    queryClient.invalidateQueries({ queryKey: ["googleCalendars"] });
-  }, [queryClient]);
+    invalidateGoogleCalendar();
+  }, [invalidateGoogleCalendar]);
 
   useEffect(() => {
     if (error) {
@@ -78,6 +77,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
         return;
       }
       await saveGoogleCalendarSelection({ eventCalendarId, availabilityCalendarIds });
+      invalidateGoogleCalendar();
       toast.success("Calendar selection saved");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save selection");
@@ -90,7 +90,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
     setSaving(true);
     try {
       await disconnectGoogleCalendar();
-      queryClient.invalidateQueries({ queryKey: ["googleCalendars"] });
+      invalidateGoogleCalendar();
       toast.success("Disconnected Google Calendar");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to disconnect");

@@ -1,12 +1,12 @@
-import Link from "next/link";
-
 import { Suspense } from "react";
 import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstructorDashboardContent } from "./InstructorDashboardContent";
 
 function InstructorDashboardSkeleton() {
@@ -57,9 +57,22 @@ export default async function InstructorDashboardPage() {
           </p>
         </div>
 
-        <Suspense fallback={<InstructorDashboardSkeleton />}>
-          <InstructorDashboardContent instructorId={instructorRecord._id} />
-        </Suspense>
+        <ErrorBoundary fallback={
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center space-y-4">
+                <p className="text-muted-foreground">Unable to load students right now.</p>
+                <Button variant="outline" onClick={() => window.location.reload()}>
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        }>
+          <Suspense fallback={<InstructorDashboardSkeleton />}>
+            <InstructorDashboardContent instructorId={instructorRecord._id} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     </ProtectedLayout>
   );

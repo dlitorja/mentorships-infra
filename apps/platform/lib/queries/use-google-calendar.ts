@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { useUser } from "@clerk/nextjs";
 import { ApiFetchError, getGoogleCalendars, getMyBookings } from "./api-client";
 
 export type GoogleCalendarStatus = { connected: boolean };
@@ -47,9 +48,9 @@ async function fetchGoogleCalendars(): Promise<CalendarsResponse> {
   return data;
 }
 
-const CALENDAR_STATUS_QUERY_KEY = ["googleCalendarStatus"];
-const CALENDARS_QUERY_KEY = ["googleCalendars"];
-const GOOGLE_BOOKINGS_QUERY_KEY = ["googleBookings"];
+function googleCalendarQueryKey(userId: string | undefined, name: string) {
+  return ["googleCalendar", userId ?? "anonymous", name];
+}
 
 const queryOptions = {
   staleTime: 1000 * 60 * 5,
@@ -57,8 +58,9 @@ const queryOptions = {
 } as const;
 
 export function useGoogleCalendarStatus(enabled: boolean = true) {
+  const { user } = useUser();
   return useQuery({
-    queryKey: CALENDAR_STATUS_QUERY_KEY,
+    queryKey: googleCalendarQueryKey(user?.id, "status"),
     queryFn: fetchGoogleCalendarStatus,
     enabled,
     ...queryOptions,
@@ -66,16 +68,18 @@ export function useGoogleCalendarStatus(enabled: boolean = true) {
 }
 
 export function useSuspenseGoogleCalendarStatus() {
+  const { user } = useUser();
   return useSuspenseQuery({
-    queryKey: CALENDAR_STATUS_QUERY_KEY,
+    queryKey: googleCalendarQueryKey(user?.id, "status"),
     queryFn: fetchGoogleCalendarStatus,
     ...queryOptions,
   });
 }
 
 export function useGoogleCalendars(enabled: boolean = true) {
+  const { user } = useUser();
   return useQuery({
-    queryKey: CALENDARS_QUERY_KEY,
+    queryKey: googleCalendarQueryKey(user?.id, "calendars"),
     queryFn: fetchGoogleCalendars,
     enabled,
     ...queryOptions,
@@ -83,8 +87,9 @@ export function useGoogleCalendars(enabled: boolean = true) {
 }
 
 export function useGoogleBookings(enabled: boolean = true) {
+  const { user } = useUser();
   return useQuery({
-    queryKey: GOOGLE_BOOKINGS_QUERY_KEY,
+    queryKey: googleCalendarQueryKey(user?.id, "bookings"),
     queryFn: fetchGoogleBookings,
     enabled,
     ...queryOptions,
@@ -92,9 +97,30 @@ export function useGoogleBookings(enabled: boolean = true) {
 }
 
 export function useSuspenseGoogleBookings() {
+  const { user } = useUser();
   return useSuspenseQuery({
-    queryKey: GOOGLE_BOOKINGS_QUERY_KEY,
+    queryKey: googleCalendarQueryKey(user?.id, "bookings"),
     queryFn: fetchGoogleBookings,
     ...queryOptions,
   });
+}
+
+/**
+ * Invalidate all Google Calendar-related queries for the current user.
+ * Call this after connecting/disconnecting or selecting calendars.
+ */
+export function useInvalidateGoogleCalendarQueries() {
+  const queryClient = useQueryClient();
+  const { user } = useUser();
+  return () => {
+    queryClient.invalidateQueries({
+      queryKey: googleCalendarQueryKey(user?.id, "status"),
+    });
+    queryClient.invalidateQueries({
+      queryKey: googleCalendarQueryKey(user?.id, "calendars"),
+    });
+    queryClient.invalidateQueries({
+      queryKey: googleCalendarQueryKey(user?.id, "bookings"),
+    });
+  };
 }

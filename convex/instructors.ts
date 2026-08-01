@@ -2039,28 +2039,27 @@ export const getPublicTestimonials = query({
     const instructorById = new Map(publicVisible.map((i) => [i._id, i]));
 
     const testimonials = await ctx.db.query("instructorTestimonials").collect();
-    const result = [];
+    const eligible = [];
     for (const t of testimonials) {
       if (!t.instructorId || !instructorIds.has(t.instructorId as Id<"instructors">)) continue;
       const instructor = instructorById.get(t.instructorId as Id<"instructors">);
       if (!instructor) continue;
-      result.push({
+      eligible.push({
         text: t.text,
         author: t.name,
         role: t.role,
         instructorName: instructor.name,
         instructorSlug: instructor.slug,
       });
-      if (result.length >= limit) break;
     }
 
-    // Shuffle in place for equal exposure.
-    for (let i = result.length - 1; i > 0; i--) {
+    // Shuffle the full eligible set for equal exposure, then limit.
+    for (let i = eligible.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [result[i], result[j]] = [result[j], result[i]];
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
     }
 
-    return result;
+    return eligible.slice(0, limit);
   },
 });
 

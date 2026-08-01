@@ -9,11 +9,11 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { syncDiscordRole } from "@/lib/queries/api-client";
 import {
   useGoogleBookings,
   useGoogleCalendarStatus,
+  useInvalidateGoogleCalendarQueries,
 } from "@/lib/queries/use-google-calendar";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -151,7 +151,7 @@ export function DashboardContent() {
   const { data: instructorRecord } = useInstructorByUserId(userId || "");
   const isInstructorOrAdmin = Boolean(instructorRecord);
 
-  const queryClient = useQueryClient();
+  const invalidateGoogleCalendar = useInvalidateGoogleCalendarQueries();
 
   const {
     data: googleCalendarStatus,
@@ -179,8 +179,8 @@ export function DashboardContent() {
     const url = new URL(window.location.href);
     url.search = "";
     window.history.replaceState({}, "", url.toString());
-    queryClient.invalidateQueries({ queryKey: ["googleCalendarStatus"] });
-  }, [queryClient]);
+    invalidateGoogleCalendar();
+  }, [invalidateGoogleCalendar]);
 
   const discordSyncRef = useRef(false);
 
