@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -142,6 +142,23 @@ export function useInstructorTestimonials(instructorId: string) {
     ...convexQuery(api.instructors.getTestimonialsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
+}
+
+export type PublicTestimonial = {
+  text: string;
+  author: string;
+  role?: string;
+  instructorName: string;
+  instructorSlug: string;
+};
+
+/**
+ * Fetches public testimonials for the landing page carousel.
+ */
+export function usePublicTestimonials() {
+  return useSuspenseQuery(
+    convexQuery(api.instructors.getPublicTestimonials, {})
+  );
 }
 
 /**

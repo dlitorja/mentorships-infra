@@ -310,6 +310,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
   const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
   const [failedInlineImages, setFailedInlineImages] = useState<Set<Id<'workspaceMessages'>>>(new Set());
+  const [messages, setMessages] = useState<MessageList>([]);
   const downloadingFilesRef = useRef<Set<string>>(new Set());
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -324,6 +325,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   // positioning.
   useEffect(() => {
     lastMessageIdRef.current = null;
+    setMessages([]);
   }, [workspaceId]);
 
   // PR #4c-4: read the chat subscription from the hoisted
@@ -362,12 +364,46 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       ? chatData?.status
       : localMessagesQuery.status;
 
-  // The paginated query returns newest-first. Reverse it for
-  // chronological display (oldest at the top, newest at the bottom).
-  const messages = useMemo<MessageList | undefined>(
-    () => (messagesRaw ? [...messagesRaw].reverse() : undefined),
-    [messagesRaw]
-  );
+  // The paginated query returns newest-first. Merge it into a stable
+  // chronological array (oldest at the top, newest at the bottom) without
+  // reversing the entire list on every render.
+  useEffect(() => {
+    if (!messagesRaw) return;
+
+    setMessages((prev) => {
+      if (messagesRaw.length === 0) {
+        return [];
+      }
+
+      if (prev.length === 0) {
+        return [...messagesRaw].reverse();
+      }
+
+      const prevIds = new Set(prev.map((m) => m._id));
+      const firstExistingIndex = messagesRaw.findIndex((m) =>
+        prevIds.has(m._id)
+      );
+
+      if (firstExistingIndex === -1) {
+        return [...messagesRaw].reverse();
+      }
+
+      const lastExistingIndex = messagesRaw.findLastIndex((m) =>
+        prevIds.has(m._id)
+      );
+      const newerMessages = messagesRaw.slice(0, firstExistingIndex);
+      const olderMessages = messagesRaw.slice(lastExistingIndex + 1);
+      const existingMessages = prev.filter((m) =>
+        messagesRaw.some((raw) => raw._id === m._id)
+      );
+
+      return [
+        ...olderMessages.reverse(),
+        ...existingMessages,
+        ...newerMessages.reverse(),
+      ];
+    });
+  }, [messagesRaw]);
 
   const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspace(workspaceId);
   const { data: fileCounts } = useWorkspaceFileCounts(workspaceId);
