@@ -319,8 +319,8 @@ export async function notifyBooking(data: { bookingId: string }) {
  * Update instructor settings
  */
 export async function updateInstructorSettings(data: {
-  timeZone: string | null;
-  workingHours: Record<string, Array<{ start: string; end: string }>>;
+  timeZone?: string | null;
+  workingHours?: Record<string, Array<{ start: string; end: string }>>;
   bufferMinutesBetweenSessions?: number | null;
   minBookingLeadMinutes?: number | null;
   maxBookingAdvanceDays?: number | null;

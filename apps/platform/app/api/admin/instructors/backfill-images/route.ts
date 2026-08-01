@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { z } from "zod";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexServerCall } from "@/lib/convex-server-call";
+import { Id } from "@/convex/_generated/dataModel";
 
 export const runtime = "nodejs";
 
@@ -104,25 +105,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const r = await fetch(src);
         if (!r.ok) return { error: `GET ${r.status}` } as const;
         const buf = await r.arrayBuffer();
-        const postUrl = await client.mutation(api.instructors.generateInstructorUploadUrl, {} as any);
+        const postUrl = await client.mutation(api.instructors.generateInstructorUploadUrl, {});
         const ct = contentTypeForPath(src);
         const up = await fetch(postUrl, { method: "POST", headers: { "Content-Type": ct }, body: buf });
         if (!up.ok) return { error: `POST ${up.status}` } as const;
         const { storageId } = await up.json() as { storageId: string };
-        const url = (await client.query(api.instructors.getStorageUrl, { storageId } as any)) ?? `convex://storage/${storageId}`;
+        const url = (await client.query(api.instructors.getStorageUrl, { storageId })) ?? `convex://storage/${storageId}`;
         return { storageId, url } as const;
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) } as const;
       }
     };
 
+    type InstructorRow = { slug?: string; _id?: string };
+    type ProfileRow = {
+      slug?: string;
+      profileImageStorageId?: string;
+      profileImageUrl?: string;
+      portfolioImages?: string[];
+      portfolioImageStorageIds?: string[];
+    };
+    type StudentResultRow = {
+      _id: string;
+      imageStorageId?: string;
+      imageUrl?: string;
+    };
+
+    function castInstructorId(id: string | undefined): Id<"instructors"> {
+      return id as Id<"instructors">;
+    }
+
     // Admin-protected lists
     const [profiles, instructors] = await Promise.all([
-      client.query(api.instructors.listInstructorProfilesInternal, {} as any),
-      client.query(api.instructors.listInstructorsInternal, {} as any),
+      client.query(api.instructors.listInstructorProfilesInternal, {}),
+      client.query(api.instructors.listInstructorsInternal, {}),
     ]);
-    const bySlug = new Map<string, any>();
-    for (const inst of instructors as any[]) {
+    const bySlug = new Map<string, InstructorRow>();
+    for (const inst of instructors as InstructorRow[]) {
       if (inst.slug) bySlug.set(inst.slug, inst);
     }
 
@@ -130,9 +149,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const max = typeof limit === "number" ? limit : Number.POSITIVE_INFINITY;
 
     // Profiles and portfolios
-    for (const profile of profiles as any[]) {
+    for (const profile of profiles as ProfileRow[]) {
       if (processed >= max) break;
-      const slug = profile.slug as string | undefined;
+      const slug = profile.slug;
+      if (!slug) continue;
       try {
         const inst = slug ? bySlug.get(slug) : undefined;
         // profile image
@@ -147,13 +167,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 slug,
                 storageId: u.storageId,
                 url: u.url,
-              } as any);
+              });
               if (inst?._id) {
                 await client.mutation(api.instructors.updateInstructorProfileStorageId, {
-                  instructorId: inst._id,
+                  instructorId: castInstructorId(inst._id),
                   storageId: u.storageId,
                   url: u.url,
-                } as any);
+                });
                 summary.processedInstructors++;
               }
               summary.processedProfiles++;
@@ -163,8 +183,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
 
         // portfolio images
-        const urls: string[] = (profile.portfolioImages ?? []) as string[];
-        const sids: string[] = (profile.portfolioImageStorageIds ?? []) as string[];
+        const urls: string[] = profile.portfolioImages ?? [];
+        const sids: string[] = profile.portfolioImageStorageIds ?? [];
         const idxs = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
         if (idxs.length > 0) {
           const newUrls = [...urls];
@@ -189,13 +209,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               slug,
               storageIds: newSids,
               urls: newUrls,
-            } as any);
+            });
             if (inst?._id) {
               await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
-                instructorId: inst._id,
+                instructorId: castInstructorId(inst._id),
                 storageIds: newSids,
                 urls: newUrls,
-              } as any);
+              });
             }
           }
         }
@@ -206,8 +226,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (includeStudentResults) {
-      const results = await client.query(api.instructors.listStudentResultsInternal, {} as any);
-      for (const r of results as any[]) {
+      const results = await client.query(api.instructors.listStudentResultsInternal, {});
+      for (const r of results as StudentResultRow[]) {
         if (processed >= max) break;
         try {
           if (!r.imageStorageId && r.imageUrl) {
@@ -218,10 +238,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 summary.errors.push({ kind: "studentResult", id: r._id, message: `upload failed for ${src}: ${u.error}` });
               } else {
                 await client.mutation(api.instructors.updateStudentResultStorageId, {
-                  studentResultId: r._id,
+                  studentResultId: r._id as Id<"studentResults">,
                   storageId: u.storageId,
                   url: u.url,
-                } as any);
+                });
                 summary.processedStudentResults++;
               }
             }

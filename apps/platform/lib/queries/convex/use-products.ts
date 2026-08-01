@@ -5,6 +5,25 @@ import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
+export type Product = {
+  _id: Id<"products">;
+  instructorId?: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  price: string;
+  currency: string;
+  sessionsPerPack: number;
+  validityDays: number;
+  stripePriceId?: string;
+  stripeProductId?: string;
+  paypalProductId?: string;
+  mentorshipType: string;
+  active: boolean;
+  deletedAt?: number;
+  legacyId?: string;
+};
+
 /**
  * Fetches a single product by ID.
  * @param {string} id - The product ID

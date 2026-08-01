@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { Suspense, useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -17,92 +17,57 @@ import { Loader2, Check, CreditCard, Wallet } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession, createPayPalCheckoutSession } from "@/lib/queries/api-client";
 import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
-import { useProductsByInstructorId, usePublicActiveProducts } from "@/lib/queries/convex/use-products";
+import { useProductsByInstructorId, usePublicActiveProducts, type Product } from "@/lib/queries/convex/use-products";
+import { type PublicInstructor } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 import { useUser } from "@clerk/nextjs";
 import { Input } from "@/components/ui/input";
 import { AvailabilityPreview } from "@/components/checkout/availability-preview";
 
-/**
- * Payment method options for checkout.
- * @typedef {"stripe" | "paypal"} PaymentMethod
- */
 type PaymentMethod = "stripe" | "paypal";
 
-/**
- * Instructor data returned from the public instructor query.
- */
-type InstructorData = {
-  instructor: {
-    _id: string;
-    name: string;
-    slug: string;
-    instructorId?: string;
-  };
-};
-
-/**
- * Product/Session pack available for purchase.
- */
-type Product = {
-  _id: string;
-  title: string;
-  price: string;
-  sessionsPerPack: number;
-  validityDays: number;
-  mentorshipType: string;
-  stripePriceId?: string;
-  paypalProductId?: string;
-  active: boolean;
-};
-
-/**
- * Main checkout form content component.
- * Handles product selection, guest checkout details, and payment method selection.
- */
 function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
   const mentorshipType = searchParams.get("type"); // "one-on-one" or "group"
-  
+
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
   const { isSignedIn, user } = useUser();
   const [email, setEmail] = useState<string>("");
   const [fullName, setFullName] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; fullName?: string }>({});
 
-  // Get instructor data and derive instructors table id injected by Convex
   const { data: instructorData, isLoading: isLoadingInstructor } = usePublicInstructorBySlug(
     instructorSlug || ""
   );
 
-  const instructor = instructorData as any;
-  const instructorId = instructor && typeof instructor?.instructorId === "string"
-    ? (instructor.instructorId as Id<"instructors">)
-    : undefined;
-  
-  // Get products for this specific instructor (public query)
+  const instructor: PublicInstructor | undefined = instructorData ?? undefined;
+  const instructorId = instructor?.instructorId;
+
   const {
     data: productsData,
     isLoading: isLoadingProducts,
     error: productsError,
-  } = useProductsByInstructorId(instructorId || ("" as unknown as Id<"instructors">));
+  } = useProductsByInstructorId(instructorId ?? "");
 
-  // Fallback to public active products when no instructor id is available
-  // This allows new visitors to view purchasable packs even without selecting an instructor
   const { data: publicProductsData } = usePublicActiveProducts();
-  const sourceProducts = instructorId ? (productsData as Product[] || []) : (publicProductsData as Product[] || []);
-  const allProducts = sourceProducts.filter(p => p.active);
-  
-  // Filter by mentorship type if provided
-  const productList = mentorshipType 
-    ? allProducts.filter(p => p.mentorshipType === mentorshipType)
-    : allProducts;
-    
-  const selectedProduct = productList.find((p) => p._id === selectedProductId);
+  const sourceProducts: Product[] = instructorId ? (productsData ?? []) : (publicProductsData ?? []);
+  const allProducts = sourceProducts.filter((p) => p.active);
+
+  const productList = useMemo(() => {
+    return mentorshipType
+      ? allProducts.filter((p) => p.mentorshipType === mentorshipType)
+      : allProducts;
+  }, [allProducts, mentorshipType]);
+
+  const selectedProduct = useMemo(
+    () => productList.find((p) => p._id === selectedProductId),
+    [productList, selectedProductId]
+  );
 
   useEffect(() => {
     if (user) {
@@ -110,48 +75,60 @@ function CheckoutContent(): React.JSX.Element {
       const name = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(" ");
       setEmail(mail);
       setFullName(name);
+      setFieldErrors({});
+      setFormError(null);
     }
   }, [user]);
 
-  // Reset payment method to a supported option when product changes
+  // Reset payment method to a supported option when the selected product changes.
+  // We intentionally do NOT include `paymentMethod` in the dependency array to avoid
+  // a render loop; the effect only runs when the product selection changes.
   useEffect(() => {
     if (!selectedProduct) return;
-    if (paymentMethod === "stripe" && !selectedProduct.stripePriceId) {
-      if (selectedProduct.paypalProductId) {
-        setPaymentMethod("paypal");
-      }
-    } else if (paymentMethod === "paypal" && !selectedProduct.paypalProductId) {
-      if (selectedProduct.stripePriceId) {
-        setPaymentMethod("stripe");
-      }
+    const hasStripe = Boolean(selectedProduct.stripePriceId);
+    const hasPayPal = Boolean(selectedProduct.paypalProductId);
+    if (hasStripe) {
+      setPaymentMethod("stripe");
+    } else if (hasPayPal) {
+      setPaymentMethod("paypal");
     }
-  }, [selectedProduct, paymentMethod]);
+  }, [selectedProduct]);
+
+  const validateGuestDetails = useCallback((): boolean => {
+    if (isSignedIn) return true;
+    const errors: { email?: string; fullName?: string } = {};
+    if (!email.trim()) {
+      errors.email = "Email is required";
+    } else if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      errors.email = "Please enter a valid email address";
+    }
+    if (!fullName.trim()) {
+      errors.fullName = "Full name is required";
+    }
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [isSignedIn, email, fullName]);
 
   const checkoutMutation = useMutation({
     mutationFn: async (data: { productId: string; paymentMethod: PaymentMethod }) => {
-      if (!isSignedIn) {
-        if (!email || !fullName) {
-          setFormError("Email and full name are required");
-          throw new Error("Email and full name are required");
- 
- 
-        }
-      }
-      // Legacy PayPal path removed in favor of API client parity
+      const guestEmail = isSignedIn ? undefined : email;
+      const guestFullName = isSignedIn ? undefined : fullName;
 
       if (data.paymentMethod === "paypal") {
         return createPayPalCheckoutSession({
           productId: data.productId,
-          email: isSignedIn ? undefined : email,
-          fullName: isSignedIn ? undefined : fullName,
+          email: guestEmail,
+          fullName: guestFullName,
         });
       }
 
- 
-      return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
+      return createCheckoutSession({
+        productId: data.productId,
+        email: guestEmail,
+        fullName: guestFullName,
+      });
     },
     onSuccess: (data) => {
-      // Normalize across Stripe and PayPal clients without unsafe casts
       const url = data.url || ("checkoutUrl" in data ? data.checkoutUrl : undefined);
       if (url) {
         window.location.href = url;
@@ -164,12 +141,26 @@ function CheckoutContent(): React.JSX.Element {
   const handleCheckout = () => {
     if (!selectedProduct) return;
     setFormError(null);
+    if (!validateGuestDetails()) {
+      setFormError("Please fill in your details before continuing.");
+      return;
+    }
     checkoutMutation.mutate({ productId: selectedProduct._id, paymentMethod });
   };
 
-  const canCheckout = selectedProduct && (
-    (paymentMethod === "stripe" && selectedProduct.stripePriceId) ||
-    (paymentMethod === "paypal" && selectedProduct.paypalProductId)
+  const guestDetailsValid =
+    isSignedIn ||
+    Boolean(
+      email.trim() &&
+        /^\S+@\S+\.\S+$/.test(email.trim()) &&
+        fullName.trim()
+    );
+
+  const canCheckout = Boolean(
+    selectedProduct &&
+      guestDetailsValid &&
+      ((paymentMethod === "stripe" && selectedProduct.stripePriceId) ||
+        (paymentMethod === "paypal" && selectedProduct.paypalProductId))
   );
 
   const error = checkoutMutation.error instanceof Error
@@ -179,7 +170,7 @@ function CheckoutContent(): React.JSX.Element {
   const loading = checkoutMutation.isPending;
 
   const isLoading = instructorSlug ? (isLoadingInstructor || isLoadingProducts) : isLoadingProducts;
-  const instructorName = (instructor as any)?.name;
+  const instructorName = instructor?.name;
 
   if (isLoading) {
     return (
@@ -252,22 +243,22 @@ function CheckoutContent(): React.JSX.Element {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <Card className="max-w-2xl w-full">
-          <CardHeader>
-            <CardTitle>{instructorName ? "Checkout" : "Select a session pack"}</CardTitle>
-            <CardDescription>
-              {instructorName
-                ? `Complete your purchase with ${instructorName}`
-                : "Select a session pack to proceed with checkout"}
-            </CardDescription>
+        <CardHeader>
+          <CardTitle>{instructorName ? "Checkout" : "Select a session pack"}</CardTitle>
+          <CardDescription>
+            {instructorName
+              ? `Complete your purchase with ${instructorName}`
+              : "Select a session pack to proceed with checkout"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">
             <label className="text-sm font-medium">Select a Session Pack</label>
             <div className="grid gap-3">
-              {productList!.map((product) => {
+              {productList.map((product) => {
                 const isSelected = selectedProductId === product._id;
                 const isAvailable = product.stripePriceId || product.paypalProductId;
-                
+
                 return (
                   <div
                     key={product._id}
@@ -306,15 +297,13 @@ function CheckoutContent(): React.JSX.Element {
             </div>
           </div>
 
-          {/* Availability Preview - only show when in single instructor context */}
           {instructorId && (
             <AvailabilityPreview
-              instructorId={instructorId}
+              instructorId={instructorId as Id<"instructors">}
               instructorName={instructorName}
             />
           )}
 
-          {/* Your Details */}
           <div className="space-y-3">
             <label className="text-sm font-medium">Your Details</label>
             {!isSignedIn ? (
@@ -326,10 +315,19 @@ function CheckoutContent(): React.JSX.Element {
                     id="checkout-email"
                     name="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (fieldErrors.email) {
+                        setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                      }
+                    }}
                     placeholder="you@example.com"
-className="!bg-input !text-foreground"
+                    className="!bg-input !text-foreground"
+                    aria-invalid={fieldErrors.email ? "true" : "false"}
                   />
+                  {fieldErrors.email && (
+                    <p className="text-sm text-red-600 mt-1">{fieldErrors.email}</p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="checkout-full-name" className="block text-sm mb-1">Full Name</label>
@@ -338,10 +336,19 @@ className="!bg-input !text-foreground"
                     id="checkout-full-name"
                     name="fullName"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      if (fieldErrors.fullName) {
+                        setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
+                      }
+                    }}
                     placeholder="Your full name"
                     className="!bg-input !text-foreground"
+                    aria-invalid={fieldErrors.fullName ? "true" : "false"}
                   />
+                  {fieldErrors.fullName && (
+                    <p className="text-sm text-red-600 mt-1">{fieldErrors.fullName}</p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -485,9 +492,6 @@ className="!bg-input !text-foreground"
   );
 }
 
-/**
- * Checkout page component with Suspense boundary for useSearchParams.
- */
 export default function CheckoutPage(): React.JSX.Element {
   return (
     <Suspense

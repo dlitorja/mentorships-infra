@@ -12,6 +12,7 @@ import { useInstructorBySlug, useInstructorTestimonials, useInstructorStudentRes
 import { useProductsByInstructor } from "@/lib/queries/convex/use-products";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
+import { type PublicInstructor } from "@/lib/queries/convex/use-instructors";
 
 interface InstructorProfilePageProps {
   params: Promise<{ slug: string }>;
@@ -20,6 +21,17 @@ interface InstructorProfilePageProps {
 type SocialPlatform = {
   platform: string;
   url: string;
+};
+
+type Testimonial = {
+  _id: string;
+  name: string;
+  text: string;
+};
+
+type StudentResult = {
+  _id: string;
+  imageUrl?: string;
 };
 
 function SocialIcon({ platform }: { platform: string }) {
@@ -92,9 +104,9 @@ function InstructorExtras({
     isFetched: isFetchedProducts,
   } = useProductsByInstructor(instructorId);
 
-  const activeProducts = (productsData as any[] | undefined)?.filter((p) => p.active) ?? [];
-  const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
-  const groupProduct = activeProducts.find((p: any) => p.mentorshipType === "group");
+  const activeProducts = (productsData ?? []).filter((p) => p.active);
+  const oneOnOneProduct = activeProducts.find((p) => p.mentorshipType === "one-on-one");
+  const groupProduct = activeProducts.find((p) => p.mentorshipType === "group");
 
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
@@ -180,20 +192,22 @@ function InstructorExtras({
 
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor, isLoading } = useInstructorBySlug(slug);
+  const publicInstructor = instructor as PublicInstructor | undefined;
   // Use the instructors table id returned as instructorId from getInstructorBySlug
-  const instructorIdForQueries: string | undefined = instructor && typeof (instructor as any)?.instructorId === "string"
-    ? (instructor as any).instructorId
-    : undefined;
+  const instructorIdForQueries: string | undefined =
+    publicInstructor && typeof publicInstructor.instructorId === "string"
+      ? publicInstructor.instructorId
+      : undefined;
   const [profileImageError, setProfileImageError] = useState(false);
 
   useEffect(() => {
     setProfileImageError(false);
-  }, [instructor?.profileImageUrl]);
+  }, [publicInstructor?.profileImageUrl]);
 
-  const oneOnOneInventory = (instructor as any)?.oneOnOneInventory ?? 0;
-  const groupInventory = (instructor as any)?.groupInventory ?? 0;
+  const oneOnOneInventory = publicInstructor?.oneOnOneInventory ?? 0;
+  const groupInventory = publicInstructor?.groupInventory ?? 0;
 
-  const socialLinks = (instructor?.socials as SocialPlatform[] | undefined) || [];
+  const socialLinks = (publicInstructor?.socials as SocialPlatform[] | undefined) || [];
 
   if (isLoading) {
     return (
@@ -208,14 +222,14 @@ function InstructorProfileContent({ slug }: { slug: string }) {
       </div>
     );
   }
-  if (!instructor) {
+  if (!publicInstructor) {
     // Not found (Convex returned null after loading)
     notFound();
   }
 
   // Treat undefined isActive as active for backward compatibility
   // Only 404 if soft-deleted; allow viewing inactive profiles (no purchasing)
-  if ((instructor as any).deletedAt) {
+  if (publicInstructor.deletedAt) {
     notFound();
   }
 
@@ -224,13 +238,13 @@ function InstructorProfileContent({ slug }: { slug: string }) {
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
           <div className="mx-auto max-w-6xl">
-            <InstructorNavigationWrapper currentSlug={instructor.slug} />
+            <InstructorNavigationWrapper currentSlug={publicInstructor.slug!} />
 
             <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
               <div className="relative aspect-square w-full overflow-hidden rounded-lg">
                 <Image
-                  src={profileImageError ? "/placeholder-instructor.svg" : (instructor.profileImageUrl || "/placeholder-instructor.svg")}
-                  alt={instructor.name}
+                  src={profileImageError ? "/placeholder-instructor.svg" : (publicInstructor.profileImageUrl || "/placeholder-instructor.svg")}
+                  alt={publicInstructor.name || "Instructor"}
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -241,22 +255,22 @@ function InstructorProfileContent({ slug }: { slug: string }) {
 
               <div className="flex flex-col space-y-6">
                 <div>
-                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">{instructor.name}</h1>
-                  <p className="mt-2 text-xl text-muted-foreground">{instructor.tagline}</p>
+                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">{publicInstructor.name}</h1>
+                  <p className="mt-2 text-xl text-muted-foreground">{publicInstructor.tagline}</p>
                 </div>
 
-                {instructor.bio && (
+                {publicInstructor.bio && (
                   <div>
                     <h2 className="text-2xl font-semibold mb-3">About</h2>
-                    <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
+                    <p className="text-muted-foreground leading-relaxed">{publicInstructor.bio}</p>
                   </div>
                 )}
 
-                {instructor.specialties && instructor.specialties.length > 0 && (
+                {publicInstructor.specialties && publicInstructor.specialties.length > 0 && (
                   <div>
                     <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
                     <div className="flex flex-wrap gap-2">
-                      {(instructor.specialties as string[]).map((specialty: string) => (
+                      {publicInstructor.specialties.map((specialty) => (
                         <Badge key={specialty} variant="secondary" className="text-sm">
                           {specialty}
                         </Badge>
@@ -265,11 +279,11 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   </div>
                 )}
 
-                {instructor.background && instructor.background.length > 0 && (
+                {publicInstructor.background && publicInstructor.background.length > 0 && (
                   <div>
                     <h2 className="text-2xl font-semibold mb-3">Background</h2>
                     <div className="flex flex-wrap gap-2">
-                      {(instructor.background as string[]).map((bg: string) => (
+                      {publicInstructor.background.map((bg) => (
                         <Badge key={bg} variant="outline" className="text-sm">
                           {bg}
                         </Badge>
@@ -278,11 +292,11 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   </div>
                 )}
 
-                {instructorIdForQueries && instructor.isActive !== false ? (
+                {instructorIdForQueries && publicInstructor.isActive !== false ? (
                   <InstructorExtras
                     instructorId={instructorIdForQueries}
-                    instructorSlug={instructor.slug}
-                    instructorName={instructor.name}
+                    instructorSlug={publicInstructor.slug!}
+                    instructorName={publicInstructor.name!}
                     oneOnOneInventory={oneOnOneInventory}
                     groupInventory={groupInventory}
                   />
@@ -303,13 +317,13 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             </div>
 
-            {instructor.portfolioImages && instructor.portfolioImages.length > 0 && (
+            {publicInstructor.portfolioImages && publicInstructor.portfolioImages.length > 0 && (
               <div className="mt-12">
                 <div className="mb-6 flex items-center gap-3">
                   <h2 className="text-3xl font-bold">Portfolio</h2>
                   <p className="text-sm text-muted-foreground">Click any image to view in full size</p>
                 </div>
-                <PortfolioGallery images={instructor.portfolioImages} instructorName={instructor.name} />
+                <PortfolioGallery images={publicInstructor.portfolioImages} instructorName={publicInstructor.name!} />
               </div>
             )}
 
@@ -317,7 +331,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
             {instructorIdForQueries ? (
               <InstructorFullWidthSections
                 instructorId={instructorIdForQueries}
-                instructorName={instructor.name}
+                instructorName={publicInstructor.name!}
               />
             ) : null}
           </div>
@@ -337,13 +351,16 @@ function InstructorFullWidthSections({
   const { data: testimonialsData } = useInstructorTestimonials(instructorId);
   const { data: studentResultsData } = useInstructorStudentResults(instructorId);
 
+  const testimonials = testimonialsData as Testimonial[] | undefined;
+  const studentResults = studentResultsData as StudentResult[] | undefined;
+
   return (
     <>
-      {testimonialsData && (testimonialsData as any[]).length > 0 && (
+      {testimonials && testimonials.length > 0 && (
         <div className="mt-12">
           <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {(testimonialsData as Array<{ _id: string; name: string; text: string }>).map((testimonial) => (
+            {testimonials.map((testimonial) => (
               <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
                 <Quote className="h-6 w-6 text-muted-foreground mb-4" />
                 <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
@@ -356,11 +373,11 @@ function InstructorFullWidthSections({
         </div>
       )}
 
-      {studentResultsData && (studentResultsData as any[]).length > 0 && (
+      {studentResults && studentResults.length > 0 && (
         <div className="mt-12">
           <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
           <PortfolioGallery
-            images={(studentResultsData as Array<{ imageUrl?: string }>)
+            images={studentResults
               .map((r) => r.imageUrl)
               .filter((url): url is string => Boolean(url))}
             instructorName={instructorName}
