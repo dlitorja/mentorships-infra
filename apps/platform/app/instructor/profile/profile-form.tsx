@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { InstructorImageUpload } from "@/components/admin/instructor-image-upload";
+import { ImageUploadField } from "@/components/admin/image-upload-field";
 import { Loader2, Save, AlertCircle, CheckCircle2, Plus, Trash2, ImageIcon } from "lucide-react";
 import { apiFetch, createTestimonial, deleteTestimonial, createStudentResult, deleteStudentResult, updateInstructorProfile } from "@/lib/queries/api-client";
 
@@ -318,10 +318,13 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           <CardDescription>This image appears on your public profile</CardDescription>
         </CardHeader>
         <CardContent>
-          <InstructorImageUpload
+          <ImageUploadField
             label=""
             value={profileImageUrl}
-            onChange={setProfileImageUrl}
+            onChange={(url) => {
+              setProfileImageUrl(url);
+              setProfileImageUploadPath("");
+            }}
             onUploadComplete={(_url, path) => setProfileImageUploadPath(path)}
             uploadEndpoint={PROFILE_UPLOAD_ENDPOINT}
             placeholder="https://example.com/profile.jpg"
@@ -337,10 +340,11 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <InstructorImageUpload
+          <ImageUploadField
             label="Add Portfolio Image"
             value=""
             onChange={handlePortfolioAdd}
+            onCommit={handlePortfolioAdd}
             uploadEndpoint={PORTFOLIO_UPLOAD_ENDPOINT}
             placeholder="https://example.com/portfolio.jpg"
           />
@@ -625,10 +629,10 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             <DialogTitle>Add Student Result</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <InstructorImageUpload
+            <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
               onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               uploadEndpoint={STUDENT_RESULT_UPLOAD_ENDPOINT}
             />

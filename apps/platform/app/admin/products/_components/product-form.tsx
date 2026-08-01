@@ -26,7 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, CheckCircle2, XCircle, ExternalLink, CreditCard, Wallet } from "lucide-react";
 import { createProduct, createProductFromStripe, updateProduct, type MentorshipType } from "@/lib/queries/api-client";
-import { AdminImageUpload } from "@/components/admin/admin-image-upload";
+import { ImageUploadField } from "@/components/admin/image-upload-field";
 
 type Instructor = {
   id: string;
@@ -666,7 +666,7 @@ function ProductFieldsForm({
 
             <form.Field name="imageUrl">
               {(field) => (
-                <AdminImageUpload
+                <ImageUploadField
                   label="Product Image (optional)"
                   value={field.state.value}
                   onChange={(url) => field.handleChange(url)}

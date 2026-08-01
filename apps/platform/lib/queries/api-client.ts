@@ -1105,7 +1105,7 @@ export async function deleteAdminTestimonial(instructorId: string, testimonialId
  */
 export async function createAdminStudentResult(
   instructorId: string,
-  data: { imageUrl: string; studentName?: string }
+  data: { imageUrl: string; imageUploadPath?: string | null; studentName?: string }
 ) {
   return apiFetch<{ success: boolean; message?: string; studentResult?: { id: string; imageUrl: string | null; imageUploadPath: string | null; studentName: string | null; createdAt: string } }>(ApiRoutes.adminInstructorStudentResults(instructorId), {
     method: "POST",

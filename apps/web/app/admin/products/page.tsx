@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { z } from "zod";
 import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Loader2, Trash2, AlertTriangle } from "lucide-react";
+import Image from "next/image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -405,9 +406,12 @@ export default function ProductsPage() {
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
                       {product.imageUrl && (
-                        <img
+                        <Image
                           src={product.imageUrl}
                           alt={product.title}
+                          width={40}
+                          height={40}
+                          unoptimized
                           className="h-10 w-10 rounded object-cover"
                         />
                       )}

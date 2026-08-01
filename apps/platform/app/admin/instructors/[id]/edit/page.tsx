@@ -69,6 +69,7 @@ type InstructorFormData = {
   specialties: string[];
   background: string[];
   profileImageUrl: string;
+  profileImageUploadPath: string;
   portfolioImages: string[];
   socials: Socials;
   isActive: boolean;
@@ -132,6 +133,7 @@ const updateInstructorResponseSchema = z.object({
     specialties: z.array(z.string()),
     background: z.array(z.string()),
     profileImageUrl: z.string().nullable(),
+    profileImageUploadPath: z.string().nullable(),
     portfolioImages: z.array(z.string()),
     socials: z.record(z.string(), z.string().optional()).nullable(),
     isActive: z.boolean(),
@@ -237,6 +239,7 @@ export default function EditInstructorPage() {
     specialties: [],
     background: [],
     profileImageUrl: "",
+    profileImageUploadPath: "",
     portfolioImages: [],
     socials: {},
     isActive: true,
@@ -254,7 +257,7 @@ export default function EditInstructorPage() {
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
 
   const [showStudentResultDialog, setShowStudentResultDialog] = useState(false);
-  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
@@ -293,6 +296,7 @@ export default function EditInstructorPage() {
         specialties: data.specialties || [],
         background: data.background || [],
         profileImageUrl: data.profileImageUrl || "",
+        profileImageUploadPath: data.profileImageUploadPath || "",
         portfolioImages: data.portfolioImages || [],
         socials: data.socials && typeof data.socials === "object" && !Array.isArray(data.socials) ? data.socials : {},
         isActive: data.isActive ?? true,
@@ -376,11 +380,11 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => createAdminStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; imageUploadPath: string; studentName: string }) => createAdminStudentResult(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowStudentResultDialog(false);
-      setStudentResultForm({ imageUrl: "", studentName: "" });
+      setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
@@ -637,13 +641,15 @@ export default function EditInstructorPage() {
               <CardTitle>Images</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ImageUploadField
-                label="Profile Picture"
-                value={formData.profileImageUrl}
-                onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
-                instructorId={instructorId}
-                type="profile"
-              />
+                <ImageUploadField
+                  label="Profile Picture"
+                  value={formData.profileImageUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url, profileImageUploadPath: "" }))}
+                  onUploadComplete={(_url, path) => setFormData((prev) => ({ ...prev, profileImageUploadPath: path }))}
+                  instructorId={instructorId}
+                  type="profile"
+                  enableCrop
+                />
               <div>
                 <Label>Portfolio Images</Label>
                 <div className="flex gap-2 mt-2">
@@ -1016,9 +1022,11 @@ export default function EditInstructorPage() {
             <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
-              instructorId={instructorId}
-              type="result"
+                onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
+                onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
+                instructorId={instructorId}
+                type="result"
+                enableCrop
             />
             <div>
               <Label>Student Name (optional)</Label>

@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
 import { z } from "zod";
+import Image from "next/image";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 
@@ -65,6 +66,7 @@ type InstructorFormData = {
   specialties: string[];
   background: string[];
   profileImageUrl: string;
+  profileImageUploadPath: string;
   portfolioImages: string[];
   socials: Socials;
   isActive: boolean;
@@ -128,6 +130,7 @@ const updateInstructorResponseSchema = z.object({
     specialties: z.array(z.string()),
     background: z.array(z.string()),
     profileImageUrl: z.string().nullable(),
+    profileImageUploadPath: z.string().nullable(),
     portfolioImages: z.array(z.string()),
     socials: z.record(z.string(), z.string().optional()).nullable(),
     isActive: z.boolean(),
@@ -249,7 +252,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
 /**
  * Adds a student result (before/after image) to an instructor.
  */
-async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
+async function addStudentResult(instructorId: string, data: { imageUrl: string; imageUploadPath?: string | null; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -291,6 +294,7 @@ export default function EditInstructorPage() {
     specialties: [],
     background: [],
     profileImageUrl: "",
+    profileImageUploadPath: "",
     portfolioImages: [],
     socials: {},
     isActive: true,
@@ -308,7 +312,7 @@ export default function EditInstructorPage() {
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
 
   const [showStudentResultDialog, setShowStudentResultDialog] = useState(false);
-  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
@@ -345,6 +349,7 @@ export default function EditInstructorPage() {
         specialties: data.specialties || [],
         background: data.background || [],
         profileImageUrl: data.profileImageUrl || "",
+        profileImageUploadPath: data.profileImageUploadPath || "",
         portfolioImages: data.portfolioImages || [],
         socials: data.socials || {},
         isActive: data.isActive ?? true,
@@ -423,10 +428,10 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; imageUploadPath: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
       setShowStudentResultDialog(false);
-      setStudentResultForm({ imageUrl: "", studentName: "" });
+      setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
@@ -651,13 +656,14 @@ export default function EditInstructorPage() {
               <CardTitle>Images</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <ImageUploadField
-                label="Profile Picture"
-                value={formData.profileImageUrl}
-                onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
-                instructorId={instructorId}
-                type="profile"
-              />
+                <ImageUploadField
+                  label="Profile Picture"
+                  value={formData.profileImageUrl}
+                  onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url, profileImageUploadPath: "" }))}
+                  onUploadComplete={(_url, path) => setFormData((prev) => ({ ...prev, profileImageUploadPath: path }))}
+                  instructorId={instructorId}
+                  type="profile"
+                />
               <div>
                 <Label>Portfolio Images</Label>
                 <div className="flex gap-2 mt-2">
@@ -674,8 +680,15 @@ export default function EditInstructorPage() {
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
-                      <div key={i} className="relative group">
-                        <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-24 object-cover rounded" />
+                      <div key={i} className="relative group h-24">
+                        <Image
+                          src={url}
+                          alt={`Portfolio ${i + 1}`}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 25vw, 15vw"
+                          className="object-cover rounded"
+                        />
                         <button
                           onClick={() => removePortfolioImage(i)}
                           className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100"
@@ -869,16 +882,23 @@ export default function EditInstructorPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {data.studentResults.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No student results yet</p>
-              ) : (
-                <div className="grid grid-cols-4 gap-4">
-                  {data.studentResults.map((r) => (
-                    <div key={r.id} className="relative group">
-                      {r.imageUrl && (
-                        <img src={r.imageUrl} alt="Student result" className="w-full h-32 object-cover rounded" />
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                {data.studentResults.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">No student results yet</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-4">
+                    {data.studentResults.map((r) => (
+                      <div key={r.id} className="relative group h-32">
+                        {r.imageUrl && (
+                          <Image
+                            src={r.imageUrl}
+                            alt="Student result"
+                            fill
+                            unoptimized
+                            sizes="(max-width: 768px) 25vw, 15vw"
+                            className="object-cover rounded"
+                          />
+                        )}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
                           variant="destructive"
                           size="sm"
@@ -1016,7 +1036,8 @@ export default function EditInstructorPage() {
             <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
+              onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               instructorId={instructorId}
               type="result"
             />
