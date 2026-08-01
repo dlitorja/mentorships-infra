@@ -8,8 +8,8 @@ import ReactCrop, {
   type PixelCrop,
 } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog";
+import { Button } from "./ui/button";
 import { Loader2 } from "lucide-react";
 
 interface CropDialogProps {

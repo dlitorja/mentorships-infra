@@ -12,8 +12,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
-| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) |
-| 5 | Type safety & checkout UX | PR opened (#720) |
+| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) |
+| 5 | Type safety & checkout UX | Merged (#720) |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
@@ -59,7 +59,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 ### PR 4.5: Shared ImageUploadField / CropDialog in `@mentorships/ui` (#719)
 
-**Status:** PR opened.
+**Status:** Squash-merged.
 
 - Moved `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`.
 - Added the minimal UI primitives they depend on (`Button`, `Input`, `Label`, `Dialog`) plus `cn()` to `packages/ui`.
@@ -77,8 +77,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 2 | API / data layer consolidation | Medium | 5 |
 | 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
 | 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
-| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) | 4 |
-| 5 | Type safety & checkout UX | PR opened (#720) | 4 |
+| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) | 4 |
+| 5 | Type safety & checkout UX | Merged (#720) | 4 |
 | 6 | Testing infrastructure | High | 3 |
 | 7 | Performance & loading states | Medium | 6 |
 | 8 | Accessibility, UI consistency, and cleanup | Low-Medium | 9 |
@@ -235,8 +235,10 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 ### 4.5. Follow-up PR: Extract `ImageUploadField` to `@mentorships/ui`
 
-- **Problem:** After PR 4, each app will still have its own copy of `ImageUploadField`. The long-term goal is a single shared component.
-- **Fix:** In a dedicated follow-up PR, move `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`, add `react-dropzone`, `lucide-react`, and `react-image-crop` to the shared package, install `react-image-crop` in `apps/web`, and re-export the component from both apps.
+- **Status:** PR opened (#719).
+- **Problem:** After PR 4, each app still had its own copy of `ImageUploadField`. The long-term goal is a single shared component.
+- **Fix:** Move `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`. Add `react-dropzone`, `lucide-react`, `react-image-crop`, and the minimal UI primitives they depend on (`Button`, `Input`, `Label`, `Dialog`) to the shared package. Install `react-image-crop` in `apps/web`. Re-export the component and UI primitives from both apps so existing imports continue to resolve.
+- **Verification:** `pnpm --filter @mentorships/ui typecheck`, `pnpm --filter @mentorships/web build`, `pnpm --filter @mentorships/platform build` pass.
 - **Plan:** See [`docs/plans/pr-4-image-upload-consolidation.md`](../../docs/plans/pr-4-image-upload-consolidation.md) §8.
 
 ---
