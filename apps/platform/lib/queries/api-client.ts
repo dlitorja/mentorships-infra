@@ -787,13 +787,15 @@ export async function previewSessionEmail(
     type: "reschedule" | "cancel";
     newScheduledAt?: number;
     reason?: string;
-  }
+  },
+  signal?: AbortSignal
 ) {
   return apiFetch<{ preview: { subject: string; html: string } }>(
     ApiRoutes.instructorSessionEmailPreview(sessionId),
     {
       method: "POST",
       body: JSON.stringify(body),
+      signal,
     }
   );
 }

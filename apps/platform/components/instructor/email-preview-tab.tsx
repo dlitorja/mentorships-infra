@@ -92,7 +92,7 @@ export function EmailPreviewTab({
           }
         }
 
-        const data = await previewSessionEmail(sessionId, body);
+        const data = await previewSessionEmail(sessionId, body, controller.signal);
 
         if (controller.signal.aborted) {
           return;
@@ -101,6 +101,9 @@ export function EmailPreviewTab({
         setPreview(data.preview);
       } catch (e) {
         if (controller.signal.aborted) {
+          return;
+        }
+        if (e instanceof Error && e.name === "AbortError") {
           return;
         }
         setError(e instanceof Error ? e.message : "Failed to load preview");
