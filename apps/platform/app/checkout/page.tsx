@@ -148,8 +148,17 @@ function CheckoutContent(): React.JSX.Element {
     checkoutMutation.mutate({ productId: selectedProduct._id, paymentMethod });
   };
 
+  const guestDetailsValid =
+    isSignedIn ||
+    Boolean(
+      email.trim() &&
+        /^\S+@\S+\.\S+$/.test(email.trim()) &&
+        fullName.trim()
+    );
+
   const canCheckout = Boolean(
     selectedProduct &&
+      guestDetailsValid &&
       ((paymentMethod === "stripe" && selectedProduct.stripePriceId) ||
         (paymentMethod === "paypal" && selectedProduct.paypalProductId))
   );
