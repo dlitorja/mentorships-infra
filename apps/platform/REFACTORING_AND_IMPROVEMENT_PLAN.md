@@ -12,7 +12,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
-| 5 | Type safety & checkout UX | Not started |
+| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) |
+| 5 | Type safety & checkout UX | In progress |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
@@ -56,6 +57,16 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Added `images.remotePatterns` for `**.convex.cloud` in `apps/web/next.config.ts`.
 - Removed committed `.bak` files from the source tree.
 
+### PR 4.5: Shared ImageUploadField / CropDialog in `@mentorships/ui` (#719)
+
+**Status:** PR opened.
+
+- Moved `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`.
+- Added the minimal UI primitives they depend on (`Button`, `Input`, `Label`, `Dialog`) plus `cn()` to `packages/ui`.
+- Re-exported the shared components and primitives from both `apps/platform` and `apps/web` so existing import paths keep working.
+- Added `react-image-crop` to `apps/web` (already present in `apps/platform`).
+- Added `packages/ui/src/**/*` to Tailwind content paths in both apps.
+
 ---
 
 ## Summary
@@ -66,6 +77,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 2 | API / data layer consolidation | Medium | 5 |
 | 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
 | 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
+| 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) | 4 |
 | 5 | Type safety & checkout UX | Medium | 4 |
 | 6 | Testing infrastructure | High | 3 |
 | 7 | Performance & loading states | Medium | 6 |
