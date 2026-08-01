@@ -83,7 +83,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const discounts: Array<{ coupon?: string; promotion_code?: string }> = [];
 
     if (promotionCode) {
-      discounts.push({ promotion_code: promotionCode });
+      const promotionCodes = await stripe.promotionCodes.list({
+        code: promotionCode,
+        limit: 1,
+      });
+      const activeCode = promotionCodes.data.find((pc) => pc.active);
+      if (!activeCode) {
+        return NextResponse.json(
+          { error: "Invalid promotion code" },
+          { status: 400 }
+        );
+      }
+      discounts.push({ promotion_code: activeCode.id });
     }
 
     let session: Stripe.Checkout.Session;

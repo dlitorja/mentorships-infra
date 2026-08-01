@@ -68,6 +68,10 @@
   ],
   "exclude": [
     "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
     "../../convex/**/*.ts",
     "../../packages/db/**/*.ts"
   ]
