@@ -2033,7 +2033,7 @@ export const getPublicTestimonials = query({
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .filter((q) => q.neq(q.field("isActive"), false))
-      .take(100);
+      .collect();
 
     const instructorIds = new Set(publicVisible.map((i) => i._id));
     const instructorById = new Map(publicVisible.map((i) => [i._id, i]));
