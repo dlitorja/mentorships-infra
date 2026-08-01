@@ -27,6 +27,49 @@ This repo’s DB changes follow widen-migrate-narrow using Supabase CLI. Assista
 2. Apply them to the linked Supabase project with the CLI
 3. Open a PR with a summary and verification steps
 
+## Dependency and CLI Version Checks
+
+When working on a feature that depends on a specific tool or SDK, check whether the repo is on a recent version and whether the latest release adds useful features or fixes. Do not upgrade blindly, but do surface outdated versions to the user when relevant.
+
+Common commands to check versions:
+
+```bash
+# Installed workspace packages
+pnpm ls -r --depth=0 | grep -E "inngest|clerk|convex|supabase|@trigger|@clerk|@supabase"
+
+# Latest published versions
+npm view inngest version
+npm view inngest-cli version
+npm view @clerk/nextjs version
+npm view convex version
+npm view @supabase/supabase-js version
+npm view @trigger.dev/sdk version
+npm view @trigger.dev/build version
+npm view @trigger.dev/cli version
+```
+
+Current known version snapshots (verify before relying on these):
+
+| Package / Tool | Current project version | Latest known | Notes |
+| --- | --- | --- | --- |
+| `inngest` (platform) | `^4.14.0` | `4.14.0` | Latest as of last check. |
+| `inngest` (web) | `^3.54.0` | `4.14.0` | Legacy; upgrade to v4 is a separate initiative. |
+| `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
+| `@clerk/nextjs` (platform) | `^7.3.4` | `7.6.4` | Newer patch/minor available. |
+| `@clerk/nextjs` (web) | `^6.36.5` | `7.6.4` | Major version behind; upgrade separately. |
+| `convex` | `^1.42.0` | `1.43.0` | Minor update available. |
+| `@supabase/supabase-js` | `^2.81.1` | `2.111.0` | Minor update available. |
+| `@trigger.dev/sdk` | `4.4.6` | `4.5.9` | Minor update available. |
+| `@trigger.dev/build` | `4.4.6` | `4.5.9` | Minor update available. |
+| `@trigger.dev/cli` | not installed | `3.3.12` | Not currently in project; add if needed. |
+
+When an upgrade is needed:
+1. Update the relevant `package.json`.
+2. Run `pnpm install`.
+3. Run typecheck, lint, and build for affected apps.
+4. Run tests (unit and Convex) for affected code.
+5. Update this table if the upgrade is merged.
+
 ## Greptile Code Review
 
 **Run Greptile before creating any pull request.**
@@ -116,6 +159,68 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_bWFqb3Itc3BhcnJvdy0xLmNsZXJrLmFjY291bn
   - Environment variables related to Clerk (e.g. `NEXT_PUBLIC_CLERK_*`, `CLERK_*`)
   - Any dashboard-domain or proxy wiring in code
 - If you believe a Clerk change is necessary to fix a build or runtime issue: stop, report the exact error, and wait for explicit permission before acting.
+
+# Clerk CLI Operations
+
+Use the Clerk CLI for read-only or debugging operations instead of hand-rolling `curl` against the Clerk Backend API. This is allowed under the operational policy and does **not** violate the "Do Not Touch" policy above as long as you only inspect or impersonate, not modify instance config or code.
+
+## CLI version and setup
+
+- `clerk` is installed via `npx` / `pnpm dlx` as needed; prefer the latest version.
+- Always start a session with `clerk doctor --json` to verify auth, project link, and keys.
+- The CLI 2.0+ adds `clerk webhooks`, `clerk impersonate`, and `clerk mcp`. `clerk skill install` was removed in 2.0.
+
+## Common read/debug commands
+
+```bash
+# Health check
+clerk doctor --json
+
+# List users and find one by email
+clerk users list
+clerk users list --email-address alice@example.com
+
+# Inspect a user, sessions, and orgs
+clerk api /users/user_abc123
+clerk api '/sessions?user_id=user_abc123&status=active'
+clerk api /organizations/org_abc123/memberships
+```
+
+> **Note:** `clerk env pull` writes Clerk keys into local `.env*` files. That is prohibited by the Clerk Changes Policy without explicit user approval. Do not run it unless the user explicitly asks for it.
+
+## Impersonation (for debugging)
+
+```bash
+# Open a browser signed in as a specific user
+clerk impersonate user_abc123 --open
+
+# Or print the sign-in URL without opening a browser
+clerk impersonate alice@example.com --print
+
+# Revoke an active/pending impersonation token
+clerk impersonate revoke act_abc123
+```
+
+- Prefer dev/staging instances for impersonation.
+- Use `--instance prod` only when the issue is production-specific.
+- Impersonation creates an auditable actor token; do not share the sign-in URL.
+
+## MCP server
+
+The Clerk MCP server can be installed for local AI editors:
+
+```bash
+clerk mcp install --all
+```
+
+This exposes Clerk operations to Cursor, VS Code, and OpenCode agents so you can inspect users, sessions, and webhooks through the CLI rather than asking a human to check the Clerk dashboard.
+
+## Important limits
+
+- **Read-only by default**: never run a mutating `clerk api` or `clerk config` call without first doing a `--dry-run` and then getting explicit user approval to execute it.
+- **Do not modify instance config** (`clerk config patch`, `clerk config put`) without explicit user approval.
+- **Do not change Clerk code or env vars**; this section is for inspection and debugging only. Use `clerk env pull` only when the user explicitly approves it.
+- **Do not create, update, or delete users, orgs, sessions, or memberships** via the Clerk CLI unless the user explicitly asks for it.
 
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
@@ -1159,6 +1264,124 @@ Extensions only affect deployment, not local development. Use `external` array f
 
 <!-- TRIGGER.DEV config END -->
 
+<!-- INNGEST START -->
+# Inngest
+
+This project uses [Inngest](https://www.inngest.com/) for durable background jobs in `apps/platform` and `apps/web`.
+
+## Current versions
+
+- `apps/platform`: `inngest@^4.14.0` with `inngest-cli@^1.40.0` (dev dependency)
+- `apps/web`: `inngest@^3.54.0` (legacy, still event-triggered)
+
+## Inngest v4 `createFunction` signature
+
+Inngest v4 changed `createFunction` from three arguments to two arguments. The trigger(s) move into the options object under `triggers: [...]`.
+
+```ts
+// ❌ Inngest v3
+export const myFunction = inngest.createFunction(
+  { id: "my-function", retries: 2 },
+  { event: "my/event" },
+  async ({ event, step }) => { /* ... */ }
+);
+
+// ✅ Inngest v4
+export const myFunction = inngest.createFunction(
+  {
+    id: "my-function",
+    name: "My Function",
+    retries: 2,
+    triggers: [{ event: "my/event" }],
+  },
+  async ({ event, step }) => { /* ... */ }
+);
+```
+
+Cron triggers and event triggers live in the same `triggers` array:
+
+```ts
+export const myScheduledFunction = inngest.createFunction(
+  {
+    id: "my-scheduled-function",
+    triggers: [
+      { cron: "0 9 * * *" },
+      { event: "my/manual-trigger" },
+    ],
+  },
+  async ({ step }) => { /* ... */ }
+);
+```
+
+## Deferred functions (Inngest v4+)
+
+Use `createDefer` for typed, fire-and-forget handoffs between functions. This is the preferred way to start a background job from another function when you already have the function definition in scope.
+
+```ts
+import { createDefer } from "inngest/experimental";
+import { z } from "zod";
+
+const myDeferredInputSchema = z.object({
+  orderId: z.string(),
+  userId: z.string(),
+  provider: z.enum(["stripe", "paypal"]),
+});
+
+export const myDeferredJob = createDefer(
+  inngest,
+  {
+    id: "my-deferred-job",
+    name: "My Deferred Job",
+    schema: myDeferredInputSchema,
+    retries: 2,
+  },
+  async ({ event, step }) => {
+    const { orderId, userId, provider } = event.data;
+    // ... idempotent, durable work
+  }
+);
+```
+
+Trigger it from another function:
+
+```ts
+await inngest.defer("unique-event-id", {
+  function: myDeferredJob,
+  data: { orderId, userId, provider: "stripe" },
+});
+```
+
+- The first argument to `defer()` is an event ID used for idempotency and tracing; it must be unique per logical call.
+- The second argument provides the function definition and typed payload.
+- The payload is validated against the `schema` at runtime.
+
+### When to use `defer()` vs `inngest.send()`
+
+- Use `defer()` when the caller and the target function are both defined in the same codebase and the target is a deferred function. This gives compile-time type safety and payload validation.
+- Use `inngest.send({ name: "my/event", data: ... })` when the producer and consumer are decoupled (e.g., a webhook handler emitting an event that multiple functions may subscribe to).
+
+## Inngest CLI
+
+`inngest-cli` is installed in `apps/platform` as a dev dependency. Use it for local development and introspection.
+
+```bash
+# Run the local dev server
+npx inngest-cli@latest dev
+
+# List available commands
+npx inngest-cli@latest --help
+```
+
+## Function registration conflicts
+
+`apps/platform` and `apps/web` share the same default Inngest app ID (`mentorships-platform`). Do not register the same function ID in both apps with incompatible trigger models. If a function must exist in both apps, give them distinct IDs (e.g., `platform-onboarding-flow` vs `web-onboarding-flow`) or ensure both use the same trigger model.
+
+## Upgrading Inngest across apps
+
+`apps/web` is legacy and still on Inngest v3. If you change function IDs in `apps/platform`, verify that the legacy `apps/web` handler is not broken by registration collisions. When upgrading `apps/web` to v4, migrate all `createFunction` calls to the two-arg `triggers` form.
+
+<!-- INNGEST END -->
+
 <!-- TRIGGER.DEV scheduled-tasks START -->
 # Scheduled tasks (cron)
 
@@ -1572,10 +1795,12 @@ Configure the S3 client for Backblaze B2. use context7
 - Uppy (file uploads)
 - AWS SDK for S3
 - Backblaze B2 S3-compatible API
+- Inngest (v4 functions, deferred functions, cron, event triggers)
 - Trigger.dev tasks
 - Recharts (charts)
 - Convex (reactive database, queries, mutations, pagination, schema)
 - TanStack React Query (useInfiniteQuery, useQuery, caching, debouncing patterns)
+- Clerk (CLI, Backend API, Next.js SDK, webhooks)
 - GitHub (REST API, Actions, repository management)
 - GitHub CLI (`gh` command usage, PR creation, issue management)
 - Vercel (deployment, CLI, configuration, hosting)
