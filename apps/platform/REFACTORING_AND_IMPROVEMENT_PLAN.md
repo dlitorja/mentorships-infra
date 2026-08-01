@@ -14,7 +14,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) |
 | 5 | Type safety & checkout UX | Merged (#720) |
-| 6 | Testing infrastructure | Not started |
+| 6 | Testing infrastructure | [Ready for review](#pr-6-testing-infrastructure-detailed-plan) |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
 
@@ -273,24 +273,47 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 ---
 
-## PR 6: Testing Infrastructure
+## PR 6: Testing Infrastructure — Detailed Plan
 
 *Add automated coverage for critical UI, API, and E2E paths.*
 
-### 6.1. Missing UI Component Tests
+See the full implementation plan: [`docs/plans/pr-6-testing-infrastructure.md`](../docs/plans/pr-6-testing-infrastructure.md).
 
-- **Observation:** Only `lib/**/*.test.ts` files exist. There are no component tests for critical UI paths such as `components/instructor/session-actions.tsx`, `components/workspace/chat.tsx`, `app/admin/instructors/[id]/edit/page.tsx`, or `app/admin/products/_components/product-form.tsx`.
-- **Fix:** Add React Testing Library tests for key interactions: booking a session, rescheduling, uploading an image, sending a chat message, and creating an instructor.
+### 6.1. Test Setup Improvements
 
-### 6.2. Missing API Route Tests
+- Add shared `tests/unit/test-utils.tsx` with TanStack Query provider and a `renderWithProviders` helper.
+- Update `tests/unit/setup.ts` to export mocks, add DOM API polyfills, and mock `next/image`.
+- Add a small `tests/unit/api-route-utils.ts` helper for invoking Next.js route handlers directly.
 
-- **Observation:** None of the `/app/api/**` routes have corresponding tests.
-- **Fix:** Add route tests using Next.js test utilities or a lightweight HTTP test harness. Cover auth failures, validation, and success paths for checkout, instructor profile, and session action routes.
+### 6.2. Component Tests
 
-### 6.3. Missing E2E Tests for Critical User Flows
+- `apps/platform/components/instructor/session-actions.tsx` — reschedule, cancel, notes dialogs.
+- `apps/web/components/calendar/book-session-form.tsx` — pack selection, slot loading, booking.
+- `apps/platform/components/workspace/chat.tsx` — text/image send, empty/loading states.
+- `packages/ui/src/components/image-upload-field.tsx` — drop, preview, upload, crop, URL input.
+- `apps/platform/app/admin/instructors/create/page.tsx` — form validation, slug generation, submission.
 
-- **Observation:** Playwright config exists but there are no visible E2E specs in `apps/platform`.
-- **Fix:** Add Playwright tests for: purchasing a session pack, booking a session, rescheduling, connecting Google Calendar, and instructor onboarding.
+### 6.3. API Route Tests
+
+- `apps/platform/app/api/auth/sync/route.ts` — auth, validation, success, failure.
+- `apps/platform/app/api/bookings/route.ts` — auth, validation, conflict, success, rollback.
+- `apps/web/app/api/checkout/stripe/route.ts` — auth, validation, success, guest checkout.
+- `apps/platform/app/api/sessions/[sessionId]/reschedule/route.ts` — auth, ownership, conflict, success.
+
+### 6.4. E2E Playwright Tests
+
+- Student purchase + booking flow.
+- Instructor rescheduling.
+- Google Calendar connect (skip if no OAuth bypass in env).
+- Student onboarding submission.
+
+### 6.5. Verification
+
+- `pnpm test:unit`
+- `pnpm test:convex`
+- `pnpm typecheck`
+- `pnpm run lint`
+- `npx greptile@latest review`
 
 ---
 
