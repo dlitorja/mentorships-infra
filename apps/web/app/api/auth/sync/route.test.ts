@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "./route";
-import { makeRequest } from "tests/unit/api-route-utils";
 
 const mockConvexMutation = vi.fn();
 const mockSetAuth = vi.fn();
@@ -41,7 +40,7 @@ describe("GET /api/auth/sync", () => {
 
   it("returns 401 when no clerk user", async () => {
     const { auth } = await import("@clerk/nextjs/server");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    vi.mocked(auth).mockResolvedValueOnce({
       userId: null,
       getToken: mockGetToken,
     });

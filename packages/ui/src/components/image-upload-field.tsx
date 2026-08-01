@@ -132,7 +132,10 @@ export function ImageUploadField({
         const data = uploadResponseSchema.parse(await response.json());
         return { url: data.url, path: data.path };
       } catch (err) {
-        setUploadError(err instanceof Error ? err.message : "Upload failed");
+        // Surface a stable, customer-safe message. Diagnostic details are logged
+        // so support can inspect them; never leak server internals in the UI.
+        console.error("Image upload failed:", err);
+        setUploadError("Upload failed");
         return null;
       } finally {
         setIsUploading(false);

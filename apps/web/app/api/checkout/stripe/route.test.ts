@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { stripe } from "@/lib/stripe";
@@ -9,6 +9,9 @@ vi.mock("convex/browser", () => ({
 
 vi.mock("@/lib/stripe", () => ({
   stripe: {
+    promotionCodes: {
+      list: vi.fn(),
+    },
     checkout: {
       sessions: {
         create: vi.fn(),
@@ -22,7 +25,8 @@ const convexClient = {
   mutation: vi.fn(),
 };
 
-const mockStripeCheckoutCreate = stripe.checkout.sessions.create as unknown as ReturnType<typeof vi.fn>;
+const mockPromotionCodesList = vi.mocked(stripe.promotionCodes.list);
+const mockStripeCheckoutCreate = vi.mocked(stripe.checkout.sessions.create);
 
 const validBody = {
   packId: "pack_1",
@@ -58,6 +62,9 @@ describe("POST /api/checkout/stripe (web)", () => {
       if (args.status === "failed") return { ...order, status: "failed" };
       return null;
     });
+    mockPromotionCodesList.mockResolvedValue({
+      data: [{ id: "promo_123", active: true }],
+    } as any);
     mockStripeCheckoutCreate.mockResolvedValue({
       url: "https://checkout.stripe.test/session_123",
     });
@@ -95,7 +102,7 @@ describe("POST /api/checkout/stripe (web)", () => {
     expect(sessionParams).toMatchObject({
       mode: "payment",
       line_items: [{ price: "price_123", quantity: 1 }],
-      discounts: [{ promotion_code: "PROMO50" }],
+      discounts: [{ promotion_code: "promo_123" }],
       metadata: {
         order_id: "order_1",
         user_id: "guest",
@@ -104,11 +111,22 @@ describe("POST /api/checkout/stripe (web)", () => {
     });
   });
 
+  it("returns 400 for invalid promotion code", async () => {
+    mockPromotionCodesList.mockResolvedValueOnce({ data: [] } as any);
+    const response = await POST(makeCheckoutRequest());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid promotion code" });
+  });
+
   it("returns 500 when Stripe session creation fails", async () => {
     mockStripeCheckoutCreate.mockRejectedValueOnce(new Error("Stripe error"));
     const response = await POST(makeCheckoutRequest());
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Checkout failed" });
+    expect(convexClient.mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "order_1", status: "failed" })
+    );
   });
 
   afterEach(() => {

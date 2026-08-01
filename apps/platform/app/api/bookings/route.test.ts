@@ -68,9 +68,9 @@ const calendarClient = {
   },
 };
 
-const mockGetAuthenticatedConvexClient = getAuthenticatedConvexClient as unknown as ReturnType<typeof vi.fn>;
-const mockGetGoogleCalendarClient = getGoogleCalendarClient as unknown as ReturnType<typeof vi.fn>;
-const mockTasksTrigger = tasks.trigger as unknown as ReturnType<typeof vi.fn>;
+const mockGetAuthenticatedConvexClient = vi.mocked(getAuthenticatedConvexClient);
+const mockGetGoogleCalendarClient = vi.mocked(getGoogleCalendarClient);
+const mockTasksTrigger = vi.mocked(tasks.trigger);
 
 const validBody = {
   instructorId: "instructor_1",
@@ -127,7 +127,7 @@ describe("POST /api/bookings", () => {
 
   it("returns 401 when user is not authenticated", async () => {
     const { requireAuth } = await import("@/lib/auth-helpers");
-    (requireAuth as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireAuth).mockRejectedValueOnce(new Error("Unauthorized"));
 
     const response = await POST(makeBookingRequest());
     expect(response.status).toBe(401);
@@ -163,7 +163,7 @@ describe("POST /api/bookings", () => {
 
   it("returns 409 when instructor calendar is not connected", async () => {
     const { decryptInstructorRefreshToken } = await import("@/lib/crypto");
-    (decryptInstructorRefreshToken as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(null);
+    vi.mocked(decryptInstructorRefreshToken).mockReturnValueOnce(null);
     const response = await POST(makeBookingRequest());
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "Instructor calendar not connected" });
@@ -222,5 +222,36 @@ describe("POST /api/bookings", () => {
     const response = await POST(makeBookingRequest());
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "Failed to create calendar event" });
+  });
+
+  it("rolls back calendar event when confirm fails", async () => {
+    convexClient.mutation.mockImplementation((api: any, args: any) => {
+      if (args.instructorId) {
+        return { bookingId: "booking_1" };
+      }
+      if (args.googleEventId) {
+        throw new Error("Confirm failed");
+      }
+      if (args.id === "booking_1" && "status" in args) {
+        return { ...confirmedBooking, status: args.status };
+      }
+      return null;
+    });
+    convexClient.query.mockImplementation((api: any, args: any) => {
+      if (args.id === "booking_1") {
+        return { ...confirmedBooking, status: "pending" };
+      }
+      return instructor;
+    });
+
+    const response = await POST(makeBookingRequest());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "Failed to create calendar event or confirm booking" });
+    expect(calendarClient.events.delete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendarId: "primary",
+        eventId: "google_event_1",
+      })
+    );
   });
 });

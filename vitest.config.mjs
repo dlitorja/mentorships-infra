@@ -8,25 +8,41 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SOURCE_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs", ".cjs"];
 
+function isFile(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(dirPath) {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function resolveAppFile(appDir, source) {
   const relativePath = source.startsWith("@/") ? source.slice(2) : source;
   const base = path.resolve(__dirname, appDir, relativePath);
 
-  if (fs.existsSync(base) && fs.statSync(base).isFile()) {
+  if (isFile(base)) {
     return base;
   }
 
   for (const ext of SOURCE_EXTENSIONS) {
     const candidate = base + ext;
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    if (isFile(candidate)) {
       return candidate;
     }
   }
 
-  if (fs.existsSync(base) && fs.statSync(base).isDirectory()) {
+  if (isDirectory(base)) {
     for (const ext of SOURCE_EXTENSIONS) {
       const candidate = path.join(base, "index" + ext);
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      if (isFile(candidate)) {
         return candidate;
       }
     }

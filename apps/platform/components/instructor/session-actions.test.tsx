@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SessionActions, type SessionActionSession } from "./session-actions";
-import { renderWithProviders } from "../../../../tests/unit/test-utils";
+import { renderWithProviders } from "tests/unit/test-utils";
+import { parseDateTimeLocalToUtcMillis } from "@/lib/timezone";
 
-const { mockRouter, mockRouterModule } = vi.hoisted(() => {
+const mockRouterModule = vi.hoisted(() => {
   const mockRouter = {
     push: vi.fn(),
     replace: vi.fn(),
@@ -13,12 +14,9 @@ const { mockRouter, mockRouterModule } = vi.hoisted(() => {
     refresh: vi.fn(),
   };
   return {
-    mockRouter,
-    mockRouterModule: {
-      useRouter: () => mockRouter,
-      usePathname: () => "/",
-      useSearchParams: () => new URLSearchParams(),
-    },
+    useRouter: () => mockRouter,
+    usePathname: () => "/",
+    useSearchParams: () => new URLSearchParams(),
   };
 });
 
@@ -113,9 +111,13 @@ describe("SessionActions", () => {
     await user.click(screen.getByRole("button", { name: /reschedule session/i }));
     expect(screen.getByRole("dialog", { name: /reschedule session/i })).toBeInTheDocument();
 
-    const datetimeInput = screen.getByLabelText(/new date and time/i);
+    const datetimeInput = screen.getByLabelText(/new date and time/i) as HTMLInputElement;
     await user.clear(datetimeInput);
     await user.type(datetimeInput, "2026-08-16T14:00");
+    await user.tab();
+
+    const expectedNewScheduledAt = parseDateTimeLocalToUtcMillis("America/New_York", "2026-08-16T14:00");
+    expect(expectedNewScheduledAt).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: /reschedule$/i }));
 
@@ -123,7 +125,7 @@ describe("SessionActions", () => {
       expect(mockReschedule).toHaveBeenCalledWith(
         {
           sessionId: baseSession.id,
-          newScheduledAt: expect.any(Number),
+          newScheduledAt: expectedNewScheduledAt,
         },
         expect.any(Object)
       );

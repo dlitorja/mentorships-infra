@@ -7,10 +7,11 @@ vi.mock("@/lib/queries/api-client", () => ({
   createAdminInstructor: vi.fn(),
   uploadInstructorImage: vi.fn(),
   ApiFetchError: class ApiFetchError extends Error {
-    data: any;
-    constructor(message: string, data?: any) {
+    data: { error: string } | Record<string, unknown>;
+    constructor(message: string, data?: { error: string } | Record<string, unknown>) {
       super(message);
-      this.data = data;
+      this.name = "ApiFetchError";
+      this.data = data ?? {};
     }
   },
 }));
@@ -37,9 +38,8 @@ vi.mock("next/navigation", () => ({
 
 import { createAdminInstructor, uploadInstructorImage, ApiFetchError } from "@/lib/queries/api-client";
 
-const mockCreateAdminInstructor = createAdminInstructor as unknown as ReturnType<typeof vi.fn>;
-const mockUploadInstructorImage = uploadInstructorImage as unknown as ReturnType<typeof vi.fn>;
-const MockApiFetchError = ApiFetchError as unknown as new (message: string, data?: any) => Error;
+const mockCreateAdminInstructor = vi.mocked(createAdminInstructor);
+const mockUploadInstructorImage = vi.mocked(uploadInstructorImage);
 
 describe("CreateInstructorPage", () => {
   beforeEach(() => {
@@ -138,7 +138,7 @@ describe("CreateInstructorPage", () => {
     await waitFor(() => {
       expect(mockUploadInstructorImage).toHaveBeenCalled();
     });
-    const formData = mockUploadInstructorImage.mock.calls[0][0] as FormData;
+    const formData = mockUploadInstructorImage.mock.calls[0][0];
     expect(formData.get("file")).toBe(file);
     expect(formData.get("instructorId")).toBe("instructor_123");
     expect(formData.get("type")).toBe("profile");
@@ -147,7 +147,7 @@ describe("CreateInstructorPage", () => {
   it("displays API error message when creation fails", async () => {
     const user = userEvent.setup();
     mockCreateAdminInstructor.mockRejectedValue(
-      new MockApiFetchError("Slug already taken", { error: "Slug already taken" })
+      new ApiFetchError("Slug already taken", { error: "Slug already taken" })
     );
 
     render(<CreateInstructorPage />);

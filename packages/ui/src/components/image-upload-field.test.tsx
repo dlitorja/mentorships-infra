@@ -3,10 +3,16 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ImageUploadField } from "./image-upload-field";
 
+type ImageProps = {
+  src: string;
+  alt?: string;
+  [key: string]: string | number | boolean | undefined | null | object;
+};
+
 vi.mock("next/image", () => ({
   __esModule: true,
-  default: function MockImage(props: any) {
-    const sanitized: any = {};
+  default: function MockImage(props: ImageProps) {
+    const sanitized: Record<string, string | number | boolean | undefined | null | object> = {};
     for (const key of Object.keys(props)) {
       const value = props[key];
       if (value === true) {
@@ -22,8 +28,12 @@ vi.mock("next/image", () => ({
 
 const mockFetch = vi.fn();
 
-function getFileInput(container: HTMLElement) {
-  return container.querySelector('input[type="file"]') as HTMLInputElement;
+function getFileInput(container: HTMLElement): HTMLInputElement {
+  const input = container.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("File input not found or has wrong type");
+  }
+  return input;
 }
 
 // Store the original fetch so we can restore it between tests
@@ -118,6 +128,10 @@ describe("ImageUploadField", () => {
       );
     });
 
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = init.body as FormData;
+    expect(body.get("file")).toBe(file);
+
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith("https://cdn.example.com/uploaded.png");
       expect(onUploadComplete).toHaveBeenCalledWith(
@@ -131,7 +145,7 @@ describe("ImageUploadField", () => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValue({
       ok: false,
-      json: async () => ({ error: "Upload failed" }),
+      json: async () => ({ error: "Internal S3 bucket token leaked: abc-123" }),
     });
 
     const { container } = render(<ImageUploadField uploadEndpoint="/api/admin/upload" onChange={vi.fn()} />);
@@ -142,6 +156,7 @@ describe("ImageUploadField", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/upload failed/i)).toBeInTheDocument();
+      expect(screen.queryByText(/abc-123/i)).not.toBeInTheDocument();
     });
   });
 

@@ -36,8 +36,8 @@ vi.mock("@clerk/nextjs/server", () => ({
   })),
 }));
 
-const mockGetConvexClient = getConvexClient as unknown as ReturnType<typeof vi.fn>;
-const mockStripeCheckoutCreate = stripe.checkout.sessions.create as unknown as ReturnType<typeof vi.fn>;
+const mockGetConvexClient = vi.mocked(getConvexClient);
+const mockStripeCheckoutCreate = vi.mocked(stripe.checkout.sessions.create);
 
 const convexClient = {
   query: vi.fn(),
@@ -132,7 +132,7 @@ describe("POST /api/checkout/stripe", () => {
 
   it("creates Stripe checkout session for authenticated user", async () => {
     const { auth } = await import("@clerk/nextjs/server");
-    (auth as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ userId: "clerk_user_123" });
+    vi.mocked(auth).mockResolvedValueOnce({ userId: "clerk_user_123" });
 
     const response = await POST(makeCheckoutRequest());
     expect(response.status).toBe(200);

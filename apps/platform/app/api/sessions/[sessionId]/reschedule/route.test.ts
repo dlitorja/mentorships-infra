@@ -30,8 +30,8 @@ const convexClient = {
   mutation: vi.fn(),
 };
 
-const mockGetAuthenticatedConvexClient = getAuthenticatedConvexClient as unknown as ReturnType<typeof vi.fn>;
-const mockTasksTrigger = tasks.trigger as unknown as ReturnType<typeof vi.fn>;
+const mockGetAuthenticatedConvexClient = vi.mocked(getAuthenticatedConvexClient);
+const mockTasksTrigger = vi.mocked(tasks.trigger);
 
 const session = {
   _id: "session_1",
@@ -82,7 +82,7 @@ describe("POST /api/sessions/[sessionId]/reschedule", () => {
 
   it("returns 401 when not authenticated", async () => {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    (requireRoleForApi as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("Unauthorized"));
+    vi.mocked(requireRoleForApi).mockRejectedValueOnce(new Error("Unauthorized"));
 
     const { request, params } = makeRescheduleRequest({ newScheduledAt: futureDate.toISOString() });
     const response = await POST(request, { params });
