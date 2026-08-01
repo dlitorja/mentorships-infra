@@ -196,8 +196,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       } catch (e: unknown) {
         // Invitation failures shouldn't fail creation; surface error instead
         let message = "Failed to send invitation";
-        if (typeof e === "object" && e !== null && "message" in e && typeof (e as any).message === "string") {
-          message = (e as any).message as string;
+        if (typeof e === "object" && e !== null && "message" in e) {
+          const maybeMessage = (e as Record<string, unknown>).message;
+          if (typeof maybeMessage === "string") {
+            message = maybeMessage;
+          }
         }
         console.error("[platform:createInstructor] Clerk invitation error:", message);
         invitationSent = false;
@@ -216,7 +219,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             name: instructor?.name ?? data.name,
             slug: instructor?.slug ?? data.slug,
             email: instructor?.email ?? data.email ?? null,
-            discordVoiceChannelUrl: (instructor as any)?.discordVoiceChannelUrl ?? (data.discordVoiceChannelUrl || null),
+            discordVoiceChannelUrl: instructor?.discordVoiceChannelUrl ?? (data.discordVoiceChannelUrl || null),
             profileImageUrl: instructor?.profileImageUrl ?? null,
             createdAt: instructor ? new Date(instructor._creationTime).toISOString() : null,
           },

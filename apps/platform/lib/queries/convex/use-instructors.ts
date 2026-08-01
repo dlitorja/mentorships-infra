@@ -14,11 +14,17 @@ export type PublicInstructor = {
   bio?: string;
   profileImageUrl?: string;
   specialties?: string[];
+  background?: string[];
+  portfolioImages?: string[];
+  socials?: unknown;
   isActive?: boolean;
   isNew?: boolean;
   isCompletelySoldOut?: boolean;
   oneOnOneInventory?: number;
   groupInventory?: number;
+  deletedAt?: number;
+  /** Instructors table ID injected by public queries for downstream use. */
+  instructorId?: string;
 };
 
 /**
@@ -33,7 +39,7 @@ export function usePublicInstructors() {
 
   const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
-    return (data as unknown as PublicInstructor[]).filter(
+    return data.filter(
       (i: PublicInstructor) => i.isActive !== false
     );
   }, [data]);

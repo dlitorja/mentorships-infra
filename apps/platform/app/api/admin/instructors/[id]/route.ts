@@ -6,6 +6,7 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
 import { clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
+import { Id } from "@/convex/_generated/dataModel";
 
 // Uses shared helper to avoid duplication across routes
 
@@ -87,12 +88,12 @@ export async function GET(
       email?: string | null;
       tagline?: string | null;
       bio?: string | null;
-      specialties?: any;
-      background?: any;
+      specialties?: string[];
+      background?: string[];
       profileImageUrl?: string | null;
       profileImageUploadPath?: string | null;
-      portfolioImages?: any;
-      socials?: any;
+      portfolioImages?: string[];
+      socials?: unknown;
       isActive?: boolean;
       userId?: string | null;
       legacyInstructorRef?: string | null;
@@ -101,11 +102,12 @@ export async function GET(
       maxActiveStudents?: number;
       updatedAt?: number | string | null;
       _creationTime?: number;
+      discordVoiceChannelUrl?: string | null;
     };
     const isInstructor = (obj: unknown): obj is InstructorDoc =>
       !!obj && typeof obj === "object" && "_id" in obj;
 
-    const instructor = resolved.instructor as InstructorDoc & { discordVoiceChannelUrl?: string | null };
+    const instructor = resolved.instructor as InstructorDoc;
     if (!isInstructor(instructor)) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -113,14 +115,29 @@ export async function GET(
       );
     }
 
+    type TestimonialRow = {
+      _id: string;
+      name: string;
+      text: string;
+      _creationTime: number;
+    };
+
+    type StudentResultRow = {
+      _id: string;
+      imageUrl?: string;
+      imageUploadPath?: string;
+      studentName?: string;
+      _creationTime: number;
+    };
+
     const testimonials = await convex.query(
       api.instructors.getTestimonialsByInstructorId,
-      { instructorId: (resolved.resolvedId ?? instructor._id) as any }
-    );
+      { instructorId: (resolved.resolvedId ?? instructor._id) as Id<"instructors"> }
+    ) as TestimonialRow[];
     const studentResultsData = await convex.query(
       api.instructors.getStudentResultsByInstructorId,
-      { instructorId: (resolved.resolvedId ?? instructor._id) as any }
-    );
+      { instructorId: (resolved.resolvedId ?? instructor._id) as Id<"instructors"> }
+    ) as StudentResultRow[];
 
     return NextResponse.json({
       id: instructor._id,
@@ -145,13 +162,13 @@ export async function GET(
       maxActiveStudents: instructor.maxActiveStudents ?? 10,
       createdAt: new Date(instructor._creationTime ?? Date.now()).toISOString(),
       updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
-      testimonials: testimonials.map((t: any) => ({
+      testimonials: testimonials.map((t) => ({
         id: t._id,
         name: t.name,
         text: t.text,
         createdAt: new Date(t._creationTime).toISOString(),
       })),
-      studentResults: studentResultsData.map((r: any) => ({
+      studentResults: studentResultsData.map((r) => ({
         id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,
@@ -213,8 +230,11 @@ export async function PUT(
     }
 
     // Narrow existing for slug comparison without broad casting
-    const getExistingSlug = (obj: unknown): string | undefined =>
-      obj && typeof obj === "object" && "slug" in obj ? (obj as any).slug : undefined;
+    const getExistingSlug = (obj: unknown): string | undefined => {
+      if (!obj || typeof obj !== "object" || !("slug" in obj)) return undefined;
+      const candidate = (obj as Record<string, unknown>).slug;
+      return typeof candidate === "string" ? candidate : undefined;
+    };
 
     if (data.slug && data.slug !== getExistingSlug(existing)) {
       const slugInstructor = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: data.slug });
@@ -226,7 +246,7 @@ export async function PUT(
       }
     }
 
-    const updateData: Record<string, any> = {};
+    const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.slug !== undefined) updateData.slug = data.slug;
     // Clear means remove: empty string -> null; non-empty -> lowercase
@@ -275,10 +295,10 @@ export async function PUT(
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
     if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
-    let updated: any;
+    let updated: { _id: string; name?: string; slug?: string; email?: string | null; tagline?: string | null; bio?: string | null; specialties?: string[]; background?: string[]; profileImageUrl?: string | null; profileImageUploadPath?: string | null; portfolioImages?: string[]; socials?: unknown; isActive?: boolean; userId?: string | null; legacyInstructorRef?: string | null; oneOnOneInventory?: number; groupInventory?: number; maxActiveStudents?: number; updatedAt?: number | string | null; _creationTime?: number; discordVoiceChannelUrl?: string | null } | null = null;
     try {
       updated = await convex.mutation(api.instructors.updateInstructor, {
-        id: resolvedId as any,
+        id: resolvedId as Id<"instructors">,
         ...updateData,
       });
     } catch (err: any) {
@@ -405,8 +425,10 @@ export async function DELETE(
     }
 
     if (hardDelete) {
-      const existingInstructor = existing as { userId?: string; _id?: string } | null;
-      const userId = existingInstructor?.userId;
+      const userId =
+        existing && typeof existing === "object" && "userId" in existing
+          ? (existing as { userId?: string }).userId
+          : undefined;
 
       if (userId) {
         try {
@@ -419,7 +441,7 @@ export async function DELETE(
             try {
               await convex.mutation(api.clerkDeletion.addPendingClerkDeletion, {
                 clerkUserId: userId,
-                instructorId: resolvedId as unknown as string & { __tableName: "instructors" },
+                instructorId: resolvedId as Id<"instructors">,
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
               console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
@@ -429,14 +451,14 @@ export async function DELETE(
           }
         }
       }
-      await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
+      await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as Id<"instructors"> });
       return NextResponse.json({
         success: true,
         message: "Instructor permanently deleted",
       });
     }
 
-    await convex.mutation(api.instructors.deleteInstructor, { id: resolvedId as any });
+    await convex.mutation(api.instructors.deleteInstructor, { id: resolvedId as Id<"instructors"> });
 
     return NextResponse.json({
       success: true,
