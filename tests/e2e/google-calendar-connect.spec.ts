@@ -1,12 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E2E: Google Calendar connect.
+ * E2E: Google Calendar connect for instructors.
  *
- * Flow:
- * 1. Authenticated instructor navigates to settings / calendar connect.
- * 2. Verifies the connect button links to Google OAuth.
- * 3. Verifies the callback or status page shows the connected state.
+ * The Google Calendar card lives at `/instructor/availability` and links to
+ * `/api/auth/google` to start the OAuth flow. This test verifies the card is
+ * visible and the connect button points to the correct OAuth endpoint.
  *
  * Auth fixture is required; the spec skips if auth is missing.
  */
@@ -37,8 +36,12 @@ test.beforeAll(async ({}, testInfo) => {
 const MOCK_INSTRUCTOR = {
   _id: "instructor_test_1",
   name: "Test Instructor",
-  googleCalendarId: "primary",
-  googleCalendarConnected: false,
+  timeZone: "America/New_York",
+  workingHours: null,
+  bufferMinutesBetweenSessions: null,
+  minBookingLeadMinutes: null,
+  maxBookingAdvanceDays: null,
+  blockedDateRanges: null,
 };
 
 test.describe("Google Calendar connect", () => {
@@ -53,36 +56,36 @@ test.describe("Google Calendar connect", () => {
         });
         return;
       }
+      if (url.includes("getGoogleCalendars")) {
+        // 409 is the status used by the card to signal "not connected".
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Google Calendar not connected" }),
+        });
+        return;
+      }
       await route.continue();
     });
   });
 
-  test("calendar connect page renders connect button", async ({ page }) => {
-    await page.goto("/settings/calendar");
+  test("calendar connect card renders on the availability page", async ({ page }) => {
+    await page.goto("/instructor/availability");
     await page.waitForLoadState("networkidle");
 
-    const connectButton = page.getByRole("button", { name: /connect.*calendar|connect.*google/i });
+    await expect(page.getByRole("heading", { name: "Availability" })).toBeVisible();
+    await expect(page.getByText("Connect your Google Calendar")).toBeVisible();
+    const connectButton = page.getByRole("link", { name: "Connect Google Calendar" });
     await expect(connectButton).toBeVisible();
+    await expect(connectButton).toHaveAttribute("href", "/api/auth/google");
   });
 
-  test("calendar connect button links to Google OAuth", async ({ page }) => {
-    await page.goto("/settings/calendar");
+  test("clicking connect navigates to the Google OAuth endpoint", async ({ page }) => {
+    await page.goto("/instructor/availability");
     await page.waitForLoadState("networkidle");
 
-    const connectButton = page.getByRole("button", { name: /connect.*calendar|connect.*google/i });
-    await expect(connectButton).toBeVisible();
-
-    // Mock the connect endpoint to redirect to a known OAuth URL.
-    await page.route("**/api/calendar/connect", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ url: "https://accounts.google.com/o/oauth2/auth?mock=true" }),
-      });
-    });
-
-    await connectButton.click();
-    await page.waitForURL("https://accounts.google.com/o/oauth2/auth?mock=true", { timeout: 10_000 });
-    await expect(page).toHaveURL("https://accounts.google.com/o/oauth2/auth?mock=true");
+    await page.getByRole("link", { name: "Connect Google Calendar" }).click();
+    await page.waitForURL("/api/auth/google", { timeout: 10_000 });
+    await expect(page).toHaveURL("/api/auth/google");
   });
 });

@@ -1,12 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E2E: Student onboarding flow.
+ * E2E: Student onboarding submission.
  *
- * Flow:
- * 1. Admin sends an onboarding invitation to a student email.
- * 2. Student accepts the invite via a magic link.
- * 3. Student completes profile and lands in the workspace.
+ * The admin onboarding invitation flow lives at `/admin/students/invite`. The
+ * student onboarding form is at `/dashboard/onboarding` (legacy web app). The
+ * instructor review page is at `/instructor/onboarding`.
  *
  * Auth fixture is required; the spec skips if auth is missing.
  */
@@ -34,20 +33,26 @@ test.beforeAll(async ({}, testInfo) => {
   }
 });
 
-const MOCK_INVITE = {
-  onboardingId: "onboarding_test_1",
+const MOCK_ONBOARDING = {
+  _id: "onboarding_test_1",
   email: "newstudent@example.com",
   status: "pending",
   expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
 };
 
+const MOCK_INSTRUCTOR = {
+  _id: "instructor_test_1",
+  name: "Test Instructor",
+  timeZone: "America/New_York",
+};
+
 test.describe("Student onboarding", () => {
-  test("admin invite page shows email input and sends invite", async ({ page }) => {
+  test("admin invite page sends a student onboarding invitation", async ({ page }) => {
     await page.route("**/api/admin/students/invite**", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(MOCK_INVITE),
+        body: JSON.stringify(MOCK_ONBOARDING),
       });
     });
 
@@ -63,10 +68,36 @@ test.describe("Student onboarding", () => {
     await expect(page.getByText(/invited|invitation sent/i)).toBeVisible();
   });
 
-  test("student onboarding page rejects invalid onboarding token", async ({ page }) => {
-    await page.goto("/onboarding?token=invalid");
+  test("instructor onboarding page shows a message when no submissions exist", async ({ page }) => {
+    await page.route("**/api/convex**", async (route) => {
+      const url = route.request().url();
+      if (url.includes("getInstructorByUserId")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(MOCK_INSTRUCTOR),
+        });
+        return;
+      }
+      if (url.includes("listByInstructor")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            page: [],
+            continueCursor: null,
+            isDone: true,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/instructor/onboarding");
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByText(/invalid|expired|not found/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Onboarding Submissions" })).toBeVisible();
+    await expect(page.getByText("No onboarding submissions yet")).toBeVisible();
   });
 });

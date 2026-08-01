@@ -1,12 +1,11 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * E2E: Instructor reschedules a session.
+ * E2E: Instructor reschedules a session from the sessions list.
  *
- * Flow:
- * 1. Authenticated instructor navigates to a session detail page.
- * 2. Clicks "Reschedule" and selects a new future time.
- * 3. Confirms the session is updated and a notification is triggered.
+ * The instructor sessions page is `/instructor/sessions`. Each session card
+ * uses the `SessionActions` component, which opens a reschedule dialog and calls
+ * `/api/sessions/[sessionId]/reschedule` on submit.
  *
  * Auth fixture is required; the spec skips if auth is missing.
  */
@@ -34,38 +33,31 @@ test.beforeAll(async ({}, testInfo) => {
   }
 });
 
+const futureDate = new Date();
+futureDate.setDate(futureDate.getDate() + 7);
+
+const MOCK_INSTRUCTOR = {
+  _id: "instructor_test_1",
+  name: "Test Instructor",
+  timeZone: "America/New_York",
+};
+
 const MOCK_SESSION = {
   _id: "session_test_1",
   instructorId: "instructor_test_1",
   studentId: "student_test_1",
   scheduledAt: new Date("2026-08-10T10:00:00Z").getTime(),
   status: "scheduled",
-};
-
-const MOCK_INSTRUCTOR = {
-  _id: "instructor_test_1",
-  name: "Test Instructor",
-};
-
-const MOCK_STUDENT = {
-  email: "student@example.com",
-  firstName: "Student",
-  lastName: "Name",
-  timeZone: "America/New_York",
+  notes: "",
+  sessionPackId: "pack_test_1",
+  remainingSessions: 4,
+  studentEmail: "student@example.com",
 };
 
 test.describe("Instructor rescheduling", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/convex**", async (route) => {
       const url = route.request().url();
-      if (url.includes("getSessionById")) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(MOCK_SESSION),
-        });
-        return;
-      }
       if (url.includes("getInstructorByUserId")) {
         await route.fulfill({
           status: 200,
@@ -74,11 +66,28 @@ test.describe("Instructor rescheduling", () => {
         });
         return;
       }
-      if (url.includes("getUserByClerkIdPublic")) {
+      if (url.includes("useInstructorAllSessions") || url.includes("getInstructorAllSessions")) {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify(MOCK_STUDENT),
+          body: JSON.stringify({
+            page: [MOCK_SESSION],
+            continueCursor: null,
+            isDone: true,
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.route("**/api/sessions/*/reschedule", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true }),
         });
         return;
       }
@@ -86,37 +95,46 @@ test.describe("Instructor rescheduling", () => {
     });
   });
 
-  test("reschedule endpoint rejects dates in the past", async ({ page }) => {
-    const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-    await page.route("**/api/sessions/*/reschedule", async (route) => {
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "newScheduledAt must be in the future" }),
-      });
-    });
-
-    await page.goto(`/sessions/session_test_1/reschedule?newScheduledAt=${encodeURIComponent(pastDate)}`);
+  test("opens reschedule dialog and submits a new future time", async ({ page }) => {
+    await page.goto("/instructor/sessions");
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByText(/must be in the future/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "All Sessions" })).toBeVisible();
+    await expect(page.getByText(MOCK_SESSION.studentEmail)).toBeVisible();
+
+    await page.getByRole("button", { name: "Reschedule session" }).click();
+    await expect(page.getByRole("dialog", { name: "Reschedule Session" })).toBeVisible();
+
+    const newDateInput = page.locator("#new-datetime");
+    await expect(newDateInput).toBeVisible();
+    await newDateInput.fill(futureDate.toISOString().slice(0, 16));
+
+    await page.getByRole("button", { name: "Reschedule", exact: false }).click();
+    await expect(page.getByText("Session rescheduled")).toBeVisible();
   });
 
-  test("reschedule endpoint accepts a future date", async ({ page }) => {
-    const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
+  test("reschedule endpoint rejects dates in the past", async ({ page }) => {
     await page.route("**/api/sessions/*/reschedule", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ success: true }),
-      });
+      if (route.request().method() === "POST") {
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "newScheduledAt must be in the future" }),
+        });
+        return;
+      }
+      await route.continue();
     });
 
-    await page.goto(`/sessions/session_test_1/reschedule?newScheduledAt=${encodeURIComponent(futureDate)}`);
+    await page.goto("/instructor/sessions");
     await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Reschedule session" }).click();
+    await expect(page.getByRole("dialog", { name: "Reschedule Session" })).toBeVisible();
 
-    await expect(page.getByText(/success/i)).toBeVisible();
+    const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await page.locator("#new-datetime").fill(pastDate.toISOString().slice(0, 16));
+    await page.getByRole("button", { name: "Reschedule", exact: false }).click();
+
+    await expect(page.getByText(/must be in the future/i)).toBeVisible();
   });
 });
