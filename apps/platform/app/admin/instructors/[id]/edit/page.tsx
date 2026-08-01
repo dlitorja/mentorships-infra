@@ -254,7 +254,7 @@ export default function EditInstructorPage() {
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
 
   const [showStudentResultDialog, setShowStudentResultDialog] = useState(false);
-  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
@@ -376,11 +376,11 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => createAdminStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; imageUploadPath: string; studentName: string }) => createAdminStudentResult(instructorId, data),
     onSuccess: () => {
       setError(null);
       setShowStudentResultDialog(false);
-      setStudentResultForm({ imageUrl: "", studentName: "" });
+      setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
@@ -1017,10 +1017,11 @@ export default function EditInstructorPage() {
             <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
-              instructorId={instructorId}
-              type="result"
-              enableCrop
+                onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
+                onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
+                instructorId={instructorId}
+                type="result"
+                enableCrop
             />
             <div>
               <Label>Student Name (optional)</Label>

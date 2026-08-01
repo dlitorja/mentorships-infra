@@ -11,7 +11,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 1 | Security & architecture hardening | Merged (#710) |
 | 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
-| 4 | Image upload consolidation & Next.js Image migration | In progress |
+| 4 | Image upload consolidation & Next.js Image migration | Opened (#717) |
 | 5 | Type safety & checkout UX | Not started |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |

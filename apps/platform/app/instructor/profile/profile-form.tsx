@@ -321,7 +321,10 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           <ImageUploadField
             label=""
             value={profileImageUrl}
-            onChange={setProfileImageUrl}
+            onChange={(url) => {
+              setProfileImageUrl(url);
+              setProfileImageUploadPath("");
+            }}
             onUploadComplete={(_url, path) => setProfileImageUploadPath(path)}
             uploadEndpoint={PROFILE_UPLOAD_ENDPOINT}
             placeholder="https://example.com/profile.jpg"
@@ -341,6 +344,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             label="Add Portfolio Image"
             value=""
             onChange={handlePortfolioAdd}
+            onCommit={handlePortfolioAdd}
             uploadEndpoint={PORTFOLIO_UPLOAD_ENDPOINT}
             placeholder="https://example.com/portfolio.jpg"
           />
@@ -628,7 +632,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
               onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               uploadEndpoint={STUDENT_RESULT_UPLOAD_ENDPOINT}
             />

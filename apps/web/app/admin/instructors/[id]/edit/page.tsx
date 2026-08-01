@@ -250,7 +250,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
 /**
  * Adds a student result (before/after image) to an instructor.
  */
-async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
+async function addStudentResult(instructorId: string, data: { imageUrl: string; imageUploadPath?: string | null; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -309,7 +309,7 @@ export default function EditInstructorPage() {
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
 
   const [showStudentResultDialog, setShowStudentResultDialog] = useState(false);
-  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
@@ -424,10 +424,10 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; imageUploadPath: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
       setShowStudentResultDialog(false);
-      setStudentResultForm({ imageUrl: "", studentName: "" });
+      setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
@@ -1031,7 +1031,8 @@ export default function EditInstructorPage() {
             <ImageUploadField
               label="Result Image"
               value={studentResultForm.imageUrl}
-              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url, imageUploadPath: "" }))}
+              onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               instructorId={instructorId}
               type="result"
             />

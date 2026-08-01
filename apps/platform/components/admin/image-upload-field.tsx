@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,10 +10,16 @@ import { Loader2, Upload, X, ImageIcon, Crop } from "lucide-react";
 import Image from "next/image";
 import { CropDialog } from "./crop-dialog";
 
+const uploadResponseSchema = z.object({
+  url: z.string(),
+  path: z.string().optional(),
+});
+
 interface ImageUploadFieldProps {
   label?: string;
   value?: string;
   onChange: (url: string) => void;
+  onCommit?: (url: string) => void;
   uploadEndpoint?: string;
   placeholder?: string;
   multiple?: boolean;
@@ -46,7 +53,8 @@ const ACCEPTED_TYPES = {
  *
  * @param label - Label text for the upload field
  * @param value - Current image URL value
- * @param onChange - Callback fired when image URL changes
+ * @param onChange - Callback fired when image URL changes (also called on file uploads)
+ * @param onCommit - Optional commit callback for URL input, triggered on blur/Enter instead of on every keystroke
  * @param uploadEndpoint - API endpoint for file upload
  * @param placeholder - Placeholder text for URL input
  * @param multiple - Allow multiple file uploads
@@ -64,7 +72,8 @@ export function ImageUploadField({
   label,
   value,
   onChange,
-  uploadEndpoint = "/api/admin/upload",
+  onCommit,
+  uploadEndpoint: uploadEndpointProp,
   placeholder = "https://example.com/image.jpg",
   multiple = false,
   maxFiles = multiple ? 10 : 1,
@@ -85,13 +94,15 @@ export function ImageUploadField({
   const [reCropUrl, setReCropUrl] = useState<string | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
 
+  const uploadEndpoint = uploadEndpointProp ?? (instructorId ? "/api/admin/instructors/upload" : "/api/admin/upload");
+
   useEffect(() => {
     setUrlInput(value || "");
     setPreviewFailed(false);
   }, [value]);
 
   const uploadFile = useCallback(
-    async (file: File): Promise<string | null> => {
+    async (file: File): Promise<{ url: string; path?: string } | null> => {
       if (!instructorId && uploadEndpoint === "/api/admin/instructors/upload") {
         setUploadError("Instructor ID required for uploads");
         return null;
@@ -118,8 +129,8 @@ export function ImageUploadField({
           throw new Error(error.error || "Upload failed");
         }
 
-        const data = await response.json();
-        return data.url as string;
+        const data = uploadResponseSchema.parse(await response.json());
+        return { url: data.url, path: data.path };
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "Upload failed");
         return null;
@@ -131,14 +142,14 @@ export function ImageUploadField({
   );
 
   const finalizeUpload = useCallback(
-    (url: string, data?: { path?: string }) => {
+    (url: string, path?: string) => {
       onChange(url);
-      setUrlInput(url);
-      if (onUploadComplete && data?.path) {
-        onUploadComplete(url, data.path);
+      setUrlInput(onCommit ? "" : url);
+      if (onUploadComplete && path) {
+        onUploadComplete(url, path);
       }
     },
-    [onChange, onUploadComplete]
+    [onChange, onUploadComplete, onCommit]
   );
 
   const openCropDialog = useCallback((file: File) => {
@@ -150,9 +161,9 @@ export function ImageUploadField({
     async (croppedFile: File) => {
       setCropDialogOpen(false);
       setPendingFile(null);
-      const url = await uploadFile(croppedFile);
-      if (url) {
-        finalizeUpload(url);
+      const result = await uploadFile(croppedFile);
+      if (result) {
+        finalizeUpload(result.url, result.path);
       }
     },
     [uploadFile, finalizeUpload]
@@ -173,9 +184,9 @@ export function ImageUploadField({
     async (croppedFile: File) => {
       setCropDialogOpen(false);
       setReCropUrl(null);
-      const url = await uploadFile(croppedFile);
-      if (url) {
-        finalizeUpload(url);
+      const result = await uploadFile(croppedFile);
+      if (result) {
+        finalizeUpload(result.url, result.path);
       }
     },
     [uploadFile, finalizeUpload]
@@ -193,8 +204,8 @@ export function ImageUploadField({
       if (multiple) {
         const urls: string[] = [];
         for (const file of acceptedFiles) {
-          const url = await uploadFile(file);
-          if (url) urls.push(url);
+          const result = await uploadFile(file);
+          if (result) urls.push(result.url);
         }
         if (urls.length > 0 && onMultipleUpload) {
           onMultipleUpload(urls);
@@ -206,9 +217,9 @@ export function ImageUploadField({
       if (enableCrop) {
         openCropDialog(file);
       } else {
-        const url = await uploadFile(file);
-        if (url) {
-          finalizeUpload(url);
+        const result = await uploadFile(file);
+        if (result) {
+          finalizeUpload(result.url, result.path);
         }
       }
     },
@@ -226,7 +237,18 @@ export function ImageUploadField({
   const handleUrlChange = (newUrl: string) => {
     setUrlInput(newUrl);
     setPreviewFailed(false);
-    onChange(newUrl);
+    if (!onCommit) {
+      onChange(newUrl);
+    }
+  };
+
+  const handleUrlCommit = () => {
+    if (onCommit) {
+      onCommit(urlInput);
+      setUrlInput("");
+    } else {
+      onChange(urlInput);
+    }
   };
 
   const handleClear = () => {
@@ -245,6 +267,13 @@ export function ImageUploadField({
         <Input
           value={urlInput}
           onChange={(e) => handleUrlChange(e.target.value)}
+          onBlur={handleUrlCommit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleUrlCommit();
+            }
+          }}
           placeholder={placeholder}
           className="flex-1"
         />
