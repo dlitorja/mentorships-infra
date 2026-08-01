@@ -380,6 +380,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       }
 
       const prevIds = new Set(prev.map((m) => m._id));
+      const rawIds = new Set(messagesRaw.map((m) => m._id));
       const firstExistingIndex = messagesRaw.findIndex((m) =>
         prevIds.has(m._id)
       );
@@ -393,9 +394,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       );
       const newerMessages = messagesRaw.slice(0, firstExistingIndex);
       const olderMessages = messagesRaw.slice(lastExistingIndex + 1);
-      const existingMessages = prev.filter((m) =>
-        messagesRaw.some((raw) => raw._id === m._id)
-      );
+      const existingMessages = prev.filter((m) => rawIds.has(m._id));
 
       return [
         ...olderMessages.reverse(),
