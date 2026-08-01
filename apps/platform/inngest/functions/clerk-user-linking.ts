@@ -17,8 +17,8 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     id: "link-clerk-user-to-session-packs",
     name: "Link Clerk User to Session Packs",
     retries: 3,
+    triggers: [{ event: "clerk/user.created" }],
   },
-  { event: "clerk/user.created" },
   async ({ event, step }) => {
     const { userId, email } = event.data;
 

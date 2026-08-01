@@ -2,7 +2,7 @@
 
 **When to use this runbook**: before any release that touches the admin-onboarding form, the `adminOnboardingFlow` Inngest handler, or the per-recipient idempotency tracking. Also use when triaging a customer report that an admin-onboarding submission did not produce the expected student email / instructor email / admin summary / Discord DM.
 
-This runbook exercises **only the admin-onboarding path** — `adminOnboardingFlow` triggered by `admin/onboarding.completed`. The Stripe / PayPal purchase flow (`onboardingFlow` triggered by `purchase/instructor`) has its own manual-test checklist in [`TESTING_CHECKOUT.md`](../../../../TESTING_CHECKOUT.md) and [`STRIPE_TESTING_CHECKLIST.md`](../../../../STRIPE_TESTING_CHECKLIST.md) at the repo root.
+This runbook exercises **only the admin-onboarding path** — `adminOnboardingFlow` triggered by `admin/onboarding.completed`. The Stripe / PayPal purchase flow (`onboardingFlow` deferred from `processStripeCheckout` / `processPayPalCheckout`) has its own manual-test checklist in [`TESTING_CHECKOUT.md`](../../../../TESTING_CHECKOUT.md) and [`STRIPE_TESTING_CHECKLIST.md`](../../../../STRIPE_TESTING_CHECKLIST.md) at the repo root.
 
 ## Prerequisites
 

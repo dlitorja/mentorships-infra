@@ -72,8 +72,8 @@ export const migrateGuestSessionPacks = inngest.createFunction(
     id: "migrate-guest-session-packs",
     name: "Migrate Guest Session Packs",
     retries: 3,
+    triggers: [{ event: "migration/migrate-guest-session-packs" }],
   },
-  { event: "migration/migrate-guest-session-packs" },
   async ({ step }) => {
     const convex = getConvexClient();
 
