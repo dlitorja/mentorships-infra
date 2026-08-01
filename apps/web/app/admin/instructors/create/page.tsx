@@ -12,7 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowLeft, Plus, X, Upload } from "lucide-react";
-import { AdminImageUpload } from "@/components/admin/admin-image-upload";
+import Image from "next/image";
+import { ImageUploadField } from "@/components/admin/image-upload-field";
 
 type Socials = {
   twitter?: string;
@@ -366,7 +367,7 @@ export default function CreateInstructorPage() {
               <CardDescription>Add profile picture and portfolio images</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <AdminImageUpload
+              <ImageUploadField
                 label="Profile Picture"
                 value={formData.profileImageUrl}
                 onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
@@ -413,8 +414,15 @@ export default function CreateInstructorPage() {
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
-                      <div key={i} className="relative group">
-                        <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-24 object-cover rounded" />
+                      <div key={i} className="relative group h-24">
+                        <Image
+                          src={url}
+                          alt={`Portfolio ${i + 1}`}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 25vw, 15vw"
+                          className="object-cover rounded"
+                        />
                         <button
                           onClick={() => removePortfolioImage(i)}
                           className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"

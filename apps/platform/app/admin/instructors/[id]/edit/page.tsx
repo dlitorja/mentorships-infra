@@ -643,6 +643,7 @@ export default function EditInstructorPage() {
                 onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
                 instructorId={instructorId}
                 type="profile"
+                enableCrop
               />
               <div>
                 <Label>Portfolio Images</Label>
@@ -1019,6 +1020,7 @@ export default function EditInstructorPage() {
               onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
               instructorId={instructorId}
               type="result"
+              enableCrop
             />
             <div>
               <Label>Student Name (optional)</Label>

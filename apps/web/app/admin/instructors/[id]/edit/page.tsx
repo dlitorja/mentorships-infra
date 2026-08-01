@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
 import { z } from "zod";
+import Image from "next/image";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 
@@ -674,8 +675,15 @@ export default function EditInstructorPage() {
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
-                      <div key={i} className="relative group">
-                        <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-24 object-cover rounded" />
+                      <div key={i} className="relative group h-24">
+                        <Image
+                          src={url}
+                          alt={`Portfolio ${i + 1}`}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 25vw, 15vw"
+                          className="object-cover rounded"
+                        />
                         <button
                           onClick={() => removePortfolioImage(i)}
                           className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100"
@@ -869,16 +877,23 @@ export default function EditInstructorPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {data.studentResults.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No student results yet</p>
-              ) : (
-                <div className="grid grid-cols-4 gap-4">
-                  {data.studentResults.map((r) => (
-                    <div key={r.id} className="relative group">
-                      {r.imageUrl && (
-                        <img src={r.imageUrl} alt="Student result" className="w-full h-32 object-cover rounded" />
-                      )}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                {data.studentResults.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">No student results yet</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-4">
+                    {data.studentResults.map((r) => (
+                      <div key={r.id} className="relative group h-32">
+                        {r.imageUrl && (
+                          <Image
+                            src={r.imageUrl}
+                            alt="Student result"
+                            fill
+                            unoptimized
+                            sizes="(max-width: 768px) 25vw, 15vw"
+                            className="object-cover rounded"
+                          />
+                        )}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
                           variant="destructive"
                           size="sm"

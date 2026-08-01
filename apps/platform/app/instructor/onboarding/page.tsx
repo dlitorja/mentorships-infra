@@ -3,6 +3,7 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import Image from "next/image";
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
@@ -215,13 +216,16 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                       ) : (
                         <div className="grid grid-cols-2 gap-3">
                           {signedUrls.map((u) => (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={u.storageId ?? u.path}
-                              src={u.signedUrl}
-                              alt="Onboarding work"
-                              className="w-full rounded-md border object-cover"
-                            />
+                            <div key={u.storageId ?? u.path} className="relative w-full aspect-square rounded-md border overflow-hidden">
+                              <Image
+                                src={u.signedUrl}
+                                alt="Onboarding work"
+                                fill
+                                unoptimized
+                                sizes="(max-width: 768px) 50vw, 25vw"
+                                className="object-cover"
+                              />
+                            </div>
                           ))}
                         </div>
                       )}

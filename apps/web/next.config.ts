@@ -12,6 +12,18 @@ const nextConfig: NextConfig = {
   // Transpile packages from the monorepo
   transpilePackages: ["@mentorships/db", "@mentorships/payments", "@mentorships/ui"],
 
+  // Allow Next.js Image Optimization for Convex Storage URLs
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.convex.cloud",
+        port: "",
+        pathname: "/**",
+      },
+    ],
+  },
+
   // Fix monorepo workspace root for Turbopack
   experimental: {
     // @ts-ignore - turbopack.root is valid in Next.js 16 but missing from TypeScript types

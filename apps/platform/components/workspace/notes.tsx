@@ -5,6 +5,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
+import NextImage from 'next/image';
 import Underline from '@tiptap/extension-underline';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
@@ -1193,7 +1194,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                       <div className="flex items-center gap-2 bg-muted/50 rounded p-2">
                         {commentAttachmentPreview ? (
                           <div className="relative w-10 h-10 rounded overflow-hidden">
-                            <img src={commentAttachmentPreview} alt="Preview" className="w-full h-full object-cover" />
+                            <NextImage
+                              src={commentAttachmentPreview}
+                              alt="Preview"
+                              fill
+                              unoptimized
+                              sizes="40px"
+                              className="object-cover"
+                            />
                           </div>
                         ) : (
                           <File className="h-4 w-4 text-muted-foreground" />

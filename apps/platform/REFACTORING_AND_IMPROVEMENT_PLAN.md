@@ -11,7 +11,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 1 | Security & architecture hardening | Merged (#710) |
 | 2 | API / data layer consolidation | Completed (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
-| 4 | Image upload consolidation & Next.js Image migration | Not started |
+| 4 | Image upload consolidation & Next.js Image migration | In progress |
 | 5 | Type safety & checkout UX | Not started |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
@@ -55,7 +55,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 1 | Security & architecture hardening | High | 4 |
 | 2 | API / data layer consolidation | Medium | 5 |
 | 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
-| 4 | Image upload consolidation & Next.js Image migration | Medium | 3 |
+| 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
 | 5 | Type safety & checkout UX | Medium | 4 |
 | 6 | Testing infrastructure | High | 3 |
 | 7 | Performance & loading states | Medium | 6 |
@@ -174,23 +174,48 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 
 *Consolidate three similar image upload components and migrate previews to Next.js `Image`.*
 
+> **Detailed implementation plan:** [`docs/plans/pr-4-image-upload-consolidation.md`](../../docs/plans/pr-4-image-upload-consolidation.md)
+
 ### 4.1. Duplicated Image Upload Components
 
 - **Files:** `components/admin/admin-image-upload.tsx`, `components/admin/instructor-image-upload.tsx`, `components/admin/image-upload-field.tsx`
 - **Problem:** Three components share almost identical drag-and-drop, URL input, preview, and error handling logic. Differences are minor: crop support, upload endpoint, and multi-file support.
-- **Fix:** Build a single `ImageUploadField` with configurable options: `{ crop?: boolean, uploadEndpoint, multiple?: boolean, onUploadComplete? }`.
+- **Fix:** Build a single `ImageUploadField` with configurable options:
+  - `uploadEndpoint`, `multiple`, `maxFiles`, `onMultipleUpload`
+  - `onUploadComplete(url, path)` for instructor uploads
+  - `instructorId` + `type` (`profile` | `portfolio` | `result`) for the instructor admin route
+  - `enableCrop` + `cropAspectRatio` (platform only; `react-image-crop` is installed there)
+- **Scope:** Consolidate per app first. Cross-app extraction into `@mentorships/ui` is a follow-up because `apps/web` does not currently depend on `react-image-crop`.
 
 ### 4.2. `<img>` Tags Instead of Next.js `Image`
 
-- **Files:** `components/admin/admin-image-upload.tsx`, `components/admin/instructor-image-upload.tsx`, `components/admin/image-upload-field.tsx`, `components/workspace/notes.tsx` (line 1196), `app/instructor/onboarding/page.tsx` (line 196)
+- **Files:**
+  - Upload components: `components/admin/admin-image-upload.tsx`, `components/admin/instructor-image-upload.tsx`, `components/admin/image-upload-field.tsx`
+  - Workspace: `components/workspace/notes.tsx` (line 1196)
+  - Onboarding: `app/instructor/onboarding/page.tsx` (line 219)
+  - Web admin/instructor forms: `app/admin/instructors/[id]/edit/page.tsx`, `app/admin/instructors/create/page.tsx`, `app/instructor/profile/profile-form.tsx`
 - **Problem:** Uses plain `<img>` for previews, losing Next.js image optimization, lazy loading, and layout stability.
-- **Fix:** Use Next.js `Image` component where possible. For external/dynamic URLs, use `unoptimized` if required, or proxy through a configured loader.
+- **Fix:** Use Next.js `Image` with `unoptimized` for all dynamic/external Convex Storage URLs. For data URLs in `notes.tsx`, use explicit `width`/`height` + `unoptimized`.
 
-### 4.3. Backup File Left in Source Tree
+### 4.3. Missing Image Remote Pattern in `apps/web`
 
-- **File:** `components/landing/instructor-carousel.tsx.bak`
-- **Problem:** A `.bak` file is committed to the repo.
-- **Fix:** Delete the file.
+- **File:** `apps/web/next.config.ts`
+- **Problem:** `apps/platform` already allows `**.convex.cloud`, but `apps/web` has no remote image patterns. Uploaded images will fail when migrated to Next.js `Image`.
+- **Fix:** Add the same `images.remotePatterns` entry for `**.convex.cloud` to `apps/web/next.config.ts`.
+
+### 4.4. Backup Files Left in Source Tree
+
+- **Files:**
+  - `apps/platform/components/landing/instructor-carousel.tsx.bak`
+  - `apps/web/components/landing/instructor-carousel.tsx.bak`
+- **Problem:** `.bak` files are committed to the repo.
+- **Fix:** Delete both files.
+
+### 4.5. Follow-up PR: Extract `ImageUploadField` to `@mentorships/ui`
+
+- **Problem:** After PR 4, each app will still have its own copy of `ImageUploadField`. The long-term goal is a single shared component.
+- **Fix:** In a dedicated follow-up PR, move `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`, add `react-dropzone`, `lucide-react`, and `react-image-crop` to the shared package, install `react-image-crop` in `apps/web`, and re-export the component from both apps.
+- **Plan:** See [`docs/plans/pr-4-image-upload-consolidation.md`](../../docs/plans/pr-4-image-upload-consolidation.md) §8.
 
 ---
 
@@ -374,4 +399,4 @@ Where possible, decompose these as part of the relevant PRs rather than as a sta
 
 ---
 
-*This document is a snapshot of findings as of 2026-07-30 and should be updated as PRs are merged.*
+*This document is a snapshot of findings as of 2026-07-31 and should be updated as PRs are merged.*
