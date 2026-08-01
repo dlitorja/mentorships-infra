@@ -57,31 +57,59 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Added `images.remotePatterns` for `**.convex.cloud` in `apps/web/next.config.ts`.
 - Removed committed `.bak` files from the source tree.
 
-### PR 4.5: Shared ImageUploadField / CropDialog in `@mentorships/ui` (#719)
+### PR 3: Session Actions Consolidation & Reschedule Correctness (#716)
 
 **Status:** Squash-merged.
 
-- Moved `ImageUploadField` and `CropDialog` to `packages/ui/src/components/`.
-- Added the minimal UI primitives they depend on (`Button`, `Input`, `Label`, `Dialog`) plus `cn()` to `packages/ui`.
-- Re-exported the shared components and primitives from both `apps/platform` and `apps/web` so existing import paths keep working.
-- Added `react-image-crop` to `apps/web` (already present in `apps/platform`).
-- Added `packages/ui/src/**/*` to Tailwind content paths in both apps.
+- Consolidated duplicate session-action dialogs and API call patterns.
+- Fixed reschedule timezone handling in `datetime-local` inputs.
+- Replaced async `useTransition` with explicit pending state in session actions.
+- Surfaced errors from `EnsureInstructorRole` and fixed `EmailPreviewTab` race conditions.
+
+### PR 5: Type Safety & Checkout UX (#720)
+
+**Status:** Squash-merged.
+
+- Removed widespread `as any` casts and added shared TypeScript interfaces (`InstructorDetail`, `Product`, `PublicInstructor`).
+- Fixed `useForm` integration in availability and product forms.
+- Moved checkout guest validation out of the mutation into form-level validation.
+- Removed extra `paymentMethod` resets in `checkout/page.tsx`.
+
+### PR 6: Testing Infrastructure (#721)
+
+**Status:** Squash-merged.
+
+- Added shared `tests/unit/test-utils.tsx` with TanStack Query provider and `renderWithProviders`.
+- Added component tests for session actions, booking form, chat, image upload, and instructor creation.
+- Added API route tests for auth sync, bookings, Stripe checkout, and session reschedule.
+- Deferred full E2E Playwright flows to a follow-up PR requiring a seeded test backend.
+
+### PR 7: Performance & Loading States (#722)
+
+**Status:** Squash-merged.
+
+- Added Suspense boundaries with error fallbacks to `/instructors`, `/instructor/dashboard`, `/admin`, and the landing testimonials.
+- Removed `apps/platform/lib/instructors.ts` mock data and migrated the carousel to a new Convex public testimonial query.
+- Replaced Google Calendar `sessionStorage` cache with user-scoped TanStack Query hooks and centralized invalidation.
+- Converted `DashboardContent` manual Google fetches to the new hooks.
+- Removed unnecessary `useMemo` for trivial derivations.
+- Fixed `chat.tsx` repeated `reverse()` by merging paginated messages into a stable chronological array.
 
 ---
 
 ## Summary
 
-| PR | Theme | Priority | Approximate Items |
-|----|-------|----------|-------------------|
-| 1 | Security & architecture hardening | High | 4 |
-| 2 | API / data layer consolidation | Medium | 5 |
-| 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
-| 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
+| PR | Theme | Status | Approximate Items |
+|----|-------|--------|-------------------|
+| 1 | Security & architecture hardening | Merged (#710) | 4 |
+| 2 | API / data layer consolidation | Merged (#712) | 5 |
+| 3 | Session actions consolidation & reschedule correctness | Merged (#716) | 5 |
+| 4 | Image upload consolidation & Next.js Image migration | Merged (#717) | 4 |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) | 4 |
 | 5 | Type safety & checkout UX | Merged (#720) | 4 |
-| 6 | Testing infrastructure | High | 3 |
-| 7 | Performance & loading states | Medium | 6 |
-| 8 | Accessibility, UI consistency, and cleanup | Low-Medium | 9 |
+| 6 | Testing infrastructure | Merged (#721) | 3 |
+| 7 | Performance & loading states | Merged (#722) | 6 |
+| 8 | Accessibility, UI consistency, and cleanup | Not started | 9 |
 
 **Total PRs:** 8
 
@@ -450,4 +478,4 @@ Where possible, decompose these as part of the relevant PRs rather than as a sta
 
 ---
 
-*This document is a snapshot of findings as of 2026-07-31 and should be updated as PRs are merged.*
+*This document is a snapshot of findings as of 2026-08-01 and should be updated as PRs are merged.*
