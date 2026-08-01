@@ -9,7 +9,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | PR | Theme | Status |
 |----|-------|--------|
 | 1 | Security & architecture hardening | Merged (#710) |
-| 2 | API / data layer consolidation | Completed (#712) |
+| 2 | API / data layer consolidation | Merged (#712) |
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) |
