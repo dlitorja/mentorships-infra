@@ -307,6 +307,8 @@ See the full implementation plan: [`docs/plans/pr-6-testing-infrastructure.md`](
 - Google Calendar connect (skip if no OAuth bypass in env).
 - Student onboarding submission.
 
+**Note:** These four E2E flows are deferred to a follow-up PR because they require a seeded test backend and cannot be reliably mocked through Playwright's browser request interception against the current Convex setup. The unit, component, and API route tests are included in this PR.
+
 ### 6.5. Verification
 
 - `pnpm test:unit`
