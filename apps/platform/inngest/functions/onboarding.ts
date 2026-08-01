@@ -99,7 +99,7 @@ const onboardingFlowInputSchema = z.object({
 export const onboardingFlow = createDefer(
   inngest,
   {
-    id: "onboarding-flow",
+    id: "platform-onboarding-flow",
     name: "Onboarding Flow",
     retries: 2,
     schema: onboardingFlowInputSchema,
