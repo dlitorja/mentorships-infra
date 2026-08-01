@@ -9,7 +9,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
     "@tanstack/react-form": "^1.27.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.555.0",
+    "react-dropzone": "^14.4.1",
+    "react-image-crop": "^11.0.10",
+    "tailwind-merge": "^3.4.0",
     "zod": "^4.1.13"
   },
   "peerDependencies": {
@@ -19,6 +28,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.25",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
     "typescript": "^5.9.3"
   }
 }
