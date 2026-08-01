@@ -13,7 +13,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 3 | Session actions consolidation & reschedule correctness | Merged (#716) |
 | 4 | Image upload consolidation & Next.js Image migration | Merged (#717) |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) |
-| 5 | Type safety & checkout UX | PR opened |
+| 5 | Type safety & checkout UX | PR opened (#720) |
 | 6 | Testing infrastructure | Not started |
 | 7 | Performance & loading states | Not started |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
@@ -78,7 +78,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 3 | Session actions consolidation & reschedule correctness | Medium-High | 5 |
 | 4 | Image upload consolidation & Next.js Image migration | Medium | 4 |
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | PR opened (#719) | 4 |
-| 5 | Type safety & checkout UX | Medium | 4 |
+| 5 | Type safety & checkout UX | PR opened (#720) | 4 |
 | 6 | Testing infrastructure | High | 3 |
 | 7 | Performance & loading states | Medium | 6 |
 | 8 | Accessibility, UI consistency, and cleanup | Low-Medium | 9 |
