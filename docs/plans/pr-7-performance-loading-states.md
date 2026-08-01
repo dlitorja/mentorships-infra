@@ -2,7 +2,7 @@
 
 **PR number:** 7
 **Theme:** Improve perceived performance, reduce bundle size, and clean up data-loading patterns.
-**Status:** In progress
+**Status:** Opened (#722)
 **Target branch:** `main`
 **Estimated size:** Medium
 **Primary app:** `apps/platform`
