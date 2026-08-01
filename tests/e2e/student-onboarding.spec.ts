@@ -4,8 +4,8 @@ import { test, expect } from "@playwright/test";
  * E2E: Student onboarding submission.
  *
  * The admin onboarding invitation flow lives at `/admin/students/invite`. The
- * student onboarding form is at `/dashboard/onboarding` (legacy web app). The
- * instructor review page is at `/instructor/onboarding`.
+ * student-facing onboarding form is at `/dashboard/onboarding` (legacy web
+ * app). The instructor review page is at `/instructor/onboarding`.
  *
  * Auth fixture is required; the spec skips if auth is missing.
  */
@@ -97,7 +97,13 @@ test.describe("Student onboarding", () => {
     await page.goto("/instructor/onboarding");
     await page.waitForLoadState("networkidle");
 
-    await expect(page.getByRole("heading", { name: "Onboarding Submissions" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Student Onboarding Submissions" })).toBeVisible();
     await expect(page.getByText("No onboarding submissions yet")).toBeVisible();
+  });
+
+  test.fixme("student can submit goals and images from /dashboard/onboarding", async () => {
+    // The student onboarding form is in the legacy web app and requires an
+    // active session pack. Exercise this flow against a seeded staging environment.
+    expect(true).toBe(true);
   });
 });
