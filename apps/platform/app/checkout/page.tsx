@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { Suspense, useState, useEffect, useMemo, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -58,16 +58,11 @@ function CheckoutContent(): React.JSX.Element {
   const sourceProducts: Product[] = instructorId ? (productsData ?? []) : (publicProductsData ?? []);
   const allProducts = sourceProducts.filter((p) => p.active);
 
-  const productList = useMemo(() => {
-    return mentorshipType
-      ? allProducts.filter((p) => p.mentorshipType === mentorshipType)
-      : allProducts;
-  }, [allProducts, mentorshipType]);
+  const productList = mentorshipType
+    ? allProducts.filter((p) => p.mentorshipType === mentorshipType)
+    : allProducts;
 
-  const selectedProduct = useMemo(
-    () => productList.find((p) => p._id === selectedProductId),
-    [productList, selectedProductId]
-  );
+  const selectedProduct = productList.find((p) => p._id === selectedProductId);
 
   useEffect(() => {
     if (user) {

@@ -1,28 +1,25 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { convexQuery } from '@convex-dev/react-query';
+import { api } from '@/convex/_generated/api';
+import type { PublicInstructor } from '@/lib/queries/convex/use-instructors';
 
-interface Instructor {
-  _id: string;
-  name?: string;
-  slug?: string;
-  tagline?: string;
-  bio?: string;
-  profileImageUrl?: string;
-  portfolioImages?: string[];
-  specialties?: string[];
-  isCompletelySoldOut?: boolean;
+function getPriorityIds(instructors: PublicInstructor[]): Set<string> {
+  return new Set(
+    instructors
+      .slice()
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+      .slice(0, 6)
+      .map((i) => i._id)
+  );
 }
 
-interface InstructorGridProps {
-  instructors: Instructor[];
-  priorityIds: Set<string>;
-}
-
-function InstructorCardImage({ instructor, priority, soldOut }: { instructor: Instructor; priority: boolean; soldOut: boolean }) {
+function InstructorCardImage({ instructor, priority, soldOut }: { instructor: PublicInstructor; priority: boolean; soldOut: boolean }) {
   const [hasError, setHasError] = useState(false);
   // Use an in-repo SVG placeholder that always exists
   const placeholder = "/placeholder-instructor.svg";
@@ -58,7 +55,13 @@ function InstructorCardImage({ instructor, priority, soldOut }: { instructor: In
   );
 }
 
-export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps): React.JSX.Element {
+export function InstructorGrid(): React.JSX.Element {
+  const { data: instructors } = useSuspenseQuery(
+    convexQuery(api.instructors.getPublicInstructors, {})
+  );
+
+  const priorityIds = getPriorityIds(instructors);
+
   useEffect(() => {
     sessionStorage.setItem('instructorOrder', JSON.stringify(instructors.map((i) => i.slug)));
   }, [instructors]);

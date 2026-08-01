@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -94,7 +95,9 @@ export default function HomePage(): React.JSX.Element {
               Real feedback from students who have worked with our instructors
             </p>
             <ErrorBoundary fallback={<div className='w-full h-32 bg-card rounded-xl flex items-center justify-center'><p className='text-muted-foreground text-sm'>Unable to load testimonials.</p></div>}>
-              <TestimonialsCarousel />
+              <Suspense fallback={<div className='w-full h-32 bg-card rounded-xl animate-pulse' />}>
+                <TestimonialsCarousel />
+              </Suspense>
             </ErrorBoundary>
           </div>
         </section>

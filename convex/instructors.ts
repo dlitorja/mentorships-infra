@@ -2023,6 +2023,46 @@ export const getTestimonialsByInstructorId = query({
   },
 });
 
+/** Returns public testimonials for active instructors. */
+export const getPublicTestimonials = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+
+    const publicVisible = await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .filter((q) => q.neq(q.field("isActive"), false))
+      .collect();
+
+    const instructorIds = new Set(publicVisible.map((i) => i._id));
+    const instructorById = new Map(publicVisible.map((i) => [i._id, i]));
+
+    const testimonials = await ctx.db.query("instructorTestimonials").collect();
+    const eligible = [];
+    for (const t of testimonials) {
+      if (!t.instructorId || !instructorIds.has(t.instructorId as Id<"instructors">)) continue;
+      const instructor = instructorById.get(t.instructorId as Id<"instructors">);
+      if (!instructor) continue;
+      eligible.push({
+        text: t.text,
+        author: t.name,
+        role: t.role,
+        instructorName: instructor.name,
+        instructorSlug: instructor.slug,
+      });
+    }
+
+    // Shuffle the full eligible set for equal exposure, then limit.
+    for (let i = eligible.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+    }
+
+    return eligible.slice(0, limit);
+  },
+});
+
 /** Returns all student results for a given instructor. */
 export const getStudentResultsByInstructorId = query({
   args: { instructorId: v.id("instructors") },

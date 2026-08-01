@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Quote } from 'lucide-react';
 import {
@@ -11,52 +11,10 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from '@/components/ui/carousel';
-import { mockInstructors, type Testimonial } from '@/lib/instructors';
+import { usePublicTestimonials } from '@/lib/queries/convex/use-instructors';
 
-interface TestimonialWithInstructor extends Testimonial {
-  instructorName: string;
-  instructorSlug: string;
-}
-
-function buildTestimonials(): TestimonialWithInstructor[] {
-  const allTestimonials: TestimonialWithInstructor[] = [];
-  mockInstructors.forEach((instructor) => {
-    if (instructor.isHidden) return;
-    if (instructor.testimonials && instructor.testimonials.length > 0) {
-      instructor.testimonials.forEach((testimonial) => {
-        allTestimonials.push({
-          ...testimonial,
-          instructorName: instructor.name,
-          instructorSlug: instructor.slug,
-        });
-      });
-    }
-  });
-  if (allTestimonials.length === 0) {
-    mockInstructors.forEach((instructor) => {
-      if (instructor.isHidden) return;
-      allTestimonials.push({
-        text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
-        author: 'Sample student',
-        instructorName: instructor.name,
-        instructorSlug: instructor.slug,
-      });
-    });
-  }
-  for (let i = allTestimonials.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allTestimonials[i], allTestimonials[j]] = [allTestimonials[j], allTestimonials[i]];
-  }
-  return allTestimonials;
-}
-
-/**
- * Auto-scrolling testimonials carousel for the landing page.
- * Builds testimonial list from mock instructor data with shuffle and fallback.
- * Pauses on hover/focus and respects reduced-motion preference.
- */
 export function TestimonialsCarousel(): React.JSX.Element {
-  const testimonials = useMemo(() => buildTestimonials(), []);
+  const { data: testimonials } = usePublicTestimonials();
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);

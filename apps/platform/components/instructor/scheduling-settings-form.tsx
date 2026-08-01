@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,8 @@ function getTimeZones(): string[] {
   return ["UTC", "America/Los_Angeles", "America/New_York", "Europe/London", "Europe/Berlin"];
 }
 
+const timeZones = getTimeZones();
+
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
   initialWorkingHours: WorkingHours | null;
@@ -45,8 +47,6 @@ export function SchedulingSettingsForm({
 }: SchedulingSettingsFormProps) {
   console.log("[SchedulingSettingsForm] RENDER - initialTimeZone prop:", initialTimeZone);
   
-  const timeZones = useMemo(() => getTimeZones(), []);
-
   const [timeZone, setTimeZone] = useState<string>(initialTimeZone ?? "");
   console.log("[SchedulingSettingsForm] RENDER - timeZone state:", timeZone);
   const [workingHours, setWorkingHours] = useState<WorkingHours>(initialWorkingHours ?? {});

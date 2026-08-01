@@ -1,35 +1,23 @@
-import Link from "next/link";
-
+import { Suspense } from "react";
 import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
-import { Id } from "@/convex/_generated/dataModel";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import type { FunctionReturnType } from "convex/server";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { InstructorDashboardContent } from "./InstructorDashboardContent";
 
-type StudentSessionRows = FunctionReturnType<typeof api.seatReservations.getInstructorStudentsWithRemainingSessions>;
-type StudentSessionRow = StudentSessionRows[number];
-
-function getDisplayName(row: StudentSessionRow): string {
-  const fullName = [row.studentFirstName, row.studentLastName].filter(Boolean).join(" ");
-  return fullName || row.studentEmail || row.userId;
-}
-
-function getSessionBadgeVariant(remainingSessions: number): "default" | "secondary" | "destructive" | "outline" {
-  if (remainingSessions === 0) return "destructive";
-  if (remainingSessions <= 1) return "secondary";
-  return "default";
-}
-
-const STUDENT_LIST_LIMIT = 100;
-
-async function fetchStudentSessionRows(instructorId: Id<"instructors">, token: string | null): Promise<StudentSessionRows> {
-  return await fetchQuery(
-    api.seatReservations.getInstructorStudentsWithRemainingSessions,
-    { instructorId, limit: STUDENT_LIST_LIMIT },
-    { token: token ?? undefined }
+function InstructorDashboardSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -59,15 +47,6 @@ export default async function InstructorDashboardPage() {
     );
   }
 
-  let studentRows: StudentSessionRow[] = [];
-  let studentRowsError: string | null = null;
-  try {
-    studentRows = await fetchStudentSessionRows(instructorRecord._id as Id<"instructors">, token);
-  } catch (e) {
-    console.error("Failed to load instructor student session counts", e);
-    studentRowsError = "We could not load student session counts. Please refresh or try again later.";
-  }
-
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
       <div className="container mx-auto p-4 md:p-8 space-y-6">
@@ -78,58 +57,22 @@ export default async function InstructorDashboardPage() {
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Students & Remaining Sessions</CardTitle>
-            <CardDescription>
-              Active student session packs, sorted by lowest remaining sessions first.
-              {studentRows.length >= STUDENT_LIST_LIMIT && (
-                <span className="ml-1 text-muted-foreground">
-                  (Showing first {STUDENT_LIST_LIMIT} students)
-                </span>
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {studentRowsError ? (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-8 text-center text-destructive">
-                {studentRowsError}
+        <ErrorBoundary fallback={
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center space-y-4">
+                <p className="text-muted-foreground">Unable to load students right now.</p>
+                <Button variant="outline" onClick={() => window.location.reload()}>
+                  Retry
+                </Button>
               </div>
-            ) : studentRows.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-                No active students yet.
-              </div>
-            ) : (
-              <div className="divide-y rounded-lg border">
-                {studentRows.map((row) => (
-                  <Link
-                    key={row.seatId ?? row.workspaceId ?? row.userId}
-                    href={row.workspaceId ? `/workspace/${row.workspaceId}` : `/instructor/students/${row.userId}`}
-                    className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium">{getDisplayName(row)}</p>
-                      {row.studentEmail && getDisplayName(row) !== row.studentEmail && (
-                        <p className="truncate text-sm text-muted-foreground">{row.studentEmail}</p>
-                      )}
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-2">
-                      {row.hasSessionPack ? (
-                        <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
-                          {row.remainingSessions} {row.remainingSessions === 1 ? "session" : "sessions"} remaining
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline">No active pack</Badge>
-                      )}
-                      {row.status === "grace" && <Badge variant="outline">{row.status}</Badge>}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        }>
+          <Suspense fallback={<InstructorDashboardSkeleton />}>
+            <InstructorDashboardContent instructorId={instructorRecord._id} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     </ProtectedLayout>
   );

@@ -8,8 +8,13 @@ import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-r
 import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/lib/queries/convex/use-session-packs";
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
-import { useMemo, useEffect, useState, useRef } from "react";
-import { ApiFetchError, getMyBookings, getGoogleCalendars, syncDiscordRole } from "@/lib/queries/api-client";
+import { useEffect, useRef } from "react";
+import { syncDiscordRole } from "@/lib/queries/api-client";
+import {
+  useGoogleBookings,
+  useGoogleCalendarStatus,
+  useInvalidateGoogleCalendarQueries,
+} from "@/lib/queries/use-google-calendar";
 import { Id } from "@/convex/_generated/dataModel";
 
 function formatDate(date: number): string {
@@ -29,8 +34,6 @@ function formatDateTime(date: number): string {
     minute: "2-digit",
   });
 }
-
-import { GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY } from "@/lib/constants/storage-keys";
 
 function isOAuthCallback(): boolean {
   if (typeof window === "undefined") return false;
@@ -148,12 +151,19 @@ export function DashboardContent() {
   const { data: instructorRecord } = useInstructorByUserId(userId || "");
   const isInstructorOrAdmin = Boolean(instructorRecord);
 
-  type GoogleBookingStatus = "pending" | "confirmed" | "canceled" | "completed";
-  type GoogleBooking = { id: string; startUtc: number; endUtc: number; status: GoogleBookingStatus };
-  const [googleBookings, setGoogleBookings] = useState<GoogleBooking[]>([]);
-  const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
-  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
-  const [loadingGoogleCalendar, setLoadingGoogleCalendar] = useState(true);
+  const invalidateGoogleCalendar = useInvalidateGoogleCalendarQueries();
+
+  const {
+    data: googleCalendarStatus,
+    isLoading: loadingGoogleCalendar,
+  } = useGoogleCalendarStatus(isInstructorOrAdmin);
+
+  const {
+    data: googleBookings = [],
+    isLoading: loadingGoogleBookings,
+  } = useGoogleBookings(isInstructorOrAdmin);
+
+  const googleCalendarConnected = googleCalendarStatus?.connected ?? false;
 
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
@@ -164,84 +174,13 @@ export function DashboardContent() {
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
 
   useEffect(() => {
-    if (!isLoaded || !userId || !isInstructorOrAdmin) {
-      setGoogleBookings([]);
-      setLoadingGoogleBookings(false);
-      return;
-    }
-    let cancelled = false;
-    async function load() {
-      setLoadingGoogleBookings(true);
-      try {
-        const json = await getMyBookings();
-        if (!cancelled) {
-          if (json?.success) {
-            setGoogleBookings(json.bookings || []);
-          } else {
-            setGoogleBookings([]);
-          }
-        }
-      } catch {
-        if (!cancelled) setGoogleBookings([]);
-      }
-      if (!cancelled) setLoadingGoogleBookings(false);
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoaded, userId, isInstructorOrAdmin]);
-
-  useEffect(() => {
-    if (!isLoaded || !userId) {
-      setGoogleCalendarConnected(false);
-      setLoadingGoogleCalendar(false);
-      return;
-    }
-    if (!isInstructorOrAdmin) {
-      setGoogleCalendarConnected(false);
-      setLoadingGoogleCalendar(false);
-      return;
-    }
-    if (typeof window !== "undefined") {
-      if (isOAuthCallback()) {
-        sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
-        const url = new URL(window.location.href);
-        url.search = "";
-        window.history.replaceState({}, "", url.toString());
-      }
-      if (sessionStorage.getItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY) === "true") {
-        setGoogleCalendarConnected(false);
-        setLoadingGoogleCalendar(false);
-        return;
-      }
-    }
-    let cancelled = false;
-    async function loadGoogleStatus(): Promise<void> {
-      setLoadingGoogleCalendar(true);
-      try {
-        await getGoogleCalendars();
-        if (!cancelled) {
-          setGoogleCalendarConnected(true);
-          sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          if (e instanceof ApiFetchError && e.status === 409) {
-            setGoogleCalendarConnected(false);
-            sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
-          } else {
-            setGoogleCalendarConnected(false);
-          }
-        }
-      }
-      if (!cancelled) setLoadingGoogleCalendar(false);
-    }
-    loadGoogleStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoaded, userId, isInstructorOrAdmin]);
+    if (typeof window === "undefined") return;
+    if (!isOAuthCallback()) return;
+    const url = new URL(window.location.href);
+    url.search = "";
+    window.history.replaceState({}, "", url.toString());
+    invalidateGoogleCalendar();
+  }, [invalidateGoogleCalendar]);
 
   const discordSyncRef = useRef(false);
 
@@ -255,16 +194,13 @@ export function DashboardContent() {
     });
   }, [isLoaded, userId, isInstructorOrAdmin, discordConnected]);
 
-  const sortedPacks = useMemo(() => {
-    if (!sessionPacks) return [];
-    return [...sessionPacks].sort((a, b) => b.purchasedAt - a.purchasedAt);
-  }, [sessionPacks]);
+  const sortedPacks = sessionPacks
+    ? [...sessionPacks].sort((a, b) => b.purchasedAt - a.purchasedAt)
+    : [];
 
-  const uniqueInstructorCount = useMemo(() => {
-    if (!sessionPacks) return 0;
-    const uniqueIds = new Set(sessionPacks.map((p) => p.instructorId));
-    return uniqueIds.size;
-  }, [sessionPacks]);
+  const uniqueInstructorCount = new Set(
+    sessionPacks?.map((p) => p.instructorId) ?? []
+  ).size;
 
   if (!isLoaded) {
     return (

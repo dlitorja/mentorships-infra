@@ -15,7 +15,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 4.5 | Shared ImageUploadField / CropDialog in `@mentorships/ui` | Merged (#719) |
 | 5 | Type safety & checkout UX | Merged (#720) |
 | 6 | Testing infrastructure | Merged (#721) |
-| 7 | Performance & loading states | Not started |
+| 7 | Performance & loading states | Opened (#722) — see [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md) |
 | 8 | Accessibility, UI consistency, and cleanup | Not started |
 
 ## Completed PRs
@@ -322,6 +322,8 @@ See the full implementation plan: [`docs/plans/pr-6-testing-infrastructure.md`](
 ## PR 7: Performance & Loading States
 
 *Improve perceived performance, reduce bundle size, and clean up data-loading patterns.*
+
+> **Detailed implementation plan:** [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md)
 
 ### 7.1. Missing Suspense Boundaries on Many Pages
 
