@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import { Id } from '@/convex/_generated/dataModel';
 import type { AutosaveEntry } from '../types';
 
@@ -11,7 +11,7 @@ export function useNoteAutosave(
   const updateNoteRef = useRef(updateNote);
   updateNoteRef.current = updateNote;
 
-  async function flushAutosave(noteId: Id<'workspaceNotes'>) {
+  const flushAutosave = useCallback(async (noteId: Id<'workspaceNotes'>) => {
     const entry = autosavesRef.current.get(noteId);
     if (!entry || entry.inFlight) return;
 
@@ -35,9 +35,9 @@ export function useNoteAutosave(
         }
       }
     }
-  }
+  }, []);
 
-  function scheduleAutosave(noteId: Id<'workspaceNotes'>, content: string) {
+  const scheduleAutosave = useCallback((noteId: Id<'workspaceNotes'>, content: string) => {
     const existing = autosavesRef.current.get(noteId);
     if (existing?.timeout) {
       clearTimeout(existing.timeout);
@@ -54,17 +54,17 @@ export function useNoteAutosave(
       void flushAutosave(noteId);
     }, 1000);
     autosavesRef.current.set(noteId, entry);
-  }
+  }, [flushAutosave]);
 
-  function clearAutosave(noteId: Id<'workspaceNotes'>) {
+  const clearAutosave = useCallback((noteId: Id<'workspaceNotes'>) => {
     const entry = autosavesRef.current.get(noteId);
     if (entry?.timeout) {
       clearTimeout(entry.timeout);
     }
     autosavesRef.current.delete(noteId);
-  }
+  }, []);
 
-  function flushAllAutosaves() {
+  const flushAllAutosaves = useCallback(() => {
     autosavesRef.current.forEach((entry, noteId) => {
       if (entry.timeout) {
         clearTimeout(entry.timeout);
@@ -74,7 +74,7 @@ export function useNoteAutosave(
         void flushAutosave(noteId);
       }
     });
-  }
+  }, [flushAutosave]);
 
   return {
     autosavesRef,
