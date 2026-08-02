@@ -16,7 +16,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 5 | Type safety & checkout UX | Merged (#720) |
 | 6 | Testing infrastructure | Merged (#721) |
 | 7 | Performance & loading states | Merged (#722) — see [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md) |
-| 8 | Accessibility, UI consistency, and cleanup | Implemented (uncommitted) |
+| 8 | Accessibility, UI consistency, and cleanup | Merged (#723) |
 
 ## Completed PRs
 
@@ -95,6 +95,17 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Removed unnecessary `useMemo` for trivial derivations.
 - Fixed `chat.tsx` repeated `reverse()` by merging paginated messages into a stable chronological array.
 
+### PR 8: Accessibility, UI Consistency, and Cleanup (#723)
+
+**Status:** Squash-merged.
+
+- Replaced native form controls with design-system `<Select>`, `<Checkbox>`, `<Input>`, and `<Label>` primitives.
+- Added `aria-label` to icon-only buttons, `DialogDescription` to dialogs, and icon+text status badges.
+- Replaced inline SVGs in `DashboardContent` with `lucide-react` icons.
+- Removed production `console.log` statements and `alert()` error handling from `app/instructor/profile/profile-form.tsx`.
+- Extracted `BackfillImagesPanel` from `app/admin/instructors/page.tsx` and payment helpers from `inngest/functions/payments.ts` into `payments-helpers.ts`.
+- Applied follow-up review fixes (CodeRabbit/Greptile) and squash-merged into `main`.
+
 ---
 
 ## Summary
@@ -109,7 +120,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 5 | Type safety & checkout UX | Merged (#720) | 4 |
 | 6 | Testing infrastructure | Merged (#721) | 3 |
 | 7 | Performance & loading states | Merged (#722) | 6 |
-| 8 | Accessibility, UI consistency, and cleanup | Implemented (uncommitted) | 8 |
+| 8 | Accessibility, UI consistency, and cleanup | Merged (#723) | 8 |
 
 **Total PRs:** 8
 
@@ -579,12 +590,24 @@ Implemented on 2026-08-01. Files changed:
   - Extracted helper functions (`escapeHtml`, `formatPrice`, `getInstructorNameFromClerk`, `findClerkUserIdByEmail`, `parseEmailResult`) from `inngest/functions/payments.ts` into `inngest/functions/payments-helpers.ts`.
   - Extracted `BackfillImagesPanel` from `app/admin/instructors/page.tsx` into `app/admin/instructors/_components/backfill-images-panel.tsx`.
 
-**Verification run:**
+**Follow-up review fixes applied after merge commit `840d2020`:**
+- `backfill-images-panel.tsx` — added explicit `type="button"` to all panel buttons, added `role="alert"` to the error message, removed the unused Dry run checkbox, added numeric `type="number" min={1}` to the batch limit, initialized `baseUrl` from `window.location.origin`, moved `BackfillResponse` to module scope, deferred `URL.revokeObjectURL`, and reset `confirmRun` after a live run.
+- `admin/instructors/page.tsx` — conditionally rendered the public profile link only when `instructor.slug` exists.
+- `product-form.tsx` — added `aria-describedby` references between Stripe/PayPal checkboxes and their descriptions.
+- `api/admin/instructors/[id]/route.ts` — wrapped `req.json()` in try/catch for invalid bodies, returned generic 500 error messages, and removed `userId` from the Clerk deletion error log.
+- `profile-form.tsx` — made portfolio remove buttons visible by default on mobile/touch and hidden-by-default only on desktop hover.
+- `scheduling-settings-form.tsx` — used a non-empty sentinel for the "(not set)" timezone option.
+- `payments-helpers.ts` — added a 10-second fetch timeout to the Clerk user lookup.
+- `api/webhooks/clerk/route.ts` — removed the redundant diagnostic body-parsing block before `verifyWebhook`.
+
+**Final verification:**
 - `pnpm --filter @mentorships/platform typecheck` ✅
-- `pnpm --filter @mentorships/platform lint` ✅ (no errors; pre-existing warnings remain)
+- `pnpm --filter @mentorships/platform lint` ✅ (0 errors; pre-existing warnings remain)
 - `NEXT_PUBLIC_APP_URL=http://localhost:3000 pnpm --filter @mentorships/platform build` ✅
 - `CI=true pnpm run test:unit` ✅ (353 passed, 3 skipped)
-- `npx greptile@latest review --diff` could not run because the changes are not yet committed.
+- `npx greptile@latest review -b main --diff` ✅ (0 comments, 5/5 confidence)
+
+**Status:** Squash-merged into `main` via PR #723. Branch `pr-8-accessibility-ui-cleanup` deleted.
 
 ---
 
@@ -612,6 +635,40 @@ Where possible, decompose these as part of the relevant PRs rather than as a sta
 6. **PR 6: Testing Infrastructure** — Add tests before larger refactors to establish baselines.
 7. **PR 7: Performance & Loading States** — Improves perceived performance and bundle size.
 8. **PR 8: Accessibility, UI Consistency, and Cleanup** — Medium-risk polish and cleanup; the last remaining PR in this plan.
+
+---
+
+## What Remains
+
+All eight planned PRs are merged, but the following cross-cutting items were intentionally deferred or only partially addressed and are the next candidates for focused work:
+
+### Large-file decomposition
+
+The files below are still oversized. PR 8 only extracted the payment helpers and the backfill panel; the main bodies remain intact.
+
+- `app/admin/instructors/[id]/edit/page.tsx` (~1,200 lines) — split into section components (Profile, Products, Socials, Testimonials/Results, Images) plus a shared hook.
+- `app/admin/products/_components/product-form.tsx` (~945 lines) — split into pricing, session-pack, scheduling, and product-type sections.
+- `components/workspace/chat.tsx` (~1,093 lines) — split into message list, input bar, attachment handling, and pagination hook.
+- `components/workspace/notes.tsx` — split into note list, editor, and toolbar.
+- `inngest/functions/payments.ts` (~1,183 lines) — split each Inngest function and the webhook handler into separate files under `inngest/functions/payments/`.
+
+### E2E / Playwright coverage
+
+PR 6 deferred the Playwright flows because they require a seeded test backend:
+
+- Student purchase + booking flow.
+- Instructor rescheduling.
+- Google Calendar connect (skip if no OAuth bypass).
+- Student onboarding submission.
+
+### Accessibility verification
+
+- No automated `axe-core` scan has been run on the touched pages. Add a CI or test helper that fails on new violations.
+- Some pre-existing lint warnings remain (unescaped entities, unused variables, `useMemo` dependency drift). These are non-blocking but should be cleaned up opportunistically.
+
+### Code quality hygiene
+
+- CodeRabbit docstring coverage warning (26.92% vs 80% threshold). This is not blocking but will surface on every PR until addressed.
 
 ---
 
