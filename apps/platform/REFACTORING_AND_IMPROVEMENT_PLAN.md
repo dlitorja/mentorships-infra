@@ -17,7 +17,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 6 | Testing infrastructure | Merged (#721) |
 | 7 | Performance & loading states | Merged (#722) — see [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md) |
 | 8 | Accessibility, UI consistency, and cleanup | Merged (#723) |
-| 9 | Large-file decomposition | In Progress (#724) |
+| 9 | Large-file decomposition | Merged (#724) |
+| 9.5 | Note autosave backup / unmount data-loss mitigation | Merged (#725) |
 | 10 | E2E / Playwright coverage | Open |
 | 11 | Accessibility verification & code quality hygiene | Open |
 
@@ -109,6 +110,29 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 - Extracted `BackfillImagesPanel` from `app/admin/instructors/page.tsx` and payment helpers from `inngest/functions/payments.ts` into `payments-helpers.ts`.
 - Applied follow-up review fixes (CodeRabbit/Greptile) and squash-merged into `main`.
 
+### PR 9: Large-file Decomposition (#724)
+
+**Status:** Squash-merged.
+
+- Decomposed the five largest files in `apps/platform` into focused modules without functional change:
+  - `app/admin/instructors/[id]/edit/page.tsx` → sections, hooks, dialogs, types, and constants.
+  - `app/admin/products/_components/product-form.tsx` → sections, mutations, types, and `ResultCard`.
+  - `components/workspace/chat.tsx` → directory barrel with hooks, components, types, and utils.
+  - `components/workspace/notes.tsx` → directory barrel with hooks, components, and types.
+  - `inngest/functions/payments.ts` → per-processor Inngest functions with a barrel index.
+- Deleted the original monolithic files so directory imports resolve correctly.
+- Verified with typecheck, lint, build, unit tests (353 passed, 3 skipped), and Convex tests (49 passed).
+- Greptile review returned 0 comments and 5/5 confidence.
+
+### PR 9.5: Note Autosave Backup / Unmount Data-loss Mitigation (#725)
+
+**Status:** Squash-merged.
+
+- Added `useNoteAutosaveBackup` hook that backs up pending note content to `sessionStorage` when a note is unmounted with unsaved changes.
+- Restores backed-up content when the note is re-mounted and re-enqueues it for autosave.
+- Added a `beforeunload` warning when a note has pending autosaves.
+- Verified with typecheck, lint, build, unit tests, and Greptile review (0 comments, 5/5 confidence).
+
 ---
 
 ## Summary
@@ -124,7 +148,8 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 6 | Testing infrastructure | Merged (#721) | 3 |
 | 7 | Performance & loading states | Merged (#722) | 6 |
 | 8 | Accessibility, UI consistency, and cleanup | Merged (#723) | 8 |
-| 9 | Large-file decomposition | In Progress (#724) | 5 |
+| 9 | Large-file decomposition | Merged (#724) | 5 |
+| 9.5 | Note autosave backup / unmount data-loss mitigation | Merged (#725) | 1 |
 | 10 | E2E / Playwright coverage | Open | 4 |
 | 11 | Accessibility verification & code quality hygiene | Open | 3 |
 
@@ -988,9 +1013,8 @@ These files are now explicitly covered by **PR 9: Large-file decomposition**:
 
 ## What Remains
 
-All eight originally planned PRs are merged. The remaining cross-cutting items are intentionally deferred or only partially addressed and are now scoped into the three PRs below.
+PRs 1–9 are merged. The remaining cross-cutting items are intentionally deferred and are now scoped into the two PRs below.
 
-- **PR 9: Large-file decomposition** — split the five oversized files with no functional change.
 - **PR 10: E2E / Playwright coverage** — add a seeded test backend and the four deferred Playwright flows.
 - **PR 11: Accessibility verification & code quality hygiene** — add an automated `axe-core` scan, fix the remaining lint warnings, and address the CodeRabbit docstring coverage warning.
 
