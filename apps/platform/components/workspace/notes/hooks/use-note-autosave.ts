@@ -11,7 +11,10 @@ export function useNoteAutosave(
   const updateNoteRef = useRef(updateNote);
   updateNoteRef.current = updateNote;
 
-  const flushAutosave = useCallback(async (noteId: Id<'workspaceNotes'>) => {
+  const flushAutosave = useCallback(async (
+    noteId: Id<'workspaceNotes'>,
+    { retryOnFailure = true }: { retryOnFailure?: boolean } = {}
+  ) => {
     const entry = autosavesRef.current.get(noteId);
     if (!entry || entry.inFlight) return;
 
@@ -31,14 +34,16 @@ export function useNoteAutosave(
       if (current) {
         current.inFlight = false;
         if (current.sequence !== sequence) {
-          void flushAutosave(noteId);
+          void flushAutosave(noteId, { retryOnFailure });
         } else if (saveSucceeded) {
           autosavesRef.current.delete(noteId);
-        } else {
+        } else if (retryOnFailure) {
           // Retain the failed entry and schedule a retry so the latest
-          // content is not silently lost on navigation or unmount.
+          // content is not silently lost. Retries are skipped during
+          // unmount because the component (and its autosave map) will be
+          // discarded; a new editor instance will load the saved note.
           current.timeout = setTimeout(() => {
-            void flushAutosave(noteId);
+            void flushAutosave(noteId, { retryOnFailure });
           }, 3000);
         }
       }
@@ -79,7 +84,9 @@ export function useNoteAutosave(
         entry.timeout = undefined;
       }
       if (!entry.inFlight) {
-        void flushAutosave(noteId);
+        // Final flush during unmount; do not schedule retries because the
+        // component (and its autosave map) will be discarded.
+        void flushAutosave(noteId, { retryOnFailure: false });
       }
     });
   }, [flushAutosave]);
