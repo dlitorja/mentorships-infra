@@ -121,6 +121,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     selectedNote,
     autosavesRef,
     selectedNoteId,
+    scheduleAutosave,
   });
 
   const {

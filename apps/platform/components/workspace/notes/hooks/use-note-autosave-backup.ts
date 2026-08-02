@@ -33,6 +33,7 @@ interface UseNoteAutosaveBackupOptions {
   selectedNote: Doc<'workspaceNotes'> | null | undefined;
   autosavesRef: React.RefObject<Map<Id<'workspaceNotes'>, AutosaveEntry>>;
   selectedNoteId: Id<'workspaceNotes'> | null;
+  scheduleAutosave: (noteId: Id<'workspaceNotes'>, content: string) => void;
 }
 
 /**
@@ -48,6 +49,7 @@ export function useNoteAutosaveBackup({
   selectedNote,
   autosavesRef,
   selectedNoteId,
+  scheduleAutosave,
 }: UseNoteAutosaveBackupOptions) {
   const editorRef = useRef(editor);
   useEffect(() => {
@@ -70,7 +72,11 @@ export function useNoteAutosaveBackup({
     editor.commands.setContent(backup.content, { emitUpdate: false });
     delete backups[selectedNote._id];
     writeBackups(backups);
-  }, [editor, selectedNote]);
+
+    // Re-enqueue the restored content for persistence so it is not lost again
+    // if the user switches notes or unmounts before editing.
+    scheduleAutosave(selectedNote._id, backup.content);
+  }, [editor, selectedNote, scheduleAutosave]);
 
   // Warn before leaving the page with pending autosaves, and back up all
   // pending autosave content to sessionStorage when this component unmounts.
