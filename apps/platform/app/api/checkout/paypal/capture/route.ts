@@ -30,9 +30,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Capture the PayPal order
     const capturedOrder = await capturePayPalOrder(orderId);
 
-    console.log(`PayPal order captured: ${capturedOrder.id}, status: ${capturedOrder.status}`);
-
-    // Safety net: Send Inngest event immediately for fulfillment
+        // Safety net: Send Inngest event immediately for fulfillment
     // This ensures fulfillment even if webhook delivery is delayed
     // The webhook also sends this event, but both paths are idempotent
     try {
@@ -60,12 +58,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   studentEmail: payerEmail,
                 },
               });
-              console.log(`Inngest event sent for order ${dbOrderId}, pack ${packId}`);
-            }
+                          }
           } catch {
             // customId is not JSON, skip Inngest event
-            console.log(`Could not parse customId for Inngest event: ${customId}`);
-          }
+                      }
         }
       }
     } catch (inngestError) {

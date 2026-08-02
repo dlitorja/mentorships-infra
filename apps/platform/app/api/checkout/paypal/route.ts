@@ -194,8 +194,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           id: orderId as Id<"orders">,
           status: "failed",
         });
-        console.log(`Marked orphaned order ${orderId} as failed`);
-      } catch (cleanupError) {
+              } catch (cleanupError) {
         console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
       }
     }

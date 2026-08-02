@@ -434,8 +434,7 @@ export async function DELETE(
         try {
           const clerk = await clerkClient();
           await clerk.users.deleteUser(userId);
-          console.log(`[admin] Deleted Clerk user: ${userId}`);
-        } catch (clerkErr) {
+                  } catch (clerkErr) {
           console.error(`[admin] Failed to delete Clerk user ${userId}:`, clerkErr);
           if (resolvedId) {
             try {
@@ -444,8 +443,7 @@ export async function DELETE(
                 instructorId: resolvedId as Id<"instructors">,
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
-              console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
-            } catch (pendingErr) {
+                          } catch (pendingErr) {
               console.error(`[admin] Failed to record pending Clerk deletion:`, pendingErr);
             }
           }

@@ -69,17 +69,7 @@ export async function POST(req: NextRequest) {
       bodyInfo.isValidJson = false;
     }
 
-    console.log("[clerk-webhook] Headers:", JSON.stringify({
-      "svix-id": req.headers.get("svix-id"),
-      "svix-timestamp": req.headers.get("svix-timestamp"),
-      "svix-signature": req.headers.get("svix-signature")
-        ? (req.headers.get("svix-signature") as string).substring(0, 50) + "..."
-        : null,
-      "content-type": req.headers.get("content-type"),
-    }));
-    console.log("[clerk-webhook] Body info:", JSON.stringify(bodyInfo));
-
-    const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
+            const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
 
     const eventType = evt.type;
 

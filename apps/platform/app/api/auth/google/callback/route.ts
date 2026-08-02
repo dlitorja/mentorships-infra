@@ -31,48 +31,35 @@ async function getCalendarTimezone(refreshToken: string): Promise<string | null>
  * Redirects to dashboard with google_calendar status param.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  console.log("[platform] OAuth callback: START");
-  try {
+    try {
     const user = await requireRoleForApi("instructor");
-    console.log("[platform] OAuth callback: user.id =", user.id, "role =", user.role);
-
-    const { searchParams } = new URL(request.url);
+        const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
     const state = searchParams.get("state");
-    console.log("[platform] OAuth callback: code =", code ? "present" : "null", "state =", state ? "present" : "null");
-
-    if (!code || !state) {
-      console.log("[platform] OAuth callback: early exit - missing code or state");
-      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_missing_params"));
+        if (!code || !state) {
+            const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_missing_params"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
 
     const cookieState = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
-    console.log("[platform] OAuth callback: cookieState =", cookieState ? "present" : "null");
-    if (!cookieState || cookieState !== state) {
-      console.log("[platform] OAuth callback: early exit - state mismatch");
-      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_state"));
+        if (!cookieState || cookieState !== state) {
+            const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_state"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
 
     const tokens = await exchangeGoogleCodeForTokens(code);
-    console.log("[platform] OAuth callback: tokens =", tokens.refresh_token ? "refresh_token present" : "NO refresh_token");
-
-    if (!tokens.refresh_token) {
-      console.log("[platform] OAuth callback: early exit - no refresh_token");
-      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_no_refresh_token"));
+        if (!tokens.refresh_token) {
+            const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_no_refresh_token"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
 
     const convex = getConvexClient();
     const token = await getConvexAuthToken();
-    console.log("[platform] OAuth callback: convex token =", token ? "present" : "null");
-    if (!token) {
-      console.log("[platform] OAuth callback: early exit - no convex token");
-      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
+        if (!token) {
+            const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
@@ -81,18 +68,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
-    console.log("[platform] OAuth callback: instructor by userId =", instructor ? instructor._id : "null", "userId =", user.id);
-
-    if (!instructor && userEmail) {
-      console.log("[platform] OAuth callback: trying email lookup for instructorId =", user.id);
-      instructor = await convex.query(api.instructors.getInstructorByEmail, {
+        if (!instructor && userEmail) {
+            instructor = await convex.query(api.instructors.getInstructorByEmail, {
         email: userEmail,
       });
-      console.log("[platform] OAuth callback: instructor by email =", instructor ? instructor._id : "null");
-
-      if (instructor && !instructor.userId) {
-        console.log("[platform] OAuth callback: instructor found via email but has no userId - backfilling");
-        await convex.mutation(api.instructors.backfillInstructorUserId, {
+            if (instructor && !instructor.userId) {
+                await convex.mutation(api.instructors.backfillInstructorUserId, {
           instructorId: instructor._id,
           userId: user.id,
         });
@@ -106,8 +87,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!instructor) {
-      console.log("[platform] OAuth callback: instructor not found by userId or email - will create new record");
-      if (userEmail) {
+            if (userEmail) {
         try {
           const clerk = await clerkClient();
           const clerkUser = await clerk.users.getUser(user.id);
@@ -115,17 +95,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
           if (!name) {
             name = userEmail.split("@")[0];
-            console.log("[platform] OAuth callback: no name from Clerk, derived from email:", name);
-          }
+                      }
 
           const newInstructorId = await convex.mutation(api.instructors.createInstructor, {
             userId: user.id,
             email: userEmail,
             name,
           });
-          console.log("[platform] OAuth callback: created new instructor =", newInstructorId);
-
-          const newInstructor = await convex.query(api.instructors.getInstructorById, {
+                    const newInstructor = await convex.query(api.instructors.getInstructorById, {
             id: newInstructorId,
           });
           if (newInstructor) {
@@ -138,16 +115,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!instructor) {
-      console.log("[platform] OAuth callback: early exit - instructor not found and could not create");
-      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
+            const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
 
-    console.log("[platform] OAuth callback: found instructor =", instructor._id, "userId =", user.id);
-
-    console.log("[platform] OAuth callback: updating instructor with googleRefreshToken");
-    const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
+            const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
 
     const instructorUpdates: Record<string, unknown> = {
       googleRefreshToken: tokens.refresh_token,
@@ -162,9 +135,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       id: instructor._id,
       ...instructorUpdates,
     });
-    console.log("[platform] OAuth callback: SUCCESS - redirecting to dashboard");
-
-    const res = NextResponse.redirect(
+        const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
     );
     res.cookies.delete(OAUTH_STATE_COOKIE);

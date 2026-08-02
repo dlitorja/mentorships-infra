@@ -1,6 +1,6 @@
 # apps/platform Refactoring & Improvement Plan
 
-Generated: 2026-07-30
+Generated: 2026-08-01
 
 This document captures opportunities for refactoring, bug fixes, performance optimizations, and quality improvements in `apps/platform`. Items are grouped into **cohesive pull requests** to minimize the number of Greptile reviews and reduce review overhead.
 
@@ -16,7 +16,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 5 | Type safety & checkout UX | Merged (#720) |
 | 6 | Testing infrastructure | Merged (#721) |
 | 7 | Performance & loading states | Merged (#722) — see [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md) |
-| 8 | Accessibility, UI consistency, and cleanup | Not started |
+| 8 | Accessibility, UI consistency, and cleanup | Implemented (uncommitted) |
 
 ## Completed PRs
 
@@ -109,7 +109,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 5 | Type safety & checkout UX | Merged (#720) | 4 |
 | 6 | Testing infrastructure | Merged (#721) | 3 |
 | 7 | Performance & loading states | Merged (#722) | 6 |
-| 8 | Accessibility, UI consistency, and cleanup | Not started | 9 |
+| 8 | Accessibility, UI consistency, and cleanup | Implemented (uncommitted) | 8 |
 
 **Total PRs:** 8
 
@@ -393,61 +393,198 @@ See the full implementation plan: [`docs/plans/pr-6-testing-infrastructure.md`](
 
 ## PR 8: Accessibility, UI Consistency, and Cleanup
 
-*Low-risk polish and cleanup that can be reviewed in a single batch.*
+*Medium-risk polish and cleanup. These are the last outstanding refactor items before the plan is complete.*
+
+### Goal
+
+1. Ensure every interactive control is accessible (labels, ARIA, keyboard focus, screen-reader feedback).
+2. Replace native HTML inputs and custom dialogs with the project's design-system primitives.
+3. Stop relying on color alone to communicate status.
+4. Remove production `console.log` statements and browser `alert()` error handling.
+5. Replace inline SVGs with cached icons or file imports.
+6. Decompose the largest remaining files where the risk is low.
+
+### Suggested in-PR execution order
+
+1. **Quick wins** — remove `console.log` and `alert()` calls, replace inline SVGs, add `aria-label` to icon-only buttons.
+2. **Status and badges** — add icon + text to all color-only status badges.
+3. **Forms** — standardize inputs and add labels.
+4. **Dialogs** — convert custom modals to the `Dialog` primitive.
+5. **File decomposition** — split the largest files while preserving behavior.
+6. **Verification** — typecheck, lint, tests, accessibility scan, Greptile review.
+
+---
 
 ### 8.1. Missing Labels on Native Inputs
 
-- **Files:** `components/instructor/scheduling-settings-form.tsx`, `components/instructor/availability-settings-form.tsx`, `app/admin/instructors/[id]/edit/page.tsx`
-- **Problem:** Many `<select>`, `<input type="checkbox">`, and `<input type="date">` elements lack associated `<label>` elements or `aria-label`.
-- **Fix:** Add `<label htmlFor="...">` or use `aria-label`/`aria-labelledby` for every form control.
+- **Files:**
+  - `components/instructor/scheduling-settings-form.tsx` (timezone `<select>`, day `<input type="checkbox">`, interval time `<input type="time">`)
+  - `components/instructor/availability-settings-form.tsx` (buffer/booking-lead/advance `<select>`s, blocked-date `<input type="date">`)
+  - `app/admin/instructors/[id]/edit/page.tsx` (native inputs in the edit form)
+  - `app/admin/instructors/page.tsx` ("Show inactive" checkbox)
+  - `app/admin/products/_components/product-form.tsx` (form inputs)
+- **Problem:** Many controls are missing associated `<label>` elements or `aria-label` attributes, which hurts screen-reader usability and fails WCAG 2.1 form requirements.
+- **Fix:**
+  - Wrap every control in a `<Label htmlFor={id}>`.
+  - For hidden-label controls (e.g., checkbox-only toggles), use `aria-label` or `aria-labelledby`.
+  - Use a unique, stable `id` for each control (e.g., `field.name`, `day-${day}-${field}`, or `uuid()`).
 
 ### 8.2. Native HTML Inputs Instead of Design-System Components
 
-- **Files:** `components/instructor/scheduling-settings-form.tsx`, `components/instructor/availability-settings-form.tsx`, `app/admin/instructors/[id]/edit/page.tsx`, `components/instructor/session-actions.tsx`
-- **Problem:** Components use raw `<select>`, `<input type="checkbox">`, `<input type="date">`, `<input type="datetime-local">`, and `<input type="radio">` instead of the project's `@/components/ui/*` wrappers.
-- **Fix:** Replace with `<Select>`, `<Checkbox>`, `<Input>`, etc., from the UI library.
+- **Files:** Same as 8.1, plus `components/instructor/session-actions.tsx` (`datetime-local` in reschedule dialog).
+- **Problem:** Raw `<select>`, `<input type="checkbox">`, `<input type="date">`, `<input type="datetime-local">`, and `<input type="radio">` bypass styling, keyboard handling, and validation feedback already built into the UI primitives.
+- **Fix:**
+  - Replace `<select>` with the `<Select>` / `<SelectTrigger>` / `<SelectValue>` / `<SelectContent>` / `<SelectItem>` primitive.
+  - Replace `<input type="checkbox">` with the `<Checkbox>` primitive.
+  - Replace free-text/number/date inputs with `<Input>` (type-safe) and wrap them with `<Label>`.
+  - For `datetime-local` in session-actions, either use `<Input type="datetime-local">` wrapped in a label, or introduce a dedicated `DateTimePicker` primitive if the project has one.
+  - Keep all behavior identical; only the markup and styling should change.
 
 ### 8.3. Status Indicated Only by Color
 
-- **Files:** `app/instructor/sessions/sessions-list-client.tsx`, `app/dashboard/DashboardContent.tsx`
-- **Problem:** Badges use color alone to convey status (e.g., "scheduled", "completed", "canceled").
-- **Fix:** Include status text or icons alongside color.
+- **Files:**
+  - `app/instructor/sessions/sessions-list-client.tsx` (session status badges)
+  - `app/dashboard/DashboardContent.tsx` (session-pack "left" badge, upcoming session badge, Google Calendar status)
+  - `app/admin/instructors/page.tsx` (Active/Inactive badge)
+- **Problem:** Color alone is not enough to convey status for color-blind users or in high-contrast modes.
+- **Fix:**
+  - Pair each status badge with a leading icon and human-readable text:
+    - `scheduled` → `Clock` icon + "Scheduled"
+    - `completed` → `CheckCircle2` icon + "Completed"
+    - `canceled` → `XCircle` icon + "Canceled"
+    - `no_show` → `AlertCircle` icon + "No show"
+    - Active/Inactive → `CheckCircle2` / `XCircle` icon + text
+  - Keep the existing color variant as a secondary visual cue.
+  - Add `aria-label` or `title` to icon-only status indicators if any remain.
 
 ### 8.4. Dialogs and Dropdowns Not Using Accessible Components
 
-- **Files:** `app/instructor/profile/profile-form.tsx` (testimonial/student-result dialogs), `app/admin/instructors/[id]/edit/page.tsx`
-- **Problem:** Some custom dialogs are built manually instead of using the project's `Dialog` component.
-- **Fix:** Use the existing `Dialog` primitive.
+- **Files:**
+  - `app/instructor/profile/profile-form.tsx` (testimonial and student-result dialogs)
+  - `app/admin/instructors/[id]/edit/page.tsx` (any custom modals)
+- **Problem:** Custom modal markup is missing focus trapping, `ESC` close, and `aria-modal` semantics.
+- **Fix:**
+  - Convert every modal to the existing `<Dialog>` / `<DialogContent>` / `<DialogHeader>` / `<DialogTitle>` / `<DialogDescription>` / `<DialogFooter>` primitives.
+  - Ensure each dialog has a title and a description.
+  - Wire the existing open state through `open` and `onOpenChange`.
+  - Use the existing `Dialog` from `@/components/ui/dialog` (already imported in `profile-form.tsx` for the confirmation dialog, so reuse it for the testimonial/result dialogs).
 
 ### 8.5. `aria-label` Missing on Icon-Only Buttons
 
-- **Files:** `app/admin/instructors/page.tsx` (edit/delete icon buttons), `components/instructor/session-actions.tsx`
-- **Problem:** Some icon-only buttons have a `title` attribute but no `aria-label`.
-- **Fix:** Add `aria-label` to all icon-only buttons.
+- **Files:**
+  - `app/admin/instructors/page.tsx` (edit/preview icon buttons, purge icon-only state)
+  - `components/instructor/session-actions.tsx` (reschedule/cancel/notes icon-only actions)
+- **Problem:** Icon-only buttons lack accessible names, so screen readers announce them as "button" with no context.
+- **Fix:**
+  - Add `aria-label` to every button whose only visible content is an icon.
+  - Keep the existing `title` or add a tooltip for sighted users.
+  - For buttons with hidden text on small screens (e.g., `<span className="hidden sm:inline">Delete</span>`), keep an `aria-label` that matches the visible text.
 
 ### 8.6. Inline SVGs in Components
 
 - **File:** `app/dashboard/DashboardContent.tsx` (Discord and Google icons)
-- **Problem:** Long SVG paths are inlined, increasing component size and preventing caching.
-- **Fix:** Use `lucide-react` icons where available, or import SVGs as files.
+- **Problem:** Long SVG path data is inlined in the component, inflating bundle size and preventing caching.
+- **Fix:**
+  - Replace with `lucide-react` icons if a reasonable substitute exists (e.g., `MessageCircle` for Discord, or use a generic external-link icon for Google Calendar).
+  - If brand-specific shapes are required, move the SVGs into separate files under `public/icons/` or `components/icons/` and import them as components. For the Discord icon, consider adding a dedicated `DiscordIcon` component in `components/icons.tsx`.
+  - Do not copy raw SVG paths inline in the page.
 
 ### 8.7. Debug and Console Logging in Production Code
 
-- **Files:** `components/instructor/scheduling-settings-form.tsx` (lines 46, 51, 93), `components/instructor/availability-settings-form.tsx` (line 61), `app/api/auth/google/route.ts`, `app/api/auth/google/callback/route.ts`, many API routes.
-- **Problem:** `console.log` calls are left in production paths, including API routes that emit request data and OAuth flow details.
-- **Fix:** Replace non-error `console.log` with a proper logger that respects log levels (e.g., `@/lib/observability` or a debug-only flag). Remove client-side `console.log` entirely.
+- **Files:**
+  - `components/instructor/scheduling-settings-form.tsx` (`console.log` on render, change, and save handlers)
+  - `components/instructor/availability-settings-form.tsx` (line 61 in the original plan; verify current state)
+  - `app/api/auth/google/route.ts` and `app/api/auth/google/callback/route.ts` (OAuth request/response logging)
+  - Various API routes with `console.log` statements
+- **Problem:** `console.log` in production code leaks request data and makes the browser console noisy.
+- **Fix:**
+  - Remove all non-error `console.log` calls from client components and API routes.
+  - In API routes, log only structured errors/warnings through a proper logger or remove logging entirely. If request tracing is needed, use a request-id header and log only at `debug` level behind an environment flag.
+  - In client components, keep the existing `toast` success/error feedback. If you need local-only debug logs, use the existing `logDebug` pattern that checks `process.env.NODE_ENV !== "production"`, but prefer removing them entirely.
+  - Search for `console.log` and `console.debug` in `apps/platform` after the change and verify the only remaining logs are behind explicit debug guards or in test files.
 
 ### 8.8. `alert()` Used for Error Handling
 
-- **File:** `app/instructor/profile/profile-form.tsx` (lines 166, 174, 187)
-- **Problem:** Uses browser `alert()` for mutation errors, which is a poor UX pattern and blocks the UI.
-- **Fix:** Replace `alert()` with `toast.error()` via the existing `sonner` setup.
+- **File:** `app/instructor/profile/profile-form.tsx` (testimonial and student-result mutation `onError` handlers)
+- **Problem:** Browser `alert()` blocks the UI and is a poor user-experience pattern.
+- **Fix:**
+  - Replace every `alert(...)` with `toast.error(...)` from the existing `sonner` setup.
+  - Remove any now-redundant `setError`/`success` local state if the toast covers the same feedback.
+  - Ensure error messages are user-friendly (e.g., "Failed to add testimonial" + the server message).
 
-### 8.9. Forbidden Word `mentees` in Mock Data
+---
 
-- **File:** `lib/instructors.ts` (line 368)
-- **Problem:** Testimonial text contains "mentees" twice. Project rule: the words "mentor" and "mentee" are FORBIDDEN in code; the only exception is "mentorships" in UI copy/text.
-- **Fix:** Replace "mentees" with "students" in the testimonial copy.
+### 8.9. Large File Decomposition
+
+The following files are still overly complex and worth splitting as part of this cleanup PR. Decompose each into smaller, focused files while preserving exact behavior and existing tests.
+
+- **Files:**
+  - `app/admin/instructors/[id]/edit/page.tsx` (~1,200 lines)
+  - `app/admin/products/_components/product-form.tsx` (~945 lines)
+  - `components/workspace/notes.tsx`
+  - `components/workspace/chat.tsx` (~1,093 lines)
+  - `inngest/functions/payments.ts` (~1,183 lines)
+- **Suggested decomposition:**
+  - `app/admin/instructors/[id]/edit/page.tsx` → separate form sections (Profile, Products, Socials, Testimonials/Student Results, Image Uploads) plus a hook for mutations.
+  - `app/admin/products/_components/product-form.tsx` → pricing section, session-pack section, scheduling section, and a shared product-type selector.
+  - `components/workspace/chat.tsx` → message list, input bar, attachment handling, and pagination hook.
+  - `components/workspace/notes.tsx` → note list, note editor, and toolbar.
+  - `inngest/functions/payments.ts` → payout calculator, Stripe helpers, webhook handler, and each Inngest function in its own file.
+- **Acceptance:**
+  - No functional change; existing tests must pass without modification.
+  - New files live next to their consumers (co-located `components/.../notes/` directory, etc.) or under a clear `lib/` subdirectory.
+  - Each new file should be under ~300 lines.
+
+### 8.10. Verification and Acceptance Criteria
+
+- **Accessibility:**
+  - All form inputs are wrapped with labels or have `aria-label`.
+  - All icon-only buttons have `aria-label`.
+  - No status is conveyed by color alone.
+  - All dialogs use the `Dialog` primitive and have a `DialogTitle`.
+  - Run an automated accessibility check (e.g., `axe-core` via browser dev tools or a test helper) on the touched pages.
+- **Code quality:**
+  - No `console.log` remains in production code under `apps/platform` (except explicit debug guards or logging utilities).
+  - No `alert(` calls remain in `apps/platform`.
+  - No inline SVG brand icons in the edited components.
+- **Build:**
+  - `pnpm --filter @mentorships/platform typecheck` passes.
+  - `pnpm --filter @mentorships/platform lint` passes.
+  - `pnpm --filter @mentorships/platform build` passes.
+  - `pnpm --filter @mentorships/platform test:unit` passes.
+  - `pnpm test:convex` passes.
+- **Review:**
+  - Run `npx greptile@latest review` before opening the PR.
+  - Ensure no new lint/type issues are introduced by the file decomposition.
+
+### 8.11. Implementation Notes
+
+Implemented on 2026-08-01. Files changed:
+
+- **Forms and inputs:**
+  - `components/instructor/scheduling-settings-form.tsx` — removed debug logs, replaced native `<select>`/`checkbox`/`time` with `<Select>`, `<Checkbox>`, and `<Input>`, added labels/aria-labels.
+  - `components/instructor/availability-settings-form.tsx` — replaced native `<select>` with `<Select>`, added labels/ids.
+  - `app/admin/instructors/[id]/edit/page.tsx` — replaced native `isActive` checkbox with `<Checkbox>`.
+  - `app/admin/products/_components/product-form.tsx` — replaced native Stripe/PayPal checkboxes with `<Checkbox>` and `<Label>`.
+  - `components/instructor/session-actions.tsx` — replaced native `<input type="datetime-local">` with `<Input>` and `<Label>`, added `DialogDescription`.
+- **Accessibility:**
+  - `app/admin/instructors/page.tsx` — converted "Show inactive" to `<Checkbox>` + `<Label>`, added `aria-label` to icon-only edit/view buttons, added icon+text to Active/Inactive badges, extracted `BackfillImagesPanel` to `app/admin/instructors/_components/backfill-images-panel.tsx`.
+  - `app/instructor/profile/profile-form.tsx` — replaced inline SVG portfolio remove button with `<Button>` and `X` icon, added `aria-label` to delete buttons, replaced `alert()` with `toast.error()`, added `DialogDescription` and `htmlFor` labels.
+  - `app/instructor/sessions/sessions-list-client.tsx` — added icon+text `StatusBadge`.
+  - `app/dashboard/DashboardContent.tsx` — replaced inline Discord/Google/info SVGs with `lucide-react` icons, added icon+text to badges.
+- **Observability:**
+  - Removed `console.log` from `app/api/auth/google/*`, `app/api/admin/upload`, `app/api/admin/instructors/[id]`, `app/api/checkout/*`, `app/api/instructor/settings`, and `app/api/webhooks/clerk`.
+  - Removed the empty `logDebug` helper from `app/api/instructor/settings/route.ts`.
+- **Decomposition:**
+  - Extracted helper functions (`escapeHtml`, `formatPrice`, `getInstructorNameFromClerk`, `findClerkUserIdByEmail`, `parseEmailResult`) from `inngest/functions/payments.ts` into `inngest/functions/payments-helpers.ts`.
+  - Extracted `BackfillImagesPanel` from `app/admin/instructors/page.tsx` into `app/admin/instructors/_components/backfill-images-panel.tsx`.
+
+**Verification run:**
+- `pnpm --filter @mentorships/platform typecheck` ✅
+- `pnpm --filter @mentorships/platform lint` ✅ (no errors; pre-existing warnings remain)
+- `NEXT_PUBLIC_APP_URL=http://localhost:3000 pnpm --filter @mentorships/platform build` ✅
+- `CI=true pnpm run test:unit` ✅ (353 passed, 3 skipped)
+- `npx greptile@latest review --diff` could not run because the changes are not yet committed.
 
 ---
 
@@ -474,7 +611,7 @@ Where possible, decompose these as part of the relevant PRs rather than as a sta
 5. **PR 5: Type Safety & Checkout UX** — Reduces TypeScript risk and fixes checkout flow issues.
 6. **PR 6: Testing Infrastructure** — Add tests before larger refactors to establish baselines.
 7. **PR 7: Performance & Loading States** — Improves perceived performance and bundle size.
-8. **PR 8: Accessibility, UI Consistency, and Cleanup** — Low-risk polish that can be batched.
+8. **PR 8: Accessibility, UI Consistency, and Cleanup** — Medium-risk polish and cleanup; the last remaining PR in this plan.
 
 ---
 

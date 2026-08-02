@@ -6,6 +6,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -96,6 +97,7 @@ export function ProductForm({
   const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
   const router = useRouter();
+
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductData) => createProduct(data),
@@ -678,45 +680,53 @@ function ProductFieldsForm({
             <h3 className="font-semibold mb-2">Payment Providers <span className="text-red-600">(at least one required)</span></h3>
             <div className="flex flex-col gap-3">
               <form.Field name="enableStripe">
-                {(field) => (
-                  <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.checked)}
-                      className="h-4 w-4"
-                      disabled={isSubmitting}
-                    />
-                    <CreditCard className="h-5 w-5 text-purple-600" />
-                    <div>
-                      <span className="font-medium">Enable Stripe</span>
-                      <p className="text-sm text-muted-foreground">
-                        Create product in Stripe automatically
-                      </p>
+                {(field) => {
+                  const id = "enable-stripe";
+                  return (
+                    <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50">
+                      <Checkbox
+                        id={id}
+                        checked={field.state.value}
+                        onCheckedChange={(checked) => field.handleChange(checked === true)}
+                        disabled={isSubmitting}
+                      />
+                      <CreditCard className="h-5 w-5 text-purple-600" aria-hidden="true" />
+                      <div className="flex-1">
+                        <Label htmlFor={id} className="font-medium cursor-pointer">
+                          Enable Stripe
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Create product in Stripe automatically
+                        </p>
+                      </div>
                     </div>
-                  </label>
-                )}
+                  );
+                }}
               </form.Field>
 
               <form.Field name="enablePayPal">
-                {(field) => (
-                  <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.checked)}
-                      className="h-4 w-4"
-                      disabled={isSubmitting}
-                    />
-                    <Wallet className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <span className="font-medium">Enable PayPal</span>
-                      <p className="text-sm text-muted-foreground">
-                        Create product in PayPal automatically
-                      </p>
+                {(field) => {
+                  const id = "enable-paypal";
+                  return (
+                    <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50">
+                      <Checkbox
+                        id={id}
+                        checked={field.state.value}
+                        onCheckedChange={(checked) => field.handleChange(checked === true)}
+                        disabled={isSubmitting}
+                      />
+                      <Wallet className="h-5 w-5 text-blue-600" aria-hidden="true" />
+                      <div className="flex-1">
+                        <Label htmlFor={id} className="font-medium cursor-pointer">
+                          Enable PayPal
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Create product in PayPal automatically
+                        </p>
+                      </div>
                     </div>
-                  </label>
-                )}
+                  );
+                }}
               </form.Field>
             </div>
             {!(form.state.values.enableStripe || form.state.values.enablePayPal) && (
