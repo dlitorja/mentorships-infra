@@ -944,13 +944,13 @@ Finish the accessibility work started in PR 8 and remove the pre-existing lint w
 
 ### Lint warning cleanup
 
-As of the latest run, `apps/platform` reports **104 warnings** in the following categories:
+As of the latest run, `apps/platform` reports **102 warnings** in the following categories:
 
 - **Unused imports/variables/arguments** in API routes, components, and libraries.
 - **Unnecessary escape characters** in `app/api/webhooks/paypal/route.ts`.
 - **Unescaped entities** (`'` and `"`) in static pages and `admin-onboarding-form.tsx`.
-- **React Hook dependency warnings** in `app/instructor/students/page.tsx`, `components/calendar/book-session-form.tsx`, `components/workspace/notes.tsx`, and `components/workspace/session-count-controls.tsx`.
-- **`<img>` usage** in `components/workspace/chat-lightbox.tsx`, `components/workspace/chat.tsx`, `components/workspace/images.tsx`, and `components/workspace/resources.tsx`.
+- **React Hook dependency warnings** in `app/instructor/students/page.tsx`, `components/calendar/book-session-form.tsx`, `components/workspace/notes/notes.tsx`, and `components/workspace/session-count-controls.tsx`.
+- **`<img>` usage** in `components/workspace/chat-lightbox.tsx`, `components/workspace/chat/components/ChatMessageList.tsx`, `components/workspace/chat/components/AttachmentPreviews.tsx`, `components/workspace/images.tsx`, and `components/workspace/resources.tsx`.
 
 For each warning:
 
