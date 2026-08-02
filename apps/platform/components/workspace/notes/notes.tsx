@@ -18,6 +18,7 @@ import {
   useLiveSessionNote,
 } from '@/lib/queries/convex/use-workspaces';
 import { useNoteAutosave } from './hooks/use-note-autosave';
+import { useNoteAutosaveBackup } from './hooks/use-note-autosave-backup';
 import { useNoteSelection } from './hooks/use-note-selection';
 import { useNoteImageLightbox } from './hooks/use-note-image-lightbox';
 import { useNoteEditor } from './hooks/use-note-editor';
@@ -76,7 +77,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const embedImageInNote = useEmbedImageInNote();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
-  const { scheduleAutosave, clearAutosave, flushAllAutosaves } = useNoteAutosave(updateNote);
+  const { autosavesRef, scheduleAutosave, clearAutosave, flushAllAutosaves } = useNoteAutosave(updateNote);
   const {
     selectedNoteId,
     setSelectedNoteId,
@@ -113,6 +114,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     scheduleAutosave,
     setIsDragOver,
     dottedLineFileInputRef,
+  });
+
+  useNoteAutosaveBackup({
+    editor,
+    selectedNote,
+    autosavesRef,
+    selectedNoteId,
   });
 
   const {
