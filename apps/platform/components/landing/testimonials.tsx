@@ -22,6 +22,9 @@ const testimonials = [
   },
 ];
 
+/**
+ * Displays a grid of student testimonials on the landing page.
+ */
 export function Testimonials(): React.JSX.Element {
   return (
     <section className="py-20 px-4 bg-muted/30">
@@ -32,7 +35,7 @@ export function Testimonials(): React.JSX.Element {
               What Students Say
             </h2>
             <p className="mt-4 text-lg text-white/90">
-              Hear from artists who've grown their skills with our instructors
+              Hear from artists who&apos;ve grown their skills with our instructors
             </p>
           </div>
         </div>
@@ -45,7 +48,7 @@ export function Testimonials(): React.JSX.Element {
               </CardHeader>
               <CardContent>
                 <p className="mb-4 text-base leading-relaxed">
-                  "{testimonial.content}"
+                  &quot;{testimonial.content}&quot;
                 </p>
                 <div>
                   <p className="font-semibold">{testimonial.name}</p>

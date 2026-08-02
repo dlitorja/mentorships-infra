@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const orderIdMatch = orderLink.href.match(/\/orders\/([^\/]+)/);
+        const orderIdMatch = orderLink.href.match(/\/orders\/([^/]+)/);
         if (!orderIdMatch) {
           await reportError({
             source: "webhooks/paypal",
@@ -287,7 +287,7 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const captureIdMatch = captureLink.href.match(/\/captures\/([^\/]+)/);
+        const captureIdMatch = captureLink.href.match(/\/captures\/([^/]+)/);
         if (!captureIdMatch) {
           await reportError({
             source: "webhooks/paypal",

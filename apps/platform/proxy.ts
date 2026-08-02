@@ -2,7 +2,7 @@ import { clerkClient, clerkMiddleware, createRouteMatcher, type ClerkMiddlewareA
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
-import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
+
 import { reportError } from "@/lib/observability";
 
 /**
@@ -228,7 +228,10 @@ const hasClerkKey = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_")
 );
 
-// Create middleware function that handles both cases
+/**
+ * Authenticated request handler for the Clerk-enabled middleware path.
+ * Applies rate limiting, CSRF checks, and route-level access control.
+ */
 async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   const authResult = await auth();
   const userId = authResult.userId;
@@ -395,7 +398,11 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 // Otherwise, use clerkMiddleware
 export default hasClerkKey
   ? clerkMiddleware(middlewareHandler)
-  : async function middleware(req: NextRequest) {
+  : async function fallbackMiddleware(req: NextRequest) {
+      /**
+       * Fallback request handler used when Clerk is not configured.
+       * Still applies rate limiting and CSRF validation where possible.
+       */
       const pathname = req.nextUrl.pathname;
       const method = req.method;
 

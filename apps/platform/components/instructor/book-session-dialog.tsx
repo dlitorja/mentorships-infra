@@ -17,16 +17,9 @@ type BookSessionDialogProps = {
   onSuccess?: () => void;
 };
 
-function formatDateTime(ms: number): string {
-  return new Date(ms).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
+/**
+ * Returns a datetime-local string rounded to the next hour for the booking input default.
+ */
 function formatDateTimeForInput(): string {
   const date = new Date();
   const year = date.getFullYear();

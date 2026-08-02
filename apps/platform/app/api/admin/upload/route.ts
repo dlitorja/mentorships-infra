@@ -14,6 +14,9 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/**
+ * Extracts the lower-case file extension from a filename.
+ */
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return ext || ".jpg";
@@ -33,7 +36,7 @@ const storageIdSchema = z.object({
 export async function POST(req: NextRequest) {
     try {
         const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("admin");
+    await requireRoleForApi("admin");
             const convex = await getAuthenticatedConvexClient();
 
         const formData = await req.formData();

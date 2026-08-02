@@ -74,7 +74,7 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
         } else {
           resolve({ success: true });
         }
-      } catch (e) {
+      } catch {
         resolve({ success: true, raw: stdout });
       }
     });

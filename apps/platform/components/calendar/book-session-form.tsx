@@ -20,6 +20,9 @@ type PackOption = {
   status: string;
 };
 
+/**
+ * Returns a new date offset by the given number of days.
+ */
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
@@ -125,10 +128,13 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
       return "This instructor hasn't connected Google Calendar yet.";
     }
     return info;
-  }, [error, info, availabilityError]);
+  }, [info, availabilityError]);
 
   const createSession = useCreateSession();
 
+  /**
+   * Books the selected session pack at the chosen ISO datetime.
+   */
   const handleBookSession = async (scheduledAtIso: string) => {
     if (!selectedPack || !userId) return;
     try {
@@ -162,13 +168,13 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
       <CardHeader>
         <CardTitle>Book a Session</CardTitle>
         <CardDescription>
-          Availability is checked against the instructor's Google Calendar before booking.
+          Availability is checked against the instructor&apos;s Google Calendar before booking.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {eligiblePacks.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            You don't have any active packs with remaining sessions.
+            You don&apos;t have any active packs with remaining sessions.
           </p>
         ) : (
           <>

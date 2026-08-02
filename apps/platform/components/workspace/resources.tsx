@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
-import type { UserRole } from '@/lib/auth-helpers';
 import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotesPaginated, InstructorResource } from '@/lib/queries/convex/use-workspaces';
 import { uploadFileForChat } from '@/lib/workspace-image-upload';
 import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useDropzone } from 'react-dropzone';
@@ -18,8 +17,6 @@ import { useConvexAction } from '@convex-dev/react-query';
 
 interface WorkspaceResourcesProps {
   workspaceId: Id<'workspaces'>;
-  currentUserId: string;
-  role: UserRole;
   // PR #5: id of the active video-call session, or null when no
   // call is active. Drives the Tag/Untag toggle on each resource
   // row + the "Shared during current call" surfacing on the Links
@@ -28,13 +25,19 @@ interface WorkspaceResourcesProps {
   activeSessionId: Id<'sessions'> | null;
 }
 
+/**
+ * Formats a byte count into a human-readable string (B, KB, or MB).
+ */
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function WorkspaceResources({ workspaceId, currentUserId, role, activeSessionId }: WorkspaceResourcesProps) {
+/**
+ * Workspace tab for instructor resources, including upload, share, delete, and call-tagging.
+ */
+export default function WorkspaceResources({ workspaceId, activeSessionId }: WorkspaceResourcesProps) {
   const { data: resources, isLoading } = useInstructorResources(workspaceId as string);
   const uploadResource = useUploadInstructorResource();
   const deleteResource = useDeleteInstructorResource();
@@ -251,11 +254,14 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
               className="group relative border rounded-lg overflow-hidden bg-card hover:border-primary/50 transition-colors"
             >
               {resource.type === 'image' && resource.url ? (
-                <div className="aspect-square bg-muted flex items-center justify-center">
-                  <img
+                <div className="relative aspect-square bg-muted flex items-center justify-center">
+                  <Image
                     src={resource.url}
                     alt={resource.fileName}
-                    className="object-cover w-full h-full"
+                    fill
+                    unoptimized
+                    sizes="(max-width: 640px) 50vw, 20vw"
+                    className="object-cover"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}
@@ -422,6 +428,9 @@ interface EmbedNoteDialogProps {
   onNoteChange: (id: Id<'workspaceNotes'> | null) => void;
 }
 
+/**
+ * Dialog that lets an instructor embed a resource image into an existing note.
+ */
 function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, selectedNoteId, onNoteChange }: EmbedNoteDialogProps) {
   const notesQuery = useWorkspaceNotesPaginated(workspaceId);
   const notes = notesQuery.results;

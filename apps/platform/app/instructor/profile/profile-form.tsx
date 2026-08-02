@@ -63,16 +63,25 @@ interface StudentResult {
   createdAt: string;
 }
 
+/**
+ * Fetches the signed-in instructor's testimonials.
+ */
 async function fetchTestimonials(): Promise<{ items: Testimonial[] }> {
   return apiFetch<{ items: Testimonial[] }>("/api/instructor/testimonials");
 }
 
+/**
+ * Fetches the signed-in instructor's student results.
+ */
 async function fetchStudentResults(): Promise<{ items: StudentResult[] }> {
   return apiFetch<{ items: StudentResult[] }>("/api/instructor/student-results");
 }
 
 
 
+/**
+ * Form for instructors to edit their public profile, portfolio, testimonials, and student results.
+ */
 export function ProfileForm({ initialData }: ProfileFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -97,7 +106,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
-  const { data: testimonialsData, refetch: refetchTestimonials } = useQuery({
+  const { data: testimonialsData } = useQuery({
     queryKey: ["testimonials"],
     queryFn: fetchTestimonials,
   });

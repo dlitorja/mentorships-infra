@@ -3,7 +3,6 @@ import { reportError, reportInfo } from "@/lib/observability";
 
 // Test-only override for unit tests; declared at module scope for TypeScript ambient rules
 declare global {
-  // eslint-disable-next-line no-var
   var __TEST_CLERK_CLIENT__: Awaited<ReturnType<typeof clerkClient>> | undefined;
 }
 

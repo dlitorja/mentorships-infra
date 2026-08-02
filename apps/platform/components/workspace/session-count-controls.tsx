@@ -30,10 +30,16 @@ type SessionCountSnapshot = {
   totalSessions: number;
 };
 
+/**
+ * Returns a readable label for the number of remaining sessions.
+ */
 function formatRemainingLabel(remaining: number): string {
   return `${remaining} ${remaining === 1 ? "session" : "sessions"} remaining`;
 }
 
+/**
+ * Renders a pill with the remaining session count plus edit/reset controls for instructors.
+ */
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -109,7 +115,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         totalSessions: sessionPack.totalSessions,
       };
     }
-  }, [sessionPack?._id]);
+  }, [sessionPack]);
 
   // Effect 2: classify each subscription push for the current pack.
   // Runs only when the count values change, so a no-op re-render or
@@ -144,7 +150,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     // External update: roll the snapshot forward so Reset never
     // overwrites activity from another instructor / tab / system job.
     setPageLoadSnapshot(incoming);
-  }, [sessionPack?.remainingSessions, sessionPack?.totalSessions]);
+  }, [sessionPack, optimisticCount]);
 
   const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack?.remainingSessions ?? 0;
   const totalSessions = optimisticCount?.totalSessions ?? sessionPack?.totalSessions ?? 0;
@@ -300,44 +306,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       setIsEditSubmitting(false);
     }
   }, [editRemainingInput, editTotalInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
-
-  const restoreSessions = useCallback(async (target: SessionCountSnapshot, expected: SessionCountSnapshot) => {
-    if (pendingRef.current) return;
-
-    pendingRef.current = true;
-    setPendingAction("restore");
-    setOptimisticCount(target);
-    latestCountRef.current = target;
-
-    try {
-      const { ok, json } = await updateSessionPack(sessionPackId, {
-        action: "restore",
-        remainingSessions: target.remainingSessions,
-        totalSessions: target.totalSessions,
-        expectedRemainingSessions: expected.remainingSessions,
-        expectedTotalSessions: expected.totalSessions,
-      });
-
-      if (!ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to restore sessions");
-      }
-
-      const restoredCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(restoredCount);
-      latestCountRef.current = restoredCount;
-      void refetch();
-      toast.success("Session change undone.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restore sessions");
-      await syncFromServer();
-    } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
-    }
-  }, [refetch, sessionPackId, syncFromServer]);
 
   /**
    * Reset the pack to the { totalSessions, remainingSessions } it had

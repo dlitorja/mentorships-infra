@@ -4,8 +4,6 @@ import { Id } from '@/convex/_generated/dataModel';
 import {
   MAX_IMAGE_BYTES,
   PER_UPLOAD_CAP,
-  LARGE_CHAT_FILE_BYTES,
-  MAX_CHAT_FILE_BYTES,
 } from './workspace-constants';
 
 export interface UploadResult {
@@ -25,6 +23,10 @@ export interface ImageValidationResult {
   invalid: { file: File; error: string }[];
 }
 
+/**
+ * Validates image files against supported MIME types, size limits, and per-user slot caps.
+ * @returns Object separating valid files and rejected files with human-readable reasons.
+ */
 export function validateImageFiles(
   files: File[],
   remainingSlots: number,
@@ -58,6 +60,10 @@ export function validateImageFiles(
   return { valid, invalid };
 }
 
+/**
+ * Uploads a single image to a workspace and creates the corresponding image record.
+ * @returns The uploaded storage ID on success, or an error message on failure.
+ */
 export async function uploadSingleImage(
   workspaceId: Id<'workspaces'>,
   file: File,
@@ -92,6 +98,10 @@ export async function uploadSingleImage(
   }
 }
 
+/**
+ * Uploads an image file to a workspace for use in a chat message.
+ * @returns The uploaded storage ID on success, or an error message on failure.
+ */
 export async function uploadImageForChat(
   workspaceId: Id<'workspaces'>,
   file: File,
@@ -116,6 +126,10 @@ export async function uploadImageForChat(
   }
 }
 
+/**
+ * Uploads an arbitrary file to a workspace for use in a chat message.
+ * @returns The uploaded storage ID on success, or an error message on failure.
+ */
 export async function uploadFileForChat(
   workspaceId: Id<'workspaces'>,
   file: File,
@@ -140,6 +154,9 @@ export async function uploadFileForChat(
   }
 }
 
+/**
+ * Generates base64 data URL previews for a list of image files.
+ */
 export function createImagePreviews(files: File[]): Promise<string[]> {
   return Promise.all(
     files.map(

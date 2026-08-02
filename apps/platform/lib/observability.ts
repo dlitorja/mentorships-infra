@@ -10,15 +10,21 @@ type ObservabilityEvent = {
   context?: Record<string, JsonValue>;
 };
 
+/**
+ * Creates an AbortSignal that aborts after the given timeout.
+ */
 function timeoutSignal(ms: number): AbortSignal {
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
     return AbortSignal.timeout(ms);
   }
   const ac = new AbortController();
-  const id = setTimeout(() => ac.abort(new DOMException("Timeout", "TimeoutError")), ms);
+  setTimeout(() => ac.abort(new DOMException("Timeout", "TimeoutError")), ms);
   return ac.signal;
 }
 
+/**
+ * Recursively serializes an unknown value into a JSON-safe value.
+ */
 function toJsonValue(value: unknown): JsonValue {
   if (value === null) return null;
   if (typeof value === "string") return value;
@@ -35,6 +41,9 @@ function toJsonValue(value: unknown): JsonValue {
   return String(value);
 }
 
+/**
+ * Converts an error value into a JSON-serializable context object.
+ */
 function errorToContext(error: unknown): Record<string, JsonValue> {
   if (error === null || error === undefined) {
     return {};
@@ -55,6 +64,9 @@ function errorToContext(error: unknown): Record<string, JsonValue> {
   };
 }
 
+/**
+ * Sends a single observability event to Better Stack logs.
+ */
 async function sendToBetterStack(event: ObservabilityEvent): Promise<void> {
   const token = process.env.BETTERSTACK_SOURCE_TOKEN;
   if (!token) return;
@@ -70,6 +82,9 @@ async function sendToBetterStack(event: ObservabilityEvent): Promise<void> {
   });
 }
 
+/**
+ * Sends a single observability event to Axiom ingest.
+ */
 async function sendToAxiom(event: ObservabilityEvent): Promise<void> {
   const token = process.env.AXIOM_TOKEN;
   const dataset = process.env.AXIOM_DATASET;

@@ -5,6 +5,9 @@ import { Id } from "@/convex/_generated/dataModel";
 import crypto from "node:crypto";
 import { reportInfo } from "@/lib/observability";
 
+/**
+ * Resolves the base URL for redirects, preferring env then request origin.
+ */
 function getBaseUrl(request: NextRequest) {
   return (
     process.env.NEXT_PUBLIC_URL ||

@@ -34,6 +34,9 @@ type StudentResult = {
   imageUrl?: string;
 };
 
+/**
+ * Renders the icon for a social platform link.
+ */
 function SocialIcon({ platform }: { platform: string }) {
   switch (platform) {
     case "twitter":
@@ -51,6 +54,9 @@ function SocialIcon({ platform }: { platform: string }) {
   }
 }
 
+/**
+ * Renders a styled external link for a social platform.
+ */
 function SocialLink({ url, platform }: { url: string; platform: string }) {
   const platformNames: Record<string, string> = {
     twitter: "Twitter",
@@ -84,16 +90,17 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
   );
 }
 
+/**
+ * Renders the purchase section for an instructor, including session packs and waitlist links.
+ */
 function InstructorExtras({
   instructorId,
   instructorSlug,
-  instructorName,
   oneOnOneInventory,
   groupInventory,
 }: {
   instructorId: string;
   instructorSlug: string;
-  instructorName: string;
   oneOnOneInventory: number;
   groupInventory: number;
 }) {
@@ -190,6 +197,9 @@ function InstructorExtras({
   );
 }
 
+/**
+ * Loads and renders the public instructor profile page.
+ */
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor, isLoading } = useInstructorBySlug(slug);
   const publicInstructor = instructor as PublicInstructor | undefined;
@@ -296,7 +306,6 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   <InstructorExtras
                     instructorId={instructorIdForQueries}
                     instructorSlug={publicInstructor.slug!}
-                    instructorName={publicInstructor.name!}
                     oneOnOneInventory={oneOnOneInventory}
                     groupInventory={groupInventory}
                   />
@@ -341,6 +350,9 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   );
 }
 
+/**
+ * Renders full-width testimonials and student results below the instructor profile split.
+ */
 function InstructorFullWidthSections({
   instructorId,
   instructorName,
@@ -388,6 +400,9 @@ function InstructorFullWidthSections({
   );
 }
 
+/**
+ * Page component that unwraps the async params and renders the instructor profile.
+ */
 export default function InstructorProfilePage({
   params,
 }: InstructorProfilePageProps) {

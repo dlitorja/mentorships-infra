@@ -87,10 +87,12 @@ const commitResponseSchema = z.object({
   existingWorkspaceIds: z.array(z.string()),
 });
 
-type PreviewPerInstructor = z.infer<typeof previewPerInstructorSchema>;
 type PreviewResponse = z.infer<typeof previewResponseSchema>;
 type CommitResponse = z.infer<typeof commitResponseSchema>;
 
+/**
+ * Calls the admin onboarding preview endpoint and validates the response.
+ */
 async function postPreview(body: {
   email: string;
   instructors: PerInstructorDraft[];
@@ -106,6 +108,9 @@ async function postPreview(body: {
   return parsed.data;
 }
 
+/**
+ * Calls the admin onboarding commit endpoint and validates the response.
+ */
 async function postCommit(body: {
   email: string;
   instructors: PerInstructorDraft[];
@@ -121,10 +126,16 @@ async function postCommit(body: {
   return parsed.data;
 }
 
+/**
+ * Returns the default onboarding expiration timestamp (90 days from now).
+ */
 function defaultExpiresAt(): number {
   return Date.now() + DEFAULT_EXPIRES_DAYS * 24 * 60 * 60 * 1000;
 }
 
+/**
+ * React hook that returns a debounced copy of the input value.
+ */
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -134,6 +145,11 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
+/**
+ * Admin form for onboarding a new student with one or more instructors.
+ * Supports email lookup, instructor selection, per-instructor configuration,
+ * capacity override handling, and preview/commit flow.
+ */
 export default function AdminOnboardingForm(): React.JSX.Element {
   const queryClient = useQueryClient();
 
@@ -510,7 +526,7 @@ export default function AdminOnboardingForm(): React.JSX.Element {
             <DialogDescription>
               This will create a new <code>users</code> row in Convex tagged with an{" "}
               <code>onboardingAlias</code> marker. The Clerk account stays the same — only
-              the Convex-side record is split. You'll be required to leave internal notes
+              the Convex-side record is split. You&apos;ll be required to leave internal notes
               explaining why.
             </DialogDescription>
           </DialogHeader>
@@ -526,6 +542,9 @@ export default function AdminOnboardingForm(): React.JSX.Element {
   );
 }
 
+/**
+ * Banner that surfaces an existing student account or prior onboardings for the entered email.
+ */
 function ExistingStudentBanner({
   existingStudent,
 }: {
@@ -551,8 +570,8 @@ function ExistingStudentBanner({
               {existingStudent.name ? ` — ${existingStudent.name}` : ""}.
             </div>
             <div className="text-xs text-amber-800">
-              We'll use the existing student by default. Toggle "Create a separate
-              student record" above to split.
+              We&apos;ll use the existing student by default. Toggle &quot;Create a separate
+              student record&quot; above to split.
             </div>
           </div>
         </div>
@@ -578,6 +597,9 @@ function ExistingStudentBanner({
   );
 }
 
+/**
+ * Checkbox list for selecting instructors with active-student capacity badges.
+ */
 function InstructorMultiSelect({
   options,
   selectedIds,
@@ -632,6 +654,9 @@ function InstructorMultiSelect({
   );
 }
 
+/**
+ * Editable row for a selected instructor's session count and expiration date.
+ */
 function PerInstructorRow({
   option,
   draft,
@@ -704,6 +729,9 @@ function PerInstructorRow({
   );
 }
 
+/**
+ * Displays the server-side onboarding preview, including per-instructor assignments and warnings.
+ */
 function PreviewPanel({
   preview,
   emailPlan,
@@ -717,7 +745,7 @@ function PreviewPanel({
         <CardTitle className="text-base">Preview</CardTitle>
         <CardDescription>
           Zero side effects so far. Review the per-pair assignments below, then click
-          "Confirm and Send".
+          &quot;Confirm and Send&quot;.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -773,6 +801,9 @@ function PreviewPanel({
   );
 }
 
+/**
+ * Displays the result of committing the onboarding, including success/failure state and per-instructor details.
+ */
 function CommitResultPanel({
   result,
   instructorOptions,

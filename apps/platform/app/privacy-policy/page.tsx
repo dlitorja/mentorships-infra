@@ -6,13 +6,16 @@ export const metadata: Metadata = {
   description: "Huckleberry Art Inc. Privacy Policy - Learn how we collect, use, and protect your personal information.",
 };
 
+/**
+ * Renders the privacy policy page inside the shared legal layout.
+ */
 export default function PrivacyPolicyPage() {
   return (
     <LegalLayout title="Privacy Policy" lastUpdated="June 12, 2026">
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">1. Introduction</h2>
         <p className="text-muted-foreground leading-relaxed">
-          Huckleberry Art Inc. ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you visit our website, use our services, or interact with our platform. Please read this policy carefully. By using our services, you agree to the collection and use of information in accordance with this policy.
+          Huckleberry Art Inc. (&quot;we,&quot; &quot;our,&quot; or &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you visit our website, use our services, or interact with our platform. Please read this policy carefully. By using our services, you agree to the collection and use of information in accordance with this policy.
         </p>
       </section>
 
@@ -99,7 +102,7 @@ export default function PrivacyPolicyPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-semibold text-white mb-4">9. Children's Privacy</h2>
+        <h2 className="text-2xl font-semibold text-white mb-4">9. Children&apos;s Privacy</h2>
         <p className="text-muted-foreground leading-relaxed">
           Our services are not intended for individuals under the age of 18. We do not knowingly collect personal information from children under 18. If we learn that we have collected personal information from a child under 18, we will take steps to delete that information as soon as possible. If you believe we have collected information from a minor, please contact us immediately.
         </p>
@@ -108,7 +111,7 @@ export default function PrivacyPolicyPage() {
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">10. Changes to This Privacy Policy</h2>
         <p className="text-muted-foreground leading-relaxed">
-          We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last updated" date. You are advised to review this Privacy Policy periodically for any changes. Your continued use of our services after any modifications constitutes acceptance of the updated policy.
+          We may update this Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the &quot;Last updated&quot; date. You are advised to review this Privacy Policy periodically for any changes. Your continued use of our services after any modifications constitutes acceptance of the updated policy.
         </p>
       </section>
 

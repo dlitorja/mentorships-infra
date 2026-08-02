@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Loader2, FileText, Download } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -9,6 +10,9 @@ import { ShareLinkButton } from './ShareLinkButton';
 import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls } from '../utils';
 import type { ChatMessageListProps, MessageList } from '../types';
 
+/**
+ * Hook that removes failed inline image markers when their message is no longer present.
+ */
 function useFailedImageCleanup(
   messages: MessageList | undefined,
   setFailedInlineImages: React.Dispatch<React.SetStateAction<Set<Id<'workspaceMessages'>>>>
@@ -22,6 +26,9 @@ function useFailedImageCleanup(
   }, [messages, setFailedInlineImages]);
 }
 
+/**
+ * Scrollable list of chat messages with support for text, images, files, and active-call tagging.
+ */
 export function ChatMessageList({
   messages,
   currentUserId,
@@ -101,11 +108,14 @@ export function ChatMessageList({
                       className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onOpenLightbox(msg._id)}
                     >
-                      <img
+                      <Image
                         src={displayImageMessage.url}
                         alt={displayImageMessage.fileName}
+                        width={400}
+                        height={300}
+                        unoptimized
                         loading="lazy"
-                        className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                        className="max-w-full h-auto rounded-md transition-opacity hover:opacity-90"
                         onError={() => {
                           if (fileImageMessage) {
                             setFailedInlineImages((prev) => new Set(prev).add(msg._id));

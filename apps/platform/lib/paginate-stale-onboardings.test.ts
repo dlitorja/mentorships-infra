@@ -7,6 +7,9 @@ import {
   type StaleRowFetcher,
 } from "./paginate-stale-onboardings";
 
+/**
+ * Creates a fake stale onboarding row for tests.
+ */
 function makeRow(i: number) {
   return {
     _id: "row_" + i as any,
@@ -22,7 +25,7 @@ function makeRow(i: number) {
  * Build a fetcher that simulates a Convex paginated scan returning
  * `rowsPerPage` rows per call until `totalRows` are produced.
  */
-function makeChunkedFetcher(totalRows: number, rowsPerPage: number): { fetcher: StaleRowFetcher; calls: number[] } {
+function makeChunkedFetcher(totalRows: number, _rowsPerPage: number): { fetcher: StaleRowFetcher; calls: number[] } {
   const calls: number[] = [];
   let served = 0;
   let cursorSeq = 0;

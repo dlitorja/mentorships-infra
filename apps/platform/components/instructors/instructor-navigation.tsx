@@ -16,8 +16,8 @@ interface InstructorNavigationProps {
  * @param children - Content to render
  */
 export function InstructorNavigation({
-  previousSlug,
-  nextSlug,
+  previousSlug: _previousSlug,
+  nextSlug: _nextSlug,
   children,
 }: InstructorNavigationProps) {
   // Keyboard navigation is handled by InstructorNavigationWrapper

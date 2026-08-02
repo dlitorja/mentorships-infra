@@ -17,6 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { usePublicInstructors, PublicInstructor } from "@/lib/queries/convex/use-instructors";
 
+/**
+ * Fisher-Yates shuffle for randomizing the instructor carousel order on the client.
+ */
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -26,6 +29,9 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
+/**
+ * Auto-rotating instructor carousel for the landing page with profile cards and navigation.
+ */
 export function InstructorCarousel(): React.JSX.Element | null {
   const { data: instructorsData, isLoading } = usePublicInstructors();
   const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
@@ -33,7 +39,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
   const [count, setCount] = useState(0);
-  const [delays, setDelays] = useState<number[]>([]);
+  const [delays] = useState<number[]>([]);
 
   useEffect(() => {
     if (!instructorsData) return;

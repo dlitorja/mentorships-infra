@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { ArrowLeft, ArrowRight, Download, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -20,6 +21,9 @@ interface ChatImageLightboxProps {
   onDownload?: (url: string, fileName: string) => void;
 }
 
+/**
+ * Full-screen lightbox for viewing chat images with keyboard navigation and optional download.
+ */
 export function ChatImageLightbox({
   images,
   downloadItems = [],
@@ -124,12 +128,18 @@ export function ChatImageLightbox({
 
           <div className="h-full w-full p-4 md:p-8 flex items-center justify-center">
             {currentImage && !imageError ? (
-              <img
-                src={currentImage}
-                alt={currentDownload?.fileName ?? `Chat attachment ${currentIndex + 1}`}
-                className="max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] md:max-w-[calc(100vw-4rem)] md:max-h-[calc(100vh-4rem)] object-contain"
-                onError={() => setImageError(true)}
-              />
+              <div className="relative max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] md:max-w-[calc(100vw-4rem)] md:max-h-[calc(100vh-4rem)] w-full h-full">
+                <Image
+                  src={currentImage}
+                  alt={currentDownload?.fileName ?? `Chat attachment ${currentIndex + 1}`}
+                  fill
+                  unoptimized
+                  sizes="100vw"
+                  className="object-contain"
+                  onError={() => setImageError(true)}
+                  priority
+                />
+              </div>
             ) : (
               <p className="text-white/70">Image unavailable</p>
             )}

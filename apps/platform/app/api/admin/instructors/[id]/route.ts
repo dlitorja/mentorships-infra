@@ -3,7 +3,6 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { stripe } from "@/lib/stripe";
 import { clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 import { Id } from "@/convex/_generated/dataModel";
@@ -12,6 +11,9 @@ import { Id } from "@/convex/_generated/dataModel";
 
 const SOCIALS_KEYS = new Set(["twitter", "instagram", "youtube", "bluesky", "website", "artstation"]);
 
+/**
+ * Picks only allowed social keys with non-empty string values.
+ */
 function sanitizeSocials(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<string, string> = {};
