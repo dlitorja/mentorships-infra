@@ -17,6 +17,9 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 6 | Testing infrastructure | Merged (#721) |
 | 7 | Performance & loading states | Merged (#722) — see [`docs/plans/pr-7-performance-loading-states.md`](../../docs/plans/pr-7-performance-loading-states.md) |
 | 8 | Accessibility, UI consistency, and cleanup | Merged (#723) |
+| 9 | Large-file decomposition | In Progress (#724) |
+| 10 | E2E / Playwright coverage | Open |
+| 11 | Accessibility verification & code quality hygiene | Open |
 
 ## Completed PRs
 
@@ -121,8 +124,11 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 6 | Testing infrastructure | Merged (#721) | 3 |
 | 7 | Performance & loading states | Merged (#722) | 6 |
 | 8 | Accessibility, UI consistency, and cleanup | Merged (#723) | 8 |
+| 9 | Large-file decomposition | In Progress (#724) | 5 |
+| 10 | E2E / Playwright coverage | Open | 4 |
+| 11 | Accessibility verification & code quality hygiene | Open | 3 |
 
-**Total PRs:** 8
+**Total PRs:** 11
 
 ---
 
@@ -611,17 +617,353 @@ Implemented on 2026-08-01. Files changed:
 
 ---
 
+## PR 9: Large-file Decomposition
+
+*Mechanical refactoring. Split the five remaining oversized files into smaller, focused modules without changing behavior.*
+
+### Goal
+
+Reduce the size and complexity of the five largest files in `apps/platform` so each module is under ~300 lines and has a single responsibility. All existing behavior, types, tests, and public imports must remain intact. This is a pure code-organization PR.
+
+### 9.1. `app/admin/instructors/[id]/edit/page.tsx` (~1,157 lines)
+
+Current responsibilities: loading state, data fetching, form state, tab orchestration, basic info, images, tags, social links, inventory, testimonials, student results, and success/deactivation dialogs.
+
+**Target structure:**
+
+```
+app/admin/instructors/[id]/edit/
+├── page.tsx                              # orchestrator: tabs, query/mutation wiring, top-level actions
+├── types.ts                              # InstructorFormData, Testimonial, StudentResult, Socials, schemas
+├── constants.ts                          # SPECIALTY_OPTIONS, BACKGROUND_OPTIONS, SOCIAL_PLATFORMS, NONE_SENTINEL
+├── hooks/
+│   ├── use-update-instructor.ts          # useMutation + updateInstructor API call
+│   ├── use-instructor-form.ts            # formData state, tag helpers, portfolio/social handlers
+│   └── use-testimonials-and-results.ts   # add/delete mutation wiring for testimonials and student results
+├── sections/
+│   ├── BasicInfoSection.tsx              # name, slug, email, tagline, bio, isActive
+│   ├── ImagesSection.tsx                 # profile image upload + portfolio images
+│   ├── TagsSection.tsx                   # specialties and background toggles
+│   ├── SocialLinksSection.tsx            # social platform inputs
+│   ├── InventorySection.tsx              # oneOnOne, group, maxActiveStudents
+│   ├── TestimonialsSection.tsx           # list + add/delete testimonials
+│   └── StudentResultsSection.tsx         # list + add/delete student results
+└── dialogs/
+    ├── TestimonialDialog.tsx
+    ├── StudentResultDialog.tsx
+    ├── ProductDeactivationDialog.tsx
+    └── SuccessDialog.tsx
+```
+
+**Key extraction rules:**
+
+- `page.tsx` should drop from ~1,157 lines to ~150–200 lines. It keeps the tab shell, `Tabs`/`TabsList`, the error banner, the save header, and passes callbacks and state down to sections.
+- Move the `ApiError` class, `updateInstructorResponseSchema`, and `instructorsResponseSchema` into `types.ts` or `lib/schemas/admin-instructors.ts` if they are reused elsewhere.
+- Keep the `ImageUploadField` usage in `ImagesSection.tsx`; do not duplicate image-upload logic.
+- The `useUpdateInstructor` hook should encapsulate the `updateInstructor` mutation, `onSuccess` success-dialog handling, and `onError` deactivation logic so the page does not own this branching.
+
+### 9.2. `app/admin/products/_components/product-form.tsx` (~956 lines)
+
+Current responsibilities: create/edit/Stripe-import tabs, three different mutation paths, form state for pricing/session-pack/scheduling, and a result card.
+
+**Target structure:**
+
+```
+app/admin/products/_components/
+├── product-form.tsx              # tabs, result banner, top-level submit/import buttons
+├── types.ts                      # ProductData, ProductUpdateResult, ProductFormProps
+├── hooks/
+│   └── use-product-mutations.ts  # create, update, and Stripe-import mutations
+├── sections/
+│   ├── BasicInfoSection.tsx      # title, description, image, instructor select
+│   ├── PricingSection.tsx        # price, currency
+│   ├── ProductTypeSection.tsx    # mentorshipType radio/select
+│   ├── SessionPackSection.tsx    # sessionsPerPack, validityDays
+│   ├── SchedulingSection.tsx     # enableStripe, enablePayPal checkboxes
+│   └── StripeImportSection.tsx   # import-from-Stripe form
+└── ResultCard.tsx                # success/failure result card
+```
+
+**Key extraction rules:**
+
+- `product-form.tsx` should drop to ~150–200 lines. It owns the active tab, form wrapper, and result display.
+- `use-product-mutations.ts` owns the three `useMutation` hooks and their `onSuccess`/`onError` result mapping.
+- Each section consumes the `@tanstack/react-form` field API through props or the form context; do not reimplement validation.
+- Keep the `ImageUploadField` usage in `BasicInfoSection.tsx`.
+
+### 9.3. `components/workspace/chat.tsx` (~1,128 lines)
+
+Current responsibilities: message parsing, URL detection, file download, link sharing, pagination, message list rendering, input bar, attachment handling, scroll management, and lightbox integration.
+
+**Target structure:**
+
+```
+components/workspace/chat/
+├── index.tsx                     # default export WorkspaceChat, re-exports
+├── chat.tsx                      # shell: wiring, lightbox, layout
+├── types.ts                      # Message, PendingAttachment, ImageMessageEntry, etc.
+├── utils.ts                      # formatBytes, parseFileMessage, parseImageMessage, URL_REGEX, extractUrls, renderMessageWithLinks, downloadFile, normalizeUrl
+├── hooks/
+│   ├── use-chat-messages.ts      # pagination, message merging, scroll effects
+│   ├── use-chat-attachments.ts   # processFiles, validation, upload, preview state
+│   └── use-lightbox-images.ts    # derive imageMessages + chatImages for lightbox
+├── components/
+│   ├── ChatMessageList.tsx
+│   ├── ChatInputBar.tsx
+│   ├── AttachmentPreviews.tsx
+│   └── ShareLinkButton.tsx
+└── chat-data-context remains at `components/workspace/chat-data-context.tsx`
+```
+
+**Key extraction rules:**
+
+- `chat.tsx` should drop to ~150–200 lines. It renders the message list, input bar, and `ChatImageLightbox`.
+- `utils.ts` should be self-contained and have no React dependencies. It is the easiest to unit test.
+- `use-chat-messages.ts` owns the `messages` state, the `useEffect` that merges paginated results, and the two scroll effects.
+- `use-chat-attachments.ts` owns `processFiles`, validation, and the upload flow.
+- Existing tests in `components/workspace/chat.test.tsx` import `WorkspaceChat` from `./chat`. Keep the default export path stable by adding `components/workspace/chat/index.tsx` that re-exports `WorkspaceChat` from `chat.tsx`, or keep `chat.tsx` as the default export file.
+
+### 9.4. `components/workspace/notes.tsx` (~1,284 lines)
+
+Current responsibilities: note list, editor (TipTap), toolbar, autosave, comments, attachment upload, lightbox, title editing, and call-tagging.
+
+**Target structure:**
+
+```
+components/workspace/notes/
+├── index.tsx                     # default export WorkspaceNotes
+├── notes.tsx                     # shell: list + editor layout, selection/autosave wiring
+├── types.ts                      # WorkspaceNotesProps, AutosaveEntry, TitleEditSurface
+├── hooks/
+│   ├── use-note-autosave.ts      # scheduleAutosave, flushAutosave, clearAutosave
+│   ├── use-note-selection.ts     # selectedNoteId, auto-select logic, deletion detection
+│   └── use-note-image-lightbox.ts # noteImageUrls, openLightboxForImage
+├── components/
+│   ├── NoteList.tsx
+│   ├── NoteListItem.tsx
+│   ├── NoteCreateForm.tsx
+│   ├── NoteEditor.tsx
+│   ├── NoteToolbar.tsx
+│   ├── NoteComments.tsx
+│   └── NoteTitleEditor.tsx
+└── utils.ts                      # collectNoteImageUrls (or keep it here if Notes-only)
+```
+
+**Key extraction rules:**
+
+- `notes.tsx` should drop to ~150–200 lines. It holds the list/editor layout and the lightbox.
+- `use-note-autosave.ts` owns the `autosavesRef` map and the `scheduleAutosave`/`flushAutosave`/`clearAutosave` functions. This is the most complex local logic and benefits most from isolation.
+- `use-note-selection.ts` owns the four effects that manage `selectedNoteId`, `pendingDeletedNoteId`, `confirmedSelectedNoteIdRef`, and auto-selection.
+- `NoteEditor.tsx` owns the `useEditor` call, the editor click/keydown handlers, and the `EditorContent` render.
+- `NoteToolbar.tsx` is the TipTap toolbar buttons.
+- `ChatImageLightbox` remains in `components/workspace/chat-lightbox.tsx`; `notes.tsx` imports it.
+
+### 9.5. `inngest/functions/payments.ts` (~1,042 lines)
+
+Current responsibilities: four Inngest functions (Stripe checkout, Stripe refund, PayPal checkout, PayPal refund) and their step workflows. Helpers already live in `payments-helpers.ts`.
+
+**Target structure:**
+
+```
+inngest/functions/payments/
+├── index.ts                        # re-exports processStripeCheckout, processStripeRefund, processPayPalCheckout, processPayPalRefund
+├── process-stripe-checkout.ts
+├── process-stripe-refund.ts
+├── process-paypal-checkout.ts
+└── process-paypal-refund.ts
+```
+
+**Key extraction rules:**
+
+- Each file exports exactly one `inngest.createFunction(...)` call.
+- Shared imports (`inngest`, `convexServerCall`, `stripe`, `sendEmail`, `sendEmailLinkForUser`, `reportInfo`, `onboardingFlow`, `payments-helpers`, `Id`, `z`) stay in each file as needed. Do not create a shared wrapper that obscures the Inngest function definition.
+- Keep `payments-helpers.ts` at `inngest/functions/payments-helpers.ts` unchanged.
+- The import in `app/api/inngest/route.ts` is `from "@/inngest/functions/payments"`. To preserve this, delete `payments.ts` and create `payments/index.ts` that re-exports the four functions. TypeScript/Next.js will resolve the directory import.
+
+### 9.6. Shared dependencies and import stability
+
+| Consumer | Current import | Required action |
+|----------|---------------|-----------------|
+| `app/api/inngest/route.ts` | `@/inngest/functions/payments` | Create `payments/index.ts` re-export. |
+| `components/workspace/workspace-client-page.tsx` | `@/components/workspace/chat` | Keep `chat/index.tsx` as re-export or keep `chat.tsx` as the default export. |
+| `components/workspace/chat.test.tsx` | `./chat` | Same as above. |
+| `components/workspace/notes.tsx` | `./chat-lightbox` | Unchanged; `notes.tsx` becomes `notes/index.tsx` re-export. |
+
+### 9.7. Suggested execution order
+
+1. **Chat utilities** — extract `utils.ts` and `use-chat-messages.ts` first; lowest risk and high test coverage.
+2. **Notes autosave + selection hooks** — extract the complex hook logic next.
+3. **Admin product form sections** — lower risk UI decomposition.
+4. **Admin instructor edit sections** — slightly more state/dialogs than product form.
+5. **Inngest payments split** — do this last. Run the existing `tests/unit/inngest/payments.test.ts` and any Convex/Inngest integration tests after the move.
+
+### 9.8. Risk mitigation
+
+- **Do not change logic.** This is a move-only refactor. If a section can be simplified, leave a TODO for PR 11.
+- **Preserve the exact component signatures.** `WorkspaceChat`, `WorkspaceNotes`, `ProductForm`, `EditInstructorPage`, and the Inngest exports must keep the same public signatures.
+- **Keep tests green after each file.** Do not wait until the end to run the suite; verify after each file extraction.
+- **For payments**, keep a backup diff of the file before moving it. If an Inngest registration error occurs, compare the exported function object exactly.
+- **Avoid shared barrel files for UI.** Re-export the default component from `index.tsx` only where needed to keep existing import paths; do not create broad `components/index.ts` barrels.
+
+### 9.9. Acceptance criteria
+
+- No functional change; all existing unit, component, and route tests pass without modification.
+- Each new file is under ~300 lines (natural module boundaries take precedence).
+- Types and shared helpers are co-located next to their consumers.
+- Re-exports and public API surface remain unchanged.
+- No new lint warnings introduced.
+
+### 9.10. Implementation Notes
+
+Implemented on 2026-08-02.
+
+- Decomposed `components/workspace/chat.tsx` into `components/workspace/chat/` with `index.tsx`, `chat.tsx`, `types.ts`, `utils.ts`, hooks (`use-chat-messages`, `use-chat-attachments`, `use-lightbox-images`), and components (`ChatMessageList`, `ChatInputBar`, `AttachmentPreviews`, `ShareLinkButton`). Public import `@/components/workspace/chat` and test import `./chat` are preserved.
+- Decomposed `components/workspace/notes.tsx` into `components/workspace/notes/` with `index.tsx`, `notes.tsx`, `types.ts`, hooks (`use-note-autosave`, `use-note-selection`, `use-note-image-lightbox`, `use-note-editor`, `use-note-comments`, `use-note-crud`), and components (`NoteList`, `NoteListItem`, `NoteCreateForm`, `NoteEditor`, `NoteToolbar`, `NoteComments`, `NoteTitleEditor`). Added a `NoteSummary` projection type for paginated note lists.
+- Decomposed `app/admin/products/_components/product-form.tsx` into `product-form.tsx`, `types.ts`, `ResultCard.tsx`, `hooks/use-product-mutations.ts`, and sections (`BasicInfoSection`, `PricingSection`, `ProductTypeSection`, `SessionPackSection`, `SchedulingSection`, `StripeImportSection`). The public import and create/edit/import tab behavior remain unchanged.
+- Decomposed `app/admin/instructors/[id]/edit/page.tsx` into `page.tsx`, `types.ts`, `constants.ts`, hooks (`use-update-instructor`, `use-instructor-form`, `use-testimonials-and-results`), sections (`BasicInfoSection`, `ImagesSection`, `TagsSection`, `SocialLinksSection`, `InventorySection`, `TestimonialsSection`, `StudentResultsSection`), and dialogs (`TestimonialDialog`, `StudentResultDialog`, `ProductDeactivationDialog`, `SuccessDialog`). Page is now the orchestrator shell.
+- Decomposed `inngest/functions/payments.ts` into `inngest/functions/payments/` with `index.ts`, `process-stripe-checkout.ts`, `process-stripe-refund.ts`, `process-paypal-checkout.ts`, and `process-paypal-refund.ts`. `app/api/inngest/route.ts` continues to import from `@/inngest/functions/payments`.
+- Removed unused imports/variables introduced by the split: `useState` in `use-testimonials-and-results.ts`, `mode` in `use-product-mutations.ts`, `useEffect`/`Instructor` in `StripeImportSection.tsx`, `Id` in `chat.tsx`, `Message` imports in `use-chat-messages.ts`/`use-lightbox-images.ts`, `Doc` imports in `NoteComments.tsx`/`NoteListItem.tsx`, `title` in `NoteTitleEditor.tsx`, `pendingDeletedNoteId` and `flushAllAutosaves` dependency in `notes.tsx`, and unused `EmailResult`/discount variables in the payment processors.
+- Deleted the original monolithic files: `chat.tsx`, `notes.tsx`, `payments.ts`, and replaced the old `product-form.tsx` and `edit/page.tsx` files.
+
+### 9.11. Verification
+
+- `pnpm --filter @mentorships/platform typecheck` ✅
+- `pnpm --filter @mentorships/platform lint` ✅ (0 new warnings; 102 pre-existing warnings remain)
+- `NEXT_PUBLIC_APP_URL=http://localhost:3000 pnpm --filter @mentorships/platform build` ✅
+- `pnpm test:unit --run` ✅ (353 passed, 3 skipped)
+- `pnpm test:convex --run` ✅ (49 passed)
+
+### 9.12. Review
+
+- `npx greptile@latest review -b main --diff` — pending until the branch is pushed.
+- **Note:** post-implementation cleanup removed the `uploadProgress` and `retryingIndices` props from `AttachmentPreviews` because the component did not consume them after the split.
+
+---
+
+## PR 10: E2E / Playwright Coverage
+
+*Add the seeded test backend and the four deferred end-to-end flows.*
+
+### Goal
+
+PR 6 deferred the Playwright flows because they require a seeded test backend. This PR establishes the seeding infrastructure and implements the four critical user journeys.
+
+### Seeded test backend
+
+Create a deterministic seed utility that can be invoked before the Playwright suite:
+
+- Seed an instructor user with a published product, active inventory, and a connected Google Calendar (or mock OAuth state).
+- Seed a student user with a clean account state.
+- Seed a sample session and a purchased session pack for reschedule tests.
+- Provide a cleanup helper that runs after the suite to reset test data.
+
+Use Convex mutations behind an API route or a CLI script. Keep credentials/secrets out of the repo and load them via environment variables in `playwright.config.mts`.
+
+### E2E flows
+
+1. **Student purchase + booking flow**
+   - Visit public instructor page, select a product, complete Stripe guest checkout, and book a session.
+   - Verify session appears in the student's dashboard and the instructor's session list.
+   - Use Stripe test mode and test card `4242 4242 4242 4242`.
+
+2. **Instructor rescheduling**
+   - Sign in as the seeded instructor, navigate to an upcoming session, and reschedule it.
+   - Verify the new time is reflected on both the instructor and student sides.
+
+3. **Google Calendar connect**
+   - Connect a Google Calendar account. If OAuth cannot be bypassed in the test environment, seed the OAuth state and assert the connection UI reflects the linked calendar.
+   - Mark as optional/skip if the OAuth environment is not configured.
+
+4. **Student onboarding submission**
+   - Complete the instructor onboarding flow (portfolio upload, bio, social links, etc.).
+   - Verify the submission is visible in the admin review queue.
+
+### Configuration
+
+- `apps/platform/playwright.config.mts` already points to `tests/e2e/` and uses an `auth.setup.ts` project.
+- Add the new specs to the existing `tests/e2e/` directory so they can reuse the shared setup.
+- Add a `pnpm test:e2e` script to `apps/platform/package.json` if one does not already exist.
+
+### Acceptance criteria
+
+- All four flows run reliably against the local dev server with `pnpm test:e2e`.
+- Tests can be run in CI with the seeded backend and Stripe test keys.
+- Flaky operations (network, OAuth, Stripe) use Playwright retries and explicit waits.
+
+### Verification
+
+- `pnpm test:e2e` ✅
+- `pnpm --filter @mentorships/platform typecheck` ✅
+- `pnpm --filter @mentorships/platform lint` ✅
+- `npx greptile@latest review -b main --diff` ✅
+
+---
+
+## PR 11: Accessibility Verification & Code Quality Hygiene
+
+*Add an automated accessibility scan and clean up the remaining lint warnings and docstring coverage warning.*
+
+### Goal
+
+Finish the accessibility work started in PR 8 and remove the pre-existing lint warnings that were explicitly deferred. This PR is low-risk but broad; it should be the last quality pass before the improvement plan is fully wrapped up.
+
+### Accessibility verification
+
+- Add an `axe-core` scan that runs in CI or as a test helper.
+- Cover the pages touched in PR 8 and PR 9 at minimum: `/admin/instructors`, `/admin/instructors/[id]/edit`, `/admin/products`, `/instructor/profile`, `/instructor/sessions`, `/dashboard`, and the workspace `/chat` and `/notes` views.
+- Fail on new violations (`impact: 'critical' | 'serious'`); log and triage existing minor violations.
+- Use `@axe-core/react` or `axe-core` via a Vitest/Playwright helper.
+
+### Lint warning cleanup
+
+As of the latest run, `apps/platform` reports **104 warnings** in the following categories:
+
+- **Unused imports/variables/arguments** in API routes, components, and libraries.
+- **Unnecessary escape characters** in `app/api/webhooks/paypal/route.ts`.
+- **Unescaped entities** (`'` and `"`) in static pages and `admin-onboarding-form.tsx`.
+- **React Hook dependency warnings** in `app/instructor/students/page.tsx`, `components/calendar/book-session-form.tsx`, `components/workspace/notes.tsx`, and `components/workspace/session-count-controls.tsx`.
+- **`<img>` usage** in `components/workspace/chat-lightbox.tsx`, `components/workspace/chat.tsx`, `components/workspace/images.tsx`, and `components/workspace/resources.tsx`.
+
+For each warning:
+
+- Remove truly unused imports/variables.
+- Fix dependency arrays or refactor the hook to avoid the warning.
+- Replace `<img>` with Next.js `Image` where possible (use `unoptimized` for external/dynamic URLs).
+- Escape entities in static JSX.
+- Keep the fix minimal; do not refactor unrelated logic.
+
+### Docstring coverage
+
+- Address the CodeRabbit docstring coverage warning (26.92% vs 80% threshold).
+- Add concise JSDoc to exported functions, route handlers, and non-trivial helpers in the files touched by this PR.
+- Do not add docstrings to trivial inline closures or generated code.
+
+### Acceptance criteria
+
+- `pnpm --filter @mentorships/platform lint` reports **0 warnings**.
+- The axe-core scan runs in CI and fails on new `critical`/`serious` violations.
+- CodeRabbit docstring coverage check passes on the PR.
+
+### Verification
+
+- `pnpm --filter @mentorships/platform typecheck` ✅
+- `pnpm --filter @mentorships/platform lint` ✅ (0 warnings)
+- `NEXT_PUBLIC_APP_URL=http://localhost:3000 pnpm --filter @mentorships/platform build` ✅
+- `CI=true pnpm run test:unit` ✅
+- `pnpm test:convex` ✅
+- `npx greptile@latest review -b main --diff` ✅
+
+---
+
 ## Large/Overly Complex Files Worth Splitting
 
-These files appear across multiple PRs above but are worth calling out as cross-cutting decomposition work:
+These files are now explicitly covered by **PR 9: Large-file decomposition**:
 
-- `app/admin/instructors/[id]/edit/page.tsx` (1207 lines)
-- `app/admin/products/_components/product-form.tsx` (945 lines)
-- `components/workspace/notes.tsx`
-- `components/workspace/chat.tsx` (1093 lines)
-- `inngest/functions/payments.ts` (1183 lines)
-
-Where possible, decompose these as part of the relevant PRs rather than as a standalone PR.
+- `app/admin/instructors/[id]/edit/page.tsx` (~1,157 lines)
+- `app/admin/products/_components/product-form.tsx` (~956 lines)
+- `components/workspace/notes.tsx` (~1,284 lines)
+- `components/workspace/chat.tsx` (~1,128 lines)
+- `inngest/functions/payments.ts` (~1,042 lines)
 
 ---
 
@@ -634,41 +976,22 @@ Where possible, decompose these as part of the relevant PRs rather than as a sta
 5. **PR 5: Type Safety & Checkout UX** — Reduces TypeScript risk and fixes checkout flow issues.
 6. **PR 6: Testing Infrastructure** — Add tests before larger refactors to establish baselines.
 7. **PR 7: Performance & Loading States** — Improves perceived performance and bundle size.
-8. **PR 8: Accessibility, UI Consistency, and Cleanup** — Medium-risk polish and cleanup; the last remaining PR in this plan.
+8. **PR 8: Accessibility, UI Consistency, and Cleanup** — Medium-risk polish and cleanup.
+9. **PR 9: Large-file Decomposition** — Split remaining oversized files.
+10. **PR 10: E2E / Playwright Coverage** — Add seeded backend and deferred user flows.
+11. **PR 11: Accessibility Verification & Code Quality Hygiene** — Final `axe-core`, lint, and docstring pass.
 
 ---
 
 ## What Remains
 
-All eight planned PRs are merged, but the following cross-cutting items were intentionally deferred or only partially addressed and are the next candidates for focused work:
+All eight originally planned PRs are merged. The remaining cross-cutting items are intentionally deferred or only partially addressed and are now scoped into the three PRs below.
 
-### Large-file decomposition
+- **PR 9: Large-file decomposition** — split the five oversized files with no functional change.
+- **PR 10: E2E / Playwright coverage** — add a seeded test backend and the four deferred Playwright flows.
+- **PR 11: Accessibility verification & code quality hygiene** — add an automated `axe-core` scan, fix the remaining lint warnings, and address the CodeRabbit docstring coverage warning.
 
-The files below are still oversized. PR 8 only extracted the payment helpers and the backfill panel; the main bodies remain intact.
-
-- `app/admin/instructors/[id]/edit/page.tsx` (~1,200 lines) — split into section components (Profile, Products, Socials, Testimonials/Results, Images) plus a shared hook.
-- `app/admin/products/_components/product-form.tsx` (~945 lines) — split into pricing, session-pack, scheduling, and product-type sections.
-- `components/workspace/chat.tsx` (~1,093 lines) — split into message list, input bar, attachment handling, and pagination hook.
-- `components/workspace/notes.tsx` — split into note list, editor, and toolbar.
-- `inngest/functions/payments.ts` (~1,183 lines) — split each Inngest function and the webhook handler into separate files under `inngest/functions/payments/`.
-
-### E2E / Playwright coverage
-
-PR 6 deferred the Playwright flows because they require a seeded test backend:
-
-- Student purchase + booking flow.
-- Instructor rescheduling.
-- Google Calendar connect (skip if no OAuth bypass).
-- Student onboarding submission.
-
-### Accessibility verification
-
-- No automated `axe-core` scan has been run on the touched pages. Add a CI or test helper that fails on new violations.
-- Some pre-existing lint warnings remain (unescaped entities, unused variables, `useMemo` dependency drift). These are non-blocking but should be cleaned up opportunistically.
-
-### Code quality hygiene
-
-- CodeRabbit docstring coverage warning (26.92% vs 80% threshold). This is not blocking but will surface on every PR until addressed.
+See the detailed sections below for scope, acceptance criteria, and verification steps.
 
 ---
 

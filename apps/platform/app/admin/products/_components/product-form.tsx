@@ -1,12 +1,9 @@
-"use client";
+'use client';
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
-import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -14,78 +11,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, CheckCircle2, XCircle, ExternalLink, CreditCard, Wallet } from "lucide-react";
-import { createProduct, createProductFromStripe, updateProduct, type MentorshipType } from "@/lib/queries/api-client";
-import { ImageUploadField } from "@/components/admin/image-upload-field";
-
-type Instructor = {
-  id: string;
-  email: string | null;
-  name: string;
-};
-
-type ProductData = {
-  id?: string;
-  instructorId: string;
-  title: string;
-  description?: string;
-  imageUrl?: string;
-  price: string;
-  currency?: string;
-  sessionsPerPack: number;
-  validityDays: number;
-  mentorshipType: MentorshipType;
-  enableStripe: boolean;
-  enablePayPal: boolean;
-};
-
-type ProductFormProps = {
-  mode: "create" | "edit";
-  initialData?: ProductData;
-  productId?: string;
-  instructors: Instructor[];
-  isLoadingInstructors: boolean;
-};
-
-type ProductUpdateResult = {
-  success: boolean;
-  message: string;
-  product?: {
-    id: string;
-    title: string;
-    price: string;
-    currency: string;
-    sessionsPerPack: number;
-    validityDays: number;
-    mentorshipType: string;
-    stripe: {
-      productId: string;
-      productLink: string;
-      priceId: string;
-      priceLink: string;
-    } | null;
-    paypal: {
-      productId: string;
-      productLink: string;
-    } | null;
-  };
-  changes?: {
-    priceChanged: boolean;
-    newStripePriceId: string | null;
-    oldStripePriceId: string | null;
-  };
-};
+import { Loader2 } from "lucide-react";
+import type { MentorshipType } from "@/lib/queries/api-client";
+import { useProductMutations } from "./hooks/use-product-mutations";
+import { BasicInfoSection } from "./sections/BasicInfoSection";
+import { PricingSection } from "./sections/PricingSection";
+import { ProductTypeSection } from "./sections/ProductTypeSection";
+import { SessionPackSection } from "./sections/SessionPackSection";
+import { SchedulingSection } from "./sections/SchedulingSection";
+import { StripeImportSection } from "./sections/StripeImportSection";
+import { ResultCard } from "./ResultCard";
+import type { ProductFormProps, ProductData, ProductUpdateResult } from "./types";
 
 export function ProductForm({
   mode,
@@ -96,102 +33,71 @@ export function ProductForm({
 }: ProductFormProps) {
   const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
-  const router = useRouter();
 
+  const {
+    createProductMutation,
+    updateProductMutation,
+    importFromStripeMutation,
+    handleCreateSubmit,
+    handleUpdateSubmit,
+    handleImportSubmit,
+  } = useProductMutations({ productId, setResult });
 
-  const createProductMutation = useMutation({
-    mutationFn: async (data: ProductData) => createProduct(data),
-    onSuccess: () => {
-      // After successful creation, return to products list
-      router.push("/admin/products");
+  const form = useForm({
+    defaultValues: {
+      instructorId: initialData?.instructorId || "",
+      title: initialData?.title || "",
+      description: initialData?.description || "",
+      imageUrl: initialData?.imageUrl || "",
+      price: initialData?.price || "",
+      currency: initialData?.currency || "usd",
+      sessionsPerPack: initialData?.sessionsPerPack || 4,
+      validityDays: initialData?.validityDays || 30,
+      mentorshipType: initialData?.mentorshipType || ("one-on-one" as MentorshipType),
+      enableStripe: initialData?.enableStripe ?? true,
+      enablePayPal: initialData?.enablePayPal ?? true,
     },
-    onError: (error) => {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to create product",
-      });
+    onSubmit: async ({ value }) => {
+      // Normalize price to a canonical decimal string (supports comma input)
+      const priceStr = String(value.price ?? "").trim().replace(",", ".");
+      const priceNum = Number(priceStr);
+      const normalizedPrice = Number.isFinite(priceNum) && priceNum > 0 ? priceNum.toFixed(2) : priceStr;
+
+      const submitData: ProductData = {
+        instructorId: value.instructorId,
+        title: (value.title || "").trim(),
+        description: value.description || undefined,
+        imageUrl: value.imageUrl || undefined,
+        price: normalizedPrice,
+        currency: value.currency,
+        sessionsPerPack: value.sessionsPerPack,
+        validityDays: value.validityDays,
+        mentorshipType: value.mentorshipType,
+        enableStripe: value.enableStripe,
+        enablePayPal: value.enablePayPal,
+      };
+
+      if (mode === "create") {
+        handleCreateSubmit(submitData);
+      } else {
+        handleUpdateSubmit(submitData);
+      }
+    },
+    validators: {
+      // Keep form-level free; we handle cross-field provider error inline below
     },
   });
 
-  const updateProductMutation = useMutation({
-    mutationFn: async (data: ProductData) => {
-      if (!productId) throw new Error("Product ID required");
-      return updateProduct(productId, data);
-    },
-    onSuccess: (data) => {
-      setResult({
-        success: true,
-        message: data.message || "Product updated successfully",
-        product: {
-          id: data.product.id,
-          title: data.product.title,
-          price: data.product.price,
-          currency: data.product.currency,
-          sessionsPerPack: data.product.sessionsPerPack,
-          validityDays: data.product.validityDays,
-          mentorshipType: data.product.mentorshipType,
-          stripe: data.product.stripeProductId
-            ? {
-                productId: data.product.stripeProductId,
-                productLink: "",
-                priceId: data.product.stripePriceId || "",
-                priceLink: "",
-              }
-            : null,
-          paypal: data.product.paypalProductId
-            ? {
-                productId: data.product.paypalProductId,
-                productLink: "",
-              }
-            : null,
-        },
-        changes: data.changes,
-      });
-    },
-    onError: (error) => {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to update product",
-      });
-    },
-  });
+  // UX: If instructors have loaded and none selected yet, auto-select the first one.
+  useEffect(() => {
+    if (!isLoadingInstructors && instructors.length > 0) {
+      if (!form.state.values.instructorId) {
+        form.setFieldValue("instructorId", instructors[0].id);
+      }
+    }
+  }, [isLoadingInstructors, instructors, form]);
 
-  const importFromStripeMutation = useMutation({
-    mutationFn: async (data: { productId?: string; priceId?: string; instructorId?: string }) => {
-      await createProductFromStripe({
-        productId: data.productId,
-        priceId: data.priceId,
-        instructorId: data.instructorId,
-      });
-    },
-    onSuccess: () => {
-      setResult({
-        success: true,
-        message: "Product imported from Stripe successfully",
-      });
-    },
-    onError: (error) => {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to import product",
-      });
-    },
-  });
-
-  const handleCreateSubmit = (values: ProductData) => {
-    setResult(null);
-    createProductMutation.mutate(values);
-  };
-
-  const handleUpdateSubmit = (values: ProductData) => {
-    setResult(null);
-    updateProductMutation.mutate(values);
-  };
-
-  const handleImportSubmit = (values: { productId?: string; priceId?: string; instructorId?: string }) => {
-    setResult(null);
-    importFromStripeMutation.mutate(values);
-  };
+  const isSubmitting = mode === "create" ? createProductMutation.isPending : updateProductMutation.isPending;
 
   return (
     <div className="min-h-screen bg-background px-4 py-12">
@@ -221,18 +127,97 @@ export function ProductForm({
           </TabsList>
 
           <TabsContent value="create-new">
-            <ProductFieldsForm
-              instructors={instructors}
-              isLoadingInstructors={isLoadingInstructors}
-              isSubmitting={mode === "create" ? createProductMutation.isPending : updateProductMutation.isPending}
-              onSubmit={mode === "create" ? handleCreateSubmit : handleUpdateSubmit}
-              initialData={initialData}
-              mode={mode}
-            />
+            <Card>
+              <CardHeader>
+                <CardTitle>{mode === "create" ? "Create New Product" : "Edit Product"}</CardTitle>
+                <CardDescription>
+                  {mode === "create"
+                    ? "Create a new session pack with full customization"
+                    : "Update the product details below"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    form.handleSubmit();
+                  }}
+                  className="space-y-6"
+                >
+                  <BasicInfoSection
+                    form={form}
+                    instructors={instructors}
+                    isLoadingInstructors={isLoadingInstructors}
+                    isSubmitting={isSubmitting}
+                  />
+                  <ProductTypeSection form={form} />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <PricingSection form={form} isSubmitting={isSubmitting} />
+                    <SessionPackSection form={form} isSubmitting={isSubmitting} />
+                  </div>
+                  <SchedulingSection form={form} isSubmitting={isSubmitting} />
+                  <div className="flex gap-3 pt-4">
+                    <form.Subscribe
+                      selector={(state) => ({
+                        instructorId: state.values.instructorId,
+                        title: state.values.title,
+                        price: state.values.price,
+                        enableStripe: state.values.enableStripe,
+                        enablePayPal: state.values.enablePayPal,
+                      })}
+                    >
+                      {(s) => {
+                        const missing: string[] = [];
+                        const priceStr = String(s.price ?? "").trim().replace(",", ".");
+                        const priceNum = Number(priceStr);
+                        const trimmedTitle = (s.title || "").trim();
+
+                        const isDisabled =
+                          isSubmitting ||
+                          isLoadingInstructors ||
+                          !s.instructorId ||
+                          !trimmedTitle ||
+                          !priceStr ||
+                          Number.isNaN(priceNum) || priceNum <= 0 ||
+                          !(s.enableStripe || s.enablePayPal);
+
+                        if (!s.instructorId) missing.push("Instructor");
+                        if (!trimmedTitle) missing.push("Title");
+                        if (!priceStr || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
+                        if (!(s.enableStripe || s.enablePayPal)) missing.push("At least one provider");
+
+                        return (
+                          <div className="flex flex-col gap-2">
+                            <Button type="submit" disabled={isDisabled}>
+                              {isSubmitting ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  {mode === "create" ? "Creating..." : "Saving..."}
+                                </>
+                              ) : mode === "create" ? (
+                                "Create Product"
+                              ) : (
+                                "Save Changes"
+                              )}
+                            </Button>
+                            {isDisabled && !isSubmitting && (
+                              <p className="text-xs text-muted-foreground">
+                                To enable: {missing.length > 0 ? missing.join(", ") : "check required fields"}.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }}
+                    </form.Subscribe>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="import-stripe">
-            <ImportFromStripeForm
+            <StripeImportSection
               instructors={instructors}
               isLoadingInstructors={isLoadingInstructors}
               isSubmitting={importFromStripeMutation.isPending}
@@ -241,716 +226,8 @@ export function ProductForm({
           </TabsContent>
         </Tabs>
 
-        {result && (
-          <div
-            className={`mt-6 p-6 rounded-lg ${
-              result.success
-                ? "bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800"
-                : "bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800"
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              {result.success ? (
-                <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400 mt-0.5" />
-              ) : (
-                <XCircle className="h-6 w-6 text-red-600 dark:text-red-400 mt-0.5" />
-              )}
-              <div className="flex-1">
-                <p
-                  className={`font-semibold text-lg ${
-                    result.success
-                      ? "text-green-900 dark:text-green-100"
-                      : "text-red-900 dark:text-red-100"
-                  }`}
-                >
-                  {result.message}
-                </p>
-
-                {result.success && result.product && (
-                  <div className="mt-4 space-y-4">
-                    <div className="bg-white dark:bg-gray-900 p-4 rounded-lg border">
-                      <h3 className="font-semibold mb-3">Product Details</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Title:</span>{" "}
-                          <span className="font-medium">{result.product.title}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Price:</span>{" "}
-                          <span className="font-medium">
-                            ${result.product.price} {result.product.currency.toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Sessions:</span>{" "}
-                          <span className="font-medium">{result.product.sessionsPerPack}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Validity:</span>{" "}
-                          <span className="font-medium">{result.product.validityDays} days</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Type:</span>{" "}
-                          <span className="font-medium capitalize">
-                            {result.product.mentorshipType === "one-on-one" ? "1-on-1" : "Group"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {mode === "create" && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {result.product.stripe && (
-                          <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
-                            <div className="flex items-center gap-2 mb-3">
-                              <CreditCard className="h-5 w-5 text-purple-600" />
-                              <h4 className="font-semibold text-purple-900 dark:text-purple-100">
-                                Stripe
-                              </h4>
-                            </div>
-                            <div className="space-y-2 text-sm">
-                              <div>
-                                <span className="text-muted-foreground">Product ID:</span>{" "}
-                                <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
-                                  {result.product.stripe.productId}
-                                </code>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">Price ID:</span>{" "}
-                                <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
-                                  {result.product.stripe.priceId}
-                                </code>
-                              </div>
-                              <div className="flex gap-2 pt-2">
-                                <a
-                                  href={result.product.stripe.productLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
-                                >
-                                  View Product <ExternalLink className="h-3 w-3" />
-                                </a>
-                                <a
-                                  href={result.product.stripe.priceLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
-                                >
-                                  View Price <ExternalLink className="h-3 w-3" />
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {result.product.paypal && (
-                          <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                            <div className="flex items-center gap-2 mb-3">
-                              <Wallet className="h-5 w-5 text-blue-600" />
-                              <h4 className="font-semibold text-blue-900 dark:text-blue-100">
-                                PayPal
-                              </h4>
-                            </div>
-                            <div className="space-y-2 text-sm">
-                              <div>
-                                <span className="text-muted-foreground">Product ID:</span>{" "}
-                                <code className="bg-blue-100 dark:bg-blue-900 px-1.5 py-0.5 rounded text-xs">
-                                  {result.product.paypal.productId}
-                                </code>
-                              </div>
-                              <div>
-                                <a
-                                  href={result.product.paypal.productLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                >
-                                  View in PayPal Dashboard <ExternalLink className="h-3 w-3" />
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {mode === "create" && (
-                      <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-                          Use this ID for checkout:
-                        </p>
-                        <code className="text-lg font-mono bg-white dark:bg-gray-900 px-3 py-2 rounded border">
-                          {result.product.id}
-                        </code>
-                      </div>
-                    )}
-
-                    <div className="flex gap-3">
-                      <Button onClick={() => setResult(null)}>
-                        {mode === "create" ? "Create Another Product" : "Update Again"}
-                      </Button>
-                      <Button variant="outline" asChild>
-                        <Link href="/admin/products">View All Products</Link>
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <ResultCard result={result} mode={mode} onDismiss={() => setResult(null)} />
       </div>
     </div>
-  );
-}
-
-type ProductFieldsFormProps = {
-  instructors: Instructor[];
-  isLoadingInstructors: boolean;
-  isSubmitting: boolean;
-  onSubmit: (values: ProductData) => void;
-  initialData?: ProductData;
-  mode?: "create" | "edit";
-};
-
-function ProductFieldsForm({
-  instructors,
-  isLoadingInstructors,
-  isSubmitting,
-  onSubmit,
-  initialData,
-  mode = "create",
-}: ProductFieldsFormProps) {
-  const form = useForm({
-    defaultValues: {
-      instructorId: initialData?.instructorId || "",
-      title: initialData?.title || "",
-      description: initialData?.description || "",
-      imageUrl: initialData?.imageUrl || "",
-      price: initialData?.price || "",
-      currency: initialData?.currency || "usd",
-      sessionsPerPack: initialData?.sessionsPerPack || 4,
-      validityDays: initialData?.validityDays || 30,
-      mentorshipType: initialData?.mentorshipType || ("one-on-one" as MentorshipType),
-      enableStripe: initialData?.enableStripe ?? true,
-      enablePayPal: initialData?.enablePayPal ?? true,
-    },
-    onSubmit: async ({ value }) => {
-      // Normalize price to a canonical decimal string (supports comma input)
-      const priceStr = String(value.price ?? "").trim().replace(",", ".");
-      const priceNum = Number(priceStr);
-      const normalizedPrice = Number.isFinite(priceNum) && priceNum > 0 ? priceNum.toFixed(2) : priceStr;
-
-      onSubmit({
-        instructorId: value.instructorId,
-        title: (value.title || "").trim(),
-        description: value.description || undefined,
-        imageUrl: value.imageUrl || undefined,
-        price: normalizedPrice,
-        currency: value.currency,
-        sessionsPerPack: value.sessionsPerPack,
-        validityDays: value.validityDays,
-        mentorshipType: value.mentorshipType,
-        enableStripe: value.enableStripe,
-        enablePayPal: value.enablePayPal,
-      });
-    },
-    validators: {
-      // Keep form-level free; we handle cross-field provider error inline below
-    },
-  });
-
-  // UX: If instructors have loaded and none selected yet, auto-select the first one.
-  useEffect(() => {
-    if (!isLoadingInstructors && instructors.length > 0) {
-      if (!form.state.values.instructorId) {
-        form.setFieldValue("instructorId", instructors[0].id);
-      }
-    }
-  }, [isLoadingInstructors, instructors, form]);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{mode === "create" ? "Create New Product" : "Edit Product"}</CardTitle>
-        <CardDescription>
-          {mode === "create"
-            ? "Create a new session pack with full customization"
-            : "Update the product details below"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            form.handleSubmit();
-          }}
-          className="space-y-6"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <form.Field name="instructorId">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Instructor *</Label>
-                  <Select
-                    value={field.state.value}
-                    onValueChange={(v) => {
-                      field.handleChange(v);
-                      // Mark as touched to control error display
-                      field.handleBlur();
-                    }}
-                    disabled={isLoadingInstructors}
-                    // Mark field as touched when menu closes
-                  >
-                    <SelectTrigger id={field.name}>
-                      <SelectValue placeholder="Select an instructor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {instructors.map((instructor) => (
-                        <SelectItem key={instructor.id} value={instructor.id}>
-                          {instructor.name || instructor.email || instructor.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {field.state.meta.isTouched && (!field.state.value || field.state.value.length === 0) && (
-                    <p className="text-sm text-red-600">Instructor is required.</p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-
-            <form.Field name="mentorshipType">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Session Type *</Label>
-                  <Select
-                    value={field.state.value}
-                    onValueChange={(v) => {
-                      field.handleChange(v as MentorshipType);
-                      field.handleBlur();
-                    }}
-                  >
-                    <SelectTrigger id={field.name}>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="one-on-one">1-on-1 Session</SelectItem>
-                      <SelectItem value="group">Group Session</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {field.state.meta.isTouched && (!field.state.value || (field.state.value !== "one-on-one" && field.state.value !== "group")) && (
-                    <p className="text-sm text-red-600">Please select a session type.</p>
-                  )}
-                </div>
-              )}
-            </form.Field>
-          </div>
-
-            <form.Field name="title">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Product Title *</Label>
-                <Input
-                  id={field.name}
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  onBlur={field.handleBlur}
-                  placeholder="e.g., 4-Session Pack"
-                  disabled={isSubmitting}
-                />
-                {field.state.meta.isTouched && (!field.state.value || field.state.value.trim().length === 0) && (
-                  <p className="text-sm text-red-600">Title is required.</p>
-                )}
-              </div>
-            )}
-          </form.Field>
-
-            <form.Field name="description">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Description</Label>
-                  <Textarea
-                    id={field.name}
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    placeholder="Optional description for this product"
-                    rows={3}
-                    disabled={isSubmitting}
-                  />
-                </div>
-              )}
-            </form.Field>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <form.Field name="price">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Price (USD) *</Label>
-                  <Input
-                    id={field.name}
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    placeholder="199.00"
-                    disabled={isSubmitting}
-                  />
-                  {field.state.meta.isTouched && (() => {
-                    const v = field.state.value;
-                    const num = parseFloat(String(v));
-                    if (!v || v.toString().trim().length === 0) {
-                      return <p className="text-sm text-red-600">Price is required.</p>;
-                    }
-                    if (Number.isNaN(num) || num <= 0) {
-                      return <p className="text-sm text-red-600">Enter a positive price.</p>;
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
-            </form.Field>
-
-            <form.Field name="sessionsPerPack">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Sessions per Pack *</Label>
-                  <Input
-                    id={field.name}
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(parseInt(e.target.value) || 1)}
-                    onBlur={field.handleBlur}
-                    disabled={isSubmitting}
-                  />
-                  {field.state.meta.isTouched && (() => {
-                    const v = Number(field.state.value);
-                    if (!Number.isInteger(v) || v < 1 || v > 100) {
-                      return <p className="text-sm text-red-600">Must be between 1 and 100.</p>;
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
-            </form.Field>
-
-            <form.Field name="validityDays">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Validity (days) *</Label>
-                  <Input
-                    id={field.name}
-                    type="number"
-                    min="1"
-                    max="365"
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(parseInt(e.target.value) || 30)}
-                    onBlur={field.handleBlur}
-                    disabled={isSubmitting}
-                  />
-                  {field.state.meta.isTouched && (() => {
-                    const v = Number(field.state.value);
-                    if (!Number.isInteger(v) || v < 1 || v > 365) {
-                      return <p className="text-sm text-red-600">Must be between 1 and 365.</p>;
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
-            </form.Field>
-          </div>
-
-            <form.Field name="imageUrl">
-              {(field) => (
-                <ImageUploadField
-                  label="Product Image (optional)"
-                  value={field.state.value}
-                  onChange={(url) => field.handleChange(url)}
-                />
-              )}
-            </form.Field>
-
-          <div className="border-t pt-6">
-            <h3 className="font-semibold mb-2">Payment Providers <span className="text-red-600">(at least one required)</span></h3>
-            <div className="flex flex-col gap-3">
-              <form.Field name="enableStripe">
-                {(field) => {
-                  const id = "enable-stripe";
-                  return (
-                    <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50">
-                      <Checkbox
-                        id={id}
-                        aria-describedby={`${id}-description`}
-                        checked={field.state.value}
-                        onCheckedChange={(checked) => field.handleChange(checked === true)}
-                        disabled={isSubmitting}
-                      />
-                      <CreditCard className="h-5 w-5 text-purple-600" aria-hidden="true" />
-                      <div className="flex-1">
-                        <Label htmlFor={id} className="font-medium cursor-pointer">
-                          Enable Stripe
-                        </Label>
-                        <p id={`${id}-description`} className="text-sm text-muted-foreground">
-                          Create product in Stripe automatically
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }}
-              </form.Field>
-
-              <form.Field name="enablePayPal">
-                {(field) => {
-                  const id = "enable-paypal";
-                  return (
-                    <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50">
-                      <Checkbox
-                        id={id}
-                        checked={field.state.value}
-                        onCheckedChange={(checked) => field.handleChange(checked === true)}
-                        disabled={isSubmitting}
-                      />
-                      <Wallet className="h-5 w-5 text-blue-600" aria-hidden="true" />
-                      <div className="flex-1">
-                        <Label htmlFor={id} className="font-medium cursor-pointer">
-                          Enable PayPal
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                          Create product in PayPal automatically
-                        </p>
-                      </div>
-                    </div>
-                  );
-                }}
-              </form.Field>
-            </div>
-            {!(form.state.values.enableStripe || form.state.values.enablePayPal) && (
-              <p className="mt-2 text-sm text-red-600">Select at least one provider (Stripe or PayPal).</p>
-            )}
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <form.Subscribe
-              selector={(state) => ({
-                instructorId: state.values.instructorId,
-                title: state.values.title,
-                price: state.values.price,
-                enableStripe: state.values.enableStripe,
-                enablePayPal: state.values.enablePayPal,
-              })}
-            >
-              {(s) => {
-                const missing: string[] = [];
-                const priceStr = String(s.price ?? "").trim().replace(",", ".");
-                const priceNum = Number(priceStr);
-                const trimmedTitle = (s.title || "").trim();
-
-                const isDisabled =
-                  isSubmitting ||
-                  isLoadingInstructors ||
-                  !s.instructorId ||
-                  !trimmedTitle ||
-                  !priceStr ||
-                  Number.isNaN(priceNum) || priceNum <= 0 ||
-                  !(s.enableStripe || s.enablePayPal);
-
-                if (!s.instructorId) missing.push("Instructor");
-                if (!trimmedTitle) missing.push("Title");
-                if (!priceStr || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
-                if (!(s.enableStripe || s.enablePayPal)) missing.push("At least one provider");
-
-                return (
-                  <div className="flex flex-col gap-2">
-                    <Button type="submit" disabled={isDisabled}>
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          {mode === "create" ? "Creating..." : "Saving..."}
-                        </>
-                      ) : mode === "create" ? (
-                        "Create Product"
-                      ) : (
-                        "Save Changes"
-                      )}
-                    </Button>
-                    {isDisabled && !isSubmitting && (
-                      <p className="text-xs text-muted-foreground">
-                        To enable: {missing.length > 0 ? missing.join(", ") : "check required fields"}.
-                      </p>
-                    )}
-                  </div>
-                );
-              }}
-            </form.Subscribe>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
-type ImportFromStripeFormProps = {
-  instructors: Instructor[];
-  isLoadingInstructors: boolean;
-  isSubmitting: boolean;
-  onSubmit: (values: { productId?: string; priceId?: string; instructorId?: string }) => void;
-};
-
-function ImportFromStripeForm({
-  instructors,
-  isLoadingInstructors,
-  isSubmitting,
-  onSubmit,
-}: ImportFromStripeFormProps) {
-  const form = useForm({
-    defaultValues: {
-      productId: "",
-      priceId: "",
-      instructorId: "__unassigned__",
-    },
-    onSubmit: async ({ value }) => {
-      onSubmit({
-        productId: value.productId.trim() || undefined,
-        priceId: value.priceId.trim() || undefined,
-        instructorId: value.instructorId === "__unassigned__" ? undefined : value.instructorId || undefined,
-      });
-    },
-  });
-
-  const hasAtLeastOneField = form.state.values.productId || form.state.values.priceId;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Import from Stripe</CardTitle>
-        <CardDescription>
-          Import an existing Stripe product into the database
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            form.handleSubmit();
-          }}
-          className="space-y-6"
-        >
-          <form.Field name="instructorId">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Assign to Instructor (optional)</Label>
-                <Select
-                  value={field.state.value}
-                  onValueChange={field.handleChange}
-                  disabled={isLoadingInstructors}
-                >
-                  <SelectTrigger id={field.name}>
-                    <SelectValue placeholder="Select an instructor (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__unassigned__">No instructor assigned</SelectItem>
-                    {instructors.map((instructor) => (
-                      <SelectItem key={instructor.id} value={instructor.id}>
-                        {instructor.name || instructor.email || instructor.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </form.Field>
-
-          <form.Field name="productId">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Stripe Product ID</Label>
-                <Input
-                  id={field.name}
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="prod_..."
-                  disabled={isSubmitting}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Enter a Stripe Product ID (e.g., prod_TYUOiS4yHJjj42)
-                </p>
-              </div>
-            )}
-          </form.Field>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Or</span>
-            </div>
-          </div>
-
-          <form.Field name="priceId">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Stripe Price ID</Label>
-                <Input
-                  id={field.name}
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="price_..."
-                  disabled={isSubmitting}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Enter a Stripe Price ID directly
-                </p>
-              </div>
-            )}
-          </form.Field>
-
-          <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-            <p className="text-sm text-blue-900 dark:text-blue-100">
-              <strong>Note:</strong> Use the &quot;Create New Product&quot; tab to enable PayPal checkout. 
-              The Import from Stripe feature only creates Stripe-based products.
-            </p>
-          </div>
-
-          <div className="flex gap-3">
-            <Button
-              type="submit"
-              disabled={
-                isSubmitting ||
-                isLoadingInstructors ||
-                !hasAtLeastOneField
-              }
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                "Import Product"
-              )}
-            </Button>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="font-semibold mb-3">How to use:</h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-              <li>Go to your Stripe Dashboard → Products</li>
-              <li>Find your product (e.g., &quot;Ash Kirk 1-on-1 Session&quot;)</li>
-              <li>Copy the Product ID (starts with <code className="bg-muted px-1 py-0.5 rounded">prod_</code>)</li>
-              <li>Paste it above and click &quot;Import Product&quot;</li>
-              <li>Use the Database ID for checkout</li>
-            </ol>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
   );
 }
