@@ -366,7 +366,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                     type="button"
                     variant="destructive"
                     size="icon"
-                    className="absolute top-2 right-2 h-7 w-7 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 h-7 w-7 rounded-full opacity-100 md:opacity-0 group-hover:md:opacity-100 focus-visible:md:opacity-100 transition-opacity"
                     onClick={() => handlePortfolioRemove(url)}
                     aria-label={`Remove portfolio image ${index + 1}`}
                   >

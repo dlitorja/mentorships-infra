@@ -45,6 +45,7 @@ function getTimeZones(): string[] {
 }
 
 const timeZones = getTimeZones();
+const NOT_SET_VALUE = "__not_set__";
 
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
@@ -79,7 +80,7 @@ export function SchedulingSettingsForm({
   const saving = saveMutation.isPending;
 
   function handleTimeZoneChange(value: string) {
-    setTimeZone(value);
+    setTimeZone(value === NOT_SET_VALUE ? "" : value);
   }
 
   function handleDayToggle(day: number, enabled: boolean) {
@@ -131,12 +132,12 @@ export function SchedulingSettingsForm({
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor={`${baseId}-timezone`}>Time zone</Label>
-          <Select value={timeZone} onValueChange={handleTimeZoneChange}>
+          <Select value={timeZone || NOT_SET_VALUE} onValueChange={handleTimeZoneChange}>
             <SelectTrigger id={`${baseId}-timezone`} className="w-full">
               <SelectValue placeholder="Select a timezone" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">(not set)</SelectItem>
+              <SelectItem value={NOT_SET_VALUE}>(not set)</SelectItem>
               {timeZones.map((tz) => (
                 <SelectItem key={tz} value={tz}>
                   {tz}

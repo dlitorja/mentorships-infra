@@ -46,6 +46,7 @@ export async function findClerkUserIdByEmail(email: string): Promise<string | nu
         Authorization: `Bearer ${clerkSecretKey}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
       return null;

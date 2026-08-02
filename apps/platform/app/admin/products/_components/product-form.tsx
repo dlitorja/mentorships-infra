@@ -686,6 +686,7 @@ function ProductFieldsForm({
                     <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50">
                       <Checkbox
                         id={id}
+                        aria-describedby={`${id}-description`}
                         checked={field.state.value}
                         onCheckedChange={(checked) => field.handleChange(checked === true)}
                         disabled={isSubmitting}
@@ -695,7 +696,7 @@ function ProductFieldsForm({
                         <Label htmlFor={id} className="font-medium cursor-pointer">
                           Enable Stripe
                         </Label>
-                        <p className="text-sm text-muted-foreground">
+                        <p id={`${id}-description`} className="text-sm text-muted-foreground">
                           Create product in Stripe automatically
                         </p>
                       </div>

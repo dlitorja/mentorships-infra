@@ -17,6 +17,8 @@ export type BackfillSummary = {
   errors: Array<{ kind: string; id: string; message: string }>;
 };
 
+type BackfillResponse = { success?: boolean; summary?: BackfillSummary; error?: string };
+
 export function BackfillImagesPanel(): React.ReactElement {
   type BackfillRequest = {
     baseUrl: string;
@@ -25,10 +27,11 @@ export function BackfillImagesPanel(): React.ReactElement {
     limit?: number;
   };
 
-  const [baseUrl, setBaseUrl] = useState<string>("");
+  const [baseUrl, setBaseUrl] = useState<string>(
+    () => (typeof window !== "undefined" ? window.location.origin : "")
+  );
   const [isEditingOrigin, setIsEditingOrigin] = useState(false);
   const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
-  const [dryRun, setDryRun] = useState<boolean>(true);
   const [limit, setLimit] = useState<string>("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [confirmRun, setConfirmRun] = useState(false);
@@ -36,7 +39,6 @@ export function BackfillImagesPanel(): React.ReactElement {
   const baseId = React.useId();
   const [currentRunIsDry, setCurrentRunIsDry] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<BackfillSummary | null>(null);
-  type BackfillResponse = { success?: boolean; summary?: BackfillSummary; error?: string };
   const [rawResponse, setRawResponse] = useState<BackfillResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +70,9 @@ export function BackfillImagesPanel(): React.ReactElement {
     } finally {
       setIsRunning(false);
       setCurrentRunIsDry(null);
+      if (!runDry) {
+        setConfirmRun(false);
+      }
     }
   }
 
@@ -82,11 +87,16 @@ export function BackfillImagesPanel(): React.ReactElement {
             <div className="flex gap-2 items-center">
               <Input
                 id={`${baseId}-origin`}
-                value={baseUrl || (typeof window !== "undefined" ? window.location.origin : "")}
+                value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 readOnly={!isEditingOrigin}
               />
-              <Button variant="outline" size="sm" onClick={() => setIsEditingOrigin((v) => !v)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditingOrigin((v) => !v)}
+              >
                 {isEditingOrigin ? "Lock" : "Edit"}
               </Button>
             </div>
@@ -108,9 +118,9 @@ export function BackfillImagesPanel(): React.ReactElement {
 
         <div>
           <Button
+            type="button"
             variant="link"
             className="text-sm text-primary hover:underline px-0"
-            type="button"
             onClick={() => setShowAdvanced((v) => !v)}
           >
             {showAdvanced ? "Hide advanced" : "Show advanced"}
@@ -123,27 +133,24 @@ export function BackfillImagesPanel(): React.ReactElement {
                 </Label>
                 <Input
                   id={`${baseId}-limit`}
+                  type="number"
+                  min={1}
                   placeholder="e.g. 200"
                   value={limit}
                   onChange={(e) => setLimit(e.target.value)}
                 />
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id={`${baseId}-dry-run`}
-                  checked={dryRun}
-                  onCheckedChange={(checked) => setDryRun(checked === true)}
-                />
-                <Label htmlFor={`${baseId}-dry-run`} className="text-sm">
-                  Dry run (preview only)
-                </Label>
               </div>
             </div>
           )}
         </div>
 
         <div className="flex flex-wrap gap-3 items-center">
-          <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
+          <Button
+            type="button"
+            disabled={isRunning}
+            onClick={() => runBackfill(true)}
+            variant="outline"
+          >
             {isRunning && currentRunIsDry === true ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
@@ -159,7 +166,11 @@ export function BackfillImagesPanel(): React.ReactElement {
               I understand this writes storage IDs to production data
             </Label>
           </div>
-          <Button disabled={isRunning || !confirmRun} onClick={() => runBackfill(false)}>
+          <Button
+            type="button"
+            disabled={isRunning || !confirmRun}
+            onClick={() => runBackfill(false)}
+          >
             {isRunning && currentRunIsDry === false ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
@@ -168,7 +179,7 @@ export function BackfillImagesPanel(): React.ReactElement {
         </div>
       </div>
 
-      {error && <div className="text-sm text-red-600">{error}</div>}
+      {error && <div className="text-sm text-red-600" role="alert">{error}</div>}
 
       {summary && (
         <div className="space-y-3">
@@ -207,10 +218,14 @@ export function BackfillImagesPanel(): React.ReactElement {
           ) : null}
 
           <div className="flex gap-3">
-            <Button variant="outline" onClick={() => downloadReport(rawResponse)}>
+            <Button type="button" variant="outline" onClick={() => downloadReport(rawResponse)}>
               Download report
             </Button>
-            <Button variant="outline" onClick={() => { setSummary(null); setRawResponse(null); }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setSummary(null); setRawResponse(null); }}
+            >
               Clear
             </Button>
           </div>
@@ -229,7 +244,7 @@ function Stat({ label, value }: { label: string; value: number }): React.ReactEl
   );
 }
 
-function downloadReport(obj: { success?: boolean; summary?: BackfillSummary; error?: string } | null): void {
+function downloadReport(obj: BackfillResponse | null): void {
   if (!obj) return;
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -239,5 +254,5 @@ function downloadReport(obj: { success?: boolean; summary?: BackfillSummary; err
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

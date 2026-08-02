@@ -256,15 +256,17 @@ export default function InstructorsPage() {
                               <Pencil className="h-4 w-4" />
                             </Button>
                           </Link>
-                          <Link href={`/instructors/${instructor.slug}`} target="_blank">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`View public profile for ${instructor.name ?? "instructor"}`}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </Link>
+                          {instructor.slug && (
+                            <Link href={`/instructors/${instructor.slug}`} target="_blank">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`View public profile for ${instructor.name ?? "instructor"}`}
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
