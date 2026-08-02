@@ -835,8 +835,11 @@ Implemented on 2026-08-02.
 
 ### 9.12. Review
 
-- `npx greptile@latest review -b main --diff` — pending until the branch is pushed.
-- **Note:** post-implementation cleanup removed the `uploadProgress` and `retryingIndices` props from `AttachmentPreviews` because the component did not consume them after the split.
+- `npx greptile@latest review -b main --diff` — **Greptile returned 0 inline comments** on the latest review.
+- **Note:** Greptile's summary still flags a pre-existing concern: if the final unmount autosave fails, the latest note content can be lost because the editor instance is discarded. This is a pre-existing issue in the original `notes.tsx` file, not a regression introduced by the split. The PR already improves the autosave behavior by:
+  - memoizing autosave callbacks so the unmount cleanup does not run on every render,
+  - retaining failed entries and retrying while the editor is mounted,
+  - skipping retries after unmount and marking the hook as unmounting to prevent stale overwrites from in-flight saves.
 
 ---
 
