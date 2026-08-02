@@ -33,8 +33,6 @@ interface ClerkUserUpdatedEvent {
  * Verifies webhook signature using CLERK_WEBHOOK_SIGNING_SECRET.
  * Dispatches user.created and user.deleted events to Inngest for
  * async processing (e.g., creating/deleting corresponding user records).
- * Note: Emits diagnostic console.log on every request (svix headers,
- * body info) - see TODO re: gating behind CLERK_WEBHOOK_DEBUG.
  */
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
@@ -48,28 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // TODO: Gate diagnostic logs behind CLERK_WEBHOOK_DEBUG or remove once
-    // root cause of "No matching signature found" is identified.
-    const clonedReq = req.clone();
-    const rawBody = await clonedReq.text();
-
-    let bodyInfo: Record<string, unknown> = { length: rawBody.length };
-    try {
-      const parsed = JSON.parse(rawBody);
-      bodyInfo.isValidJson = true;
-      bodyInfo.type = typeof parsed.type === "string" ? parsed.type : undefined;
-      if (parsed.type === "user.created") {
-        bodyInfo.hasUserId = Boolean(parsed.data?.id);
-        bodyInfo.emailCount = Array.isArray(parsed.data?.email_addresses) ? parsed.data.email_addresses.length : 0;
-      }
-      bodyInfo.dataKeys = typeof parsed.data === "object" && parsed.data !== null
-        ? Object.keys(parsed.data).filter(k => !["id", "email_addresses"].includes(k))
-        : undefined;
-    } catch {
-      bodyInfo.isValidJson = false;
-    }
-
-            const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
+    const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
 
     const eventType = evt.type;
 
