@@ -10,6 +10,7 @@ export function useNoteAutosave(
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const updateNoteRef = useRef(updateNote);
   updateNoteRef.current = updateNote;
+  const isUnmountingRef = useRef(false);
 
   const flushAutosave = useCallback(async (
     noteId: Id<'workspaceNotes'>,
@@ -37,7 +38,7 @@ export function useNoteAutosave(
           void flushAutosave(noteId, { retryOnFailure });
         } else if (saveSucceeded) {
           autosavesRef.current.delete(noteId);
-        } else if (retryOnFailure) {
+        } else if (retryOnFailure && !isUnmountingRef.current) {
           // Retain the failed entry and schedule a retry so the latest
           // content is not silently lost. Retries are skipped during
           // unmount because the component (and its autosave map) will be
@@ -78,6 +79,9 @@ export function useNoteAutosave(
   }, []);
 
   const flushAllAutosaves = useCallback(() => {
+    // Prevent any in-flight save that finishes after unmount from scheduling
+    // retries that could overwrite newer content in a remounted editor.
+    isUnmountingRef.current = true;
     autosavesRef.current.forEach((entry, noteId) => {
       if (entry.timeout) {
         clearTimeout(entry.timeout);
