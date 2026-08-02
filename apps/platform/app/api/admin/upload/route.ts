@@ -31,18 +31,12 @@ const storageIdSchema = z.object({
  * Returns { success, storageId, url, path } on success.
  */
 export async function POST(req: NextRequest) {
-  console.log("[upload] Starting upload request");
-  try {
-    console.log("[upload] Checking auth via requireRoleForApi");
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    try {
+        const { requireRoleForApi } = await import("@/lib/auth-helpers");
     const user = await requireRoleForApi("admin");
-    console.log("[upload] Auth passed, user:", user?.id);
+            const convex = await getAuthenticatedConvexClient();
 
-    console.log("[upload] Creating authenticated Convex client");
-    const convex = await getAuthenticatedConvexClient();
-
-    console.log("[upload] Parsing form data");
-    const formData = await req.formData();
+        const formData = await req.formData();
     const fileRaw = formData.get("file");
 
     if (!(fileRaw instanceof File)) {
@@ -53,9 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     const file: File = fileRaw;
-    console.log("[upload] File:", file.name, file.type, file.size);
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
+        if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: jpg, png, webp, gif" },
         { status: 400 }
@@ -77,22 +69,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log("[upload] Calling generateInstructorUploadUrl");
-    const uploadUrl = await convex.mutation(api.instructors.generateInstructorUploadUrl, {});
-    console.log("[upload] Got upload URL:", uploadUrl ? "yes" : "no");
-
-    const arrayBuffer = await file.arrayBuffer();
-    console.log("[upload] Uploading to Convex storage");
-    const response = await fetch(uploadUrl, {
+        const uploadUrl = await convex.mutation(api.instructors.generateInstructorUploadUrl, {});
+        const arrayBuffer = await file.arrayBuffer();
+        const response = await fetch(uploadUrl, {
       method: "POST",
       body: arrayBuffer,
       headers: {
         "Content-Type": file.type,
       },
     });
-    console.log("[upload] Storage response:", response.status);
-
-    if (!response.ok) {
+        if (!response.ok) {
       const errorText = await response.text();
       console.error("[upload] Convex storage upload error:", errorText);
       return NextResponse.json(
@@ -111,13 +97,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { storageId } = parsed.data;
-    console.log("[upload] Got storageId:", storageId);
-
-    console.log("[upload] Getting storage URL");
-    const url = await convex.query(api.instructors.getStorageUrl, { storageId });
-    console.log("[upload] Got URL:", url ? "yes" : "no");
-
-    if (!url) {
+            const url = await convex.query(api.instructors.getStorageUrl, { storageId });
+        if (!url) {
       console.error("[upload] No URL returned from getStorageUrl");
       return NextResponse.json(
         { error: "Failed to get storage URL for uploaded file" },
@@ -125,8 +106,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log("[upload] Success!");
-    return NextResponse.json({
+        return NextResponse.json({
       success: true,
       url,
       storageId,

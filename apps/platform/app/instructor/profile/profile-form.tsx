@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
-import { Loader2, Save, AlertCircle, CheckCircle2, Plus, Trash2, ImageIcon } from "lucide-react";
+import { Loader2, Save, AlertCircle, CheckCircle2, Plus, Trash2, ImageIcon, X } from "lucide-react";
+import { toast } from "sonner";
 import { apiFetch, createTestimonial, deleteTestimonial, createStudentResult, deleteStudentResult, updateInstructorProfile } from "@/lib/queries/api-client";
 
 interface Socials {
@@ -78,6 +79,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const baseId = React.useId();
 
   const [name, setName] = useState(initialData.name);
   const [tagline, setTagline] = useState(initialData.tagline ?? "");
@@ -117,7 +119,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       queryClient.invalidateQueries({ queryKey: ["testimonials"] });
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to add testimonial");
+      toast.error(error instanceof Error ? error.message : "Failed to add testimonial");
     },
   });
 
@@ -125,7 +127,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
     mutationFn: deleteTestimonial,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["testimonials"] }),
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to delete testimonial");
+      toast.error(error instanceof Error ? error.message : "Failed to delete testimonial");
     },
   });
 
@@ -138,7 +140,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to add result");
+      toast.error(error instanceof Error ? error.message : "Failed to add result");
     },
   });
 
@@ -360,26 +362,16 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                     unoptimized
                     className="object-cover rounded-lg border"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute top-2 right-2 h-7 w-7 rounded-full opacity-100 md:opacity-0 group-hover:md:opacity-100 focus-visible:md:opacity-100 transition-opacity"
                     onClick={() => handlePortfolioRemove(url)}
-                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label={`Remove portfolio image ${index + 1}`}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
@@ -525,6 +517,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                         type="button"
                         onClick={() => deleteTestimonialMutation.mutate(t.id)}
                         disabled={deleteTestimonialMutation.isPending}
+                        aria-label={`Delete testimonial from ${t.name}`}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -570,6 +563,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                         type="button"
                         onClick={() => deleteStudentResultMutation.mutate(r.id)}
                         disabled={deleteStudentResultMutation.isPending}
+                        aria-label={`Delete student result${r.studentName ? ` from ${r.studentName}` : ""}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -589,19 +583,24 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Testimonial</DialogTitle>
+            <DialogDescription>
+              Add a quote from a student. Both a name and the testimonial text are required.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <Label>Name</Label>
+            <div className="space-y-2">
+              <Label htmlFor={`${baseId}-testimonial-name`}>Name</Label>
               <Input
+                id={`${baseId}-testimonial-name`}
                 value={testimonialForm.name}
                 onChange={(e) => setTestimonialForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Student name"
               />
             </div>
-            <div>
-              <Label>Testimonial</Label>
+            <div className="space-y-2">
+              <Label htmlFor={`${baseId}-testimonial-text`}>Testimonial</Label>
               <Textarea
+                id={`${baseId}-testimonial-text`}
                 value={testimonialForm.text}
                 onChange={(e) => setTestimonialForm((prev) => ({ ...prev, text: e.target.value }))}
                 placeholder="What they said..."
@@ -611,7 +610,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => setShowTestimonialDialog(false)}>Cancel</Button>
-            <Button 
+            <Button
               type="button"
               onClick={() => addTestimonialMutation.mutate(testimonialForm)}
               disabled={!testimonialForm.name || !testimonialForm.text || addTestimonialMutation.isPending}
@@ -627,6 +626,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Student Result</DialogTitle>
+            <DialogDescription>
+              Upload a before/after image from a student. The image is required.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <ImageUploadField
@@ -636,9 +638,10 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
               onUploadComplete={(_url, path) => setStudentResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               uploadEndpoint={STUDENT_RESULT_UPLOAD_ENDPOINT}
             />
-            <div>
-              <Label>Student Name (optional)</Label>
+            <div className="space-y-2">
+              <Label htmlFor={`${baseId}-student-name`}>Student Name (optional)</Label>
               <Input
+                id={`${baseId}-student-name`}
                 value={studentResultForm.studentName}
                 onChange={(e) => setStudentResultForm((prev) => ({ ...prev, studentName: e.target.value }))}
                 placeholder="Student name"
@@ -647,7 +650,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           </div>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => setShowStudentResultDialog(false)}>Cancel</Button>
-            <Button 
+            <Button
               type="button"
               onClick={() => addStudentResultMutation.mutate(studentResultForm)}
               disabled={!studentResultForm.imageUrl || addStudentResultMutation.isPending}

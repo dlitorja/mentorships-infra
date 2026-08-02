@@ -1,9 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { Plus, Trash2 } from "lucide-react";
@@ -35,6 +45,7 @@ function getTimeZones(): string[] {
 }
 
 const timeZones = getTimeZones();
+const NOT_SET_VALUE = "__not_set__";
 
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
@@ -45,44 +56,23 @@ export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,
 }: SchedulingSettingsFormProps) {
-  console.log("[SchedulingSettingsForm] RENDER - initialTimeZone prop:", initialTimeZone);
-  
-  const [timeZone, setTimeZone] = useState<string>(initialTimeZone ?? "");
-  console.log("[SchedulingSettingsForm] RENDER - timeZone state:", timeZone);
-  const [workingHours, setWorkingHours] = useState<WorkingHours>(initialWorkingHours ?? {});
-
-  function logDebug(...args: unknown[]): void {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(...args);
-    }
-  }
-
-  logDebug(
-    "[DEBUG SchedulingSettingsForm] render - timeZone:",
-    timeZone ? `(set: ${timeZone.length} chars)` : "(empty)",
-    "workingHours keys:",
-    Object.keys(workingHours).join(",") || "none"
-  );
+  const [timeZone, setTimeZone] = React.useState<string>(initialTimeZone ?? "");
+  const [workingHours, setWorkingHours] = React.useState<WorkingHours>(initialWorkingHours ?? {});
+  const baseId = React.useId();
 
   const saveMutation = useMutation({
     mutationFn: (data: { timeZone: string | null; workingHours: WorkingHours }) => {
-      logDebug(
-        "[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - timeZone:",
-        data.timeZone ? `(set: ${data.timeZone.length} chars)` : "(empty)"
-      );
       return updateInstructorSettings({
         timeZone: data.timeZone,
         workingHours: data.workingHours,
       });
     },
     onSuccess: (_, variables) => {
-      logDebug("[DEBUG SchedulingSettingsForm] onSuccess - resetting to:", variables.timeZone || "(empty)");
       setTimeZone(variables.timeZone ?? "");
       setWorkingHours(variables.workingHours);
       toast.success("Settings saved successfully");
     },
     onError: (error) => {
-      logDebug("[DEBUG SchedulingSettingsForm] saveMutation.onError - error:", error instanceof Error ? error.message : String(error));
       toast.error(error instanceof Error ? error.message : "Failed to save settings");
     },
   });
@@ -90,8 +80,7 @@ export function SchedulingSettingsForm({
   const saving = saveMutation.isPending;
 
   function handleTimeZoneChange(value: string) {
-    console.log("[SchedulingSettingsForm] handleTimeZoneChange - old value:", timeZone, "new value:", value);
-    setTimeZone(value);
+    setTimeZone(value === NOT_SET_VALUE ? "" : value);
   }
 
   function handleDayToggle(day: number, enabled: boolean) {
@@ -128,7 +117,6 @@ export function SchedulingSettingsForm({
 
   function save() {
     const tzToSave = timeZone || null;
-    logDebug("[DEBUG SchedulingSettingsForm] save() - timeZone:", tzToSave ? `(set: ${tzToSave.length} chars)` : "(empty)");
     saveMutation.mutate({ timeZone: tzToSave, workingHours });
   }
 
@@ -143,19 +131,20 @@ export function SchedulingSettingsForm({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Time zone</label>
-          <select
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={timeZone}
-            onChange={(e) => handleTimeZoneChange(e.target.value)}
-          >
-            <option value="">(not set)</option>
-            {timeZones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
-            ))}
-          </select>
+          <Label htmlFor={`${baseId}-timezone`}>Time zone</Label>
+          <Select value={timeZone || NOT_SET_VALUE} onValueChange={handleTimeZoneChange}>
+            <SelectTrigger id={`${baseId}-timezone`} className="w-full">
+              <SelectValue placeholder="Select a timezone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NOT_SET_VALUE}>(not set)</SelectItem>
+              {timeZones.map((tz) => (
+                <SelectItem key={tz} value={tz}>
+                  {tz}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-xs text-muted-foreground">
             Use an IANA timezone (e.g. <code>America/Los_Angeles</code>).
           </p>
@@ -167,18 +156,21 @@ export function SchedulingSettingsForm({
             {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
               const intervals = workingHours[String(day)] || [];
               const enabled = intervals.length > 0;
+              const dayId = `${baseId}-day-${day}`;
 
               return (
                 <div key={day} className="rounded-md border p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={dayId}
                         checked={enabled}
-                        onChange={(e) => handleDayToggle(day, e.target.checked)}
+                        onCheckedChange={(checked) => handleDayToggle(day, checked === true)}
                       />
-                      <span className="text-sm font-medium">{dayLabels[day]}</span>
-                    </label>
+                      <Label htmlFor={dayId} className="text-sm font-medium">
+                        {dayLabels[day]}
+                      </Label>
+                    </div>
                     {enabled && (
                       <Button
                         type="button"
@@ -186,6 +178,7 @@ export function SchedulingSettingsForm({
                         size="sm"
                         onClick={() => addInterval(day)}
                         className="h-8 px-2"
+                        aria-label={`Add interval for ${dayLabels[day]}`}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -196,18 +189,22 @@ export function SchedulingSettingsForm({
                     <div className="space-y-2 ml-6">
                       {intervals.map((interval, index) => (
                         <div key={index} className="flex items-center gap-2">
-                          <input
+                          <Input
                             type="time"
+                            id={`${dayId}-start-${index}`}
                             value={interval.start}
                             onChange={(e) => handleTimeChange(day, index, 'start', e.target.value)}
-                            className="rounded-md border bg-background px-2 py-1 text-sm"
+                            className="w-auto"
+                            aria-label={`Start time for ${dayLabels[day]} interval ${index + 1}`}
                           />
                           <span className="text-sm text-muted-foreground">to</span>
-                          <input
+                          <Input
                             type="time"
+                            id={`${dayId}-end-${index}`}
                             value={interval.end}
                             onChange={(e) => handleTimeChange(day, index, 'end', e.target.value)}
-                            className="rounded-md border bg-background px-2 py-1 text-sm"
+                            className="w-auto"
+                            aria-label={`End time for ${dayLabels[day]} interval ${index + 1}`}
                           />
                           {intervals.length > 1 && (
                             <Button
@@ -216,6 +213,7 @@ export function SchedulingSettingsForm({
                               size="sm"
                               onClick={() => removeInterval(day, index)}
                               className="h-8 px-2 text-red-500 hover:text-red-600"
+                              aria-label={`Remove ${dayLabels[day]} interval ${index + 1}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

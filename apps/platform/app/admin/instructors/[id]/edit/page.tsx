@@ -6,6 +6,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -584,12 +585,10 @@ export default function EditInstructorPage() {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   id="isActive"
                   checked={formData.isActive}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, isActive: e.target.checked }))}
-                  className="rounded border-gray-300"
+                  onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isActive: checked === true }))}
                 />
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
               </div>

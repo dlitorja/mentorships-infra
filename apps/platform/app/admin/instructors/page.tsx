@@ -4,7 +4,9 @@ import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -21,11 +23,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
-import { deleteAdminInstructor, backfillInstructorImages } from "@/lib/queries/api-client";
+import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, XCircle } from "lucide-react";
+import { deleteAdminInstructor } from "@/lib/queries/api-client";
 import { useAllInstructors } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { BackfillImagesPanel } from "./_components/backfill-images-panel";
 
 type Instructor = {
   _id: Id<"instructors">;
@@ -39,19 +42,11 @@ type Instructor = {
   _creationTime?: number;
 };
 
-type BackfillSummary = {
-  processedProfiles: number;
-  processedInstructors: number;
-  processedPortfolioImages: number;
-  processedStudentResults: number;
-  skipped: number;
-  errors: Array<{ kind: string; id: string; message: string }>;
-};
-
 export default function InstructorsPage() {
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 300);
+  const showInactiveId = React.useId();
 
   const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
   const [isPurging, setIsPurging] = useState(false);
@@ -172,15 +167,16 @@ export default function InstructorsPage() {
                 className="pl-9"
               />
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={showInactiveId}
                 checked={showInactive}
-                onChange={(e) => setShowInactive(e.target.checked)}
-                className="rounded border-gray-300"
+                onCheckedChange={(checked) => setShowInactive(checked === true)}
               />
-              <span className="text-sm">Show inactive</span>
-            </label>
+              <Label htmlFor={showInactiveId} className="cursor-pointer">
+                Show inactive
+              </Label>
+            </div>
             <span className="text-xs text-muted-foreground">
               (Showing up to 100 instructors)
             </span>
@@ -233,7 +229,17 @@ export default function InstructorsPage() {
                       <td className="py-3 px-4">
                         {/* Treat undefined isActive as active for consistency with filter semantics */}
                         <Badge variant={(instructor.isActive !== false) ? "default" : "destructive"}>
-                          {(instructor.isActive !== false) ? "Active" : "Inactive"}
+                          {instructor.isActive !== false ? (
+                            <>
+                              <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden="true" />
+                              Active
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3 mr-1" aria-hidden="true" />
+                              Inactive
+                            </>
+                          )}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
@@ -242,15 +248,25 @@ export default function InstructorsPage() {
                       <td className="py-3 px-4 text-right">
                         <div className="flex justify-end gap-2">
                           <Link href={`/admin/instructors/${instructor._id}/edit`}>
-                            <Button variant="ghost" size="sm">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`Edit ${instructor.name ?? "instructor"}`}
+                            >
                               <Pencil className="h-4 w-4" />
                             </Button>
                           </Link>
-                          <Link href={`/instructors/${instructor.slug}`} target="_blank">
-                            <Button variant="ghost" size="sm">
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </Link>
+                          {instructor.slug && (
+                            <Link href={`/instructors/${instructor.slug}`} target="_blank">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`View public profile for ${instructor.name ?? "instructor"}`}
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -309,199 +325,4 @@ export default function InstructorsPage() {
   );
 }
 
-function BackfillImagesPanel() {
 
-  type BackfillRequest = {
-    baseUrl: string;
-    includeStudentResults: boolean;
-    dryRun: boolean;
-    limit?: number;
-  };
-  const [baseUrl, setBaseUrl] = useState<string>("");
-  const [isEditingOrigin, setIsEditingOrigin] = useState(false);
-  const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
-  const [dryRun, setDryRun] = useState<boolean>(true);
-  const [limit, setLimit] = useState<string>("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [confirmRun, setConfirmRun] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentRunIsDry, setCurrentRunIsDry] = useState<boolean | null>(null);
-  const [summary, setSummary] = useState<BackfillSummary | null>(null);
-  type BackfillResponse = { success?: boolean; summary?: BackfillSummary; error?: string };
-  const [rawResponse, setRawResponse] = useState<BackfillResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
-
-  async function runBackfill(runDry: boolean): Promise<void> {
-    try {
-      setIsRunning(true);
-      setCurrentRunIsDry(runDry);
-      setError(null);
-      setSummary(null);
-      setRawResponse(null);
-      const body: BackfillRequest = {
-        baseUrl: ensureBaseUrl(),
-        includeStudentResults,
-        dryRun: runDry,
-      };
-      const n = parseInt(limit, 10);
-      if (!Number.isNaN(n) && n > 0) body.limit = n;
-      const json = await backfillInstructorImages(body);
-      if (json.error) {
-        setError(json.error);
-      } else {
-        setSummary(json.summary ?? null);
-        setRawResponse(json);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsRunning(false);
-      setCurrentRunIsDry(null);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-3 items-end">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1">Site Origin</label>
-            <div className="flex gap-2 items-center">
-              <Input
-                value={baseUrl || (typeof window !== "undefined" ? window.location.origin : "")}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                readOnly={!isEditingOrigin}
-              />
-              <Button variant="outline" size="sm" onClick={() => setIsEditingOrigin((v) => !v)}>
-                {isEditingOrigin ? "Lock" : "Edit"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Used to turn relative paths into absolute URLs. Defaults to current site.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={includeStudentResults}
-              onChange={(e) => setIncludeStudentResults(e.target.checked)}
-            />
-            <span className="text-sm">Include student results</span>
-          </div>
-        </div>
-
-        <div>
-          <button className="text-sm text-primary hover:underline" type="button" onClick={() => setShowAdvanced((v) => !v)}>
-            {showAdvanced ? "Hide advanced" : "Show advanced"}
-          </button>
-          {showAdvanced && (
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Batch limit</label>
-                <Input
-                  placeholder="e.g. 200"
-                  value={limit}
-                  onChange={(e) => setLimit(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={dryRun}
-                  onChange={(e) => setDryRun(e.target.checked)}
-                />
-                <span className="text-sm">Dry run (preview only)</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-3 items-center">
-          <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
-            {isRunning && currentRunIsDry === true ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Preview
-          </Button>
-          <div className="flex items-center gap-2">
-            <input type="checkbox" checked={confirmRun} onChange={(e) => setConfirmRun(e.target.checked)} />
-            <span className="text-sm">I understand this writes storage IDs to production data</span>
-          </div>
-          <Button disabled={isRunning || !confirmRun} onClick={() => runBackfill(false)}>
-            {isRunning && currentRunIsDry === false ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Run Backfill
-          </Button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="text-sm text-red-600">{error}</div>
-      )}
-
-      {summary && (
-        <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Profiles" value={summary.processedProfiles} />
-            <Stat label="Instructors" value={summary.processedInstructors} />
-            <Stat label="Portfolio Images" value={summary.processedPortfolioImages} />
-            <Stat label="Student Results" value={summary.processedStudentResults} />
-            <Stat label="Skipped" value={summary.skipped} />
-          </div>
-
-          {summary.errors?.length ? (
-            <div>
-              <h4 className="font-medium mb-2">Errors ({summary.errors.length})</h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 px-2">Type</th>
-                      <th className="text-left py-2 px-2">Record</th>
-                      <th className="text-left py-2 px-2">Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summary.errors.map((e, i) => (
-                      <tr key={i} className="border-b align-top">
-                        <td className="py-2 px-2 font-mono text-xs">{e.kind}</td>
-                        <td className="py-2 px-2 font-mono text-xs">{e.id}</td>
-                        <td className="py-2 px-2 break-all">{e.message}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={() => downloadReport(rawResponse)}>
-              Download report
-            </Button>
-            <Button variant="outline" onClick={() => { setSummary(null); setRawResponse(null); }}>Clear</Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }): React.ReactElement {
-  return (
-    <div className="rounded-md border p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-semibold">{value}</div>
-    </div>
-  );
-}
-
-function downloadReport(obj: { success?: boolean; summary?: BackfillSummary; error?: string } | null): void {
-  if (!obj) return;
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `backfill-summary-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}

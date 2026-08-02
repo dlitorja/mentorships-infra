@@ -8,10 +8,13 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCurrentInstructor } from "@/lib/queries/convex";
 import {
@@ -110,15 +113,12 @@ function RescheduleSessionDialog({
           </p>
         </div>
         <div className="space-y-2">
-          <label htmlFor="new-datetime" className="text-sm font-medium">
-            New date and time
-          </label>
-          <input
+          <Label htmlFor="new-datetime">New date and time</Label>
+          <Input
             id="new-datetime"
             type="datetime-local"
             value={newDateTime}
             onChange={(e) => setNewDateTime(e.target.value)}
-            className="w-full px-3 py-2 border rounded-md text-sm"
           />
         </div>
       </div>
@@ -138,6 +138,9 @@ function RescheduleSessionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reschedule Session</DialogTitle>
+          <DialogDescription>
+            Choose a new date and time for the session. The student will be notified.
+          </DialogDescription>
         </DialogHeader>
         <EmailPreviewTab
           sessionId={session.id}
@@ -205,9 +208,7 @@ function CancelSessionDialog({
           </p>
         </div>
         <div className="space-y-2">
-          <label htmlFor="cancel-reason" className="text-sm font-medium">
-            Reason (optional)
-          </label>
+          <Label htmlFor="cancel-reason">Reason (optional)</Label>
           <Textarea
             id="cancel-reason"
             value={reason}
@@ -234,6 +235,9 @@ function CancelSessionDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Cancel Session</DialogTitle>
+          <DialogDescription>
+            Optionally add a reason. The student will be notified.
+          </DialogDescription>
         </DialogHeader>
         <EmailPreviewTab
           sessionId={session.id}
@@ -291,6 +295,9 @@ function SessionNotesDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Session Notes</DialogTitle>
+          <DialogDescription>
+            Add or update private notes about this session.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground">
@@ -302,9 +309,7 @@ function SessionNotesDialog({
             </p>
           </div>
           <div className="space-y-2">
-            <label htmlFor="session-notes" className="text-sm font-medium">
-              Notes
-            </label>
+            <Label htmlFor="session-notes">Notes</Label>
             <Textarea
               id="session-notes"
               value={notes}

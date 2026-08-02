@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
@@ -27,6 +34,34 @@ const availabilitySettingsSchema = z.object({
 
 type AvailabilityValues = z.infer<typeof availabilitySettingsSchema>;
 
+const BUFFER_OPTIONS = [
+  { value: 0, label: "No buffer" },
+  { value: 5, label: "5 minutes" },
+  { value: 10, label: "10 minutes" },
+  { value: 15, label: "15 minutes" },
+  { value: 30, label: "30 minutes" },
+  { value: 60, label: "1 hour" },
+];
+
+const LEAD_TIME_OPTIONS = [
+  { value: 60, label: "1 hour" },
+  { value: 240, label: "4 hours" },
+  { value: 720, label: "12 hours" },
+  { value: 1440, label: "24 hours" },
+  { value: 2880, label: "48 hours" },
+  { value: 4320, label: "72 hours" },
+];
+
+const ADVANCE_OPTIONS = [
+  { value: 7, label: "7 days" },
+  { value: 14, label: "14 days" },
+  { value: 30, label: "30 days" },
+  { value: 60, label: "60 days" },
+  { value: 90, label: "90 days" },
+  { value: 180, label: "180 days" },
+  { value: 365, label: "1 year" },
+];
+
 export function AvailabilitySettingsForm({
   initialBufferMinutes,
   initialMinBookingLeadMinutes,
@@ -39,6 +74,7 @@ export function AvailabilitySettingsForm({
   initialBlockedDateRanges: BlockedDateRange[] | null;
 }) {
   const queryClient = useQueryClient();
+  const baseId = React.useId();
 
   const defaultValues: AvailabilityValues = {
     bufferMinutesBetweenSessions: initialBufferMinutes ?? 0,
@@ -95,76 +131,93 @@ export function AvailabilitySettingsForm({
         >
           <div className="grid gap-6 md:grid-cols-2">
             <form.Field name="bufferMinutesBetweenSessions">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Buffer between sessions</Label>
-                  <select
-                    id={field.name}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    value={field.state.value ?? 0}
-                    onChange={(e) => field.handleChange(parseInt(e.target.value) || 0)}
-                  >
-                    <option value={0}>No buffer</option>
-                    <option value={5}>5 minutes</option>
-                    <option value={10}>10 minutes</option>
-                    <option value={15}>15 minutes</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>1 hour</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Gap between sessions when students cannot book.
-                  </p>
-                </div>
-              )}
+              {(field) => {
+                const id = `${baseId}-${field.name}`;
+                const value = field.state.value ?? 0;
+                return (
+                  <div className="space-y-2">
+                    <Label htmlFor={id}>Buffer between sessions</Label>
+                    <Select
+                      value={String(value)}
+                      onValueChange={(v) => field.handleChange(parseInt(v, 10) || 0)}
+                    >
+                      <SelectTrigger id={id} className="w-full">
+                        <SelectValue placeholder="Select a buffer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BUFFER_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Gap between sessions when students cannot book.
+                    </p>
+                  </div>
+                );
+              }}
             </form.Field>
 
             <form.Field name="minBookingLeadMinutes">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Minimum booking notice</Label>
-                  <select
-                    id={field.name}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    value={field.state.value ?? 1440}
-                    onChange={(e) => field.handleChange(parseInt(e.target.value) || 1440)}
-                  >
-                    <option value={60}>1 hour</option>
-                    <option value={240}>4 hours</option>
-                    <option value={720}>12 hours</option>
-                    <option value={1440}>24 hours</option>
-                    <option value={2880}>48 hours</option>
-                    <option value={4320}>72 hours</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    How far in advance students must book.
-                  </p>
-                </div>
-              )}
+              {(field) => {
+                const id = `${baseId}-${field.name}`;
+                const value = field.state.value ?? 1440;
+                return (
+                  <div className="space-y-2">
+                    <Label htmlFor={id}>Minimum booking notice</Label>
+                    <Select
+                      value={String(value)}
+                      onValueChange={(v) => field.handleChange(parseInt(v, 10) || 1440)}
+                    >
+                      <SelectTrigger id={id} className="w-full">
+                        <SelectValue placeholder="Select a notice window" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LEAD_TIME_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      How far in advance students must book.
+                    </p>
+                  </div>
+                );
+              }}
             </form.Field>
 
             <form.Field name="maxBookingAdvanceDays">
-              {(field) => (
-                <div className="space-y-2">
-                  <Label htmlFor={field.name}>Maximum advance booking</Label>
-                  <select
-                    id={field.name}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    value={field.state.value ?? 30}
-                    onChange={(e) => field.handleChange(parseInt(e.target.value) || 30)}
-                  >
-                    <option value={7}>7 days</option>
-                    <option value={14}>14 days</option>
-                    <option value={30}>30 days</option>
-                    <option value={60}>60 days</option>
-                    <option value={90}>90 days</option>
-                    <option value={180}>180 days</option>
-                    <option value={365}>1 year</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    How far ahead students can book sessions.
-                  </p>
-                </div>
-              )}
+              {(field) => {
+                const id = `${baseId}-${field.name}`;
+                const value = field.state.value ?? 30;
+                return (
+                  <div className="space-y-2">
+                    <Label htmlFor={id}>Maximum advance booking</Label>
+                    <Select
+                      value={String(value)}
+                      onValueChange={(v) => field.handleChange(parseInt(v, 10) || 30)}
+                    >
+                      <SelectTrigger id={id} className="w-full">
+                        <SelectValue placeholder="Select a booking window" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ADVANCE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      How far ahead students can book sessions.
+                    </p>
+                  </div>
+                );
+              }}
             </form.Field>
           </div>
 
@@ -214,8 +267,9 @@ export function AvailabilitySettingsForm({
                         <div key={index} className="flex items-center gap-3 p-3 border rounded-md">
                           <div className="flex-1 grid grid-cols-3 gap-3">
                             <div className="space-y-1">
-                              <Label className="text-xs">Start date</Label>
+                              <Label htmlFor={`${baseId}-blocked-start-${index}`} className="text-xs">Start date</Label>
                               <Input
+                                id={`${baseId}-blocked-start-${index}`}
                                 type="date"
                                 value={range.start}
                                 onChange={(e) => updateBlockedRange(index, "start", e.target.value)}
@@ -223,8 +277,9 @@ export function AvailabilitySettingsForm({
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs">End date</Label>
+                              <Label htmlFor={`${baseId}-blocked-end-${index}`} className="text-xs">End date</Label>
                               <Input
+                                id={`${baseId}-blocked-end-${index}`}
                                 type="date"
                                 value={range.end}
                                 onChange={(e) => updateBlockedRange(index, "end", e.target.value)}
@@ -232,8 +287,9 @@ export function AvailabilitySettingsForm({
                               />
                             </div>
                             <div className="space-y-1">
-                              <Label className="text-xs">Label (optional)</Label>
+                              <Label htmlFor={`${baseId}-blocked-label-${index}`} className="text-xs">Label (optional)</Label>
                               <Input
+                                id={`${baseId}-blocked-label-${index}`}
                                 placeholder="Busy"
                                 value={range.label ?? ""}
                                 onChange={(e) => updateBlockedRange(index, "label", e.target.value)}

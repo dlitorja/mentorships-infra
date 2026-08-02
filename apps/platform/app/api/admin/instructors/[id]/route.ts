@@ -186,7 +186,7 @@ export async function GET(
 
     console.error("Error getting instructor:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to get instructor" },
+      { error: "Failed to get instructor" },
       { status: 500 }
     );
   }
@@ -205,7 +205,13 @@ export async function PUT(
     await requireRoleForApi("admin");
 
     const { id } = await params;
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      console.error("Invalid request body:", parseError);
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
     const validationResult = updateInstructorSchema.safeParse(body);
 
     if (!validationResult.success) {
@@ -390,7 +396,7 @@ export async function PUT(
 
     console.error("Error updating instructor:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update instructor" },
+      { error: "Failed to update instructor" },
       { status: 500 }
     );
   }
@@ -434,9 +440,11 @@ export async function DELETE(
         try {
           const clerk = await clerkClient();
           await clerk.users.deleteUser(userId);
-          console.log(`[admin] Deleted Clerk user: ${userId}`);
-        } catch (clerkErr) {
-          console.error(`[admin] Failed to delete Clerk user ${userId}:`, clerkErr);
+                  } catch (clerkErr) {
+          console.error("[admin] Failed to delete Clerk user", {
+            category: clerkErr instanceof Error ? clerkErr.name : "unknown",
+            error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
+          });
           if (resolvedId) {
             try {
               await convex.mutation(api.clerkDeletion.addPendingClerkDeletion, {
@@ -444,8 +452,7 @@ export async function DELETE(
                 instructorId: resolvedId as Id<"instructors">,
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
-              console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
-            } catch (pendingErr) {
+                          } catch (pendingErr) {
               console.error(`[admin] Failed to record pending Clerk deletion:`, pendingErr);
             }
           }
@@ -474,7 +481,7 @@ export async function DELETE(
 
     console.error("Error deleting instructor:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to delete instructor" },
+      { error: "Failed to delete instructor" },
       { status: 500 }
     );
   }

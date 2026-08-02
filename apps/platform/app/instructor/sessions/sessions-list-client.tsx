@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SessionActions } from "@/components/instructor/session-actions";
 import { SessionsCalendarView } from "./sessions-calendar-view";
-import { Search, Calendar, List, Users } from "lucide-react";
+import { Search, Calendar, List, Users, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 
 type Session = {
   id: Id<"sessions">;
@@ -61,6 +61,21 @@ function getStatusBadgeVariant(status: string) {
   }
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const icon =
+    status === "completed" ? <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden="true" /> :
+    status === "scheduled" ? <Clock className="h-3 w-3 mr-1" aria-hidden="true" /> :
+    status === "canceled" ? <XCircle className="h-3 w-3 mr-1" aria-hidden="true" /> :
+    <AlertCircle className="h-3 w-3 mr-1" aria-hidden="true" />;
+
+  return (
+    <Badge variant={getStatusBadgeVariant(status)}>
+      {icon}
+      {status}
+    </Badge>
+  );
+}
+
 function SessionCard({ session }: { session: Session }) {
   const router = useRouter();
 
@@ -83,9 +98,7 @@ function SessionCard({ session }: { session: Session }) {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={getStatusBadgeVariant(session.status)}>
-              {session.status}
-            </Badge>
+            <StatusBadge status={session.status} />
             <SessionActions
               session={{
                 id: session.id,
