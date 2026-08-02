@@ -19,9 +19,11 @@ export function useNoteAutosave(
     entry.timeout = undefined;
     const content = entry.content;
     const sequence = entry.sequence;
+    let saveSucceeded = false;
 
     try {
       await updateNoteRef.current.mutateAsync({ id: noteId, content });
+      saveSucceeded = true;
     } catch (error) {
       console.error('Failed to auto-save note:', error);
     } finally {
@@ -30,8 +32,14 @@ export function useNoteAutosave(
         current.inFlight = false;
         if (current.sequence !== sequence) {
           void flushAutosave(noteId);
-        } else if (!current.timeout) {
+        } else if (saveSucceeded) {
           autosavesRef.current.delete(noteId);
+        } else {
+          // Retain the failed entry and schedule a retry so the latest
+          // content is not silently lost on navigation or unmount.
+          current.timeout = setTimeout(() => {
+            void flushAutosave(noteId);
+          }, 3000);
         }
       }
     }
