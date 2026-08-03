@@ -10,6 +10,12 @@ import { listFilesWithParams, getStorageUsage } from "@/lib/api";
 import type { FileItem, StorageUsage as StorageUsageType, FileListResponse, UserRole } from "@/lib/api";
 import { Loader2, Search } from "lucide-react";
 
+interface InstructorInfo {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
 interface DashboardClientProps {
   // Server-resolved identity is the source of truth for the dashboard. Clerk
   // publicMetadata can be stale or missing (e.g. for users created before the
@@ -18,12 +24,14 @@ interface DashboardClientProps {
   initialUserRole: UserRole | null;
   initialUserId: string | null;
   initialInstructorIds: string[];
+  instructors: InstructorInfo[];
 }
 
 export function DashboardClient({
   initialUserRole,
   initialUserId,
   initialInstructorIds,
+  instructors,
 }: DashboardClientProps): React.ReactElement {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [uploadedByMeFiles, setUploadedByMeFiles] = useState<FileItem[]>([]);
@@ -59,10 +67,12 @@ export function DashboardClient({
   );
   // Keep the selected instructor in sync if server-provided assignments change.
   useEffect(() => {
-    if (initialInstructorIds.length > 0 && !initialInstructorIds.includes(selectedInstructorId ?? "")) {
-      setSelectedInstructorId(initialInstructorIds[0]);
-    }
-  }, [initialInstructorIds, selectedInstructorId]);
+    setSelectedInstructorId((currentInstructorId) =>
+      currentInstructorId !== null && initialInstructorIds.includes(currentInstructorId)
+        ? currentInstructorId
+        : (initialInstructorIds[0] ?? null)
+    );
+  }, [initialInstructorIds]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -85,8 +95,10 @@ export function DashboardClient({
       const requestEpoch = instructorFilesEpoch.current;
       const isCurrentEpoch = () => requestEpoch === instructorFilesEpoch.current;
       try {
-        if (!append) setIsLoading(true);
-        else setIsLoadingMore(true);
+        if (!append) {
+          setIsLoading(true);
+          setIsLoadingMore(false);
+        } else setIsLoadingMore(true);
         setError(null);
 
         const result: FileListResponse = await listFilesWithParams({
@@ -128,8 +140,10 @@ export function DashboardClient({
       const requestEpoch = uploadedFilesEpoch.current;
       const isCurrentEpoch = () => requestEpoch === uploadedFilesEpoch.current;
       try {
-        if (!append) setIsLoading(true);
-        else setIsLoadingUploadedByMeMore(true);
+        if (!append) {
+          setIsLoading(true);
+          setIsLoadingUploadedByMeMore(false);
+        } else setIsLoadingUploadedByMeMore(true);
 
         const result: FileListResponse = await listFilesWithParams({
           uploadedById: userId,
@@ -333,9 +347,9 @@ export function DashboardClient({
                   onChange={(e) => setSelectedInstructorId(e.target.value || null)}
                   className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
                 >
-                  {instructorIds.map((id) => (
-                    <option key={id} value={id}>
-                      {id}
+                  {instructors.map((instructor) => (
+                    <option key={instructor.id} value={instructor.id}>
+                      {instructor.name || instructor.email || instructor.id}
                     </option>
                   ))}
                 </select>
