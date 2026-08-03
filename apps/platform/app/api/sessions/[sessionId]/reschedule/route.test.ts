@@ -5,7 +5,7 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { tasks } from "@trigger.dev/sdk";
 
 vi.mock("@/lib/auth-helpers", () => ({
-  requireRoleForApi: vi.fn(() => ({ id: "user_123", role: "instructor" })),
+  requireRoleForApi: vi.fn(() => ({ id: "user_123" })),
 }));
 
 vi.mock("@/lib/errors", () => ({

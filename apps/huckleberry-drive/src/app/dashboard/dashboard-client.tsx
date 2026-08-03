@@ -43,9 +43,11 @@ export function DashboardClient({
   const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
 
-  // Ignore stale responses when the user switches instructors or search terms.
-  const instructorFilesRequestSeq = useRef(0);
-  const uploadedFilesRequestSeq = useRef(0);
+  // Track the current request "epoch" for each list. Append requests are only
+  // applied if the epoch has not changed since the request started, so a search
+  // change invalidates in-flight pagination requests.
+  const instructorFilesEpoch = useRef(0);
+  const uploadedFilesEpoch = useRef(0);
 
   // Server-resolved identity is the source of truth for the dashboard. Clerk
   // publicMetadata can be stale or missing, so we do not fall back to it here.
@@ -77,8 +79,11 @@ export function DashboardClient({
   }, [uploadedByMeSearchQuery]);
   const fetchInstructorFiles = useCallback(
     async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
-      const requestId = ++instructorFilesRequestSeq.current;
-      const isLatest = () => requestId === instructorFilesRequestSeq.current;
+      if (!append) {
+        instructorFilesEpoch.current++;
+      }
+      const requestEpoch = instructorFilesEpoch.current;
+      const isCurrentEpoch = () => requestEpoch === instructorFilesEpoch.current;
       try {
         if (!append) setIsLoading(true);
         else setIsLoadingMore(true);
@@ -91,7 +96,7 @@ export function DashboardClient({
           instructorId,
         });
 
-        if (!isLatest()) return;
+        if (!isCurrentEpoch()) return;
 
         if (append) {
           setFiles((prev) => [...prev, ...result.files]);
@@ -101,11 +106,11 @@ export function DashboardClient({
         setCursor(result.pagination.cursor);
         setHasMore(result.pagination.hasMore);
       } catch (err) {
-        if (isLatest()) {
+        if (isCurrentEpoch()) {
           setError(err instanceof Error ? err.message : "Failed to load files");
         }
       } finally {
-        if (isLatest()) {
+        if (isCurrentEpoch()) {
           setIsLoading(false);
           setIsLoadingMore(false);
         }
@@ -117,8 +122,11 @@ export function DashboardClient({
   const fetchVideoEditorUploads = useCallback(
     async (search?: string, nextCursor?: number | null, append = false) => {
       if (!userId) return;
-      const requestId = ++uploadedFilesRequestSeq.current;
-      const isLatest = () => requestId === uploadedFilesRequestSeq.current;
+      if (!append) {
+        uploadedFilesEpoch.current++;
+      }
+      const requestEpoch = uploadedFilesEpoch.current;
+      const isCurrentEpoch = () => requestEpoch === uploadedFilesEpoch.current;
       try {
         if (!append) setIsLoading(true);
         else setIsLoadingUploadedByMeMore(true);
@@ -131,7 +139,7 @@ export function DashboardClient({
           limit: 50,
         });
 
-        if (!isLatest()) return;
+        if (!isCurrentEpoch()) return;
 
         if (append) {
           setUploadedByMeFiles((prev) => [...prev, ...result.files]);
@@ -141,12 +149,12 @@ export function DashboardClient({
         setUploadedByMeCursor(result.pagination.cursor);
         setUploadedByMeHasMore(result.pagination.hasMore);
       } catch (err) {
-        if (isLatest()) {
+        if (isCurrentEpoch()) {
           console.error("Failed to fetch uploaded files:", err);
           setError(err instanceof Error ? err.message : "Failed to load data");
         }
       } finally {
-        if (isLatest()) {
+        if (isCurrentEpoch()) {
           if (!append) setIsLoading(false);
           else setIsLoadingUploadedByMeMore(false);
         }

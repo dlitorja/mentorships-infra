@@ -16,12 +16,7 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const { id: userId, role } = await requireRoleForApi("instructor");
-    // This route is for the session's instructor only; admins must use admin
-    // session management endpoints if they need to act on other instructors.
-    if (role !== "instructor") {
-      return NextResponse.json({ error: "Instructor role required" }, { status: 403 });
-    }
+    const { id: userId } = await requireRoleForApi("instructor");
     const convex = await getAuthenticatedConvexClient();
     const { sessionId } = await params;
 
