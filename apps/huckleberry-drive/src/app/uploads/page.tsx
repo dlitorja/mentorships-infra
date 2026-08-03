@@ -31,11 +31,15 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
     );
   }
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId }) as User | null;
+  const dbUser = await fetchQuery(api.users.getCurrentUserPublic, { userId }) as User | null;
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
 
   if (dbUser?.role === "video_editor") {
-    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: userId }) as Assignment[];
+    // Use the canonical Convex userId for assignment lookup. For split-ID users
+    // (platform userId differs from huckleberry-drive Clerk ID), the clerkId
+    // fallback resolves the account but assignments are keyed by the canonical
+    // userId.
+    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: dbUser.userId }) as Assignment[];
     const instructorIds = assignments.map((a) => a.instructorId);
 
     if (instructorIds.length > 0) {

@@ -84,6 +84,7 @@ export async function POST(
     const student = session.studentId
       ? await convex.query(api.users.getUserByClerkIdPublic, {
           userId: session.studentId,
+          sessionId: sessionId as Id<"sessions">,
         })
       : null;
 
