@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
 import { BulkDownloadBar } from "@/components/bulk-download-bar";
@@ -43,6 +43,9 @@ export function DashboardClient({
   const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
 
+  // Ignore stale responses when the user switches instructors or search terms.
+  const instructorFilesRequestSeq = useRef(0);
+
   // Server-resolved identity is the source of truth for the dashboard. Clerk
   // publicMetadata can be stale or missing, so we do not fall back to it here.
   const userRole = initialUserRole;
@@ -73,6 +76,8 @@ export function DashboardClient({
   }, [uploadedByMeSearchQuery]);
   const fetchInstructorFiles = useCallback(
     async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
+      const requestId = ++instructorFilesRequestSeq.current;
+      const isLatest = () => requestId === instructorFilesRequestSeq.current;
       try {
         if (!append) setIsLoading(true);
         else setIsLoadingMore(true);
@@ -85,6 +90,8 @@ export function DashboardClient({
           instructorId,
         });
 
+        if (!isLatest()) return;
+
         if (append) {
           setFiles((prev) => [...prev, ...result.files]);
         } else {
@@ -93,10 +100,14 @@ export function DashboardClient({
         setCursor(result.pagination.cursor);
         setHasMore(result.pagination.hasMore);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load files");
+        if (isLatest()) {
+          setError(err instanceof Error ? err.message : "Failed to load files");
+        }
       } finally {
-        setIsLoading(false);
-        setIsLoadingMore(false);
+        if (isLatest()) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
       }
     },
     [debouncedSearch]
