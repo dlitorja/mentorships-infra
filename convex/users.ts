@@ -573,8 +573,9 @@ export const getUserByClerkIdPublic = query({
     }
     // Self-lookup is handled by getCurrentUserPublic. This query is used by
     // instructor-facing session routes to retrieve a student's contact info.
-    // Enforce that the caller is the instructor assigned to the provided session
-    // and that the requested user is the student for that session.
+    // Enforce that the caller is either an admin or the instructor assigned to
+    // the provided session, and that the requested user is the student for that
+    // session.
     const caller = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", authUser.subject))
@@ -583,23 +584,25 @@ export const getUserByClerkIdPublic = query({
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", authUser.subject))
       .first();
-    if (!callerByClerkId || callerByClerkId.role !== "instructor") {
+    if (!callerByClerkId || (callerByClerkId.role !== "instructor" && callerByClerkId.role !== "admin")) {
       return null;
     }
 
     const session = await ctx.db.get(args.sessionId);
     if (!session) return null;
 
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", callerByClerkId.userId))
-      .first();
-    const instructorByClerkId = instructor ?? await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", callerByClerkId.clerkId ?? ""))
-      .first();
-    if (!instructorByClerkId || instructorByClerkId._id !== session.instructorId) {
-      return null;
+    if (callerByClerkId.role === "instructor") {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", callerByClerkId.userId))
+        .first();
+      const instructorByClerkId = instructor ?? await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", callerByClerkId.clerkId ?? ""))
+        .first();
+      if (!instructorByClerkId || instructorByClerkId._id !== session.instructorId) {
+        return null;
+      }
     }
 
     if (session.studentId !== args.userId) {

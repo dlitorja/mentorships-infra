@@ -45,6 +45,7 @@ export function DashboardClient({
 
   // Ignore stale responses when the user switches instructors or search terms.
   const instructorFilesRequestSeq = useRef(0);
+  const uploadedFilesRequestSeq = useRef(0);
 
   // Server-resolved identity is the source of truth for the dashboard. Clerk
   // publicMetadata can be stale or missing, so we do not fall back to it here.
@@ -116,6 +117,8 @@ export function DashboardClient({
   const fetchVideoEditorUploads = useCallback(
     async (search?: string, nextCursor?: number | null, append = false) => {
       if (!userId) return;
+      const requestId = ++uploadedFilesRequestSeq.current;
+      const isLatest = () => requestId === uploadedFilesRequestSeq.current;
       try {
         if (!append) setIsLoading(true);
         else setIsLoadingUploadedByMeMore(true);
@@ -128,6 +131,8 @@ export function DashboardClient({
           limit: 50,
         });
 
+        if (!isLatest()) return;
+
         if (append) {
           setUploadedByMeFiles((prev) => [...prev, ...result.files]);
         } else {
@@ -136,11 +141,15 @@ export function DashboardClient({
         setUploadedByMeCursor(result.pagination.cursor);
         setUploadedByMeHasMore(result.pagination.hasMore);
       } catch (err) {
-        console.error("Failed to fetch uploaded files:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
+        if (isLatest()) {
+          console.error("Failed to fetch uploaded files:", err);
+          setError(err instanceof Error ? err.message : "Failed to load data");
+        }
       } finally {
-        if (!append) setIsLoading(false);
-        else setIsLoadingUploadedByMeMore(false);
+        if (isLatest()) {
+          if (!append) setIsLoading(false);
+          else setIsLoadingUploadedByMeMore(false);
+        }
       }
     },
     [userId, uploadedByMeDebouncedSearch]
