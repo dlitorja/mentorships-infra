@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useUser } from "@clerk/nextjs";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
 import { BulkDownloadBar } from "@/components/bulk-download-bar";
@@ -26,37 +25,12 @@ export function DashboardClient({
   initialUserId,
   initialInstructorIds,
 }: DashboardClientProps): React.ReactElement {
-  const { user, isLoaded } = useUser();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [uploadedByMeFiles, setUploadedByMeFiles] = useState<FileItem[]>([]);
   const [storageUsage, setStorageUsage] = useState<StorageUsageType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // PR1: reconcile Clerk publicMetadata with the latest server state.
-  // Without this, an admin changing a user's role in Clerk or assigning
-  // video-editor instructors isn't reflected until the page is hard
-  // refreshed. We re-fetch Clerk user on window focus and once every
-  // 60 seconds (matches Clerk's own cache TTL behavior).
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    const onFocus = () => {
-      user.reload().catch((err) => {
-        console.warn("Failed to reload Clerk user:", err);
-      });
-    };
-    const interval = setInterval(() => {
-      user.reload().catch((err) => {
-        console.warn("Failed to reload Clerk user:", err);
-      });
-    }, 60_000);
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      clearInterval(interval);
-    };
-  }, [isLoaded, user]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -69,20 +43,20 @@ export function DashboardClient({
   const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
 
-  // Prefer server-resolved identity over Clerk publicMetadata so the dashboard
-  // always matches the IDs used by the upload API and storage accounting.
-  const userRole = initialUserRole ?? ((user?.publicMetadata?.role as UserRole) || null);
-  const userId = initialUserId ?? user?.id ?? null;
-  const instructorIds = useMemo(
-    () => initialInstructorIds.length > 0
-      ? initialInstructorIds
-      : ((user?.publicMetadata?.instructorIds as string[] | undefined) ?? []),
-    [initialInstructorIds, user?.publicMetadata?.instructorIds]
+  // Server-resolved identity is the source of truth for the dashboard. Clerk
+  // publicMetadata can be stale or missing, so we do not fall back to it here.
+  const userRole = initialUserRole;
+  const userId = initialUserId;
+  const instructorIds = useMemo(() => initialInstructorIds, [initialInstructorIds]);
+  const [selectedInstructorId, setSelectedInstructorId] = useState<string | null>(
+    initialInstructorIds[0] ?? null
   );
-  const primaryInstructorId = useMemo(
-    () => instructorIds[0] ?? null,
-    [instructorIds]
-  );
+  // Keep the selected instructor in sync if server-provided assignments change.
+  useEffect(() => {
+    if (initialInstructorIds.length > 0 && !initialInstructorIds.includes(selectedInstructorId ?? "")) {
+      setSelectedInstructorId(initialInstructorIds[0]);
+    }
+  }, [initialInstructorIds, selectedInstructorId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -181,18 +155,23 @@ export function DashboardClient({
   }, [userRole]);
 
   useEffect(() => {
-    if (isLoaded && user) {
-      fetchData();
-      if (userRole === "instructor" || userRole === "admin") {
-        fetchInstructorFiles();
-      } else if (userRole === "video_editor") {
-        fetchVideoEditorUploads();
-        if (primaryInstructorId) {
-          fetchInstructorFiles(undefined, undefined, false, primaryInstructorId);
-        }
+    fetchData();
+    if (userRole === "instructor" || userRole === "admin") {
+      fetchInstructorFiles();
+    } else if (userRole === "video_editor") {
+      fetchVideoEditorUploads();
+      if (selectedInstructorId) {
+        fetchInstructorFiles(undefined, undefined, false, selectedInstructorId);
       }
     }
-  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads, primaryInstructorId]);
+  }, [userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads, selectedInstructorId]);
+
+  // Refetch an instructor's file list when the selected instructor changes.
+  useEffect(() => {
+    if (userRole === "video_editor" && selectedInstructorId) {
+      fetchInstructorFiles(undefined, undefined, false, selectedInstructorId);
+    }
+  }, [selectedInstructorId, userRole, fetchInstructorFiles]);
 
   useEffect(() => {
     if (userRole === "instructor" || userRole === "admin") {
@@ -210,9 +189,9 @@ export function DashboardClient({
       // Video editors paginate the assigned instructor's file list; pass the
       // instructor id so the cursor is applied to the same query that produced
       // it, not the editor's own-upload list.
-      fetchInstructorFiles(debouncedSearch, cursor, true, userRole === "video_editor" ? (primaryInstructorId ?? undefined) : undefined);
+      fetchInstructorFiles(debouncedSearch, cursor, true, userRole === "video_editor" ? (selectedInstructorId ?? undefined) : undefined);
     }
-  }, [cursor, debouncedSearch, fetchInstructorFiles, userRole, primaryInstructorId]);
+  }, [cursor, debouncedSearch, fetchInstructorFiles, userRole, selectedInstructorId]);
 
   const handleLoadMoreUploadedByMe = useCallback(() => {
     if (uploadedByMeCursor !== null) {
@@ -222,15 +201,15 @@ export function DashboardClient({
   const handleFilesChange = useCallback(() => {
     if (userRole === "video_editor") {
       fetchVideoEditorUploads();
-      if (instructorIds.length > 0) {
-        fetchInstructorFiles(debouncedSearch, undefined, false, instructorIds[0]);
+      if (selectedInstructorId) {
+        fetchInstructorFiles(debouncedSearch, undefined, false, selectedInstructorId);
       }
     } else {
       fetchInstructorFiles(debouncedSearch, undefined, false);
     }
-  }, [userRole, debouncedSearch, fetchInstructorFiles, fetchVideoEditorUploads, instructorIds]);
+  }, [userRole, debouncedSearch, fetchInstructorFiles, fetchVideoEditorUploads, selectedInstructorId]);
 
-  if (!isLoaded || isLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -313,7 +292,28 @@ export function DashboardClient({
     <div className="space-y-8">
       {instructorIds.length > 0 && (
         <div>
-          <h2 className="text-xl font-semibold text-slate-200 mb-4">Instructor&apos;s Files</h2>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+            <h2 className="text-xl font-semibold text-slate-200">Instructor&apos;s Files</h2>
+            {instructorIds.length > 1 && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="instructor-select" className="text-sm text-slate-400">
+                  Instructor:
+                </label>
+                <select
+                  id="instructor-select"
+                  value={selectedInstructorId ?? ""}
+                  onChange={(e) => setSelectedInstructorId(e.target.value || null)}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                >
+                  {instructorIds.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-slate-400 mb-4">
             Viewing files for {instructorIds.length} assigned instructor{instructorIds.length > 1 ? "s" : ""}
           </p>

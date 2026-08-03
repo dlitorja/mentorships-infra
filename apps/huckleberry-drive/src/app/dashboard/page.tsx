@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { getCurrentUser, getAccessibleInstructorIds } from "@/lib/auth";
 import { DashboardClient } from "./dashboard-client";
-import type { UserRole } from "@/lib/api";
+import { isUserRole } from "@/lib/api";
 
 export default async function DashboardPage(): Promise<React.ReactElement> {
   const { userId } = await auth();
@@ -16,7 +16,7 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
     redirect("/sign-in");
   }
 
-  const role = dbUser.role as UserRole | null;
+  const role = isUserRole(dbUser.role) ? dbUser.role : null;
   let instructorIds = (await getAccessibleInstructorIds()) ?? [];
 
   // Instructors own their own storage; use the Convex `userId` (the ID used by

@@ -610,13 +610,19 @@ export const getUserByClerkIdPublic = query({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
-    if (!user) return null;
+    // For split-ID students the session studentId may be the Clerk subject
+    // (huckleberry-drive clerkId) while the canonical userId differs.
+    const userByClerkId = user ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .first();
+    if (!userByClerkId) return null;
     // Return only the contact fields needed by session notification routes.
     return {
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      timeZone: user.timeZone,
+      email: userByClerkId.email,
+      firstName: userByClerkId.firstName,
+      lastName: userByClerkId.lastName,
+      timeZone: userByClerkId.timeZone,
     };
   },
 });

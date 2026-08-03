@@ -111,7 +111,12 @@ export type PersistedUserRole = "student" | "instructor" | "admin" | "video_edit
 // creation, and other write paths. The "student" literal is rejected at the
 // API boundary; legacy persisted rows are displayed but cannot be edited
 // back to "student".
-export type UserRole = "instructor" | "admin" | "video_editor";
+export const USER_ROLES = ["instructor", "admin", "video_editor"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export function isUserRole(role: unknown): role is UserRole {
+  return typeof role === "string" && (USER_ROLES as readonly string[]).includes(role);
+}
 
 export const ROLE_DISPLAY_LABELS: Record<PersistedUserRole, string> = {
   student: "Student (legacy)",

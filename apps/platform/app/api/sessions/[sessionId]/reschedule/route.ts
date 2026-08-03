@@ -67,19 +67,19 @@ export async function POST(
       }),
       convex.query(api.users.getUserByClerkIdPublic, {
         userId: session.studentId,
-        sessionId: sessionId as Id<"sessions">,
+        sessionId: session._id,
       }),
     ]);
 
     await convex.mutation(api.sessions.rescheduleSession, {
-      id: sessionId as Id<"sessions">,
+      id: session._id,
       newScheduledAt: newScheduledAtMs,
     });
 
     if (!suppressNotifications && studentUser?.email) {
       try {
         await tasks.trigger<typeof sessionRescheduledNotifications>("session-rescheduled-notifications", {
-          sessionId,
+          sessionId: session._id,
           studentEmail: studentUser.email,
           studentName: [studentUser.firstName, studentUser.lastName].filter(Boolean).join(" ") || studentUser.email,
           instructorName: instructor?.name || "Instructor",
