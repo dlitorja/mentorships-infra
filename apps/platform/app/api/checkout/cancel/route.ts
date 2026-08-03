@@ -16,14 +16,22 @@ const ALLOWED_FALLBACK_ORIGINS = [
 /**
  * Resolves the base URL for redirects.
  *
- * - Production requires NEXT_PUBLIC_URL to be configured.
- * - Non-production uses NEXT_PUBLIC_URL if set.
+ * - Actual production (NODE_ENV === "production" and Vercel env === "production")
+ *   requires NEXT_PUBLIC_URL to be configured.
+ * - Vercel preview deployments, local development, and any other environment
+ *   use NEXT_PUBLIC_URL if set.
  * - Otherwise, the request Origin is validated against an allowlist before it
  *   is used; any unapproved origin falls back to http://localhost:3000.
  */
 function getBaseUrl(request: NextRequest): string {
   const configuredUrl = process.env.NEXT_PUBLIC_URL;
-  if (process.env.NODE_ENV === "production") {
+  const vercelEnv = process.env.VERCEL_ENV || process.env.NEXT_PUBLIC_VERCEL_ENV;
+  const isVercelProduction = vercelEnv === "production";
+
+  // Only the live production deployment is required to have an explicit URL.
+  // Preview deployments and local builds are allowed to fall back to the
+  // request origin so Stripe redirects still work without a production env var.
+  if (process.env.NODE_ENV === "production" && isVercelProduction) {
     if (!configuredUrl) {
       throw new Error("NEXT_PUBLIC_URL must be configured in production");
     }

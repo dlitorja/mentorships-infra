@@ -21,8 +21,9 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 type UploadType = "profile" | "portfolio" | "result";
 
 function getFileExtension(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ext || ".jpg";
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot === -1 || lastDot === filename.length - 1) return "";
+  return filename.slice(lastDot).toLowerCase();
 }
 
 export async function POST(req: NextRequest) {
