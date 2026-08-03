@@ -583,7 +583,7 @@ export const getUserByClerkIdPublic = query({
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", authUser.subject))
       .first();
-    if (!callerByClerkId || (callerByClerkId.role !== "instructor" && callerByClerkId.role !== "admin")) {
+    if (!callerByClerkId || callerByClerkId.role !== "instructor") {
       return null;
     }
 
