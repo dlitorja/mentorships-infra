@@ -2,6 +2,7 @@ import React from "react";
 import { auth } from "@clerk/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { getCurrentUser } from "@/lib/auth";
 import { UploadsClient } from "./uploads-client";
 
 interface User {
@@ -18,7 +19,7 @@ interface Assignment {
 }
 
 export default async function UploadsPage(): Promise<React.ReactElement> {
-  const { userId } = await auth();
+  const { userId, getToken } = await auth();
 
   if (!userId) {
     return (
@@ -31,7 +32,8 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
     );
   }
 
-  const dbUser = await fetchQuery(api.users.getCurrentUserPublic, { userId }) as User | null;
+  const token = await getToken({ template: "convex" }) ?? undefined;
+  const dbUser = await getCurrentUser();
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
 
   if (dbUser?.role === "video_editor") {
@@ -39,11 +41,11 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
     // (platform userId differs from huckleberry-drive Clerk ID), the clerkId
     // fallback resolves the account but assignments are keyed by the canonical
     // userId.
-    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: dbUser.userId }) as Assignment[];
+    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: dbUser.userId }, { token }) as Assignment[];
     const instructorIds = assignments.map((a) => a.instructorId);
 
     if (instructorIds.length > 0) {
-      const instructorUsers = await fetchQuery(api.users.getUsersByClerkIds, { userIds: instructorIds }) as User[];
+      const instructorUsers = await fetchQuery(api.users.getUsersByClerkIds, { userIds: instructorIds }, { token }) as User[];
 
       instructors = instructorUsers.map((u) => ({
         id: u.userId,
