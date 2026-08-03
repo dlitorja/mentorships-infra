@@ -3,7 +3,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Suspense } from "react";
 import type { ReactElement } from "react";
 import { Menu } from "lucide-react";
 import { Show, UserButton, useUser } from "@clerk/nextjs";
@@ -28,6 +27,9 @@ const navLinks = [
 
 type UserLike = { publicMetadata?: { role?: unknown } } | null | undefined;
 
+/**
+ * Resolves the dashboard route based on the user's role metadata.
+ */
 function getDashboardHref(user: UserLike): "/admin" | "/instructor/dashboard" | "/dashboard" {
   const roleVal = typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role.toLowerCase() : "student";
   if (roleVal === "admin") return "/admin";
@@ -35,11 +37,17 @@ function getDashboardHref(user: UserLike): "/admin" | "/instructor/dashboard" | 
   return "/dashboard";
 }
 
+/**
+ * Determines whether the user role can access the "My Files" link.
+ */
 function canViewMyFiles(user: UserLike): boolean {
   const role = typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role.toLowerCase() : "";
   return role === "instructor" || role === "admin";
 }
 
+/**
+ * Renders a link to the instructor/admin file drive when the user is authorized.
+ */
 function MyFilesButton(): ReactElement | null {
   const { user, isLoaded } = useUser();
   if (!isLoaded || !user) return null;
@@ -51,6 +59,9 @@ function MyFilesButton(): ReactElement | null {
   );
 }
 
+/**
+ * Renders the dashboard link for signed-in users.
+ */
 function DashboardButton(): ReactElement {
   const { user, isLoaded } = useUser();
   const href = getDashboardHref(user);
@@ -61,8 +72,11 @@ function DashboardButton(): ReactElement {
   );
 }
 
+/**
+ * Renders the dashboard link inside the mobile navigation sheet.
+ */
 function MobileDashboardButton(): ReactElement {
-  const { user, isLoaded } = useUser();
+  const { user } = useUser();
   const href = getDashboardHref(user);
   return (
     <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
@@ -71,6 +85,9 @@ function MobileDashboardButton(): ReactElement {
   );
 }
 
+/**
+ * Renders the "My Files" link inside the mobile navigation sheet for authorized users.
+ */
 function MobileMyFilesLink(): ReactElement | null {
   const { user, isLoaded } = useUser();
   if (!isLoaded || !user) return null;
@@ -89,6 +106,9 @@ function MobileMyFilesLink(): ReactElement | null {
   );
 }
 
+/**
+ * Renders sign-in/sign-up buttons when Clerk is available but the user is signed out.
+ */
 function FallbackAuthButtons(): ReactElement {
   return (
     <>
@@ -102,6 +122,9 @@ function FallbackAuthButtons(): ReactElement {
   );
 }
 
+/**
+ * Renders sign-in/sign-up buttons inside the mobile sheet when Clerk is unavailable.
+ */
 function FallbackMobileAuthButtons(): ReactElement {
   return (
     <div className="flex flex-col gap-4">
@@ -115,6 +138,9 @@ function FallbackMobileAuthButtons(): ReactElement {
   );
 }
 
+/**
+ * Renders the content of the mobile navigation sheet.
+ */
 function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactElement {
   return (
     <div className="flex flex-col gap-6 mt-8">

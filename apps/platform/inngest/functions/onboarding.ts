@@ -18,6 +18,9 @@ import { inngest } from "../client";
 import { workspaceUrlFor } from "@/lib/admin-onboarding/workspace-url";
 import { convexServerCall } from "@/lib/convex-server-call";
 
+/**
+ * Creates a server-side Convex HTTP client using the configured URL.
+ */
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -31,6 +34,9 @@ type ClerkExternalAccountLike = {
   providerUserId?: unknown;
 };
 
+/**
+ * Extracts a Discord provider user ID from a Clerk user's external accounts.
+ */
 function getDiscordProviderUserIdFromClerkUser(user: unknown): string | null {
   if (!user || typeof user !== "object") return null;
   const maybe = user as { externalAccounts?: unknown };
@@ -49,12 +55,18 @@ function getDiscordProviderUserIdFromClerkUser(user: unknown): string | null {
   return null;
 }
 
+/**
+ * Returns the Clerk backend API client.
+ */
 async function getClerkApi() {
   // In Clerk v6, `clerkClient` is an async function that returns the API client.
   // (At runtime, `clerkClient.users` is undefined unless you call it.)
   return await clerkClient();
 }
 
+/**
+ * Resolves the application base URL from environment variables.
+ */
 function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
@@ -1266,7 +1278,7 @@ export const adminOnboardingFlow = inngest.createFunction(
               !!freshRow &&
               freshRow.status === "processing" &&
               freshRow.attemptCount > parsed.data.attemptCount;
-          } catch (refreshErr) {
+          } catch {
             // Couldn't determine — fall through to "send digest" (safe default).
           }
           if (newerAttemptInFlight) {

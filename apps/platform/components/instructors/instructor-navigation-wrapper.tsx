@@ -30,7 +30,7 @@ export function InstructorNavigationWrapper({
       if (stored) {
         customOrder = JSON.parse(stored)
       }
-    } catch (error) {
+    } catch {
       // Ignore errors reading from session storage
     }
     setOrder(Array.isArray(customOrder) ? customOrder : null)

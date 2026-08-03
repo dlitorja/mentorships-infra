@@ -7,8 +7,6 @@ import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
-import { sendEmail } from "@/lib/email";
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),

@@ -18,6 +18,10 @@ export interface WaitlistEntry {
   notifiedAt: number | null;
 }
 
+/**
+ * Sends a batch email notification to waitlist entries when a spot becomes available.
+ * @returns Count of successfully sent and failed emails.
+ */
 export async function sendWaitlistNotifications(
   entries: WaitlistEntry[],
   data: WaitlistNotificationData
@@ -31,7 +35,6 @@ export async function sendWaitlistNotifications(
     return { success: 0, failed: 0 };
   }
 
-  const typeLabel = data.mentorshipType === "oneOnOne" ? "1-on-1" : "group";
   const subject = `Spot available! - ${data.instructorName}`;
 
   const emails = entries.map((entry) => ({
@@ -44,7 +47,7 @@ export async function sendWaitlistNotifications(
 
   try {
     const idempotencyKey = `waitlist-notify-${data.instructorSlug}-${data.mentorshipType}-${entries.map(e => e.id).sort().join("-")}`;
-    const { data: result, error } = await resend.batch.send(emails, {
+    const { error } = await resend.batch.send(emails, {
       idempotencyKey,
     });
 
@@ -61,6 +64,9 @@ export async function sendWaitlistNotifications(
   }
 }
 
+/**
+ * Builds the HTML body for a waitlist spot-available email.
+ */
 function buildWaitlistEmailHtml(data: WaitlistNotificationData): string {
   const typeLabel = data.mentorshipType === "oneOnOne" ? "1-on-1 mentoring" : "group sessions";
   const purchaseUrl = data.purchaseUrl;
@@ -125,6 +131,9 @@ function buildWaitlistEmailHtml(data: WaitlistNotificationData): string {
   `.trim();
 }
 
+/**
+ * Builds the plain-text body for a waitlist spot-available email.
+ */
 function buildWaitlistEmailText(data: WaitlistNotificationData): string {
   const typeLabel = data.mentorshipType === "oneOnOne" ? "1-on-1 mentoring" : "group sessions";
   const purchaseUrl = data.purchaseUrl;

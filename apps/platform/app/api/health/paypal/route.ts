@@ -21,7 +21,7 @@ export async function GET() {
     const startTime = Date.now();
 
     // Initialize client to verify credentials are valid
-    const client = getPayPalClient();
+    getPayPalClient();
 
     // Test connectivity by creating a minimal test order (won't be used, just to verify API works)
     // Note: Since PayPal doesn't have a simple "ping" endpoint,

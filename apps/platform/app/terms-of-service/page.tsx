@@ -6,13 +6,16 @@ export const metadata: Metadata = {
   description: "Huckleberry Art Inc. Terms of Service - The terms and conditions governing your use of our services.",
 };
 
+/**
+ * Renders the terms of service page inside the shared legal layout.
+ */
 export default function TermsOfServicePage() {
   return (
     <LegalLayout title="Terms of Service" lastUpdated="June 12, 2026">
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">1. Acceptance of Terms</h2>
         <p className="text-muted-foreground leading-relaxed">
-          Welcome to Huckleberry Art Inc. By accessing or using our platform, website, and services (collectively, the "Services"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not access or use our Services. These Terms constitute a legally binding agreement between you and Huckleberry Art Inc. Please read them carefully before using our Services.
+          Welcome to Huckleberry Art Inc. By accessing or using our platform, website, and services (collectively, the &quot;Services&quot;), you agree to be bound by these Terms of Service (&quot;Terms&quot;). If you do not agree to these Terms, you may not access or use our Services. These Terms constitute a legally binding agreement between you and Huckleberry Art Inc. Please read them carefully before using our Services.
         </p>
       </section>
 
@@ -76,7 +79,7 @@ export default function TermsOfServicePage() {
         <ul className="list-disc pl-6 space-y-2 text-muted-foreground">
           <li>Attend scheduled sessions punctually</li>
           <li>Provide reasonable advance notice if you need to reschedule (at least 24 hours)</li>
-          <li>Respect instructors' time and professional boundaries</li>
+          <li>Respect instructors&apos; time and professional boundaries</li>
           <li>Not record sessions without explicit consent from all participants</li>
           <li>Use session content solely for personal educational purposes</li>
         </ul>
@@ -110,14 +113,14 @@ export default function TermsOfServicePage() {
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">9. Disclaimer of Warranties</h2>
         <p className="text-muted-foreground leading-relaxed">
-          OUR SERVICES ARE PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. We do not warrant that our Services will be uninterrupted, secure, or error-free, or that any defects will be corrected.
+          OUR SERVICES ARE PROVIDED &quot;AS IS&quot; AND &quot;AS AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. We do not warrant that our Services will be uninterrupted, secure, or error-free, or that any defects will be corrected.
         </p>
       </section>
 
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">10. Indemnification</h2>
         <p className="text-muted-foreground leading-relaxed">
-          You agree to defend, indemnify, and hold harmless Huckleberry Art Inc., its officers, directors, employees, contractors, agents, and representatives from and against any and all claims, damages, obligations, losses, liabilities, costs, or debt, and expenses (including attorney's fees) arising from: (i) your use of our Services; (ii) your violation of these Terms; or (iii) your violation of any third-party right, including any intellectual property or privacy rights.
+          You agree to defend, indemnify, and hold harmless Huckleberry Art Inc., its officers, directors, employees, contractors, agents, and representatives from and against any and all claims, damages, obligations, losses, liabilities, costs, or debt, and expenses (including attorney&apos;s fees) arising from: (i) your use of our Services; (ii) your violation of these Terms; or (iii) your violation of any third-party right, including any intellectual property or privacy rights.
         </p>
       </section>
 
@@ -147,7 +150,7 @@ export default function TermsOfServicePage() {
       <section>
         <h2 className="text-2xl font-semibold text-white mb-4">13. Changes to Terms</h2>
         <p className="text-muted-foreground leading-relaxed">
-          We reserve the right to modify or replace these Terms at any time at our sole discretion. If a revision is material, we will provide at least thirty (30) days' notice prior to any new terms taking effect. What constitutes a material change will be determined at our sole discretion. By continuing to access or use our Services after any revisions become effective, you agree to be bound by the revised terms.
+          We reserve the right to modify or replace these Terms at any time at our sole discretion. If a revision is material, we will provide at least thirty (30) days&apos; notice prior to any new terms taking effect. What constitutes a material change will be determined at our sole discretion. By continuing to access or use our Services after any revisions become effective, you agree to be bound by the revised terms.
         </p>
       </section>
 

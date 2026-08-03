@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUser, requireDbUser } from "@/lib/auth";
+import { requireDbUser } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 

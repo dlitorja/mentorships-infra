@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-import {
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@/lib/errors";
+import { isUnauthorizedError } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
@@ -19,6 +15,11 @@ const updateSessionSchema = z.object({
   recordingUrl: z.string().url().optional(),
 });
 
+/**
+ * PATCH /api/instructor/sessions/[sessionId]
+ * Allows an instructor to update a session's status, notes, or recording URL.
+ * Emails the student and cleans up calendar events when a session is canceled.
+ */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }

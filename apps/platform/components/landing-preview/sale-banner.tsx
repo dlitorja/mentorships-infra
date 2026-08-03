@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 
 interface SaleItem {
@@ -13,7 +12,6 @@ interface SaleItem {
   link: string;
 }
 
-const SALE_END_DATE = '2026-05-05';
 const SALE_END_LABEL = 'May 5th';
 
 const SALE_ITEMS: SaleItem[] = [
@@ -64,78 +62,11 @@ const SALE_ITEMS: SaleItem[] = [
   },
 ];
 
-function useCountdown(targetDate: string | null) {
-  const calculate = useCallback(() => {
-    if (!targetDate || targetDate === 'END_DATE_HERE') return null;
-    const target = new Date(targetDate).getTime();
-    const now = Date.now();
-    const diff = target - now;
-
-    if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
-
-    return {
-      days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-      hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-      minutes: Math.floor((diff / (1000 * 60)) % 60),
-      seconds: Math.floor(diff / 1000 % 60),
-    };
-  }, [targetDate]);
-
-  const [timeLeft, setTimeLeft] = useState(calculate);
-
-  useEffect(() => {
-    const result = calculate();
-    setTimeLeft(result);
-
-    if (!result) return;
-
-    const interval = setInterval(() => {
-      setTimeLeft(calculate());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [calculate]);
-
-  return timeLeft;
-}
-
-function CountdownTimer({ endsAt }: { endsAt: string | null }) {
-  const timeLeft = useCountdown(endsAt);
-
-  if (!timeLeft) {
-    return (
-      <span className='text-sm font-semibold text-primary'>
-        Enroll Now
-      </span>
-    );
-  }
-
-  return (
-    <div className='grid grid-cols-4 gap-2 text-center'>
-      {[
-        { value: timeLeft.days, label: 'Days' },
-        { value: timeLeft.hours, label: 'Hrs' },
-        { value: timeLeft.minutes, label: 'Min' },
-        { value: timeLeft.seconds, label: 'Sec' },
-      ].map((unit) => (
-        <div key={unit.label} className='rounded bg-card px-2 py-2'>
-          <div className='text-lg sm:text-xl font-bold text-white tabular-nums'>
-            {String(unit.value).padStart(2, '0')}
-          </div>
-          <div className='text-[10px] uppercase tracking-wider text-white/60'>
-            {unit.label}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+/**
+ * Renders a promotional banner grid for current courses and instructor offerings.
+ */
 export function SaleBanner() {
-  const liveItems = SALE_ITEMS.slice(0, 3).map((i) => ({
-    ...i,
-    description: i.endsAt ? '' : i.description,
-  }));
+  const liveItems = SALE_ITEMS.slice(0, 3);
 
   return (
     <section className='bg-background py-20 px-6'>

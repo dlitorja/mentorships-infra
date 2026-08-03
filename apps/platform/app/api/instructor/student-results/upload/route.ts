@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
-import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError } from "@/lib/errors";
 
 const ALLOWED_TYPES = [
@@ -14,11 +13,21 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+/**
+ * Extracts the lower-case file extension from a filename.
+ * Returns an empty string for extensionless or trailing-dot filenames so
+ * callers can reject them explicitly rather than assuming a default.
+ */
 function getFileExtension(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ext || ".jpg";
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot === -1 || lastDot === filename.length - 1) return "";
+  return filename.slice(lastDot).toLowerCase();
 }
 
+/**
+ * POST /api/instructor/student-results/upload
+ * Uploads an image to Convex storage and creates a student result record.
+ */
 export async function POST(req: NextRequest) {
   try {
     const { requireDbUser } = await import("@/lib/auth");

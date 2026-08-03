@@ -8,7 +8,7 @@ import { getConvexClient } from "@/lib/convex";
  * Get all active products for checkout
  * Public endpoint - no auth required since products need to be displayed to customers
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     const convex = getConvexClient();
     const products = await convex.query(api.products.getPublicActiveProducts, {}) as any[];

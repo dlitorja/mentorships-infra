@@ -20,7 +20,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 9 | Large-file decomposition | Merged (#724) |
 | 9.5 | Note autosave backup / unmount data-loss mitigation | Merged (#725) |
 | 10 | E2E / Playwright coverage | Open |
-| 11 | Accessibility verification & code quality hygiene | Open |
+| 11 | Accessibility verification & code quality hygiene | Merged (#726) |
 
 ## Completed PRs
 
@@ -151,7 +151,7 @@ This document captures opportunities for refactoring, bug fixes, performance opt
 | 9 | Large-file decomposition | Merged (#724) | 5 |
 | 9.5 | Note autosave backup / unmount data-loss mitigation | Merged (#725) | 1 |
 | 10 | E2E / Playwright coverage | Open | 4 |
-| 11 | Accessibility verification & code quality hygiene | Open | 3 |
+| 11 | Accessibility verification & code quality hygiene | Merged (#726) | 4 |
 
 **Total PRs:** 11
 
@@ -980,6 +980,29 @@ For each warning:
 - `CI=true pnpm run test:unit` ✅
 - `pnpm test:convex` ✅
 - `npx greptile@latest review -b main --diff` ✅
+
+### 11.5 Implementation Notes
+
+Implemented on 2026-08-02.
+
+- **Lint warning cleanup:** Resolved 102 remaining warnings in `apps/platform`:
+  - Removed unused imports, variables, function arguments, and catch-error bindings from API routes, components, libraries, and tests.
+  - Fixed hook dependency arrays in `components/calendar/book-session-form.tsx` and `components/workspace/session-count-controls.tsx`.
+  - Escaped apostrophes and quotes in static JSX (`privacy-policy`, `terms-of-service`, `instructors/[slug]/not-found`, `landing/testimonials`, `admin/admin-onboarding-form`, `calendar/book-session-form`).
+  - Fixed unnecessary escapes in `app/api/webhooks/paypal/route.ts`.
+  - Migrated remaining `<img>` tags to Next.js `Image` in workspace chat, image gallery, and resource components.
+  - Renamed local `Image` interface in `components/workspace/images.tsx` to `WorkspaceImage` to avoid collision with the Next.js `Image` import.
+- **Accessibility test helper:** Added `tests/unit/accessibility/axe-helper.ts` with `scanAccessibility` and `expectNoCriticalOrSeriousViolations` helpers powered by `axe-core`.
+- **Sample accessibility test:** Added `tests/unit/accessibility/pr-11-accessibility.test.tsx` scanning the `Testimonials` landing component for critical/serious violations.
+- **JSDoc coverage:** Added concise JSDoc comments to exported functions, components, route handlers, and non-trivial helpers touched by the cleanup.
+- **Dependencies:** Added `axe-core` as a workspace root dev dependency; removed the unnecessary `@types/axe-core` stub.
+- **Verification:**
+  - `pnpm --filter @mentorships/platform typecheck` ✅
+  - `pnpm --filter @mentorships/platform lint` ✅ (0 warnings)
+  - `NEXT_PUBLIC_APP_URL=http://localhost:3000 pnpm --filter @mentorships/platform build` ✅
+  - `CI=true pnpm run test:unit` ✅ (354 passed, 3 skipped)
+  - `pnpm test:convex` ✅ (49 passed)
+  - `npx greptile@latest review -b main --diff` ✅ (0 comments, 5/5 confidence)
 
 ---
 

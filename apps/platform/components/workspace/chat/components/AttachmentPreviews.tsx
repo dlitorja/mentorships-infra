@@ -1,11 +1,15 @@
 'use client';
 
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, RefreshCw, X, FileText, Send } from 'lucide-react';
 import { clsx } from 'clsx';
 import { formatBytes } from '../utils';
 import type { AttachmentPreviewsProps } from '../types';
 
+/**
+ * Renders a preview strip of files queued for sending in the chat composer.
+ */
 export function AttachmentPreviews({
   attachments,
   isUploading,
@@ -36,9 +40,12 @@ export function AttachmentPreviews({
         {attachments.map((attachment, index) => (
           <div key={`${attachment.file.name}-${index}`} className="relative group" title={attachment.error}>
             {attachment.isImage && attachment.preview ? (
-              <img
+              <Image
                 src={attachment.preview}
                 alt={`Preview ${index + 1}`}
+                width={80}
+                height={80}
+                unoptimized
                 className={clsx(
                   'h-20 w-20 object-cover rounded-md border',
                   attachment.error ? 'border-red-500' : 'border-muted'

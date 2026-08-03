@@ -30,10 +30,16 @@ type SessionCountSnapshot = {
   totalSessions: number;
 };
 
+/**
+ * Returns a readable label for the number of remaining sessions.
+ */
 function formatRemainingLabel(remaining: number): string {
   return `${remaining} ${remaining === 1 ? "session" : "sessions"} remaining`;
 }
 
+/**
+ * Renders a pill with the remaining session count plus edit/reset controls for instructors.
+ */
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -86,9 +92,11 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   // Reset confirmation dialog state.
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
-  // Effect 1: capture / clear snapshot when the session pack id
-  // changes. Triggered only by `_id`, so it doesn't re-run when
-  // Convex pushes new counts for the same pack.
+  // Effect 1: capture / clear snapshot when the session pack reference
+  // changes. Runs whenever `sessionPack` changes identity, but the
+  // `_id` guard inside ensures recapture only happens when the pack id
+  // differs from the one already captured. This keeps it from re-running
+  // when Convex pushes new counts for the same pack.
   useEffect(() => {
     if (!sessionPack) {
       capturedForPackIdRef.current = null;
@@ -109,11 +117,13 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         totalSessions: sessionPack.totalSessions,
       };
     }
-  }, [sessionPack?._id]);
+  }, [sessionPack]);
 
   // Effect 2: classify each subscription push for the current pack.
-  // Runs only when the count values change, so a no-op re-render or
-  // the snapshot/echo-clear state writes don't trigger a second pass.
+  // Runs whenever `sessionPack` or `optimisticCount` changes. The early
+  // same-value checks inside prevent no-op re-renders and self-induced
+  // state writes from doing extra work. External subscription pushes and
+  // the echo of our own PATCH are handled by the same path.
   useEffect(() => {
     if (!sessionPack) return;
     const incoming: SessionCountSnapshot = {
@@ -144,7 +154,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     // External update: roll the snapshot forward so Reset never
     // overwrites activity from another instructor / tab / system job.
     setPageLoadSnapshot(incoming);
-  }, [sessionPack?.remainingSessions, sessionPack?.totalSessions]);
+  }, [sessionPack, optimisticCount]);
 
   const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack?.remainingSessions ?? 0;
   const totalSessions = optimisticCount?.totalSessions ?? sessionPack?.totalSessions ?? 0;
@@ -160,8 +170,14 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         remainingSessions: result.data.remainingSessions,
         totalSessions: result.data.totalSessions,
       };
-      setOptimisticCount(serverCount);
+      // Treat a manual server refetch as a new baseline: update the
+      // snapshot so Reset uses the latest accepted server values, and
+      // clear any optimistic override so it is not mistaken for a local
+      // PATCH echo in the subscription effect.
+      setPageLoadSnapshot(serverCount);
+      setOptimisticCount(null);
       latestCountRef.current = serverCount;
+      lastSubscriptionValueRef.current = serverCount;
     } else {
       setOptimisticCount(null);
     }
@@ -300,44 +316,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       setIsEditSubmitting(false);
     }
   }, [editRemainingInput, editTotalInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
-
-  const restoreSessions = useCallback(async (target: SessionCountSnapshot, expected: SessionCountSnapshot) => {
-    if (pendingRef.current) return;
-
-    pendingRef.current = true;
-    setPendingAction("restore");
-    setOptimisticCount(target);
-    latestCountRef.current = target;
-
-    try {
-      const { ok, json } = await updateSessionPack(sessionPackId, {
-        action: "restore",
-        remainingSessions: target.remainingSessions,
-        totalSessions: target.totalSessions,
-        expectedRemainingSessions: expected.remainingSessions,
-        expectedTotalSessions: expected.totalSessions,
-      });
-
-      if (!ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to restore sessions");
-      }
-
-      const restoredCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(restoredCount);
-      latestCountRef.current = restoredCount;
-      void refetch();
-      toast.success("Session change undone.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restore sessions");
-      await syncFromServer();
-    } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
-    }
-  }, [refetch, sessionPackId, syncFromServer]);
 
   /**
    * Reset the pack to the { totalSessions, remainingSessions } it had

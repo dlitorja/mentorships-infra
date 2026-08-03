@@ -51,6 +51,9 @@ type UserWorkspace = {
   type?: "mentorship" | "admin_student" | "admin_instructor";
 };
 
+/**
+ * Provider-level wrapper that holds the workspace selection and chat subscription state.
+ */
 function WorkspaceContent({
   clerkUserId,
   workspaces,
@@ -517,8 +520,6 @@ export function TabContent({
     return (
       <WorkspaceResources
         workspaceId={workspaceId}
-        currentUserId={clerkUserId}
-        role={role}
         activeSessionId={activeSessionId}
       />
     );
@@ -586,6 +587,9 @@ function WorkspaceTabs({
   );
 }
 
+/**
+ * Dismissible policy banner shown at the top of the workspace tab content.
+ */
 function WorkspacePolicyBanner() {
   const [visible, setVisible] = useState(true);
   if (!visible) return null;
@@ -627,6 +631,9 @@ interface WorkspaceClientPageProps {
   initialJoinSessionId?: Id<"sessions">;
 }
 
+/**
+ * Client-side entry point for the workspace page.
+ */
 export default function WorkspaceClientPage({
   clerkUserId,
   workspaces,

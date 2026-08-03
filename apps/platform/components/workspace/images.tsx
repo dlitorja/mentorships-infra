@@ -1,29 +1,21 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import Image from 'next/image';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports, type WorkspaceImage } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
 import { WORKSPACE_IMAGE_CAPS, PER_UPLOAD_CAP } from '@/lib/workspace-constants';
 
-interface Image {
-  _id: Id<'workspaceImages'>;
-  workspaceId: Id<'workspaces'>;
-  imageUrl: string;
-  storageId?: string;
-  createdBy: string;
-  deletedAt?: number;
-  sessionId?: Id<'sessions'>;
-}
+
 
 interface FailedUpload {
   file: File;
@@ -42,6 +34,10 @@ interface WorkspaceImagesProps {
   activeSessionId: Id<'sessions'> | null;
 }
 
+/**
+ * Workspace tab for uploading, managing, and exporting images tied to a workspace.
+ * Supports drag-and-drop, clipboard paste during calls, and ZIP export.
+ */
 export default function WorkspaceImages({ workspaceId, currentUserId, role, activeSessionId }: WorkspaceImagesProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
@@ -349,7 +345,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     );
   }
 
-  const activeImages = (images as Image[]) || [];
+  const activeImages = images || [];
 
   return (
     <div className="flex flex-col">
@@ -549,9 +545,12 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               const failed = failedUploads.find((_, i) => i === index);
               return (
                 <div key={index} className="relative group">
-                  <img
+                  <Image
                     src={preview}
                     alt={`Preview ${index + 1}`}
+                    width={80}
+                    height={80}
+                    unoptimized
                     className={clsx(
                       "h-20 w-20 object-cover rounded-md border",
                       failed ? "border-red-500" : "border-muted"
@@ -613,7 +612,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         )}
         {activeImages.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {activeImages.map((img: Image) => {
+            {activeImages.map((img: WorkspaceImage) => {
               const canDelete = role === 'admin' || 
                 (role === 'instructor' && img.createdBy !== currentUserId) || 
                 img.createdBy === currentUserId;
@@ -628,11 +627,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                     onClick={() => setSelectedImage(img.imageUrl)}
                     aria-label="Open workspace image preview"
                   >
-                    <img
+                    <Image
                       src={img.imageUrl}
                       alt="Workspace image"
+                      fill
+                      unoptimized
                       loading="lazy"
-                      className="w-full h-full object-cover"
+                      sizes="(max-width: 768px) 50vw, 25vw"
+                      className="object-cover"
                     />
                   </button>
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
@@ -692,12 +694,19 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           >
             <X className="h-6 w-6" />
           </Button>
-          <img
-            src={selectedImage}
-            alt="Full size"
-            className="max-w-full max-h-full object-contain"
+          <div
+            className="relative w-full h-full max-w-full max-h-full"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <Image
+              src={selectedImage}
+              alt="Full size"
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-contain"
+            />
+          </div>
         </div>
       )}
     </div>

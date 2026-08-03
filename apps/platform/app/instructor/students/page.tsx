@@ -8,9 +8,6 @@ import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,10 +34,16 @@ type Student = {
   workspaceId: string | null;
 };
 
+/**
+ * Fetches the signed-in instructor's student list.
+ */
 async function fetchStudents(): Promise<{ items: Student[] }> {
   return apiFetch<{ items: Student[] }>(ApiRoutes.instructorStudents);
 }
 
+/**
+ * Updates a session pack's remaining session count via the API.
+ */
 async function updateSessionCount(
   sessionPackId: string,
   action: "increment" | "decrement" | "set",
@@ -53,6 +56,9 @@ async function updateSessionCount(
   return json;
 }
 
+/**
+ * Page that lets instructors view their students, search, sort, and adjust session counts.
+ */
 export default function InstructorStudentsPage() {
   const queryClient = useQueryClient();
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
@@ -106,6 +112,9 @@ export default function InstructorStudentsPage() {
     );
   };
 
+  /**
+   * Maps a session pack status to a Badge variant.
+   */
   const getStatusColor = (status: string, remaining: number) => {
     if (status === "expired" || status === "refunded") return "secondary";
     if (remaining === 0) return "destructive";
@@ -113,6 +122,9 @@ export default function InstructorStudentsPage() {
     return "default";
   };
 
+  /**
+   * Formats an ISO date string into a human-readable date.
+   */
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return null;
     return new Date(dateStr).toLocaleDateString("en-US", {
@@ -122,7 +134,7 @@ export default function InstructorStudentsPage() {
     });
   };
 
-  const students = data?.items || [];
+  const students = useMemo(() => data?.items || [], [data?.items]);
 
   const filteredAndSortedStudents = useMemo(() => {
     let result = [...students];

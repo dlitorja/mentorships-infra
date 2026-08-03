@@ -5,11 +5,57 @@ import { Id } from "@/convex/_generated/dataModel";
 import crypto from "node:crypto";
 import { reportInfo } from "@/lib/observability";
 
-function getBaseUrl(request: NextRequest) {
-  return (
-    process.env.NEXT_PUBLIC_URL ||
-    (request.headers.get("origin") || "http://localhost:3000")
-  );
+// Origins allowed as a fallback when NEXT_PUBLIC_URL is not set outside
+// production. Only exact host matches are accepted; anything else falls back
+// to localhost so an arbitrary request Origin cannot redirect a user.
+const ALLOWED_FALLBACK_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
+/**
+ * Resolves the base URL for redirects.
+ *
+ * - Actual production (NODE_ENV === "production" and Vercel env === "production")
+ *   requires NEXT_PUBLIC_URL to be configured.
+ * - Vercel preview deployments, local development, and any other environment
+ *   use NEXT_PUBLIC_URL if set.
+ * - Otherwise, the request Origin is validated against an allowlist before it
+ *   is used; any unapproved origin falls back to http://localhost:3000.
+ */
+function getBaseUrl(request: NextRequest): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_URL;
+  const vercelEnv = process.env.VERCEL_ENV || process.env.NEXT_PUBLIC_VERCEL_ENV;
+  const isVercelProduction = vercelEnv === "production";
+
+  // Only the live production deployment is required to have an explicit URL.
+  // Preview deployments and local builds are allowed to fall back to the
+  // request origin so Stripe redirects still work without a production env var.
+  if (process.env.NODE_ENV === "production" && isVercelProduction) {
+    if (!configuredUrl) {
+      throw new Error("NEXT_PUBLIC_URL must be configured in production");
+    }
+    return configuredUrl;
+  }
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const origin = request.headers.get("origin") || "http://localhost:3000";
+  try {
+    const originHost = new URL(origin).host;
+    const isAllowed = ALLOWED_FALLBACK_ORIGINS.some((allowed) => {
+      try {
+        return new URL(allowed).host === originHost;
+      } catch {
+        return allowed === originHost;
+      }
+    });
+    return isAllowed ? origin : "http://localhost:3000";
+  } catch {
+    return "http://localhost:3000";
+  }
 }
 
 /**

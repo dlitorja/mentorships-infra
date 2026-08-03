@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireDbUser, getUser } from "@/lib/auth";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
@@ -10,6 +9,10 @@ const updateTimeZoneSchema = z.object({
   timeZone: z.string().min(1, "Timezone is required"),
 });
 
+/**
+ * PATCH /api/user/settings
+ * Updates the authenticated user's time zone in Convex.
+ */
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -74,6 +77,10 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   }
 }
 
+/**
+ * GET /api/user/settings
+ * Returns the authenticated user's email, time zone, and Discord connection status.
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -113,6 +120,9 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
+/**
+ * Returns the list of supported IANA time zones, falling back to a curated list.
+ */
 function getValidTimeZones(): string[] {
   const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
     .supportedValuesOf;

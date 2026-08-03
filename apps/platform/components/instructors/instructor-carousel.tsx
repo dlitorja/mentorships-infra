@@ -28,6 +28,9 @@ interface Instructor {
   isNew: boolean;
 }
 
+/**
+ * Maps a Convex public instructor record into the carousel's internal shape.
+ */
 function mapPublicToInstructor(inst: PublicInstructor): Instructor {
   return {
     id: inst._id,
@@ -61,7 +64,7 @@ export function InstructorCarousel(): React.JSX.Element {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setPrefersReducedMotion(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(mq.matches);
+    const handler = (_e: MediaQueryListEvent) => setPrefersReducedMotion(mq.matches);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);

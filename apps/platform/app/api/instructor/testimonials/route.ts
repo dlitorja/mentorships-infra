@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
-import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
@@ -15,7 +14,7 @@ const createTestimonialSchema = z.object({
  * GET /api/instructor/testimonials
  * Get testimonials for the current instructor
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = await getAuthenticatedConvexClient();

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
-import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
@@ -34,6 +33,9 @@ interface ExistingInstructor {
   portfolioImages?: string[] | null;
 }
 
+/**
+ * Validates that a profile update still includes a profile image and at least 4 portfolio images.
+ */
 function validateProfileRequirements(
   existing: ExistingInstructor,
   data: PatchInput

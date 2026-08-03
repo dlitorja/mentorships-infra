@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Renders the 404 page for an instructor profile that does not exist or is unavailable.
+ */
 export default function NotFound() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
@@ -9,7 +12,7 @@ export default function NotFound() {
           Instructor Not Found
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">
-          The instructor you're looking for doesn't exist or is not available.
+          The instructor you&apos;re looking for doesn&apos;t exist or is not available.
         </p>
         <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
           <Button asChild>
