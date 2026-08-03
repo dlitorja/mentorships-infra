@@ -21,16 +21,23 @@ async function requireAdminOrSelf(
     throw new Error("Unauthorized");
   }
 
-  if (identity.subject === userId) {
-    return;
-  }
-
+  // The caller may authenticate with a Clerk ID that differs from the
+  // canonical users.userId used to key assignments. Allow access when the
+  // caller's userId matches the requested userId or the caller is an admin.
   const caller = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
     .first();
+  const callerByClerkId = caller ?? await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+    .first();
 
-  if (!caller || caller.role !== "admin") {
+  if (callerByClerkId?.userId === userId || callerByClerkId?.clerkId === userId) {
+    return;
+  }
+
+  if (!callerByClerkId || callerByClerkId.role !== "admin") {
     throw new Error("Forbidden");
   }
 }
@@ -47,8 +54,12 @@ async function requireAdmin(
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
     .first();
+  const callerByClerkId = caller ?? await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+    .first();
 
-  if (!caller || caller.role !== "admin") {
+  if (!callerByClerkId || callerByClerkId.role !== "admin") {
     throw new Error("Forbidden");
   }
 }

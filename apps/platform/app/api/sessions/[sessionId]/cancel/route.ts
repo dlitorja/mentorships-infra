@@ -43,18 +43,19 @@ export async function POST(
       }),
       convex.query(api.users.getUserByClerkIdPublic, {
         userId: session.studentId,
+        sessionId: session._id,
       }),
     ]);
 
     await convex.mutation(api.sessions.cancelSession, {
-      id: sessionId as Id<"sessions">,
+      id: session._id,
       reason: reason || undefined,
     });
 
     if (!suppressNotifications && studentUser?.email) {
       try {
         await tasks.trigger<typeof sessionCanceledNotifications>("session-canceled-notifications", {
-          sessionId,
+          sessionId: session._id,
           studentEmail: studentUser.email,
           studentName: [studentUser.firstName, studentUser.lastName].filter(Boolean).join(" ") || studentUser.email,
           instructorName: instructor?.name || "Instructor",
