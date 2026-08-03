@@ -73,10 +73,11 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
   if (!dbUser) throw new UnauthorizedError("User not found");
 
   if (dbUser.role === "admin") return true;
-  if (dbUser.role === "instructor" && fileInstructorId === userId) return true;
+  const canonicalUserId = dbUser.userId;
+  if (dbUser.role === "instructor" && fileInstructorId === canonicalUserId) return true;
   if (dbUser.role === "video_editor") {
     return await fetchQuery(api.videoEditorAssignments.isVideoEditorAssignedToInstructor, {
-      videoEditorId: userId,
+      videoEditorId: canonicalUserId,
       instructorId: fileInstructorId,
     }, { token }) as boolean;
   }
@@ -96,12 +97,13 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
     return null;
   }
 
+  const canonicalUserId = dbUser.userId;
   if (dbUser.role === "instructor") {
-    return [userId];
+    return [canonicalUserId];
   }
 
   if (dbUser.role === "video_editor") {
-    return await fetchQuery(api.videoEditorAssignments.getAssignedInstructorIds, { videoEditorId: userId }, { token }) as string[];
+    return await fetchQuery(api.videoEditorAssignments.getAssignedInstructorIds, { videoEditorId: canonicalUserId }, { token }) as string[];
   }
 
   return [];
