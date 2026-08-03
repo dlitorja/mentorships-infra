@@ -66,10 +66,7 @@ const SALE_ITEMS: SaleItem[] = [
  * Renders a promotional banner grid for current courses and instructor offerings.
  */
 export function SaleBanner() {
-  const liveItems = SALE_ITEMS.slice(0, 3).map((i) => ({
-    ...i,
-    description: i.endsAt ? '' : i.description,
-  }));
+  const liveItems = SALE_ITEMS.slice(0, 3);
 
   return (
     <section className='bg-background py-20 px-6'>

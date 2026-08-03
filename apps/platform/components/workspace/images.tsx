@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports, type WorkspaceImage } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
@@ -15,15 +15,7 @@ import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
 import { WORKSPACE_IMAGE_CAPS, PER_UPLOAD_CAP } from '@/lib/workspace-constants';
 
-interface WorkspaceImage {
-  _id: Id<'workspaceImages'>;
-  workspaceId: Id<'workspaces'>;
-  imageUrl: string;
-  storageId?: string;
-  createdBy: string;
-  deletedAt?: number;
-  sessionId?: Id<'sessions'>;
-}
+
 
 interface FailedUpload {
   file: File;
@@ -353,7 +345,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     );
   }
 
-  const activeImages = (images as WorkspaceImage[]) || [];
+  const activeImages = images || [];
 
   return (
     <div className="flex flex-col">

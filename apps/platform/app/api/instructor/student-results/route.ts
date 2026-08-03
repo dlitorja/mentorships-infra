@@ -15,7 +15,7 @@ const createStudentResultSchema = z.object({
  * GET /api/instructor/student-results
  * Get student results for the current instructor
  */
-export async function GET(_req: NextRequest) {
+export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = await getAuthenticatedConvexClient();

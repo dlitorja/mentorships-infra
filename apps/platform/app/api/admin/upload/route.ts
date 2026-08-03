@@ -16,10 +16,14 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /**
  * Extracts the lower-case file extension from a filename.
+ * Returns an empty string for extensionless filenames so callers can
+ * reject them explicitly rather than treating the last character as an
+ * extension.
  */
-function getFileExtension(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ext || ".jpg";
+export function getFileExtension(filename: string): string {
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot === -1 || lastDot === filename.length - 1) return "";
+  return filename.slice(lastDot).toLowerCase();
 }
 
 const storageIdSchema = z.object({

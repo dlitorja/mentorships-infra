@@ -14,7 +14,7 @@ const createTestimonialSchema = z.object({
  * GET /api/instructor/testimonials
  * Get testimonials for the current instructor
  */
-export async function GET(_req: NextRequest) {
+export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = await getAuthenticatedConvexClient();

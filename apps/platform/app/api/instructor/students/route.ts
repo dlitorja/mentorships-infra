@@ -8,7 +8,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  * GET /api/instructor/students
  * Get all students for the authenticated instructor
  */
-export async function GET(_req: NextRequest) {
+export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = await getAuthenticatedConvexClient();

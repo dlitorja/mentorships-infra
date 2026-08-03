@@ -220,6 +220,23 @@ export function useWorkspaceLinksPaginated(
 }
 
 /**
+ * A workspace image document plus the signed imageUrl returned by the
+ * paginated query.
+ */
+export type WorkspaceImage = FunctionReturnType<
+  typeof api.workspaces.getWorkspaceImagesPaginated
+>["page"][number];
+
+/**
+ * Return type for {@link useWorkspaceImagesPaginated} with a strongly-typed
+ * results array.
+ */
+export type UseWorkspaceImagesPaginatedReturnType = Omit<
+  UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceImagesPaginated>,
+  "results"
+> & { results: WorkspaceImage[] };
+
+/**
  * Fetches a paginated list of images for a workspace, newest first.
  * Use this in apps/platform; the legacy {@link useWorkspaceImages} remains
  * for apps/web.
@@ -229,12 +246,12 @@ export function useWorkspaceLinksPaginated(
  */
 export function useWorkspaceImagesPaginated(
   workspaceId: Id<"workspaces"> | null | undefined
-): UsePaginatedQueryReturnType<typeof api.workspaces.getWorkspaceImagesPaginated> {
+): UseWorkspaceImagesPaginatedReturnType {
   return useConvexPaginatedQuery(
     api.workspaces.getWorkspaceImagesPaginated,
     workspaceId ? { workspaceId } : "skip",
     { initialNumItems: 24 }
-  );
+  ) as UseWorkspaceImagesPaginatedReturnType;
 }
 
 // Mutations

@@ -92,9 +92,11 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   // Reset confirmation dialog state.
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
-  // Effect 1: capture / clear snapshot when the session pack id
-  // changes. Triggered only by `_id`, so it doesn't re-run when
-  // Convex pushes new counts for the same pack.
+  // Effect 1: capture / clear snapshot when the session pack reference
+  // changes. Runs whenever `sessionPack` changes identity, but the
+  // `_id` guard inside ensures recapture only happens when the pack id
+  // differs from the one already captured. This keeps it from re-running
+  // when Convex pushes new counts for the same pack.
   useEffect(() => {
     if (!sessionPack) {
       capturedForPackIdRef.current = null;
@@ -118,8 +120,10 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   }, [sessionPack]);
 
   // Effect 2: classify each subscription push for the current pack.
-  // Runs only when the count values change, so a no-op re-render or
-  // the snapshot/echo-clear state writes don't trigger a second pass.
+  // Runs whenever `sessionPack` or `optimisticCount` changes. The early
+  // same-value checks inside prevent no-op re-renders and self-induced
+  // state writes from doing extra work. External subscription pushes and
+  // the echo of our own PATCH are handled by the same path.
   useEffect(() => {
     if (!sessionPack) return;
     const incoming: SessionCountSnapshot = {
@@ -166,8 +170,14 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         remainingSessions: result.data.remainingSessions,
         totalSessions: result.data.totalSessions,
       };
-      setOptimisticCount(serverCount);
+      // Treat a manual server refetch as a new baseline: update the
+      // snapshot so Reset uses the latest accepted server values, and
+      // clear any optimistic override so it is not mistaken for a local
+      // PATCH echo in the subscription effect.
+      setPageLoadSnapshot(serverCount);
+      setOptimisticCount(null);
       latestCountRef.current = serverCount;
+      lastSubscriptionValueRef.current = serverCount;
     } else {
       setOptimisticCount(null);
     }

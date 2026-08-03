@@ -15,10 +15,13 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /**
  * Extracts the lower-case file extension from a filename.
+ * Returns the real extension when present, otherwise falls back to .jpg
+ * so a file with no extension can still be validated by MIME type.
  */
 function getFileExtension(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ext || ".jpg";
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot === -1 || lastDot === filename.length - 1) return ".jpg";
+  return filename.slice(lastDot).toLowerCase();
 }
 
 /**

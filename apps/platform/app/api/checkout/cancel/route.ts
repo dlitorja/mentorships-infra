@@ -5,14 +5,49 @@ import { Id } from "@/convex/_generated/dataModel";
 import crypto from "node:crypto";
 import { reportInfo } from "@/lib/observability";
 
+// Origins allowed as a fallback when NEXT_PUBLIC_URL is not set outside
+// production. Only exact host matches are accepted; anything else falls back
+// to localhost so an arbitrary request Origin cannot redirect a user.
+const ALLOWED_FALLBACK_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
 /**
- * Resolves the base URL for redirects, preferring env then request origin.
+ * Resolves the base URL for redirects.
+ *
+ * - Production requires NEXT_PUBLIC_URL to be configured.
+ * - Non-production uses NEXT_PUBLIC_URL if set.
+ * - Otherwise, the request Origin is validated against an allowlist before it
+ *   is used; any unapproved origin falls back to http://localhost:3000.
  */
-function getBaseUrl(request: NextRequest) {
-  return (
-    process.env.NEXT_PUBLIC_URL ||
-    (request.headers.get("origin") || "http://localhost:3000")
-  );
+function getBaseUrl(request: NextRequest): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_URL;
+  if (process.env.NODE_ENV === "production") {
+    if (!configuredUrl) {
+      throw new Error("NEXT_PUBLIC_URL must be configured in production");
+    }
+    return configuredUrl;
+  }
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  const origin = request.headers.get("origin") || "http://localhost:3000";
+  try {
+    const originHost = new URL(origin).host;
+    const isAllowed = ALLOWED_FALLBACK_ORIGINS.some((allowed) => {
+      try {
+        return new URL(allowed).host === originHost;
+      } catch {
+        return allowed === originHost;
+      }
+    });
+    return isAllowed ? origin : "http://localhost:3000";
+  } catch {
+    return "http://localhost:3000";
+  }
 }
 
 /**
