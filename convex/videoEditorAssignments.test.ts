@@ -90,6 +90,62 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
   ).resolves.toBeDefined();
 });
 
+test("createVideoEditorAssignment: admin can create and idempotently re-create", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_3";
+  const editorId = "editor_3";
+  const adminId = "admin_3";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor3@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor3@example.com",
+      name: "Instructor Three",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor3@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin3@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  const created = await adminClient.mutation(
+    api.videoEditorAssignments.createVideoEditorAssignment,
+    { videoEditorId: editorId, instructorId }
+  );
+  expect(created.action).toBe("created");
+
+  const existing = await adminClient.mutation(
+    api.videoEditorAssignments.createVideoEditorAssignment,
+    { videoEditorId: editorId, instructorId }
+  );
+  expect(existing.action).toBe("exists");
+  expect(existing.id).toBe(created.id);
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(
+      api.videoEditorAssignments.createVideoEditorAssignment,
+      { videoEditorId: editorId, instructorId: "other_instructor" }
+    )
+  ).rejects.toThrow("Forbidden");
+});
+
 test("video editor quotas: no quota means no extra restriction", async () => {
   const t = convexTest(schema, modules);
 

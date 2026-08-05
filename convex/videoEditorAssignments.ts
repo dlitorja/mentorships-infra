@@ -320,3 +320,57 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
     return { success: true };
   },
 });
+
+export const createVideoEditorAssignment = mutation({
+  args: {
+    videoEditorId: v.string(),
+    instructorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!caller || caller.role !== "admin") {
+      throw new Error("Forbidden: only admins can manage assignments");
+    }
+
+    const existing = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
+      )
+      .first();
+    if (existing) {
+      return { action: "exists", id: existing._id };
+    }
+
+    const editor = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.videoEditorId))
+      .first();
+    if (!editor || editor.role !== "video_editor") {
+      throw new Error("Invalid video editor");
+    }
+
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+      .first();
+    if (!instructor) {
+      throw new Error("Invalid instructor");
+    }
+
+    const id = await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: args.videoEditorId,
+      instructorId: args.instructorId,
+      assignedAt: Date.now(),
+      assignedBy: caller.userId,
+    });
+    return { action: "created", id };
+  },
+});
