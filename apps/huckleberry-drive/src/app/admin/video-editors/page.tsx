@@ -47,11 +47,13 @@ function AddAssignmentForm({
   videoEditorId,
   assignedInstructorIds,
   instructors,
+  instructorsError,
   onAdded,
 }: {
   videoEditorId: string;
   assignedInstructorIds: string[];
   instructors: InstructorOption[];
+  instructorsError: string | null;
   onAdded: (message?: string) => void;
 }): React.ReactElement {
   const [selectedInstructorId, setSelectedInstructorId] = useState<string>("");
@@ -76,6 +78,14 @@ function AddAssignmentForm({
       setIsSaving(false);
     }
   }, [selectedInstructorId, videoEditorId, onAdded]);
+
+  if (instructorsError) {
+    return (
+      <div className="px-6 py-4 text-sm text-red-400">
+        {instructorsError}
+      </div>
+    );
+  }
 
   if (availableInstructors.length === 0) {
     return (
@@ -211,6 +221,7 @@ function QuotaInput({
 export default function AdminVideoEditorsPage(): React.ReactElement {
   const [editors, setEditors] = useState<VideoEditorWithAssignments[]>([]);
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
+  const [instructorsError, setInstructorsError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -219,6 +230,7 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
     try {
       setIsLoading(true);
       setError(null);
+      setInstructorsError(null);
       const data = await getVideoEditors();
       setEditors(data.editors);
       // Load instructors independently so a failure here does not hide the
@@ -227,7 +239,8 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
         const instructorData = await getAdminInstructors();
         setInstructors(instructorData);
       } catch (instructorErr) {
-        console.error("Failed to load instructors for assignment picker:", instructorErr);
+        const message = instructorErr instanceof Error ? instructorErr.message : "Failed to load instructors";
+        setInstructorsError(message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load video editors");
@@ -353,6 +366,7 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
                 videoEditorId={editor.userId}
                 assignedInstructorIds={assignments.map((a) => a.assignment.instructorId)}
                 instructors={instructors}
+                instructorsError={instructorsError}
                 onAdded={handleSaved}
               />
             </div>
