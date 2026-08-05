@@ -52,7 +52,7 @@ function AddAssignmentForm({
   videoEditorId: string;
   assignedInstructorIds: string[];
   instructors: InstructorOption[];
-  onAdded: () => void;
+  onAdded: (message?: string) => void;
 }): React.ReactElement {
   const [selectedInstructorId, setSelectedInstructorId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
@@ -69,7 +69,7 @@ function AddAssignmentForm({
     try {
       await createVideoEditorAssignment(videoEditorId, selectedInstructorId);
       setSelectedInstructorId("");
-      onAdded();
+      onAdded("Instructor assigned successfully");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add assignment");
     } finally {
@@ -219,9 +219,16 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
     try {
       setIsLoading(true);
       setError(null);
-      const [data, instructorData] = await Promise.all([getVideoEditors(), getAdminInstructors()]);
+      const data = await getVideoEditors();
       setEditors(data.editors);
-      setInstructors(instructorData);
+      // Load instructors independently so a failure here does not hide the
+      // existing quota-management UI.
+      try {
+        const instructorData = await getAdminInstructors();
+        setInstructors(instructorData);
+      } catch (instructorErr) {
+        console.error("Failed to load instructors for assignment picker:", instructorErr);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load video editors");
     } finally {
@@ -233,8 +240,8 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
     fetchEditors();
   }, [fetchEditors]);
 
-  const handleSaved = useCallback(() => {
-    setSuccessMessage("Quota updated successfully");
+  const handleSaved = useCallback((message = "Quota updated successfully") => {
+    setSuccessMessage(message);
     setTimeout(() => setSuccessMessage(null), 3000);
     void fetchEditors();
   }, [fetchEditors]);
