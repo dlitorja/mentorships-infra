@@ -534,3 +534,14 @@ export async function updateVideoEditorAssignmentQuota(
     }),
   });
 }
+
+export async function createVideoEditorAssignment(
+  videoEditorId: string,
+  instructorId: string
+): Promise<{ success: boolean; action: "created" | "exists"; id: string }> {
+  return fetchApi<{ success: boolean; action: "created" | "exists"; id: string }>("/api/admin/video-editors/assignments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ videoEditorId, instructorId }),
+  });
+}

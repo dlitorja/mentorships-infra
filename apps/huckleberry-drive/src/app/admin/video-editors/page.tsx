@@ -7,12 +7,16 @@ import {
   CheckCircle2,
   Save,
   Video,
+  Plus,
 } from "lucide-react";
 import {
   getVideoEditors,
+  getAdminInstructors,
   updateVideoEditorAssignmentQuota,
+  createVideoEditorAssignment,
   type VideoEditorWithAssignments,
   type VideoEditorAssignmentWithStorage,
+  type InstructorOption,
 } from "@/lib/api";
 
 function formatBytes(bytes: number): string {
@@ -33,10 +37,91 @@ function gbToBytes(gb: string): number | null {
   return Math.round(value * 1024 * 1024 * 1024);
 }
 
-function getInstructorName(instructor: { firstName?: string; lastName?: string; email: string } | null): string {
+function getInstructorName(instructor: { firstName?: string | null; lastName?: string | null; email?: string | null } | null): string {
   if (!instructor) return "Unknown instructor";
   const name = [instructor.firstName, instructor.lastName].filter(Boolean).join(" ");
-  return name || instructor.email;
+  return name || instructor.email || "Unknown instructor";
+}
+
+function AddAssignmentForm({
+  videoEditorId,
+  assignedInstructorIds,
+  instructors,
+  onAdded,
+}: {
+  videoEditorId: string;
+  assignedInstructorIds: string[];
+  instructors: InstructorOption[];
+  onAdded: () => void;
+}): React.ReactElement {
+  const [selectedInstructorId, setSelectedInstructorId] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const availableInstructors = instructors.filter(
+    (instructor) => !assignedInstructorIds.includes(instructor.id)
+  );
+
+  const handleAdd = useCallback(async () => {
+    setError(null);
+    if (!selectedInstructorId) return;
+    setIsSaving(true);
+    try {
+      await createVideoEditorAssignment(videoEditorId, selectedInstructorId);
+      setSelectedInstructorId("");
+      onAdded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add assignment");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [selectedInstructorId, videoEditorId, onAdded]);
+
+  if (availableInstructors.length === 0) {
+    return (
+      <p className="px-6 py-4 text-sm text-slate-500">
+        All instructors are already assigned to this editor.
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/20">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <label htmlFor={`add-instructor-${videoEditorId}`} className="text-sm text-slate-400">
+          Assign instructor:
+        </label>
+        <div className="flex items-center gap-2">
+          <select
+            id={`add-instructor-${videoEditorId}`}
+            value={selectedInstructorId}
+            onChange={(e) => setSelectedInstructorId(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 min-w-[200px]"
+          >
+            <option value="">Select an instructor...</option>
+            {availableInstructors.map((instructor) => (
+              <option key={instructor.id} value={instructor.id}>
+                {instructor.name || instructor.email} ({instructor.email})
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleAdd}
+            disabled={!selectedInstructorId || isSaving}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {isSaving ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Plus className="w-3 h-3" />
+            )}
+            Add
+          </button>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+    </div>
+  );
 }
 
 function QuotaInput({
@@ -125,6 +210,7 @@ function QuotaInput({
 
 export default function AdminVideoEditorsPage(): React.ReactElement {
   const [editors, setEditors] = useState<VideoEditorWithAssignments[]>([]);
+  const [instructors, setInstructors] = useState<InstructorOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -133,8 +219,9 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await getVideoEditors();
+      const [data, instructorData] = await Promise.all([getVideoEditors(), getAdminInstructors()]);
       setEditors(data.editors);
+      setInstructors(instructorData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load video editors");
     } finally {
@@ -255,6 +342,12 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
                   </tbody>
                 </table>
               )}
+              <AddAssignmentForm
+                videoEditorId={editor.userId}
+                assignedInstructorIds={assignments.map((a) => a.assignment.instructorId)}
+                instructors={instructors}
+                onAdded={handleSaved}
+              />
             </div>
           ))}
         </div>
