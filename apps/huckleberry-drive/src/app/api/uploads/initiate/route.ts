@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { requireInstructor } from "@/lib/auth";
-import { initiateMultipartUpload } from "@mentorships/storage";
+import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { initiateMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
@@ -12,14 +12,32 @@ interface User {
   role: string;
 }
 
+function getStringProperty(error: unknown, key: string): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const value = Reflect.get(error, key);
+  return typeof value === "string" ? value : undefined;
+}
+
+function getMetadataRequestId(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const metadata = Reflect.get(error, "$metadata");
+  if (typeof metadata !== "object" || metadata === null) return undefined;
+  const requestId = Reflect.get(metadata, "requestId");
+  return typeof requestId === "string" ? requestId : undefined;
+}
+
 const initiateSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1),
-  size: z.number().positive().max(STORAGE_LIMIT_BYTES),
+  // Per-file size limit is enforced below so we can return a clear 413 instead
+  // of a generic schema validation error.
+  size: z.number().positive(),
   instructorId: z.string().trim().min(1).optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let targetInstructorId: string | undefined;
+
   try {
     const dbUser = await requireInstructor() as User;
     const { getToken } = await auth();
@@ -36,7 +54,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { filename, contentType, size, instructorId } = parsed.data;
 
-    const targetInstructorId = instructorId ?? dbUser.userId;
+    targetInstructorId = instructorId ?? dbUser.userId;
     const isDelegatedUpload = dbUser.userId !== targetInstructorId;
 
     if (isDelegatedUpload) {
@@ -49,7 +67,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (dbUser.role === "video_editor") {
         const assignmentWithStorage = await fetchQuery(
           api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
-          { videoEditorId: dbUser.userId, instructorId: targetInstructorId }
+          { videoEditorId: dbUser.userId, instructorId: targetInstructorId },
+          { token: convexToken }
         );
         if (!assignmentWithStorage?.assignment) {
           return NextResponse.json(
@@ -76,10 +95,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (size > STORAGE_LIMIT_BYTES) {
+    if (size > MAX_MULTIPART_UPLOAD_BYTES) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 50GB" },
-        { status: 400 }
+        { error: "File too large. Maximum single upload size is 20GB" },
+        { status: 413 }
       );
     }
 
@@ -91,7 +110,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (dbUser.role !== "admin") {
       const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
         instructorId: targetInstructorId,
-      }) as { usedBytes: number; fileCount: number };
+      }, { token: convexToken }) as { usedBytes: number; fileCount: number };
 
       if (stats.usedBytes + size > STORAGE_LIMIT_BYTES) {
         return NextResponse.json(
@@ -136,10 +155,70 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       presignedUrls: upload.presignedUrls,
     });
   } catch (error) {
-    console.error("Upload initiate error:", error);
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
+    const code = getStringProperty(error, "code");
+    const requestId = getMetadataRequestId(error);
+    const name = getStringProperty(error, "name");
+
+    console.error("Upload initiate error:", {
+      message: error instanceof Error ? error.message : String(error),
+      code,
+      requestId,
+      name,
+      instructorId: targetInstructorId ?? undefined,
+    });
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      // Known validation failures surfaced by the storage package. These should
+      // be reported as client errors, not server errors.
+      if (error.message.includes("Invalid file size")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      if (error.message.includes("Maximum 200 parts allowed")) {
+        return NextResponse.json(
+          { error: "File too large. Maximum single upload size is 20GB" },
+          { status: 413 }
+        );
+      }
+
+      // S3/B2 client errors that indicate a malformed or unsupported request.
+      // Provider configuration problems (NoSuchBucket, AccessDenied,
+      // InvalidAccessKeyId, SignatureDoesNotMatch) are server-side issues from
+      // the user's perspective and are intentionally left as 500 below.
+      const clientErrorCodes = new Set([
+        "BucketAlreadyExists",
+        "BucketAlreadyOwnedByYou",
+        "EntityTooLarge",
+        "EntityTooSmall",
+        "InvalidArgument",
+        "InvalidDigest",
+        "InvalidObjectState",
+        "InvalidRequest",
+        "InvalidToken",
+        "KeyTooLong",
+        "MalformedXML",
+        "MethodNotAllowed",
+        "NotImplemented",
+        "OperationAborted",
+        "RequestNotSupported",
+      ]);
+      const isClientError = code && clientErrorCodes.has(code);
+      if (isClientError) {
+        return NextResponse.json(
+          { error: error.message, ...(code ? { code } : {}) },
+          { status: 400 }
+        );
+      }
+      // Server errors (B2 5xx, provider configuration issues, runtime failures)
+      // should not leak internal details to the client. Diagnostics are already
+      // logged above via console.error.
+      return NextResponse.json({ error: "Upload initiation failed" }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

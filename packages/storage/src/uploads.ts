@@ -31,9 +31,58 @@ export interface UploadPart {
   etag?: string;
 }
 
-const DEFAULT_PART_SIZE = 100 * 1024 * 1024; // 100MB
-const MAX_PARTS = 200;
+export const DEFAULT_PART_SIZE = 100 * 1024 * 1024; // 100MB
+export const MAX_PARTS = 200;
+export const MAX_MULTIPART_UPLOAD_BYTES = MAX_PARTS * DEFAULT_PART_SIZE; // 20 GiB
 const URL_EXPIRY_SECONDS = 3600; // 1 hour
+
+// Backblaze B2 (and other S3-compatible providers) can return transient 5xx
+// errors. These are safe to retry because the operation is idempotent from the
+// caller's perspective: a new multipart upload ID is created each time.
+const RETRYABLE_S3_SERVER_ERROR_CODES = [
+  "InternalError",
+  "ServiceUnavailable",
+  "SlowDown",
+  "RequestTimeout",
+  "InternalServerError",
+  "TemporarilyUnavailable",
+  "Throttling",
+  "RequestTimeTooSkewed",
+];
+
+function isRetryableS3Error(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = Reflect.get(error, "code");
+  const name = Reflect.get(error, "name");
+  return (
+    (typeof code === "string" && RETRYABLE_S3_SERVER_ERROR_CODES.includes(code)) ||
+    (typeof name === "string" && RETRYABLE_S3_SERVER_ERROR_CODES.includes(name))
+  );
+}
+
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: { maxAttempts?: number; baseMs?: number; maxMs?: number } = {}
+): Promise<T> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  const baseMs = options.baseMs ?? 500;
+  const maxMs = options.maxMs ?? 10_000;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts || !isRetryableS3Error(error)) {
+        throw error;
+      }
+      const delay = Math.min(baseMs * 2 ** (attempt - 1), maxMs);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
 
 function generateKey(instructorId: string, fileId: string, filename: string): string {
   const safeSegment = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
@@ -49,55 +98,75 @@ export async function initiateMultipartUpload(params: {
   size: number;
   instructorId: string;
 }): Promise<UploadInit> {
-  const client = getB2Client();
-  const key = generateKey(params.instructorId, params.fileId, params.filename);
-  
   if (!Number.isFinite(params.size) || params.size <= 0) {
     throw new Error("Invalid file size");
   }
-  
+
   const partSize = DEFAULT_PART_SIZE;
   const partCount = Math.ceil(params.size / partSize);
-  
+
   if (partCount > MAX_PARTS) {
     throw new Error(`File too large. Maximum ${MAX_PARTS} parts allowed.`);
   }
 
-  const command = new CreateMultipartUploadCommand({
-    Bucket: B2_BUCKET_NAME,
-    Key: key,
-    ContentType: params.contentType,
-  });
+  const client = getB2Client();
+  const key = generateKey(params.instructorId, params.fileId, params.filename);
 
-  const response = await client.send(command);
-  if (!response.UploadId) {
-    throw new Error("Failed to initiate multipart upload");
+  // Retry only the B2-side multipart creation. This is idempotent: each retry
+  // creates a fresh upload ID, so no orphaned uploads are left behind.
+  const uploadId = await withRetry(async (): Promise<string> => {
+    const command = new CreateMultipartUploadCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: key,
+      ContentType: params.contentType,
+    });
+    const response = await client.send(command);
+    if (!response.UploadId) {
+      throw new Error("Failed to initiate multipart upload");
+    }
+    return response.UploadId;
+  }, { maxAttempts: 3, baseMs: 500, maxMs: 10_000 });
+
+  try {
+    const presignedUrls: string[] = [];
+    for (let i = 1; i <= partCount; i++) {
+      const url = await getSignedUrl(
+        client,
+        new UploadPartCommand({
+          Bucket: B2_BUCKET_NAME,
+          Key: key,
+          UploadId: uploadId,
+          PartNumber: i,
+        }),
+        { expiresIn: URL_EXPIRY_SECONDS }
+      );
+      presignedUrls.push(url);
+    }
+
+    return {
+      fileId: params.fileId,
+      uploadId,
+      key,
+      partSize,
+      partCount,
+      presignedUrls,
+    };
+  } catch (error) {
+    // Presigned URL generation failing after a successful B2 create would leave
+    // an orphaned multipart upload. Best-effort abort to avoid leaking those.
+    try {
+      await client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: B2_BUCKET_NAME,
+          Key: key,
+          UploadId: uploadId,
+        })
+      );
+    } catch {
+      // Ignore abort errors; the original error is what matters.
+    }
+    throw error;
   }
-  const uploadId = response.UploadId;
-
-  const presignedUrls: string[] = [];
-  for (let i = 1; i <= partCount; i++) {
-    const url = await getSignedUrl(
-      client,
-      new UploadPartCommand({
-        Bucket: B2_BUCKET_NAME,
-        Key: key,
-        UploadId: uploadId,
-        PartNumber: i,
-      }),
-      { expiresIn: URL_EXPIRY_SECONDS }
-    );
-    presignedUrls.push(url);
-  }
-
-  return {
-    fileId: params.fileId,
-    uploadId,
-    key,
-    partSize,
-    partCount,
-    presignedUrls,
-  };
 }
 
 export async function getPresignedPartUrl(params: {
