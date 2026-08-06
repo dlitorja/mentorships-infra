@@ -64,7 +64,7 @@ export async function requireVideoEditor(): Promise<User> {
   return dbUser as User;
 }
 
-export async function canAccessFile(fileInstructorId: string): Promise<boolean> {
+export async function canAccessInstructorData(instructorId: string): Promise<boolean> {
   const { userId, getToken } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
@@ -74,11 +74,11 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
 
   if (dbUser.role === "admin") return true;
   const canonicalUserId = dbUser.userId;
-  if (dbUser.role === "instructor" && fileInstructorId === canonicalUserId) return true;
+  if (dbUser.role === "instructor" && instructorId === canonicalUserId) return true;
   if (dbUser.role === "video_editor") {
     return await fetchQuery(api.videoEditorAssignments.isVideoEditorAssignedToInstructor, {
       videoEditorId: canonicalUserId,
-      instructorId: fileInstructorId,
+      instructorId,
     }, { token }) as boolean;
   }
 

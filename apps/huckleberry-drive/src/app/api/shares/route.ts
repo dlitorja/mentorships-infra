@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { canAccessFile, requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { canAccessInstructorData, requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Cannot share a deleted file" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessFile(upload.instructorId);
+    const hasAccess = await canAccessInstructorData(upload.instructorId);
     if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized to share this file" }, { status: 403 });
     }
