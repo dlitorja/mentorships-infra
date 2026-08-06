@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireInstructor, canAccessFile, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, canAccessInstructorData, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { getStreamUrl } from "@mentorships/storage/src/downloads";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -56,7 +56,7 @@ export async function GET(
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessFile(upload.instructorId);
+    const hasAccess = await canAccessInstructorData(upload.instructorId);
     if (!hasAccess && dbUser.role !== "admin") {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }

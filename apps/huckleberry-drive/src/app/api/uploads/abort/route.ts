@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, canAccessInstructorData, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { abortMultipartUpload } from "@mentorships/storage";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -14,11 +14,6 @@ interface Upload {
   b2UploadId?: string;
 }
 
-interface User {
-  userId: string;
-  role: string;
-}
-
 const abortSchema = z.object({
   fileId: z.string(),
   uploadId: z.string(),
@@ -27,7 +22,7 @@ const abortSchema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireInstructor() as User;
+    await requireInstructor();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const body = await request.json();
@@ -42,12 +37,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { fileId, uploadId, key: providedKey } = parsed.data;
 
-    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }) as Upload | null;
+    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }, { token: convexToken }) as Upload | null;
     if (!upload) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
 
-    if (upload.instructorId !== dbUser.userId && dbUser.role !== "admin") {
+    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 

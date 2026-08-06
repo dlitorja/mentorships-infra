@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { requireInstructor } from "@/lib/auth";
+import { requireInstructor, canAccessInstructorData, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { completeMultipartUpload, type UploadPart } from "@mentorships/storage";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -12,9 +12,18 @@ interface Upload {
   b2UploadId?: string;
 }
 
-interface User {
-  userId: string;
-  role: string;
+function getStringProperty(error: unknown, key: string): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const value = Reflect.get(error, key);
+  return typeof value === "string" ? value : undefined;
+}
+
+function getMetadataRequestId(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const metadata = Reflect.get(error, "$metadata");
+  if (typeof metadata !== "object" || metadata === null) return undefined;
+  const requestId = Reflect.get(metadata, "requestId");
+  return typeof requestId === "string" ? requestId : undefined;
 }
 
 const completeSchema = z.object({
@@ -31,7 +40,7 @@ const completeSchema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireInstructor() as User;
+    await requireInstructor();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const body = await request.json();
@@ -46,12 +55,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { fileId, uploadId, key, parts } = parsed.data;
 
-    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }) as Upload | null;
+    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }, { token: convexToken }) as Upload | null;
     if (!upload) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
 
-    if (upload.instructorId !== dbUser.userId && dbUser.role !== "admin") {
+    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
@@ -103,23 +113,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       location: result.location,
     });
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     console.error("Upload complete error:", error);
 
     if (error instanceof Error) {
-      // PR1 (review): narrow `code` at runtime instead of asserting
-      // `Error & { code?: string }`. Some upstream errors carry
-      // extra metadata (e.g. S3 `Code`, AWS `Error.Code`) on
-      // non-Error objects; the runtime guard keeps the response
-      // shape stable.
-      let code: string | undefined;
-      const maybeCode = (error as { code?: unknown }).code;
-      if (typeof maybeCode === "string") {
-        code = maybeCode;
+      const code = getStringProperty(error, "code");
+      const requestId = getMetadataRequestId(error);
+      const name = getStringProperty(error, "name");
+      console.error("Upload complete diagnostics:", { code, requestId, name });
+
+      // S3/B2 client errors (4xx style) and the storage package's plain
+      // validation failures are user-facing; everything else (5xx, runtime
+      // failures) is a server issue with a generic response.
+      if (
+        (code &&
+          new Set([
+            "EntityTooSmall",
+            "EntityTooLarge",
+            "InvalidArgument",
+            "InvalidDigest",
+            "InvalidPart",
+            "InvalidPartOrder",
+            "MalformedXML",
+            "MethodNotAllowed",
+            "NotImplemented",
+            "RequestNotSupported",
+          ]).has(code)) ||
+        error.message.includes("was not found in B2's ListParts response")
+      ) {
+        return NextResponse.json({ error: error.message, ...(code ? { code } : {}) }, { status: 400 });
       }
-      return NextResponse.json({
-        error: error.message,
-        ...(code !== undefined ? { code } : {}),
-      }, { status: 400 });
+      return NextResponse.json({ error: "Upload completion failed" }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
