@@ -95,11 +95,17 @@ export const getUserIdByEmail = query({
   },
 });
 
-/** Fetches a workspace's non-deleted notes and images for data export. */
+/** Fetches a workspace's non-deleted notes and images for data export.
+ * When `imageIds` is provided, only those images are included; otherwise
+ * all non-deleted images are exported.
+ */
 export const getWorkspaceExportData = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    imageIds: v.optional(v.array(v.id("workspaceImages"))),
+  },
   handler: async (ctx, args) => {
-    const { workspaceId } = args;
+    const { workspaceId, imageIds } = args;
 
     const workspace = await ctx.db.get(workspaceId);
     if (!workspace) {
@@ -113,12 +119,17 @@ export const getWorkspaceExportData = query({
       )
       .collect();
 
-    const images = await ctx.db
+    const allImages = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
         q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
       )
       .collect();
+
+    const images =
+      imageIds && imageIds.length > 0
+        ? allImages.filter((img) => imageIds.includes(img._id))
+        : allImages;
 
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {

@@ -503,7 +503,6 @@ export function TabContent({
     return (
       <WorkspaceLinks
         workspaceId={workspaceId}
-        currentUserId={clerkUserId}
         activeSessionId={activeSessionId}
       />
     );

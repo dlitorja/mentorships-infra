@@ -52,8 +52,8 @@ async function callConvexHttp(path: string, body: Record<string, unknown>): Prom
   return response.json();
 }
 
-async function getExportData(workspaceId: string) {
-  return callConvexHttp("/workspace/export/data", { workspaceId }) as Promise<{
+async function getExportData(workspaceId: string, imageIds?: string[]) {
+  return callConvexHttp("/workspace/export/data", { workspaceId, imageIds }) as Promise<{
     workspaceName: string;
     notes: Array<{ title: string; content: string; updatedAt: number }>;
     images: Array<{
@@ -269,14 +269,14 @@ export const processWorkspaceExport = task({
   retry: {
     maxAttempts: 3,
   },
-  run: async (payload: { workspaceId: string; exportId: string }) => {
-    const { workspaceId, exportId } = payload;
-    logger.info("Starting workspace export", { workspaceId, exportId });
+  run: async (payload: { workspaceId: string; exportId: string; imageIds?: string[] }) => {
+    const { workspaceId, exportId, imageIds } = payload;
+    logger.info("Starting workspace export", { workspaceId, exportId, imageCount: imageIds?.length });
 
     try {
       await updateExportStatus(exportId, "processing");
 
-      const exportData = await getExportData(workspaceId);
+      const exportData = await getExportData(workspaceId, imageIds);
       logger.info("Retrieved export data", {
         notesCount: exportData.notes.length,
         imagesCount: exportData.images.length,

@@ -9,6 +9,9 @@ import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, use
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
@@ -49,8 +52,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
   const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<Id<'workspaceImages'>>>(new Set());
+  const [uploadedByFilter, setUploadedByFilter] = useState<'all' | 'me' | 'instructor' | 'student'>('all');
 
-  const imagesQuery = useWorkspaceImagesPaginated(workspaceId);
+  useEffect(() => {
+    setSelectedImageIds(new Set());
+  }, [uploadedByFilter]);
+
+  const imagesQuery = useWorkspaceImagesPaginated(workspaceId, uploadedByFilter);
   const images = imagesQuery.results;
   const imagesStatus = imagesQuery.status;
   const canLoadMoreImages =
@@ -89,7 +98,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     }
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
-  const handleExport = async (): Promise<void> => {
+  const handleExport = async (imageIds?: Id<'workspaceImages'>[]): Promise<void> => {
     setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
@@ -97,6 +106,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       workspaceId,
       userId: currentUserId,
       format: 'zip',
+      imageIds,
     });
 
     toast.promise(exportPromise, {
@@ -318,15 +328,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     setFailedUploads((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDeleteImage = async (imageId: Id<'workspaceImages'>): Promise<void> => {
-    try {
-      await deleteImage.mutateAsync({ id: imageId });
-      setSelectedImage(null);
-    } catch (error) {
-      console.error('Failed to delete image:', error);
-    }
-  };
-
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
@@ -346,6 +347,74 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   }
 
   const activeImages = images || [];
+  const selectedCount = selectedImageIds.size;
+  const selectedDeletableCount = activeImages.reduce((count, img) => {
+    if (selectedImageIds.has(img._id) && (role === 'admin' || role === 'instructor' || img.createdBy === currentUserId)) {
+      return count + 1;
+    }
+    return count;
+  }, 0);
+
+  const toggleImageSelection = (imageId: Id<'workspaceImages'>) => {
+    setSelectedImageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(imageId)) {
+        next.delete(imageId);
+      } else {
+        next.add(imageId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllImages = () => {
+    setSelectedImageIds(new Set(activeImages.map((img) => img._id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedImageIds(new Set());
+  };
+
+  const handleDeleteSelected = async (): Promise<void> => {
+    const selected = [...selectedImageIds];
+    if (selected.length === 0) return;
+
+    const deletable = selected.filter((id) => {
+      const img = activeImages.find((i) => i._id === id);
+      if (!img) return false;
+      return role === 'admin' || role === 'instructor' || img.createdBy === currentUserId;
+    });
+
+    if (deletable.length === 0) {
+      toast.error('You do not have permission to delete the selected images.');
+      return;
+    }
+
+    try {
+      await Promise.all(deletable.map((id) => deleteImage.mutateAsync({ id })));
+      toast.success(`Deleted ${deletable.length} image${deletable.length === 1 ? '' : 's'}`);
+      if (deletable.length < selected.length) {
+        toast.error(`${selected.length - deletable.length} selected image${selected.length - deletable.length === 1 ? ' could not be' : 's could not be'} deleted.`);
+      }
+      setSelectedImageIds((prev) => {
+        const next = new Set(prev);
+        for (const id of deletable) {
+          next.delete(id);
+        }
+        return next;
+      });
+    } catch (error) {
+      console.error('Failed to delete selected images:', error);
+      toast.error('Failed to delete selected images. Please try again.');
+    }
+  };
+
+  const uploaderLabel = (img: WorkspaceImage): string => {
+    if (img.createdBy === currentUserId) return 'You';
+    if (img.uploaderRole === 'instructor') return 'Instructor';
+    if (img.uploaderRole === 'student') return 'Student';
+    return 'Other';
+  };
 
   return (
     <div className="flex flex-col">
@@ -441,20 +510,68 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                   </p>
                 )}
               </div>
-              <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Retry image export
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Export ZIP
               </Button>
             </>
           )}
-          </div>
+           </div>
+      </div>
+
+      {/* Filter + selection controls */}
+      <div className="flex items-center justify-between mb-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+            <Checkbox
+              id="select-all-images"
+              checked={
+                selectedCount === 0
+                  ? false
+                  : selectedCount === activeImages.length
+                    ? true
+                    : 'indeterminate'
+              }
+              onCheckedChange={(checked) => {
+                if (checked === true) {
+                  selectAllImages();
+                } else {
+                  clearSelection();
+                }
+              }}
+              aria-label="Select all images"
+            />
+            <span className="select-none">Select all</span>
+          </label>
+          <Select
+            value={uploadedByFilter}
+            onValueChange={(value) => {
+              setUploadedByFilter(value as 'all' | 'me' | 'instructor' | 'student');
+            }}
+          >
+            <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Filter by uploader">
+              <SelectValue placeholder="Filter by uploader" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All uploaders</SelectItem>
+              <SelectItem value="me">Me</SelectItem>
+              <SelectItem value="instructor">Instructor</SelectItem>
+              <SelectItem value="student">Student</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {selectedCount > 0 && (
+          <span className="text-sm text-muted-foreground">
+            {selectedCount} selected
+          </span>
+        )}
       </div>
 
       {/* Drop Area */}
@@ -613,13 +730,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         {activeImages.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {activeImages.map((img: WorkspaceImage) => {
-              const canDelete = role === 'admin' || 
-                (role === 'instructor' && img.createdBy !== currentUserId) || 
-                img.createdBy === currentUserId;
+              const isSelected = selectedImageIds.has(img._id);
               return (
                 <div
                   key={img._id}
-                  className="group relative aspect-square rounded-lg overflow-hidden border bg-muted"
+                  className={clsx(
+                    "group relative aspect-square rounded-lg overflow-hidden border bg-muted",
+                    isSelected && "ring-2 ring-primary"
+                  )}
                 >
                   <button
                     type="button"
@@ -637,18 +755,18 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                       className="object-cover"
                     />
                   </button>
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                    {canDelete && (
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="h-8 w-8 pointer-events-auto"
-                        aria-label="Delete workspace image"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteImage(img._id); }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                  <div className="absolute top-2 left-2 z-10">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleImageSelection(img._id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Select image uploaded by ${uploaderLabel(img)}`}
+                    />
+                  </div>
+                  <div className="absolute top-2 right-2 z-10">
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
+                      {uploaderLabel(img)}
+                    </Badge>
                   </div>
                 </div>
               );
@@ -660,6 +778,48 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No images yet</p>
               <p className="text-sm">Drag and drop images here or click upload</p>
+            </div>
+          </div>
+        )}
+
+        {selectedCount > 0 && (
+          <div className="sticky bottom-4 z-30 mt-4 flex justify-center">
+            <div className="flex items-center gap-3 rounded-lg border bg-background/95 px-4 py-2 shadow-lg backdrop-blur">
+              <span className="text-sm font-medium">
+                {selectedCount} selected
+                {selectedDeletableCount < selectedCount && (
+                  <span className="text-muted-foreground text-xs ml-1">
+                    ({selectedDeletableCount} deletable)
+                  </span>
+                )}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearSelection}
+              >
+                Clear
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleExport([...selectedImageIds])}
+                disabled={createExport.isPending}
+              >
+                {createExport.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Export selected
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteSelected}
+                disabled={selectedDeletableCount === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete selected
+              </Button>
             </div>
           </div>
         )}

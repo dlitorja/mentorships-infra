@@ -245,11 +245,12 @@ export type UseWorkspaceImagesPaginatedReturnType = Omit<
  * subscription in apps/platform to reduce Convex Data Egress.
  */
 export function useWorkspaceImagesPaginated(
-  workspaceId: Id<"workspaces"> | null | undefined
+  workspaceId: Id<"workspaces"> | null | undefined,
+  uploadedBy: "all" | "me" | "instructor" | "student" = "all"
 ): UseWorkspaceImagesPaginatedReturnType {
   return useConvexPaginatedQuery(
     api.workspaces.getWorkspaceImagesPaginated,
-    workspaceId ? { workspaceId } : "skip",
+    workspaceId ? { workspaceId, uploadedBy } : "skip",
     { initialNumItems: 24 }
   ) as UseWorkspaceImagesPaginatedReturnType;
 }

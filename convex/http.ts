@@ -124,10 +124,13 @@ export const httpGetUserEmail = httpAction(async (ctx, request) => {
 export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { workspaceId } = await request.json();
+  const { workspaceId, imageIds } = await request.json();
 
   try {
-    const result = await ctx.runQuery(getWorkspaceExportData as any, { workspaceId: workspaceId as any });
+    const result = await ctx.runQuery(getWorkspaceExportData as any, {
+      workspaceId: workspaceId as any,
+      imageIds: imageIds as any,
+    });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
