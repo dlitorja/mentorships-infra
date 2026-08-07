@@ -390,22 +390,42 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       return;
     }
 
-    try {
-      await Promise.all(deletable.map((id) => deleteImage.mutateAsync({ id })));
-      toast.success(`Deleted ${deletable.length} image${deletable.length === 1 ? '' : 's'}`);
-      if (deletable.length < selected.length) {
-        toast.error(`${selected.length - deletable.length} selected image${selected.length - deletable.length === 1 ? ' could not be' : 's could not be'} deleted.`);
+    const deletedIds: Id<'workspaceImages'>[] = [];
+    const failedIds: Id<'workspaceImages'>[] = [];
+
+    for (const id of deletable) {
+      try {
+        await deleteImage.mutateAsync({ id });
+        deletedIds.push(id);
+      } catch {
+        failedIds.push(id);
       }
-      setSelectedImageIds((prev) => {
-        const next = new Set(prev);
-        for (const id of deletable) {
-          next.delete(id);
-        }
-        return next;
-      });
-    } catch (error) {
-      console.error('Failed to delete selected images:', error);
-      toast.error('Failed to delete selected images. Please try again.');
+    }
+
+    setSelectedImageIds((prev) => {
+      const next = new Set(prev);
+      for (const id of deletedIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+
+    if (deletedIds.length > 0) {
+      toast.success(
+        `Deleted ${deletedIds.length} image${deletedIds.length === 1 ? '' : 's'}`
+      );
+    }
+
+    if (failedIds.length > 0) {
+      toast.error(
+        `Failed to delete ${failedIds.length} image${failedIds.length === 1 ? '' : 's'}. Please try again.`
+      );
+    }
+
+    if (deletable.length < selected.length) {
+      toast.error(
+        `${selected.length - deletable.length} selected image${selected.length - deletable.length === 1 ? ' could not be' : 's could not be'} deleted.`
+      );
     }
   };
 
