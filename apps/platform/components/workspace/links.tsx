@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
   useWorkspaceLinksPaginated,
@@ -67,6 +67,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   const [deleteError, setDeleteError] = useState('');
   const [selectedLinkIds, setSelectedLinkIds] = useState<Set<Id<'workspaceLinks'>>>(new Set());
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+  const deleteLockRef = useRef(false);
   // PR #4b: per-form "Tag to current call" toggle. Resets to ON
   // every time a call goes active.
   const [tagToCall, setTagToCall] = useState(activeSessionId !== null);
@@ -194,13 +195,16 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   };
 
   const handleDeleteLink = async (linkId: Id<'workspaceLinks'>) => {
-    if (isDeletingSelected || deleteLink.isPending) return;
+    if (deleteLockRef.current) return;
+    deleteLockRef.current = true;
     setDeleteError('');
     try {
       await deleteLink.mutateAsync({ id: linkId });
     } catch (err) {
       console.error('Failed to delete link:', err);
       setDeleteError('Failed to delete link. Please try again.');
+    } finally {
+      deleteLockRef.current = false;
     }
   };
 
@@ -225,14 +229,19 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   };
 
   const handleDeleteSelected = async () => {
-    if (isDeletingSelected) return;
+    if (deleteLockRef.current) return;
+    deleteLockRef.current = true;
     setDeleteError('');
     const selected = [...selectedLinkIds];
-    if (selected.length === 0) return;
+    if (selected.length === 0) {
+      deleteLockRef.current = false;
+      return;
+    }
 
     const activeSelected = selected.filter((id) => activeLinks.some((link) => link._id === id));
     if (activeSelected.length === 0) {
       toast('Selected links are no longer available.');
+      deleteLockRef.current = false;
       return;
     }
 
@@ -251,6 +260,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
       }
     } finally {
       setIsDeletingSelected(false);
+      deleteLockRef.current = false;
     }
 
     setSelectedLinkIds((prev) => {
