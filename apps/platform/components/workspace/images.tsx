@@ -54,6 +54,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<Id<'workspaceImages'>>>(new Set());
   const [uploadedByFilter, setUploadedByFilter] = useState<'all' | 'me' | 'instructor' | 'student'>('all');
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
 
   useEffect(() => {
     setSelectedImageIds(new Set());
@@ -99,6 +100,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
   const handleExport = async (imageIds?: Id<'workspaceImages'>[]): Promise<void> => {
+    if (createExport.isPending || isPending || isProcessing) return;
     setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
@@ -367,7 +369,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     });
   };
 
-  const selectAllImages = () => {
+  const selectLoadedImages = () => {
     setSelectedImageIds(new Set(activeImages.map((img) => img._id)));
   };
 
@@ -376,6 +378,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   };
 
   const handleDeleteSelected = async (): Promise<void> => {
+    if (isDeletingSelected) return;
     const selected = [...selectedImageIds];
     if (selected.length === 0) return;
 
@@ -390,16 +393,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       return;
     }
 
+    setIsDeletingSelected(true);
     const deletedIds: Id<'workspaceImages'>[] = [];
     const failedIds: Id<'workspaceImages'>[] = [];
 
-    for (const id of deletable) {
-      try {
-        await deleteImage.mutateAsync({ id });
-        deletedIds.push(id);
-      } catch {
-        failedIds.push(id);
+    try {
+      for (const id of deletable) {
+        try {
+          await deleteImage.mutateAsync({ id });
+          deletedIds.push(id);
+        } catch {
+          failedIds.push(id);
+        }
       }
+    } finally {
+      setIsDeletingSelected(false);
     }
 
     setSelectedImageIds((prev) => {
@@ -561,19 +569,22 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               }
               onCheckedChange={(checked) => {
                 if (checked === true) {
-                  selectAllImages();
+                  selectLoadedImages();
                 } else {
                   clearSelection();
                 }
               }}
-              aria-label="Select all images"
+              aria-label="Select loaded images"
             />
-            <span className="select-none">Select all</span>
+            <span className="select-none">Select loaded</span>
           </label>
           <Select
             value={uploadedByFilter}
             onValueChange={(value) => {
-              setUploadedByFilter(value as 'all' | 'me' | 'instructor' | 'student');
+              const validFilters: ('all' | 'me' | 'instructor' | 'student')[] = ['all', 'me', 'instructor', 'student'];
+              if (validFilters.includes(value as 'all' | 'me' | 'instructor' | 'student')) {
+                setUploadedByFilter(value as 'all' | 'me' | 'instructor' | 'student');
+              }
             }}
           >
             <SelectTrigger className="h-8 w-[160px] text-xs" aria-label="Filter by uploader">
@@ -824,7 +835,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                 variant="secondary"
                 size="sm"
                 onClick={() => handleExport([...selectedImageIds])}
-                disabled={createExport.isPending}
+                disabled={createExport.isPending || isPending || isProcessing}
               >
                 {createExport.isPending && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -835,8 +846,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                 variant="destructive"
                 size="sm"
                 onClick={handleDeleteSelected}
-                disabled={selectedDeletableCount === 0}
+                disabled={selectedDeletableCount === 0 || isDeletingSelected}
               >
+                {isDeletingSelected && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete selected
               </Button>

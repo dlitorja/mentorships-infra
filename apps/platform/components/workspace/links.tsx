@@ -56,7 +56,6 @@ interface WorkspaceLinksProps {
  * Any active participant can delete links.
  *
  * @param workspaceId - Convex workspace ID
- * @param currentUserId - Current authenticated user's ID
  */
 export default function WorkspaceLinks({ workspaceId, activeSessionId }: WorkspaceLinksProps) {
   const [isAdding, setIsAdding] = useState(false);
