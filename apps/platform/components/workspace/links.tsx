@@ -44,7 +44,6 @@ function formatBytes(bytes: number): string {
 
 interface WorkspaceLinksProps {
   workspaceId: Id<'workspaces'>;
-  currentUserId: string;
   // PR #4b: id of the active video-call session, or null when no
   // call is active. New links default to being tagged to this
   // session (toggleable per-link).
@@ -54,12 +53,11 @@ interface WorkspaceLinksProps {
 /**
  * Shared links component for a workspace.
  * Allows users to add and remove URLs that both instructor and student can access.
- * Only the author can delete their own links.
+ * Any active participant can delete links.
  *
  * @param workspaceId - Convex workspace ID
- * @param currentUserId - Current authenticated user's ID
  */
-export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessionId }: WorkspaceLinksProps) {
+export default function WorkspaceLinks({ workspaceId, activeSessionId }: WorkspaceLinksProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -496,17 +494,15 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
                           <ExternalLink className="h-4 w-4" />
                         </a>
                       </Button>
-                      {link.createdBy === currentUserId && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteLink(link._id)}
-                          title="Delete link"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteLink(link._id)}
+                        title="Delete link"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

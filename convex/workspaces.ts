@@ -1379,7 +1379,7 @@ export const createWorkspaceLink = mutation({
   },
 });
 
-/** Soft-deletes a workspace link by setting deletedAt. Only the link creator can delete their own links. */
+/** Soft-deletes a workspace link by setting deletedAt. Any active participant can delete links. */
 export const deleteWorkspaceLink = mutation({
   args: { id: v.id("workspaceLinks") },
   handler: async (ctx, args) => {
@@ -1399,7 +1399,7 @@ export const deleteWorkspaceLink = mutation({
     }
 
     const role = await getWorkspaceRole(ctx, workspace, user.subject);
-    if (role === "admin" || role === "instructor" || link.createdBy === user.subject) {
+    if (role === "admin" || role === "instructor" || role === "student") {
       await ctx.db.patch(args.id, { deletedAt: Date.now() });
     } else {
       throw new Error("Access denied");
@@ -1470,11 +1470,24 @@ export const getWorkspaceImages = query({
  * signed URLs only for the visible page, and applies the same role
  * filter as {@link getWorkspaceImages}. The legacy `getWorkspaceImages`
  * remains for apps/web.
+ *
+ * Optional `uploadedBy` filter narrows results to a specific uploader role:
+ * `me`, `instructor`, or `student`. The result includes a `uploaderRole`
+ * label so the Images tab can display each image's source without an
+ * extra round-trip.
  */
 export const getWorkspaceImagesPaginated = query({
   args: {
     workspaceId: v.id("workspaces"),
     paginationOpts: paginationOptsValidator,
+    uploadedBy: v.optional(
+      v.union(
+        v.literal("all"),
+        v.literal("me"),
+        v.literal("instructor"),
+        v.literal("student")
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -1490,7 +1503,54 @@ export const getWorkspaceImagesPaginated = query({
       return { page: [], continueCursor: "", isDone: true };
     }
 
+    const uploadedBy = args.uploadedBy ?? "all";
     const numRequested = args.paginationOpts.numItems as number;
+    const instructor = workspace.instructorId
+      ? await ctx.db.get(workspace.instructorId)
+      : null;
+    const instructorUserId = instructor?.userId;
+
+    const uploaderRoleCache = new Map<
+      string,
+      "instructor" | "student" | "admin" | "other"
+    >();
+    const resolveUploaderRole = async (
+      createdBy: string
+    ): Promise<"instructor" | "student" | "admin" | "other"> => {
+      if (createdBy === user.subject) return role;
+      if (createdBy === instructorUserId) return "instructor";
+      const cached = uploaderRoleCache.get(createdBy);
+      if (cached) return cached;
+      const r = await getWorkspaceRole(ctx, workspace, createdBy);
+      const resolved = r ?? "other";
+      uploaderRoleCache.set(createdBy, resolved);
+      return resolved;
+    };
+
+    const isVisible = async (img: Doc<"workspaceImages">): Promise<boolean> => {
+      // Non-instructors only see their own images and the instructor's images.
+      if (role !== "instructor") {
+        if (img.createdBy !== user.subject && img.createdBy !== instructorUserId) {
+          return false;
+        }
+      }
+
+      if (uploadedBy === "all") return true;
+      if (uploadedBy === "me") return img.createdBy === user.subject;
+      const r = await resolveUploaderRole(img.createdBy);
+      return r === uploadedBy;
+    };
+
+    const filterVisible = async (
+      images: Doc<"workspaceImages">[]
+    ): Promise<Doc<"workspaceImages">[]> => {
+      const visible: Doc<"workspaceImages">[] = [];
+      for (const img of images) {
+        if (await isVisible(img)) visible.push(img);
+      }
+      return visible;
+    };
+
     let result = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
@@ -1499,25 +1559,12 @@ export const getWorkspaceImagesPaginated = query({
       .order("desc")
       .paginate(args.paginationOpts);
 
-    // Filter by role before generating signed URLs so we only create URLs for
-    // images the caller will actually see. Because the caller role isn't part
-    // of the index, we keep fetching pages until we fill the requested page
-    // size or exhaust the index, and return the cursor from the last fetched
-    // page. This prevents a non-instructor user from getting stuck on an
-    // endless "Load more" button that only loads instructor-only images.
-    let visiblePage = result.page;
-    if (role !== "instructor") {
-      const instructor = workspace.instructorId
-        ? await ctx.db.get(workspace.instructorId)
-        : null;
-      const instructorUserId = instructor?.userId;
-      visiblePage = result.page.filter(
-        (img) =>
-          img.createdBy === user.subject || img.createdBy === instructorUserId
-      );
-      // Guard against pathological workspaces where a student is excluded from
-      // a very large run of instructor-only images. Cap how many pages we will
-      // scan before returning a partially-filled page.
+    let visiblePage = await filterVisible(result.page);
+
+    // Because the caller role and uploader filter are not part of the index,
+    // keep fetching pages until we fill the requested page size or exhaust the
+    // index. Cap the number of pages to prevent runaway scans.
+    if (role !== "instructor" || uploadedBy !== "all") {
       const maxPages = 10;
       let pagesFetched = 1;
       while (
@@ -1535,13 +1582,8 @@ export const getWorkspaceImagesPaginated = query({
             numItems: numRequested - visiblePage.length,
             cursor: result.continueCursor,
           });
-        visiblePage = [
-          ...visiblePage,
-          ...result.page.filter(
-            (img) =>
-              img.createdBy === user.subject || img.createdBy === instructorUserId
-          ),
-        ];
+        const nextPage = await filterVisible(result.page);
+        visiblePage = [...visiblePage, ...nextPage];
         pagesFetched += 1;
       }
     }
@@ -1555,7 +1597,11 @@ export const getWorkspaceImagesPaginated = query({
             imageUrl = url;
           }
         }
-        return { ...img, imageUrl };
+        return {
+          ...img,
+          imageUrl,
+          uploaderRole: await resolveUploaderRole(img.createdBy),
+        };
       })
     );
 
@@ -2052,6 +2098,7 @@ export const createWorkspaceExport = mutation({
     workspaceId: v.id("workspaces"),
     userId: v.string(),
     format: v.literal("zip"),
+    imageIds: v.optional(v.array(v.id("workspaceImages"))),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -2125,6 +2172,7 @@ export const createWorkspaceExport = mutation({
             payload: {
               workspaceId: args.workspaceId,
               exportId: String(exportId),
+              imageIds: args.imageIds,
             },
           }),
         });
