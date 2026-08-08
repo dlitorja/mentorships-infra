@@ -13,6 +13,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { toast } from 'sonner';
 import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText } from 'lucide-react';
 
 interface Link {
@@ -63,6 +65,8 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   const [newTitle, setNewTitle] = useState('');
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<Id<'workspaceLinks'>>>(new Set());
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   // PR #4b: per-form "Tag to current call" toggle. Resets to ON
   // every time a call goes active.
   const [tagToCall, setTagToCall] = useState(activeSessionId !== null);
@@ -105,7 +109,23 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
 
-  const activeLinks = (links as Link[] | undefined) ?? [];
+  const activeLinks = useMemo<Link[]>(() => (links as Link[] | undefined) ?? [], [links]);
+
+  useEffect(() => {
+    setSelectedLinkIds((prev) => {
+      const activeIds = new Set(activeLinks.map((link) => link._id));
+      const next = new Set<Id<'workspaceLinks'>>();
+      let changed = false;
+      for (const id of prev) {
+        if (activeIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activeLinks]);
 
   // PR #5: union the two server-side results into a single row list
   // for rendering. Sort by `_creationTime` desc so the subpanel
@@ -183,6 +203,70 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
     }
   };
 
+  const toggleLinkSelection = (linkId: Id<'workspaceLinks'>) => {
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(linkId)) {
+        next.delete(linkId);
+      } else {
+        next.add(linkId);
+      }
+      return next;
+    });
+  };
+
+  const selectLoadedLinks = () => {
+    setSelectedLinkIds(new Set(activeLinks.map((link) => link._id)));
+  };
+
+  const clearLinkSelection = () => {
+    setSelectedLinkIds(new Set());
+  };
+
+  const handleDeleteSelected = async () => {
+    if (isDeletingSelected) return;
+    const selected = [...selectedLinkIds];
+    if (selected.length === 0) return;
+
+    const activeSelected = selected.filter((id) => activeLinks.some((link) => link._id === id));
+    if (activeSelected.length === 0) {
+      toast('Selected links are no longer available.');
+      return;
+    }
+
+    setIsDeletingSelected(true);
+    const deletedIds: Id<'workspaceLinks'>[] = [];
+    const failedIds: Id<'workspaceLinks'>[] = [];
+
+    try {
+      for (const id of activeSelected) {
+        try {
+          await deleteLink.mutateAsync({ id });
+          deletedIds.push(id);
+        } catch {
+          failedIds.push(id);
+        }
+      }
+    } finally {
+      setIsDeletingSelected(false);
+    }
+
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev);
+      for (const id of deletedIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+
+    if (deletedIds.length > 0) {
+      toast.success(`Deleted ${deletedIds.length} link${deletedIds.length === 1 ? '' : 's'}`);
+    }
+    if (failedIds.length > 0) {
+      setDeleteError(`Failed to delete ${failedIds.length} link${failedIds.length === 1 ? '' : 's'}. Please try again.`);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -198,17 +282,42 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
     );
   }
 
+  const selectedCount = selectedLinkIds.size;
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4 shrink-0">
-        <div>
-          <h3 className="font-semibold">Shared Links</h3>
-          <p className="text-sm text-muted-foreground">
-            {canLoadMoreLinks
-              ? `${activeLinks.length}+ links`
-              : `${activeLinks.length} link${activeLinks.length === 1 ? '' : 's'}`}
-          </p>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+            <Checkbox
+              id="select-all-links"
+              checked={
+                selectedLinkIds.size === 0
+                  ? false
+                  : selectedLinkIds.size === activeLinks.length
+                    ? true
+                    : 'indeterminate'
+              }
+              onCheckedChange={(checked) => {
+                if (checked === true) {
+                  selectLoadedLinks();
+                } else {
+                  clearLinkSelection();
+                }
+              }}
+              aria-label="Select loaded links"
+            />
+            <span className="select-none">Select loaded</span>
+          </label>
+          <div>
+            <h3 className="font-semibold">Shared Links</h3>
+            <p className="text-sm text-muted-foreground">
+              {canLoadMoreLinks
+                ? `${activeLinks.length}+ links`
+                : `${activeLinks.length} link${activeLinks.length === 1 ? '' : 's'}`}
+            </p>
+          </div>
         </div>
         <Button
           size="sm"
@@ -445,15 +554,22 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
       {/* Links List */}
       <div className="flex-1 overflow-y-auto">
         {activeLinks.length > 0 ? (
-          <div className="space-y-2">
-            {activeLinks.map((link: Link) => {
-              const isTaggedToCall =
-                !!activeSessionId && link.sessionId === activeSessionId;
-              return (
-                <Card key={link._id} className="hover:bg-muted/50 transition-colors">
-                  <CardContent className="p-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <>
+            <div className="space-y-2">
+              {activeLinks.map((link: Link) => {
+                const isTaggedToCall =
+                  !!activeSessionId && link.sessionId === activeSessionId;
+                return (
+                  <Card key={link._id} className="hover:bg-muted/50 transition-colors">
+                    <CardContent className="p-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <Checkbox
+                          checked={selectedLinkIds.has(link._id)}
+                          onCheckedChange={() => toggleLinkSelection(link._id)}
+                          aria-label={`Select link ${link.title || link.url}`}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
                         <a
                           href={link.url}
@@ -507,8 +623,37 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
                   </CardContent>
                 </Card>
               );
-            })}
-          </div>
+              })}
+            </div>
+            {selectedCount > 0 && (
+              <div className="sticky bottom-4 z-30 mt-4 flex justify-center">
+                <div className="flex items-center gap-3 rounded-lg border bg-background/95 px-4 py-2 shadow-lg backdrop-blur">
+                  <span className="text-sm font-medium">
+                    {selectedCount} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearLinkSelection}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteSelected}
+                    disabled={isDeletingSelected}
+                  >
+                    {isDeletingSelected && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete selected
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
