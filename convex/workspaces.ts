@@ -2155,9 +2155,9 @@ export const createWorkspaceExport = mutation({
       // polling forever.
       await ctx.db.patch(exportId, {
         status: "failed",
-        errorMessage: "Trigger.dev credentials are not configured on the Convex backend.",
+        errorMessage: "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.",
       });
-      throw new Error("Trigger.dev credentials are not configured");
+      throw new Error("TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables");
     }
 
     if (taskName) {

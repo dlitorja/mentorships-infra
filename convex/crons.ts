@@ -39,7 +39,7 @@ crons.interval(
 
 crons.interval(
   "process-discord-action-queue",
-  { minutes: 1 },
+  { minutes: 5 },
   internal.discordActionQueue.processDiscordActionQueue,
   {}
 );

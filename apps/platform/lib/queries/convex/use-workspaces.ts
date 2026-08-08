@@ -568,6 +568,11 @@ export function useCreateWorkspaceExport() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
     },
+    onError: () => {
+      // The mutation may still have inserted a failed export row, so refresh
+      // the list so the user sees the errorMessage instead of a generic toast.
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
+    },
   });
 }
 
