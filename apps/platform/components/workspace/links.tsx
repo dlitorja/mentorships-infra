@@ -225,6 +225,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
 
   const handleDeleteSelected = async () => {
     if (isDeletingSelected) return;
+    setDeleteError('');
     const selected = [...selectedLinkIds];
     if (selected.length === 0) return;
 
