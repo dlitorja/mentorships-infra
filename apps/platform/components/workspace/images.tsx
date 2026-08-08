@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import Image from 'next/image';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
@@ -340,6 +340,24 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     noKeyboard: true,
   });
 
+  const activeImages = useMemo<WorkspaceImage[]>(() => images || [], [images]);
+
+  useEffect(() => {
+    setSelectedImageIds((prev) => {
+      const activeIds = new Set(activeImages.map((img) => img._id));
+      const next = new Set<Id<'workspaceImages'>>();
+      let changed = false;
+      for (const id of prev) {
+        if (activeIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activeImages]);
+
   if (imagesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -348,8 +366,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     );
   }
 
-  const activeImages = images || [];
-    const selectedCount = selectedImageIds.size;
+  const selectedCount = selectedImageIds.size;
     const isSelectionMode = selectedCount > 0;
     const selectedDeletableCount = activeImages.reduce((count, img) => {
     if (selectedImageIds.has(img._id) && (role === 'admin' || role === 'instructor' || img.createdBy === currentUserId)) {
