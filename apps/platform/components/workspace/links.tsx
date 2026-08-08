@@ -194,6 +194,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   };
 
   const handleDeleteLink = async (linkId: Id<'workspaceLinks'>) => {
+    if (isDeletingSelected || deleteLink.isPending) return;
     setDeleteError('');
     try {
       await deleteLink.mutateAsync({ id: linkId });
@@ -616,6 +617,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
                         variant="ghost"
                         className="h-8 w-8 text-destructive hover:text-destructive"
                         onClick={() => handleDeleteLink(link._id)}
+                        disabled={isDeletingSelected || deleteLink.isPending}
                         title="Delete link"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -643,7 +645,7 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
                     variant="destructive"
                     size="sm"
                     onClick={handleDeleteSelected}
-                    disabled={isDeletingSelected}
+                    disabled={isDeletingSelected || deleteLink.isPending}
                   >
                     {isDeletingSelected && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
