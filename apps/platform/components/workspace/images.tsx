@@ -349,8 +349,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   }
 
   const activeImages = images || [];
-  const selectedCount = selectedImageIds.size;
-  const selectedDeletableCount = activeImages.reduce((count, img) => {
+    const selectedCount = selectedImageIds.size;
+    const isSelectionMode = selectedCount > 0;
+    const selectedDeletableCount = activeImages.reduce((count, img) => {
     if (selectedImageIds.has(img._id) && (role === 'admin' || role === 'instructor' || img.createdBy === currentUserId)) {
       return count + 1;
     }
@@ -773,8 +774,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                   <button
                     type="button"
                     className="block h-full w-full cursor-pointer border-0 bg-transparent p-0"
-                    onClick={() => setSelectedImage(img.imageUrl)}
-                    aria-label="Open workspace image preview"
+                    onClick={() => {
+                      if (isSelectionMode) {
+                        toggleImageSelection(img._id);
+                      } else {
+                        setSelectedImage(img.imageUrl);
+                      }
+                    }}
+                    aria-label={isSelectionMode ? `Toggle selection for image uploaded by ${uploaderLabel(img)}` : "Open workspace image preview"}
                   >
                     <Image
                       src={img.imageUrl}
@@ -786,7 +793,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                       className="object-cover"
                     />
                   </button>
-                  <div className="absolute top-2 left-2 z-10">
+                  <div className="absolute top-2 left-2 z-10 rounded bg-white/90 p-1 shadow">
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={() => toggleImageSelection(img._id)}
@@ -883,8 +890,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4 text-white hover:bg-white/20"
-            onClick={() => setSelectedImage(null)}
+            className="absolute top-4 right-4 z-50 text-white hover:bg-white/20"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedImage(null);
+            }}
           >
             <X className="h-6 w-6" />
           </Button>
