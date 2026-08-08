@@ -2100,6 +2100,10 @@ export const createWorkspaceExport = mutation({
     format: v.literal("zip"),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
   },
+  returns: v.object({
+    exportId: v.id("workspaceExports"),
+    errorMessage: v.optional(v.string()),
+  }),
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -2148,6 +2152,9 @@ export const createWorkspaceExport = mutation({
 
     const taskName = taskMap[args.format];
 
+    const errorMessageMissingKey =
+      "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.";
+
     if (!triggerSecretKey) {
       // PR #4b-fix: do not silently leave the row in "pending" when
       // the trigger credentials are missing. Surface a clear failure
@@ -2155,9 +2162,9 @@ export const createWorkspaceExport = mutation({
       // polling forever.
       await ctx.db.patch(exportId, {
         status: "failed",
-        errorMessage: "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.",
+        errorMessage: errorMessageMissingKey,
       });
-      throw new Error("TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables");
+      return { exportId, errorMessage: errorMessageMissingKey };
     }
 
     if (taskName) {
@@ -2178,23 +2185,25 @@ export const createWorkspaceExport = mutation({
         });
 
         if (!response.ok) {
+          const errorMessage = `Trigger.dev request failed: ${response.status}`;
           await ctx.db.patch(exportId, {
             status: "failed",
-            errorMessage: `Trigger.dev request failed: ${response.status}`,
+            errorMessage,
           });
-          throw new Error(`Trigger.dev request failed: ${response.status}`);
+          return { exportId, errorMessage };
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         await ctx.db.patch(exportId, {
           status: "failed",
-          errorMessage: error instanceof Error ? error.message : String(error),
+          errorMessage,
         });
         console.error("Failed to trigger export task:", error);
-        throw error;
+        return { exportId, errorMessage };
       }
     }
 
-    return exportId;
+    return { exportId };
   },
 });
 

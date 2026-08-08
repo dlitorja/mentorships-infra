@@ -104,24 +104,23 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
-    const exportPromise = createExport.mutateAsync({
-      workspaceId,
-      userId: currentUserId,
-      format: 'zip',
-      imageIds,
-    });
-
-    toast.promise(exportPromise, {
-      loading: 'Creating export...',
-      success: () => {
-        return 'Export started!';
-      },
-      error: 'Failed to create export. Please try again.',
-    });
+    const toastId = toast.loading('Creating export...');
 
     try {
-      setLastExportAttemptId(await exportPromise);
+      const result = await createExport.mutateAsync({
+        workspaceId,
+        userId: currentUserId,
+        format: 'zip',
+        imageIds,
+      });
+      setLastExportAttemptId(result.exportId as Id<'workspaceExports'>);
+      if (result.errorMessage) {
+        toast.error('Export failed to start. Check the error below.', { id: toastId });
+      } else {
+        toast.success('Export started!', { id: toastId });
+      }
     } catch {
+      toast.error('Failed to create export. Please try again.', { id: toastId });
       setLastExportAttemptId(null);
     }
   };
