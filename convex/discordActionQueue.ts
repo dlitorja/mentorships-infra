@@ -2,9 +2,15 @@ import { mutation, internalQuery, internalMutation, internalAction } from "./_ge
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
+const LOCK_TTL_MS = 10 * 60 * 1000;
+const ENQUEUE_DELAY_MS = 5 * 1000;
+const DRAIN_DELAY_MS = 5 * 60 * 1000;
+
 /**
  * Migrates a Discord action queue entry from legacy system.
  * Updates existing entry if found by subjectUserId, otherwise creates new.
+ * When the queue transitions from empty to having a pending action, a
+ * processor run is scheduled so the cron is only a catch-up safety net.
  */
 export const migrateDiscordAction = mutation({
   args: {
@@ -31,6 +37,20 @@ export const migrateDiscordAction = mutation({
       )
       .first();
 
+    async function scheduleProcessorIfIdle() {
+      const wasEligible = await ctx.runQuery(
+        internal.discordActionQueue.hasEligibleDiscordActions,
+        { lockTtlMs: LOCK_TTL_MS }
+      );
+      if (!wasEligible) {
+        await ctx.scheduler.runAfter(
+          ENQUEUE_DELAY_MS,
+          internal.discordActionQueue.processDiscordActionQueue,
+          {}
+        );
+      }
+    }
+
     if (existingBySubjectUserId) {
       const updates: Record<string, unknown> = {};
       if (args.type) updates.type = args.type;
@@ -43,10 +63,23 @@ export const migrateDiscordAction = mutation({
       if (args.lockedAt !== undefined) updates.lockedAt = args.lockedAt;
       if (args.updatedAt) updates.updatedAt = args.updatedAt;
 
+      const finalStatus =
+        (args.status as string | undefined) ??
+        (existingBySubjectUserId.status as string) ??
+        "pending";
+
       if (Object.keys(updates).length > 0) {
+        if (finalStatus === "pending") {
+          await scheduleProcessorIfIdle();
+        }
         await ctx.db.patch(existingBySubjectUserId._id, updates);
       }
       return { action: "updated", id: existingBySubjectUserId._id };
+    }
+
+    const finalStatus = (args.status as string | undefined) ?? "pending";
+    if (finalStatus === "pending") {
+      await scheduleProcessorIfIdle();
     }
 
     const insertResult = await ctx.db.insert("discordActionQueue", {
@@ -85,18 +118,20 @@ export const claimDiscordActions = internalMutation({
 
     const pendingActions = await ctx.db
       .query("discordActionQueue")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "pending"))
+      .order("asc")
       .take(args.limit);
 
     const staleProcessingActions = await ctx.db
       .query("discordActionQueue")
       .withIndex("by_status", (q) => q.eq("status", "processing"))
       .filter((q) => q.lt(q.field("lockedAt"), lockThreshold))
+      .order("asc")
       .take(args.limit);
 
     const actionsToClaim = [...pendingActions, ...staleProcessingActions];
 
-    const     claimed: Array<{
+    const claimed: Array<{
       id: string;
       type: "assign_student_role" | "dm_instructor_new_signup";
       status: string;
@@ -382,7 +417,7 @@ export const processDiscordActionQueue = internalAction({
       lastError: string | null;
       lockedAt: number;
     };
-    const lockTtlMs = 10 * 60 * 1000;
+    const lockTtlMs = LOCK_TTL_MS;
 
     const hasEligible = await ctx.runQuery(
       internal.discordActionQueue.hasEligibleDiscordActions,
@@ -496,6 +531,18 @@ export const processDiscordActionQueue = internalAction({
           failed += 1;
         }
       }
+    }
+
+    const stillEligible = await ctx.runQuery(
+      internal.discordActionQueue.hasEligibleDiscordActions,
+      { lockTtlMs }
+    );
+    if (stillEligible) {
+      await ctx.scheduler.runAfter(
+        DRAIN_DELAY_MS,
+        internal.discordActionQueue.processDiscordActionQueue,
+        {}
+      );
     }
 
     return { success: true, processed: actions.length, done, failed, requeued };
