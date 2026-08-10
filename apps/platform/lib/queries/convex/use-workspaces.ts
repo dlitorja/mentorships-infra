@@ -172,22 +172,28 @@ export function useWorkspaceLinks(workspaceId: string) {
  * session. Drives the "Shared during current call" subpanel that
  * appears above the existing Links list while a call is active.
  *
- * `enabled` gates on `sessionId` so the query never fires with a
- * `null` sessionId (which the Convex `v.id("sessions")` validator
- * would reject). The `sessionId as Id<"sessions">` cast is safe
- * behind the `enabled` guard.
+ * Uses the `"skip"` sentinel when no call is active so the Convex
+ * subscription is short-circuited. Relying on `enabled: false` is
+ * not enough here because `@convex-dev/react-query` still creates the
+ * subscription on the "added" observer event, and the null
+ * `sessionId` would leak to the server and fail the
+ * `v.id("sessions")` validator.
  */
 export function useSharedLinksForActiveSession(
   workspaceId: string,
   sessionId: string | null,
 ) {
-  return useQuery({
-    ...convexQuery(api.workspaces.getSharedLinksForActiveSession, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      sessionId: sessionId as Id<"sessions">,
-    }),
-    enabled: !!workspaceId && !!sessionId,
-  });
+  return useQuery(
+    convexQuery(
+      api.workspaces.getSharedLinksForActiveSession,
+      workspaceId && sessionId
+        ? {
+            workspaceId: workspaceId as Id<"workspaces">,
+            sessionId: sessionId as Id<"sessions">,
+          }
+        : "skip",
+    ),
+  );
 }
 
 /**
@@ -686,22 +692,28 @@ export function useInstructorResources(workspaceId: string) {
  * instructor and student can read; auth is enforced server-side by
  * `assertParticipantForSession`.
  *
- * `enabled` gates on `sessionId` so the query never fires with a
- * `null` sessionId (which the Convex `v.id("sessions")` validator
- * would reject). The `sessionId as Id<"sessions">` cast is safe
- * behind the `enabled` guard.
+ * Uses the `"skip"` sentinel when no call is active so the Convex
+ * subscription is short-circuited. Relying on `enabled: false` is
+ * not enough here because `@convex-dev/react-query` still creates the
+ * subscription on the "added" observer event, and the null
+ * `sessionId` would leak to the server and fail the
+ * `v.id("sessions")` validator.
  */
 export function useSharedResourcesForActiveSession(
   workspaceId: string,
   sessionId: string | null,
 ) {
-  return useQuery({
-    ...convexQuery(api.instructorResources.getSharedResourcesForActiveSession, {
-      workspaceId: workspaceId as Id<"workspaces">,
-      sessionId: sessionId as Id<"sessions">,
-    }),
-    enabled: !!workspaceId && !!sessionId,
-  });
+  return useQuery(
+    convexQuery(
+      api.instructorResources.getSharedResourcesForActiveSession,
+      workspaceId && sessionId
+        ? {
+            workspaceId: workspaceId as Id<"workspaces">,
+            sessionId: sessionId as Id<"sessions">,
+          }
+        : "skip",
+    ),
+  );
 }
 
 /**
