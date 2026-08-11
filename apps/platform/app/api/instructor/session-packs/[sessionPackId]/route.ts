@@ -140,6 +140,25 @@ export async function PATCH(
 
     const { action } = validationResult.data;
 
+    // Instructors may only manage remaining sessions; totalSessions is
+    // a backend/admin-only field used for refunds, product matching,
+    // and reporting. Reject any instructor request that attempts to
+    // mutate it. If the instructor's expected snapshot is stale (an
+    // admin/backend change happened while the dialog was open), fall
+    // through to the Convex mutation so the existing optimistic-
+    // concurrency check returns the correct 409 conflict instead of a
+    // misleading authorization error.
+    if (
+      (action === "setBoth" || action === "restore") &&
+      validationResult.data.totalSessions !== sessionPack.totalSessions &&
+      validationResult.data.expectedTotalSessions === sessionPack.totalSessions
+    ) {
+      return NextResponse.json(
+        { error: "Instructors cannot change the total session count" },
+        { status: 403 }
+      );
+    }
+
     let updatedPack: typeof sessionPack | null = sessionPack;
     if (action === "increment") {
       updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
