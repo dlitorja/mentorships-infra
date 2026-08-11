@@ -8,6 +8,18 @@ import {
 
 const originalFetch = globalThis.fetch;
 
+function mockFetchWithResponse(response: Response) {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+}
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+}
+
 describe("getDailyRecordingAccessLink", () => {
   beforeEach(() => {
     process.env.DAILY_API_KEY = "test-api-key";
@@ -19,42 +31,35 @@ describe("getDailyRecordingAccessLink", () => {
   });
 
   it("returns the presigned download URL on success", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ download_url: "https://download.example/signed" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const fetchSpy = mockFetchWithResponse(
+      jsonResponse({ download_url: "https://download.example/signed" })
+    );
 
     const url = await getDailyRecordingAccessLink("rec-123");
     expect(url).toBe("https://download.example/signed");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = fetchSpy.mock.calls[0];
     expect(calledUrl).toBe("https://api.daily.co/v1/recordings/rec-123/access-link");
-    expect(calledInit.method).toBe("GET");
+    expect(calledInit?.method).toBe("GET");
   });
 
   it("returns null when Daily returns 404 (recording purged)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
-      json: async () => ({}),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const fetchSpy = mockFetchWithResponse(
+      jsonResponse({}, { status: 404, statusText: "Not Found" })
+    );
 
     const url = await getDailyRecordingAccessLink("rec-deleted");
     expect(url).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("throws DailyApiError on non-2xx non-404 response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      json: async () => ({ error: "internal", info: "boom" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    mockFetchWithResponse(
+      jsonResponse(
+        { error: "internal", info: "boom" },
+        { status: 500, statusText: "Server Error" }
+      )
+    );
 
     await expect(getDailyRecordingAccessLink("rec-500")).rejects.toBeInstanceOf(
       DailyApiError
@@ -62,12 +67,7 @@ describe("getDailyRecordingAccessLink", () => {
   });
 
   it("throws when the response is missing download_url", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ unexpected: "shape" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    mockFetchWithResponse(jsonResponse({ unexpected: "shape" }));
 
     await expect(getDailyRecordingAccessLink("rec-123")).rejects.toBeInstanceOf(
       DailyApiError
@@ -86,40 +86,27 @@ describe("deleteDailyRecording", () => {
   });
 
   it("returns without throwing on 404 (idempotent)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: "Not Found",
-      json: async () => ({}),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    mockFetchWithResponse(
+      jsonResponse({}, { status: 404, statusText: "Not Found" })
+    );
 
     await expect(deleteDailyRecording("rec-already-purged")).resolves.toBeUndefined();
   });
 
   it("returns without throwing on 2xx", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 204,
-      json: async () => ({}),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const fetchSpy = mockFetchWithResponse(new Response(null, { status: 204 }));
 
     await expect(deleteDailyRecording("rec-123")).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [calledUrl, calledInit] = fetchSpy.mock.calls[0];
     expect(calledUrl).toBe("https://api.daily.co/v1/recordings/rec-123");
-    expect(calledInit.method).toBe("DELETE");
+    expect(calledInit?.method).toBe("DELETE");
   });
 
   it("throws DailyApiError on 500", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      json: async () => ({ error: "internal" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    mockFetchWithResponse(
+      jsonResponse({ error: "internal" }, { status: 500, statusText: "Server Error" })
+    );
 
     await expect(deleteDailyRecording("rec-500")).rejects.toBeInstanceOf(
       DailyApiError
@@ -138,12 +125,7 @@ describe("createMeetingToken", () => {
   });
 
   it("includes start_cloud_recording when startCloudRecording is true", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ token: "jwt-token" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const fetchSpy = mockFetchWithResponse(jsonResponse({ token: "jwt-token" }));
 
     const result = await createMeetingToken({
       roomName: "room-1",
@@ -155,20 +137,16 @@ describe("createMeetingToken", () => {
     });
 
     expect(result.token).toBe("jwt-token");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, calledInit] = fetchMock.mock.calls[0];
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, calledInit] = fetchSpy.mock.calls[0];
+    expect(calledInit).toBeDefined();
     const body = JSON.parse(calledInit.body as string);
     expect(body.properties.start_cloud_recording).toBe(true);
     expect(body.properties.is_owner).toBe(true);
   });
 
   it("omits start_cloud_recording when startCloudRecording is false", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ token: "jwt-token" }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const fetchSpy = mockFetchWithResponse(jsonResponse({ token: "jwt-token" }));
 
     await createMeetingToken({
       roomName: "room-1",
@@ -179,19 +157,15 @@ describe("createMeetingToken", () => {
       startCloudRecording: false,
     });
 
-    const [, calledInit] = fetchMock.mock.calls[0];
+    const [, calledInit] = fetchSpy.mock.calls[0];
+    expect(calledInit).toBeDefined();
     const body = JSON.parse(calledInit.body as string);
     expect(body.properties).not.toHaveProperty("start_cloud_recording");
     expect(body.properties.is_owner).toBe(false);
   });
 
   it("throws DailyApiError when token is missing from the response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    mockFetchWithResponse(jsonResponse({}));
 
     await expect(
       createMeetingToken({
