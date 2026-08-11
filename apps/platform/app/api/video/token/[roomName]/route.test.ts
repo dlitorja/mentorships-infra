@@ -43,7 +43,14 @@ const mockAuth = vi.mocked(auth);
 const mockFetchQuery = vi.mocked(fetchQuery);
 const mockCreateMeetingToken = vi.mocked(createMeetingToken);
 
-function tokenRequest(roomName: string) {
+// Build a typed Clerk auth object for tests. We only need a few fields,
+// so we cast a partial fixture at this single boundary instead of sprinkling
+// `as unknown as` throughout the test.
+function authFixture(value: Partial<Awaited<ReturnType<typeof auth>>>) {
+  return value as Awaited<ReturnType<typeof auth>>;
+}
+
+function tokenRequest(roomName: string): ReturnType<typeof makeRequest> {
   return makeRequest({
     method: "GET",
     url: `https://platform.test/api/video/token/${roomName}`,
@@ -58,7 +65,7 @@ function mockSession({
   role: "owner" | "student";
   recordingConsent: boolean;
   roomRecordingEnabled: boolean | null | undefined;
-}) {
+}): void {
   mockFetchQuery.mockResolvedValue({
     role,
     recordingConsent,
@@ -66,21 +73,25 @@ function mockSession({
   });
 }
 
-function mockAuthenticatedAuth() {
-  mockAuth.mockResolvedValue({
-    userId: "clerk_user_123",
-    getToken: vi.fn().mockResolvedValue("convex-token"),
-    sessionClaims: {
-      firstName: "Test",
-      lastName: "User",
-    },
-  } as unknown as Awaited<ReturnType<typeof auth>>);
+function mockAuthenticatedAuth(): void {
+  mockAuth.mockResolvedValue(
+    authFixture({
+      userId: "clerk_user_123",
+      getToken: vi.fn().mockResolvedValue("convex-token"),
+      sessionClaims: {
+        firstName: "Test",
+        lastName: "User",
+      },
+    })
+  );
 }
 
-function mockUnauthenticatedAuth() {
-  mockAuth.mockResolvedValue({
-    userId: null,
-  } as unknown as Awaited<ReturnType<typeof auth>>);
+function mockUnauthenticatedAuth(): void {
+  mockAuth.mockResolvedValue(
+    authFixture({
+      userId: null,
+    })
+  );
 }
 
 describe("GET /api/video/token/[roomName]", () => {
@@ -103,10 +114,12 @@ describe("GET /api/video/token/[roomName]", () => {
   });
 
   it("returns 401 when the Convex token cannot be obtained", async () => {
-    mockAuth.mockResolvedValue({
-      userId: "clerk_user_123",
-      getToken: vi.fn().mockResolvedValue(null),
-    } as unknown as Awaited<ReturnType<typeof auth>>);
+    mockAuth.mockResolvedValue(
+      authFixture({
+        userId: "clerk_user_123",
+        getToken: vi.fn().mockResolvedValue(null),
+      })
+    );
 
     const response = await GET(tokenRequest("room-1"), {
       params: Promise.resolve({ roomName: "room-1" }),
@@ -208,6 +221,25 @@ describe("GET /api/video/token/[roomName]", () => {
       role: "owner",
       recordingConsent: true,
       roomRecordingEnabled: undefined,
+    });
+
+    await GET(tokenRequest("room-1"), {
+      params: Promise.resolve({ roomName: "room-1" }),
+    });
+
+    expect(mockCreateMeetingToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isOwner: true,
+        startCloudRecording: false,
+      })
+    );
+  });
+
+  it("does not request auto-recording when room recording is explicitly null", async () => {
+    mockSession({
+      role: "owner",
+      recordingConsent: true,
+      roomRecordingEnabled: null,
     });
 
     await GET(tokenRequest("room-1"), {
