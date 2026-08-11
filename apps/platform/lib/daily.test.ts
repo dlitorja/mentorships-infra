@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, vi, afterEach, type MockInstance } from "vitest";
 import {
   getDailyRecordingAccessLink,
   deleteDailyRecording,
@@ -8,7 +8,7 @@ import {
 
 const originalFetch = globalThis.fetch;
 
-function mockFetchWithResponse(response: Response) {
+function mockFetchWithResponse(response: Response): MockInstance<typeof globalThis.fetch> {
   return vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
 }
 
