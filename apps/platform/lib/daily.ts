@@ -32,6 +32,14 @@ export type CreateMeetingTokenInput = {
   userName: string;
   isOwner: boolean;
   ttlSeconds: number;
+  /**
+   * If true, the meeting token will include `start_cloud_recording: true`,
+   * which tells Daily to begin a cloud recording as soon as this participant
+   * joins the room. Requires the room (or token) to have
+   * `enable_recording: "cloud"`. Should only be set for the instructor/owner
+   * token so the recording starts when the instructor joins.
+   */
+  startCloudRecording?: boolean;
 };
 
 export type DailyRoom = {
@@ -42,6 +50,22 @@ export type DailyRoom = {
 type DailyAccessLinkResponse = {
   download_url?: string;
   url?: string;
+};
+
+/**
+ * Shape of `properties` passed to Daily's create-meeting-token endpoint.
+ * Daily serializes booleans, strings, and the expiration timestamp as a
+ * signed JWT payload. We only include `start_cloud_recording` for the
+ * instructor token and only when the session has both recording consent
+ * and a known room recording snapshot.
+ */
+type DailyMeetingTokenProperties = {
+  room_name: string;
+  user_id: string;
+  user_name: string;
+  is_owner: boolean;
+  exp: number;
+  start_cloud_recording?: true;
 };
 
 const dailyAccessLinkResponseSchema = z.object({
@@ -367,17 +391,19 @@ export async function createMeetingToken(
   input: CreateMeetingTokenInput
 ): Promise<{ token: string }> {
   const nowSeconds = Math.floor(Date.now() / 1000);
+  const properties: DailyMeetingTokenProperties = {
+    room_name: input.roomName,
+    user_id: input.userId,
+    user_name: input.userName,
+    is_owner: input.isOwner,
+    exp: nowSeconds + input.ttlSeconds,
+  };
+  if (input.startCloudRecording) {
+    properties.start_cloud_recording = true;
+  }
   const response = await dailyFetch("/meeting-tokens", {
     method: "POST",
-    body: JSON.stringify({
-      properties: {
-        room_name: input.roomName,
-        user_id: input.userId,
-        user_name: input.userName,
-        is_owner: input.isOwner,
-        exp: nowSeconds + input.ttlSeconds,
-      },
-    }),
+    body: JSON.stringify({ properties }),
   });
 
   if (!response.ok) {

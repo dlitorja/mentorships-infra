@@ -48,12 +48,23 @@ export async function GET(
 
     const userName = resolveUserName(clerkAuth.sessionClaims, clerkAuth.userId);
 
+    // Only auto-start cloud recording when we have a positive snapshot that
+    // the room was created with recording enabled. Legacy sessions created
+    // before the roomRecordingEnabled snapshot field may be undefined, so we
+    // treat those as *not* configured for auto-recording rather than guessing
+    // and potentially starting a recording for a non-consented room.
+    const shouldStartCloudRecording =
+      roleResult.role === "owner" &&
+      roleResult.recordingConsent === true &&
+      roleResult.roomRecordingEnabled === true;
+
     const { token: meetingToken } = await createMeetingToken({
       roomName,
       userId: clerkAuth.userId,
       userName,
       isOwner: roleResult.role === "owner",
       ttlSeconds: DAILY_MAX_RECORDING_SECONDS,
+      startCloudRecording: shouldStartCloudRecording,
     });
 
     return NextResponse.json({ token: meetingToken });

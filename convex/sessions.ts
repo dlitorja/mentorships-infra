@@ -1594,6 +1594,17 @@ export type VideoCallRole = "owner" | "participant";
 export type SessionRoleForVideo = {
   sessionId: Id<"sessions">;
   role: VideoCallRole;
+  /**
+   * Snapshot of `enable_recording` at the time the Daily room was created.
+   * Used by the token endpoint to decide whether to auto-start cloud recording
+   * when the owner joins.
+   */
+  roomRecordingEnabled: boolean | null;
+  /**
+   * Combined recording consent at the time the token is requested. Fallback for
+   * legacy sessions that predate the `roomRecordingEnabled` snapshot.
+   */
+  recordingConsent: boolean | null;
 };
 
 /**
@@ -1653,30 +1664,40 @@ export const getSessionByVideoRoomName = query({
     }
 
     const instructor = await ctx.db.get(session.instructorId);
+    let role: VideoCallRole | null = null;
     if (instructor && instructor.userId === identity.subject) {
-      return { sessionId: session._id, role: "owner" };
+      role = "owner";
+    } else {
+      const workspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
+        .collect();
+
+      const matchingWorkspace = workspaces.find(
+        (w) =>
+          w.instructorId === session.instructorId &&
+          w.endedAt === undefined &&
+          w.deletedAt === undefined
+      );
+
+      if (
+        matchingWorkspace !== undefined &&
+        matchingWorkspace.ownerId === identity.subject
+      ) {
+        role = "participant";
+      }
     }
 
-    const workspaces = await ctx.db
-      .query("workspaces")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
-      .collect();
-
-    const matchingWorkspace = workspaces.find(
-      (w) =>
-        w.instructorId === session.instructorId &&
-        w.endedAt === undefined &&
-        w.deletedAt === undefined
-    );
-
-    if (
-      matchingWorkspace !== undefined &&
-      matchingWorkspace.ownerId === identity.subject
-    ) {
-      return { sessionId: session._id, role: "participant" };
+    if (role === null) {
+      return null;
     }
 
-    return null;
+    return {
+      sessionId: session._id,
+      role,
+      roomRecordingEnabled: session.roomRecordingEnabled ?? null,
+      recordingConsent: session.recordingConsent ?? null,
+    };
   },
 });
 
