@@ -48,12 +48,18 @@ export async function GET(
 
     const userName = resolveUserName(clerkAuth.sessionClaims, clerkAuth.userId);
 
+    const shouldStartCloudRecording =
+      roleResult.role === "owner" &&
+      roleResult.recordingConsent === true &&
+      roleResult.roomRecordingEnabled !== false;
+
     const { token: meetingToken } = await createMeetingToken({
       roomName,
       userId: clerkAuth.userId,
       userName,
       isOwner: roleResult.role === "owner",
       ttlSeconds: DAILY_MAX_RECORDING_SECONDS,
+      startCloudRecording: shouldStartCloudRecording,
     });
 
     return NextResponse.json({ token: meetingToken });

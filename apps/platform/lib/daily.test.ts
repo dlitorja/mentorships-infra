@@ -1,5 +1,10 @@
 import { describe, expect, it, beforeEach, vi, afterEach } from "vitest";
-import { getDailyRecordingAccessLink, deleteDailyRecording, DailyApiError } from "./daily";
+import {
+  getDailyRecordingAccessLink,
+  deleteDailyRecording,
+  createMeetingToken,
+  DailyApiError,
+} from "./daily";
 
 const originalFetch = globalThis.fetch;
 
@@ -119,5 +124,83 @@ describe("deleteDailyRecording", () => {
     await expect(deleteDailyRecording("rec-500")).rejects.toBeInstanceOf(
       DailyApiError
     );
+  });
+});
+
+describe("createMeetingToken", () => {
+  beforeEach(() => {
+    process.env.DAILY_API_KEY = "test-api-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("includes start_cloud_recording when startCloudRecording is true", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: "jwt-token" }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await createMeetingToken({
+      roomName: "room-1",
+      userId: "user-1",
+      userName: "Instructor",
+      isOwner: true,
+      ttlSeconds: 3600,
+      startCloudRecording: true,
+    });
+
+    expect(result.token).toBe("jwt-token");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, calledInit] = fetchMock.mock.calls[0];
+    const body = JSON.parse(calledInit.body as string);
+    expect(body.properties.start_cloud_recording).toBe(true);
+    expect(body.properties.is_owner).toBe(true);
+  });
+
+  it("omits start_cloud_recording when startCloudRecording is false", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ token: "jwt-token" }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await createMeetingToken({
+      roomName: "room-1",
+      userId: "user-2",
+      userName: "Student",
+      isOwner: false,
+      ttlSeconds: 3600,
+      startCloudRecording: false,
+    });
+
+    const [, calledInit] = fetchMock.mock.calls[0];
+    const body = JSON.parse(calledInit.body as string);
+    expect(body.properties).not.toHaveProperty("start_cloud_recording");
+    expect(body.properties.is_owner).toBe(false);
+  });
+
+  it("throws DailyApiError when token is missing from the response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      createMeetingToken({
+        roomName: "room-1",
+        userId: "user-1",
+        userName: "Instructor",
+        isOwner: true,
+        ttlSeconds: 3600,
+      })
+    ).rejects.toBeInstanceOf(DailyApiError);
   });
 });
