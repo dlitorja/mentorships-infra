@@ -76,7 +76,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   // enforce strict digit-only sanitization on every keystroke before
   // the value ever reaches state. Parse happens at submit time.
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editTotalInput, setEditTotalInput] = useState("");
   const [editRemainingInput, setEditRemainingInput] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
@@ -207,7 +206,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   const openEditDialog = useCallback(() => {
     const current = latestCountRef.current;
     expectedAtEditOpenRef.current = { ...current };
-    setEditTotalInput(String(current.totalSessions));
     setEditRemainingInput(String(current.remainingSessions));
     setEditError(null);
     setEditDialogOpen(true);
@@ -225,19 +223,13 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     if (pendingRef.current) return;
     if (isEditSubmitting) return;
 
-    const total = parseInt(editTotalInput, 10);
+    // Instructors only manage remaining sessions; total is a
+    // backend/admin-only field used for refunds and reporting.
+    const total = latestCountRef.current.totalSessions;
     const remaining = parseInt(editRemainingInput, 10);
 
-    if (editTotalInput.trim() === "" || Number.isNaN(total)) {
-      setEditError("Total must be a whole number.");
-      return;
-    }
     if (editRemainingInput.trim() === "" || Number.isNaN(remaining)) {
       setEditError("Remaining must be a whole number.");
-      return;
-    }
-    if (total < 0) {
-      setEditError("Total cannot be negative.");
       return;
     }
     if (remaining < 0) {
@@ -245,7 +237,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       return;
     }
     if (remaining > total) {
-      setEditError("Remaining cannot exceed total.");
+      setEditError("Remaining cannot exceed the original pack size.");
       return;
     }
 
@@ -315,7 +307,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       setPendingAction(null);
       setIsEditSubmitting(false);
     }
-  }, [editRemainingInput, editTotalInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
+  }, [editRemainingInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
 
   /**
    * Reset the pack to the { totalSessions, remainingSessions } it had
@@ -486,9 +478,9 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit session count</DialogTitle>
+            <DialogTitle>Edit remaining sessions</DialogTitle>
             <DialogDescription>
-              Set the total and remaining sessions for this student&apos;s pack. Both values must be whole numbers, and remaining cannot exceed total.
+              Set how many sessions this student has remaining. The value must be a whole number and cannot exceed the original pack size.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -498,21 +490,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
             }}
             className="space-y-4"
           >
-            <div className="space-y-2">
-              <Label htmlFor="session-pack-total">Total sessions</Label>
-              <Input
-                id="session-pack-total"
-                name="totalSessions"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                autoComplete="off"
-                value={editTotalInput}
-                onChange={(e) => setEditTotalInput(sanitizeDigits(e.target.value))}
-                disabled={isEditSubmitting}
-                aria-invalid={editError !== null && Number.isNaN(parseInt(editTotalInput, 10))}
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="session-pack-remaining">Remaining sessions</Label>
               <Input
@@ -528,8 +505,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
                 aria-invalid={
                   editError !== null &&
                   (Number.isNaN(parseInt(editRemainingInput, 10)) ||
-                    parseInt(editRemainingInput, 10) >
-                      (parseInt(editTotalInput, 10) || Number.MAX_SAFE_INTEGER))
+                    parseInt(editRemainingInput, 10) > totalSessions)
                 }
               />
             </div>
