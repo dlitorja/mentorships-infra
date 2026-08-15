@@ -9,6 +9,7 @@ import {
 } from "@daily-co/daily-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { api } from "@/convex/_generated/api";
@@ -100,13 +101,19 @@ export function useVideoCall(
   const daily = useDaily();
   const meetingState = useMeetingState();
 
+  const [status, setStatus] = useState<VideoCallStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const handleScreenShareError = useCallback(
     (ev: { errorMsg?: string | { message?: string } }) => {
       const message =
         typeof ev.errorMsg === "string"
           ? ev.errorMsg
           : ev.errorMsg?.message ?? "Screen share failed";
-      setErrorMessage(message);
+      // Screen-share failures are nonfatal in daily-js: the call stays
+      // joined. Surface the failure as a toast so the user gets feedback
+      // without tearing down the active video call.
+      toast.error("Screen share failed", { description: message });
       void reportError({
         source: "useVideoCall.toggleScreenShare",
         error: new Error(message),
@@ -151,7 +158,6 @@ export function useVideoCall(
   // independent of `setUserName` mid-call.
   const remoteSessionIdRef = useRef<string | null>(null);
 
-  const [status, setStatus] = useState<VideoCallStatus>("idle");
   // Synchronous mirror of `status` so `join()` can re-entrancy-guard
   // itself before the first `setStatus("joining")` has committed.
   // Without this, two rapid callers (auto-join effect re-fire, button
@@ -170,7 +176,6 @@ export function useVideoCall(
   const [remoteParticipantName, setRemoteParticipantName] = useState<
     string | null
   >(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
   const [joinedSessionId, setJoinedSessionId] = useState<Id<"sessions"> | null>(

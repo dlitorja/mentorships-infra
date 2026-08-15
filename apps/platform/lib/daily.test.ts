@@ -124,7 +124,7 @@ describe("createMeetingToken", () => {
     vi.restoreAllMocks();
   });
 
-  it("includes start_cloud_recording when startCloudRecording is true", async () => {
+  it("includes start_cloud_recording and enable_screenshare when owner", async () => {
     const fetchSpy = mockFetchWithResponse(jsonResponse({ token: "jwt-token" }));
 
     const result = await createMeetingToken({
@@ -143,9 +143,10 @@ describe("createMeetingToken", () => {
     const body = JSON.parse(calledInit.body as string);
     expect(body.properties.start_cloud_recording).toBe(true);
     expect(body.properties.is_owner).toBe(true);
+    expect(body.properties.enable_screenshare).toBe(true);
   });
 
-  it("omits start_cloud_recording when startCloudRecording is false", async () => {
+  it("omits start_cloud_recording but keeps enable_screenshare for non-owner", async () => {
     const fetchSpy = mockFetchWithResponse(jsonResponse({ token: "jwt-token" }));
 
     await createMeetingToken({
@@ -162,6 +163,7 @@ describe("createMeetingToken", () => {
     const body = JSON.parse(calledInit.body as string);
     expect(body.properties).not.toHaveProperty("start_cloud_recording");
     expect(body.properties.is_owner).toBe(false);
+    expect(body.properties.enable_screenshare).toBe(true);
   });
 
   it("throws DailyApiError when token is missing from the response", async () => {
