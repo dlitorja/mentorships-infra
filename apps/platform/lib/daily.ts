@@ -65,6 +65,12 @@ type DailyMeetingTokenProperties = {
   user_name: string;
   is_owner: boolean;
   exp: number;
+  /**
+   * Explicitly opt the bearer into screen sharing. Daily defaults this to
+   * true, but we set it explicitly so a room-level or domain-level policy
+   * change cannot silently revoke it for mentorship calls.
+   */
+  enable_screenshare: true;
   start_cloud_recording?: true;
 };
 
@@ -397,6 +403,7 @@ export async function createMeetingToken(
     user_name: input.userName,
     is_owner: input.isOwner,
     exp: nowSeconds + input.ttlSeconds,
+    enable_screenshare: true,
   };
   if (input.startCloudRecording) {
     properties.start_cloud_recording = true;
