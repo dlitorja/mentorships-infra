@@ -154,6 +154,7 @@ export default defineConfig({
       "@mentorships/marketing": path.resolve(__dirname, "./apps/marketing"),
       "@mentorships/db": path.resolve(__dirname, "./packages/db/src"),
       "@mentorships/payments": path.resolve(__dirname, "./packages/payments/src"),
+      "@mentorships/security": path.resolve(__dirname, "./packages/security/src"),
     },
   },
 });

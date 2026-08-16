@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { getStreamUrl } from "@mentorships/storage/src/downloads";
+import { SharedDownloadButton } from "@/components/shared-download-button";
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -218,15 +219,11 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
           )}
         </div>
 
-        <div className="p-6 flex flex-wrap gap-3 justify-end">
-          <form action={`/api/shared/${encodeURIComponent(token)}`} method="POST">
-            <button
-              type="submit"
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Download
-            </button>
-          </form>
+        <div className="p-6">
+          <SharedDownloadButton
+            token={token}
+            siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ""}
+          />
         </div>
       </div>
 

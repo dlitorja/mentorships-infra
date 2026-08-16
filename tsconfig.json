@@ -35,6 +35,9 @@
     },
     {
       "path": "./packages/payments"
+    },
+    {
+      "path": "./packages/security"
     }
   ]
 }
