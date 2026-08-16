@@ -6,6 +6,7 @@ import { initiateMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorship
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
+import { isTurnstileTokenValid, getClientIp } from "@mentorships/security";
 
 interface User {
   userId: string;
@@ -33,6 +34,7 @@ const initiateSchema = z.object({
   // of a generic schema validation error.
   size: z.number().positive(),
   instructorId: z.string().trim().min(1).optional(),
+  turnstileToken: z.string().min(1),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -52,7 +54,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { filename, contentType, size, instructorId } = parsed.data;
+    const { filename, contentType, size, instructorId, turnstileToken } = parsed.data;
+
+    const ip = getClientIp(request);
+    const isValid = await isTurnstileTokenValid(turnstileToken, {
+      remoteIp: ip,
+      action: "upload-initiate",
+    });
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Turnstile verification failed" },
+        { status: 401 }
+      );
+    }
 
     targetInstructorId = instructorId ?? dbUser.userId;
     const isDelegatedUpload = dbUser.userId !== targetInstructorId;

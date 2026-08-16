@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import {
   Upload,
   X,
@@ -13,6 +14,8 @@ import {
 } from "lucide-react";
 import { initiateUpload, completeUpload, abortUpload } from "@/lib/api";
 import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
 const ACCEPTED_VIDEO_TYPES = {
   "video/mp4": [".mp4"],
@@ -83,6 +86,46 @@ export function UploadZone({
   // Tracks which file attempts are still inside uploadFile so cancel can
   // distinguish a pause-that-already-settled from an in-flight attempt.
   const pendingUploadsRef = useRef<Set<string>>(new Set());
+  const turnstileRef = useRef<TurnstileInstance>(null);
+  const turnstileQueueRef = useRef<
+    Array<{ resolve: (token: string) => void; reject: (error: Error) => void }>
+  >([]);
+
+  const startNextTurnstileChallenge = useCallback(() => {
+    const next = turnstileQueueRef.current[0];
+    if (next) {
+      turnstileRef.current?.reset();
+      turnstileRef.current?.execute();
+    }
+  }, []);
+
+  const requestTurnstileToken = useCallback((): Promise<string> => {
+    return new Promise<string>((resolve, reject) => {
+      const isFirst = turnstileQueueRef.current.length === 0;
+      turnstileQueueRef.current.push({ resolve, reject });
+      if (isFirst) {
+        turnstileRef.current?.execute();
+      }
+    });
+  }, []);
+
+  const handleTurnstileSuccess = useCallback((token: string) => {
+    const first = turnstileQueueRef.current.shift();
+    first?.resolve(token);
+    startNextTurnstileChallenge();
+  }, [startNextTurnstileChallenge]);
+
+  const handleTurnstileError = useCallback((errorCode: string) => {
+    const first = turnstileQueueRef.current.shift();
+    first?.reject(new Error(`Turnstile verification failed: ${errorCode}`));
+    startNextTurnstileChallenge();
+  }, [startNextTurnstileChallenge]);
+
+  const handleTurnstileExpire = useCallback((_token: string) => {
+    const first = turnstileQueueRef.current.shift();
+    first?.reject(new Error("Turnstile challenge expired"));
+    startNextTurnstileChallenge();
+  }, [startNextTurnstileChallenge]);
 
   const settleUpload = useCallback(
     (fileId: string) => {
@@ -107,11 +150,13 @@ export function UploadZone({
       let initiatedUploadId: string | undefined;
 
       try {
+        const turnstileToken = await requestTurnstileToken();
         const initiateResult = await initiateUpload(
           file.name,
           file.type,
           file.size,
-          instructorId
+          instructorId,
+          turnstileToken
         );
 
         initiatedFileId = initiateResult.fileId;
@@ -278,7 +323,7 @@ export function UploadZone({
         }
       }
     },
-    [onUploadComplete, settleUpload, instructorId]
+    [onUploadComplete, settleUpload, instructorId, requestTurnstileToken]
   );
 
   const onDrop = useCallback(
@@ -407,6 +452,19 @@ export function UploadZone({
 
   return (
     <div className="space-y-6">
+      <Turnstile
+        ref={turnstileRef}
+        siteKey={TURNSTILE_SITE_KEY}
+        onSuccess={handleTurnstileSuccess}
+        onError={handleTurnstileError}
+        onExpire={handleTurnstileExpire}
+        options={{
+          action: "upload-initiate",
+          theme: "dark",
+          size: "invisible",
+          execution: "execute",
+        }}
+      />
       <div
         {...getRootProps()}
         className={`
