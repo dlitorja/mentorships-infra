@@ -4,6 +4,7 @@ import { requireVideoEditor, UnauthorizedError, ForbiddenError } from "@/lib/aut
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { getDownloadUrlWithContentDisposition } from "@mentorships/storage/src/downloads";
+import { isTurnstileTokenValid, getClientIp } from "@mentorships/security";
 
 interface Params {
   params: Promise<{ token: string }>;
@@ -18,6 +19,37 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
 
     if (!token || token.length < 16) {
       return NextResponse.json({ error: "Invalid token" }, { status: 400 });
+    }
+
+    let body: { turnstileToken?: unknown } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const turnstileToken =
+      typeof body.turnstileToken === "string" ? body.turnstileToken : "";
+    if (!turnstileToken) {
+      return NextResponse.json(
+        { error: "Turnstile token is required" },
+        { status: 401 }
+      );
+    }
+
+    const ip = getClientIp(request);
+    const isValid = await isTurnstileTokenValid(turnstileToken, {
+      remoteIp: ip,
+      action: "share-download",
+    });
+    if (!isValid) {
+      return NextResponse.json(
+        { error: "Turnstile verification failed" },
+        { status: 401 }
+      );
     }
 
     const result = await fetchQuery(api.hdShareLinks.resolveShareByToken, { token }, { token: convexToken });
@@ -43,10 +75,6 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
 
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      undefined;
     const userAgent = request.headers.get("user-agent") ?? undefined;
 
     try {
@@ -70,7 +98,7 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
       3600
     );
 
-    return NextResponse.redirect(downloadUrl, { status: 302 });
+    return NextResponse.json({ downloadUrl });
   } catch (error) {
     console.error("Shared download error:", error);
 

@@ -17,6 +17,7 @@
     "@daily-co/daily-react": "^0.25.3",
     "@mentorships/payments": "workspace:*",
     "@mentorships/schemas": "workspace:*",
+    "@mentorships/security": "workspace:*",
     "@mentorships/storage": "workspace:*",
     "@mentorships/ui": "workspace:*",
     "@radix-ui/react-checkbox": "^1.3.3",
