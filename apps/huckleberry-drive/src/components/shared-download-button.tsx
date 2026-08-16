@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
-import { Turnstile } from "@marsidev/react-turnstile";
+import React, { useState, useCallback, useRef } from "react";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { Download, Loader2, AlertCircle } from "lucide-react";
 
 interface SharedDownloadButtonProps {
@@ -13,6 +13,7 @@ export function SharedDownloadButton({
   token,
   siteKey,
 }: SharedDownloadButtonProps): React.ReactElement {
+  const turnstileRef = useRef<TurnstileInstance>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export function SharedDownloadButton({
       if (response.status === 401) {
         setError("Security challenge failed. Please refresh and try again.");
         setTurnstileToken(null);
+        turnstileRef.current?.reset();
         return;
       }
 
@@ -47,6 +49,7 @@ export function SharedDownloadButton({
         };
         setError(data.error ?? "Download failed. Please try again.");
         setTurnstileToken(null);
+        turnstileRef.current?.reset();
         return;
       }
 
@@ -59,9 +62,13 @@ export function SharedDownloadButton({
       }
 
       setError("Download failed. Please try again.");
+      setTurnstileToken(null);
+      turnstileRef.current?.reset();
     } catch (err) {
       console.error("Download error:", err);
       setError("Download failed. Please try again.");
+      setTurnstileToken(null);
+      turnstileRef.current?.reset();
     } finally {
       setIsLoading(false);
     }
@@ -70,6 +77,7 @@ export function SharedDownloadButton({
   return (
     <div className="space-y-3">
       <Turnstile
+        ref={turnstileRef}
         siteKey={siteKey}
         onSuccess={setTurnstileToken}
         onError={() => {

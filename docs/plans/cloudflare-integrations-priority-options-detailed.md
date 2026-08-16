@@ -94,7 +94,7 @@ apps/platform/lib/turnstile.ts
 4. **Create `shared-download-button.tsx`**
    - Client component that renders a Turnstile widget.
    - On success, obtains the token and POSTs to `/api/shared/${token}` with `{ turnstileToken }`.
-   - On response, follow the redirect (or open the download URL).
+    - On response, read the `{ downloadUrl }` JSON and navigate to it.
 
 5. **Update `app/shared/[token]/page.tsx`**
    - Replace the static `<form action="...">` with `<SharedDownloadButton token={token} />`.
@@ -102,8 +102,9 @@ apps/platform/lib/turnstile.ts
 
 6. **Update `app/api/shared/[token]/route.ts`**
    - Accept `turnstileToken` in the POST body.
-   - Verify the token before any share resolution or download URL generation.
-   - Return `401` if missing or invalid.
+    - Verify the token before any share resolution or download URL generation.
+    - Return `401` if missing or invalid.
+    - On success, return JSON `{ downloadUrl: string }`.
 
 7. **Add tests**
    - Unit tests for `verifyTurnstileToken` in `packages/security`.
@@ -115,7 +116,7 @@ apps/platform/lib/turnstile.ts
 2. `pnpm typecheck` and `pnpm lint` pass in all affected apps/packages.
 3. `pnpm test --filter @mentorships/security` passes.
 4. `POST /api/shared/:token` without `turnstileToken` returns `401`.
-5. `POST /api/shared/:token` with a valid token returns `302` to a signed download URL.
+5. `POST /api/shared/:token` with a valid token returns JSON `{ downloadUrl: string }`.
 6. Existing platform Turnstile flows still pass (regression test).
 
 ### PR Description Template
@@ -132,7 +133,7 @@ Adds Cloudflare Turnstile challenge to the huckleberry-drive public share-link d
 
 ## Testing
 - Unit tests for verification helper.
-- Manual verification: missing token returns 401; valid token returns 302.
+- Manual verification: missing token returns 401; valid token returns JSON with `downloadUrl`.
 
 ## Env vars required
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
@@ -354,7 +355,7 @@ apps/edge-functions/wrangler.jsonc
 
 - Move `POST /api/shared/[token]` to the Worker.
 - Verify Turnstile token (from PR-1).
-- Resolve share via Convex action, log access, generate signed B2 URL, return `302`.
+    - Resolve share via Convex action, log access, generate signed B2 URL, return JSON `{ downloadUrl: string }`.
 
 ### Depends On
 
@@ -376,7 +377,7 @@ apps/edge-functions/wrangler.jsonc
 
 ### Verification Steps
 
-1. Worker route with valid Turnstile token and valid share returns `302` to signed URL.
+1. Worker route with valid Turnstile token and valid share returns JSON `{ downloadUrl: string }`.
 2. Worker route with invalid token returns `401`.
 3. Worker route with invalid/expired share returns `404`/`410`.
 
