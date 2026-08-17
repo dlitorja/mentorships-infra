@@ -11,4 +11,7 @@ export interface Env {
   PAYPAL_CLIENT_SECRET: string;
   PAYPAL_WEBHOOK_ID: string;
   PAYPAL_MODE?: string; // "live" or "sandbox"; defaults to "sandbox"
+
+  // Convex HTTP action invocation for Daily.co recording webhooks
+  CONVEX_URL: string;
 }
