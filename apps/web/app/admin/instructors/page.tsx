@@ -13,7 +13,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil, Trash2, Search, ExternalLink } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
@@ -21,6 +29,7 @@ type Instructor = {
   id: string;
   name: string;
   slug: string;
+  email?: string | null;
   tagline: string | null;
   specialties: string[];
   isActive: boolean;
@@ -34,11 +43,20 @@ type InstructorsResponse = {
   pageSize: number;
 };
 
+type BackfillSummary = {
+  processedProfiles: number;
+  processedInstructors: number;
+  processedPortfolioImages: number;
+  processedStudentResults: number;
+  skipped: number;
+  errors: Array<{ kind: string; id: string; message: string }>;
+};
+
 async function fetchInstructors(search?: string, includeInactive?: boolean): Promise<InstructorsResponse> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (includeInactive) params.set("includeInactive", "true");
-  
+
   const url = `/api/admin/instructors${params.toString() ? `?${params.toString()}` : ""}`;
   return apiFetch<InstructorsResponse>(url);
 }
@@ -54,31 +72,71 @@ async function deleteInstructor(id: string) {
   return response.json();
 }
 
+async function hardDeleteInstructor(id: string) {
+  const response = await fetch(`/api/admin/instructors/${id}?hard=true`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to permanently delete instructor");
+  }
+  return response.json();
+}
+
 export default function InstructorsPage() {
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 300);
+
+  const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["instructors", debouncedSearch, showInactive],
     queryFn: () => fetchInstructors(debouncedSearch, showInactive),
   });
 
-  const deleteMutation = useMutation({
+  const softDeleteMutation = useMutation({
     mutationFn: deleteInstructor,
     onSuccess: () => {
       refetch();
     },
   });
 
+  const hardDeleteMutation = useMutation({
+    mutationFn: hardDeleteInstructor,
+    onSuccess: () => {
+      setPurgeInstructor(null);
+      setPurgeError(null);
+      setIsPurging(false);
+      refetch();
+    },
+    onError: (error: Error) => {
+      setPurgeError(error.message);
+      setIsPurging(false);
+    },
+  });
+
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
     try {
-      await deleteMutation.mutateAsync(id);
+      await softDeleteMutation.mutateAsync(id);
     } catch (error) {
       alert(error instanceof Error ? error.message : "Failed to delete instructor");
     }
   };
+
+  async function handlePurge(instructor: Instructor) {
+    if (!instructor.id) return;
+    setIsPurging(true);
+    setPurgeError(null);
+    try {
+      await hardDeleteMutation.mutateAsync(instructor.id);
+    } catch {
+      // Error is handled in onError
+    }
+  }
 
   return (
     <div className="container mx-auto py-8">
@@ -96,6 +154,19 @@ export default function InstructorsPage() {
           </Button>
         </Link>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Backfill Images to Convex Storage</CardTitle>
+          <CardDescription>
+            Migrate profile, portfolio, and student result images into Convex Storage so they always serve signed URLs.
+            Safe to run multiple times; already-migrated images are skipped.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BackfillImagesPanel />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -138,6 +209,7 @@ export default function InstructorsPage() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-3 px-4 font-medium">Name</th>
+                    <th className="text-left py-3 px-4 font-medium">Email</th>
                     <th className="text-left py-3 px-4 font-medium">Slug</th>
                     <th className="text-left py-3 px-4 font-medium">Specialties</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
@@ -149,6 +221,7 @@ export default function InstructorsPage() {
                   {data?.items.map((instructor) => (
                     <tr key={instructor.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">{instructor.name}</td>
+                      <td className="py-3 px-4 text-sm">{instructor.email || "-"}</td>
                       <td className="py-3 px-4 font-mono text-sm">{instructor.slug}</td>
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
@@ -183,7 +256,7 @@ export default function InstructorsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDelete(instructor.id, instructor.name)}
-                            disabled={deleteMutation.isPending}
+                            disabled={softDeleteMutation.isPending}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -192,6 +265,14 @@ export default function InstructorsPage() {
                               <ExternalLink className="h-4 w-4" />
                             </Button>
                           </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPurgeInstructor(instructor)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <AlertTriangle className="h-4 w-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -202,6 +283,241 @@ export default function InstructorsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null), setIsPurging(false))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Permanently Delete Instructor
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The instructor &quot;{purgeInstructor?.name}&quot; will be
+              permanently removed from the database. Related records (sessions, bookings, etc.)
+              will remain but lose their instructor reference.
+            </DialogDescription>
+          </DialogHeader>
+          {purgeError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {purgeError}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); setIsPurging(false); }} disabled={isPurging}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => purgeInstructor && handlePurge(purgeInstructor)}
+              disabled={isPurging}
+            >
+              {isPurging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Permanently Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+function BackfillImagesPanel() {
+  type BackfillRequest = {
+    baseUrl: string;
+    includeStudentResults: boolean;
+    dryRun: boolean;
+    limit?: number;
+  };
+  const [baseUrl, setBaseUrl] = useState<string>("");
+  const [isEditingOrigin, setIsEditingOrigin] = useState(false);
+  const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
+  const [dryRun, setDryRun] = useState<boolean>(true);
+  const [limit, setLimit] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [confirmRun, setConfirmRun] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentRunIsDry, setCurrentRunIsDry] = useState<boolean | null>(null);
+  const [summary, setSummary] = useState<BackfillSummary | null>(null);
+  type BackfillResponse = { success?: boolean; summary?: BackfillSummary; error?: string };
+  const [rawResponse, setRawResponse] = useState<BackfillResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
+
+  async function runBackfill(runDry: boolean): Promise<void> {
+    try {
+      setIsRunning(true);
+      setCurrentRunIsDry(runDry);
+      setError(null);
+      setSummary(null);
+      setRawResponse(null);
+      const body: BackfillRequest = {
+        baseUrl: ensureBaseUrl(),
+        includeStudentResults,
+        dryRun: runDry,
+      };
+      const n = parseInt(limit, 10);
+      if (!Number.isNaN(n) && n > 0) body.limit = n;
+      const res = await fetch("/api/admin/instructors/backfill-images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json: BackfillResponse = await res.json();
+      if (!res.ok) {
+        setError(json?.error || `HTTP ${res.status}`);
+      } else {
+        setSummary(json.summary ?? null);
+        setRawResponse(json);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsRunning(false);
+      setCurrentRunIsDry(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-3 items-end">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1">Site Origin</label>
+            <div className="flex gap-2 items-center">
+              <Input
+                value={baseUrl || (typeof window !== "undefined" ? window.location.origin : "")}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                readOnly={!isEditingOrigin}
+              />
+              <Button variant="outline" size="sm" onClick={() => setIsEditingOrigin((v) => !v)}>
+                {isEditingOrigin ? "Lock" : "Edit"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Used to turn relative paths into absolute URLs. Defaults to current site.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeStudentResults}
+              onChange={(e) => setIncludeStudentResults(e.target.checked)}
+            />
+            <span className="text-sm">Include student results</span>
+          </div>
+        </div>
+
+        <div>
+          <button className="text-sm text-primary hover:underline" type="button" onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? "Hide advanced" : "Show advanced"}
+          </button>
+          {showAdvanced && (
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Batch limit</label>
+                <Input
+                  placeholder="e.g. 200"
+                  value={limit}
+                  onChange={(e) => setLimit(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dryRun}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                />
+                <span className="text-sm">Dry run (preview only)</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-center">
+          <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
+            {isRunning && currentRunIsDry === true ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Preview
+          </Button>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" checked={confirmRun} onChange={(e) => setConfirmRun(e.target.checked)} />
+            <span className="text-sm">I understand this writes storage IDs to production data</span>
+          </div>
+          <Button disabled={isRunning || !confirmRun} onClick={() => runBackfill(false)}>
+            {isRunning && currentRunIsDry === false ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Run Backfill
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="text-sm text-red-600">{error}</div>
+      )}
+
+      {summary && (
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <Stat label="Profiles" value={summary.processedProfiles} />
+            <Stat label="Instructors" value={summary.processedInstructors} />
+            <Stat label="Portfolio Images" value={summary.processedPortfolioImages} />
+            <Stat label="Student Results" value={summary.processedStudentResults} />
+            <Stat label="Skipped" value={summary.skipped} />
+          </div>
+
+          {summary.errors?.length ? (
+            <div>
+              <h4 className="font-medium mb-2">Errors ({summary.errors.length})</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-2">Type</th>
+                      <th className="text-left py-2 px-2">Record</th>
+                      <th className="text-left py-2 px-2">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.errors.map((e, i) => (
+                      <tr key={i} className="border-b align-top">
+                        <td className="py-2 px-2 font-mono text-xs">{e.kind}</td>
+                        <td className="py-2 px-2 font-mono text-xs">{e.id}</td>
+                        <td className="py-2 px-2 break-all">{e.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => downloadReport(rawResponse)}>
+              Download report
+            </Button>
+            <Button variant="outline" onClick={() => { setSummary(null); setRawResponse(null); }}>Clear</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }): React.ReactElement {
+  return (
+    <div className="rounded-md border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function downloadReport(obj: { success?: boolean; summary?: BackfillSummary; error?: string } | null): void {
+  if (!obj) return;
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backfill-summary-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

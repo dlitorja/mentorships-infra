@@ -18,6 +18,7 @@ import { z } from "zod";
 import Image from "next/image";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 const NONE_SENTINEL = "__none__";
 
@@ -61,6 +62,7 @@ type InstructorFormData = {
   name: string;
   slug: string;
   email: string;
+  discordVoiceChannelUrl: string;
   tagline: string;
   bio: string;
   specialties: string[];
@@ -289,6 +291,7 @@ export default function EditInstructorPage() {
     name: "",
     slug: "",
     email: "",
+    discordVoiceChannelUrl: "",
     tagline: "",
     bio: "",
     specialties: [],
@@ -344,6 +347,7 @@ export default function EditInstructorPage() {
         name: data.name || "",
         slug: data.slug || "",
         email: data.email || "",
+        discordVoiceChannelUrl: (data as any).discordVoiceChannelUrl || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],
@@ -623,6 +627,22 @@ export default function EditInstructorPage() {
                   className="rounded border-gray-300"
                 />
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
+              </div>
+              <div>
+                <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
+                <Input
+                  id="discordVoiceChannelUrl"
+                  value={formData.discordVoiceChannelUrl || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
+                  placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
+                />
+                {formData.discordVoiceChannelUrl && !isValidDiscordUrl(formData.discordVoiceChannelUrl) ? (
+                  <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Must be an HTTPS Discord link. Leave blank to clear.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="instructorId">Booking record</Label>

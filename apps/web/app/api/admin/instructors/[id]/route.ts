@@ -17,6 +17,7 @@ const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes").optional(),
   email: z.string().email().optional().or(z.literal("")).nullable(),
+  discordVoiceChannelUrl: z.string().optional().nullable(),
   tagline: z.string().optional(),
   bio: z.string().optional(),
   specialties: z.array(z.string()).optional(),
@@ -77,6 +78,7 @@ export async function GET(
       name: instructor.name,
       slug: instructor.slug,
       email: instructor.email,
+      discordVoiceChannelUrl: (instructor as any).discordVoiceChannelUrl ?? null,
       tagline: instructor.tagline,
       bio: instructor.bio,
       specialties: instructor.specialties,
@@ -177,6 +179,9 @@ export async function PUT(
       if (data.email === null || data.email === "") updateData.email = null;
       else updateData.email = data.email.toLowerCase();
     }
+    if (data.discordVoiceChannelUrl !== undefined) {
+      updateData.discordVoiceChannelUrl = data.discordVoiceChannelUrl === "" ? null : data.discordVoiceChannelUrl;
+    }
     if (data.tagline !== undefined) {
       updateData.tagline = data.tagline === "" ? null : data.tagline;
     }
@@ -267,7 +272,7 @@ export async function PUT(
 
 /**
  * DELETE /api/admin/instructors/[id]
- * Delete an instructor (soft delete)
+ * Delete an instructor (soft delete by default, hard delete with ?hard=true)
  */
 export async function DELETE(
   req: NextRequest,
@@ -278,6 +283,9 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    const url = new URL(req.url);
+    const isHardDelete = url.searchParams.get("hard") === "true";
+
     const convex = getConvexClient();
 
     const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
@@ -286,6 +294,14 @@ export async function DELETE(
         { error: "Instructor not found" },
         { status: 404 }
       );
+    }
+
+    if (isHardDelete) {
+      await convex.mutation(api.instructors.hardDeleteInstructor, { id: id as any });
+      return NextResponse.json({
+        success: true,
+        message: "Instructor permanently deleted",
+      });
     }
 
     await convex.mutation(api.instructors.deleteInstructor, { id: id as any });
