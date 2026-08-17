@@ -14,7 +14,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 3 | [PR-3] Bootstrap Cloudflare Worker project | 3 | both | Small | ✅ Merged | [#746](https://github.com/dlitorja/mentorships-infra/pull/746) |
 | 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#747](https://github.com/dlitorja/mentorships-infra/pull/747) |
 | 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#749](https://github.com/dlitorja/mentorships-infra/pull/749) |
-| 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
+| 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#750](https://github.com/dlitorja/mentorships-infra/pull/750) |
 | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Pending |  |
 | 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Pending |  |
 | 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Pending |  |
@@ -357,6 +357,8 @@ pnpm-lock.yaml
 
 ## PR-6 — Move Daily.co recording webhook to Cloudflare Worker
 
+**Status:** ✅ Merged via [#750](https://github.com/dlitorja/mentorships-infra/pull/750)
+
 ### Branch
 
 `feat/daily-recording-webhook-worker`
@@ -364,29 +366,45 @@ pnpm-lock.yaml
 ### Scope
 
 - Move `POST /api/webhooks/daily/recordings` to the Worker.
-- Validate Daily callback and forward to Inngest.
+- Validate Daily callback and forward to the public Convex action.
 
 ### Depends On
 
 - PR-3.
 
-### Files to Add
+### Files Added
 
 ```text
 apps/edge-functions/src/routes/webhooks/daily.ts
 ```
 
-### Files to Modify
+### Files Modified
 
 ```text
 apps/edge-functions/src/index.ts
+apps/edge-functions/src/lib/env.ts
 apps/edge-functions/wrangler.jsonc
 ```
 
+### Implementation Steps
+
+1. ✅ Created `handleDailyWebhook` in the Worker.
+2. ✅ Validated `X-Webhook-Signature` and `X-Webhook-Timestamp` headers.
+3. ✅ Validated `recording.ready-to-download` payload shape.
+4. ✅ Forwarded `{ timestamp, signature, rawBody }` to the existing public Convex action `dailyRecordingActions:attachRecordingFromDailyWebhookAction` via the Convex HTTP action API.
+5. ✅ Mapped known Convex errors (`No session found...`, `Multiple sessions...`) to 422 responses.
+6. ✅ Added `CONVEX_URL` to Worker environment bindings.
+
+### Security Notes
+
+- HMAC verification remains in the Convex action; the Worker does not hold `DAILY_WEBHOOK_SECRET`.
+- The Worker does not include the test bypass that exists in the Next.js route.
+
 ### Verification Steps
 
-1. Valid Daily recording callback is accepted and forwarded.
-2. Invalid token is rejected.
+1. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+2. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` passes.
+3. ✅ Greptile review 5/5, no blocking comments.
 
 ---
 
