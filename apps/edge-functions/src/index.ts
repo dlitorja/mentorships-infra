@@ -1,5 +1,6 @@
 import type { Env } from "./lib/env";
 import { handleHealth } from "./routes/health";
+import { handleStripeWebhook } from "./routes/webhooks/stripe";
 
 export default {
   async fetch(
@@ -13,6 +14,10 @@ export default {
     try {
       if (path === "/health" || path === "/health/") {
         return await handleHealth(request, env);
+      }
+
+      if (path === "/webhooks/stripe" && request.method === "POST") {
+        return await handleStripeWebhook(request, env);
       }
 
       return new Response("Not found", { status: 404 });
