@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
 import { DISCORD_URL_REGEX } from "@/lib/validation/discord";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -305,7 +306,19 @@ export async function DELETE(
     }
 
     if (isHardDelete) {
-      await convex.mutation(api.instructors.hardDeleteInstructor, { id: id as any });
+      const authenticatedConvex = await getAuthenticatedConvexClient();
+      await authenticatedConvex.mutation(api.instructors.hardDeleteInstructor, { id: id as any });
+
+      if (existing.userId) {
+        const { clerkClient } = await import("@clerk/nextjs/server");
+        try {
+          const client = await clerkClient();
+          await client.users.deleteUser(existing.userId);
+        } catch (clerkError) {
+          console.error("[hardDelete] Failed to delete Clerk user:", clerkError);
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: "Instructor permanently deleted",
