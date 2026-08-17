@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
