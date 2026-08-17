@@ -1,6 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { getOrCreateUser } from "@mentorships/db";
-import { UnauthorizedError } from "./errors";
+import { getOrCreateUser, UnauthorizedError as DbUnauthorizedError, isUnauthorizedError as isDbUnauthorizedError } from "@mentorships/db";
+
+export { UnauthorizedError, isUnauthorizedError } from "@mentorships/db";
 
 /**
  * Get the current authenticated user's Clerk ID
@@ -26,7 +27,7 @@ export async function getUser() {
 export async function requireAuth() {
   const userId = await getUserId();
   if (!userId) {
-    throw new UnauthorizedError("Authentication required");
+    throw new DbUnauthorizedError("Authentication required");
   }
   return userId;
 }
@@ -50,13 +51,8 @@ export async function requireDbUser() {
   await requireAuth();
   const user = await getDbUser();
   if (!user) {
-    throw new UnauthorizedError("User not found in database");
+    throw new DbUnauthorizedError("User not found in database");
   }
   return user;
 }
-
-/**
- * Re-export error classes and type guards for convenience in API routes
- */
-export { UnauthorizedError, isUnauthorizedError } from "./errors";
 
