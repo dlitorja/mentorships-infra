@@ -223,6 +223,7 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
           <SharedDownloadButton
             token={token}
             siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? ""}
+            workerUrl={process.env.NEXT_PUBLIC_EDGE_FUNCTIONS_URL ?? undefined}
           />
         </div>
       </div>
