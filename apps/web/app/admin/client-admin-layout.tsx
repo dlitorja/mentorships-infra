@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { UserButton, useUser, useClerk } from "@clerk/nextjs";
 import { 
   LayoutDashboard, 
@@ -10,6 +11,7 @@ import {
   ShoppingCart,
   Users,
   GraduationCap,
+  LogOut,
 } from "lucide-react";
 
 const navItems = [
@@ -81,12 +83,14 @@ export function ClientAdminLayout({
                   </p>
                 </div>
               </div>
-              <button
+              <Button
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-3 rounded-lg px-4 py-2 hover:bg-muted transition-colors text-left text-sm text-muted-foreground"
+                variant="ghost"
+                className="w-full justify-start px-4 py-2 h-auto text-muted-foreground"
               >
+                <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
-              </button>
+              </Button>
             </>
           ) : (
             <Link

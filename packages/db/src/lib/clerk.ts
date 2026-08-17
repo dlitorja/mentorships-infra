@@ -192,17 +192,17 @@ export async function syncClerkUserToSupabase(
  * Automatically syncs Clerk user data to Supabase
  * 
  * @returns User record from Supabase
- * @throws Error if user is not authenticated
+ * @throws UnauthorizedError if user is not authenticated
  */
 export async function getOrCreateUser() {
   const clerkUser = await getClerkUser();
   if (!clerkUser) {
-    throw new Error("Unauthorized: User must be authenticated");
+    throw new UnauthorizedError("User must be authenticated");
   }
 
   const email = clerkUser.emailAddresses[0]?.emailAddress;
   if (!email) {
-    throw new Error("User email not found in Clerk");
+    throw new UnauthorizedError("User email not found in Clerk");
   }
 
   // Sync user to Supabase

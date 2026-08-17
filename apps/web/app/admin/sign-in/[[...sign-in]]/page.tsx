@@ -6,7 +6,7 @@ export default function AdminSignInPage() {
       routing="path"
       path="/admin/sign-in"
       signUpUrl="/sign-up"
-      fallbackRedirectUrl="/admin"
+      forceRedirectUrl="/admin"
     />
   );
 }
