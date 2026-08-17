@@ -1,5 +1,6 @@
 import type { Env } from "./lib/env";
 import { handleHealth } from "./routes/health";
+import { handlePayPalWebhook } from "./routes/webhooks/paypal";
 import { handleStripeWebhook } from "./routes/webhooks/stripe";
 
 export default {
@@ -18,6 +19,10 @@ export default {
 
       if (path === "/webhooks/stripe" && request.method === "POST") {
         return await handleStripeWebhook(request, env);
+      }
+
+      if (path === "/webhooks/paypal" && request.method === "POST") {
+        return await handlePayPalWebhook(request, env);
       }
 
       return new Response("Not found", { status: 404 });
