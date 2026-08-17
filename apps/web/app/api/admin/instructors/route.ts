@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { DISCORD_URL_REGEX } from "@/lib/validation/discord";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -18,6 +19,7 @@ const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes"),
   email: z.string().email().optional().or(z.literal("")).default(""),
+  discordVoiceChannelUrl: z.string().optional().default(""),
   tagline: z.string().optional().default(""),
   bio: z.string().optional().default(""),
   specialties: z.array(z.string()).optional().default([]),
@@ -139,8 +141,15 @@ export async function POST(req: NextRequest) {
     }
 
     const data = validationResult.data as CreateInstructorInput;
-    const convex = getConvexClient();
 
+    if (data.discordVoiceChannelUrl && !DISCORD_URL_REGEX.test(data.discordVoiceChannelUrl)) {
+      return NextResponse.json(
+        { error: "Invalid Discord URL. Must be a valid HTTPS Discord link (discord.gg or discord.com)" },
+        { status: 400 }
+      );
+    }
+
+    const convex = getConvexClient();
     const userId = data.userId || crypto.randomUUID();
 
     console.log("[createInstructor] Creating instructor in Convex");
@@ -151,6 +160,7 @@ export async function POST(req: NextRequest) {
         name: data.name,
         slug: data.slug,
         email: data.email ? data.email.toLowerCase() : undefined,
+        discordVoiceChannelUrl: data.discordVoiceChannelUrl || undefined,
         tagline: data.tagline || undefined,
         bio: data.bio || undefined,
         specialties: data.specialties,

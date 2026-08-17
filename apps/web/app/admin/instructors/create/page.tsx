@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowLeft, Plus, X, Upload } from "lucide-react";
 import Image from "next/image";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 type Socials = {
   twitter?: string;
@@ -28,6 +29,7 @@ type InstructorFormData = {
   name: string;
   slug: string;
   email: string;
+  discordVoiceChannelUrl: string;
   tagline: string;
   bio: string;
   specialties: string[];
@@ -81,6 +83,7 @@ export default function CreateInstructorPage() {
     name: "",
     slug: "",
     email: "",
+    discordVoiceChannelUrl: "",
     tagline: "",
     bio: "",
     specialties: [],
@@ -259,8 +262,12 @@ export default function CreateInstructorPage() {
   };
 
   const handleSubmit = () => {
+    if (isDiscordUrlInvalid) return;
     createMutation.mutate(formData);
   };
+
+  const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
+  const isDiscordUrlInvalid = discordUrl.length > 0 && !isValidDiscordUrl(discordUrl);
 
   return (
     <div className="container mx-auto py-8 max-w-4xl">
@@ -323,6 +330,20 @@ export default function CreateInstructorPage() {
                   placeholder="instructor@example.com"
                 />
                 <p className="text-sm text-muted-foreground mt-1">Send a Clerk invitation to this email</p>
+              </div>
+              <div>
+                <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
+                <Input
+                  id="discordVoiceChannelUrl"
+                  value={formData.discordVoiceChannelUrl}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
+                  placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
+                />
+                {formData.discordVoiceChannelUrl && !isValidDiscordUrl(formData.discordVoiceChannelUrl) ? (
+                  <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">Must be an HTTPS Discord link. Leave blank to skip.</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="tagline">Tagline</Label>
@@ -698,7 +719,7 @@ export default function CreateInstructorPage() {
                 <Button variant="outline" onClick={() => setActiveTab("inventory")}>Back</Button>
                 <Button 
                   onClick={handleSubmit} 
-                  disabled={createMutation.isPending || !formData.name || !formData.slug}
+                  disabled={createMutation.isPending || !formData.name || !formData.slug || isDiscordUrlInvalid}
                 >
                   {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create Instructor
