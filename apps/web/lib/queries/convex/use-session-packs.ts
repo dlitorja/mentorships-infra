@@ -62,3 +62,15 @@ export function useSessionPackByPaymentId(paymentId: Id<"payments">) {
     enabled: !!paymentId,
   });
 }
+
+/**
+ * Fetches the total remaining sessions for a user across all session packs.
+ * @param {string} userId - The user's ID
+ * @returns {UseQueryResult} Query result containing the total remaining sessions count
+ */
+export function useUserTotalRemainingSessions(userId: string) {
+  return useQuery({
+    ...convexQuery(api.sessionPacks.getUserTotalRemainingSessions, { userId }),
+    enabled: !!userId,
+  });
+}
