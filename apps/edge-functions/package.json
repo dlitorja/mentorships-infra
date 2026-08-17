@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "inngest": "4.14.0",
-    "stripe": "17.7.0"
+    "stripe": "17.7.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240806.0",

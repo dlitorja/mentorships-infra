@@ -39,6 +39,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const purchaseUnits = paypalOrderDetails.purchaseUnits;
       const payerEmail: string | undefined = (paypalOrderDetails as any)?.payer?.emailAddress || (paypalOrderDetails as any)?.payer?.email_address || undefined;
       
+      // Extract the actual PayPal capture ID from the capture response.
+      // capturedOrder.id is the PayPal order ID, not the capture ID.
+      const captureId: string =
+        (capturedOrder as any).purchaseUnits?.[0]?.payments?.captures?.[0]?.id ?? capturedOrder.id;
+
       if (purchaseUnits && purchaseUnits.length > 0) {
         const customId = purchaseUnits[0].customId;
         if (typeof customId === "string") {
@@ -46,22 +51,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const decoded = JSON.parse(customId);
             const dbOrderId = decoded.orderId;
             const packId = decoded.packId;
-            
+
             if (dbOrderId && packId) {
               // Send Inngest event for fulfillment (include payer email when available)
               await inngest.send({
+                id: `paypal-capture-completed-${captureId}`,
                 name: "paypal/payment.capture.completed",
                 data: {
-                  captureId: capturedOrder.id,
+                  captureId,
                   orderId: dbOrderId,
                   packId: packId,
                   studentEmail: payerEmail,
                 },
               });
-                          }
+            }
           } catch {
             // customId is not JSON, skip Inngest event
-                      }
+          }
         }
       }
     } catch (inngestError) {
