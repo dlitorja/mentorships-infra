@@ -235,10 +235,19 @@ export function DashboardContent() {
             <BookOpen className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalSessions ?? 0}</div>
-            <p className="text-xs text-muted-foreground">
-              {(totalSessions ?? 0) === 1 ? "session" : "sessions"} available
-            </p>
+            {totalError ? (
+              <>
+                <div className="text-2xl font-bold text-destructive">—</div>
+                <p className="text-xs text-destructive">Failed to load</p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold">{totalSessions ?? 0}</div>
+                <p className="text-xs text-muted-foreground">
+                  {(totalSessions ?? 0) === 1 ? "session" : "sessions"} available
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -416,7 +425,7 @@ export function DashboardContent() {
             >
               Browse Instructors
             </Link>
-            {(totalSessions ?? 0) > 0 && (
+            {totalSessions != null && totalSessions > 0 && (
               <Link
                 href="/sessions"
                 className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
