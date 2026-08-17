@@ -13,7 +13,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 2 | [PR-2] Add Turnstile challenge to huckleberry-drive upload initiation | 2 | huckleberry-drive | Small | ✅ Merged | [#745](https://github.com/dlitorja/mentorships-infra/pull/745) |
 | 3 | [PR-3] Bootstrap Cloudflare Worker project | 3 | both | Small | ✅ Merged | [#746](https://github.com/dlitorja/mentorships-infra/pull/746) |
 | 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#747](https://github.com/dlitorja/mentorships-infra/pull/747) |
-| 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
+| 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#749](https://github.com/dlitorja/mentorships-infra/pull/749) |
 | 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
 | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Pending |  |
 | 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Pending |  |
@@ -298,6 +298,8 @@ pnpm-lock.yaml
 
 ## PR-5 — Move platform PayPal webhook to Cloudflare Worker
 
+**Status:** ✅ Merged via [#749](https://github.com/dlitorja/mentorships-infra/pull/749)
+
 ### Branch
 
 `feat/paypal-webhook-worker`
@@ -311,23 +313,45 @@ pnpm-lock.yaml
 
 - PR-3.
 
-### Files to Add
+### Files Added
 
 ```text
+apps/edge-functions/src/lib/paypal.ts
 apps/edge-functions/src/routes/webhooks/paypal.ts
 ```
 
-### Files to Modify
+### Files Modified
 
 ```text
 apps/edge-functions/src/index.ts
+apps/edge-functions/src/lib/env.ts
+apps/edge-functions/package.json
 apps/edge-functions/wrangler.jsonc
+apps/platform/app/api/checkout/paypal/capture/route.ts
+pnpm-lock.yaml
 ```
+
+### Implementation Steps
+
+1. ✅ Implemented PayPal webhook signature verification using Node.js `crypto.createVerify` (works with `nodejs_compat`).
+2. ✅ Restricted PayPal certificate URL fetches to `https://*.paypal.com`.
+3. ✅ Implemented PayPal order lookup via REST API to decode `custom_id` and read `payer.email_address`.
+4. ✅ Forward `PAYMENT.CAPTURE.COMPLETED` and `PAYMENT.CAPTURE.REFUNDED` events to Inngest.
+5. ✅ Added capture/refund-derived Inngest `id` fields so the webhook and client capture route deduplicate against each other.
+6. ✅ Updated the client capture route to extract the actual PayPal capture ID (not order ID) and use the same Inngest `id`.
+7. ✅ Added PayPal environment bindings to the Worker.
+
+### Security Notes
+
+- Certificate URL allowlist prevents SSRF during signature verification.
+- The Worker does not include the test bypass that exists in the Next.js route.
 
 ### Verification Steps
 
-1. Valid PayPal webhook payload is accepted and forwarded to Inngest.
-2. Invalid signature is rejected.
+1. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+2. ✅ `pnpm --filter @mentorships/platform typecheck` passes.
+3. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` passes.
+4. ✅ Greptile review 5/5, no blocking comments.
 
 ---
 
