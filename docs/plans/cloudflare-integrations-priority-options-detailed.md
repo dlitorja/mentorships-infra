@@ -12,7 +12,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 1 | [PR-1] Add Turnstile challenge to huckleberry-drive share-link downloads | 2 | huckleberry-drive + platform | Small | ✅ Merged | [#744](https://github.com/dlitorja/mentorships-infra/pull/744) |
 | 2 | [PR-2] Add Turnstile challenge to huckleberry-drive upload initiation | 2 | huckleberry-drive | Small | ✅ Merged | [#745](https://github.com/dlitorja/mentorships-infra/pull/745) |
 | 3 | [PR-3] Bootstrap Cloudflare Worker project | 3 | both | Small | ✅ Merged | [#746](https://github.com/dlitorja/mentorships-infra/pull/746) |
-| 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | Next |  |
+| 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#747](https://github.com/dlitorja/mentorships-infra/pull/747) |
 | 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
 | 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
 | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Pending |  |
@@ -238,6 +238,8 @@ pnpm-workspace.yaml
 
 ## PR-4 — Move platform Stripe webhook to Cloudflare Worker
 
+**Status:** ✅ Merged via [#747](https://github.com/dlitorja/mentorships-infra/pull/747)
+
 ### Branch
 
 `feat/stripe-webhook-worker`
@@ -252,31 +254,45 @@ pnpm-workspace.yaml
 
 - PR-3.
 
-### Files to Add
+### Files Added
 
 ```text
+apps/edge-functions/src/lib/observability.ts
+apps/edge-functions/src/lib/inngest.ts
+apps/edge-functions/src/lib/stripe.ts
 apps/edge-functions/src/routes/webhooks/stripe.ts
 ```
 
-### Files to Modify
+### Files Modified
 
 ```text
 apps/edge-functions/src/index.ts
+apps/edge-functions/src/lib/env.ts
 apps/edge-functions/wrangler.jsonc
+apps/edge-functions/package.json
+pnpm-lock.yaml
 ```
 
 ### Implementation Steps
 
-1. Copy Stripe signature validation logic from `apps/platform/app/api/webhooks/stripe/route.ts`.
-2. On valid signature, call `inngest.send({ name: "stripe/webhook", data: event })`.
-3. Return `200` to Stripe immediately.
-4. Add `STRIPE_WEBHOOK_SECRET` to wrangler secrets.
+1. ✅ Copied Stripe signature validation logic from `apps/platform/app/api/webhooks/stripe/route.ts`.
+2. ✅ Added `inngest` and `stripe` dependencies to `apps/edge-functions`.
+3. ✅ Created Worker-safe Inngest and Stripe helpers.
+4. ✅ On valid signature, forward `checkout.session.completed` and `charge.refunded` events to Inngest with the same event names and payloads as the existing Next.js route.
+5. ✅ Return `200` to Stripe immediately after Inngest send.
+6. ✅ Added `STRIPE_WEBHOOK_SECRET`, `INNGEST_EVENT_KEY`, and `INNGEST_APP_ID` to Worker bindings.
+
+### Security Decision
+
+- The Worker does **not** include the test bypass that exists in the Next.js route. Synthetic webhook tests will continue to use the existing Next.js route until a dedicated, isolated test path is added.
 
 ### Verification Steps
 
-1. Worker route returns `200` for valid Stripe signature.
-2. Worker route returns `400` for invalid signature.
-3. Inngest receives the event and existing handler processes it.
+1. ✅ Worker route returns `200` for valid Stripe signature.
+2. ✅ Worker route returns `400` for invalid signature.
+3. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+4. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` passes.
+5. ✅ Greptile review 5/5, no blocking comments.
 
 ---
 
