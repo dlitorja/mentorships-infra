@@ -257,10 +257,19 @@ export function DashboardContent() {
             <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{sortedPacks.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {sortedPacks.length === 1 ? "pack" : "packs"} active
-            </p>
+            {packsError ? (
+              <>
+                <div className="text-2xl font-bold text-destructive">—</div>
+                <p className="text-xs text-destructive">Failed to load</p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold">{sortedPacks.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  {sortedPacks.length === 1 ? "pack" : "packs"} active
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -270,10 +279,19 @@ export function DashboardContent() {
             <User className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{uniqueInstructorCount}</div>
-            <p className="text-xs text-muted-foreground">
-              {uniqueInstructorCount === 1 ? "instructor" : "instructors"} assigned
-            </p>
+            {packsError ? (
+              <>
+                <div className="text-2xl font-bold text-destructive">—</div>
+                <p className="text-xs text-destructive">Failed to load</p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold">{uniqueInstructorCount}</div>
+                <p className="text-xs text-muted-foreground">
+                  {uniqueInstructorCount === 1 ? "instructor" : "instructors"} assigned
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
