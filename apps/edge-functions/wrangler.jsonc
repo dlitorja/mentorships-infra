@@ -3,5 +3,8 @@
   "name": "mentorships-edge-functions",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-16",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "//": "Secrets are set via `wrangler secret put` for each env. Do not commit real values."
+  }
 }
