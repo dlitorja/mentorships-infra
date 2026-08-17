@@ -2,21 +2,26 @@
 
 import React, { useState, useCallback, useRef } from "react";
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
+import { useAuth } from "@clerk/nextjs";
 import { Download, Loader2, AlertCircle } from "lucide-react";
 
 interface SharedDownloadButtonProps {
   token: string;
   siteKey: string;
+  /** Optional URL for the Worker endpoint. Defaults to the local Next.js API route. */
+  workerUrl?: string;
 }
 
 export function SharedDownloadButton({
   token,
   siteKey,
+  workerUrl,
 }: SharedDownloadButtonProps): React.ReactElement {
   const turnstileRef = useRef<TurnstileInstance>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth();
 
   const handleDownload = useCallback(async () => {
     if (!turnstileToken) {
@@ -28,12 +33,16 @@ export function SharedDownloadButton({
     setError(null);
 
     try {
-      const response = await fetch(`/api/shared/${encodeURIComponent(token)}`, {
+      const convexToken = await getToken({ template: "convex" });
+      const endpoint = workerUrl
+        ? `${workerUrl.replace(/\/$/, "")}/shared/${encodeURIComponent(token)}`
+        : `/api/shared/${encodeURIComponent(token)}`;
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ turnstileToken }),
+        body: JSON.stringify({ turnstileToken, convexToken }),
       });
 
       if (response.status === 401) {
