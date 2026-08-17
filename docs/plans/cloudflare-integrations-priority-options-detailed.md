@@ -7,17 +7,17 @@
 
 Priority options from the parent doc: **2, 3, 4, 5**.
 
-| # | PR Title | Option | App(s) | Effort | Primary Win |
-|---|----------|--------|--------|--------|-------------|
-| 1 | [PR-1] Add Turnstile challenge to huckleberry-drive share-link downloads | 2 | huckleberry-drive + platform | Small | Security / anti-bot |
-| 2 | [PR-2] Add Turnstile challenge to huckleberry-drive upload initiation | 2 | huckleberry-drive | Small | Security / anti-bot |
-| 3 | [PR-3] Bootstrap Cloudflare Worker project | 3 | both | Small | Infrastructure |
-| 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | Reliability |
-| 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | Reliability |
-| 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | Reliability |
-| 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Latency |
-| 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Latency / cost |
-| 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Security / performance |
+| # | PR Title | Option | App(s) | Effort | Status | PR |
+|---|----------|--------|--------|--------|--------|----|
+| 1 | [PR-1] Add Turnstile challenge to huckleberry-drive share-link downloads | 2 | huckleberry-drive + platform | Small | ✅ Merged | [#744](https://github.com/dlitorja/mentorships-infra/pull/744) |
+| 2 | [PR-2] Add Turnstile challenge to huckleberry-drive upload initiation | 2 | huckleberry-drive | Small | ✅ Merged | [#745](https://github.com/dlitorja/mentorships-infra/pull/745) |
+| 3 | [PR-3] Bootstrap Cloudflare Worker project | 3 | both | Small | ✅ Merged | [#746](https://github.com/dlitorja/mentorships-infra/pull/746) |
+| 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | Next |  |
+| 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
+| 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | Pending |  |
+| 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Pending |  |
+| 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Pending |  |
+| 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Pending |  |
 
 Option 1 (R2 migration) remains deferred.
 
@@ -186,6 +186,8 @@ apps/huckleberry-drive/src/components/upload-zone.tsx
 
 ## PR-3 — Bootstrap Cloudflare Worker project
 
+**Status:** ✅ Merged via [#746](https://github.com/dlitorja/mentorships-infra/pull/746)
+
 ### Branch
 
 `feat/bootstrap-cloudflare-worker`
@@ -195,6 +197,7 @@ apps/huckleberry-drive/src/components/upload-zone.tsx
 - Create the `apps/edge-functions` project.
 - Add `wrangler`, `@cloudflare/workers-types`, routing skeleton, and dev script.
 - Add a health-check route.
+- Wire the package typecheck into the `lint-and-typecheck` CI job.
 
 ### Files to Add
 
@@ -225,9 +228,11 @@ pnpm-workspace.yaml
 
 ### Verification Steps
 
-1. `pnpm dev` starts the local worker.
-2. `GET http://localhost:8787/health` returns `200 OK`.
-3. `pnpm deploy --dry-run` (or `wrangler deploy --dry-run`) succeeds.
+1. ✅ `pnpm dev` starts the local worker.
+2. ✅ `GET http://localhost:8787/health` returns `200 OK`.
+3. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` succeeds.
+4. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+5. ✅ CI `lint-and-typecheck` job runs the package typecheck.
 
 ---
 
