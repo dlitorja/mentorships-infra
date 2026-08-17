@@ -195,12 +195,13 @@ export async function initiateUpload(
   filename: string,
   contentType: string,
   size: number,
-  instructorId?: string
+  instructorId: string | undefined,
+  turnstileToken: string
 ): Promise<UploadInitiateResponse> {
   return fetchApi<UploadInitiateResponse>("/api/uploads/initiate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, contentType, size, instructorId }),
+    body: JSON.stringify({ filename, contentType, size, instructorId, turnstileToken }),
   });
 }
 
