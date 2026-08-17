@@ -64,9 +64,9 @@ export default async function RootLayout({
         : null;
     userName = dbUser?.email;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[layout] Failed to resolve user role:", message);
-    layoutError = message;
+    const detailed = error instanceof Error ? error.message : String(error);
+    console.error("[layout] Failed to resolve user role:", detailed);
+    layoutError = "Unable to resolve your role. The detailed error has been logged for support.";
   }
 
   return (
@@ -80,7 +80,7 @@ export default async function RootLayout({
         >
           {layoutError && (
             <div className="fixed top-0 left-0 right-0 z-50 bg-red-900/90 text-red-100 px-4 py-2 text-sm font-medium">
-              Layout auth error: {layoutError}
+              {layoutError}
             </div>
           )}
           <LayoutClient userRole={userRole} userName={userName}>
