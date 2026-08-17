@@ -141,6 +141,19 @@ function UpcomingSessionCard({ session }: { session: SessionData }) {
 }
 
 function RecentSessionCard({ session }: { session: RecentSessionData }) {
+  const statusBadge = () => {
+    switch (session.status) {
+      case "completed":
+        return <Badge variant="default">Completed</Badge>;
+      case "canceled":
+        return <Badge variant="destructive">Canceled</Badge>;
+      case "no_show":
+        return <Badge variant="secondary">No Show</Badge>;
+      default:
+        return <Badge variant="outline">{session.status}</Badge>;
+    }
+  };
+
   return (
     <div className="border rounded-lg p-4 space-y-2">
       <div className="flex items-start justify-between">
@@ -151,10 +164,12 @@ function RecentSessionCard({ session }: { session: RecentSessionData }) {
           <p className="text-sm text-muted-foreground">
             {session.completedAt
               ? `Completed ${formatDateTime(session.completedAt)}`
+              : session.canceledAt
+              ? `Canceled ${formatDateTime(session.canceledAt)}`
               : `Status: ${session.status}`}
           </p>
         </div>
-        <Badge variant="default">Completed</Badge>
+        {statusBadge()}
       </div>
     </div>
   );
@@ -171,10 +186,10 @@ export function DashboardContent() {
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
   );
 
-  const { data: sessionPacks, isLoading: packsLoading } = useUserActiveSessionPacks(userId || "");
-  const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");
-  const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingSessions(userId || "");
-  const { data: recentSessions, isLoading: recentLoading } = useRecentSessions(userId || "");
+  const { data: sessionPacks, isLoading: packsLoading, isError: packsError } = useUserActiveSessionPacks(userId || "");
+  const { data: totalSessions, isError: totalError } = useUserTotalRemainingSessions(userId || "");
+  const { data: upcomingSessions, isLoading: sessionsLoading, isError: sessionsError } = useUpcomingSessions(userId || "");
+  const { data: recentSessions, isLoading: recentLoading, isError: recentError } = useRecentSessions(userId || "");
 
   const sortedPacks = sessionPacks
     ? [...sessionPacks].sort((a, b) => b.purchasedAt - a.purchasedAt)
@@ -288,6 +303,10 @@ export function DashboardContent() {
               <div className="flex justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin" />
               </div>
+            ) : packsError ? (
+              <div className="text-center py-8 text-destructive">
+                <p>Failed to load session packs</p>
+              </div>
             ) : sortedPacks.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -321,6 +340,10 @@ export function DashboardContent() {
               <div className="flex justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin" />
               </div>
+            ) : sessionsError ? (
+              <div className="text-center py-8 text-destructive">
+                <p>Failed to load sessions</p>
+              </div>
             ) : !upcomingSessions || upcomingSessions.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -343,7 +366,7 @@ export function DashboardContent() {
         </Card>
       </div>
 
-      {recentSessions && recentSessions.length > 0 && (
+      {recentSessions && recentSessions.length > 0 && !recentError && (
         <Card>
           <CardHeader>
             <CardTitle>Recent Sessions</CardTitle>
@@ -364,6 +387,19 @@ export function DashboardContent() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {recentError && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Sessions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-4 text-destructive">
+              <p>Failed to load recent sessions</p>
+            </div>
           </CardContent>
         </Card>
       )}
