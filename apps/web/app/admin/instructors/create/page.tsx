@@ -262,7 +262,7 @@ export default function CreateInstructorPage() {
   };
 
   const handleSubmit = () => {
-    if (formData.discordVoiceChannelUrl && !isValidDiscordUrl(formData.discordVoiceChannelUrl)) return;
+    if (isDiscordUrlInvalid) return;
     createMutation.mutate(formData);
   };
 

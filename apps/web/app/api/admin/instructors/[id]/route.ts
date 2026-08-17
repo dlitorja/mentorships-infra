@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
+import { DISCORD_URL_REGEX } from "@/lib/validation/discord";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -151,8 +152,15 @@ export async function PUT(
     }
 
     const data = validationResult.data as UpdateInstructorInput;
-    const convex = getConvexClient();
 
+    if (data.discordVoiceChannelUrl !== undefined && data.discordVoiceChannelUrl !== null && data.discordVoiceChannelUrl !== "" && !DISCORD_URL_REGEX.test(data.discordVoiceChannelUrl)) {
+      return NextResponse.json(
+        { error: "Invalid Discord URL. Must be a valid HTTPS Discord link (discord.gg or discord.com)" },
+        { status: 400 }
+      );
+    }
+
+    const convex = getConvexClient();
     const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
     if (!existing) {
       return NextResponse.json(

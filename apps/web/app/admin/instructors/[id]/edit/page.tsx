@@ -400,11 +400,15 @@ export default function EditInstructorPage() {
   });
 
   const handleSave = () => {
+    if (isDiscordUrlInvalid) return;
     updateMutation.mutate({
       data: formData,
       deactivateProducts: false,
     });
   };
+
+  const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
+  const isDiscordUrlInvalid = discordUrl.length > 0 && !isValidDiscordUrl(discordUrl);
 
   const handleDeactivateWithProducts = () => {
     setShowProductDeactivationDialog(false);
@@ -533,7 +537,7 @@ export default function EditInstructorPage() {
         <div className="flex gap-2">
           <Button
             onClick={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={updateMutation.isPending || isDiscordUrlInvalid}
           >
             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Changes
