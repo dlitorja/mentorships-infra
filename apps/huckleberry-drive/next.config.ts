@@ -1,9 +1,13 @@
 import type { NextConfig } from "next";
 
-if (process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
+if (
+  process.env.VERCEL === "1" &&
+  process.env.VERCEL_ENV === "production" &&
+  !process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+) {
   throw new Error(
-    "NEXT_PUBLIC_TURNSTILE_SITE_KEY is required in production. " +
-      "Add it to your Vercel project environment variables and redeploy."
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY is required for the Huckleberry Drive production deployment. " +
+      "Add it to the Vercel project environment variables and redeploy."
   );
 }
 
