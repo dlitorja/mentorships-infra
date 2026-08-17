@@ -1,0 +1,23 @@
+name: Check Vercel Deployment Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 'Vercel deployment ID'
+        required: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Vercel CLI
+        run: npm install -g vercel@58.4.0
+
+      - name: Get deployment status
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_DRIVE_PROJECT_ID }}
+        run: |
+          vercel inspect ${{ github.event.inputs.deployment_id }} --json
