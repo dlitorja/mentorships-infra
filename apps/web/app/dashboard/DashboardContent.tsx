@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-react";
 import { useUserActiveSessionPacks, useUserTotalRemainingSessions } from "@/lib/queries/convex/use-session-packs";
-import { useUpcomingSessions } from "@/lib/queries/convex/use-sessions";
+import { useUpcomingSessions, useRecentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructorById, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -46,6 +46,16 @@ interface SessionData {
   scheduledAt: number;
   status: string;
   workspaceId: string | null;
+}
+
+interface RecentSessionData {
+  id: Id<"sessions">;
+  instructorId: Id<"instructors">;
+  scheduledAt: number;
+  completedAt?: number;
+  canceledAt?: number;
+  status: "scheduled" | "completed" | "canceled" | "no_show";
+  instructorUser: { email: string } | null;
 }
 
 function InstructorBadge({ instructorId }: { instructorId: string }) {
@@ -130,6 +140,26 @@ function UpcomingSessionCard({ session }: { session: SessionData }) {
   );
 }
 
+function RecentSessionCard({ session }: { session: RecentSessionData }) {
+  return (
+    <div className="border rounded-lg p-4 space-y-2">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="font-semibold">
+            {session.instructorUser?.email ?? "Unknown instructor"}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {session.completedAt
+              ? `Completed ${formatDateTime(session.completedAt)}`
+              : `Status: ${session.status}`}
+          </p>
+        </div>
+        <Badge variant="default">Completed</Badge>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardContent() {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
@@ -144,6 +174,7 @@ export function DashboardContent() {
   const { data: sessionPacks, isLoading: packsLoading } = useUserActiveSessionPacks(userId || "");
   const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingSessions(userId || "");
+  const { data: recentSessions, isLoading: recentLoading } = useRecentSessions(userId || "");
 
   const sortedPacks = sessionPacks
     ? [...sessionPacks].sort((a, b) => b.purchasedAt - a.purchasedAt)
@@ -311,6 +342,31 @@ export function DashboardContent() {
           </CardContent>
         </Card>
       </div>
+
+      {recentSessions && recentSessions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Sessions</CardTitle>
+            <CardDescription>Your completed mentorship sessions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recentLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {recentSessions.slice(0, 3).map((session) => (
+                  <RecentSessionCard
+                    key={session.id}
+                    session={session as RecentSessionData}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

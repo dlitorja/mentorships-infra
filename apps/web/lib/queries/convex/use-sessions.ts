@@ -37,3 +37,10 @@ export function useSessionByCalendarEventId(eventId: string) {
     enabled: !!eventId,
   });
 }
+
+export function useRecentSessions(studentId: string) {
+  return useQuery({
+    ...convexQuery(api.sessions.getRecentSessionsWithInstructor, { studentId }),
+    enabled: !!studentId,
+  });
+}
