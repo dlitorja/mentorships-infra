@@ -15,7 +15,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 4 | [PR-4] Move platform Stripe webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#747](https://github.com/dlitorja/mentorships-infra/pull/747) |
 | 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#749](https://github.com/dlitorja/mentorships-infra/pull/749) |
 | 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#750](https://github.com/dlitorja/mentorships-infra/pull/750) |
-| 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | Pending |  |
+ | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | ✅ Merged | [#751](https://github.com/dlitorja/mentorships-infra/pull/751) |
 | 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Pending |  |
 | 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Pending |  |
 
@@ -410,6 +410,8 @@ apps/edge-functions/wrangler.jsonc
 
 ## PR-7 — Move huckleberry-drive share-link download to Cloudflare Worker
 
+**Status:** ✅ Merged via [#751](https://github.com/dlitorja/mentorships-infra/pull/751)
+
 ### Branch
 
 `feat/hd-share-link-worker`
@@ -418,31 +420,56 @@ apps/edge-functions/wrangler.jsonc
 
 - Move `POST /api/shared/[token]` to the Worker.
 - Verify Turnstile token (from PR-1).
-    - Resolve share via Convex action, log access, generate signed B2 URL, return JSON `{ downloadUrl: string }`.
+- Resolve share via Convex query, log access via Convex mutation, generate signed B2 URL, return JSON `{ downloadUrl: string }`.
 
 ### Depends On
 
 - PR-1, PR-3.
 
-### Files to Add
+### Files Added
 
 ```text
-apps/edge-functions/src/routes/hd-share-link.ts
+apps/edge-functions/src/lib/b2.ts
 apps/edge-functions/src/lib/convex.ts
+apps/edge-functions/src/lib/cors.ts
+apps/edge-functions/src/routes/shared.ts
 ```
 
-### Files to Modify
+### Files Modified
 
 ```text
 apps/edge-functions/src/index.ts
+apps/edge-functions/src/lib/env.ts
 apps/edge-functions/wrangler.jsonc
+apps/edge-functions/package.json
+apps/huckleberry-drive/src/components/shared-download-button.tsx
+apps/huckleberry-drive/src/app/shared/[token]/page.tsx
+pnpm-lock.yaml
 ```
+
+### Implementation Steps
+
+1. ✅ Added `POST /shared/:token` route in the Worker.
+2. ✅ Verified Turnstile token using `verifyTurnstileToken` from `@mentorships/security`.
+3. ✅ Resolved the share using the Convex query `hdShareLinks:resolveShareByToken` via `/api/query`.
+4. ✅ Logged the download using the Convex mutation `hdShareLinks:logShareAccess` via `/api/mutation`.
+5. ✅ Generated a presigned B2 download URL using `aws4fetch` with the original filename as `Content-Disposition`.
+6. ✅ Added CORS handling for cross-origin requests from the Huckleberry Drive origin using `ALLOWED_ORIGINS`.
+7. ✅ Updated `SharedDownloadButton` to fetch a Clerk Convex token and optionally call a Worker URL.
+8. ✅ Updated the share page to pass `NEXT_PUBLIC_EDGE_FUNCTIONS_URL` to the button.
+9. ✅ Added B2, Turnstile, and CORS environment bindings to the Worker.
+
+### Security Notes
+
+- The Worker requires the user's Clerk Convex token to call the authenticated Convex query/mutation.
+- The existing Next.js `/api/shared/[token]` route remains available as a fallback.
 
 ### Verification Steps
 
-1. Worker route with valid Turnstile token and valid share returns JSON `{ downloadUrl: string }`.
-2. Worker route with invalid token returns `401`.
-3. Worker route with invalid/expired share returns `404`/`410`.
+1. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+2. ✅ `pnpm --filter @mentorships/huckleberry-drive typecheck` passes.
+3. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` passes.
+4. ✅ Greptile review 5/5, no blocking comments.
 
 ---
 
