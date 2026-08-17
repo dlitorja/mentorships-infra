@@ -461,7 +461,10 @@ export function UploadZone({
         options={{
           action: "upload-initiate",
           theme: "dark",
-          size: "invisible",
+          // The Cloudflare widget is configured as "managed", so it must use a
+          // visible size. "invisible" only works with the "Invisible" widget
+          // type and would render nothing, causing uploads to hang forever.
+          size: "flexible",
           execution: "execute",
         }}
       />

@@ -46,15 +46,28 @@ export default async function RootLayout({
     );
   }
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
-  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
+  let userRole: "instructor" | "admin" | "video_editor" | null = null;
+  let userName: string | undefined;
+  let layoutError: string | null = null;
 
-  const rawRole = dbUser?.role;
-  const userRole: "instructor" | "admin" | "video_editor" | null =
-    rawRole === "instructor" || rawRole === "admin" || rawRole === "video_editor"
-      ? rawRole
-      : null;
-  const userName = dbUser?.email;
+  try {
+    const token = await getToken({ template: "convex" });
+    if (!token) {
+      throw new Error("Clerk returned no Convex token — check the 'convex' JWT template exists for this Clerk instance.");
+    }
+    const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
+
+    const rawRole = dbUser?.role;
+    userRole =
+      rawRole === "instructor" || rawRole === "admin" || rawRole === "video_editor"
+        ? rawRole
+        : null;
+    userName = dbUser?.email;
+  } catch (error) {
+    const detailed = error instanceof Error ? error.message : String(error);
+    console.error("[layout] Failed to resolve user role:", detailed);
+    layoutError = "Unable to resolve your role. The detailed error has been logged for support.";
+  }
 
   return (
     <ClerkProvider
@@ -65,6 +78,11 @@ export default async function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
+          {layoutError && (
+            <div className="fixed top-0 left-0 right-0 z-50 bg-red-900/90 text-red-100 px-4 py-2 text-sm font-medium">
+              {layoutError}
+            </div>
+          )}
           <LayoutClient userRole={userRole} userName={userName}>
             {children}
           </LayoutClient>
