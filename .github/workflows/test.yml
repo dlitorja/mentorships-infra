@@ -89,6 +89,9 @@ jobs:
       - name: Type check apps/huckleberry-drive
         run: pnpm --filter @mentorships/huckleberry-drive run typecheck
 
+      - name: Type check apps/edge-functions
+        run: pnpm --filter @mentorships/edge-functions run typecheck
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-22.04

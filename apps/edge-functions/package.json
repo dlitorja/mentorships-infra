@@ -1,0 +1,19 @@
+{
+  "name": "@mentorships/edge-functions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240806.0",
+    "typescript": "5.9.3",
+    "wrangler": "^3.72.0"
+  }
+}
