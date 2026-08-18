@@ -1142,6 +1142,18 @@ export async function backfillInstructorImages(data: {
  * Admin students
  */
 
+export type AdminStudentSessionPack = {
+  id: string;
+  instructorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  purchasedAt: number;
+  expiresAt: number | null;
+  status: "active" | "depleted" | "expired" | "refunded";
+};
+
 export type AdminStudent = {
   id: string;
   userId: string;
@@ -1157,6 +1169,12 @@ export type AdminStudent = {
   createdAt: number;
 };
 
+export type AdminStudentListItem = {
+  userId: string;
+  email: string | null;
+  sessionPacks: AdminStudentSessionPack[];
+};
+
 /**
  * List students for admin
  */
@@ -1165,7 +1183,7 @@ export async function getAdminStudents(params?: { search?: string; includeInacti
   if (params?.search) searchParams.set("search", params.search);
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
   const query = searchParams.toString();
-  return apiFetch<{ items: AdminStudent[]; total: number; page: number; pageSize: number }>(
+  return apiFetch<{ items: AdminStudentListItem[]; total: number; page: number; pageSize: number }>(
     `${ApiRoutes.adminStudents}${query ? `?${query}` : ""}`
   );
 }
