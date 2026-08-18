@@ -217,7 +217,7 @@ export default function StudentsPage(): React.JSX.Element {
           ) : (
             <ul className="divide-y rounded-md border">
               {students.map((s, idx) => (
-                <li key={(s.userId as string) || (s.id as string) || idx} className="p-4">
+                <li key={s.userId || idx} className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{displayName(s)}</div>
