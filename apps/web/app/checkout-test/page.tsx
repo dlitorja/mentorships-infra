@@ -11,31 +11,17 @@ import { createCheckoutSession } from "@/lib/queries/api-client";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Test page for Stripe checkout flow
- *
- * This page allows you to test the checkout flow by clicking a button
- * that will create a checkout session and redirect to Stripe.
- */
-export default function CheckoutTestPage() {
+function CheckoutTestContent() {
   const { isSignedIn, isLoaded } = useAuth();
-  const [mounted, setMounted] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Product ID we created
   const productId = "24cfcc67-ff04-4d57-a702-b0e8c55bbb23";
 
-  // Checkout mutation
   const checkoutMutation = useMutation({
     mutationFn: () => createCheckoutSession({ productId }),
     onSuccess: (data) => {
       if (data.checkoutUrl || data.url) {
         setOrderId(data.orderId);
-        // Redirect to Stripe Checkout
         window.location.href = data.checkoutUrl || data.url;
       } else {
         throw new Error("No checkout URL returned");
@@ -51,8 +37,7 @@ export default function CheckoutTestPage() {
   const error =
     checkoutMutation.error instanceof Error ? checkoutMutation.error.message : null;
 
-  // Show loading state while checking auth
-  if (!mounted || !isLoaded) {
+  if (!isLoaded) {
     return (
       <div className="container mx-auto p-8 max-w-2xl">
         <Card>
@@ -66,7 +51,6 @@ export default function CheckoutTestPage() {
     );
   }
 
-  // Show sign-in prompt if not authenticated
   if (!isSignedIn) {
     return (
       <div className="container mx-auto p-8 max-w-2xl">
@@ -177,3 +161,30 @@ export default function CheckoutTestPage() {
   );
 }
 
+function CheckoutTestLoading() {
+  return (
+    <div className="container mx-auto p-8 max-w-2xl">
+      <Card>
+        <CardContent className="p-8">
+          <div className="flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function CheckoutTestPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <CheckoutTestLoading />;
+  }
+
+  return <CheckoutTestContent />;
+}
