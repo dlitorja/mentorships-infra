@@ -131,20 +131,22 @@ export function ImageUploadField({
           } = compressionOptions;
 
           try {
+            const isJpeg = file.type === "image/jpeg";
             fileToUpload = await imageCompression(file, {
               maxSizeMB,
               maxWidthOrHeight,
               initialQuality,
               useWebWorker: true,
-              fileType: "image/jpeg",
+              fileType: isJpeg ? "image/jpeg" : undefined,
             });
 
-            const originalName = file.name;
-            const baseName = originalName.replace(/\.[^/.]+$/, "");
-            const newName = `${baseName}.jpg`;
-
-            const blob = fileToUpload as Blob;
-            fileToUpload = new File([blob], newName, { type: "image/jpeg" });
+            if (fileToUpload.type === "image/jpeg") {
+              const originalName = file.name;
+              const baseName = originalName.replace(/\.[^/.]+$/, "");
+              const newName = `${baseName}.jpg`;
+              const blob = fileToUpload as Blob;
+              fileToUpload = new File([blob], newName, { type: "image/jpeg" });
+            }
           } catch (compressionErr) {
             console.warn("Image compression failed, uploading original:", compressionErr);
           }
