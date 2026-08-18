@@ -186,9 +186,6 @@ export default function EditInstructorPage() {
           <ImagesSection
             formData={formData}
             setFormData={setFormData}
-            portfolioInput={portfolioInput}
-            setPortfolioInput={setPortfolioInput}
-            addPortfolioImage={addPortfolioImage}
             removePortfolioImage={removePortfolioImage}
             setActiveTab={setActiveTab}
             instructorId={instructorId}

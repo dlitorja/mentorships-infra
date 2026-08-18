@@ -2,19 +2,15 @@
 
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 import type { InstructorFormData } from "../types";
 
 interface ImagesSectionProps {
   formData: InstructorFormData;
   setFormData: React.Dispatch<React.SetStateAction<InstructorFormData>>;
-  portfolioInput: string;
-  setPortfolioInput: (value: string) => void;
-  addPortfolioImage: () => void;
   removePortfolioImage: (index: number) => void;
   setActiveTab: (tab: string) => void;
   instructorId: string;
@@ -23,13 +19,17 @@ interface ImagesSectionProps {
 export function ImagesSection({
   formData,
   setFormData,
-  portfolioInput,
-  setPortfolioInput,
-  addPortfolioImage,
   removePortfolioImage,
   setActiveTab,
   instructorId,
 }: ImagesSectionProps) {
+  const handlePortfolioUpload = (urls: string[]) => {
+    setFormData((prev) => ({
+      ...prev,
+      portfolioImages: [...prev.portfolioImages, ...urls],
+    }));
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -47,16 +47,15 @@ export function ImagesSection({
         />
         <div>
           <Label>Portfolio Images</Label>
-          <div className="flex gap-2 mt-2">
-            <Input
-              value={portfolioInput}
-              onChange={(e) => setPortfolioInput(e.target.value)}
-              placeholder="https://example.com/portfolio/1.jpg"
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addPortfolioImage())}
+          <div className="mt-2">
+            <ImageUploadField
+              instructorId={instructorId}
+              type="portfolio"
+              multiple
+              maxFiles={10}
+              onMultipleUpload={handlePortfolioUpload}
+              placeholder="Enter image URL or drag & drop to upload"
             />
-            <Button type="button" onClick={addPortfolioImage} variant="secondary">
-              <Plus className="h-4 w-4" />
-            </Button>
           </div>
           {formData.portfolioImages.length > 0 && (
             <div className="grid grid-cols-4 gap-2 mt-4">
