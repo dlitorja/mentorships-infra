@@ -203,6 +203,7 @@ const isPublicPage = createRouteMatcher([
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/admin/sign-in(.*)",
   "/test(.*)", // Test page for verification
 ]);
 
