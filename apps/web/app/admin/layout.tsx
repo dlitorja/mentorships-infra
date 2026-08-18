@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 async function checkAdminAccess(): Promise<void> {
   try {
     const user = await getDbUser();
-    if (user.role !== "admin") {
+    if (!user || user.role !== "admin") {
       redirect("/dashboard?error=unauthorized");
     }
   } catch (error) {
