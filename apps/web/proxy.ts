@@ -336,7 +336,9 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 // If Clerk is not configured, use a simple middleware that allows all routes
 // Otherwise, use clerkMiddleware
 export default hasClerkKey
-  ? clerkMiddleware(middlewareHandler)
+  ? clerkMiddleware(middlewareHandler, {
+      signInUrl: "/sign-in",
+    })
   : async function middleware(req: NextRequest) {
       const pathname = req.nextUrl.pathname;
       const method = req.method;
