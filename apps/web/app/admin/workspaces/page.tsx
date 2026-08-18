@@ -174,7 +174,7 @@ export default function WorkspacesPage() {
                       <td className="py-3 px-4">
                         {workspace.instructor ? (
                           <span className="text-sm font-mono">
-                            {workspace.instructor.userId?.slice(0, 8)}...
+                            {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 8)}...` : '-'}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>

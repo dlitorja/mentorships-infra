@@ -260,7 +260,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
                 <div className="text-sm text-muted-foreground">Current Instructor</div>
                 {workspace.instructor ? (
                   <div className="font-medium font-mono text-sm">
-                    {workspace.instructor.userId?.slice(0, 12) ?? '-'}...
+                    {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 12)}...` : '-'}
                   </div>
                 ) : (
                   <div className="text-muted-foreground">None assigned</div>

@@ -1149,8 +1149,8 @@ export type AdminStudentSessionPack = {
   instructorSlug: string | null;
   totalSessions: number;
   remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
+  purchasedAt: string;
+  expiresAt: string | null;
   status: "active" | "depleted" | "expired" | "refunded";
 };
 
