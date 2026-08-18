@@ -189,7 +189,7 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
             {workspace.instructor ? (
               <div>
                 <div className="font-medium font-mono text-sm">
-                  {workspace.instructor.userId.slice(0, 12)}...
+                  {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 12)}...` : '-'}
                 </div>
                 {workspace.instructor.bio && (
                   <div className="text-sm text-muted-foreground truncate">
