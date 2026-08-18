@@ -2005,6 +2005,35 @@ export const updateInstructorPortfolioStorageIdsForProfile = mutation({
   },
 });
 
+export const updateInstructorProfilePortfolioImages = mutation({
+  args: {
+    slug: v.string(),
+    portfolioImages: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (!profile) {
+      throw new Error("Instructor profile not found");
+    }
+
+    await ctx.db.patch(profile._id, {
+      portfolioImages: args.portfolioImages,
+    });
+    return { portfolioImages: args.portfolioImages };
+  },
+});
+
 /** Returns all testimonials for a given instructor. */
 export const getTestimonialsByInstructorId = query({
   args: { instructorId: v.id("instructors") },
