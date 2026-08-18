@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,12 @@ export const dynamic = "force-dynamic";
  */
 export default function CheckoutTestPage() {
   const { isSignedIn, isLoaded } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Product ID we created
   const productId = "24cfcc67-ff04-4d57-a702-b0e8c55bbb23";
@@ -47,7 +52,7 @@ export default function CheckoutTestPage() {
     checkoutMutation.error instanceof Error ? checkoutMutation.error.message : null;
 
   // Show loading state while checking auth
-  if (!isLoaded) {
+  if (!mounted || !isLoaded) {
     return (
       <div className="container mx-auto p-8 max-w-2xl">
         <Card>
