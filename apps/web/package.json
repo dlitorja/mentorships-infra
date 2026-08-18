@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit --skipLibCheck"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.36.5",
+    "@clerk/nextjs": "^7.3.4",
     "@convex-dev/react-query": "^0.1.0",
     "@mentorships/db": "workspace:*",
     "@mentorships/payments": "workspace:*",

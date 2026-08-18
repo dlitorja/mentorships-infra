@@ -316,7 +316,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   // Protect pages that require authentication
   if (isProtectedRoute(req)) {
     if (!userId) {
-      // Redirect to sign-in page
+      // Manual redirect to /sign-in with redirect_url parameter
       const signInUrl = new URL("/sign-in", req.url);
       signInUrl.searchParams.set("redirect_url", req.url);
       return NextResponse.redirect(signInUrl);
