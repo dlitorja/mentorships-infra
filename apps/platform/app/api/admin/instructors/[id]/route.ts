@@ -141,6 +141,22 @@ export async function GET(
       { instructorId: (resolved.resolvedId ?? instructor._id) as Id<"instructors"> }
     ) as StudentResultRow[];
 
+    const instructorPortfolioImages = instructor.portfolioImages ?? [];
+    let mergedPortfolioImages = instructorPortfolioImages;
+
+    if (instructor.slug) {
+      try {
+        const profile = await convex.query(api.instructors.getInstructorBySlug, { slug: instructor.slug });
+        if (profile && (profile as any).portfolioImages) {
+          const profilePortfolioImages = (profile as any).portfolioImages as string[];
+          const combined = [...instructorPortfolioImages, ...profilePortfolioImages];
+          mergedPortfolioImages = [...new Set(combined)];
+        }
+      } catch (e) {
+        console.warn("Failed to fetch instructorProfiles for portfolio merge:", e);
+      }
+    }
+
     return NextResponse.json({
       id: instructor._id,
       name: instructor.name,
@@ -153,7 +169,7 @@ export async function GET(
       background: instructor.background ?? [],
       profileImageUrl: instructor.profileImageUrl ?? null,
       profileImageUploadPath: instructor.profileImageUploadPath ?? null,
-      portfolioImages: instructor.portfolioImages ?? [],
+      portfolioImages: mergedPortfolioImages,
       socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
       userId: instructor.userId ?? null,
@@ -364,11 +380,9 @@ export async function PUT(
 
     if (data.portfolioImages !== undefined && existing && typeof existing === "object" && "slug" in existing) {
       const slug = (existing as Record<string, unknown>).slug as string;
-      console.log("[DEBUG] portfolioImages update check:", {
-        portfolioImages: data.portfolioImages,
+      console.log("[DEBUG PUT] Updating portfolioImages:", {
+        dataPortfolioImages: data.portfolioImages,
         slug,
-        hasSlug: !!slug,
-        existingKeys: existing ? Object.keys(existing) : [],
       });
       if (slug) {
         try {
@@ -376,17 +390,17 @@ export async function PUT(
             slug,
             portfolioImages: data.portfolioImages,
           });
-          console.log("[DEBUG] instructorProfiles portfolioImages updated successfully");
+          console.log("[DEBUG PUT] instructorProfiles updated successfully");
         } catch (profileErr) {
-          console.error("Failed to update instructorProfiles.portfolioImages:", profileErr);
+          console.error("[DEBUG PUT] Failed to update instructorProfiles:", profileErr);
         }
+      } else {
+        console.log("[DEBUG PUT] No slug, skipping instructorProfiles update");
       }
     } else {
-      console.log("[DEBUG] Skipping instructorProfiles update:", {
-        portfolioImagesUndefined: data.portfolioImages === undefined,
-        existingNull: !existing,
-        existingNotObject: existing && typeof existing !== "object",
-        noSlug: existing && typeof existing === "object" && !("slug" in existing),
+      console.log("[DEBUG PUT] Skipping instructorProfiles update:", {
+        portfolioImagesDefined: data.portfolioImages !== undefined,
+        existingExists: !!existing,
       });
     }
 
