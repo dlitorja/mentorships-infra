@@ -503,6 +503,11 @@ export const markInvitationAccepted = internalMutation({
           isNew: true,
         });
       }
+
+      await ctx.runMutation(internal.workspaces.linkWorkspacesByEmail, {
+        clerkUserId: args.clerkUserId,
+        email: invitation.email,
+      });
     }
   },
 });
