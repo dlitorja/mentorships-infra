@@ -64,7 +64,7 @@ export default function EditInstructorPage() {
     },
   });
 
-  const { formData, setFormData, customSpecialty, setCustomSpecialty, customBackground, setCustomBackground, portfolioInput, setPortfolioInput, toggleTag, addCustomTag, addPortfolioImage, removePortfolioImage, updateSocial } = useInstructorForm(data);
+  const { formData, setFormData, customSpecialty, setCustomSpecialty, customBackground, setCustomBackground, toggleTag, addCustomTag, removePortfolioImage, updateSocial } = useInstructorForm(data);
 
   const updateMutation = useUpdateInstructor({
     instructorId,

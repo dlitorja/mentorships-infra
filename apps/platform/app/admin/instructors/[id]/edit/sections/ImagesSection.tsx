@@ -53,6 +53,7 @@ export function ImagesSection({
               type="portfolio"
               multiple
               maxFiles={10}
+              onChange={() => {}}
               onMultipleUpload={handlePortfolioUpload}
               placeholder="Enter image URL or drag & drop to upload"
             />
