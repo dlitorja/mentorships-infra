@@ -3,9 +3,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Suspense, lazy } from "react";
 import type { ReactElement } from "react";
 import { Menu } from "lucide-react";
+import { Show, UserButton } from "@clerk/nextjs";
 import {
   Sheet,
   SheetContent,
@@ -24,60 +24,6 @@ const navLinks = [
   { href: "https://home.huckleberry.art/store", label: "Courses", external: true },
   { href: "https://discord.gg/4DqDyKZyA8", label: "Discord", external: true },
 ];
-
-const ClerkAuthButtons = lazy(() =>
-  import("@clerk/nextjs").then((clerk) => ({
-    default: function ClerkAuthButtons() {
-      const { SignedIn, SignedOut, UserButton } = clerk;
-      return (
-        <>
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <UserButton />
-          </SignedIn>
-        </>
-      );
-    },
-  }))
-);
-
-const MobileClerkAuthButtons = lazy(() =>
-  import("@clerk/nextjs").then((clerk) => ({
-    default: function MobileClerkAuthButtons(): ReactElement {
-      const { SignedIn, SignedOut, UserButton } = clerk;
-      return (
-        <>
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 w-full uppercase tracking-wide font-semibold">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <div className="flex items-center justify-start">
-              <UserButton />
-            </div>
-          </SignedIn>
-        </>
-      );
-    },
-  }))
-);
 
 function FallbackAuthButtons(): ReactElement {
   return (
@@ -129,9 +75,24 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
 
       <div className="flex flex-col gap-4 pt-4 border-t border-border">
         {hasClerk ? (
-          <Suspense fallback={<FallbackMobileAuthButtons />}>
-            <MobileClerkAuthButtons />
-          </Suspense>
+          <>
+            <Show when="signed-out">
+              <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+              <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 w-full uppercase tracking-wide font-semibold">
+                <Link href="/sign-up">Get Started</Link>
+              </Button>
+            </Show>
+            <Show when="signed-in">
+              <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+              <div className="flex items-center justify-start">
+                <UserButton />
+              </div>
+            </Show>
+          </>
         ) : (
           <FallbackMobileAuthButtons />
         )}
@@ -171,9 +132,22 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
           ))}
 
           {hasClerk ? (
-            <Suspense fallback={<FallbackAuthButtons />}>
-              <ClerkAuthButtons />
-            </Suspense>
+            <>
+              <Show when="signed-out">
+                <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+                  <Link href="/sign-in">Sign In</Link>
+                </Button>
+                <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold">
+                  <Link href="/sign-up">Get Started</Link>
+                </Button>
+              </Show>
+              <Show when="signed-in">
+                <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+                  <Link href="/dashboard">Dashboard</Link>
+                </Button>
+                <UserButton />
+              </Show>
+            </>
           ) : (
             <FallbackAuthButtons />
           )}
