@@ -66,6 +66,7 @@ type Instructor = {
   socials?: SocialPlatform[];
   isActive: boolean;
   instructorId?: string;
+  purchaseLink?: string;
 };
 
 type InstructorData = {
@@ -147,6 +148,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     portfolioImages: mockInstructor.workImages,
     socials: mockInstructor.socialLinks ? Object.entries(mockInstructor.socialLinks).map(([platform, url]) => ({ platform, url })) : [],
     isActive: true,
+    purchaseLink: mockInstructor.purchaseLink,
   } : null);
 
   const displayTestimonials = convexTestimonials.length > 0 ? convexTestimonials : (mockInstructor?.testimonials?.map((t, i) => ({
@@ -268,49 +270,66 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                 <div>
                   <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
                   <div className="space-y-4">
-                    {oneOnOneProduct ? (
+                    {displayInstructor.purchaseLink ? (
                       <div>
                         <p className="text-lg">
-                          <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
-                          ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
+                          <span className="font-semibold">1-on-1 Mentorship</span>
                         </p>
-                        {renderSpotsAvailable(oneOnOneInventory)}
                         <div className="mt-4">
-                          {oneOnOneInventory === 0 ? (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=one-on-one`}>Sign up for waitlist</Link>
-                            </Button>
-                          ) : (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${displayInstructor.slug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
-                            </Button>
-                          )}
+                          <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                            <a href={displayInstructor.purchaseLink} target="_blank" rel="noopener noreferrer">
+                              Buy my 1-on-1 mentorship
+                            </a>
+                          </Button>
                         </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <>
+                        {oneOnOneProduct ? (
+                          <div>
+                            <p className="text-lg">
+                              <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
+                              ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
+                            </p>
+                            {renderSpotsAvailable(oneOnOneInventory)}
+                            <div className="mt-4">
+                              {oneOnOneInventory === 0 ? (
+                                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                                  <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=one-on-one`}>Sign up for waitlist</Link>
+                                </Button>
+                              ) : (
+                                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                                  <Link href={`/checkout?instructor=${displayInstructor.slug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
 
-                    {groupProduct ? (
-                      <div className="mt-4 pt-4 border-t">
-                        <p className="text-lg">
-                          <span className="font-semibold">Group Mentorships:</span>{" "}
-                          ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
-                        </p>
-                        {renderSpotsAvailable(groupInventory)}
-                        <div className="mt-4">
-                          {groupInventory === 0 ? (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=group`}>Sign up for waitlist</Link>
-                            </Button>
-                          ) : (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${displayInstructor.slug}&type=group`}>Buy my group mentorship</Link>
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ) : !oneOnOneProduct ? (
-                      <p className="text-muted-foreground">No mentorship packages available at this time.</p>
-                    ) : null}
+                        {groupProduct ? (
+                          <div className="mt-4 pt-4 border-t">
+                            <p className="text-lg">
+                              <span className="font-semibold">Group Mentorships:</span>{" "}
+                              ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
+                            </p>
+                            {renderSpotsAvailable(groupInventory)}
+                            <div className="mt-4">
+                              {groupInventory === 0 ? (
+                                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                                  <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=group`}>Sign up for waitlist</Link>
+                                </Button>
+                              ) : (
+                                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                                  <Link href={`/checkout?instructor=${displayInstructor.slug}&type=group`}>Buy my group mentorship</Link>
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        ) : !oneOnOneProduct ? (
+                          <p className="text-muted-foreground">No mentorship packages available at this time.</p>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
 
