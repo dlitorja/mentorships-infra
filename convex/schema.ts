@@ -54,6 +54,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     isActive: v.optional(v.boolean()),
     isNew: v.optional(v.boolean()),
+    isListed: v.optional(v.boolean()),
     background: v.optional(v.array(v.string())),
     specialties: v.optional(v.array(v.string())),
     portfolioImages: v.optional(v.array(v.string())),
