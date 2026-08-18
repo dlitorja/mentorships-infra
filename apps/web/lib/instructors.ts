@@ -34,6 +34,7 @@ export interface Instructor {
     facebook?: string;
     behance?: string;
   };
+  purchaseLink?: string;
   isHidden?: boolean;
   isNew?: boolean; // Show a NEW badge on the instructor card
   testimonials?: Testimonial[]; // Real testimonials from students
@@ -381,6 +382,34 @@ export const mockInstructors: Instructor[] = [
         author: "MossyRock",
       },
     ],
+  },
+  {
+    id: "daniel-new",
+    name: "Daniel New",
+    slug: "daniel-new",
+    tagline: "Artist, Youtuber and Entrepreneur helping you build your personal project",
+    bio: "Daniel wants to help you build your personal project. You know, the one you keep avoiding because it's scary. The one you keep overthinking because you care too much. The one you can't stop thinking about because deep down you know it's what you're meant to do... your dream. That one.\n\nLet's get started.\n\nDaniel began pursuing his own personal project a few years ago called Figure8. He is an Artist, Youtuber and Entrepreneur.",
+    specialties: ["traditional media", "self-taught", "sketching", "ink", "fantasy"],
+    background: ["Indie"],
+    profileImage: "/instructors/daniel-new/profile.jpg",
+    workImages: [
+      "/instructors/daniel-new/work-1.jpg",
+      "/instructors/daniel-new/work-2.jpg",
+      "/instructors/daniel-new/work-3.jpg",
+      "/instructors/daniel-new/work-4.jpg",
+      "/instructors/daniel-new/work-6.jpg",
+      "/instructors/daniel-new/work-7.jpg",
+      "/instructors/daniel-new/work-8.jpg",
+      "/instructors/daniel-new/work-10.jpg",
+    ],
+    pricing: {
+      oneOnOne: 400,
+    },
+    socialLinks: {
+      youtube: "https://www.youtube.com/@danielnewart",
+      instagram: "https://www.instagram.com/danielnewart/",
+    },
+    purchaseLink: "https://home.huckleberry.art/offers/LepFVokr/checkout",
   },
 ];
 
