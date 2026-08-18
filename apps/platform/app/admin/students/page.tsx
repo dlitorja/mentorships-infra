@@ -138,8 +138,6 @@ export default function StudentsPage(): React.JSX.Element {
   const students = data?.items ?? [];
 
   const displayName = (s: StudentItem) => {
-    const name = [s.firstName, s.lastName].filter(Boolean).join(" ").trim();
-    if (name) return name;
     return s.email || s.userId || "Unknown";
   };
 
