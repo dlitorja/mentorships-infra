@@ -326,6 +326,7 @@ export async function PUT(
         id: resolvedId as Id<"instructors">,
         ...updateData,
       });
+      console.log("[DEBUG PUT] updateInstructor result, portfolioImages:", updated?.portfolioImages);
     } catch (err: any) {
       const msg: string = err?.message || String(err);
       // Extract Convex request id when available, keep null when not matched
