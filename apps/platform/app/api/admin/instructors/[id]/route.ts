@@ -378,6 +378,20 @@ export async function PUT(
       );
     }
 
+    if (data.portfolioImages !== undefined && existing && typeof existing === "object" && "slug" in existing) {
+      const slug = (existing as Record<string, unknown>).slug as string;
+      if (slug) {
+        try {
+          await convex.mutation(api.instructors.updateInstructorProfilePortfolioImages, {
+            slug,
+            portfolioImages: data.portfolioImages,
+          });
+        } catch (profileErr) {
+          console.warn("Failed to update instructorProfiles.portfolioImages:", profileErr);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "Instructor updated successfully",
