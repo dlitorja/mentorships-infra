@@ -2032,7 +2032,8 @@ export const updateInstructorProfilePortfolioImages = mutation({
       .first();
 
     if (!profile) {
-      throw new Error("Instructor profile not found");
+      console.warn(`Instructor profile not found for slug ${args.slug}, skipping portfolioImages update`);
+      return { portfolioImages: args.portfolioImages };
     }
 
     await ctx.db.patch(profile._id, {
