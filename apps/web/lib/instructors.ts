@@ -397,11 +397,9 @@ export const mockInstructors: Instructor[] = [
       "/instructors/daniel-new/work-2.jpg",
       "/instructors/daniel-new/work-3.jpg",
       "/instructors/daniel-new/work-4.jpg",
-      "/instructors/daniel-new/work-5.jpg",
       "/instructors/daniel-new/work-6.jpg",
       "/instructors/daniel-new/work-7.jpg",
       "/instructors/daniel-new/work-8.jpg",
-      "/instructors/daniel-new/work-9.jpg",
       "/instructors/daniel-new/work-10.jpg",
     ],
     pricing: {
