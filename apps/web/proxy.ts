@@ -316,8 +316,10 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   // Protect pages that require authentication
   if (isProtectedRoute(req)) {
     if (!userId) {
-      // Use auth().redirectToSignIn() which respects NEXT_PUBLIC_CLERK_SIGN_IN_URL
-      return (await auth()).redirectToSignIn();
+      // Manual redirect to /sign-in with redirect_url parameter
+      const signInUrl = new URL("/sign-in", req.url);
+      signInUrl.searchParams.set("redirect_url", req.url);
+      return NextResponse.redirect(signInUrl);
     }
 
     // Check admin role for admin routes
@@ -334,9 +336,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 // If Clerk is not configured, use a simple middleware that allows all routes
 // Otherwise, use clerkMiddleware
 export default hasClerkKey
-  ? clerkMiddleware(middlewareHandler, {
-      signInUrl: "/sign-in",
-    })
+  ? clerkMiddleware(middlewareHandler)
   : async function middleware(req: NextRequest) {
       const pathname = req.nextUrl.pathname;
       const method = req.method;
