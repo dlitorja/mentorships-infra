@@ -241,6 +241,7 @@ export async function PUT(
     }
 
     const data = validationResult.data as UpdateInstructorInput;
+    console.log("[DEBUG PUT] Received data:", JSON.stringify({ portfolioImages: data.portfolioImages }));
     const convex = await getAuthenticatedConvexClient();
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
