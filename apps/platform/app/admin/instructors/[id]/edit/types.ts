@@ -54,6 +54,7 @@ export type InstructorFormData = {
   portfolioImages: string[];
   socials: Socials;
   isActive: boolean;
+  isListed: boolean;
   userId: string | null;
   instructorId: string | null;
   oneOnOneInventory: number;

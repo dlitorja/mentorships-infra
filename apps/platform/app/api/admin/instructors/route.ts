@@ -108,6 +108,7 @@ const createInstructorSchema = z.object({
     })
     .optional(),
   isActive: z.boolean().default(true),
+  isListed: z.boolean().default(true),
   userId: z.string().optional(),
   oneOnOneInventory: z.number().int().min(0).optional().default(0),
   groupInventory: z.number().int().min(0).optional().default(0),
@@ -171,6 +172,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         portfolioImages: data.portfolioImages,
         socials: data.socials || undefined,
         isActive: data.isActive,
+        isListed: data.isListed,
         isNew: true,
         maxActiveStudents: data.maxActiveStudents,
         oneOnOneInventory: data.oneOnOneInventory,

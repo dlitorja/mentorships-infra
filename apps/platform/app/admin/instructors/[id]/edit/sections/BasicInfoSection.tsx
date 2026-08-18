@@ -103,6 +103,14 @@ export function BasicInfoSection({ formData, setFormData, setActiveTab, instruct
           />
           <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
         </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="isListed"
+            checked={formData.isListed}
+            onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isListed: checked === true }))}
+          />
+          <Label htmlFor="isListed" className="cursor-pointer">Listed</Label>
+        </div>
         <div>
           <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
           <Input

@@ -1051,6 +1051,7 @@ export async function createAdminInstructor(data: {
   portfolioImages?: string[];
   socials?: Record<string, string>;
   isActive?: boolean;
+  isListed?: boolean;
   userId?: string | null;
   oneOnOneInventory?: number;
   groupInventory?: number;

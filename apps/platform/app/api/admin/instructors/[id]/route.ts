@@ -52,6 +52,7 @@ const updateInstructorSchema = z.object({
     artstation: z.string().optional(),
   }).optional().nullable(),
   isActive: z.boolean().optional(),
+  isListed: z.boolean().optional(),
   userId: z.string().optional().nullable(),
   deactivateProducts: z.boolean().optional(),
   oneOnOneInventory: z.number().int().min(0).optional(),
@@ -97,6 +98,7 @@ export async function GET(
       portfolioImages?: string[];
       socials?: unknown;
       isActive?: boolean;
+      isListed?: boolean;
       userId?: string | null;
       legacyInstructorRef?: string | null;
       oneOnOneInventory?: number;
@@ -172,6 +174,7 @@ export async function GET(
       portfolioImages: mergedPortfolioImages,
       socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
+      isListed: instructor.isListed,
       userId: instructor.userId ?? null,
       legacyInstructorRef: instructor.legacyInstructorRef ?? null,
       instructorId: instructor.legacyInstructorRef ?? null,
@@ -314,19 +317,21 @@ export async function PUT(
       }
     }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if (data.isListed !== undefined) updateData.isListed = data.isListed;
     // Do NOT send userId in update payload; mutation args don't accept it
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
     if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
-    let updated: { _id: string; name?: string; slug?: string; email?: string | null; tagline?: string | null; bio?: string | null; specialties?: string[]; background?: string[]; profileImageUrl?: string | null; profileImageUploadPath?: string | null; portfolioImages?: string[]; socials?: unknown; isActive?: boolean; userId?: string | null; legacyInstructorRef?: string | null; oneOnOneInventory?: number; groupInventory?: number; maxActiveStudents?: number; updatedAt?: number | string | null; _creationTime?: number; discordVoiceChannelUrl?: string | null } | null = null;
+    let updated: { _id: string; name?: string; slug?: string; email?: string | null; tagline?: string | null; bio?: string | null; specialties?: string[]; background?: string[]; profileImageUrl?: string | null; profileImageUploadPath?: string | null; portfolioImages?: string[]; socials?: unknown; isActive?: boolean; isListed?: boolean; userId?: string | null; legacyInstructorRef?: string | null; oneOnOneInventory?: number; groupInventory?: number; maxActiveStudents?: number; updatedAt?: number | string | null; _creationTime?: number; discordVoiceChannelUrl?: string | null } | null = null;
+    console.log("[DEBUG PUT] Calling updateInstructor mutation with portfolioImages:", updateData.portfolioImages);
     try {
       updated = await convex.mutation(api.instructors.updateInstructor, {
         id: resolvedId as Id<"instructors">,
         ...updateData,
       });
-      console.log("[DEBUG PUT] updateInstructor result, portfolioImages:", updated?.portfolioImages);
+      console.log("[DEBUG PUT] updateInstructor mutation completed, result portfolioImages:", updated?.portfolioImages);
     } catch (err: any) {
       const msg: string = err?.message || String(err);
       // Extract Convex request id when available, keep null when not matched
@@ -423,6 +428,7 @@ export async function PUT(
         portfolioImages: updated.portfolioImages ?? [],
         socials: sanitizeSocials(updated.socials),
         isActive: updated.isActive,
+        isListed: updated.isListed,
         userId: updated.userId ?? null,
         legacyInstructorRef: updated.legacyInstructorRef ?? null,
         instructorId: updated?.legacyInstructorRef ?? null,
