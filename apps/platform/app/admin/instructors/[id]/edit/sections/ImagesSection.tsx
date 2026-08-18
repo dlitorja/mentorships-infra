@@ -56,6 +56,12 @@ export function ImagesSection({
               onChange={() => {}}
               onMultipleUpload={handlePortfolioUpload}
               placeholder="Enter image URL or drag & drop to upload"
+              compress
+              compressionOptions={{
+                maxSizeMB: 3.5,
+                maxWidthOrHeight: 2400,
+                initialQuality: 0.9,
+              }}
             />
           </div>
           {formData.portfolioImages.length > 0 && (
