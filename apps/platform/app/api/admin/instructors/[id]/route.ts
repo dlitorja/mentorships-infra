@@ -380,16 +380,30 @@ export async function PUT(
 
     if (data.portfolioImages !== undefined && existing && typeof existing === "object" && "slug" in existing) {
       const slug = (existing as Record<string, unknown>).slug as string;
+      console.log("[DEBUG] portfolioImages update check:", {
+        portfolioImages: data.portfolioImages,
+        slug,
+        hasSlug: !!slug,
+        existingKeys: existing ? Object.keys(existing) : [],
+      });
       if (slug) {
         try {
           await convex.mutation(api.instructors.updateInstructorProfilePortfolioImages, {
             slug,
             portfolioImages: data.portfolioImages,
           });
+          console.log("[DEBUG] instructorProfiles portfolioImages updated successfully");
         } catch (profileErr) {
-          console.warn("Failed to update instructorProfiles.portfolioImages:", profileErr);
+          console.error("Failed to update instructorProfiles.portfolioImages:", profileErr);
         }
       }
+    } else {
+      console.log("[DEBUG] Skipping instructorProfiles update:", {
+        portfolioImagesUndefined: data.portfolioImages === undefined,
+        existingNull: !existing,
+        existingNotObject: existing && typeof existing !== "object",
+        noSlug: existing && typeof existing === "object" && !("slug" in existing),
+      });
     }
 
     return NextResponse.json({
