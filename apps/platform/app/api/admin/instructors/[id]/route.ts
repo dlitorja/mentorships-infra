@@ -141,6 +141,22 @@ export async function GET(
       { instructorId: (resolved.resolvedId ?? instructor._id) as Id<"instructors"> }
     ) as StudentResultRow[];
 
+    const instructorPortfolioImages = instructor.portfolioImages ?? [];
+    let mergedPortfolioImages = instructorPortfolioImages;
+
+    if (instructor.slug) {
+      try {
+        const profile = await convex.query(api.instructors.getInstructorBySlug, { slug: instructor.slug });
+        if (profile && (profile as any).portfolioImages) {
+          const profilePortfolioImages = (profile as any).portfolioImages as string[];
+          const combined = [...instructorPortfolioImages, ...profilePortfolioImages];
+          mergedPortfolioImages = [...new Set(combined)];
+        }
+      } catch (e) {
+        console.warn("Failed to fetch instructorProfiles for portfolio merge:", e);
+      }
+    }
+
     return NextResponse.json({
       id: instructor._id,
       name: instructor.name,
@@ -153,7 +169,7 @@ export async function GET(
       background: instructor.background ?? [],
       profileImageUrl: instructor.profileImageUrl ?? null,
       profileImageUploadPath: instructor.profileImageUploadPath ?? null,
-      portfolioImages: instructor.portfolioImages ?? [],
+      portfolioImages: mergedPortfolioImages,
       socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
       userId: instructor.userId ?? null,
