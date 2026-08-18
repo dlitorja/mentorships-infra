@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +38,7 @@ export default function CreateInstructorPage() {
     oneOnOneInventory: String(DEFAULT_ONE_ON_ONE_INVENTORY),
     groupInventory: String(DEFAULT_GROUP_INVENTORY),
     maxActiveStudents: String(DEFAULT_MAX_ACTIVE_STUDENTS),
+    isListed: true,
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +81,7 @@ export default function CreateInstructorPage() {
         groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? DEFAULT_GROUP_INVENTORY : v; })(),
         maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? DEFAULT_MAX_ACTIVE_STUDENTS : v; })(),
         isActive: true,
+        isListed: formData.isListed,
       });
 
       const instructorId: string = createRes.instructor.id;
@@ -205,6 +208,15 @@ export default function CreateInstructorPage() {
                 placeholder="Full bio description"
                 rows={4}
               />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="isListed"
+                checked={formData.isListed}
+                onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, isListed: checked === true }))}
+              />
+              <Label htmlFor="isListed" className="cursor-pointer">Listed</Label>
             </div>
           </CardContent>
         </Card>
