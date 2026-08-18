@@ -1,7 +1,9 @@
 {
   "git": {
     "deploymentEnabled": {
-      "main": false
+      "main": true
     }
-  }
+  },
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @mentorships/web build"
 }
