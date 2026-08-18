@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "sonner";
+import { Suspense } from "react";
 import { Header } from "@/components/navigation/header";
 import { HeaderErrorBoundary } from "@/components/navigation/header-error-boundary";
 import { QueryProvider } from "@/lib/providers/query-provider";
@@ -18,6 +19,17 @@ export const metadata: Metadata = {
   description:
     "Connect with world-class art instructors from gaming, TV, film, and independent studios. Personalized 1-on-1 and group mentorship experiences to help you achieve your artistic goals.",
 };
+
+function PageLoadingSkeleton(): React.ReactElement {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-pulse flex flex-col items-center gap-4">
+        <div className="h-12 w-12 rounded-full bg-muted" />
+        <div className="h-4 w-32 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -39,7 +51,9 @@ export default function RootLayout({
         <HeaderErrorBoundary>
           <Header hasClerk={hasValidClerkKey} />
         </HeaderErrorBoundary>
-        {children}
+        <Suspense fallback={<PageLoadingSkeleton />}>
+          {children}
+        </Suspense>
         <Toaster />
       </body>
     </html>

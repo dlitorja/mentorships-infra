@@ -148,6 +148,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                         fill
                         className="object-cover transition-transform hover:scale-105"
                         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        preload={index < 3}
                       />
                     </Link>
                     <CardContent className="flex flex-col flex-1 p-6">
