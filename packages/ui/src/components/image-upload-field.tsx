@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
+import imageCompression from "browser-image-compression";
 import { z } from "zod";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -32,6 +33,12 @@ export interface ImageUploadFieldProps {
   cropAspectRatio?: number;
   previewSize?: number;
   previewClassName?: string;
+  compress?: boolean;
+  compressionOptions?: {
+    maxSizeMB?: number;
+    maxWidthOrHeight?: number;
+    initialQuality?: number;
+  };
 }
 
 const ACCEPTED_TYPES = {
@@ -85,6 +92,8 @@ export function ImageUploadField({
   cropAspectRatio = 1,
   previewSize = 128,
   previewClassName,
+  compress = false,
+  compressionOptions = {},
 }: ImageUploadFieldProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -112,8 +121,30 @@ export function ImageUploadField({
       setUploadError(null);
 
       try {
+        let fileToUpload = file;
+
+        if (compress && file.type.startsWith("image/")) {
+          const {
+            maxSizeMB = 3.5,
+            maxWidthOrHeight = 2400,
+            initialQuality = 0.9,
+          } = compressionOptions;
+
+          try {
+            fileToUpload = await imageCompression(file, {
+              maxSizeMB,
+              maxWidthOrHeight,
+              initialQuality,
+              useWebWorker: true,
+              fileType: "image/jpeg",
+            });
+          } catch (compressionErr) {
+            console.warn("Image compression failed, uploading original:", compressionErr);
+          }
+        }
+
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", fileToUpload);
         if (instructorId) {
           formData.append("instructorId", instructorId);
           formData.append("type", type);
@@ -132,8 +163,6 @@ export function ImageUploadField({
         const data = uploadResponseSchema.parse(await response.json());
         return { url: data.url, path: data.path };
       } catch (err) {
-        // Surface a stable, customer-safe message. Diagnostic details are logged
-        // so support can inspect them; never leak server internals in the UI.
         console.error("Image upload failed:", err);
         setUploadError("Upload failed");
         return null;
@@ -141,7 +170,7 @@ export function ImageUploadField({
         setIsUploading(false);
       }
     },
-    [instructorId, type, uploadEndpoint]
+    [instructorId, type, uploadEndpoint, compress, compressionOptions]
   );
 
   const finalizeUpload = useCallback(
