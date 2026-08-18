@@ -791,6 +791,7 @@ export const getInstructorBySlug = query({
         .withIndex("by_slug", (q) => q.eq("slug", args.slug))
         .first();
       if (!instructorOnly) return null;
+      if (instructorOnly.isListed === false) return null;
 
       const fallbackProfileImageUrl = await getFreshProfileUrl(
         ctx,
@@ -816,6 +817,7 @@ export const getInstructorBySlug = query({
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .first();
+    if (instructor?.isListed === false) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, profile.profileImageStorageId, profile.profileImageUrl);
     const portfolioImages = await getFreshPortfolioUrls(ctx, profile.portfolioImageStorageIds, profile.portfolioImages);
     return {
@@ -847,6 +849,7 @@ type InstructorListItem = {
   specialties?: string[];
   isActive?: boolean;
   isNew?: boolean;
+  isListed?: boolean;
   oneOnOneInventory?: number;
   groupInventory?: number;
   maxActiveStudents?: number;
@@ -879,6 +882,7 @@ async function toInstructorListItem(
     specialties: inst.specialties,
     isActive: inst.isActive,
     isNew: inst.isNew,
+    isListed: inst.isListed,
     oneOnOneInventory: (inst as any).oneOnOneInventory ?? 0,
     groupInventory: (inst as any).groupInventory ?? 0,
     maxActiveStudents: (inst as any).maxActiveStudents,
@@ -938,6 +942,7 @@ export const getPublicInstructors = query({
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .filter((q) => q.neq(q.field("isActive"), false))
+      .filter((q) => q.neq(q.field("isListed"), false))
       .take(limit);
 
     return Promise.all(

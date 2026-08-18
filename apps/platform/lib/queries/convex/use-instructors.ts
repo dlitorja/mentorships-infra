@@ -19,6 +19,7 @@ export type PublicInstructor = {
   socials?: unknown;
   isActive?: boolean;
   isNew?: boolean;
+  isListed?: boolean;
   isCompletelySoldOut?: boolean;
   oneOnOneInventory?: number;
   groupInventory?: number;
