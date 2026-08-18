@@ -4,11 +4,16 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const userByUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin";
+  if (userByUserId?.role === "admin") return true;
+  const userByClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .first();
+  return userByClerkId?.role === "admin";
 }
 
 type InstructorWithEmail = {
