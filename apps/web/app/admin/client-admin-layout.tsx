@@ -94,7 +94,7 @@ export function ClientAdminLayout({
             </>
           ) : (
             <Link
-              href="/admin/sign-in"
+              href="/sign-in"
               className="flex items-center gap-3 rounded-lg px-4 py-2 hover:bg-muted transition-colors"
             >
               Sign In

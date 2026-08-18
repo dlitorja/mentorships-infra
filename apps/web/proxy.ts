@@ -203,8 +203,6 @@ const isPublicPage = createRouteMatcher([
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
-  "/admin/sign-in(.*)",
-  "/admin/signin(.*)",
   "/test(.*)", // Test page for verification
 ]);
 
@@ -318,10 +316,8 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   // Protect pages that require authentication
   if (isProtectedRoute(req)) {
     if (!userId) {
-      // Redirect to appropriate sign-in page
-      const signInUrl = isAdminRoute(req)
-        ? new URL("/admin/sign-in", req.url)
-        : new URL("/sign-in", req.url);
+      // Redirect to sign-in page
+      const signInUrl = new URL("/sign-in", req.url);
       signInUrl.searchParams.set("redirect_url", req.url);
       return NextResponse.redirect(signInUrl);
     }
