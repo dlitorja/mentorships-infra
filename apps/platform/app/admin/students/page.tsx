@@ -29,41 +29,38 @@ import {
 import { Label } from "@/components/ui/label";
 
 type StudentItem = {
-  id?: string;
-  userId?: string;
-  email?: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  sessionPacks?: Array<{
+  userId: string;
+  email: string | null;
+  sessionPacks: Array<{
     id: string;
     instructorId: string;
-    instructorName?: string;
+    instructorName: string | null;
+    instructorSlug?: string | null;
     totalSessions: number;
     remainingSessions: number;
     status: string;
-    expiresAt?: string | null;
+    purchasedAt: string;
+    expiresAt: string | null;
   }>;
-  [key: string]: unknown;
 };
 
 const SessionPackSchema = z.object({
   id: z.string(),
   instructorId: z.string(),
-  instructorName: z.string().optional(),
+  instructorName: z.string().nullable(),
+  instructorSlug: z.string().nullable().optional(),
   totalSessions: z.number(),
   remainingSessions: z.number(),
   status: z.string(),
-  expiresAt: z.string().nullable().optional(),
+  purchasedAt: z.string(),
+  expiresAt: z.string().nullable(),
 });
 
 const StudentItemSchema = z.object({
-  id: z.string().optional(),
-  userId: z.string().optional(),
-  email: z.string().optional(),
-  firstName: z.string().nullable().optional(),
-  lastName: z.string().nullable().optional(),
-  sessionPacks: z.array(SessionPackSchema).default([]),
-}).catchall(z.unknown());
+  userId: z.string(),
+  email: z.string().nullable(),
+  sessionPacks: z.array(SessionPackSchema),
+});
 
 const StudentsResponseSchema = z.object({
   items: z.array(StudentItemSchema),
@@ -76,7 +73,12 @@ type StudentsResponse = z.infer<typeof StudentsResponseSchema>;
 
 async function fetchStudents(search?: string): Promise<StudentsResponse> {
   const data = await getAdminStudents({ search: search || undefined });
-  return StudentsResponseSchema.parse(data);
+  try {
+    return StudentsResponseSchema.parse(data);
+  } catch (e) {
+    console.error('Students response parse error:', e, 'Data:', JSON.stringify(data, null, 2));
+    throw e;
+  }
 }
 
 async function fetchInstructors() {
@@ -136,8 +138,6 @@ export default function StudentsPage(): React.JSX.Element {
   const students = data?.items ?? [];
 
   const displayName = (s: StudentItem) => {
-    const name = [s.firstName, s.lastName].filter(Boolean).join(" ").trim();
-    if (name) return name;
     return s.email || s.userId || "Unknown";
   };
 
@@ -217,7 +217,7 @@ export default function StudentsPage(): React.JSX.Element {
           ) : (
             <ul className="divide-y rounded-md border">
               {students.map((s, idx) => (
-                <li key={(s.userId as string) || (s.id as string) || idx} className="p-4">
+                <li key={s.userId || idx} className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{displayName(s)}</div>

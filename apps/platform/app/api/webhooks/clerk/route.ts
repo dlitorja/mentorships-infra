@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import { inngest } from "@/inngest/client";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 interface ClerkUserEventData {
   id: string;
@@ -75,6 +76,12 @@ export async function POST(req: NextRequest) {
           firstName,
           lastName,
         },
+      });
+
+      const normalizedEmail = email.toLowerCase().trim();
+      await convexServerCall("/internal/link-workspaces", {
+        clerkUserId: userId,
+        email: normalizedEmail,
       });
 
       return NextResponse.json({ success: true, message: "Event queued" });
