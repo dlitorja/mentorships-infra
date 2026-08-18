@@ -614,11 +614,16 @@ export const getInstructorByUserIdExternal = query({
 });
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const userByUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin";
+  if (userByUserId?.role === "admin") return true;
+  const userByClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .first();
+  return userByClerkId?.role === "admin";
 }
 
 export const listInstructorsInternal = query({
@@ -1343,11 +1348,7 @@ export const deleteInstructor = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
+    if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
@@ -1358,11 +1359,7 @@ export const hardDeleteInstructor = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
+    if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
     await ctx.db.delete(args.id);
   },
 });

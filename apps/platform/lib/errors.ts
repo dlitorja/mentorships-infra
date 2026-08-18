@@ -21,9 +21,19 @@ export class ForbiddenError extends Error {
 }
 
 export function isUnauthorizedError(error: unknown): error is UnauthorizedError {
-  return error instanceof UnauthorizedError;
+  if (error instanceof UnauthorizedError) return true;
+  if (error instanceof Error) {
+    const msg = error.message;
+    return msg === "Unauthorized" || msg === "Authentication required" || msg === "No auth token";
+  }
+  return false;
 }
 
 export function isForbiddenError(error: unknown): error is ForbiddenError {
-  return error instanceof ForbiddenError;
+  if (error instanceof ForbiddenError) return true;
+  if (error instanceof Error) {
+    const msg = error.message;
+    return msg === "Forbidden" || msg === "Admin role required" || msg === "Forbidden: Admin role required";
+  }
+  return false;
 }
