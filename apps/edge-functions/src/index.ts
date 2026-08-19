@@ -1,6 +1,8 @@
 import type { Env } from "./lib/env";
 import { handleCorsPreflight, withCors } from "./lib/cors";
 import { handleHealth } from "./routes/health";
+import { handleCacheInvalidation } from "./routes/internal";
+import { handleShareRevoke } from "./routes/revoke";
 import { handleDailyWebhook } from "./routes/webhooks/daily";
 import { handlePayPalWebhook } from "./routes/webhooks/paypal";
 import { handleStripeWebhook } from "./routes/webhooks/stripe";
@@ -33,8 +35,15 @@ export default {
         const sharedMatch = path.match(/^\/shared\/([^/]+)\/?$/);
         if (sharedMatch && sharedMatch[1] && request.method === "POST") {
           response = await handleSharedDownload(request, env, sharedMatch[1]);
+        } else if (path === "/internal/cache/invalidate" && request.method === "POST") {
+          response = await handleCacheInvalidation(request, env);
         } else {
-          response = new Response("Not found", { status: 404 });
+          const revokeMatch = path.match(/^\/internal\/shares\/([^/]+)\/revoke\/?$/);
+          if (revokeMatch && revokeMatch[1] && request.method === "POST") {
+            response = await handleShareRevoke(request, env, revokeMatch[1]);
+          } else {
+            response = new Response("Not found", { status: 404 });
+          }
         }
       }
 
