@@ -209,12 +209,16 @@ export function useVideoCall(
   }, [sessionId, workspaceId]);
 
   // Mirror Daily's local device state into React state so consumers
-  // don't need access to the `daily` call object.
+  // don't need access to the `daily` call object. `meetingState` is
+  // included so we re-sync immediately after `join()` completes —
+  // `daily` is the same object reference before and after
+  // `daily.join()`, so without this dependency the effect would not
+  // fire on join and `isMuted` could be stale.
   useEffect(() => {
     if (!daily) return;
     setIsMuted(!daily.localAudio());
     setIsCameraOff(!daily.localVideo());
-  }, [daily]);
+  }, [daily, meetingState]);
 
   // Track meeting-state transitions into our higher-level `status`.
   //
@@ -484,11 +488,29 @@ export function useVideoCall(
 
   const toggleScreenShare = useCallback((): void => {
     if (isSharingScreen) {
-      void stopScreenShare();
+      stopScreenShare().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        void reportError({
+          source: "useVideoCall.toggleScreenShare.stop",
+          error: err instanceof Error ? err : new Error(message),
+          level: "error",
+          message: "Stop screen share failed",
+          context: { workspaceId, sessionId },
+        });
+      });
     } else {
-      void startScreenShare();
+      startScreenShare().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        void reportError({
+          source: "useVideoCall.toggleScreenShare.start",
+          error: err instanceof Error ? err : new Error(message),
+          level: "error",
+          message: "Start screen share failed",
+          context: { workspaceId, sessionId },
+        });
+      });
     }
-  }, [isSharingScreen, startScreenShare, stopScreenShare]);
+  }, [isSharingScreen, startScreenShare, stopScreenShare, sessionId, workspaceId]);
 
   // Track participant count + remote name. Key identity by
   // `session_id` (not `user_name`) so a mid-call `setUserName` does
