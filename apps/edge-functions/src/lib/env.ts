@@ -27,4 +27,11 @@ export interface Env {
 
   // CORS origins for cross-origin browser requests (e.g. Huckleberry Drive share link downloads)
   ALLOWED_ORIGINS?: string;
+
+  // KV cache for share-link metadata
+  SHARE_CACHE_KV_NAMESPACE: KVNamespace;
+  SHARE_CACHE_TTL_SECONDS?: string;
+
+  // Internal key used by huckleberry-drive to invalidate share-link KV cache
+  SHARE_CACHE_INVALIDATION_KEY?: string;
 }

@@ -4,6 +4,7 @@ import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { normalizeExpiresInDays } from "@/lib/shares";
+import { invalidateShareCache, revokeShareViaWorker } from "@/lib/kv";
 
 interface Params {
   params: Promise<{ token: string }>;
@@ -20,8 +21,8 @@ export async function DELETE(_request: NextRequest, { params }: Params): Promise
       return NextResponse.json({ error: "Invalid token" }, { status: 400 });
     }
 
-    await fetchMutation(api.hdShareLinks.revokeShareLink, { token }, { token: convexToken });
-    return NextResponse.json({ success: true });
+    const result = await revokeShareViaWorker(token, convexToken ?? "");
+    return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("Revoke share error:", error);
 
@@ -65,6 +66,8 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<N
       { token, expiresAt: normalizedExpiresAt },
       { token: convexToken }
     );
+
+    await invalidateShareCache(token, "extend");
 
     return NextResponse.json({
       success: true,

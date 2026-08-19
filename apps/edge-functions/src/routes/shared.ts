@@ -3,15 +3,31 @@ import type { Env } from "../lib/env";
 import { callConvexMutation, callConvexQuery } from "../lib/convex";
 import { getDownloadUrlWithContentDisposition } from "../lib/b2";
 import { logError } from "../lib/observability";
+import {
+  deleteCachedShare,
+  deleteCachedShareForToken,
+  getCachedShare,
+  isShareRevokedCache,
+  markShareRevokedCache,
+  setCachedShare,
+  type CachedShare,
+} from "../lib/kv";
 
 interface ResolveShareResult {
   kind: string;
   share?: {
     id: string;
+    createdByUserId?: string;
+    createdAt?: number;
+    expiresAt?: number | null;
+    label?: string | null;
   };
   upload?: {
+    id?: string;
     filename: string;
     originalName: string;
+    contentType?: string;
+    size?: number;
   };
 }
 
@@ -60,39 +76,88 @@ export async function handleSharedDownload(
 
   const convexToken = typeof body.convexToken === "string" ? body.convexToken : undefined;
 
-  const resolveResult = await callConvexQuery<ResolveShareResult>(
-    env,
-    "hdShareLinks:resolveShareByToken",
-    { token },
-    convexToken
-  );
-
-  if (!resolveResult.ok) {
-    logError(source, new Error(resolveResult.message), "Failed to resolve share");
-    return json({ error: "Internal server error" }, 500);
-  }
-
-  const result = resolveResult.value;
-
-  if (result.kind === "unauthenticated") {
-    return json({ error: "Unauthorized" }, 401);
-  }
-  if (result.kind === "forbidden") {
-    return json({ error: "Forbidden" }, 403);
-  }
-  if (result.kind === "not_found" || result.kind === "file_missing") {
-    return json({ error: "Share or file not found" }, 404);
-  }
-  if (result.kind === "revoked") {
+  // Always re-check the global revocation marker before using any cached data.
+  const revoked = await isShareRevokedCache(env, token);
+  if (revoked) {
+    if (convexToken) {
+      await deleteCachedShareForToken(env, token, convexToken);
+    } else {
+      await deleteCachedShare(env, token);
+    }
     return json({ error: "Share revoked" }, 410);
   }
-  if (result.kind === "expired") {
-    return json({ error: "Share expired" }, 410);
-  }
 
-  const upload = result.upload;
-  if (!upload || !upload.filename) {
-    return json({ error: "File location unknown" }, 400);
+  const cachedResult = convexToken
+    ? await getCachedShare(env, token, convexToken)
+    : null;
+
+  let upload: { filename: string; originalName: string } | null = null;
+  let shareId: string | undefined;
+
+  if (cachedResult) {
+    upload = cachedResult.upload;
+    shareId = cachedResult.shareId;
+  } else {
+    const resolveResult = await callConvexQuery<ResolveShareResult>(
+      env,
+      "hdShareLinks:resolveShareByToken",
+      { token },
+      convexToken
+    );
+
+    if (!resolveResult.ok) {
+      logError(source, new Error(resolveResult.message), "Failed to resolve share");
+      return json({ error: "Internal server error" }, 500);
+    }
+
+    const result = resolveResult.value;
+
+    if (result.kind === "unauthenticated") {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    if (result.kind === "forbidden") {
+      return json({ error: "Forbidden" }, 403);
+    }
+    if (result.kind === "not_found" || result.kind === "file_missing") {
+      await deleteCachedShare(env, token);
+      return json({ error: "Share or file not found" }, 404);
+    }
+    if (result.kind === "revoked") {
+      await markShareRevokedCache(env, token);
+      await deleteCachedShare(env, token);
+      return json({ error: "Share revoked" }, 410);
+    }
+    if (result.kind === "expired") {
+      if (convexToken) {
+        await deleteCachedShareForToken(env, token, convexToken);
+      } else {
+        await deleteCachedShare(env, token);
+      }
+      return json({ error: "Share expired" }, 410);
+    }
+
+    if (!result.upload || !result.upload.filename) {
+      return json({ error: "File location unknown" }, 400);
+    }
+
+    upload = result.upload;
+    shareId = result.share?.id;
+
+    const cacheEntry: CachedShare = {
+      shareId: result.share?.id ?? "",
+      createdByUserId: result.share?.createdByUserId ?? "",
+      createdAt: result.share?.createdAt ?? Date.now(),
+      expiresAt: result.share?.expiresAt ?? null,
+      label: result.share?.label ?? null,
+      upload: {
+        id: result.upload.id ?? "",
+        filename: result.upload.filename,
+        originalName: result.upload.originalName,
+        contentType: result.upload.contentType ?? "application/octet-stream",
+        size: result.upload.size ?? 0,
+      },
+    };
+    await setCachedShare(env, token, convexToken, cacheEntry);
   }
 
   const userAgent = request.headers.get("user-agent") ?? undefined;
@@ -102,7 +167,7 @@ export async function handleSharedDownload(
       env,
       "hdShareLinks:logShareAccess",
       {
-        shareId: result.share?.id,
+        shareId,
         action: "download",
         ip,
         userAgent,
@@ -112,7 +177,7 @@ export async function handleSharedDownload(
 
     if (!logResult.ok) {
       logError(source, new Error(logResult.message), "Failed to log share download", {
-        shareId: result.share?.id,
+        shareId,
       });
     }
   } catch (loggingError) {

@@ -5,6 +5,13 @@
   "compatibility_date": "2026-08-16",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "//": "Secrets are set via `wrangler secret put` for each env. Do not commit real values. Required secrets: STRIPE_WEBHOOK_SECRET, INNGEST_EVENT_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID, CONVEX_URL, TURNSTILE_SECRET_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY, B2_BUCKET_NAME. Optional: B2_REGION, B2_ENDPOINT, INNGEST_APP_ID, PAYPAL_MODE, ALLOWED_ORIGINS."
-  }
+    "//": "Secrets are set via `wrangler secret put` for each env. Do not commit real values. Required secrets: STRIPE_WEBHOOK_SECRET, INNGEST_EVENT_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID, CONVEX_URL, TURNSTILE_SECRET_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY, B2_BUCKET_NAME. Optional: B2_REGION, B2_ENDPOINT, INNGEST_APP_ID, PAYPAL_MODE, ALLOWED_ORIGINS, SHARE_CACHE_TTL_SECONDS, SHARE_CACHE_INVALIDATION_KEY."
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SHARE_CACHE_KV_NAMESPACE",
+      "id": "7f6ee3150ce54ceaa6ff0e6649b9fa4a",
+      "preview_id": "1cd964dfcfdd44968232bf79abc14a90"
+    }
+  ]
 }
