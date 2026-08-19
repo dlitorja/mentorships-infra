@@ -153,6 +153,9 @@ export function CallStatusPill({
         toast.error("Could not save consent choice", { description: message });
         return;
       }
+      if (pendingJoinSessionId === null && target !== null) {
+        return;
+      }
       try {
         await join();
       } catch (err) {

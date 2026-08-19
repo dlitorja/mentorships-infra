@@ -487,28 +487,32 @@ export function useVideoCall(
   }, [daily]);
 
   const toggleScreenShare = useCallback((): void => {
+    const reportScreenShareError = (source: string, err: unknown): void => {
+      const message = err instanceof Error ? err.message : String(err);
+      void reportError({
+        source,
+        error: err instanceof Error ? err : new Error(message),
+        level: "error",
+        message,
+        context: { workspaceId, sessionId },
+      });
+    };
     if (isSharingScreen) {
-      stopScreenShare().catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        void reportError({
-          source: "useVideoCall.toggleScreenShare.stop",
-          error: err instanceof Error ? err : new Error(message),
-          level: "error",
-          message: "Stop screen share failed",
-          context: { workspaceId, sessionId },
-        });
-      });
+      (async () => {
+        try {
+          await stopScreenShare();
+        } catch (err) {
+          reportScreenShareError("useVideoCall.toggleScreenShare.stop", err);
+        }
+      })();
     } else {
-      startScreenShare().catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        void reportError({
-          source: "useVideoCall.toggleScreenShare.start",
-          error: err instanceof Error ? err : new Error(message),
-          level: "error",
-          message: "Start screen share failed",
-          context: { workspaceId, sessionId },
-        });
-      });
+      (async () => {
+        try {
+          await startScreenShare();
+        } catch (err) {
+          reportScreenShareError("useVideoCall.toggleScreenShare.start", err);
+        }
+      })();
     }
   }, [isSharingScreen, startScreenShare, stopScreenShare, sessionId, workspaceId]);
 
