@@ -409,3 +409,131 @@ test("createUpload: video editor cannot upload to an unassigned instructor", asy
     })
   ).rejects.toThrow("You are not assigned to this instructor");
 });
+
+test("setVideoEditorAssignmentQuotaByIds: admin can set, clear, and re-set quota", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_quota";
+  const editorId = "editor_quota";
+  const adminId = "admin_quota";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_quota@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_quota@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin_quota@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: 1024,
+    })
+  ).resolves.toEqual({ success: true });
+
+  let assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBe(1024);
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: null,
+    })
+  ).resolves.toEqual({ success: true });
+
+  assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBeUndefined();
+});
+
+test("setVideoEditorAssignmentQuotaByIds: admin is recognized when identity.subject matches clerkId", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_quota_clerk";
+  const editorId = "editor_quota_clerk";
+  const adminUserId = "admin_user_id";
+  const adminClerkId = "admin_clerk_id";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_quota_clerk@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_quota_clerk@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    // Admin's primary userId differs from the Clerk subject used by huckleberry-drive.
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin_quota_clerk@example.com",
+      clerkId: adminClerkId,
+      role: "admin",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminClerkId });
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: 2048,
+    })
+  ).resolves.toEqual({ success: true });
+
+  const assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBe(2048);
+});

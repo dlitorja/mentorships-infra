@@ -255,7 +255,11 @@ export const setVideoEditorAssignmentQuota = mutation({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
-    if (!caller || caller.role !== "admin") {
+    const callerByClerkId = caller ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!callerByClerkId || callerByClerkId.role !== "admin") {
       throw new Error("Forbidden: only admins can manage quotas");
     }
 
@@ -292,7 +296,11 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
-    if (!caller || caller.role !== "admin") {
+    const callerByClerkId = caller ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!callerByClerkId || callerByClerkId.role !== "admin") {
       throw new Error("Forbidden: only admins can manage quotas");
     }
 
@@ -335,7 +343,11 @@ export const createVideoEditorAssignment = mutation({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
-    if (!caller || caller.role !== "admin") {
+    const callerByClerkId = caller ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!callerByClerkId || callerByClerkId.role !== "admin") {
       throw new Error("Forbidden: only admins can manage assignments");
     }
 
@@ -369,7 +381,7 @@ export const createVideoEditorAssignment = mutation({
       videoEditorId: args.videoEditorId,
       instructorId: args.instructorId,
       assignedAt: Date.now(),
-      assignedBy: caller.userId,
+      assignedBy: callerByClerkId.userId,
     });
     return { action: "created", id };
   },
