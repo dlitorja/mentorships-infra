@@ -148,18 +148,22 @@ export const getUploadsForInstructors = query({
   },
 });
 
-async function getVideoEditorAssignmentQuota(
-  ctx: GenericQueryCtx<DataModel>,
-  videoEditorId: string,
-  instructorId: string
-): Promise<number | undefined> {
-  const assignment = await ctx.db
-    .query("videoEditorAssignments")
-    .withIndex("by_videoEditorId_instructorId", (q) =>
-      q.eq("videoEditorId", videoEditorId).eq("instructorId", instructorId)
-    )
+async function getAuthenticatedUser(
+  ctx: GenericQueryCtx<DataModel>
+): Promise<Doc<"users"> | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    return null;
+  }
+
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
     .first();
-  return assignment?.storageQuotaBytes;
+  return byUserId ?? await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+    .first();
 }
 
 async function getVideoEditorStorageUsed(
@@ -183,6 +187,30 @@ async function getVideoEditorStorageUsed(
   return usedBytes;
 }
 
+async function requireDeleteAccess(
+  ctx: GenericQueryCtx<DataModel>,
+  upload: Doc<"instructorUploads">
+): Promise<void> {
+  const caller = await getAuthenticatedUser(ctx);
+  if (!caller) {
+    throw new Error("Unauthorized: authentication required");
+  }
+
+  if (caller.role === "admin") {
+    return;
+  }
+
+  if (caller.role === "instructor" && upload.instructorId === caller.userId) {
+    return;
+  }
+
+  if (caller.role === "video_editor" && upload.uploadedById === caller.userId) {
+    return;
+  }
+
+  throw new Error("Forbidden: you can only delete uploads you own or are assigned to");
+}
+
 export const createUpload = mutation({
   args: {
     id: v.string(),
@@ -193,7 +221,12 @@ export const createUpload = mutation({
     size: v.number(),
     uploadedById: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+    handler: async (ctx, args) => {
+    const caller = await getAuthenticatedUser(ctx);
+    if (!caller) {
+      throw new Error("Unauthorized: authentication required");
+    }
+
     // PR1: enforce 50GB per-instructor storage limit inside the
     // mutation so OCC catches concurrent uploads that race past a
     // route-side check. The route still does a pre-check for a
@@ -201,42 +234,60 @@ export const createUpload = mutation({
     // PR1 (review): limit value lives in `convex/constants.ts` so
     // changing it updates both the Next.js pre-check and this
     // authoritative mutation in lockstep.
-    const stats = await ctx.db
-      .query("instructorUploads")
-      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
-      .collect()
-      .then((rows) =>
-        rows.reduce(
-          (acc, r) => {
-            if (r.status !== "deleted" && r.status !== "deleting") {
-              acc.usedBytes += r.size;
-              acc.fileCount += 1;
-            }
-            return acc;
-          },
-          { usedBytes: 0, fileCount: 0 }
+    //
+    // Caps are enforced based on the authenticated caller's role, not the
+    // caller-supplied uploadedById, so spoofed identities cannot bypass
+    // storage limits.
+    if (caller.role === "instructor") {
+      if (args.uploadedById && args.uploadedById !== caller.userId) {
+        throw new Error("Instructors can only upload to their own storage");
+      }
+      if (args.instructorId !== caller.userId) {
+        throw new Error("Instructors can only upload to their own storage");
+      }
+      const stats = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+        .collect()
+        .then((rows) =>
+          rows.reduce(
+            (acc, r) => {
+              if (r.status !== "deleted" && r.status !== "deleting") {
+                acc.usedBytes += r.size;
+                acc.fileCount += 1;
+              }
+              return acc;
+            },
+            { usedBytes: 0, fileCount: 0 }
+          )
+        );
+
+      if (stats.usedBytes + args.size > STORAGE_LIMIT_BYTES) {
+        throw new Error(
+          `Storage limit exceeded: instructor has ${stats.usedBytes} bytes, attempting to add ${args.size} bytes, limit is ${STORAGE_LIMIT_BYTES} bytes`
+        );
+      }
+    } else if (caller.role === "video_editor") {
+      if (!args.uploadedById || args.uploadedById !== caller.userId) {
+        throw new Error("Video editor uploads must be performed under their own identity");
+      }
+      const assignment = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId_instructorId", (q) =>
+          q.eq("videoEditorId", caller.userId).eq("instructorId", args.instructorId)
         )
-      );
-
-    if (stats.usedBytes + args.size > STORAGE_LIMIT_BYTES) {
-      throw new Error(
-        `Storage limit exceeded: instructor has ${stats.usedBytes} bytes, attempting to add ${args.size} bytes, limit is ${STORAGE_LIMIT_BYTES} bytes`
-      );
-    }
-
-    // PR-quotas: enforce a per-editor per-instructor quota when one is set.
-    // The route does a pre-check for friendly UX; this is the authoritative
-    // OCC-protected enforcement.
-    if (args.uploadedById) {
-      const quota = await getVideoEditorAssignmentQuota(
-        ctx,
-        args.uploadedById,
-        args.instructorId
-      );
+        .first();
+      if (!assignment) {
+        throw new Error("You are not assigned to this instructor");
+      }
+      // PR-quotas: enforce a per-editor per-instructor quota when one is set.
+      // The route does a pre-check for friendly UX; this is the authoritative
+      // OCC-protected enforcement.
+      const quota = assignment.storageQuotaBytes;
       if (quota !== undefined) {
         const editorUsed = await getVideoEditorStorageUsed(
           ctx,
-          args.uploadedById,
+          caller.userId,
           args.instructorId
         );
         if (editorUsed + args.size > quota) {
@@ -245,6 +296,8 @@ export const createUpload = mutation({
           );
         }
       }
+    } else if (caller.role !== "admin") {
+      throw new Error("Forbidden: only instructors, admins, and video editors can upload");
     }
 
     await ctx.db.insert("instructorUploads", {
@@ -316,6 +369,7 @@ export const softDeleteUpload = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    await requireDeleteAccess(ctx, upload);
     await ctx.db.patch(upload._id, {
       status: "deleted",
       deletedAt: Date.now(),
@@ -330,6 +384,7 @@ export const deleteUpload = mutation({
     id: v.string(),
     filename: v.optional(v.string()),
     s3Key: v.optional(v.string()),
+    b2UploadId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const upload = await ctx.db
@@ -341,6 +396,7 @@ export const deleteUpload = mutation({
     if (upload.status === "deleted" || upload.status === "deleting") {
       return { error: "already_deleted" };
     }
+    await requireDeleteAccess(ctx, upload);
 
     await ctx.db.patch(upload._id, {
       status: "deleting",
@@ -348,7 +404,7 @@ export const deleteUpload = mutation({
       updatedAt: Date.now(),
     });
 
-    if (!args.filename && !args.s3Key && !upload.b2FileId) {
+    if (!args.filename && !args.s3Key && !upload.b2FileId && !args.b2UploadId) {
       await ctx.db.delete(upload._id);
       return { success: true, status: "deleted" };
     }
@@ -358,6 +414,7 @@ export const deleteUpload = mutation({
       filename: args.filename ?? undefined,
       s3Key: args.s3Key ?? undefined,
       b2FileId: upload.b2FileId ?? undefined,
+      b2UploadId: args.b2UploadId ?? upload.b2UploadId ?? undefined,
     });
 
     return { success: true, status: "deleting" };
@@ -404,7 +461,8 @@ async function getAwsSigV4Signature(
   host: string,
   canonicalUri: string,
   method: string,
-  amzDate: string
+  amzDate: string,
+  queryString?: string
 ): Promise<string> {
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = "UNSIGNED-PAYLOAD";
@@ -412,10 +470,14 @@ async function getAwsSigV4Signature(
   const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
   const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
 
+  // S3 AbortMultipartUpload requires the query string (e.g., uploadId=...)
+  // to be part of the canonical request for SigV4 signing.
+  const canonicalQueryString = queryString ? queryString.split("&").sort().join("&") : "";
+
   const canonicalRequest = [
     method,
     canonicalUri,
-    "",
+    canonicalQueryString,
     canonicalHeaders,
     signedHeaders,
     payloadHash,
@@ -475,6 +537,59 @@ const parsedEndpoint = new URL(endpoint);
 
 if (!response.ok && response.status !== 404) {
     throw new Error(`S3 delete failed: ${response.status} ${response.statusText} - ${body}`);
+  }
+}
+
+async function abortMultipartUploadFromB2(b2Key: string, uploadId: string): Promise<void> {
+  const accessKeyId = process.env.B2_KEY_ID;
+  const secretAccessKey = process.env.B2_APPLICATION_KEY;
+  const bucket = process.env.B2_BUCKET_NAME || "instructor-uploads";
+  const region = process.env.B2_REGION || "us-west-002";
+  const endpoint = process.env.B2_ENDPOINT || `https://s3.${region}.backblazeb2.com`;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
+  }
+
+  const parsedEndpoint = new URL(endpoint);
+  const host = parsedEndpoint.host;
+  const pathSegments = b2Key.split("/").map((seg) => encodeURIComponent(seg)).join("/");
+  const queryString = `uploadId=${encodeURIComponent(uploadId)}`;
+  const canonicalUri = `/${bucket}/${pathSegments}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const authorization = await getAwsSigV4Signature(
+    secretAccessKey,
+    accessKeyId,
+    region,
+    "s3",
+    host,
+    canonicalUri,
+    "DELETE",
+    amzDate,
+    queryString
+  );
+
+  const url = `${endpoint}/${bucket}/${pathSegments}?${queryString}`;
+
+  console.log("B2 abort multipart upload request:", { url, host, region, bucket, b2Key, uploadId, amzDate });
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: authorization,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-date": amzDate,
+    },
+  });
+
+  console.log("B2 abort multipart upload response:", response.status, response.statusText);
+  const body = await response.text();
+  console.log("B2 abort multipart upload body:", body);
+
+  // 404 is acceptable: the multipart upload may have already been aborted or
+  // completed.
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`S3 abort multipart upload failed: ${response.status} ${response.statusText} - ${body}`);
   }
 }
 
@@ -564,7 +679,9 @@ async function deleteFileVersionFromB2(fileId: string, fileName: string): Promis
     body: JSON.stringify({ fileId, fileName }),
   });
 
-  if (!response.ok) {
+  // 404 is acceptable: the file version may have already been deleted by a
+  // previous retry or concurrent cleanup.
+  if (!response.ok && response.status !== 404) {
     const errorText = await response.text();
     throw new Error(`B2 delete_file_version failed: ${response.status} ${errorText}`);
   }
@@ -591,6 +708,10 @@ async function deleteAllVersionsFromB2ByFilename(fileName: string): Promise<{ de
       console.error(`Failed to delete B2 version ${version.fileId}:`, message);
       errors.push(`Failed to delete ${version.fileId}: ${message}`);
     }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Failed to delete ${errors.length} of ${fileVersions.length} B2 versions for ${fileName}: ${errors.join("; ")}`);
   }
 
   return { deleted, errors };
@@ -640,6 +761,7 @@ export const deleteUploadFromStorage = internalAction({
     filename: v.optional(v.string()),
     s3Key: v.optional(v.string()),
     b2FileId: v.optional(v.string()),
+    b2UploadId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const upload = await ctx.runQuery(
@@ -654,13 +776,15 @@ export const deleteUploadFromStorage = internalAction({
     const attemptCount = upload.deleteAttemptCount ?? 0;
 
     try {
-      if (args.filename && args.b2FileId) {
-        console.log(`Deleting all versions of B2 file: ${args.filename} (versionId: ${args.b2FileId})`);
-        const result = await deleteAllVersionsFromB2ByFilename(args.filename);
-        console.log(`B2 deletion result: ${result.deleted} versions deleted, ${result.errors.length} errors`);
-        if (result.errors.length > 0) {
-          console.error("B2 deletion errors:", result.errors);
-        }
+        if (args.filename && args.b2FileId) {
+          console.log(`Deleting all versions of B2 file: ${args.filename} (versionId: ${args.b2FileId})`);
+          const result = await deleteAllVersionsFromB2ByFilename(args.filename);
+          console.log(`B2 deletion result: ${result.deleted} versions deleted`);
+        } else if (args.filename && args.b2UploadId) {
+        // Incomplete multipart upload: abort the multipart session. The object
+        // itself does not exist yet, so deleting by key would not clean up the
+        // multipart state.
+        await abortMultipartUploadFromB2(args.filename, args.b2UploadId);
       } else if (args.filename) {
         await deleteFromB2(args.filename);
       }
@@ -699,6 +823,7 @@ export const deleteUploadFromStorage = internalAction({
           filename: args.filename ?? undefined,
           s3Key: args.s3Key ?? undefined,
           b2FileId: args.b2FileId ?? undefined,
+          b2UploadId: args.b2UploadId ?? undefined,
         });
       }
     }
@@ -972,6 +1097,7 @@ export const restoreUpload = mutation({
       .first();
 
     if (!upload) return { error: "not_found" };
+    await requireDeleteAccess(ctx, upload);
 
     if (upload.status !== "deleted") {
       return { error: "not_deleted" };
@@ -997,6 +1123,7 @@ export const hardDeleteUpload = mutation({
     id: v.string(),
     filename: v.optional(v.string()),
     s3Key: v.optional(v.string()),
+    b2UploadId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const upload = await ctx.db
@@ -1005,13 +1132,14 @@ export const hardDeleteUpload = mutation({
       .first();
 
     if (!upload) return { error: "not_found" };
+    await requireDeleteAccess(ctx, upload);
 
     await ctx.db.patch(upload._id, {
       status: "deleting",
       updatedAt: Date.now(),
     });
 
-    if (!args.filename && !args.s3Key) {
+    if (!args.filename && !args.s3Key && !args.b2UploadId) {
       await ctx.db.delete(upload._id);
       return { success: true, status: "deleted" };
     }
@@ -1020,6 +1148,8 @@ export const hardDeleteUpload = mutation({
       uploadId: args.id,
       filename: args.filename ?? undefined,
       s3Key: args.s3Key ?? undefined,
+      b2FileId: upload.b2FileId ?? undefined,
+      b2UploadId: args.b2UploadId ?? upload.b2UploadId ?? undefined,
     });
 
     return { success: true, status: "deleting" };
@@ -1160,7 +1290,15 @@ export const cleanupExpiredSoftDelete = action({
     }
 
     try {
-      if (upload.filename) {
+      if (upload.filename && upload.b2FileId) {
+        // Completed B2 upload: delete all versions by filename and file ID.
+        const result = await deleteAllVersionsFromB2ByFilename(upload.filename);
+        console.log(`B2 deletion result: ${result.deleted} versions deleted`);
+      } else if (upload.filename && upload.b2UploadId) {
+        // Incomplete multipart upload: abort the multipart session before the
+        // object is attempted to be deleted by key.
+        await abortMultipartUploadFromB2(upload.filename, upload.b2UploadId);
+      } else if (upload.filename) {
         await deleteFromB2(upload.filename);
       }
       if (upload.s3Key) {
@@ -1211,7 +1349,15 @@ export const cleanupExpiredSoftDeletesBatch = action({
         }
 
         try {
-          if (upload.filename) {
+          if (upload.filename && upload.b2FileId) {
+            // Completed B2 upload: delete all versions by filename and file ID.
+            const result = await deleteAllVersionsFromB2ByFilename(upload.filename);
+            console.log(`B2 deletion result: ${result.deleted} versions deleted`);
+          } else if (upload.filename && upload.b2UploadId) {
+            // Incomplete multipart upload: abort the multipart session before the
+            // object is attempted to be deleted by key.
+            await abortMultipartUploadFromB2(upload.filename, upload.b2UploadId);
+          } else if (upload.filename) {
             await deleteFromB2(upload.filename);
           }
           if (upload.s3Key) {

@@ -1014,6 +1014,7 @@ export const hardDeleteUser = mutation({
         filename: upload.filename ?? undefined,
         s3Key: upload.s3Key ?? undefined,
         b2FileId: upload.b2FileId ?? undefined,
+        b2UploadId: upload.b2UploadId ?? undefined,
       });
     }
 
