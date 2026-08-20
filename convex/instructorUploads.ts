@@ -187,6 +187,20 @@ async function getVideoEditorStorageUsed(
   return usedBytes;
 }
 
+async function hasActiveVideoEditorAssignment(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string,
+  instructorId: string
+): Promise<boolean> {
+  const assignment = await ctx.db
+    .query("videoEditorAssignments")
+    .withIndex("by_videoEditorId_instructorId", (q) =>
+      q.eq("videoEditorId", videoEditorId).eq("instructorId", instructorId)
+    )
+    .first();
+  return !!assignment;
+}
+
 async function requireDeleteAccess(
   ctx: GenericQueryCtx<DataModel>,
   upload: Doc<"instructorUploads">
@@ -204,11 +218,28 @@ async function requireDeleteAccess(
     return;
   }
 
-  if (caller.role === "video_editor" && upload.uploadedById === caller.userId) {
+  if (
+    caller.role === "video_editor" &&
+    upload.uploadedById === caller.userId &&
+    (await hasActiveVideoEditorAssignment(ctx, caller.userId, upload.instructorId))
+  ) {
     return;
   }
 
   throw new Error("Forbidden: you can only delete uploads you own or are assigned to");
+}
+
+async function requireAdminDeleteAccess(
+  ctx: GenericQueryCtx<DataModel>
+): Promise<void> {
+  const caller = await getAuthenticatedUser(ctx);
+  if (!caller) {
+    throw new Error("Unauthorized: authentication required");
+  }
+
+  if (caller.role !== "admin") {
+    throw new Error("Forbidden: only admins can permanently delete uploads");
+  }
 }
 
 export const createUpload = mutation({
@@ -335,6 +366,35 @@ export const updateUploadStarted = mutation({
       b2UploadId: args.b2UploadId,
       status: "uploading",
       updatedAt: Date.now(),
+    });
+    return await ctx.db.get(upload._id);
+  },
+});
+
+export const markUploadForCleanup = mutation({
+  args: {
+    id: v.string(),
+    b2UploadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
+      .first();
+    if (!upload) return null;
+    await requireDeleteAccess(ctx, upload);
+    await ctx.db.patch(upload._id, {
+      b2UploadId: args.b2UploadId,
+      status: "deleting",
+      deleteAttemptCount: 0,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+      uploadId: args.id,
+      filename: upload.filename ?? undefined,
+      s3Key: upload.s3Key ?? undefined,
+      b2FileId: upload.b2FileId ?? undefined,
+      b2UploadId: args.b2UploadId,
     });
     return await ctx.db.get(upload._id);
   },
@@ -807,11 +867,14 @@ export const deleteUploadFromStorage = internalAction({
           uploadId: args.uploadId,
           filename: args.filename ?? undefined,
           s3Key: args.s3Key ?? undefined,
+          b2FileId: args.b2FileId ?? undefined,
+          b2UploadId: args.b2UploadId ?? undefined,
           error: errorMessage,
         });
-        await ctx.runMutation(internal.instructorUploads.deleteUploadRecord, {
-          id: args.uploadId,
-        });
+        // Keep the row in "deleting" status so the identifiers (filename,
+        // s3Key, b2FileId, b2UploadId) remain available for manual cleanup.
+        // The cron only retries rows with deleteAttemptCount < 3, so this
+        // record will not be retried automatically.
       } else {
         await ctx.scheduler.runAfter(3600_000, internal.instructorUploads.deleteUploadFromStorage, {
           uploadId: args.uploadId,
@@ -842,6 +905,7 @@ export const recordDeleteFailure = internalMutation({
     await ctx.db.patch(upload._id, {
       deleteAttemptCount: args.attemptCount,
       lastDeleteAttempt: Date.now(),
+      errorMessage: args.error,
       updatedAt: Date.now(),
     });
   },
@@ -1122,7 +1186,7 @@ export const hardDeleteUpload = mutation({
       .first();
 
     if (!upload) return { error: "not_found" };
-    await requireDeleteAccess(ctx, upload);
+    await requireAdminDeleteAccess(ctx);
 
     await ctx.db.patch(upload._id, {
       status: "deleting",
@@ -1151,6 +1215,8 @@ export const sendDeleteFailureAlert = internalAction({
     uploadId: v.string(),
     filename: v.optional(v.string()),
     s3Key: v.optional(v.string()),
+    b2FileId: v.optional(v.string()),
+    b2UploadId: v.optional(v.string()),
     error: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1191,6 +1257,8 @@ export const sendDeleteFailureAlert = internalAction({
           <li><strong>Instructor:</strong> ${instructorInfo.name} (${instructorInfo.email})</li>
           <li><strong>Upload ID:</strong> ${args.uploadId}</li>
           <li><strong>B2 Key:</strong> ${args.filename ?? "N/A"}</li>
+          <li><strong>B2 File ID:</strong> ${args.b2FileId ?? "N/A"}</li>
+          <li><strong>B2 Upload ID:</strong> ${args.b2UploadId ?? "N/A"}</li>
           <li><strong>S3 Key:</strong> ${args.s3Key ?? "N/A"}</li>
           <li><strong>Last Error:</strong> ${args.error}</li>
         </ul>
@@ -1210,6 +1278,8 @@ An upload deletion failed after 3 retry attempts.
 Instructor: ${instructorInfo.name} (${instructorInfo.email})
 Upload ID: ${args.uploadId}
 B2 Key: ${args.filename ?? "N/A"}
+B2 File ID: ${args.b2FileId ?? "N/A"}
+B2 Upload ID: ${args.b2UploadId ?? "N/A"}
 S3 Key: ${args.s3Key ?? "N/A"}
 Last Error: ${args.error}
 
