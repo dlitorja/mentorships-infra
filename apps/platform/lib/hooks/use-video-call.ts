@@ -209,12 +209,16 @@ export function useVideoCall(
   }, [sessionId, workspaceId]);
 
   // Mirror Daily's local device state into React state so consumers
-  // don't need access to the `daily` call object.
+  // don't need access to the `daily` call object. `meetingState` is
+  // included so we re-sync immediately after `join()` completes —
+  // `daily` is the same object reference before and after
+  // `daily.join()`, so without this dependency the effect would not
+  // fire on join and `isMuted` could be stale.
   useEffect(() => {
     if (!daily) return;
     setIsMuted(!daily.localAudio());
     setIsCameraOff(!daily.localVideo());
-  }, [daily]);
+  }, [daily, meetingState]);
 
   // Track meeting-state transitions into our higher-level `status`.
   //
@@ -483,12 +487,34 @@ export function useVideoCall(
   }, [daily]);
 
   const toggleScreenShare = useCallback((): void => {
+    const reportScreenShareError = (source: string, err: unknown): void => {
+      const message = err instanceof Error ? err.message : String(err);
+      void reportError({
+        source,
+        error: err instanceof Error ? err : new Error(message),
+        level: "error",
+        message,
+        context: { workspaceId, sessionId },
+      });
+    };
     if (isSharingScreen) {
-      void stopScreenShare();
+      (async () => {
+        try {
+          await stopScreenShare();
+        } catch (err) {
+          reportScreenShareError("useVideoCall.toggleScreenShare.stop", err);
+        }
+      })();
     } else {
-      void startScreenShare();
+      (async () => {
+        try {
+          await startScreenShare();
+        } catch (err) {
+          reportScreenShareError("useVideoCall.toggleScreenShare.start", err);
+        }
+      })();
     }
-  }, [isSharingScreen, startScreenShare, stopScreenShare]);
+  }, [isSharingScreen, startScreenShare, stopScreenShare, sessionId, workspaceId]);
 
   // Track participant count + remote name. Key identity by
   // `session_id` (not `user_name`) so a mid-call `setUserName` does
