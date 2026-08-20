@@ -202,9 +202,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
       }
 
+      let rowDeleted = false;
       if (abortSucceeded) {
         try {
           await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
+          rowDeleted = true;
         } catch (deleteError) {
           console.error("Failed to delete upload record after updateUploadStarted failure:", {
             fileId,
@@ -213,7 +215,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             error: deleteError instanceof Error ? deleteError.message : String(deleteError),
           });
         }
-      } else {
+      }
+
+      if (!rowDeleted) {
         try {
           await fetchMutation(api.instructorUploads.markUploadForCleanup, {
             id: fileId,

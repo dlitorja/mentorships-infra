@@ -382,6 +382,7 @@ export const markUploadForCleanup = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    await requireDeleteAccess(ctx, upload);
     await ctx.db.patch(upload._id, {
       b2UploadId: args.b2UploadId,
       status: "deleting",

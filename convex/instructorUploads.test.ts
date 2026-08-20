@@ -109,6 +109,41 @@ test("softDeleteUpload: revoked video editor cannot delete their old upload", as
   ).rejects.toThrow("Forbidden");
 });
 
+test("markUploadForCleanup: requires delete access", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_cleanup";
+  const editorId = "editor_cleanup";
+  const otherEditorId = "other_editor_cleanup";
+  const uploadId = "upload_cleanup";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await seedUser(ctx, otherEditorId, "video_editor");
+    await seedUpload(ctx, uploadId, instructorId, editorId, "uploading");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: otherEditorId }).mutation(api.instructorUploads.markUploadForCleanup, {
+      id: uploadId,
+      b2UploadId: "b2_upload_id",
+    })
+  ).rejects.toThrow("Forbidden");
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.markUploadForCleanup, {
+      id: uploadId,
+      b2UploadId: "b2_upload_id",
+    })
+  ).resolves.toMatchObject({ status: "deleting" });
+});
+
 test("deleteUpload: hard delete is admin-only", async () => {
   const t = convexTest(schema, modules);
   const instructorId = "inst_hard";
