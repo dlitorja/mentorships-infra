@@ -871,9 +871,10 @@ export const deleteUploadFromStorage = internalAction({
           b2UploadId: args.b2UploadId ?? undefined,
           error: errorMessage,
         });
-        await ctx.runMutation(internal.instructorUploads.deleteUploadRecord, {
-          id: args.uploadId,
-        });
+        // Keep the row in "deleting" status so the identifiers (filename,
+        // s3Key, b2FileId, b2UploadId) remain available for manual cleanup.
+        // The cron only retries rows with deleteAttemptCount < 3, so this
+        // record will not be retried automatically.
       } else {
         await ctx.scheduler.runAfter(3600_000, internal.instructorUploads.deleteUploadFromStorage, {
           uploadId: args.uploadId,
@@ -904,6 +905,7 @@ export const recordDeleteFailure = internalMutation({
     await ctx.db.patch(upload._id, {
       deleteAttemptCount: args.attemptCount,
       lastDeleteAttempt: Date.now(),
+      errorMessage: args.error,
       updatedAt: Date.now(),
     });
   },
