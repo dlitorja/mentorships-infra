@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { initiateUpload, completeUpload, abortUpload } from "@/lib/api";
-import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
+import { MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
 
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
@@ -26,7 +26,10 @@ const ACCEPTED_VIDEO_TYPES = {
   "video/mpeg": [".mpeg", ".mpg"],
 };
 
-const MAX_FILE_SIZE = STORAGE_LIMIT_BYTES;
+// Server-side upload limit is the real single-file cap. Per-instructor
+// quotas for video editors are enforced on the server and are independent of
+// this client-side validation.
+const MAX_FILE_SIZE = MAX_MULTIPART_UPLOAD_BYTES;
 const MAX_CONCURRENT_UPLOADS = 2;
 // The server-side complete route reads part ETags directly from B2,
 // so the client no longer needs the ETag header from the PUT response.
@@ -384,7 +387,7 @@ export function UploadZone({
       if (file.size > MAX_FILE_SIZE) {
         return {
           code: "file-too-large",
-          message: `File too large. Maximum size is 50GB`,
+          message: `File too large. Maximum size is 20GB`,
         };
       }
       return null;
@@ -504,7 +507,7 @@ export function UploadZone({
                   <span className="text-emerald-500 font-medium underline">click to browse</span>
                 </p>
                 <p className="text-sm text-slate-500 mt-2">
-                  MP4, MOV, AVI, WebM, MKV, MPEG • Max 50GB • Up to 2 files simultaneously
+                  MP4, MOV, AVI, WebM, MKV, MPEG • Max 20GB per file • Up to 2 files simultaneously
                 </p>
               </div>
             </>

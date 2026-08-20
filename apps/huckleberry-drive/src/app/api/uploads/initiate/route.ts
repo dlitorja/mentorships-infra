@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { initiateMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
+import { initiateMultipartUpload, abortMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
@@ -121,7 +121,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // race past a route-side pre-check. Keep a soft pre-check here
     // for nicer error messages, but treat the mutation as the
     // authoritative gate.
-    if (dbUser.role !== "admin") {
+    //
+    // The default 50GB cap only applies to instructors uploading to their
+    // own storage. Video editors upload under the per-instructor quota set
+    // in /admin/video-editors; if no quota is set they are unlimited.
+    // Admins bypass the default cap entirely.
+    if (dbUser.role === "instructor") {
       const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
         instructorId: targetInstructorId,
       }, { token: convexToken }) as { usedBytes: number; fileCount: number };
@@ -145,20 +150,63 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       instructorId: targetInstructorId,
     });
 
-    await fetchMutation(api.instructorUploads.createUpload, {
-      id: fileId,
-      instructorId: targetInstructorId,
-      filename: upload.key,
-      originalName: filename,
-      contentType,
-      size,
-      uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
-    }, { token: convexToken });
+    try {
+      await fetchMutation(api.instructorUploads.createUpload, {
+        id: fileId,
+        instructorId: targetInstructorId,
+        filename: upload.key,
+        originalName: filename,
+        contentType,
+        size,
+        uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
+      }, { token: convexToken });
+    } catch (error) {
+      // Authoritative mutation rejected the upload (e.g., assignment removed,
+      // quota exceeded, or concurrent cap violation). Abort the B2 multipart
+      // upload so we do not leave orphaned multipart state.
+      try {
+        await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+      } catch (abortError) {
+        console.error("Failed to abort orphaned multipart upload after createUpload rejection:", {
+          fileId,
+          key: upload.key,
+          uploadId: upload.uploadId,
+          error: abortError instanceof Error ? abortError.message : String(abortError),
+        });
+      }
+      throw error;
+    }
 
-    await fetchMutation(api.instructorUploads.updateUploadStarted, {
-      id: fileId,
-      b2UploadId: upload.uploadId,
-    }, { token: convexToken });
+    try {
+      await fetchMutation(api.instructorUploads.updateUploadStarted, {
+        id: fileId,
+        b2UploadId: upload.uploadId,
+      }, { token: convexToken });
+    } catch (error) {
+      // Metadata update failed after the upload record was created but before
+      // b2UploadId was persisted. Abort the B2 multipart upload directly and
+      // delete the pending Convex row. The row still has no b2UploadId, so
+      // deleteUpload would not clean up B2 state on its own.
+      try {
+        await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+      } catch (abortError) {
+        console.error("Failed to abort orphaned multipart upload after updateUploadStarted failure:", {
+          fileId,
+          key: upload.key,
+          uploadId: upload.uploadId,
+          error: abortError instanceof Error ? abortError.message : String(abortError),
+        });
+      }
+      try {
+        await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
+      } catch (deleteError) {
+        console.error("Failed to delete upload record after updateUploadStarted failure:", {
+          fileId,
+          error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+        });
+      }
+      throw error;
+    }
 
     return NextResponse.json({
       fileId,

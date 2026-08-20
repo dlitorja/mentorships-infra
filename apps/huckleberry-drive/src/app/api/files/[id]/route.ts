@@ -55,11 +55,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Not authorized to delete this file" }, { status: 403 });
     }
 
-    const result = await fetchMutation(api.instructorUploads.deleteUpload, {
-      id,
-      filename: upload.filename || undefined,
-      s3Key: upload.s3Key || undefined,
-    }, { token: convexToken });
+    const result = await fetchMutation(api.instructorUploads.deleteUpload, { id }, { token: convexToken });
 
     if (result.error === "not_found" || result.error === "already_deleted") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
