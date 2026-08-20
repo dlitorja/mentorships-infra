@@ -380,12 +380,7 @@ export const softDeleteUpload = mutation({
 });
 
 export const deleteUpload = mutation({
-  args: {
-    id: v.string(),
-    filename: v.optional(v.string()),
-    s3Key: v.optional(v.string()),
-    b2UploadId: v.optional(v.string()),
-  },
+  args: { id: v.string() },
   handler: async (ctx, args) => {
     const upload = await ctx.db
       .query("instructorUploads")
@@ -404,17 +399,17 @@ export const deleteUpload = mutation({
       updatedAt: Date.now(),
     });
 
-    if (!args.filename && !args.s3Key && !upload.b2FileId && !args.b2UploadId) {
+    if (!upload.filename && !upload.s3Key && !upload.b2FileId && !upload.b2UploadId) {
       await ctx.db.delete(upload._id);
       return { success: true, status: "deleted" };
     }
 
     await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
       uploadId: args.id,
-      filename: args.filename ?? undefined,
-      s3Key: args.s3Key ?? undefined,
+      filename: upload.filename ?? undefined,
+      s3Key: upload.s3Key ?? undefined,
       b2FileId: upload.b2FileId ?? undefined,
-      b2UploadId: args.b2UploadId ?? upload.b2UploadId ?? undefined,
+      b2UploadId: upload.b2UploadId ?? undefined,
     });
 
     return { success: true, status: "deleting" };
@@ -1119,12 +1114,7 @@ export const restoreUpload = mutation({
 });
 
 export const hardDeleteUpload = mutation({
-  args: {
-    id: v.string(),
-    filename: v.optional(v.string()),
-    s3Key: v.optional(v.string()),
-    b2UploadId: v.optional(v.string()),
-  },
+  args: { id: v.string() },
   handler: async (ctx, args) => {
     const upload = await ctx.db
       .query("instructorUploads")
@@ -1139,17 +1129,17 @@ export const hardDeleteUpload = mutation({
       updatedAt: Date.now(),
     });
 
-    if (!args.filename && !args.s3Key && !args.b2UploadId) {
+    if (!upload.filename && !upload.s3Key && !upload.b2FileId && !upload.b2UploadId) {
       await ctx.db.delete(upload._id);
       return { success: true, status: "deleted" };
     }
 
     await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
       uploadId: args.id,
-      filename: args.filename ?? undefined,
-      s3Key: args.s3Key ?? undefined,
+      filename: upload.filename ?? undefined,
+      s3Key: upload.s3Key ?? undefined,
       b2FileId: upload.b2FileId ?? undefined,
-      b2UploadId: args.b2UploadId ?? upload.b2UploadId ?? undefined,
+      b2UploadId: upload.b2UploadId ?? undefined,
     });
 
     return { success: true, status: "deleting" };

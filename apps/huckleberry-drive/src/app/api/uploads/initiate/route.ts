@@ -183,22 +183,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         b2UploadId: upload.uploadId,
       }, { token: convexToken });
     } catch (error) {
-      // Metadata update failed after the upload record was created. Roll back
-      // both the B2 multipart state and the pending Convex row so the upload
-      // does not appear stuck without a b2UploadId. We use deleteUpload so the
-      // existing storage-deletion retry path handles any transient cleanup
-      // failures.
+      // Metadata update failed after the upload record was created but before
+      // b2UploadId was persisted. Abort the B2 multipart upload directly and
+      // delete the pending Convex row. The row still has no b2UploadId, so
+      // deleteUpload would not clean up B2 state on its own.
       try {
-        await fetchMutation(api.instructorUploads.deleteUpload, {
-          id: fileId,
-          filename: upload.key,
-          b2UploadId: upload.uploadId,
-        }, { token: convexToken });
-      } catch (deleteError) {
-        console.error("Failed to delete upload record after updateUploadStarted failure:", {
+        await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+      } catch (abortError) {
+        console.error("Failed to abort orphaned multipart upload after updateUploadStarted failure:", {
           fileId,
           key: upload.key,
           uploadId: upload.uploadId,
+          error: abortError instanceof Error ? abortError.message : String(abortError),
+        });
+      }
+      try {
+        await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
+      } catch (deleteError) {
+        console.error("Failed to delete upload record after updateUploadStarted failure:", {
+          fileId,
           error: deleteError instanceof Error ? deleteError.message : String(deleteError),
         });
       }

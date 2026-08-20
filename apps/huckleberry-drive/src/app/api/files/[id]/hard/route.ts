@@ -55,11 +55,7 @@ if (upload.status === "deleting") {
       );
     }
 
-    const result = await fetchMutation(api.instructorUploads.hardDeleteUpload, {
-      id,
-      filename: upload.filename || undefined,
-      s3Key: upload.s3Key || undefined,
-    }, { token: convexToken }) as { success: true; status: "deleted" | "deleting" } | { error: "not_found" };
+    const result = await fetchMutation(api.instructorUploads.hardDeleteUpload, { id }, { token: convexToken }) as { success: true; status: "deleted" | "deleting" } | { error: "not_found" };
 
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 404 });
