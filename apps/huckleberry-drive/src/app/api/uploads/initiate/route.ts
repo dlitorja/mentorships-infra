@@ -184,11 +184,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }, { token: convexToken });
     } catch (error) {
       // Metadata update failed after the upload record was created but before
-      // b2UploadId was persisted. Abort the B2 multipart upload directly and
-      // delete the pending Convex row. The row still has no b2UploadId, so
-      // deleteUpload would not clean up B2 state on its own.
+      // b2UploadId was persisted. Try to abort the B2 multipart upload directly
+      // and then delete the pending Convex row. If either of those fails, fall
+      // back to marking the row for cleanup so the storage-deletion retry path
+      // can reconcile the orphaned multipart state using the persisted
+      // b2UploadId.
+      let abortSucceeded = false;
       try {
         await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+        abortSucceeded = true;
       } catch (abortError) {
         console.error("Failed to abort orphaned multipart upload after updateUploadStarted failure:", {
           fileId,
@@ -197,13 +201,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           error: abortError instanceof Error ? abortError.message : String(abortError),
         });
       }
-      try {
-        await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
-      } catch (deleteError) {
-        console.error("Failed to delete upload record after updateUploadStarted failure:", {
-          fileId,
-          error: deleteError instanceof Error ? deleteError.message : String(deleteError),
-        });
+
+      if (abortSucceeded) {
+        try {
+          await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
+        } catch (deleteError) {
+          console.error("Failed to delete upload record after updateUploadStarted failure:", {
+            fileId,
+            key: upload.key,
+            uploadId: upload.uploadId,
+            error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+          });
+        }
+      } else {
+        try {
+          await fetchMutation(api.instructorUploads.markUploadForCleanup, {
+            id: fileId,
+            b2UploadId: upload.uploadId,
+          }, { token: convexToken });
+        } catch (cleanupError) {
+          console.error("Failed to mark upload for cleanup after updateUploadStarted failure:", {
+            fileId,
+            key: upload.key,
+            uploadId: upload.uploadId,
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
       }
       throw error;
     }

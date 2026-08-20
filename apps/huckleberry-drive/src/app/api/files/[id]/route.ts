@@ -22,12 +22,6 @@ interface Upload {
   errorMessage?: string;
 }
 
-interface User {
-  _id: string;
-  userId: string;
-  role: string;
-}
-
 interface Params {
   params: Promise<{ id: string }>;
 }
@@ -37,8 +31,8 @@ export async function DELETE(
   { params }: Params
 ): Promise<NextResponse> {
   try {
+    await requireInstructor();
     const { id } = await params;
-    const dbUser = await requireInstructor() as User;
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
@@ -49,10 +43,6 @@ export async function DELETE(
 
     if (upload.status === "deleted" || upload.status === "deleting") {
       return NextResponse.json({ error: "File already deleted" }, { status: 400 });
-    }
-
-    if (upload.instructorId !== dbUser.userId && dbUser.role !== "admin") {
-      return NextResponse.json({ error: "Not authorized to delete this file" }, { status: 403 });
     }
 
     const result = await fetchMutation(api.instructorUploads.deleteUpload, { id }, { token: convexToken });
@@ -91,8 +81,8 @@ export async function POST(
   { params }: Params
 ): Promise<NextResponse> {
   try {
+    await requireInstructor();
     const { id } = await params;
-    const dbUser = await requireInstructor() as User;
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
@@ -103,14 +93,6 @@ export async function POST(
 
     if (upload.status !== "deleted") {
       return NextResponse.json({ error: "File is not deleted" }, { status: 400 });
-    }
-
-    const canRestore =
-      upload.instructorId === dbUser.userId ||
-      dbUser.role === "admin";
-
-    if (!canRestore) {
-      return NextResponse.json({ error: "Not authorized to restore this file" }, { status: 403 });
     }
 
     const result = await fetchMutation(api.instructorUploads.restoreUpload, { id }, { token: convexToken }) as

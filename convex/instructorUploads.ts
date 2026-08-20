@@ -371,6 +371,34 @@ export const updateUploadStarted = mutation({
   },
 });
 
+export const markUploadForCleanup = mutation({
+  args: {
+    id: v.string(),
+    b2UploadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
+      .first();
+    if (!upload) return null;
+    await ctx.db.patch(upload._id, {
+      b2UploadId: args.b2UploadId,
+      status: "deleting",
+      deleteAttemptCount: 0,
+      updatedAt: Date.now(),
+    });
+    await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+      uploadId: args.id,
+      filename: upload.filename ?? undefined,
+      s3Key: upload.s3Key ?? undefined,
+      b2FileId: upload.b2FileId ?? undefined,
+      b2UploadId: args.b2UploadId,
+    });
+    return await ctx.db.get(upload._id);
+  },
+});
+
 export const completeUpload = mutation({
   args: {
     id: v.string(),
