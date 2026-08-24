@@ -79,10 +79,38 @@ export async function POST(req: NextRequest) {
       });
 
       const normalizedEmail = email.toLowerCase().trim();
-      await convexServerCall("/internal/link-workspaces", {
-        clerkUserId: userId,
-        email: normalizedEmail,
-      });
+
+      // Link placeholder data created by the admin-onboarding flow
+      // (session packs, seat reservations, and workspaces) to the new
+      // Clerk user. This mirrors the Inngest `linkClerkUserToSessionPacks`
+      // function but runs synchronously in the webhook so the student is
+      // usable immediately even if the event bus is delayed or the Inngest
+      // function is not registered for this deployment.
+      const linkResults = await Promise.allSettled([
+        convexServerCall<{ linked: number }>("/internal/link-session-packs", {
+          clerkUserId: userId,
+          email: normalizedEmail,
+        }),
+        convexServerCall<{ linked: number }>("/internal/link-seat-reservations", {
+          clerkUserId: userId,
+          email: normalizedEmail,
+        }),
+        convexServerCall<{ linked: number }>("/internal/link-workspaces", {
+          clerkUserId: userId,
+          email: normalizedEmail,
+        }),
+      ]);
+
+      const linkNames = ["session-packs", "seat-reservations", "workspaces"];
+      for (let i = 0; i < linkResults.length; i++) {
+        const result = linkResults[i];
+        if (result.status === "rejected") {
+          console.error(
+            `Clerk webhook: failed to link ${linkNames[i]} for ${userId} (${normalizedEmail})`,
+            result.reason
+          );
+        }
+      }
 
       return NextResponse.json({ success: true, message: "Event queued" });
     }
