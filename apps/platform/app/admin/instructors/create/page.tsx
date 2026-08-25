@@ -39,6 +39,9 @@ export default function CreateInstructorPage() {
     groupInventory: String(DEFAULT_GROUP_INVENTORY),
     maxActiveStudents: String(DEFAULT_MAX_ACTIVE_STUDENTS),
     isListed: true,
+    useKajabiCheckout: false,
+    kajabiCheckoutUrlOneOnOne: "",
+    kajabiCheckoutUrlGroup: "",
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +85,9 @@ export default function CreateInstructorPage() {
         maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? DEFAULT_MAX_ACTIVE_STUDENTS : v; })(),
         isActive: true,
         isListed: formData.isListed,
+        useKajabiCheckout: formData.useKajabiCheckout,
+        kajabiCheckoutUrlOneOnOne: formData.useKajabiCheckout ? formData.kajabiCheckoutUrlOneOnOne || undefined : undefined,
+        kajabiCheckoutUrlGroup: formData.useKajabiCheckout ? formData.kajabiCheckoutUrlGroup || undefined : undefined,
       });
 
       const instructorId: string = createRes.instructor.id;
@@ -309,6 +315,49 @@ export default function CreateInstructorPage() {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>External Checkout (Kajabi)</CardTitle>
+            <CardDescription>
+              Enable Kajabi checkout to redirect purchases to an external Kajabi page instead of the internal Stripe/PayPal flow.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="useKajabiCheckout"
+                checked={formData.useKajabiCheckout}
+                onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, useKajabiCheckout: checked === true }))}
+              />
+              <Label htmlFor="useKajabiCheckout" className="cursor-pointer">Use Kajabi Checkout</Label>
+            </div>
+            {formData.useKajabiCheckout && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="kajabiCheckoutUrlOneOnOne">Kajabi URL for 1-on-1 Mentorship</Label>
+                  <Input
+                    id="kajabiCheckoutUrlOneOnOne"
+                    value={formData.kajabiCheckoutUrlOneOnOne}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, kajabiCheckoutUrlOneOnOne: e.target.value }))}
+                    placeholder="https://your-app.kajabi.com/offers/..."
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">The Kajabi checkout URL for 1-on-1 mentorship purchases</p>
+                </div>
+                <div>
+                  <Label htmlFor="kajabiCheckoutUrlGroup">Kajabi URL for Group Mentorship</Label>
+                  <Input
+                    id="kajabiCheckoutUrlGroup"
+                    value={formData.kajabiCheckoutUrlGroup}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, kajabiCheckoutUrlGroup: e.target.value }))}
+                    placeholder="https://your-app.kajabi.com/offers/..."
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">The Kajabi checkout URL for group mentorship purchases</p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

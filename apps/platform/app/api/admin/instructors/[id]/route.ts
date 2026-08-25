@@ -62,6 +62,9 @@ const updateInstructorSchema = z.object({
     if (v === undefined || v === null) return v;
     return v.trim() === "" ? null : v.trim();
   }),
+  useKajabiCheckout: z.boolean().optional(),
+  kajabiCheckoutUrlOneOnOne: z.string().optional().nullable(),
+  kajabiCheckoutUrlGroup: z.string().optional().nullable(),
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
@@ -107,6 +110,9 @@ export async function GET(
       updatedAt?: number | string | null;
       _creationTime?: number;
       discordVoiceChannelUrl?: string | null;
+      useKajabiCheckout?: boolean;
+      kajabiCheckoutUrlOneOnOne?: string;
+      kajabiCheckoutUrlGroup?: string;
     };
     const isInstructor = (obj: unknown): obj is InstructorDoc =>
       !!obj && typeof obj === "object" && "_id" in obj;
@@ -196,6 +202,9 @@ export async function GET(
         studentName: r.studentName,
         createdAt: new Date(r._creationTime).toISOString(),
       })),
+      useKajabiCheckout: instructor.useKajabiCheckout ?? false,
+      kajabiCheckoutUrlOneOnOne: instructor.kajabiCheckoutUrlOneOnOne ?? "",
+      kajabiCheckoutUrlGroup: instructor.kajabiCheckoutUrlGroup ?? "",
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -323,8 +332,11 @@ export async function PUT(
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
     if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
+    if (data.useKajabiCheckout !== undefined) updateData.useKajabiCheckout = data.useKajabiCheckout;
+    if (data.kajabiCheckoutUrlOneOnOne !== undefined) updateData.kajabiCheckoutUrlOneOnOne = data.kajabiCheckoutUrlOneOnOne === null || data.kajabiCheckoutUrlOneOnOne === "" ? undefined : data.kajabiCheckoutUrlOneOnOne;
+    if (data.kajabiCheckoutUrlGroup !== undefined) updateData.kajabiCheckoutUrlGroup = data.kajabiCheckoutUrlGroup === null || data.kajabiCheckoutUrlGroup === "" ? undefined : data.kajabiCheckoutUrlGroup;
 
-    let updated: { _id: string; name?: string; slug?: string; email?: string | null; tagline?: string | null; bio?: string | null; specialties?: string[]; background?: string[]; profileImageUrl?: string | null; profileImageUploadPath?: string | null; portfolioImages?: string[]; socials?: unknown; isActive?: boolean; isListed?: boolean; userId?: string | null; legacyInstructorRef?: string | null; oneOnOneInventory?: number; groupInventory?: number; maxActiveStudents?: number; updatedAt?: number | string | null; _creationTime?: number; discordVoiceChannelUrl?: string | null } | null = null;
+    let updated: { _id: string; name?: string; slug?: string; email?: string | null; tagline?: string | null; bio?: string | null; specialties?: string[]; background?: string[]; profileImageUrl?: string | null; profileImageUploadPath?: string | null; portfolioImages?: string[]; socials?: unknown; isActive?: boolean; isListed?: boolean; userId?: string | null; legacyInstructorRef?: string | null; oneOnOneInventory?: number; groupInventory?: number; maxActiveStudents?: number; updatedAt?: number | string | null; _creationTime?: number; discordVoiceChannelUrl?: string | null; useKajabiCheckout?: boolean; kajabiCheckoutUrlOneOnOne?: string; kajabiCheckoutUrlGroup?: string } | null = null;
     console.log("[DEBUG PUT] Calling updateInstructor mutation with portfolioImages:", updateData.portfolioImages);
     try {
       updated = await convex.mutation(api.instructors.updateInstructor, {
