@@ -25,6 +25,9 @@ export const instructors = pgTable(
       artstation?: string;
     }>(),
     isActive: boolean("is_active").notNull().default(true),
+    useKajabiCheckout: boolean("use_kajabi_checkout").notNull().default(false),
+    kajabiCheckoutUrlOneOnOne: text("kajabi_checkout_url_one_on_one"),
+    kajabiCheckoutUrlGroup: text("kajabi_checkout_url_group"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -66,6 +66,9 @@ export default defineSchema({
     legacyInstructorRef: v.optional(v.string()),
     tagline: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
+    kajabiCheckoutUrlGroup: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"])

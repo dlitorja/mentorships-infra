@@ -98,11 +98,17 @@ function InstructorExtras({
   instructorSlug,
   oneOnOneInventory,
   groupInventory,
+  useKajabiCheckout,
+  kajabiCheckoutUrlOneOnOne,
+  kajabiCheckoutUrlGroup,
 }: {
   instructorId: string;
   instructorSlug: string;
   oneOnOneInventory: number;
   groupInventory: number;
+  useKajabiCheckout?: boolean;
+  kajabiCheckoutUrlOneOnOne?: string;
+  kajabiCheckoutUrlGroup?: string;
 }) {
   // These hooks require a valid instructors table id; they will only mount when we have one
   const {
@@ -143,6 +149,61 @@ function InstructorExtras({
     }
   };
 
+  // Kajabi external checkout mode
+  if (useKajabiCheckout) {
+    return (
+      <div>
+        <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+        <div className="space-y-4">
+          {kajabiCheckoutUrlOneOnOne && (
+            <div>
+              <p className="text-lg">
+                <span className="font-semibold">1-on-1 Mentorships</span>
+              </p>
+              {renderSpotsAvailable(oneOnOneInventory)}
+              <div className="mt-4">
+                {oneOnOneInventory === 0 ? (
+                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                    <Link href={`/waitlist?instructor=${instructorSlug}&type=one-on-one`}>Sign up for waitlist</Link>
+                  </Button>
+                ) : (
+                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                    <Link href={kajabiCheckoutUrlOneOnOne} target="_blank" rel="noopener noreferrer">
+                      Buy 1-on-1 pack
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {kajabiCheckoutUrlGroup && (
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-lg">
+                <span className="font-semibold">Group Mentorships</span>
+              </p>
+              {renderSpotsAvailable(groupInventory)}
+              <div className="mt-4">
+                {groupInventory === 0 ? (
+                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                    <Link href={`/waitlist?instructor=${instructorSlug}&type=group`}>Sign up for waitlist</Link>
+                  </Button>
+                ) : (
+                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                    <Link href={kajabiCheckoutUrlGroup} target="_blank" rel="noopener noreferrer">
+                      Buy group pack
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Standard internal checkout mode
   return (
     <div>
       <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
@@ -308,6 +369,9 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                     instructorSlug={publicInstructor.slug!}
                     oneOnOneInventory={oneOnOneInventory}
                     groupInventory={groupInventory}
+                    useKajabiCheckout={publicInstructor.useKajabiCheckout}
+                    kajabiCheckoutUrlOneOnOne={publicInstructor.kajabiCheckoutUrlOneOnOne}
+                    kajabiCheckoutUrlGroup={publicInstructor.kajabiCheckoutUrlGroup}
                   />
                 ) : instructorIdForQueries ? (
                   <p className="text-muted-foreground">Purchasing will be available soon.</p>

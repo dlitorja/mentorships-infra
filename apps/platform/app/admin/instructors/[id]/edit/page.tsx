@@ -18,6 +18,7 @@ import { ImagesSection } from "./sections/ImagesSection";
 import { TagsSection } from "./sections/TagsSection";
 import { SocialLinksSection } from "./sections/SocialLinksSection";
 import { InventorySection } from "./sections/InventorySection";
+import { KajabiSection } from "./sections/KajabiSection";
 import { TestimonialsSection } from "./sections/TestimonialsSection";
 import { StudentResultsSection } from "./sections/StudentResultsSection";
 import { TestimonialDialog } from "./dialogs/TestimonialDialog";
@@ -169,6 +170,7 @@ export default function EditInstructorPage() {
           <TabsTrigger className="whitespace-nowrap" value="tags">Tags</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="social">Social Links</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="inventory">Inventory</TabsTrigger>
+          <TabsTrigger className="whitespace-nowrap" value="kajabi">External Checkout</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="testimonials">Testimonials</TabsTrigger>
           <TabsTrigger className="whitespace-nowrap" value="results">Results</TabsTrigger>
         </TabsList>
@@ -216,6 +218,14 @@ export default function EditInstructorPage() {
 
         <TabsContent value="inventory">
           <InventorySection
+            formData={formData}
+            setFormData={setFormData}
+            setActiveTab={setActiveTab}
+          />
+        </TabsContent>
+
+        <TabsContent value="kajabi">
+          <KajabiSection
             formData={formData}
             setFormData={setFormData}
             setActiveTab={setActiveTab}

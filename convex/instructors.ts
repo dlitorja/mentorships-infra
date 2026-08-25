@@ -828,6 +828,10 @@ export const getInstructorBySlug = query({
       // Surface inventory for purchase/waitlist logic; default to 0 when missing
       oneOnOneInventory: (instructor as any)?.oneOnOneInventory ?? 0,
       groupInventory: (instructor as any)?.groupInventory ?? 0,
+      // Surface Kajabi checkout fields for external checkout flow
+      useKajabiCheckout: (instructor as any)?.useKajabiCheckout ?? false,
+      kajabiCheckoutUrlOneOnOne: (instructor as any)?.kajabiCheckoutUrlOneOnOne,
+      kajabiCheckoutUrlGroup: (instructor as any)?.kajabiCheckoutUrlGroup,
     } as any;
   },
 });
@@ -1063,6 +1067,9 @@ export const createInstructor = mutation({
     profileImageUrl: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
+    kajabiCheckoutUrlGroup: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Skip the userId dedup check when no userId is supplied — the
@@ -1115,6 +1122,9 @@ export const createInstructor = mutation({
       maxActiveStudents: args.maxActiveStudents ?? 10,
       oneOnOneInventory: args.oneOnOneInventory ?? 0,
       groupInventory: args.groupInventory ?? 0,
+      useKajabiCheckout: args.useKajabiCheckout,
+      kajabiCheckoutUrlOneOnOne: args.kajabiCheckoutUrlOneOnOne,
+      kajabiCheckoutUrlGroup: args.kajabiCheckoutUrlGroup,
     });
   },
 });
@@ -1256,6 +1266,9 @@ export const updateInstructor = mutation({
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
     legacyInstructorRef: v.optional(v.union(v.string(), v.null())),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.union(v.string(), v.null())),
+    kajabiCheckoutUrlGroup: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -1305,6 +1318,8 @@ export const updateInstructor = mutation({
       "googleRefreshToken",
       "discordVoiceChannelUrl",
       "legacyInstructorRef",
+      "kajabiCheckoutUrlOneOnOne",
+      "kajabiCheckoutUrlGroup",
     ];
     for (const key of nullableKeys) {
       if ((updates as any)[key] === null) {

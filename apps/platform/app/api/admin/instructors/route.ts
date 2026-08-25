@@ -113,6 +113,9 @@ const createInstructorSchema = z.object({
   oneOnOneInventory: z.number().int().min(0).optional().default(0),
   groupInventory: z.number().int().min(0).optional().default(0),
   maxActiveStudents: z.number().int().min(1).optional().default(10),
+  useKajabiCheckout: z.boolean().optional().default(false),
+  kajabiCheckoutUrlOneOnOne: z.string().optional(),
+  kajabiCheckoutUrlGroup: z.string().optional(),
 });
 
 /**
@@ -177,6 +180,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         maxActiveStudents: data.maxActiveStudents,
         oneOnOneInventory: data.oneOnOneInventory,
         groupInventory: data.groupInventory,
+        useKajabiCheckout: data.useKajabiCheckout,
+        kajabiCheckoutUrlOneOnOne: data.kajabiCheckoutUrlOneOnOne,
+        kajabiCheckoutUrlGroup: data.kajabiCheckoutUrlGroup,
       });
     } catch (err: any) {
       if (err?.message === "Slug already exists") {
