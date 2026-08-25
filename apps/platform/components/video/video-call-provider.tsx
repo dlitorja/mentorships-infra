@@ -280,13 +280,12 @@ function VideoCallProviderInner({
       onToggleMute: call.toggleMute,
       onToggleCamera: call.toggleCamera,
       onToggleScreenShare: call.toggleScreenShare,
-      onTogglePip: togglePictureInPicture,
       onLeaveCall: () => {
         void call.leave();
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- call is captured fresh each render; the per-call handlers below are stable within a render
-    [call.toggleMute, call.toggleCamera, call.toggleScreenShare, call.leave, togglePictureInPicture]
+    [call.toggleMute, call.toggleCamera, call.toggleScreenShare, call.leave]
   );
 
   useKeyboardShortcuts(call.status === "joined", handlers);

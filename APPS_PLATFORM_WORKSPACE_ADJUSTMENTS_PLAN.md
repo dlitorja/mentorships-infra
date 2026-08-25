@@ -116,6 +116,15 @@ The Videos tab is driven by `convex/sessions.ts:getCallRecordingsForWorkspace`, 
   - Keep admin navigation unchanged (out of scope).
   - Preserve the notification bell in the sidebar footer.
 
+### 2.7. Remove picture-in-picture button from workspace video call controls ✅
+
+The PiP toggle in the in-call controls bar is causing UX problems and is not useful for mentorship calls. The responsive narrow-layout floating panel can remain, but the manual toggle must go.
+
+- `apps/platform/components/video/video-controls.tsx` — remove the `PictureInPicture` icon button and its context destructuring.
+- `apps/platform/lib/hooks/use-keyboard-shortcuts.ts` — remove the `p` → `onTogglePip` shortcut and the handler from the handlers object.
+- `apps/platform/components/video/video-call-provider.tsx` — remove `onTogglePip` from the keyboard-shortcuts handlers object.
+- `apps/platform/lib/video/constants.ts` — remove `togglePictureInPicture` from `VIDEO_SHORTCUTS`.
+
 ## 3. Files to touch
 
 - `convex/sessions.ts`
@@ -134,6 +143,9 @@ The Videos tab is driven by `convex/sessions.ts:getCallRecordingsForWorkspace`, 
 - `convex/sessions.ts` (sync/queries)
 - `apps/platform/app/api/video/recordings/sync/route.ts` (sync fallback API)
 - `apps/platform/lib/daily.ts` (recording list + HMAC helper)
+- `apps/platform/components/video/video-controls.tsx` (PiP button removal)
+- `apps/platform/lib/hooks/use-keyboard-shortcuts.ts` (PiP shortcut removal)
+- `apps/platform/lib/video/constants.ts` (PiP shortcut removal)
 
 ## 4. Acceptance criteria
 
