@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { Play, Download, Video, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -40,13 +40,40 @@ interface CallsTabProps {
 export default function CallsTab({
   workspaceId,
 }: CallsTabProps): React.ReactElement {
+  const queryClient = useQueryClient();
   const recordingsQuery = useQuery(
     convexQuery(api.sessions.getCallRecordingsForWorkspace, {
       workspaceId,
     })
   );
+  const canSyncQuery = useQuery(
+    convexQuery(api.sessions.canSyncRecordingsForWorkspace, { workspaceId })
+  );
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/video/recordings/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Sync failed");
+      }
+      return (await res.json()) as { synced: number; checked: number };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: convexQuery(api.sessions.getCallRecordingsForWorkspace, {
+          workspaceId,
+        }).queryKey,
+      });
+    },
+  });
   const [openSessionId, setOpenSessionId] =
     useState<Id<"sessions"> | null>(null);
+
+  const showSyncButton = canSyncQuery.data === true;
 
   if (recordingsQuery.isLoading) {
     return (
@@ -95,6 +122,22 @@ export default function CallsTab({
           <p className="text-sm mt-1">
             Past call recordings will appear here once a call ends.
           </p>
+          {showSyncButton && (
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <SyncButton
+                onSync={() => syncMutation.mutate()}
+                isPending={syncMutation.isPending}
+                error={syncMutation.error?.message ?? null}
+              />
+              {syncMutation.isSuccess && (
+                <p className="text-xs text-muted-foreground">
+                  Sync checked {syncMutation.data?.checked ?? 0} sessions and
+                  attached {syncMutation.data?.synced ?? 0} recording
+                  {(syncMutation.data?.synced ?? 0) === 1 ? "" : "s"}.
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     );
@@ -115,7 +158,21 @@ export default function CallsTab({
         <span className="text-sm text-muted-foreground">
           ({recordings.length})
         </span>
+        {showSyncButton && (
+          <SyncButton
+            onSync={() => syncMutation.mutate()}
+            isPending={syncMutation.isPending}
+            error={syncMutation.error?.message ?? null}
+          />
+        )}
       </div>
+      {syncMutation.isSuccess && (
+        <p className="text-xs text-muted-foreground">
+          Sync checked {syncMutation.data?.checked ?? 0} sessions and attached{" "}
+          {syncMutation.data?.synced ?? 0} recording
+          {(syncMutation.data?.synced ?? 0) === 1 ? "" : "s"}.
+        </p>
+      )}
       {isTruncated && (
         <p className="text-xs text-muted-foreground">
           Showing the most recent recordings. Some calls may not be listed.
@@ -309,5 +366,38 @@ function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+interface SyncButtonProps {
+  onSync: () => void;
+  isPending: boolean;
+  error: string | null;
+}
+
+function SyncButton({ onSync, isPending, error }: SyncButtonProps): React.ReactElement {
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onSync}
+        disabled={isPending}
+        aria-label="Sync recordings from Daily.co"
+      >
+        {isPending ? (
+          <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+        ) : (
+          <CloudDownload className="h-4 w-4 mr-1" aria-hidden="true" />
+        )}
+        {isPending ? "Syncing…" : "Sync recordings"}
+      </Button>
+      {error ? (
+        <span className="text-xs text-destructive" role="status" aria-live="polite">
+          {error}
+        </span>
+      ) : null}
+    </div>
   );
 }

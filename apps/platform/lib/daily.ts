@@ -1,4 +1,5 @@
 import type { Id } from "@/convex/_generated/dataModel";
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 
 const DEFAULT_DAILY_API_URL = "https://api.daily.co/v1";
@@ -78,6 +79,25 @@ const dailyAccessLinkResponseSchema = z.object({
   download_url: z.string().optional(),
   url: z.string().optional(),
 });
+
+const dailyRecordingListItemSchema = z.object({
+  id: z.string(),
+  s3key: z.string(),
+  room_name: z.string().optional(),
+  duration: z.number().optional(),
+});
+
+const dailyRecordingListResponseSchema = z.object({
+  total_count: z.number(),
+  data: z.array(z.unknown()),
+});
+
+export type DailyRecordingSummary = {
+  recordingId: string;
+  roomName: string;
+  s3Key: string;
+  durationSeconds?: number;
+};
 
 /**
  * Thrown for any non-2xx response from the Daily REST API. Includes the
@@ -193,6 +213,26 @@ async function parseErrorResponse(response: Response): Promise<DailyApiError> {
  * `by_videoRoomName` index on `sessions` keyed off this exact string,
  * so the format MUST stay `mentorship-{sessionId}`.
  */
+/**
+ * Signs a Daily.co webhook payload exactly as Daily does, so we can
+ * locally replay a webhook event (e.g., for the manual recording sync
+ * fallback) through the same HMAC-verified action handler.
+ *
+ * The base64 secret is the decoded value of the Daily webhook signing
+ * secret. The timestamp is the Daily webhook `X-DailyWebhook-Timestamp`
+ * header. The returned string is the `X-DailyWebhook-Signature` value.
+ */
+export function signDailyWebhookPayload(
+  rawBody: string,
+  timestamp: string,
+  base64Secret: string
+): string {
+  const decoded = Buffer.from(base64Secret, "base64");
+  return createHmac("sha256", decoded)
+    .update(`${timestamp}.${rawBody}`, "utf8")
+    .digest("base64");
+}
+
 export function videoRoomNameForSession(sessionId: Id<"sessions">): string {
   return `mentorship-${sessionId}`;
 }
@@ -229,7 +269,7 @@ export async function createDailyRoom(
       properties: {
         enable_chat: false,
         enable_screenshare: true,
-        enable_recording: options.recordingEnabled ? "cloud" : "off",
+        enable_recording: options.recordingEnabled ? "cloud" : undefined,
         enable_emoji_reactions: true,
         enable_hand_raising: true,
         // PR #4a: turn on Daily's built-in waiting room so a student
@@ -345,7 +385,7 @@ export async function resolveDailyRoom(
       if (existing !== null) {
         try {
           await patchDailyRoomProperties(roomName, {
-            enable_recording: options.recordingEnabled ? "cloud" : "off",
+            enable_recording: options.recordingEnabled ? "cloud" : undefined,
           });
         } catch {
           // Best-effort reconciliation — the room is still usable
@@ -425,6 +465,46 @@ export async function createMeetingToken(
     });
   }
   return { token: data.token };
+}
+
+/**
+ * Lists finished Daily.co cloud recordings for a specific room name.
+ * Used by the manual recording sync fallback when a webhook was missed.
+ * Only returns recordings with a finished status and a non-empty s3key.
+ */
+export async function getDailyRecordingsByRoomName(
+  roomName: string
+): Promise<DailyRecordingSummary[]> {
+  const encoded = encodeURIComponent(roomName);
+  const response = await dailyFetch(
+    `/recordings?room_name=${encoded}`,
+    { method: "GET" }
+  );
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+
+  const raw = (await response.json()) as unknown;
+  const parsed = dailyRecordingListResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily recording list response was not valid JSON",
+    });
+  }
+
+  const recordings: DailyRecordingSummary[] = [];
+  for (const item of parsed.data.data) {
+    const itemParsed = dailyRecordingListItemSchema.safeParse(item);
+    if (!itemParsed.success) continue;
+    recordings.push({
+      recordingId: itemParsed.data.id,
+      roomName: itemParsed.data.room_name ?? roomName,
+      s3Key: itemParsed.data.s3key,
+      durationSeconds: itemParsed.data.duration,
+    });
+  }
+  return recordings;
 }
 
 /**

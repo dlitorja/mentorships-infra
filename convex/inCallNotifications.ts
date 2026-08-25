@@ -96,11 +96,18 @@ export const createAdHocCallNotification = mutation({
       throw new Error("Workspace has no instructor");
     }
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (!instructor || instructor.userId !== identity.subject) {
-      throw new Error("Forbidden: only the workspace's instructor can notify");
+    const isInstructor = instructor !== null && instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
+    if (!isInstructor && !isOwner) {
+      throw new Error("Forbidden: only the workspace's instructor or student can notify");
     }
 
-    const recipientUserId = workspace.ownerId;
+    // Notify the other participant: the student gets notified when the
+    // instructor starts the call, and vice-versa.
+    const recipientUserId = isInstructor ? workspace.ownerId : instructor?.userId;
+    if (recipientUserId === undefined) {
+      throw new Error("Cannot determine ad-hoc call notification recipient");
+    }
     const now = Date.now();
 
     const existing = await ctx.db

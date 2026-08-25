@@ -206,6 +206,12 @@ function VideoCallProviderInner({
   }, [deepLinkEffectiveSession, sessionQuery.data]);
 
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
+  // PR workspace-calls: tracks the session the user explicitly asked to
+  // join (via the Start Call button or a deep-link). The provider only
+  // auto-joins when this id matches the active session, so a user who merely
+  // opens a workspace with a call in progress is not pulled in automatically.
+  const [requestedJoinSessionId, setRequestedJoinSessionId] =
+    useState<Id<"sessions"> | null>(null);
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
@@ -214,9 +220,8 @@ function VideoCallProviderInner({
     // identity is the pre-`callStartedAt` snapshot. Force-refetch
     // every `sessions:*` query (Convex `getFunctionName` returns
     // `"path:export"`, e.g. `sessions:markCallStarted`) with the
-    // correct key prefix so the auto-join effect sees
-    // `session.status === "active"` on the very next render without
-    // a manual refresh.
+    // correct key prefix so the gated requestJoin effect sees the
+    // active session on the very next render without a manual refresh.
     onSuccess: () => {
       queryClient.invalidateQueries({
         predicate: (q) =>
@@ -235,6 +240,10 @@ function VideoCallProviderInner({
     sessionId: session?.sessionId ?? null,
     roomName: session?.videoRoomName ?? null,
   });
+
+  const requestJoin = useCallback((sessionId: Id<"sessions">): void => {
+    setRequestedJoinSessionId(sessionId);
+  }, []);
 
   const joinCall = useCallback(async (): Promise<void> => {
     if (!session) return;
@@ -256,7 +265,9 @@ function VideoCallProviderInner({
         });
         throw new Error(`Failed to start call: ${message}`);
       }
-      // sessionQuery refetches → session.status becomes "active" → call.join runs via effect.
+      // The session is now active server-side. Join directly using the
+      // roomName that was already present on the joinable session.
+      await call.join();
     }
   }, [call, markCallStarted, session]);
 
@@ -280,65 +291,58 @@ function VideoCallProviderInner({
 
   useKeyboardShortcuts(call.status === "joined", handlers);
 
-  // If the session moves to "active" (either via join or by another
-  // participant already having started), auto-join once. The PR #2
-  // session API guarantees a `videoRoomName` for `status: "active"`.
-  // Errors here are silent — the manual Join button surfaces them
-  // via toast in CallStatusPill.
-  //
-  // PR #4c-4: gate on `call.hasProgrammaticallyLeft` so a user-
-  // initiated leave does NOT race `endCall` into a duplicate
-  // `GET /api/video/token/...` request that 403s once `callEndedAt`
-  // is set server-side. The flag is latched synchronously inside
-  // `useVideoCall.leave()` (before `daily.leave()` awaits) and
-  // reset on `sessionId` change.
+  // Gated auto-join for explicit requests (Start Call button or deep-link).
+  // A user who simply opens a workspace with an active call never sets
+  // `requestedJoinSessionId`, so they stay on the workspace page and see the
+  // "Join video call" button instead of being pulled into the call.
   useEffect(() => {
+    if (!requestedJoinSessionId) return;
     if (!session) return;
+    if (String(session.sessionId) !== String(requestedJoinSessionId)) return;
     if (session.status !== "active") return;
     if (call.status !== "idle") return;
     if (call.hasProgrammaticallyLeft) return;
     if (!session.videoRoomName) return;
-    void call.join().catch(() => {
-      // Error already captured by useVideoCall state (errorMessage).
-      // No toast here — this path runs on initial mount and any
-      // double-fire would spam the user.
-    });
-    // We intentionally depend on the primitive `call.status` and the
-    // stable `call.join` reference rather than the whole `call` object.
-    // `call` is memoized but its identity still shifts when device
-    // toggles fire; including it would cause spurious re-runs of
-    // this auto-join effect.
+
+    void call
+      .join()
+      .then(() => {
+        setRequestedJoinSessionId(null);
+      })
+      .catch(() => {
+        // Error already captured by useVideoCall state (errorMessage).
+        // The caller (Start button / deep-link) can re-request if needed.
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.join, call.status, call.hasProgrammaticallyLeft, session]);
+  }, [call.join, call.status, call.hasProgrammaticallyLeft, session, requestedJoinSessionId]);
+
+  // Clear a stale request if the active session changed to a different one
+  // (e.g. the user switched workspaces while a request was pending).
+  useEffect(() => {
+    if (!requestedJoinSessionId) return;
+    if (!session) return;
+    if (String(session.sessionId) !== String(requestedJoinSessionId)) {
+      setRequestedJoinSessionId(null);
+    }
+  }, [session, requestedJoinSessionId]);
 
   // PR #4c-2: deep-link auto-join. When the user lands on
   // `/workspace/[id]?join={sessionId}`, the page passes
   // `initialJoinSessionId` down. The merged `session` variable above
-  // already reflects the deep-link target (it prefers the deep-link
-  // effective session over the workspace's "current" session), so
-  // the existing join effect above will fire `call.join()` once the
-  // session becomes "active". This effect only handles the
-  // pre-join transition: if status is "joinable", call
-  // `markCallStarted` so the session transitions to "active" and
-  // the join effect above picks it up next render.
-  //
-  // Effect intentionally does not depend on `call.join` because
-  // `call.join` can shift identity on device toggles and cause a
-  // duplicate trigger.
+  // already reflects the deep-link target. We request a join and, if
+  // the session is still joinable, mark it started first so the gated
+  // auto-join effect can bring the user into the call.
   useEffect(() => {
     if (!initialJoinSessionId) return;
     if (!session) return;
     if (String(session.sessionId) !== String(initialJoinSessionId)) return;
 
+    setRequestedJoinSessionId(session.sessionId);
+
     if (session.status === "joinable") {
       void markCallStarted
         .mutateAsync({ sessionId: session.sessionId })
         .catch(async (err) => {
-          // Telemetry: deep-link auto-join failures are otherwise
-          // invisible — the user lands in the workspace and sees a
-          // call that isn't joining. We capture the failure here so
-          // the dashboard has a signal to investigate; CallStatusPill
-          // surfaces the same failure to the user via toast.
           await reportError({
             source: "videoCallProvider.deepLink.markCallStarted",
             error: err instanceof Error ? err : new Error(String(err)),
@@ -351,9 +355,6 @@ function VideoCallProviderInner({
           });
         });
     }
-    // `active` path is handled by the join effect above. We only
-    // need to fire `markCallStarted` here when the deep-link session
-    // is in the pre-join "joinable" state.
   }, [session, initialJoinSessionId, markCallStarted, workspaceId]);
 
   const value: VideoCallContextValue = useMemo(
@@ -370,6 +371,7 @@ function VideoCallProviderInner({
       errorMessage: call.errorMessage,
       durationSeconds: call.durationSeconds,
       join: joinCall,
+      requestJoin,
       leave: call.leave,
       toggleMute: call.toggleMute,
       toggleCamera: call.toggleCamera,
@@ -392,6 +394,7 @@ function VideoCallProviderInner({
       call.toggleScreenShare,
       call.leave,
       joinCall,
+      requestJoin,
       togglePictureInPicture,
       isPictureInPicture,
     ]

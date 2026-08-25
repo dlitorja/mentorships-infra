@@ -3,6 +3,8 @@ import {
   getDailyRecordingAccessLink,
   deleteDailyRecording,
   createMeetingToken,
+  createDailyRoom,
+  resolveDailyRoom,
   DailyApiError,
 } from "./daily";
 
@@ -178,5 +180,75 @@ describe("createMeetingToken", () => {
         ttlSeconds: 3600,
       })
     ).rejects.toBeInstanceOf(DailyApiError);
+  });
+});
+
+describe("createDailyRoom", () => {
+  beforeEach(() => {
+    process.env.DAILY_API_KEY = "test-api-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("sets enable_recording to 'cloud' when recording is enabled", async () => {
+    const fetchSpy = mockFetchWithResponse(
+      jsonResponse({ name: "mentorship-ses_1", url: "https://example.daily.co/mentorship-ses_1" })
+    );
+
+    await createDailyRoom("ses_1" as any, { recordingEnabled: true });
+
+    const [, calledInit] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(calledInit.body as string);
+    expect(body.properties.enable_recording).toBe("cloud");
+  });
+
+  it("omits enable_recording when recording is disabled", async () => {
+    const fetchSpy = mockFetchWithResponse(
+      jsonResponse({ name: "mentorship-ses_2", url: "https://example.daily.co/mentorship-ses_2" })
+    );
+
+    await createDailyRoom("ses_2" as any, { recordingEnabled: false });
+
+    const [, calledInit] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(calledInit.body as string);
+    expect(body.properties).not.toHaveProperty("enable_recording");
+  });
+});
+
+describe("resolveDailyRoom", () => {
+  beforeEach(() => {
+    process.env.DAILY_API_KEY = "test-api-key";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("recovers from a 409 and only patches enable_recording when enabling", async () => {
+    // First POST /rooms returns 409, GET /rooms/:name returns the existing room,
+    // POST /rooms/:name (update) returns success.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ error: "conflict" }, { status: 409, statusText: "Conflict" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          name: "mentorship-ses_3",
+          url: "https://example.daily.co/mentorship-ses_3",
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: "room-3", name: "mentorship-ses_3", url: "https://example.daily.co/mentorship-ses_3" }));
+
+    const room = await resolveDailyRoom("ses_3" as any, { recordingEnabled: false });
+
+    expect(room.roomName).toBe("mentorship-ses_3");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    const [, patchInit] = fetchSpy.mock.calls[2];
+    const patchBody = JSON.parse(patchInit.body as string);
+    expect(patchBody.properties).not.toHaveProperty("enable_recording");
   });
 });

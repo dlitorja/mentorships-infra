@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 type AdhocConvexErrorCode =
   | "VIDEO_UNAUTHORIZED"
   | "VIDEO_SESSION_NOT_FOUND"
-  | "VIDEO_FORBIDDEN_NOT_INSTRUCTOR"
+  | "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
   | "VIDEO_FORBIDDEN_CALL_ACTIVE"
   | "VIDEO_ROOM_NAME_TAKEN";
 
@@ -33,7 +33,7 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
     if (
       code === "VIDEO_UNAUTHORIZED" ||
       code === "VIDEO_SESSION_NOT_FOUND" ||
-      code === "VIDEO_FORBIDDEN_NOT_INSTRUCTOR" ||
+      code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
       code === "VIDEO_FORBIDDEN_CALL_ACTIVE" ||
       // PR #7: widen-phase uniqueness guard. Triggered when the
       // deterministic room name (mentorship-{sessionId}) already
@@ -55,15 +55,15 @@ const startAdhocSchema = z.object({
 });
 
 /**
- * Instructor-only: creates a synthetic `sessions` row for an ad-hoc
- * call (catch-up outside any scheduled session), then provisions a
- * Daily room against it. Mirrors the structure of `rooms/route.ts` —
- * Daily REST call with 409-recovery, then `setVideoRoom` to persist.
+ * Creates a synthetic `sessions` row for an ad-hoc call (catch-up outside
+ * any scheduled session), then provisions a Daily room against it.
+ * Mirrors the structure of `rooms/route.ts` — Daily REST call with
+ * 409-recovery, then `setVideoRoom` to persist.
  *
  * Auth check happens in two places:
  *   1. Clerk auth in this handler (token required for Convex calls).
- *   2. `startAdhocCall` Convex mutation verifies the caller is the
- *      workspace's instructor (`VIDEO_FORBIDDEN_NOT_INSTRUCTOR`).
+ *   2. `startAdhocCall` Convex mutation verifies the caller is a
+ *      workspace participant (`VIDEO_FORBIDDEN_NOT_PARTICIPANT`).
  *
  * Returns `{ sessionId, roomName, roomUrl }` on success. The client
  * then treats this session as "joinable" and the VideoCallProvider's
@@ -104,9 +104,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       sessionId = result.sessionId;
     } catch (error) {
       const code = getAdhocConvexErrorCode(error);
-      if (code === "VIDEO_FORBIDDEN_NOT_INSTRUCTOR") {
+      if (code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT") {
         return NextResponse.json(
-          { error: "Forbidden: only the workspace's instructor can start an ad-hoc call" },
+          { error: "Forbidden: only the workspace's instructor or student can start an ad-hoc call" },
           { status: 403 }
         );
       }
@@ -232,6 +232,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           workspaceId: workspaceIdTyped,
           notificationId,
           token,
+          callerUserId: clerkAuth.userId,
         });
       } catch (notifyError) {
         await reportError({
@@ -324,6 +325,7 @@ async function enqueueAdHocCallEmail(args: {
   workspaceId: Id<"workspaces">;
   notificationId: Id<"inCallNotifications">;
   token: string;
+  callerUserId: string;
 }): Promise<void> {
   const triggerSecretKey =
     process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
@@ -351,32 +353,6 @@ async function enqueueAdHocCallEmail(args: {
     return;
   }
 
-  const studentClerkId = workspace.ownerId;
-  if (!studentClerkId) {
-    await reportInfo({
-      source: "api/video/start-adhoc.triggerEmail",
-      message: "Workspace has no ownerId; skipping email",
-      context: { workspaceId: String(args.workspaceId) },
-    });
-    return;
-  }
-
-  // Single Clerk fetch for both email and first-name lookups. The
-  // previous version called `clerkClient.users.getUser` twice (once
-  // for email, once for firstName); each call costs ~80-150ms and a
-  // Clerk rate-limit event would double the surface area. Returns
-  // `null` on any failure so the email path is never gating on
-  // Clerk — if Clerk is down, we still get the in-app notification.
-  const student = await fetchStudentContact(studentClerkId);
-  if (!student.email) {
-    await reportInfo({
-      source: "api/video/start-adhoc.triggerEmail",
-      message: "Student has no primary email; skipping email",
-      context: { studentClerkId },
-    });
-    return;
-  }
-
   const instructorRecord = workspace.instructorId
     ? await fetchQuery(
         api.instructors.getInstructorById,
@@ -391,7 +367,37 @@ async function enqueueAdHocCallEmail(args: {
       ? instructorRecord.name.trim()
       : "Your instructor";
 
-  const idempotencyKey = `ad-hoc-call-email:${String(args.sessionId)}:${studentClerkId}`;
+  // Notify the other participant. The student gets the email when the
+  // instructor starts the call, and the instructor gets it when the
+  // student starts the call.
+  const callerIsOwner = workspace.ownerId === args.callerUserId;
+  const callerIsInstructor = instructorRecord?.userId === args.callerUserId;
+  let recipientUserId: string | null = null;
+  let recipientEmail: string | null = null;
+  let recipientFirstName: string | null = null;
+
+  if (callerIsOwner && instructorRecord?.userId) {
+    const contact = await fetchUserContact(instructorRecord.userId);
+    recipientUserId = instructorRecord.userId;
+    recipientEmail = contact.email;
+    recipientFirstName = contact.firstName;
+  } else if (callerIsInstructor) {
+    const contact = await fetchUserContact(workspace.ownerId);
+    recipientUserId = workspace.ownerId;
+    recipientEmail = contact.email;
+    recipientFirstName = contact.firstName;
+  }
+
+  if (!recipientUserId || !recipientEmail) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      message: "Could not determine ad-hoc call email recipient; skipping email",
+      context: { workspaceId: String(args.workspaceId) },
+    });
+    return;
+  }
+
+  const idempotencyKey = `ad-hoc-call-email:${String(args.sessionId)}:${recipientUserId}`;
 
   const response = await fetch(
     "https://api.trigger.dev/api/v1/tasks/send-ad-hoc-call-invite-email/trigger",
@@ -404,9 +410,9 @@ async function enqueueAdHocCallEmail(args: {
       body: JSON.stringify({
         payload: {
           notificationId: String(args.notificationId),
-          recipientUserId: studentClerkId,
-          recipientEmail: student.email,
-          recipientFirstName: student.firstName,
+          recipientUserId,
+          recipientEmail,
+          recipientFirstName,
           sessionId: String(args.sessionId),
           workspaceId: String(args.workspaceId),
           instructorName,
@@ -442,7 +448,7 @@ async function enqueueAdHocCallEmail(args: {
   });
 }
 
-async function fetchStudentContact(
+async function fetchUserContact(
   clerkUserId: string
 ): Promise<{ email: string | null; firstName: string | null }> {
   try {

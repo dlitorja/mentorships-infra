@@ -153,9 +153,9 @@ export async function POST(
         if (syncResult.needsPatch && syncResult.videoRoomName !== null) {
           let patchSucceeded = false;
           try {
-            await patchDailyRoomProperties(syncResult.videoRoomName, {
-              enable_recording: syncResult.enableRecording ? "cloud" : "off",
-            });
+          await patchDailyRoomProperties(syncResult.videoRoomName, {
+            enable_recording: syncResult.enableRecording ? "cloud" : undefined,
+          });
             patchSucceeded = true;
           } catch (err) {
             if (err instanceof DailyApiError) {
