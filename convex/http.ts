@@ -1164,7 +1164,7 @@ export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) 
         userId,
         email,
         name,
-        instructorId,
+        instructorId: instructorId ? (instructorId as Id<"instructors">) : undefined,
         actorId: "platform-server",
         actorRole: "system",
       }
