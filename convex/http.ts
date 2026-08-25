@@ -1140,9 +1140,9 @@ http.route({
 export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  let userId: string, email: string | undefined, name: string | undefined;
+  let userId: string, email: string | undefined, name: string | undefined, instructorId: string | undefined;
   try {
-    ({ userId, email, name } = await request.json());
+    ({ userId, email, name, instructorId } = await request.json());
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
       status: 400,
@@ -1164,6 +1164,7 @@ export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) 
         userId,
         email,
         name,
+        instructorId,
         actorId: "platform-server",
         actorRole: "system",
       }

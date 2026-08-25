@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
             userId,
             email: normalizedEmail,
             name: [firstName, lastName].filter(Boolean).join(" ") || undefined,
+            instructorId,
           });
         } catch (linkErr) {
           console.error(
