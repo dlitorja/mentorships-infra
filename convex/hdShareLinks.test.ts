@@ -120,6 +120,30 @@ test("createShareLink: rejects non-instructor/admin/editor", async () => {
   ).rejects.toThrow("Forbidden");
 });
 
+test("createShareLink: falls back to clerkId when identity subject is not userId", async () => {
+  const t = convexTest(schema, modules);
+  const legacyUserId = "inst_share_legacy";
+  const clerkId = "clerk_inst_share_legacy";
+  const uploadId = "upload_share_legacy";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, legacyUserId, "instructor", clerkId);
+    await seedInstructor(ctx, legacyUserId);
+    await seedUpload(ctx, uploadId, legacyUserId);
+  });
+
+  const result = await t.withIdentity({ subject: clerkId }).mutation(
+    api.hdShareLinks.createShareLink,
+    {
+      uploadLegacyId: uploadId,
+      token: "test-token-legacy-123456789",
+    }
+  );
+
+  expect(result.token).toBe("test-token-legacy-123456789");
+  expect(result.shareId).toBeDefined();
+});
+
 test("createShareLink: rejects deleted upload", async () => {
   const t = convexTest(schema, modules);
   const instructorId = "inst_share_deleted";
