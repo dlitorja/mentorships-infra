@@ -2924,6 +2924,44 @@ export const createInstructorForClerkUserInternal = internalAction({
       return { success: true, instructorId: existing._id, reason: "Already exists" };
     }
 
+    // Instructors created by the admin dashboard before the Clerk user exists
+    // are stored with a placeholder userId (e.g. `admin-<slug>`). When the
+    // invited instructor later signs up, link the real Clerk userId to that
+    // existing record instead of creating a duplicate.
+    if (args.email) {
+      const normalizedEmail = args.email.toLowerCase().trim();
+      const byEmail = await ctx.runQuery(
+        internal.instructors.getInstructorByEmailInternal,
+        { email: normalizedEmail }
+      );
+      const placeholder = byEmail.find((inst) => !isClerkUserId(inst.userId));
+      if (placeholder) {
+        console.log(
+          "createInstructorForClerkUser: Linking existing instructor to Clerk user",
+          args.userId,
+          placeholder._id
+        );
+        await ctx.runMutation(api.instructors.backfillInstructorUserId, {
+          instructorId: placeholder._id,
+          userId: args.userId,
+        });
+        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+          userId: args.userId,
+          role: "instructor",
+          actorId,
+          actorRole,
+          audit: {
+            action: "create_instructor_for_clerk_user",
+            targetType: "instructor",
+            targetId: placeholder._id,
+            details: `Linked existing instructor profile (${placeholder._id}) to Clerk user ${args.userId}`,
+            metadata: { userId: args.userId, email: args.email, name: args.name },
+          },
+        });
+        return { success: true, instructorId: placeholder._id, reason: "Linked existing instructor" };
+      }
+    }
+
     const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
       userId: args.userId,
       name: args.name,

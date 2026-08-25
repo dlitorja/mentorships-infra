@@ -136,6 +136,54 @@ test("http /instructors/create-for-clerk-user: writes audit row atomically", asy
   expect(after[0].action).toBe("create_instructor_for_clerk_user");
 });
 
+test("http /instructors/create-for-clerk-user: links existing placeholder instructor by email", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const placeholderId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: "admin-test-instructor",
+      slug: "test-instructor",
+      name: "Test Instructor",
+      email: "placeholder-instructor@example.com",
+      isActive: true,
+      isNew: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+  });
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_real_clerk",
+      email: "placeholder-instructor@example.com",
+      clerkId: "user_real_clerk",
+      role: "student",
+    });
+  });
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_real_clerk",
+      email: "placeholder-instructor@example.com",
+      name: "Test Instructor",
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body).toMatchObject({ success: true, reason: "Linked existing instructor" });
+  expect(body.instructorId).toBe(placeholderId);
+
+  const updated = await t.run(async (ctx) => {
+    return await ctx.db.get(placeholderId as any);
+  });
+  expect(updated?.userId).toBe("user_real_clerk");
+});
+
 test("http /instructors/deactivate-by-user-id: writes audit row", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = VALID_KEY;
