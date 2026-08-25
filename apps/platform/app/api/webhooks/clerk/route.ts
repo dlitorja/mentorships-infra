@@ -10,6 +10,7 @@ interface ClerkUserEventData {
   }>;
   public_metadata?: {
     role?: string;
+    instructorId?: string;
   };
   first_name?: string;
   last_name?: string;
@@ -67,6 +68,31 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // If the invited Clerk user carries an instructorId in public metadata
+      // (set by the admin dashboard invitation flow), link the real Clerk
+      // userId to the existing placeholder instructor record immediately.
+      // Without this, the instructor record still references `admin-<slug>`
+      // and the instructor cannot see their workspaces.
+      const instructorId = eventData.public_metadata?.instructorId;
+      if (role === "instructor" && instructorId) {
+        try {
+          await convexServerCall<{ success: boolean }>("/instructors/create-for-clerk-user", {
+            userId,
+            email: normalizedEmail,
+            name: [firstName, lastName].filter(Boolean).join(" ") || undefined,
+            instructorId,
+          });
+        } catch (linkErr) {
+          console.error(
+            "Clerk webhook: failed to link instructor record for",
+            userId,
+            linkErr
+          );
+        }
+      }
+
       await inngest.send({
         name: "clerk/user.created",
         data: {
@@ -77,8 +103,6 @@ export async function POST(req: NextRequest) {
           lastName,
         },
       });
-
-      const normalizedEmail = email.toLowerCase().trim();
 
       // Link placeholder data created by the admin-onboarding flow
       // (session packs, seat reservations, and workspaces) to the new
