@@ -1839,6 +1839,18 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Workspace Safety Policy
+
+**NEVER delete, move, or discard untracked files or uncommitted working-directory changes without explicit user permission.**
+
+- Untracked files and uncommitted changes belong to the user's current work. They may be part of another branch, another PR, or local work in progress.
+- When you need to create an isolated branch or PR, preserve the existing working directory first:
+  - `git stash` modified files
+  - Move untracked files to a temporary location outside the repo (e.g., `/tmp/...`) and restore them afterward
+  - Or ask the user before touching anything
+- If you must switch branches, confirm whether to stash or preserve local changes first. Do not assume untracked files are disposable.
+- If you accidentally delete or lose user work, stop immediately, report exactly what was lost, and do not continue until the user responds.
+
 ## CLI Execution Policy
 
 **NEVER stop after presenting an npx/npm/pnpm command. ALWAYS continue to execute the command.**
