@@ -560,10 +560,10 @@ export const processDiscordActionQueue = internalAction({
 
           await sendDmMessage({ discordUserId: action.instructorDiscordId, content });
 
-          // DMs are not idempotent: mark the action done immediately so a
-          // crash after the send does not replay the DM during the next
-          // claim cycle. Role assignments remain batched because they are
-          // idempotent.
+          // DMs are not idempotent, so mark the action done immediately after
+          // a successful send. The remaining replay window is the single
+          // markDiscordActionDone mutation call; role assignments remain
+          // batched because they are idempotent.
           await ctx.runMutation(
             internal.discordActionQueue.markDiscordActionDone,
             { actionId: action.id as Id<"discordActionQueue"> }
