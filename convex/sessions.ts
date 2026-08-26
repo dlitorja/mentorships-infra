@@ -1184,7 +1184,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
   handler: async (
     ctx,
     args
-  ): Promise<{ sessionId: Id<"sessions">; alreadyAttached: boolean }> => {
+  ): Promise<{ sessionId: Id<"sessions"> | null; alreadyAttached: boolean }> => {
     const matches = await ctx.db
       .query("sessions")
       .withIndex("by_videoRoomName", (q) =>
@@ -1192,7 +1192,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
       )
       .collect();
     if (matches.length === 0) {
-      throw new Error(`No session found for videoRoomName: ${args.roomName}`);
+      return { sessionId: null, alreadyAttached: false };
     }
     // PR #7 MIGRATE phase: removed the legacy `if (matches.length > 1)
     // throw` guard. Safety case rests on three layers:

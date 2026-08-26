@@ -196,26 +196,23 @@ async function handleEvent(
     // rawBody). The action parses every field written downstream from
     // the verified rawBody itself. A captured signed body cannot be
     // replayed with substituted recording arguments.
-    await convex.action(api.dailyRecordingActions.attachRecordingFromDailyWebhookAction, {
-      timestamp,
-      signature,
-      rawBody,
-    });
+    const result = await convex.action(
+      api.dailyRecordingActions.attachRecordingFromDailyWebhookAction,
+      {
+        timestamp,
+        signature,
+        rawBody,
+      }
+    );
     // Do NOT spread the action result into the public response — the
     // mutation may return session-level fields that we don't want to
     // leak to the webhook caller (Daily).
-    return NextResponse.json({ received: true, path });
-  } catch (err) {
-    // "No session found for videoRoomName: ..." is permanent — Daily retries
-    // on 5xx up to 5x. Return 422 so Daily stops retrying a delivery that
-    // will never resolve. Transient Convex errors fall through to 500.
-    if (
-      err instanceof Error &&
-      err.message.startsWith("No session found for videoRoomName:")
-    ) {
+    if (result.notFound) {
+      // Permanent — Daily retries on 5xx up to 5x. Return 422 so Daily
+      // stops retrying a delivery that will never resolve.
       await reportError({
         source: "webhooks/daily",
-        error: err,
+        error: new Error("Recording received for unknown room"),
         message: "Recording received for unknown room",
         level: "warn",
         context: { roomName },
@@ -225,19 +222,8 @@ async function handleEvent(
         { status: 422 }
       );
     }
-    if (err instanceof Error && err.message.includes("Multiple sessions")) {
-      await reportError({
-        source: "webhooks/daily",
-        error: err,
-        message: "Duplicate room names detected",
-        level: "error",
-        context: { roomName },
-      });
-      return NextResponse.json(
-        { error: "Duplicate room names" },
-        { status: 422 }
-      );
-    }
+    return NextResponse.json({ received: true, path });
+  } catch (err) {
     await reportError({
       source: "webhooks/daily",
       error: err,
