@@ -131,7 +131,7 @@ export function StartAdhocButton({
         size="lg"
         onClick={() => setModalOpen(true)}
         disabled={isStarting}
-        className="font-semibold text-base shadow-sm"
+        className="bg-blue-600 text-white hover:bg-blue-700 font-semibold text-base shadow-sm"
       >
         {isStarting ? (
           <Loader2 className="h-5 w-5 animate-spin" />

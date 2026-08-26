@@ -2199,166 +2199,203 @@ export type CurrentOrUpcomingSession = {
  * Powers the Join Call button on the workspace UI (PR #3): the button
  * is enabled only when `status === "active" | "joinable"`.
  */
-export const getCurrentOrUpcomingSessionForWorkspace = query({
-  args: {
-    workspaceId: v.id("workspaces"),
-  },
-  handler: async (ctx, args): Promise<CurrentOrUpcomingSession | null> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
+/**
+ * Internal helper that implements the current-or-upcoming session
+ * selection logic for a single workspace. Extracted so it can be reused
+ * by the batch active-session lookup used for the workspace-list "LIVE"
+ * indicator without creating a circular dependency.
+ */
+async function getCurrentOrUpcomingSessionForWorkspaceHelper(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">
+): Promise<CurrentOrUpcomingSession | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    return null;
+  }
 
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) {
-      return null;
-    }
-    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
-      return null;
-    }
-    if (workspace.instructorId === undefined) {
-      return null;
-    }
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace) {
+    return null;
+  }
+  if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+    return null;
+  }
+  if (workspace.instructorId === undefined) {
+    return null;
+  }
 
-    const isOwner = workspace.ownerId === identity.subject;
-    let isInstructor = false;
-    const instructor = await ctx.db.get(workspace.instructorId);
-    if (instructor && instructor.userId === identity.subject) {
-      isInstructor = true;
-    }
+  const isOwner = workspace.ownerId === identity.subject;
+  let isInstructor = false;
+  const instructor = await ctx.db.get(workspace.instructorId);
+  if (instructor && instructor.userId === identity.subject) {
+    isInstructor = true;
+  }
 
-    if (!isOwner && !isInstructor) {
-      return null;
-    }
+  if (!isOwner && !isInstructor) {
+    return null;
+  }
 
-    const now = Date.now();
+  const now = Date.now();
 
-    // Bounded read scoped to the next ~30 days of scheduled sessions.
-    // Uses the compound index `by_studentId_status_scheduledAt` so the
-    // result is deterministically ordered by `scheduledAt` ascending —
-    // `.take(50)` is guaranteed to include the next-upcoming session
-    // regardless of how many historical sessions exist (which the
-    // previous `by_studentId`-only query could not guarantee). Also
-    // restricts to status="scheduled" because every active call still
-    // has status="scheduled" until `endCall` transitions it, so this
-    // index covers both active and upcoming candidates.
-    const historyStart = now - 4 * 60 * 60 * 1000;
-    const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
+  // Bounded read scoped to the next ~30 days of scheduled sessions.
+  // Uses the compound index `by_studentId_status_scheduledAt` so the
+  // result is deterministically ordered by `scheduledAt` ascending —
+  // `.take(50)` is guaranteed to include the next-upcoming session
+  // regardless of how many historical sessions exist (which the
+  // previous `by_studentId`-only query could not guarantee). Also
+  // restricts to status="scheduled" because every active call still
+  // has status="scheduled" until `endCall` transitions it, so this
+  // index covers both active and upcoming candidates.
+  const historyStart = now - 4 * 60 * 60 * 1000;
+  const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
 
-    const sessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_studentId_status_scheduledAt", (q) =>
-        q
-          .eq("studentId", workspace.ownerId)
-          .eq("status", "scheduled")
-          .gte("scheduledAt", historyStart)
-          .lte("scheduledAt", futureEnd)
-      )
-      .order("asc")
-      .take(50);
+  const sessions = await ctx.db
+    .query("sessions")
+    .withIndex("by_studentId_status_scheduledAt", (q) =>
+      q
+        .eq("studentId", workspace.ownerId)
+        .eq("status", "scheduled")
+        .gte("scheduledAt", historyStart)
+        .lte("scheduledAt", futureEnd)
+    )
+    .order("asc")
+    .take(50);
 
-    if (sessions.length === 0) {
-      return null;
-    }
+  if (sessions.length === 0) {
+    return null;
+  }
 
-    // Narrow to the workspace's instructor. The compound index is
-    // scoped by `studentId` only — instructor filtering is in-memory
-    // because `instructorId` is not part of any compound index that
-    // also includes `studentId`. The result set is already bounded
-    // (≤ 50), so an in-memory filter is fine.
-    const scoped = sessions.filter(
-      (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
-    );
-    if (scoped.length === 0) {
-      return null;
-    }
+  // Narrow to the workspace's instructor. The compound index is
+  // scoped by `studentId` only — instructor filtering is in-memory
+  // because `instructorId` is not part of any compound index that
+  // also includes `studentId`. The result set is already bounded
+  // (≤ 50), so an in-memory filter is fine.
+  const scoped = sessions.filter(
+    (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
+  );
+  if (scoped.length === 0) {
+    return null;
+  }
 
-    // Pick the most recently started active session, if any. We sort
-    // by `callStartedAt` desc instead of using `find()` so a stale
-    // earlier-scheduled active session can't beat a freshly started
-    // one (which would otherwise happen if `.order("asc")` returned
-    // an older session first in the index).
-    const active = scoped
-      .filter(
-        (s) =>
-          s.callStartedAt !== undefined &&
-          s.callEndedAt === undefined &&
-          s.videoRoomName !== undefined
-      )
-      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
-    if (active && active.callStartedAt !== undefined) {
-      const participantName = isInstructor
-        ? await resolveStudentName(ctx, active.studentId)
-        : await resolveInstructorName(ctx, instructor);
-      return {
-        sessionId: active._id,
-        scheduledAt: active.scheduledAt,
-        status: "active",
-        startedAt: active.callStartedAt,
-        videoRoomName: active.videoRoomName ?? null,
-        videoRoomUrl: active.videoRoomUrl ?? null,
-        participantName,
-        studentId: active.studentId,
-        windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
-        windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
-        recordingConsent: active.recordingConsent ?? null,
-      };
-    }
+  // Pick the most recently started active session, if any. We sort
+  // by `callStartedAt` desc instead of using `find()` so a stale
+  // earlier-scheduled active session can't beat a freshly started
+  // one (which would otherwise happen if `.order("asc")` returned
+  // an older session first in the index).
+  const active = scoped
+    .filter(
+      (s) =>
+        s.callStartedAt !== undefined &&
+        s.callEndedAt === undefined &&
+        s.videoRoomName !== undefined
+    )
+    .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
+  if (active && active.callStartedAt !== undefined) {
+    const participantName = isInstructor
+      ? await resolveStudentName(ctx, active.studentId)
+      : await resolveInstructorName(ctx, instructor);
+    return {
+      sessionId: active._id,
+      scheduledAt: active.scheduledAt,
+      status: "active",
+      startedAt: active.callStartedAt,
+      videoRoomName: active.videoRoomName ?? null,
+      videoRoomUrl: active.videoRoomUrl ?? null,
+      participantName,
+      studentId: active.studentId,
+      windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
+      windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
+      recordingConsent: active.recordingConsent ?? null,
+    };
+  }
 
-    const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
+  const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
 
-    // Ad-hoc catch-up calls beat any stale, never-started scheduled
-    // session for the "next session to act on" pick. Without this
-    // branch, `scoped.find` returns the EARLIEST `scheduledAt`
-    // (`scoped` is ascending), which can be a missed scheduled
-    // session from earlier in the window — hiding the freshly-created
-    // ad-hoc call behind a row that nobody can join. We pick the
-    // most recent ad-hoc (rather than `find` first) in case multiple
-    // exist (shouldn't, but `startAdhocCall`'s self-heal keeps the
-    // table clean even if a cleanup previously failed).
-    const adHocUpcoming = scoped
-      .filter(
-        (s) =>
-          s.callStartedAt === undefined &&
-          s.isAdhoc === true &&
-          s.scheduledAt <= upcomingWindowEnd
-      )
-      .sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+  // Ad-hoc catch-up calls beat any stale, never-started scheduled
+  // session for the "next session to act on" pick. Without this
+  // branch, `scoped.find` returns the EARLIEST `scheduledAt`
+  // (`scoped` is ascending), which can hide a freshly-created ad-hoc
+  // call behind a row that nobody can join. We pick the most recent
+  // ad-hoc in case multiple exist.
+  const adHocUpcoming = scoped
+    .filter(
+      (s) =>
+        s.callStartedAt === undefined &&
+        s.isAdhoc === true &&
+        s.scheduledAt <= upcomingWindowEnd
+    )
+    .sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
 
-    const upcoming = adHocUpcoming ?? scoped.find(
+  const upcoming =
+    adHocUpcoming ??
+    scoped.find(
       (s) =>
         s.callStartedAt === undefined &&
         s.isAdhoc !== true &&
         s.scheduledAt <= upcomingWindowEnd
     );
 
-    if (!upcoming) {
-      return null;
+  if (!upcoming) {
+    return null;
+  }
+
+  const windowOpensAt = upcoming.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+  const windowClosesAt = upcoming.scheduledAt + JOIN_WINDOW_AFTER_MS;
+
+  const status: "joinable" | "scheduled" =
+    now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
+
+  const participantName = isInstructor
+    ? await resolveStudentName(ctx, upcoming.studentId)
+    : await resolveInstructorName(ctx, instructor);
+
+  return {
+    sessionId: upcoming._id,
+    scheduledAt: upcoming.scheduledAt,
+    status,
+    startedAt: null,
+    videoRoomName: null,
+    videoRoomUrl: null,
+    participantName,
+    studentId: upcoming.studentId,
+    windowOpensAt,
+    windowClosesAt,
+    recordingConsent: upcoming.recordingConsent ?? null,
+  };
+}
+
+export const getCurrentOrUpcomingSessionForWorkspace = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args): Promise<CurrentOrUpcomingSession | null> => {
+    return getCurrentOrUpcomingSessionForWorkspaceHelper(ctx, args.workspaceId);
+  },
+});
+
+/**
+ * Returns active/joinable sessions for a set of workspaces in one
+ * round-trip. Powers the workspace-list "LIVE" indicator so every row
+ * can show whether a call is ongoing without making a separate query
+ * per workspace.
+ */
+export const getActiveSessionsForWorkspaces = query({
+  args: {
+    workspaceIds: v.array(v.id("workspaces")),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<Record<Id<"workspaces">, { sessionId: Id<"sessions">; status: "active" | "joinable" }>> => {
+    const result: Record<Id<"workspaces">, { sessionId: Id<"sessions">; status: "active" | "joinable" }> = {};
+    for (const workspaceId of args.workspaceIds) {
+      const session = await getCurrentOrUpcomingSessionForWorkspaceHelper(ctx, workspaceId);
+      if (session && (session.status === "active" || session.status === "joinable")) {
+        result[workspaceId] = { sessionId: session.sessionId, status: session.status };
+      }
     }
-
-    const windowOpensAt = upcoming.scheduledAt - JOIN_WINDOW_BEFORE_MS;
-    const windowClosesAt = upcoming.scheduledAt + JOIN_WINDOW_AFTER_MS;
-
-    const status: "joinable" | "scheduled" =
-      now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
-
-    const participantName = isInstructor
-      ? await resolveStudentName(ctx, upcoming.studentId)
-      : await resolveInstructorName(ctx, instructor);
-
-    return {
-      sessionId: upcoming._id,
-      scheduledAt: upcoming.scheduledAt,
-      status,
-      startedAt: null,
-      videoRoomName: null,
-      videoRoomUrl: null,
-      participantName,
-      studentId: upcoming.studentId,
-      windowOpensAt,
-      windowClosesAt,
-      recordingConsent: upcoming.recordingConsent ?? null,
-    };
+    return result;
   },
 });
 
