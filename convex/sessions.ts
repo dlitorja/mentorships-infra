@@ -1,5 +1,5 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -1430,6 +1430,126 @@ export const markRecordingTransferFailed = internalMutation({
  * Auth: instructor on the session only. Students cannot create rooms
  * — this prevents burning Daily quota or creating orphan rooms.
  */
+/**
+ * Shared implementation for persisting a Daily room against a session.
+ * Split out so both the public `setVideoRoom` mutation (scheduled
+ * sessions, instructor-only) and the internal `setVideoRoomInternal`
+ * mutation (ad-hoc calls verified by a trusted action) can reuse the
+ * same conflict/duplicate checks.
+ */
+async function setVideoRoomHelper(
+  ctx: MutationCtx,
+  args: {
+    sessionId: Id<"sessions">;
+    videoRoomName: string;
+    videoRoomUrl: string;
+    roomRecordingEnabled: boolean;
+  }
+): Promise<Doc<"sessions">> {
+  const session = await ctx.db.get(args.sessionId);
+  if (!session) {
+    throw new ConvexError({
+      code: "VIDEO_SESSION_NOT_FOUND",
+      message: "Session not found",
+    });
+  }
+
+  if (session.callEndedAt !== undefined) {
+    return session;
+  }
+
+    if (session.videoRoomName === args.videoRoomName) {
+      if (session.videoRoomUrl !== args.videoRoomUrl) {
+        await ctx.db.patch(args.sessionId, {
+          videoRoomUrl: args.videoRoomUrl,
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
+        const updated = await ctx.db.get(args.sessionId);
+        if (!updated) {
+          throw new ConvexError({
+            code: "VIDEO_SESSION_NOT_FOUND",
+            message: "Session disappeared after update",
+          });
+        }
+        return updated;
+      }
+      // Name + URL match — but roomRecordingEnabled may still have
+      // drifted if a previous 409-recovery PATCH (in resolveDailyRoom)
+      // reconciled Daily to a new consent value. Update the snapshot
+      // to keep the drift detector in recordConsent in sync with
+      // Daily's actual state.
+      if (session.roomRecordingEnabled !== args.roomRecordingEnabled) {
+        await ctx.db.patch(args.sessionId, {
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
+        const updated = await ctx.db.get(args.sessionId);
+        if (!updated) {
+          throw new ConvexError({
+            code: "VIDEO_SESSION_NOT_FOUND",
+            message: "Session disappeared after update",
+          });
+        }
+        return updated;
+      }
+      return session;
+    }
+
+
+  if (session.videoRoomName !== undefined) {
+    throw new ConvexError({
+      code: "VIDEO_ROOM_NAME_CONFLICT",
+      message:
+        "Session already has a different videoRoomName; refusing to overwrite",
+    });
+  }
+
+  // PR #7: widen-phase uniqueness guard. Prevents two distinct
+  // sessions from claiming the same Daily room name — the original
+  // guard was only at the read sites
+  // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
+  // which threw after a duplicate had already been written, so the
+  // webhook would 500 on delivery. Now we reject the conflicting
+  // assignment up front so the caller can retry with a fresh room.
+  //
+  // Uses `.first()` (not `.unique()`) so pre-existing duplicates
+  // from data drift survive the migrate phase without crashing
+  // this code path — `.unique()` would throw on the duplicate and
+  // block the new assignment. The actual uniqueness guarantee comes
+  // from Convex's serializable OCC: a concurrent `.first()` racing
+  // with our `.patch()` would either see our patch (and return
+  // non-null on its own `.first()`) or be rejected by OCC, never
+  // both. We choose `.first()` here because the schema index does
+  // not enforce uniqueness — the only way to prevent duplicates at
+  // the moment is this insert-time check.
+  const owner = await ctx.db
+    .query("sessions")
+    .withIndex("by_videoRoomName", (q) =>
+      q.eq("videoRoomName", args.videoRoomName),
+    )
+    .first();
+  if (owner !== null) {
+    throw new ConvexError({
+      code: "VIDEO_ROOM_NAME_TAKEN",
+      message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
+    });
+  }
+
+  await ctx.db.patch(args.sessionId, {
+    videoRoomName: args.videoRoomName,
+    videoRoomUrl: args.videoRoomUrl,
+    roomRecordingEnabled: args.roomRecordingEnabled,
+  });
+
+  const updated = await ctx.db.get(args.sessionId);
+  if (!updated) {
+    throw new ConvexError({
+      code: "VIDEO_SESSION_NOT_FOUND",
+      message: "Session disappeared after update",
+    });
+  }
+  return updated;
+}
+
 export const setVideoRoom = mutation({
   args: {
     sessionId: v.id("sessions"),
@@ -1461,78 +1581,26 @@ export const setVideoRoom = mutation({
       });
     }
 
-    if (session.callEndedAt !== undefined) {
-      return session;
-    }
+    return await setVideoRoomHelper(ctx, args);
+  },
+});
 
-    if (session.videoRoomName === args.videoRoomName) {
-      if (session.videoRoomUrl !== args.videoRoomUrl) {
-        await ctx.db.patch(args.sessionId, {
-          videoRoomUrl: args.videoRoomUrl,
-          roomRecordingEnabled: args.roomRecordingEnabled,
-        });
-        return await ctx.db.get(args.sessionId);
-      }
-      // Name + URL match — but roomRecordingEnabled may still have
-      // drifted if a previous 409-recovery PATCH (in resolveDailyRoom)
-      // reconciled Daily to a new consent value. Update the snapshot
-      // to keep the drift detector in recordConsent in sync with
-      // Daily's actual state.
-      if (session.roomRecordingEnabled !== args.roomRecordingEnabled) {
-        await ctx.db.patch(args.sessionId, {
-          roomRecordingEnabled: args.roomRecordingEnabled,
-        });
-        return await ctx.db.get(args.sessionId);
-      }
-      return session;
-    }
-
-    if (session.videoRoomName !== undefined) {
-      throw new ConvexError({
-        code: "VIDEO_ROOM_NAME_CONFLICT",
-        message:
-          "Session already has a different videoRoomName; refusing to overwrite",
-      });
-    }
-
-    // PR #7: widen-phase uniqueness guard. Prevents two distinct
-    // sessions from claiming the same Daily room name — the original
-    // guard was only at the read sites
-    // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
-    // which threw after a duplicate had already been written, so the
-    // webhook would 500 on delivery. Now we reject the conflicting
-    // assignment up front so the caller can retry with a fresh room.
-    //
-    // Uses `.first()` (not `.unique()`) so pre-existing duplicates
-    // from data drift survive the migrate phase without crashing
-    // this code path — `.unique()` would throw on the duplicate and
-    // block the new assignment. The actual uniqueness guarantee comes
-    // from Convex's serializable OCC: a concurrent `.first()` racing
-    // with our `.patch()` would either see our patch (and return
-    // non-null on its own `.first()`) or be rejected by OCC, never
-    // both. We choose `.first()` here because the schema index does
-    // not enforce uniqueness — the only way to prevent duplicates at
-    // the moment is this insert-time check.
-    const owner = await ctx.db
-      .query("sessions")
-      .withIndex("by_videoRoomName", (q) =>
-        q.eq("videoRoomName", args.videoRoomName),
-      )
-      .first();
-    if (owner !== null) {
-      throw new ConvexError({
-        code: "VIDEO_ROOM_NAME_TAKEN",
-        message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
-      });
-    }
-
-    await ctx.db.patch(args.sessionId, {
-      videoRoomName: args.videoRoomName,
-      videoRoomUrl: args.videoRoomUrl,
-      roomRecordingEnabled: args.roomRecordingEnabled,
-    });
-
-    return await ctx.db.get(args.sessionId);
+/**
+ * Internal mutation used by the trusted `setVerifiedAdhocVideoRoom`
+ * action to persist a verified Daily room for an ad-hoc session. The
+ * action has already confirmed the caller is a session participant and
+ * that the room exists on Daily, so this mutation only enforces the
+ * schema-level checks (no duplicate room names, no overwrites).
+ */
+export const setVideoRoomInternal = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    videoRoomName: v.string(),
+    videoRoomUrl: v.string(),
+    roomRecordingEnabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    return await setVideoRoomHelper(ctx, args);
   },
 });
 
@@ -2749,11 +2817,13 @@ export const startAdhocCall = mutation({
       scheduledAt: Date.now(),
       status: "scheduled",
       recordingConsent: args.recordingConsent,
-      // PR #4a: initialize the instructor's per-party field to the
-      // consented value (the ad-hoc creator IS the instructor and has
-      // already gone through the consent modal). The student's field
-      // stays undefined until they record their choice.
-      instructorRecordingConsent: args.recordingConsent,
+      // PR #4a: record the starter's per-party consent. The other
+      // party's field stays undefined until they join and record their
+      // choice. The combined value is updated atomically by recordConsent.
+      instructorRecordingConsent: isInstructor
+        ? args.recordingConsent
+        : undefined,
+      studentRecordingConsent: isOwner ? args.recordingConsent : undefined,
       isAdhoc: true,
     });
 

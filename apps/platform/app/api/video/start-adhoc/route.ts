@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { ConvexError } from "convex/values";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { tasks } from "@trigger.dev/sdk";
@@ -23,7 +23,12 @@ type AdhocConvexErrorCode =
   | "VIDEO_SESSION_NOT_FOUND"
   | "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
   | "VIDEO_FORBIDDEN_CALL_ACTIVE"
-  | "VIDEO_ROOM_NAME_TAKEN";
+  | "VIDEO_FORBIDDEN_CALL_ENDED"
+  | "VIDEO_FORBIDDEN_NOT_ADHOC"
+  | "VIDEO_ROOM_NAME_CONFLICT"
+  | "VIDEO_ROOM_NAME_TAKEN"
+  | "VIDEO_ROOM_NOT_FOUND"
+  | "VIDEO_ROOM_URL_MISMATCH";
 
 function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
   if (
@@ -37,13 +42,18 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
       code === "VIDEO_SESSION_NOT_FOUND" ||
       code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
       code === "VIDEO_FORBIDDEN_CALL_ACTIVE" ||
+      code === "VIDEO_FORBIDDEN_CALL_ENDED" ||
+      code === "VIDEO_FORBIDDEN_NOT_ADHOC" ||
+      code === "VIDEO_ROOM_NAME_CONFLICT" ||
       // PR #7: widen-phase uniqueness guard. Triggered when the
       // deterministic room name (mentorship-{sessionId}) already
       // belongs to another session. Should NOT orphan-delete the
       // new session because (a) the duplicate is in the OTHER
-      // session's row, and (b) the deterministic name means a
-      // retry will hit the same conflict. Caller must investigate.
-      code === "VIDEO_ROOM_NAME_TAKEN"
+      // session's row, and (b) the deterministic name means a retry
+      // will hit the same conflict. Caller must investigate.
+      code === "VIDEO_ROOM_NAME_TAKEN" ||
+      code === "VIDEO_ROOM_NOT_FOUND" ||
+      code === "VIDEO_ROOM_URL_MISMATCH"
     ) {
       return code;
     }
@@ -60,12 +70,16 @@ const startAdhocSchema = z.object({
  * Creates a synthetic `sessions` row for an ad-hoc call (catch-up outside
  * any scheduled session), then provisions a Daily room against it.
  * Mirrors the structure of `rooms/route.ts` — Daily REST call with
- * 409-recovery, then `setVideoRoom` to persist.
+ * 409-recovery, then a trusted Convex action to verify and persist the
+ * room metadata.
  *
- * Auth check happens in two places:
+ * Auth check happens in three places:
  *   1. Clerk auth in this handler (token required for Convex calls).
  *   2. `startAdhocCall` Convex mutation verifies the caller is a
  *      workspace participant (`VIDEO_FORBIDDEN_NOT_PARTICIPANT`).
+ *   3. `setVerifiedAdhocVideoRoom` Convex action verifies the caller is
+ *      a session participant and that the Daily room actually exists
+ *      before writing `videoRoomName`/`videoRoomUrl` to the session.
  *
  * Returns `{ sessionId, roomName, roomUrl }` on success. The client
  * then treats this session as "joinable" and the VideoCallProvider's
@@ -149,8 +163,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       roomName = resolved.roomName;
       roomUrl = resolved.roomUrl;
 
-      await fetchMutation(
-        api.sessions.setVideoRoom,
+      // The trusted `setVerifiedAdhocVideoRoom` action verifies the
+      // caller is a session participant and that the Daily room exists
+      // before persisting the metadata. This prevents a public mutation
+      // from accepting arbitrary room metadata from a direct client
+      // call (Greptile P1 finding).
+      await fetchAction(
+        api.adhocVideoActions.setVerifiedAdhocVideoRoom,
         {
           sessionId,
           videoRoomName: roomName,
@@ -273,6 +292,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             "Room name already in use by another session; please retry shortly — if the error persists, contact support",
         },
         { status: 409 }
+      );
+    }
+    if (
+      adhocCode === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
+      adhocCode === "VIDEO_FORBIDDEN_NOT_ADHOC" ||
+      adhocCode === "VIDEO_FORBIDDEN_CALL_ENDED" ||
+      adhocCode === "VIDEO_ROOM_NAME_CONFLICT"
+    ) {
+      await reportError({
+        source: "api/video/start-adhoc",
+        error,
+        message: "Caller cannot provision the video room for this session",
+        level: "error",
+      });
+      return NextResponse.json(
+        { error: "Forbidden: cannot provision video room for this session" },
+        { status: 403 }
+      );
+    }
+    if (
+      adhocCode === "VIDEO_ROOM_NOT_FOUND" ||
+      adhocCode === "VIDEO_ROOM_URL_MISMATCH"
+    ) {
+      await reportError({
+        source: "api/video/start-adhoc",
+        error,
+        message: "Daily room verification failed before persisting metadata",
+        level: "error",
+      });
+      return NextResponse.json(
+        { error: "Failed to verify video room" },
+        { status: 502 }
       );
     }
     if (error instanceof DailyApiError) {

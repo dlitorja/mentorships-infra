@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as adhocVideoActions from "../adhocVideoActions.js";
 import type * as admin from "../admin.js";
 import type * as adminOnboarding from "../adminOnboarding.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
@@ -64,6 +65,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adhocVideoActions: typeof adhocVideoActions;
   admin: typeof admin;
   adminOnboarding: typeof adminOnboarding;
   adminWorkspaces: typeof adminWorkspaces;
