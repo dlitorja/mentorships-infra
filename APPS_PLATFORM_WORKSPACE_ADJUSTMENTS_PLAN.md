@@ -174,10 +174,34 @@ The PiP toggle in the in-call controls bar is causing UX problems and is not use
 
 ## 7. Progress and PR status
 
-All plan items above have been implemented in PR #791 (`feat/workspace-student-call-fixes`).
+- PR #791 (`feat/workspace-student-call-fixes`) merged. Implemented items 2.1–2.7 and addressed both CodeRabbit and Greptile review feedback.
+- PR #792 (`fix/daily-webhook-test-event`) merged. Adds explicit handling of Daily.co’s verification POST (`{ "test": "test" }`) so the webhook can be created via the API.
+- PR #793 (`fix/daily-webhook-unknown-room-422`) merged. Surfaces unknown-room webhook deliveries as HTTP 422 instead of 500, because the Convex HTTP client masks the server-side error message.
+- Operations-side setup completed:
+  - Created the Daily.co webhook for `recording.ready-to-download` events pointing to `https://mentorships-infra-platform.vercel.app/api/webhooks/daily/recordings`.
+  - Set `DAILY_WEBHOOK_SECRET` in both the Vercel platform environment and the Convex production environment.
+  - Set `B2_*` environment variables in Vercel and verified they synced to Trigger.dev.
+  - Verified the endpoint:
+    - Daily test ping returns `200`.
+    - Valid HMAC with an unknown room returns `422`.
+    - Missing headers return `400`.
+  - Production bypass headers are disabled (`TEST_WEBHOOK_BYPASS=false` in production/preview).
+- New UI polish (section 8) implemented in working tree; pending PR, review, and merge.
 
-- Implemented items: 2.1–2.7.
-- Addressed CodeRabbit review feedback: authenticated Convex client in the sync route, Zod response parsing in `calls-tab.tsx`, explicit join-request flow in `video-call-provider.tsx`, null guard in `session-count-controls.tsx`, stricter recording-list schema, typed Trigger.dev SDK call in `start-adhoc/route.ts`, and correct `reportError` signature.
-- Addressed Greptile review feedback: changed Daily room-update reconciliation from omitting `enable_recording` to explicitly setting `enable_recording: false` when disabling recording, so an existing cloud-enabled room is actually turned off.
-- Added a JSDoc cleanup for `videoRoomNameForSession` to improve docstring coverage.
-- Status: all GitHub checks and Vercel deployments are green. PR is ready for squash merge. Review re-runs are pending (CodeRabbit is rate-limited/manual-review for this OSS repo; Greptile re-review requires a signed-in session to trigger).
+## 8. UI polish (clarified and implemented)
+
+Clarified with the user and implemented in the same branch as the remaining ops work.
+
+1. **Distinct color for Start / Join call buttons** in the workspace.
+   - Golden (`bg-primary`) is reserved for the rest of the app and must not be used for call actions.
+   - **Start button** (no session yet): vivid blue (`bg-blue-600`, `hover:bg-blue-700`, white text) — calm but still a clear CTA.
+   - **Joinable button** (session in join window, not active): same vivid blue treatment as the Start button.
+   - **Active-not-joined Join button**: destructive (`variant="destructive"`) with `animate-pulse` to make it impossible to miss.
+2. **Ongoing-call indicator in the workspace list**.
+   - A `LIVE` badge with a pulsing white dot appears on the workspace sidebar row for any workspace whose current session is `active`.
+   - The badge uses `bg-destructive` / `text-destructive-foreground` so it ties visually to the active-call Join button.
+   - Implemented via a new Convex query `getActiveSessionsForWorkspaces` (batched) and passed into the workspace list.
+3. **Join-call button indicator when a call is active but the user has not joined**.
+   - The active session status chip shows a red pulsing dot and "Call in progress" text on a destructive-tinted background.
+   - The Join button is destructive and pulsing, confirming the user is not yet in the call.
+   - Shown in the workspace header through the existing `CallStatusPill` component.

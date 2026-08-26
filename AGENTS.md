@@ -1,3 +1,14 @@
+<!-- PULL REQUEST MERGE POLICY -->
+# Pull Request Merge Policy (CRITICAL)
+
+**NEVER merge a pull request unless the automated code reviews from Greptile and CodeRabbit are visible and have passed.**
+
+- Before merging, verify both the `Greptile Review` and `CodeRabbit` status checks are green on the PR.
+- If either check is missing, pending, or failed, wait for it to complete and pass before merging.
+- If a review raises actionable issues, fix them and re-run the checks before merging.
+- Do not rely on local-only verification; the PR must show the bot reviews in GitHub.
+- If the user explicitly asks to skip or override these checks, confirm the instruction before proceeding.
+
 <!-- NAMING CONVENTIONS - CRITICAL -->
 # Naming Conventions: NEVER use mentor/mentee
 

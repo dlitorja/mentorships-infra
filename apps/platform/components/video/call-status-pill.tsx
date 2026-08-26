@@ -275,19 +275,19 @@ export function CallStatusPill({
     return (
       <>
         <div className={cn("flex items-center gap-3", className)}>
-          <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm font-medium">
+          <div className="flex items-center gap-2 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-sm font-medium text-destructive">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
-              <span className="relative inline-flex h-full w-full rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-75" />
+              <span className="relative inline-flex h-full w-full rounded-full bg-destructive" />
             </span>
             Call in progress
           </div>
           <Button
             type="button"
-            variant="default"
+            variant="destructive"
             size="lg"
             onClick={handleJoinClick}
-            className="font-semibold text-base shadow-sm"
+            className="animate-pulse font-semibold text-base shadow-sm"
           >
             <Video className="h-5 w-5" />
             Join video call
@@ -302,7 +302,7 @@ export function CallStatusPill({
     return (
       <>
         <div className={cn("flex items-center gap-3", className)}>
-          <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-600">
             <span className="relative flex h-2.5 w-2.5 rounded-full bg-blue-500" />
             Call is ready
           </div>
@@ -311,7 +311,7 @@ export function CallStatusPill({
             variant="default"
             size="lg"
             onClick={handleJoinClick}
-            className="font-semibold text-base shadow-sm"
+            className="bg-blue-600 text-white hover:bg-blue-700 font-semibold text-base shadow-sm"
           >
             <Phone className="h-5 w-5" />
             Join video call
