@@ -154,7 +154,7 @@ export async function POST(
           let patchSucceeded = false;
           try {
           await patchDailyRoomProperties(syncResult.videoRoomName, {
-            enable_recording: syncResult.enableRecording ? "cloud" : undefined,
+            enable_recording: syncResult.enableRecording ? "cloud" : false,
           });
             patchSucceeded = true;
           } catch (err) {

@@ -228,9 +228,11 @@ describe("resolveDailyRoom", () => {
     vi.restoreAllMocks();
   });
 
-  it("recovers from a 409 and only patches enable_recording when enabling", async () => {
+  it("recovers from a 409 and patches enable_recording to false when disabling", async () => {
     // First POST /rooms returns 409, GET /rooms/:name returns the existing room,
-    // POST /rooms/:name (update) returns success.
+    // POST /rooms/:name (update) returns success. An existing cloud-enabled room
+    // must be explicitly disabled with `false`; omitting the property leaves it
+    // cloud-enabled.
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ error: "conflict" }, { status: 409, statusText: "Conflict" }))
@@ -249,6 +251,6 @@ describe("resolveDailyRoom", () => {
 
     const [, patchInit] = fetchSpy.mock.calls[2];
     const patchBody = JSON.parse(patchInit.body as string);
-    expect(patchBody.properties).not.toHaveProperty("enable_recording");
+    expect(patchBody.properties.enable_recording).toBe(false);
   });
 });

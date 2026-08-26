@@ -323,7 +323,7 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
  * reconciliation flow: when a participant records their consent AFTER
  * the room was already provisioned (e.g., the student declines after
  * the instructor already joined), `enable_recording` may need to flip
- * from `"cloud"` to `"off"` so the call isn't recorded against the
+ * from `"cloud"` to `false` so the call isn't recorded against the
  * declining party's wishes. Daily's room-update endpoint is
  * `POST /v1/rooms/{name}` (NOT PATCH) — the `method: "POST"` below
  * is correct; do not "fix" it to PATCH or the update will 404.
@@ -386,7 +386,7 @@ export async function resolveDailyRoom(
       if (existing !== null) {
         try {
           await patchDailyRoomProperties(roomName, {
-            enable_recording: options.recordingEnabled ? "cloud" : undefined,
+            enable_recording: options.recordingEnabled ? "cloud" : false,
           });
         } catch {
           // Best-effort reconciliation — the room is still usable
