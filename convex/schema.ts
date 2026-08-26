@@ -401,7 +401,8 @@ export default defineSchema({
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_createdBy", ["createdBy"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
-    .index("by_sessionId_isLiveSessionNote", ["sessionId", "isLiveSessionNote"]),
+    .index("by_sessionId_isLiveSessionNote", ["sessionId", "isLiveSessionNote"])
+    .index("by_workspaceId_isLiveSessionNote_deletedAt", ["workspaceId", "isLiveSessionNote", "deletedAt"]),
 
   workspaceNoteComments: defineTable({
     noteId: v.id("workspaceNotes"),

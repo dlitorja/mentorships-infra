@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
@@ -30,6 +30,76 @@ interface CallsTabProps {
   workspaceId: Id<"workspaces">;
 }
 
+const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+
+function getLastSyncKey(workspaceId: Id<"workspaces">): string {
+  return `workspace-video-last-sync-${workspaceId}`;
+}
+
+function getLastSyncTimestamp(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setLastSyncTimestamp(key: string, timestamp: number): void {
+  try {
+    localStorage.setItem(key, String(timestamp));
+  } catch {
+    // localStorage may be unavailable (private mode, SSR, etc.);
+    // in that case we simply skip the cooldown and let the effect retry.
+  }
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function getDateLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+
+  if (isSameDay(date, now)) return "Today";
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(date, yesterday)) return "Yesterday";
+
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+function groupRecordingsByDate(
+  recordings: CallRecording[]
+): Array<{ label: string; recordings: CallRecording[] }> {
+  const groups = new Map<string, CallRecording[]>();
+  for (const recording of recordings) {
+    const label = recording.callStartedAt
+      ? getDateLabel(recording.callStartedAt)
+      : "Date unavailable";
+    const existing = groups.get(label) ?? [];
+    existing.push(recording);
+    groups.set(label, existing);
+  }
+  return Array.from(groups.entries()).map(([label, recs]) => ({
+    label,
+    recordings: recs,
+  }));
+}
+
 /**
  * PR #video-tab: dedicated "Videos" tab for the workspace. Past call
  * recordings are surfaced as a gallery of viewable video cards, each with
@@ -57,11 +127,11 @@ export default function CallsTab({
     convexQuery(api.sessions.canSyncRecordingsForWorkspace, { workspaceId })
   );
   const syncMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (variables: { workspaceId: Id<"workspaces"> }) => {
       const res = await fetch("/api/video/recordings/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId }),
+        body: JSON.stringify({ workspaceId: variables.workspaceId }),
       });
       const raw = await res.json();
       if (!res.ok) {
@@ -74,18 +144,39 @@ export default function CallsTab({
       }
       return parsed.data;
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
         queryKey: convexQuery(api.sessions.getCallRecordingsForWorkspace, {
-          workspaceId,
+          workspaceId: variables.workspaceId,
         }).queryKey,
       });
+      const lastSyncKey = getLastSyncKey(variables.workspaceId);
+      setLastSyncTimestamp(lastSyncKey, Date.now());
     },
   });
   const [openSessionId, setOpenSessionId] =
     useState<Id<"sessions"> | null>(null);
 
   const showSyncButton = canSyncQuery.data === true;
+
+  // Auto-sync recordings when the Videos tab is first viewed for a
+  // workspace, but only once per workspace per 5-minute window to avoid
+  // hammering the Daily API. The manual sync button remains available.
+  // `workspaceId` is passed as a mutation variable so `onSuccess` always
+  // invalidates and records the cooldown for the workspace that was synced,
+  // even if the workspace changes while the request is in flight.
+  useEffect(() => {
+    if (!showSyncButton) return;
+    if (syncMutation.isPending) return;
+
+    const lastSyncKey = getLastSyncKey(workspaceId);
+    const lastSync = getLastSyncTimestamp(lastSyncKey);
+    if (lastSync && Date.now() - lastSync < SYNC_COOLDOWN_MS) {
+      return;
+    }
+
+    syncMutation.mutate({ workspaceId });
+  }, [workspaceId, showSyncButton, syncMutation]);
 
   if (recordingsQuery.isLoading) {
     return (
@@ -124,6 +215,7 @@ export default function CallsTab({
 
   const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
   const isTruncated = recordingsQuery.data?.isTruncated ?? false;
+  const groupedRecordings = groupRecordingsByDate(recordings);
 
   if (recordings.length === 0) {
     return (
@@ -137,7 +229,7 @@ export default function CallsTab({
           {showSyncButton && (
             <div className="mt-4 flex flex-col items-center gap-2">
               <SyncButton
-                onSync={() => syncMutation.mutate()}
+                onSync={() => syncMutation.mutate({ workspaceId })}
                 isPending={syncMutation.isPending}
                 error={syncMutation.error?.message ?? null}
               />
@@ -172,7 +264,7 @@ export default function CallsTab({
         </span>
         {showSyncButton && (
           <SyncButton
-            onSync={() => syncMutation.mutate()}
+            onSync={() => syncMutation.mutate({ workspaceId })}
             isPending={syncMutation.isPending}
             error={syncMutation.error?.message ?? null}
           />
@@ -191,13 +283,22 @@ export default function CallsTab({
         </p>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {recordings.map((recording) => (
-          <VideoCard
-            key={recording.sessionId}
-            recording={recording}
-            onPlay={() => setOpenSessionId(recording.sessionId)}
-          />
+      <div className="space-y-6">
+        {groupedRecordings.map((group) => (
+          <div key={group.label} className="space-y-3">
+            <h4 className="text-sm font-medium text-muted-foreground">
+              {group.label}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {group.recordings.map((recording) => (
+                <VideoCard
+                  key={recording.sessionId}
+                  recording={recording}
+                  onPlay={() => setOpenSessionId(recording.sessionId)}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

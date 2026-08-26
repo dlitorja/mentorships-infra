@@ -22,21 +22,29 @@ export type ConsentModalProps = {
    */
   defaultRecording: boolean;
   /**
-   * Called when the user explicitly chooses to join with or without
+   * Whether the modal is being shown before starting a new ad-hoc
+   * call (`start`) or joining an existing session (`join`). The copy
+   * and button labels adapt to the action.
+   */
+  mode?: "join" | "start";
+  /**
+   * Called when the user explicitly chooses to proceed with or without
    * recording. The caller persists the consent value via
-   * `POST /api/video/consent/[sessionId]` and then calls `join()`.
+   * `POST /api/video/consent/[sessionId]` (join) or the
+   * `recordingConsent` body param of `POST /api/video/start-adhoc`
+   * (start) and then joins/starts the call.
    */
   onResolved: (consent: boolean) => void;
   /**
    * Called when the user closes the dialog without choosing (Escape,
-   * backdrop click, or "Cancel" button). Aborts the pending join
-   * flow — no consent is persisted and `join()` is NOT called.
+   * backdrop click, or "Cancel" button). Aborts the pending flow —
+   * no consent is persisted and the call is not joined/started.
    */
   onCancel: () => void;
 };
 
 /**
- * Recording-consent dialog opened before joining (or starting) a call.
+ * Recording-consent dialog opened before joining or starting a call.
  *
  * This modal is presentational only — it captures the user's choice
  * and hands it back to the caller. Persistence is the caller's job:
@@ -59,9 +67,11 @@ export type ConsentModalProps = {
 export function ConsentModal({
   open,
   defaultRecording,
+  mode = "join",
   onResolved,
   onCancel,
 }: ConsentModalProps): React.ReactElement {
+  const isStartMode = mode === "start";
   const [hasChosen, setHasChosen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -100,7 +110,9 @@ export function ConsentModal({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           {defaultRecording
-            ? "Recording is on by default. You can join without recording if you prefer."
+            ? isStartMode
+              ? "Recording is on by default. You can start without recording if you prefer."
+              : "Recording is on by default. You can join without recording if you prefer."
             : "Recording is off by default."}
         </p>
         <DialogFooter className="gap-2 sm:gap-0">
@@ -110,7 +122,7 @@ export function ConsentModal({
             onClick={onCancel}
             disabled={hasChosen}
           >
-            Don&apos;t join
+            {isStartMode ? "Cancel" : "Don't join"}
           </Button>
           <div className="flex gap-2">
             <Button
@@ -119,14 +131,18 @@ export function ConsentModal({
               onClick={() => choose(false)}
               disabled={hasChosen}
             >
-              Join without recording
+              {isStartMode ? "Start without recording" : "Join without recording"}
             </Button>
             <Button
               type="button"
               onClick={() => choose(true)}
               disabled={hasChosen}
             >
-              {hasChosen ? "Continuing…" : "Join with recording"}
+              {hasChosen
+                ? "Continuing…"
+                : isStartMode
+                  ? "Start with recording"
+                  : "Join with recording"}
             </Button>
           </div>
         </DialogFooter>
