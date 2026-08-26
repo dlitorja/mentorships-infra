@@ -50,6 +50,8 @@ interface DailyWebhookEvent {
   id?: string;
   payload?: DailyRecordingReadyPayload;
   event_ts?: number;
+  /** Daily.co sends a verification POST with `{"test": "test"}` when creating/updating a webhook. */
+  test?: string;
 }
 
 function isTestBypassEnabled(req: NextRequest): boolean {
@@ -99,8 +101,24 @@ function isValidRecordingPayload(
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const bypassed = isTestBypassEnabled(req);
   const body = await req.text();
+
+  let event: DailyWebhookEvent;
+  try {
+    event = JSON.parse(body) as DailyWebhookEvent;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Daily.co sends a verification POST with `{"test": "test"}` (and no HMAC
+  // headers) when creating or updating a webhook. Acknowledge it immediately
+  // so the webhook can be created; real recording events still require HMAC
+  // verification below.
+  if (event.test === "test") {
+    return NextResponse.json({ received: true, test: true });
+  }
+
+  const bypassed = isTestBypassEnabled(req);
 
   // Test bypass for CI and integration tests on preview/prod deploys.
   // In bypass mode we still read the raw body and forward it to Convex —
@@ -133,13 +151,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     signature = sigHeader;
     timestamp = tsHeader;
-  }
-
-  let event: DailyWebhookEvent;
-  try {
-    event = JSON.parse(body) as DailyWebhookEvent;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   return handleEvent(event, body, signature, timestamp, bypassed ? "bypass" : "verified");
