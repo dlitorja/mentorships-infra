@@ -69,7 +69,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (err instanceof Error && err.message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    reportError(err, { route: "/api/video/recordings/sync", phase: "query" });
+    await reportError({
+      source: "api/video/recordings/sync",
+      error: err,
+      message: "Failed to fetch sessions for sync",
+      context: { workspaceId },
+    });
     return NextResponse.json(
       { error: "Failed to fetch sessions for sync" },
       { status: 500 }
@@ -84,10 +89,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       recordings = await getDailyRecordingsByRoomName(session.videoRoomName);
     } catch (err) {
-      reportError(err, {
-        route: "/api/video/recordings/sync",
-        phase: "list-recordings",
-        roomName: session.videoRoomName,
+      await reportError({
+        source: "api/video/recordings/sync",
+        error: err,
+        message: "Failed to list Daily recordings for room",
+        context: { roomName: session.videoRoomName, workspaceId },
       });
       continue;
     }
@@ -111,11 +117,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
         synced++;
       } catch (err) {
-        reportError(err, {
-          route: "/api/video/recordings/sync",
-          phase: "attach-recording",
-          roomName: session.videoRoomName,
-          recordingId: recording.recordingId,
+        await reportError({
+          source: "api/video/recordings/sync",
+          error: err,
+          message: "Failed to attach recording from sync",
+          context: {
+            roomName: session.videoRoomName,
+            recordingId: recording.recordingId,
+            workspaceId,
+          },
         });
       }
     }
