@@ -2495,7 +2495,7 @@ export const migrateWorkspaceImage = action({
  * To avoid generating a new note every time a call is restarted in
  * the same lesson (e.g., network hiccups or technical issues), we
  * also reuse a recent live session note for the same workspace if one
- * was created within the last 16 hours. The reused note is re-tagged
+ * was created within the last 12 hours. The reused note is re-tagged
  * to the current session so the Notes tab continues to pin it.
  *
  * `createdBy` is set to a fixed system marker (`"system"`) because
@@ -2526,7 +2526,7 @@ export const createLiveSessionNote = internalMutation({
       throw new Error("Session not found");
     }
 
-    const LIVE_SESSION_NOTE_REUSE_WINDOW_MS = 16 * 60 * 60 * 1000;
+    const LIVE_SESSION_NOTE_REUSE_WINDOW_MS = 12 * 60 * 60 * 1000;
     const recentWindowStart = Date.now() - LIVE_SESSION_NOTE_REUSE_WINDOW_MS;
     const recentNote = await ctx.db
       .query("workspaceNotes")

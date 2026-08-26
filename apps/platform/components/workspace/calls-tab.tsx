@@ -30,6 +30,32 @@ interface CallsTabProps {
   workspaceId: Id<"workspaces">;
 }
 
+const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+
+function getLastSyncKey(workspaceId: Id<"workspaces">): string {
+  return `workspace-video-last-sync-${workspaceId}`;
+}
+
+function getLastSyncTimestamp(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
+
+function setLastSyncTimestamp(key: string, timestamp: number): void {
+  try {
+    localStorage.setItem(key, String(timestamp));
+  } catch {
+    // localStorage may be unavailable (private mode, SSR, etc.);
+    // in that case we simply skip the cooldown and let the effect retry.
+  }
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -138,18 +164,25 @@ export default function CallsTab({
     if (!showSyncButton) return;
     if (syncMutation.isPending) return;
 
-    const lastSyncKey = `workspace-video-last-sync-${workspaceId}`;
-    const lastSync = localStorage.getItem(lastSyncKey);
-    const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
-    if (lastSync && Date.now() - parseInt(lastSync, 10) < SYNC_COOLDOWN_MS) {
+    const lastSyncKey = getLastSyncKey(workspaceId);
+    const lastSync = getLastSyncTimestamp(lastSyncKey);
+    if (lastSync && Date.now() - lastSync < SYNC_COOLDOWN_MS) {
       return;
     }
 
     syncMutation.mutate();
-    localStorage.setItem(lastSyncKey, String(Date.now()));
     // Only run on workspace entry / when sync authorization becomes known.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, showSyncButton]);
+
+  // Only record a successful sync in localStorage so a failed auto-sync
+  // will be retried on the next Videos tab visit instead of being blocked
+  // for the full cooldown window.
+  useEffect(() => {
+    if (!syncMutation.isSuccess) return;
+    const lastSyncKey = getLastSyncKey(workspaceId);
+    setLastSyncTimestamp(lastSyncKey, Date.now());
+  }, [syncMutation.isSuccess, workspaceId]);
 
   if (recordingsQuery.isLoading) {
     return (
