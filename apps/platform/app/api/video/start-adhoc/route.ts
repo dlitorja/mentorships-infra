@@ -23,6 +23,7 @@ type AdhocConvexErrorCode =
   | "VIDEO_SESSION_NOT_FOUND"
   | "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
   | "VIDEO_FORBIDDEN_CALL_ACTIVE"
+  | "VIDEO_FORBIDDEN_NOT_INSTRUCTOR"
   | "VIDEO_ROOM_NAME_TAKEN";
 
 function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
@@ -37,12 +38,13 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
       code === "VIDEO_SESSION_NOT_FOUND" ||
       code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
       code === "VIDEO_FORBIDDEN_CALL_ACTIVE" ||
+      code === "VIDEO_FORBIDDEN_NOT_INSTRUCTOR" ||
       // PR #7: widen-phase uniqueness guard. Triggered when the
       // deterministic room name (mentorship-{sessionId}) already
       // belongs to another session. Should NOT orphan-delete the
       // new session because (a) the duplicate is in the OTHER
-      // session's row, and (b) the deterministic name means a
-      // retry will hit the same conflict. Caller must investigate.
+      // session's row, and (b) the deterministic name means a retry
+      // will hit the same conflict. Caller must investigate.
       code === "VIDEO_ROOM_NAME_TAKEN"
     ) {
       return code;
@@ -273,6 +275,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             "Room name already in use by another session; please retry shortly — if the error persists, contact support",
         },
         { status: 409 }
+      );
+    }
+    if (adhocCode === "VIDEO_FORBIDDEN_NOT_INSTRUCTOR") {
+      await reportError({
+        source: "api/video/start-adhoc",
+        error,
+        message:
+          "Caller is not allowed to provision the video room for this session",
+        level: "error",
+      });
+      return NextResponse.json(
+        { error: "Forbidden: cannot provision video room for this session" },
+        { status: 403 }
       );
     }
     if (error instanceof DailyApiError) {

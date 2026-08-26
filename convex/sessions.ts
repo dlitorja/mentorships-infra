@@ -1454,10 +1454,18 @@ export const setVideoRoom = mutation({
         message: "Unauthorized",
       });
     }
-    if (!instructor || instructor.userId !== identity.subject) {
+    const isInstructor = instructor && instructor.userId === identity.subject;
+    const isStudent = session.studentId === identity.subject;
+    const isAdhoc = session.isAdhoc === true;
+    // Scheduled sessions remain instructor-only for room creation.
+    // Ad-hoc sessions may be started by either the instructor or the
+    // student, so both parties must be able to provision the Daily room.
+    if (!isInstructor && !(isAdhoc && isStudent)) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
-        message: "Forbidden: only the session's instructor can create a room",
+        message: isAdhoc
+          ? "Forbidden: only the session's instructor or student can create a room"
+          : "Forbidden: only the session's instructor can create a room",
       });
     }
 
@@ -2749,11 +2757,13 @@ export const startAdhocCall = mutation({
       scheduledAt: Date.now(),
       status: "scheduled",
       recordingConsent: args.recordingConsent,
-      // PR #4a: initialize the instructor's per-party field to the
-      // consented value (the ad-hoc creator IS the instructor and has
-      // already gone through the consent modal). The student's field
-      // stays undefined until they record their choice.
-      instructorRecordingConsent: args.recordingConsent,
+      // PR #4a: record the starter's per-party consent. The other
+      // party's field stays undefined until they join and record their
+      // choice. The combined value is updated atomically by recordConsent.
+      instructorRecordingConsent: isInstructor
+        ? args.recordingConsent
+        : undefined,
+      studentRecordingConsent: isOwner ? args.recordingConsent : undefined,
       isAdhoc: true,
     });
 

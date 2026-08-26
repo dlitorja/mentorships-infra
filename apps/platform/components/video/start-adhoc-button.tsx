@@ -143,6 +143,7 @@ export function StartAdhocButton({
       <ConsentModal
         open={modalOpen}
         defaultRecording={true}
+        mode="start"
         onResolved={(consent) => {
           void startAdhoc(consent);
         }}
