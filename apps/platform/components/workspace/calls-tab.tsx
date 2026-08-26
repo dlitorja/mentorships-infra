@@ -127,11 +127,11 @@ export default function CallsTab({
     convexQuery(api.sessions.canSyncRecordingsForWorkspace, { workspaceId })
   );
   const syncMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (variables: { workspaceId: Id<"workspaces"> }) => {
       const res = await fetch("/api/video/recordings/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId }),
+        body: JSON.stringify({ workspaceId: variables.workspaceId }),
       });
       const raw = await res.json();
       if (!res.ok) {
@@ -144,12 +144,14 @@ export default function CallsTab({
       }
       return parsed.data;
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
         queryKey: convexQuery(api.sessions.getCallRecordingsForWorkspace, {
-          workspaceId,
+          workspaceId: variables.workspaceId,
         }).queryKey,
       });
+      const lastSyncKey = getLastSyncKey(variables.workspaceId);
+      setLastSyncTimestamp(lastSyncKey, Date.now());
     },
   });
   const [openSessionId, setOpenSessionId] =
@@ -160,6 +162,9 @@ export default function CallsTab({
   // Auto-sync recordings when the Videos tab is first viewed for a
   // workspace, but only once per workspace per 5-minute window to avoid
   // hammering the Daily API. The manual sync button remains available.
+  // `workspaceId` is passed as a mutation variable so `onSuccess` always
+  // invalidates and records the cooldown for the workspace that was synced,
+  // even if the workspace changes while the request is in flight.
   useEffect(() => {
     if (!showSyncButton) return;
     if (syncMutation.isPending) return;
@@ -170,19 +175,8 @@ export default function CallsTab({
       return;
     }
 
-    syncMutation.mutate();
-    // Only run on workspace entry / when sync authorization becomes known.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, showSyncButton]);
-
-  // Only record a successful sync in localStorage so a failed auto-sync
-  // will be retried on the next Videos tab visit instead of being blocked
-  // for the full cooldown window.
-  useEffect(() => {
-    if (!syncMutation.isSuccess) return;
-    const lastSyncKey = getLastSyncKey(workspaceId);
-    setLastSyncTimestamp(lastSyncKey, Date.now());
-  }, [syncMutation.isSuccess, workspaceId]);
+    syncMutation.mutate({ workspaceId });
+  }, [workspaceId, showSyncButton, syncMutation]);
 
   if (recordingsQuery.isLoading) {
     return (
@@ -235,7 +229,7 @@ export default function CallsTab({
           {showSyncButton && (
             <div className="mt-4 flex flex-col items-center gap-2">
               <SyncButton
-                onSync={() => syncMutation.mutate()}
+                onSync={() => syncMutation.mutate({ workspaceId })}
                 isPending={syncMutation.isPending}
                 error={syncMutation.error?.message ?? null}
               />
@@ -270,7 +264,7 @@ export default function CallsTab({
         </span>
         {showSyncButton && (
           <SyncButton
-            onSync={() => syncMutation.mutate()}
+            onSync={() => syncMutation.mutate({ workspaceId })}
             isPending={syncMutation.isPending}
             error={syncMutation.error?.message ?? null}
           />
