@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, User } from "lucide-react";
 import { useActiveSessionPacksByUser } from "@/lib/queries/convex/use-session-packs";
-import { useInstructor } from "@/lib/queries/convex/use-instructors";
+import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
+import { useEffect, useRef } from "react";
+import { syncDiscordRole } from "@/lib/queries/api-client";
 import { Id } from "@/convex/_generated/dataModel";
 
 interface SessionPackData {
@@ -87,7 +89,27 @@ export function DashboardContent() {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
 
+  const { data: instructorRecord } = useInstructorByUserId(userId || "");
+  const isInstructorOrAdmin = Boolean(instructorRecord);
+
+  const discordConnected = Boolean(
+    user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
+  );
+
   const { data: sessionPacks, isLoading } = useActiveSessionPacksByUser(userId || "");
+
+  const discordSyncRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLoaded || !userId) return;
+    if (isInstructorOrAdmin) return;
+    if (!discordConnected) return;
+    if (discordSyncRef.current) return;
+    discordSyncRef.current = true;
+    syncDiscordRole().catch(() => {
+      // Silently ignore Discord sync failures; this is a background repair mechanism.
+    });
+  }, [isLoaded, userId, isInstructorOrAdmin, discordConnected]);
 
   if (!isLoaded || !user) {
     return (
