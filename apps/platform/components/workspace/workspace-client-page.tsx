@@ -82,17 +82,24 @@ function WorkspaceContent({
 
   const workspacesLoading = false;
 
-  // Reactive map of workspace IDs to their active/joinable sessions so
-  // the workspace list can show a "LIVE" indicator without a separate
+  // Map of workspace IDs to their active/joinable sessions so the
+  // workspace list can show a "LIVE" indicator without a separate
   // query per row.
-  const activeSessionsQuery = useQuery(
-    convexQuery(
+  //
+  // PR workspace-live-calls: polls every 5s as a defensive fallback
+  // because the Convex live subscription for this query occasionally
+  // does not push updates when another party starts or ends a call.
+  // Without the poll, the LIVE indicator can stay stale until the user
+  // refreshes.
+  const activeSessionsQuery = useQuery({
+    ...convexQuery(
       api.sessions.getActiveSessionsForWorkspaces,
       workspaces && workspaces.length > 0
         ? { workspaceIds: workspaces.map((w) => w._id) }
         : "skip"
-    )
-  );
+    ),
+    refetchInterval: 5000,
+  });
   const activeSessionsByWorkspaceId = activeSessionsQuery.data ?? {};
 
   useEffect(() => {
