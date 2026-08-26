@@ -28,6 +28,5 @@ export const VIDEO_SHORTCUTS = {
   toggleMute: "m",
   toggleCamera: "v",
   toggleScreenShare: "s",
-  togglePictureInPicture: "p",
   leaveCall: "Escape",
 } as const;

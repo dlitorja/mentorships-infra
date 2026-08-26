@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +22,12 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 type SessionCountControlsProps = {
   sessionPackId: Id<"sessionPacks">;
+  /**
+   * When true, the component renders only the remaining-session count pill.
+   * No edit/reset controls or dialogs are shown. The server still enforces
+   * authorization on any mutation; this prop hardens the UI for students.
+   */
+  readOnly?: boolean;
 };
 
 type PendingAction = "edit" | "restore";
@@ -40,7 +46,10 @@ function formatRemainingLabel(remaining: number): string {
 /**
  * Renders a pill with the remaining session count plus edit/reset controls for instructors.
  */
-export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
+export function SessionCountControls({
+  sessionPackId,
+  readOnly = false,
+}: SessionCountControlsProps): React.ReactElement | null {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingRef = useRef(false);
@@ -399,6 +408,21 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   }
 
   if (!sessionPack) return null;
+
+  if (readOnly) {
+    return (
+      <div
+        className={cn(
+          "inline-flex items-center rounded-full border bg-background px-3 py-1.5 text-sm font-medium shadow-sm",
+          remainingSessions === 0 && "border-destructive/50",
+          remainingSessions === 1 && "border-yellow-500/50"
+        )}
+        aria-label={formatRemainingLabel(remainingSessions)}
+      >
+        {formatRemainingLabel(remainingSessions)}
+      </div>
+    );
+  }
 
   const isPending = pendingAction !== null;
   const snapshot = pageLoadSnapshot;

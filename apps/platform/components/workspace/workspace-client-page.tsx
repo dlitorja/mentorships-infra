@@ -380,14 +380,14 @@ function WorkspaceInner({
               {!isInCall && (
                 <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
                   <CallStatusPill />
-                  {selectedWorkspace && userRole === "instructor" && (
-                    <StartAdhocButton
-                      workspaceId={selectedWorkspace._id}
-                      role={userRole}
-                    />
+                  {selectedWorkspace && (
+                    <StartAdhocButton workspaceId={selectedWorkspace._id} />
                   )}
-                  {userRole === "instructor" && selectedWorkspace.sessionPackId && (
-                    <SessionCountControls sessionPackId={selectedWorkspace.sessionPackId} />
+                  {selectedWorkspace.sessionPackId && (
+                    <SessionCountControls
+                      sessionPackId={selectedWorkspace.sessionPackId}
+                      readOnly={userRole !== "instructor"}
+                    />
                   )}
                   <WaitingRoom role={userRole} />
                 </div>

@@ -1923,6 +1923,86 @@ export const getCallRecordingsForWorkspace = query({
 });
 
 /**
+ * Returns the sessions for a workspace that have a Daily room but no
+ * recording has been attached yet (no `recordingUrl` and no transfer
+ * status). Used by the manual recording sync fallback to backfill
+ * recordings that were created on Daily.co but missed by the webhook.
+ *
+ * Auth: instructor on the workspace or owner of the workspace.
+ */
+export const getSessionsMissingRecordingsForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; videoRoomName: string }[]> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return [];
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return [];
+    }
+    if (workspace.instructorId === undefined) return [];
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
+    if (!isInstructor && !isOwner) {
+      throw new Error("Forbidden");
+    }
+
+    const result = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId_studentId", (q) =>
+        q
+          .eq("instructorId", workspace.instructorId!)
+          .eq("studentId", workspace.ownerId)
+      )
+      .order("desc")
+      .take(50);
+
+    return result
+      .filter(
+        (s) =>
+          s.deletedAt === undefined &&
+          s.videoRoomName !== undefined &&
+          s.recordingUrl === undefined &&
+          s.recordingTransferStatus === undefined
+      )
+      .map((s) => ({ sessionId: s._id, videoRoomName: s.videoRoomName! }));
+  },
+});
+
+/**
+ * Returns true if the authenticated user is allowed to trigger a manual
+ * recording sync for the workspace. Mirrors the auth rules of
+ * `getSessionsMissingRecordingsForWorkspace`.
+ */
+export const canSyncRecordingsForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<boolean> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return false;
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return false;
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return false;
+    }
+    if (workspace.instructorId === undefined) return false;
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    if (instructor !== null && instructor.userId === identity.subject) {
+      return true;
+    }
+    return workspace.ownerId === identity.subject;
+  },
+});
+
+/**
  * Maps the raw `recordingTransferError` (server-side diagnostic
  * text, never returned to the client) to one of four sanitized
  * buckets that the UI uses to render a friendly explanation.
@@ -2489,7 +2569,7 @@ export const markCallStarted = mutation({
 
 
 /**
- * Instructor-only mutation that creates a synthetic `sessions` row
+ * Participant-only mutation that creates a synthetic `sessions` row
  * for an ad-hoc (catch-up) call started outside any scheduled session.
  *
  * Used by `POST /api/video/start-adhoc` (PR #4a). The route handler
@@ -2498,10 +2578,8 @@ export const markCallStarted = mutation({
  * call (with its retry-on-409 logic) while the database write happens
  * here, transactionally.
  *
- * Auth: caller must be the workspace's instructor (matched via
- * `instructor.userId === identity.subject`). Students never
- * see the UI button (it's hidden at `workspace-client-page.tsx`) AND
- * the endpoint rejects them server-side.
+ * Auth: caller must be either the workspace's instructor or the
+ * workspace owner (student), matched via `identity.subject`.
  *
  * The synthetic row has `isAdhoc: true`, `sessionPackId: undefined`
  * (ad-hoc calls don't consume pack quota; PR #4a widened the field to
@@ -2552,10 +2630,12 @@ export const startAdhocCall = mutation({
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (!instructor || instructor.userId !== identity.subject) {
+    const isInstructor = instructor !== null && instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
+    if (!isInstructor && !isOwner) {
       throw new ConvexError({
-        code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
-        message: "Forbidden: only the workspace's instructor can start an ad-hoc call",
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
       });
     }
 
@@ -2800,7 +2880,9 @@ export const deleteOrphanedAdhocSession = mutation({
     }
 
     const instructor = await ctx.db.get(session.instructorId);
-    if (!instructor || instructor.userId !== identity.subject) {
+    const isInstructor = instructor !== null && instructor.userId === identity.subject;
+    const isOwner = session.studentId === identity.subject;
+    if (!isInstructor && !isOwner) {
       return { deleted: false };
     }
 

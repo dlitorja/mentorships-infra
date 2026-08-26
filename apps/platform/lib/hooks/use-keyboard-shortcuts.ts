@@ -12,7 +12,6 @@ import { useEffect } from "react";
  *   - `m`     → toggle microphone
  *   - `v`     → toggle camera
  *   - `s`     → toggle screen share
- *   - `p`     → toggle picture-in-picture
  *   - `Escape` → leave the call
  *
  * Returns nothing — handlers are passed in as a stable object.
@@ -23,7 +22,6 @@ export function useKeyboardShortcuts(
     onToggleMute: () => void;
     onToggleCamera: () => void;
     onToggleScreenShare: () => void;
-    onTogglePip: () => void;
     onLeaveCall: () => void;
   }
 ) {
@@ -54,10 +52,6 @@ export function useKeyboardShortcuts(
         case "s":
           event.preventDefault();
           handlers.onToggleScreenShare();
-          return;
-        case "p":
-          event.preventDefault();
-          handlers.onTogglePip();
           return;
         case "escape":
           handlers.onLeaveCall();

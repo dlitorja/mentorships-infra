@@ -248,15 +248,22 @@ export function CallStatusPill({
   if (isError) {
     return (
       <>
-        <div className={cn("flex items-center gap-2", className)}>
+        <div className={cn("flex items-center gap-3", className)}>
           <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-sm text-destructive">
             <AlertTriangle className="h-4 w-4" />
             <span className="truncate max-w-[200px]" title={errorMessage ?? "Call error"}>
               {errorMessage ?? "Call error"}
             </span>
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={handleJoinClick}>
-            Retry
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            onClick={handleJoinClick}
+            className="font-semibold text-base shadow-sm"
+          >
+            <Phone className="h-5 w-5" />
+            Retry joining
           </Button>
         </div>
         {consentModal}
@@ -267,42 +274,24 @@ export function CallStatusPill({
   if (session.status === "active") {
     return (
       <>
-        <Button type="button" variant="default" size="sm" onClick={handleJoinClick}>
-          <Video className="h-4 w-4" />
-          Open call
-        </Button>
-        {consentModal}
-      </>
-    );
-  }
-
-  // Student-only "Waiting" pill: a call is joinable in the platform's
-  // join window but no one has marked it as started yet. The student
-  // side hides the Join Call button here (they can't start the call);
-  // the instructor keeps their existing Join/Start affordance below.
-  // `session.startedAt === null` is set by the convex query for any
-  // session that hasn't had `startCall` run yet (regardless of join
-  // window), so this branch only triggers when joinable AND un-started.
-  // `isLoaded` and `user !== null` are guaranteed by the early-return
-  // above, so we can read `user.id` directly without an `undefined`
-  // check.
-  if (
-    session.status === "joinable" &&
-    session.startedAt === null &&
-    user.id === session.studentId
-  ) {
-    return (
-      <>
-        <div
-          className={cn(
-            "flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground",
-            className
-          )}
-        >
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <span>
-            Waiting for {session.participantName || "instructor"} to start the call
-          </span>
+        <div className={cn("flex items-center gap-3", className)}>
+          <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm font-medium">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex h-full w-full rounded-full bg-emerald-500" />
+            </span>
+            Call in progress
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            onClick={handleJoinClick}
+            className="font-semibold text-base shadow-sm"
+          >
+            <Video className="h-5 w-5" />
+            Join video call
+          </Button>
         </div>
         {consentModal}
       </>
@@ -312,10 +301,22 @@ export function CallStatusPill({
   if (session.status === "joinable") {
     return (
       <>
-        <Button type="button" variant="default" size="sm" onClick={handleJoinClick}>
-          <Phone className="h-4 w-4" />
-          Join Call
-        </Button>
+        <div className={cn("flex items-center gap-3", className)}>
+          <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground">
+            <span className="relative flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+            Call is ready
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            onClick={handleJoinClick}
+            className="font-semibold text-base shadow-sm"
+          >
+            <Phone className="h-5 w-5" />
+            Join video call
+          </Button>
+        </div>
         {consentModal}
       </>
     );

@@ -70,6 +70,14 @@ export type VideoCallContextValue = {
   errorMessage: string | null;
   durationSeconds: number;
   join: () => Promise<void>;
+  /**
+   * Request that the provider auto-join the call once the given session
+   * becomes active. Used by the Start Call button and deep-link flows so the
+   * user who initiated the join is brought into the call without needing a
+   * second click, while a user who merely opens a workspace with an active
+   * call is not auto-joined.
+   */
+  requestJoin: (sessionId: Id<"sessions">) => void;
   leave: () => Promise<void>;
   toggleMute: () => void;
   toggleCamera: () => void;
@@ -151,7 +159,6 @@ export function useIsCallOverlayVisible(): boolean {
     status === "joining" ||
     status === "joined" ||
     status === "leaving" ||
-    (status === "error" && session !== null) ||
-    session?.status === "active"
+    (status === "error" && session !== null)
   );
 }
