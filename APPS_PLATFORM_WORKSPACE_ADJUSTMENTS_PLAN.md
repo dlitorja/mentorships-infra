@@ -82,13 +82,12 @@
 Root-cause hypothesis: `apps/platform/lib/daily.ts` sends `enable_recording: "off"` to Daily when `recordingEnabled` is false. Daily’s `POST /rooms` endpoint only accepts `enable_recording: "cloud"` or `"local"`; `"off"` is not a documented value and likely causes the room creation to fail or be misinterpreted.
 
 - `apps/platform/lib/daily.ts` — `createDailyRoom`
-  - When `recordingEnabled` is false, **omit** the `enable_recording` property from the room creation body instead of sending `"off"`.
+  - When `recordingEnabled` is false, **omit** the `enable_recording` property from the room creation body (Daily defaults to disabled for new rooms).
 - `apps/platform/lib/daily.ts` — `resolveDailyRoom` / `patchDailyRoomProperties`
-  - In the 409-recovery PATCH, only set `enable_recording: "cloud"` when enabling. When disabling, **omit** the property rather than sending `"off"`.
-  - Note: an existing room that was previously created with recording enabled may keep `enable_recording: "cloud"`, but no recording will start because the meeting token will not include `start_cloud_recording` when consent is false.
+  - In the 409-recovery PATCH, set `enable_recording: "cloud"` when enabling and `enable_recording: false` when disabling. Daily accepts the boolean `false` on room updates to turn off an existing enabled room; omitting the property leaves it unchanged.
 - `apps/platform/app/api/video/consent/[sessionId]/route.ts`
-  - Update the `patchDailyRoomProperties` call to omit `enable_recording` when the new desired value is false, or only patch to `"cloud"` when true.
-- Add/update tests to assert that a `recordingConsent: false` ad-hoc start succeeds and creates a room without `enable_recording`.
+  - Update the `patchDailyRoomProperties` call to set `enable_recording: false` when the new desired value is false, or `"cloud"` when true.
+- Add/update tests to assert that a `recordingConsent: false` ad-hoc start succeeds and creates a room without `enable_recording`, and that the 409-recovery patch disables recording with `false`.
 
 ### 2.5. Investigate Daily recordings not appearing in the Videos tab ✅ (fallback implemented)
 
@@ -172,3 +171,13 @@ The PiP toggle in the in-call controls bar is causing UX problems and is not use
 3. Manually test the workspace call flow for both roles in a preview environment.
 4. Send a test `recording.ready-to-download` event via the bypass route to confirm the webhook pipeline still attaches a recording row.
 5. Verify the sidebar renders only Workspace and Dashboard for instructor and student accounts.
+
+## 7. Progress and PR status
+
+All plan items above have been implemented in PR #791 (`feat/workspace-student-call-fixes`).
+
+- Implemented items: 2.1–2.7.
+- Addressed CodeRabbit review feedback: authenticated Convex client in the sync route, Zod response parsing in `calls-tab.tsx`, explicit join-request flow in `video-call-provider.tsx`, null guard in `session-count-controls.tsx`, stricter recording-list schema, typed Trigger.dev SDK call in `start-adhoc/route.ts`, and correct `reportError` signature.
+- Addressed Greptile review feedback: changed Daily room-update reconciliation from omitting `enable_recording` to explicitly setting `enable_recording: false` when disabling recording, so an existing cloud-enabled room is actually turned off.
+- Added a JSDoc cleanup for `videoRoomNameForSession` to improve docstring coverage.
+- Status: all GitHub checks and Vercel deployments are green. PR is ready for squash merge. Review re-runs are pending (CodeRabbit is rate-limited/manual-review for this OSS repo; Greptile re-review requires a signed-in session to trigger).
