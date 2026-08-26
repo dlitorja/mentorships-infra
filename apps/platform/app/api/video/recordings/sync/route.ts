@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getConvexClient } from "@/lib/convex";
+import { z } from "zod";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import {
   getDailyRecordingsByRoomName,
   signDailyWebhookPayload,
 } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
+import { convexIdSchema } from "@/lib/validators";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export const runtime = "nodejs";
@@ -37,17 +39,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    typeof (body as { workspaceId?: unknown }).workspaceId !== "string"
-  ) {
+  const parsedBody = z
+    .object({ workspaceId: convexIdSchema })
+    .safeParse(body);
+  if (!parsedBody.success) {
     return NextResponse.json(
-      { error: "Missing workspaceId" },
+      { error: "Missing or invalid workspaceId" },
       { status: 400 }
     );
   }
-  const { workspaceId } = body as { workspaceId: string };
+  const { workspaceId } = parsedBody.data;
 
   const secret = process.env.DAILY_WEBHOOK_SECRET;
   if (!secret || secret.length === 0) {
@@ -57,7 +58,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const convex = getConvexClient();
+  let convex;
+  try {
+    convex = await getAuthenticatedConvexClient();
+  } catch (err) {
+    await reportError({
+      source: "api/video/recordings/sync",
+      error: err,
+      message: "Failed to authenticate Convex client",
+    });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   let sessions: { sessionId: string; videoRoomName: string }[];
   try {

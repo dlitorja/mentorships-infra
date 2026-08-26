@@ -81,10 +81,11 @@ const dailyAccessLinkResponseSchema = z.object({
 });
 
 const dailyRecordingListItemSchema = z.object({
-  id: z.string(),
-  s3key: z.string(),
+  id: z.string().min(1),
+  s3key: z.string().min(1),
+  status: z.literal("finished"),
   room_name: z.string().optional(),
-  duration: z.number().optional(),
+  duration: z.number().positive().optional(),
 });
 
 const dailyRecordingListResponseSchema = z.object({

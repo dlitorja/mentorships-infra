@@ -12,8 +12,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
+import { z } from "zod";
 import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
+
+const syncErrorResponseSchema = z.object({ error: z.string() }).partial();
+const syncSuccessResponseSchema = z.object({
+  synced: z.number(),
+  checked: z.number(),
+});
 
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
@@ -56,11 +63,16 @@ export default function CallsTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId }),
       });
+      const raw = await res.json();
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Sync failed");
+        const parsed = syncErrorResponseSchema.safeParse(raw);
+        throw new Error(parsed.success ? parsed.data.error ?? "Sync failed" : "Sync failed");
       }
-      return (await res.json()) as { synced: number; checked: number };
+      const parsed = syncSuccessResponseSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error("Sync response was malformed");
+      }
+      return parsed.data;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({

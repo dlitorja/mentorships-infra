@@ -265,9 +265,11 @@ function VideoCallProviderInner({
         });
         throw new Error(`Failed to start call: ${message}`);
       }
-      // The session is now active server-side. Join directly using the
-      // roomName that was already present on the joinable session.
-      await call.join();
+      // Mark the session as requested. The gated auto-join effect will
+      // bring the user into the call once the Convex subscription sees
+      // the session as active and a videoRoomName is available.
+      setRequestedJoinSessionId(session.sessionId);
+      return;
     }
   }, [call, markCallStarted, session]);
 

@@ -6,6 +6,8 @@ import { ConvexError } from "convex/values";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { tasks } from "@trigger.dev/sdk";
+import type { sendAdHocCallInviteEmail } from "@/trigger/ad-hoc-call-email";
 import {
   DailyApiError,
   deleteDailyRoom,
@@ -399,34 +401,36 @@ async function enqueueAdHocCallEmail(args: {
 
   const idempotencyKey = `ad-hoc-call-email:${String(args.sessionId)}:${recipientUserId}`;
 
-  const response = await fetch(
-    "https://api.trigger.dev/api/v1/tasks/send-ad-hoc-call-invite-email/trigger",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${triggerSecretKey}`,
+  try {
+    const handle = await tasks.trigger<typeof sendAdHocCallInviteEmail>(
+      "send-ad-hoc-call-invite-email",
+      {
+        notificationId: String(args.notificationId),
+        recipientUserId,
+        recipientEmail,
+        recipientFirstName,
+        sessionId: String(args.sessionId),
+        workspaceId: String(args.workspaceId),
+        instructorName,
+        workspaceName: workspace.name || "your mentorship workspace",
       },
-      body: JSON.stringify({
-        payload: {
-          notificationId: String(args.notificationId),
-          recipientUserId,
-          recipientEmail,
-          recipientFirstName,
-          sessionId: String(args.sessionId),
-          workspaceId: String(args.workspaceId),
-          instructorName,
-          workspaceName: workspace.name || "your mentorship workspace",
-        },
-        idempotencyKey,
-      }),
-    }
-  );
+      { idempotencyKey }
+    );
 
-  if (!response.ok) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      message: "Ad-hoc call invite email enqueued",
+      context: {
+        sessionId: String(args.sessionId),
+        workspaceId: String(args.workspaceId),
+        notificationId: String(args.notificationId),
+        runId: handle.id,
+      },
+    });
+  } catch (triggerError) {
     await reportError({
       source: "api/video/start-adhoc.triggerEmail",
-      error: new Error(`Trigger.dev request failed: ${response.status}`),
+      error: triggerError,
       level: "warn",
       message: "Failed to enqueue ad-hoc call invite email",
       context: {
@@ -434,18 +438,7 @@ async function enqueueAdHocCallEmail(args: {
         workspaceId: String(args.workspaceId),
       },
     });
-    return;
   }
-
-  await reportInfo({
-    source: "api/video/start-adhoc.triggerEmail",
-    message: "Ad-hoc call invite email enqueued",
-    context: {
-      sessionId: String(args.sessionId),
-      workspaceId: String(args.workspaceId),
-      notificationId: String(args.notificationId),
-    },
-  });
 }
 
 async function fetchUserContact(

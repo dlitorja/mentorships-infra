@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -46,7 +46,10 @@ function formatRemainingLabel(remaining: number): string {
 /**
  * Renders a pill with the remaining session count plus edit/reset controls for instructors.
  */
-export function SessionCountControls({ sessionPackId, readOnly = false }: SessionCountControlsProps) {
+export function SessionCountControls({
+  sessionPackId,
+  readOnly = false,
+}: SessionCountControlsProps): React.ReactElement | null {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingRef = useRef(false);
@@ -404,6 +407,8 @@ export function SessionCountControls({ sessionPackId, readOnly = false }: Sessio
     );
   }
 
+  if (!sessionPack) return null;
+
   if (readOnly) {
     return (
       <div
@@ -418,8 +423,6 @@ export function SessionCountControls({ sessionPackId, readOnly = false }: Sessio
       </div>
     );
   }
-
-  if (!sessionPack) return null;
 
   const isPending = pendingAction !== null;
   const snapshot = pageLoadSnapshot;
