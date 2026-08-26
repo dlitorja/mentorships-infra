@@ -210,11 +210,6 @@ async function parseErrorResponse(response: Response): Promise<DailyApiError> {
 }
 
 /**
- * Stable room name derived from a session id. PR #1 added a
- * `by_videoRoomName` index on `sessions` keyed off this exact string,
- * so the format MUST stay `mentorship-{sessionId}`.
- */
-/**
  * Signs a Daily.co webhook payload exactly as Daily does, so we can
  * locally replay a webhook event (e.g., for the manual recording sync
  * fallback) through the same HMAC-verified action handler.
@@ -234,6 +229,11 @@ export function signDailyWebhookPayload(
     .digest("base64");
 }
 
+/**
+ * Stable room name derived from a session id. PR #1 added a
+ * `by_videoRoomName` index on `sessions` keyed off this exact string,
+ * so the format MUST stay `mentorship-{sessionId}`.
+ */
 export function videoRoomNameForSession(sessionId: Id<"sessions">): string {
   return `mentorship-${sessionId}`;
 }
