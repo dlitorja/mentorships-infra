@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
@@ -28,6 +28,50 @@ type CallRecording = FunctionReturnType<
 
 interface CallsTabProps {
   workspaceId: Id<"workspaces">;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function getDateLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+
+  if (isSameDay(date, now)) return "Today";
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(date, yesterday)) return "Yesterday";
+
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+function groupRecordingsByDate(
+  recordings: CallRecording[]
+): Array<{ label: string; recordings: CallRecording[] }> {
+  const groups = new Map<string, CallRecording[]>();
+  for (const recording of recordings) {
+    const label = recording.callStartedAt
+      ? getDateLabel(recording.callStartedAt)
+      : "Date unavailable";
+    const existing = groups.get(label) ?? [];
+    existing.push(recording);
+    groups.set(label, existing);
+  }
+  return Array.from(groups.entries()).map(([label, recs]) => ({
+    label,
+    recordings: recs,
+  }));
 }
 
 /**
@@ -87,6 +131,26 @@ export default function CallsTab({
 
   const showSyncButton = canSyncQuery.data === true;
 
+  // Auto-sync recordings when the Videos tab is first viewed for a
+  // workspace, but only once per workspace per 5-minute window to avoid
+  // hammering the Daily API. The manual sync button remains available.
+  useEffect(() => {
+    if (!showSyncButton) return;
+    if (syncMutation.isPending) return;
+
+    const lastSyncKey = `workspace-video-last-sync-${workspaceId}`;
+    const lastSync = localStorage.getItem(lastSyncKey);
+    const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+    if (lastSync && Date.now() - parseInt(lastSync, 10) < SYNC_COOLDOWN_MS) {
+      return;
+    }
+
+    syncMutation.mutate();
+    localStorage.setItem(lastSyncKey, String(Date.now()));
+    // Only run on workspace entry / when sync authorization becomes known.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, showSyncButton]);
+
   if (recordingsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -124,6 +188,7 @@ export default function CallsTab({
 
   const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
   const isTruncated = recordingsQuery.data?.isTruncated ?? false;
+  const groupedRecordings = groupRecordingsByDate(recordings);
 
   if (recordings.length === 0) {
     return (
@@ -191,13 +256,22 @@ export default function CallsTab({
         </p>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {recordings.map((recording) => (
-          <VideoCard
-            key={recording.sessionId}
-            recording={recording}
-            onPlay={() => setOpenSessionId(recording.sessionId)}
-          />
+      <div className="space-y-6">
+        {groupedRecordings.map((group) => (
+          <div key={group.label} className="space-y-3">
+            <h4 className="text-sm font-medium text-muted-foreground">
+              {group.label}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {group.recordings.map((recording) => (
+                <VideoCard
+                  key={recording.sessionId}
+                  recording={recording}
+                  onPlay={() => setOpenSessionId(recording.sessionId)}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
 

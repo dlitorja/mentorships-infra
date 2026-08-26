@@ -1,6 +1,7 @@
 import { mutation, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 const LOCK_TTL_MS = 10 * 60 * 1000;
 const ENQUEUE_DELAY_MS = 5 * 1000;
@@ -105,6 +106,10 @@ export const migrateDiscordAction = mutation({
 /**
  * Claims pending Discord actions for processing with row-level locking.
  * Returns up to `limit` pending or stale processing actions.
+ *
+ * For DM actions, the instructor's Discord providerUserId is looked up
+ * inline during the claim so the processor can avoid a separate round
+ * trip to Convex per DM action.
  * Internal use only.
  */
 export const claimDiscordActions = internalMutation({
@@ -138,6 +143,7 @@ export const claimDiscordActions = internalMutation({
       subjectUserId: string;
       instructorId: string | null;
       instructorUserId: string | null;
+      instructorDiscordId: string | null;
       payload: unknown;
       attempts: number;
       lastError: string | null;
@@ -145,6 +151,18 @@ export const claimDiscordActions = internalMutation({
     }> = [];
 
     for (const action of actionsToClaim) {
+      let instructorDiscordId: string | null = null;
+      if (action.type === "dm_instructor_new_signup" && action.instructorUserId) {
+        const instructorUserId = action.instructorUserId;
+        const identity = await ctx.db
+          .query("userIdentities")
+          .withIndex("by_userId_provider", (q) =>
+            q.eq("userId", instructorUserId).eq("provider", "discord")
+          )
+          .first();
+        instructorDiscordId = identity?.providerUserId ?? null;
+      }
+
       await ctx.db.patch(action._id, {
         status: "processing",
         lockedAt: now,
@@ -159,6 +177,7 @@ export const claimDiscordActions = internalMutation({
         subjectUserId: action.subjectUserId,
         instructorId: action.instructorId ?? null,
         instructorUserId: action.instructorUserId ?? null,
+        instructorDiscordId,
         payload: action.payload,
         attempts: (action.attempts ?? 0) + 1,
         lastError: action.lastError ?? null,
@@ -227,6 +246,60 @@ export const requeueDiscordAction = internalMutation({
 });
 
 /**
+ * Applies the result of a batch of Discord action processing in one
+ * mutation. This avoids one round-trip per action to Convex.
+ * Internal use only.
+ */
+export const applyDiscordActionResults = internalMutation({
+  args: {
+    doneIds: v.array(v.id("discordActionQueue")),
+    failedIds: v.array(v.id("discordActionQueue")),
+    failedErrors: v.array(v.string()),
+    requeuedIds: v.array(v.id("discordActionQueue")),
+    requeuedErrors: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const {
+      doneIds,
+      failedIds,
+      failedErrors,
+      requeuedIds,
+      requeuedErrors,
+    } = args;
+
+    await Promise.all([
+      ...doneIds.map((id) =>
+        ctx.db.patch(id, {
+          status: "done",
+          lockedAt: undefined,
+        })
+      ),
+      ...failedIds.map((id, index) =>
+        ctx.db.patch(id, {
+          status: "failed",
+          lockedAt: undefined,
+          lastError: failedErrors[index]?.slice(0, 2000) ?? "Unknown error",
+          updatedAt: now,
+        })
+      ),
+      ...requeuedIds.map((id, index) =>
+        ctx.db.patch(id, {
+          status: "pending",
+          lockedAt: undefined,
+          lastError: requeuedErrors[index]?.slice(0, 2000) ?? undefined,
+          updatedAt: now,
+        })
+      ),
+    ]);
+
+    return {
+      applied: doneIds.length + failedIds.length + requeuedIds.length,
+    };
+  },
+});
+
+/**
  * Checks whether there are any Discord actions eligible for processing
  * (pending or stale processing). Used by the cron action to short-circuit
  * when the queue is empty, cutting down on empty log noise in the Convex
@@ -251,24 +324,6 @@ export const hasEligibleDiscordActions = internalQuery({
       .filter((q) => q.lt(q.field("lockedAt"), lockThreshold))
       .first();
     return staleProcessing !== null;
-  },
-});
-
-/**
- * Fetches a user's Discord identity by their userId.
- * Returns the Discord providerUserId or null if not found.
- * Internal use only.
- */
-export const getDiscordIdentityForUserId = internalQuery({
-  args: { userId: v.string() },
-  handler: async (ctx, args) => {
-    const identity = await ctx.db
-      .query("userIdentities")
-      .withIndex("by_userId_provider", (q) =>
-        q.eq("userId", args.userId).eq("provider", "discord")
-      )
-      .first();
-    return identity?.providerUserId ?? null;
   },
 });
 
@@ -412,29 +467,35 @@ export const processDiscordActionQueue = internalAction({
       subjectUserId: string;
       instructorId: string | null;
       instructorUserId: string | null;
+      instructorDiscordId: string | null;
       payload: unknown;
       attempts: number;
       lastError: string | null;
       lockedAt: number;
     };
     const lockTtlMs = LOCK_TTL_MS;
+    const claimLimit = 25;
 
-    const hasEligible = await ctx.runQuery(
-      internal.discordActionQueue.hasEligibleDiscordActions,
-      { lockTtlMs }
+    // `claimDiscordActions` already atomically locks and returns the next
+    // batch. If nothing is returned, the queue is empty and we can exit
+    // immediately without a separate eligibility query.
+    const actions: ClaimedAction[] = await ctx.runMutation(
+      internal.discordActionQueue.claimDiscordActions,
+      {
+        limit: claimLimit,
+        lockTtlMs,
+      }
     );
-    if (!hasEligible) {
+
+    if (actions.length === 0) {
       return { success: true, processed: 0, done: 0, failed: 0, requeued: 0, skipped: true };
     }
 
-    const actions: ClaimedAction[] = await ctx.runMutation(internal.discordActionQueue.claimDiscordActions, {
-      limit: 25,
-      lockTtlMs,
-    });
-
-    let done = 0;
-    let failed = 0;
-    let requeued = 0;
+    const doneIds: Id<"discordActionQueue">[] = [];
+    const failedIds: Id<"discordActionQueue">[] = [];
+    const failedErrors: string[] = [];
+    const requeuedIds: Id<"discordActionQueue">[] = [];
+    const requeuedErrors: string[] = [];
 
     for (const action of actions) {
       try {
@@ -469,10 +530,7 @@ export const processDiscordActionQueue = internalAction({
             await addGuildMemberRole({ guildId, discordUserId, roleId });
           }
 
-          await ctx.runMutation(internal.discordActionQueue.markDiscordActionDone, {
-            actionId: action.id as any,
-          });
-          done += 1;
+          doneIds.push(action.id as Id<"discordActionQueue">);
           continue;
         }
 
@@ -489,12 +547,7 @@ export const processDiscordActionQueue = internalAction({
             throw new Error("Missing instructorUserId for dm_instructor_new_signup");
           }
 
-          const instructorDiscordId = await ctx.runQuery(
-            internal.discordActionQueue.getDiscordIdentityForUserId,
-            { userId: action.instructorUserId }
-          );
-
-          if (!instructorDiscordId) {
+          if (!action.instructorDiscordId) {
             throw new Error("Instructor Discord identity not connected");
           }
 
@@ -505,39 +558,41 @@ export const processDiscordActionQueue = internalAction({
             `Dashboard: ${payload.dashboardUrl}\n` +
             `Onboarding: ${payload.onboardingUrl}`;
 
-          await sendDmMessage({ discordUserId: instructorDiscordId, content });
+          await sendDmMessage({ discordUserId: action.instructorDiscordId, content });
 
-          await ctx.runMutation(internal.discordActionQueue.markDiscordActionDone, {
-            actionId: action.id as any,
-          });
-          done += 1;
+          doneIds.push(action.id as Id<"discordActionQueue">);
           continue;
         }
 
         throw new Error(`Unsupported Discord action type: ${action.type}`);
       } catch (err) {
         if (err instanceof DiscordApiError && (err.status === 429 || err.status >= 500)) {
-          await ctx.runMutation(internal.discordActionQueue.requeueDiscordAction, {
-            actionId: action.id as any,
-            lastError: `${err.name}: ${err.message}`.slice(0, 2000),
-          });
-          requeued += 1;
+          requeuedIds.push(action.id as Id<"discordActionQueue">);
+          requeuedErrors.push(`${err.name}: ${err.message}`.slice(0, 2000));
         } else {
           const errorMessage = err instanceof Error ? err.message : "Unknown error";
-          await ctx.runMutation(internal.discordActionQueue.markDiscordActionFailed, {
-            actionId: action.id as any,
-            error: errorMessage,
-          });
-          failed += 1;
+          failedIds.push(action.id as Id<"discordActionQueue">);
+          failedErrors.push(errorMessage);
         }
       }
     }
 
-    const stillEligible = await ctx.runQuery(
-      internal.discordActionQueue.hasEligibleDiscordActions,
-      { lockTtlMs }
+    // Apply all status updates in one Convex round-trip.
+    await ctx.runMutation(
+      internal.discordActionQueue.applyDiscordActionResults,
+      {
+        doneIds,
+        failedIds,
+        failedErrors,
+        requeuedIds,
+        requeuedErrors,
+      }
     );
-    if (stillEligible) {
+
+    // Self-schedule only when there is likely more work: we claimed up to the
+    // batch limit (there may be a backlog) or we requeued transient Discord
+    // errors that need a retry. Avoids the extra eligibility query per run.
+    if (actions.length >= claimLimit || requeuedIds.length > 0) {
       await ctx.scheduler.runAfter(
         DRAIN_DELAY_MS,
         internal.discordActionQueue.processDiscordActionQueue,
@@ -545,6 +600,12 @@ export const processDiscordActionQueue = internalAction({
       );
     }
 
-    return { success: true, processed: actions.length, done, failed, requeued };
+    return {
+      success: true,
+      processed: actions.length,
+      done: doneIds.length,
+      failed: failedIds.length,
+      requeued: requeuedIds.length,
+    };
   },
 });
