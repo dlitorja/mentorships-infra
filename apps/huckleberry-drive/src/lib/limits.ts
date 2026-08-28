@@ -1,5 +1,3 @@
-export const STORAGE_LIMIT_BYTES = 50 * 1024 * 1024 * 1024;
-
 export const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
   "video/quicktime",

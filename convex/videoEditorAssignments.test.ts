@@ -185,7 +185,7 @@ test("video editor quotas: no quota means no extra restriction", async () => {
   ).resolves.toBeDefined();
 });
 
-test("video editor uploads: bypass the 50GB default instructor cap when no quota is set", async () => {
+test("video editor uploads: no default instructor cap applies to delegated or self uploads", async () => {
   const t = convexTest(schema, modules);
 
   const instructorId = "instructor_4";
@@ -209,13 +209,13 @@ test("video editor uploads: bypass the 50GB default instructor cap when no quota
       instructorId,
       assignedAt: Date.now(),
     });
-    // Seed an instructor-owned upload that already consumes the full 50GB cap.
+    // Seed an instructor-owned upload well above the old 50GB cap.
     await ctx.db.insert("instructorUploads", {
       instructorId,
       filename: "key/instructor-owned",
       originalName: "instructor-owned.mp4",
       contentType: "video/mp4",
-      size: 50 * 1024 * 1024 * 1024,
+      size: 60 * 1024 * 1024 * 1024,
       status: "completed",
       transferRetryCount: 0,
       createdAt: Date.now(),
@@ -224,8 +224,8 @@ test("video editor uploads: bypass the 50GB default instructor cap when no quota
     });
   });
 
-  // The video editor should still be able to upload because the default
-  // instructor cap is not applied to delegated uploads.
+  // The video editor should still be able to upload because no default
+  // instructor cap is applied to delegated uploads.
   await expect(
     t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
       id: "upload_5",
@@ -238,7 +238,7 @@ test("video editor uploads: bypass the 50GB default instructor cap when no quota
     })
   ).resolves.toBeDefined();
 
-  // An instructor self-upload would still be blocked by the same cap.
+  // Instructors have no storage cap and can also self-upload.
   await expect(
     t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
       id: "upload_6",
@@ -248,14 +248,13 @@ test("video editor uploads: bypass the 50GB default instructor cap when no quota
       contentType: "video/mp4",
       size: 1024,
     })
-  ).rejects.toThrow("Storage limit exceeded");
+  ).resolves.toBeDefined();
 });
 
-test("createUpload: admin bypasses the 50GB instructor cap", async () => {
+test("createUpload: instructors have no storage cap", async () => {
   const t = convexTest(schema, modules);
 
   const instructorId = "instructor_5";
-  const adminId = "admin_5";
 
   await t.run(async (ctx) => {
     await ctx.db.insert("users", {
@@ -264,19 +263,13 @@ test("createUpload: admin bypasses the 50GB instructor cap", async () => {
       clerkId: instructorId,
       role: "instructor",
     });
-    await ctx.db.insert("users", {
-      userId: adminId,
-      email: "admin5@example.com",
-      clerkId: adminId,
-      role: "admin",
-    });
-    // Fill the instructor's storage to the 50GB cap.
+    // Seed an instructor-owned upload well above the old 50GB cap.
     await ctx.db.insert("instructorUploads", {
       instructorId,
       filename: "key/instructor-owned",
       originalName: "instructor-owned.mp4",
       contentType: "video/mp4",
-      size: 50 * 1024 * 1024 * 1024,
+      size: 60 * 1024 * 1024 * 1024,
       status: "completed",
       transferRetryCount: 0,
       createdAt: Date.now(),
@@ -286,7 +279,7 @@ test("createUpload: admin bypasses the 50GB instructor cap", async () => {
   });
 
   await expect(
-    t.withIdentity({ subject: adminId }).mutation(api.instructorUploads.createUpload, {
+    t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
       id: "upload_7",
       instructorId,
       filename: "key/upload_7",

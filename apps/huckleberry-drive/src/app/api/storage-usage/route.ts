@@ -3,7 +3,6 @@ import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
 
 export async function GET(): Promise<NextResponse> {
   try {
@@ -67,7 +66,7 @@ export async function GET(): Promise<NextResponse> {
 
     return NextResponse.json({
       usedBytes,
-      limitBytes: STORAGE_LIMIT_BYTES,
+      limitBytes: null,
       fileCount,
     });
   } catch (error) {

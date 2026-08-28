@@ -27,11 +27,11 @@ Both are **medium-complexity feature work** (not hotfixes). I recommend doing th
 
 ### Storage quotas
 
-- `videoEditorAssignments` only has `videoEditorId`, `instructorId`, `assignedAt`, `assignedBy`. No quota field.
+- `videoEditorAssignments` has `videoEditorId`, `instructorId`, `assignedAt`, `assignedBy`, and an optional `storageQuotaBytes`.
 - `instructorUploads` has `uploadedById` for editor uploads.
-- `convex/instructorUploads.ts:createUpload` enforces the instructor-wide `STORAGE_LIMIT_BYTES` (50 GB).
-- `apps/huckleberry-drive/src/app/api/uploads/initiate/route.ts` does a route-side pre-check against the same instructor limit.
-- The dashboard’s storage-usage component shows the instructor limit for all non-admin users.
+- `convex/instructorUploads.ts:createUpload` enforces the per-assignment `storageQuotaBytes` for video editors; instructors and admins have no storage cap.
+- `apps/huckleberry-drive/src/app/api/uploads/initiate/route.ts` does a route-side pre-check for video-editor quotas only.
+- The dashboard’s storage-usage component shows a limit only for video editors with an explicit quota; instructors see unlimited storage.
 
 ---
 

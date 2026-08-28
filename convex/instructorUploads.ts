@@ -3,7 +3,6 @@ import type { GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { STORAGE_LIMIT_BYTES } from "./constants";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -258,45 +257,16 @@ export const createUpload = mutation({
       throw new Error("Unauthorized: authentication required");
     }
 
-    // PR1: enforce 50GB per-instructor storage limit inside the
-    // mutation so OCC catches concurrent uploads that race past a
-    // route-side check. The route still does a pre-check for a
-    // nicer error UX; this is the authoritative enforcement.
-    // PR1 (review): limit value lives in `convex/constants.ts` so
-    // changing it updates both the Next.js pre-check and this
-    // authoritative mutation in lockstep.
-    //
     // Caps are enforced based on the authenticated caller's role, not the
     // caller-supplied uploadedById, so spoofed identities cannot bypass
-    // storage limits.
+    // storage limits. Instructors have no storage cap; only video editors
+    // with an explicit per-instructor quota are limited.
     if (caller.role === "instructor") {
       if (args.uploadedById && args.uploadedById !== caller.userId) {
         throw new Error("Instructors can only upload to their own storage");
       }
       if (args.instructorId !== caller.userId) {
         throw new Error("Instructors can only upload to their own storage");
-      }
-      const stats = await ctx.db
-        .query("instructorUploads")
-        .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
-        .collect()
-        .then((rows) =>
-          rows.reduce(
-            (acc, r) => {
-              if (r.status !== "deleted" && r.status !== "deleting") {
-                acc.usedBytes += r.size;
-                acc.fileCount += 1;
-              }
-              return acc;
-            },
-            { usedBytes: 0, fileCount: 0 }
-          )
-        );
-
-      if (stats.usedBytes + args.size > STORAGE_LIMIT_BYTES) {
-        throw new Error(
-          `Storage limit exceeded: instructor has ${stats.usedBytes} bytes, attempting to add ${args.size} bytes, limit is ${STORAGE_LIMIT_BYTES} bytes`
-        );
       }
     } else if (caller.role === "video_editor") {
       if (!args.uploadedById || args.uploadedById !== caller.userId) {
