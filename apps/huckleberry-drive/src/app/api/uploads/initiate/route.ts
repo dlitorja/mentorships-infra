@@ -5,7 +5,7 @@ import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth
 import { initiateMultipartUpload, abortMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
+import { isAllowedContentType } from "@/lib/limits";
 import { isTurnstileTokenValid, getClientIp } from "@mentorships/security";
 
 interface User {
@@ -116,28 +116,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // PR1: per-instructor storage accounting is enforced inside the
-    // `createUpload` mutation so OCC catches concurrent uploads that
-    // race past a route-side pre-check. Keep a soft pre-check here
-    // for nicer error messages, but treat the mutation as the
-    // authoritative gate.
-    //
-    // The default 50GB cap only applies to instructors uploading to their
-    // own storage. Video editors upload under the per-instructor quota set
-    // in /admin/video-editors; if no quota is set they are unlimited.
-    // Admins bypass the default cap entirely.
-    if (dbUser.role === "instructor") {
-      const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
-        instructorId: targetInstructorId,
-      }, { token: convexToken }) as { usedBytes: number; fileCount: number };
-
-      if (stats.usedBytes + size > STORAGE_LIMIT_BYTES) {
-        return NextResponse.json(
-          { error: "Storage limit exceeded. Please delete files or contact support." },
-          { status: 403 }
-        );
-      }
-    }
+    // Per-instructor storage quotas for video editors are enforced inside
+    // the `createUpload` mutation so OCC catches concurrent uploads that
+    // race past the route-side pre-check above. Instructors and admins have
+    // no storage cap; only delegated video-editor uploads are limited by an
+    // explicit per-instructor quota configured in /admin/video-editors.
 
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileId = crypto.randomUUID();

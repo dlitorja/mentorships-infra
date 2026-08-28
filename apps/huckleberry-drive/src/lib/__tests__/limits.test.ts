@@ -1,20 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  STORAGE_LIMIT_BYTES,
   ALLOWED_CONTENT_TYPES,
   ALLOWED_CONTENT_TYPE_SET,
   isAllowedContentType,
 } from "../limits";
-
-describe("STORAGE_LIMIT_BYTES", () => {
-  it("is 50GB in bytes", () => {
-    expect(STORAGE_LIMIT_BYTES).toBe(50 * 1024 * 1024 * 1024);
-  });
-
-  it("is a positive number", () => {
-    expect(STORAGE_LIMIT_BYTES).toBeGreaterThan(0);
-  });
-});
 
 describe("ALLOWED_CONTENT_TYPES", () => {
   it("contains all six supported video MIME types", () => {
