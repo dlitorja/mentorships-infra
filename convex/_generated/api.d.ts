@@ -18,7 +18,6 @@ import type * as auditLog from "../auditLog.js";
 import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
-import type * as constants from "../constants.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
 import type * as dailyRecordingActions from "../dailyRecordingActions.js";
@@ -74,7 +73,6 @@ declare const fullApi: ApiFromModules<{
   bookings: typeof bookings;
   cleanup: typeof cleanup;
   clerkDeletion: typeof clerkDeletion;
-  constants: typeof constants;
   contacts: typeof contacts;
   crons: typeof crons;
   dailyRecordingActions: typeof dailyRecordingActions;
