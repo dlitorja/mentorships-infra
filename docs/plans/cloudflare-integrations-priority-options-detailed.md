@@ -16,7 +16,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 5 | [PR-5] Move platform PayPal webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#749](https://github.com/dlitorja/mentorships-infra/pull/749) |
 | 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#750](https://github.com/dlitorja/mentorships-infra/pull/750) |
  | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | ✅ Merged | [#751](https://github.com/dlitorja/mentorships-infra/pull/751) |
-| 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | Pending |  |
+| 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | ✅ Merged | [#800](https://github.com/dlitorja/mentorships-infra/pull/800) |
 | 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Pending |  |
 
 Option 1 (R2 migration) remains deferred.
@@ -475,6 +475,8 @@ pnpm-lock.yaml
 
 ## PR-8 — Add KV share-link metadata caching
 
+**Status:** ✅ Merged ([#800](https://github.com/dlitorja/mentorships-infra/pull/800))
+
 ### Branch
 
 `feat/kv-share-link-cache`
@@ -484,39 +486,61 @@ pnpm-lock.yaml
 - Add KV namespace binding to the Worker.
 - Cache share-link metadata in KV.
 - Use KV in the share-link Worker route.
+- Coordinate cache invalidation with share revocation and extension.
 
 ### Depends On
 
 - PR-3, PR-7.
 
-### Files to Add
+### Files Added
 
 ```text
 apps/edge-functions/src/lib/kv.ts
+apps/edge-functions/src/lib/token.ts
+apps/edge-functions/src/routes/internal.ts
+apps/edge-functions/src/routes/revoke.ts
+apps/huckleberry-drive/src/lib/kv.ts
 ```
 
-### Files to Modify
+### Files Modified
 
 ```text
+apps/edge-functions/package.json
 apps/edge-functions/wrangler.jsonc
-apps/edge-functions/src/routes/hd-share-link.ts
-apps/huckleberry-drive/src/lib/shares.ts
+apps/edge-functions/src/lib/env.ts
+apps/edge-functions/src/routes/shared.ts
+apps/huckleberry-drive/src/app/api/shares/[token]/route.ts
 ```
 
-### Implementation Steps
+### Implementation Summary
 
-1. Create KV namespace via `wrangler kv namespace create`.
-2. Add `MENTORSHIPS_METADATA` binding.
-3. Add `getCached`, `setCached`, `deleteCached` helpers.
-4. On share access, read from KV first; fallback to Convex; populate on miss.
-5. On share creation/revoke/extend, update/delete KV entry.
+1. Created KV namespace `SHARE_CACHE_KV_NAMESPACE` (prod id `7f6ee3150ce54ceaa6ff0e6649b9fa4a`, preview id `1cd964dfcfdd44968232bf79abc14a90`).
+2. Added `@clerk/backend` ^3.16.0 to verify the Convex JWT via Clerk's Backend SDK; `verifyConvexToken` returns `{ userId, expirationSeconds }`.
+3. Cached `hdShareLinks:resolveShareByToken` results keyed by the verified user ID (`share:${token}:user:${userId}`) so one caller cannot select another user's cached entry.
+4. Bounded cache TTL by share expiration, the verifying token's remaining lifetime, and a 5-minute default ceiling (`SHARE_CACHE_TTL_SECONDS`).
+5. Added a per-token revocation marker (`revoked:share:${token}`) checked on every cache read; marker reads fail safe (return `true` on error) and markers are sized to outlive every cached entry.
+6. Added internal `POST /internal/cache/invalidate` endpoint that lists and deletes every cached entry for a token on extension so stale per-user entries cannot survive the update.
+7. Added internal `POST /internal/shares/:token/revoke` endpoint that writes the revocation marker with its full TTL before committing the Convex revoke mutation and never clears it, so concurrent revokes cannot race and a lost mutation response cannot leave a stale cache entry serving a revoked share.
+8. Ordered huckleberry-drive share extension to invalidate the cache before committing the Convex mutation so a failed invalidation cannot leave behind cached entries with the old expiry.
+9. Routed huckleberry-drive share revocation through the Worker so revocation and marker creation are part of the same request.
+10. Threw on missing invalidation configuration or invalidation failure so the API does not report success while the cache remains stale.
+11. Added new env bindings: `CLERK_SECRET_KEY`, `SHARE_CACHE_TTL_SECONDS`, `SHARE_CACHE_INVALIDATION_KEY`.
 
-### Verification Steps
+### Cache Trade-offs
 
-1. First request to a share resolves via Convex and populates KV.
-2. Subsequent request reads from KV.
-3. After TTL, request falls back to Convex.
-4. Revoke/delete removes KV entry.
+The implementation accepts three inherent cache race windows, bounded by the 5-minute TTL ceiling:
+
+- A share revoked in Convex while a cached entry exists is blocked by the per-token revocation marker, which is written before the Convex mutation and outlives every cached entry. The marker is never cleared by the revoke endpoint, so concurrent revokes cannot race.
+- A share whose expiry is shortened may have a cached entry from before the change. The token-prefix invalidation in `handleCacheInvalidation` lists and deletes every matching key before the mutation commits, but a cache writer that races the listing can still leave a stale entry. The bounded TTL limits this window.
+- A user's role change is not propagated to the cache; the cached entry trusts the role check that was authoritative at resolve time. The bounded TTL limits this window.
+
+These trade-offs are documented in the `apps/edge-functions/src/lib/kv.ts` module header.
+
+### Verification
+
+1. ✅ `pnpm --filter @mentorships/edge-functions typecheck` passes.
+2. ✅ `pnpm --filter @mentorships/huckleberry-drive typecheck` passes.
+3. ✅ `pnpm --filter @mentorships/edge-functions deploy:dry-run` passes (KV binding visible).
 
 ---
 
