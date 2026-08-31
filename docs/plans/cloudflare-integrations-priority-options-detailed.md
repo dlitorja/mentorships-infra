@@ -17,7 +17,7 @@ Priority options from the parent doc: **2, 3, 4, 5**.
 | 6 | [PR-6] Move Daily.co recording webhook to Cloudflare Worker | 3 | platform | Small-Medium | ✅ Merged | [#750](https://github.com/dlitorja/mentorships-infra/pull/750) |
  | 7 | [PR-7] Move huckleberry-drive share-link download to Cloudflare Worker | 3 | huckleberry-drive | Small-Medium | ✅ Merged | [#751](https://github.com/dlitorja/mentorships-infra/pull/751) |
 | 8 | [PR-8] Add KV share-link metadata caching | 4 | huckleberry-drive | Small-Medium | ✅ Merged | [#800](https://github.com/dlitorja/mentorships-infra/pull/800) |
-| 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | Pending |  |
+| 9 | [PR-9] Cloudflare DNS/CDN/WAF runbook and staging cutover | 5 | both | Medium | ✅ Merged | [#802](https://github.com/dlitorja/mentorships-infra/pull/802) |
 
 Option 1 (R2 migration) remains deferred.
 
@@ -546,6 +546,8 @@ These trade-offs are documented in the `apps/edge-functions/src/lib/kv.ts` modul
 
 ## PR-9 — Cloudflare DNS/CDN/WAF runbook and staging cutover
 
+**Status:** ✅ Merged ([#802](https://github.com/dlitorja/mentorships-infra/pull/802))
+
 ### Branch
 
 `docs/cloudflare-dns-waf-runbook`
@@ -555,28 +557,35 @@ These trade-offs are documented in the `apps/edge-functions/src/lib/kv.ts` modul
 - Document the DNS/CDN/WAF cutover procedure.
 - No application code changes.
 
-### Files to Add
+### Files Added
 
 ```text
-docs/runbooks/cloudflare-dns-waf-cutover.md
+docs/runbooks/cloudflare-dns-cdn-waf-cutover.md
 ```
 
-### Contents
+### Implementation Summary
 
-1. Inventory of production/staging domains.
-2. Cloudflare zone setup steps.
-3. DNS record migration checklist.
-4. SSL/TLS mode configuration.
-5. WAF rule recommendations.
-6. Page Rules / Cache Rules.
-7. Staging cutover plan.
-8. Rollback plan.
+The runbook (`docs/runbooks/cloudflare-dns-cdn-waf-cutover.md`) covers:
 
-### Verification Steps
+1. **Inventory** of production/staging domains and email-related hostnames that must remain DNS-only.
+2. **Cloudflare zone setup** with a primary (full) setup recommended for Free/Pro plans, including NS propagation verification.
+3. **DNS record migration checklist** with proxy status per hostname and CNAME flattening for the apex.
+4. **SSL/TLS configuration**: Full (strict) for production, Full for staging, HSTS, Always Use HTTPS, Minimum TLS 1.2.
+5. **WAF recommendations**: Cloudflare Managed Ruleset, OWASP Core Ruleset, Bot Fight Mode / Super Bot Fight Mode by plan, rate limiting rules for share downloads, upload initiation, auth, and worker webhooks, custom rules for geo blocks, bot allowlists, API Shield, and leaked credentials.
+6. **Worker hostname coverage**: documents that requests to a Worker on a `*.workers.dev` hostname bypass zone-level rules and how to remediate by moving the Worker into the same zone (custom domain + wrangler routes) or adding Worker-level KV rate limiting as defense-in-depth. Rate limit expressions are aligned with the Worker's actual `/webhooks/*` routes (no `/api` prefix).
+7. **Cache Rules** for static assets, the Next.js image optimizer, and a conservative default Bypass for unmatched authenticated routes.
+8. **Staging cutover plan** with a 48-hour observation window and explicit acceptance criteria (`cf-ray`, smoke tests, traffic volume parity).
+9. **Production cutover** scheduled during low-traffic hours with real-time operator monitoring.
+10. **Rollback plan** with a Cloudflare-only path (seconds) and a registrar-level path (5 min – 48 hours depending on TTL).
+11. **Monitoring and alerting** for 5xx rate, WAF block rate, rate-limit triggers, SSL expiry, and L7 DDoS detection.
+12. **Cloudflare API examples** for zone creation, record creation, SSL mode update, and cache purge — all using placeholders for secrets and zone IDs.
+13. **Naming and secrets policy** references per repo policy (instructor/student, no real secrets in git).
 
-1. Runbook is reviewed by another team member.
-2. Staging cutover is executed successfully.
-3. `curl -I https://staging.example.com` shows `cf-ray` header.
+### Verification
+
+1. ✅ Runbook authored and committed to `docs/runbooks/cloudflare-dns-cdn-waf-cutover.md`.
+2. ✅ Greptile review 5/5, no blocking comments after addressing the Worker-hostname and webhook-path findings.
+3. ⏳ Staging cutover is the operational verification step; it will be executed by an operator against the actual staging zone and is not part of this PR.
 
 ---
 
