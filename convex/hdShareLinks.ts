@@ -9,7 +9,14 @@ async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
     .first();
-  return user ?? null;
+  // Identity subject may be the Clerk ID rather than the legacy userId,
+  // so fall back to the clerkId index before treating the caller as
+  // unauthenticated. This matches the lookup pattern used in
+  // instructorUploads.ts and users.ts.
+  return user ?? await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+    .first();
 }
 
 async function requireUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {

@@ -35,7 +35,7 @@
 | 1 | ~~S3 archival automation~~ | Removed by design | **Removed** — B2-only storage ($0.006/GB/mo). No Glacier. |
 | 2 | File preview / video playback | "No video player component, need to build inline player with B2 signed URL" | ✅ **Done in 3 places** — see [§ Post-MVP additions](#post-mvp-additions-2026) below |
 | 3 | Bulk download as ZIP | "Partial code in `@mentorships/storage/src/zip.ts:createAndUploadZip`, need trigger task + API endpoint + frontend" | ✅ **Done in PR #667** — POST `/api/files/bulk-download` starts the Trigger.dev job; GET `/api/files/bulk-download/[jobId]` polls; frontend in `/admin/files` and `/dashboard` |
-| 4 | Storage limit per-instructor enforcement at API level | "Currently only client-side display; need to add check to `POST /api/uploads/initiate` to prevent overages (race condition risk with concurrent uploads)" | ✅ **Done in PR #665** — authoritative 50GB limit enforced in Convex `createUpload` mutation with OCC catching concurrent uploads; route-side pre-check retained for nicer error messages |
+| 4 | Storage limit per-instructor enforcement at API level | "Currently only client-side display; need to add check to `POST /api/uploads/initiate` to prevent overages (race condition risk with concurrent uploads)" | ✅ **Done in PR #665** — video-editor per-assignment quotas enforced in Convex `createUpload` mutation with OCC catching concurrent uploads; instructors and admins have no storage cap; route-side pre-check retained for nicer error messages |
 
 ---
 
@@ -65,7 +65,7 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 **File:** `apps/huckleberry-drive/src/app/api/storage-usage/route.ts`
 
-- `STORAGE_LIMIT_BYTES` updated from `20GB` → `50GB`
+- Instructors and admins have no storage cap; storage usage is tracked but unlimited.
 - Admin mode: aggregate storage across ALL instructors (uses `getTotalStorageStats`)
 - Return `{ usedBytes, limitBytes: null, fileCount, instructorCount }` for admin
 
@@ -232,24 +232,9 @@ The original plan said "partial code in `@mentorships/storage/src/zip.ts` (`crea
 
 ### Storage limit enforcement (OCC)
 
-The original plan flagged a race condition: concurrent uploads could both pass the route-side `usedBytes + size > STORAGE_LIMIT_BYTES` pre-check before either committed. **Fixed in PR #665** by moving the authoritative check into the Convex `createUpload` mutation:
+The original plan flagged a race condition: concurrent uploads could both pass a route-side storage pre-check before either committed. **Fixed in PR #665** by moving the authoritative check into the Convex `createUpload` mutation. Later, the instructor-wide cap was removed: instructors and admins now have unlimited storage, while video editors are limited only by an explicit per-instructor `storageQuotaBytes` configured in `/admin/video-editors`.
 
-```ts
-// apps/huckleberry-drive/src/app/api/uploads/initiate/route.ts:79-87
-// PR1: per-instructor storage accounting is enforced inside the
-// `createUpload` mutation so OCC catches concurrent uploads that
-// race past a route-side pre-check. Keep a soft pre-check here
-// for nicer error messages, but treat the mutation as the
-// authoritative gate.
-if (stats.usedBytes + size > STORAGE_LIMIT_BYTES) {
-  return NextResponse.json(
-    { error: "Storage limit exceeded", ... },
-    { status: 413 }
-  );
-}
-```
-
-The Convex `instructorUploads.createUpload` mutation does a re-read of `getInstructorStorageStats` inside the same transaction; Convex OCC rejects any concurrent transaction that would push the count over the 50GB limit. The route-side check is kept purely for fast-fail UX (cleaner error messages without a roundtrip).
+For video editors, the route-side pre-check is kept purely for fast-fail UX (cleaner error messages without a roundtrip), and the mutation re-reads the editor's used bytes inside the same transaction so Convex OCC rejects any concurrent transaction that would exceed the quota.
 
 ### Audit log for admin mutations
 
@@ -324,7 +309,7 @@ PR #668 added an audit log for admin mutations in the admin dashboard. Convex `w
 - `apps/huckleberry-drive/src/app/shared/[token]/page.tsx` — ✅ inline video preview (shared links)
 - `apps/huckleberry-drive/src/app/api/files/bulk-download/route.ts` — ✅ **new** — start ZIP job (PR #667)
 - `apps/huckleberry-drive/src/app/api/files/bulk-download/[jobId]/route.ts` — ✅ **new** — poll ZIP job (PR #667)
-- `convex/instructorUploads.ts:createUpload` — ✅ authoritative 50GB storage limit with OCC (PR #665)
+- `convex/instructorUploads.ts:createUpload` — ✅ per-video-editor per-instructor quota enforcement with OCC; instructors and admins unlimited (PR #665)
 - `apps/huckleberry-drive/convex/hdShareLinks.ts` — ✅ share uploaded files with other video editors (PR #658, #664, #665)
 - `convex/auditLog.ts` — ✅ admin mutation audit log (PR #668)
 
@@ -337,10 +322,10 @@ PR #668 added an audit log for admin mutations in the admin dashboard. Convex `w
 | 1 | ~~S3 archival automation~~ | n/a (removed by design) | B2-only storage decision; cheaper than expected |
 | 2 | File preview / video playback | **3 inline implementations** (shared link, admin files, file list) | Native `<video>`; HLS adaptive streaming optional future work |
 | 3 | Bulk download as ZIP | **PR #667** (`feat(hd): bulk download UI`) | Full pipeline: Trigger.dev task + POST/GET API + frontend polling |
-| 4 | Storage limit per-instructor enforcement at API level | **PR #665** (`fix(hd): bug fixes, indexed reads, storage limit OCC`) | Authoritative check moved into Convex `createUpload` mutation; OCC handles concurrent races |
+| 4 | Storage limit per-instructor enforcement at API level | **PR #665** (`fix(hd): bug fixes, indexed reads, storage limit OCC`) | Per-video-editor per-instructor quota enforced in Convex `createUpload` mutation; OCC handles concurrent races; instructors and admins have no cap |
 
 ### Optional future work (no PR scoped)
 
 - **HLS adaptive streaming** for large videos: add `hls.js` and detect `contentType === "application/vnd.apple.mpegurl"` to switch from progressive download to HLS. Not on any active roadmap.
 - **Bulk download ZIP size cap**: currently `MAX_FILES_PER_REQUEST = 20` enforced at the route. For larger jobs, client-side chunking is required; no server-side chunking PR scoped.
-- **Per-video-editor storage quota**: today all editors' uploads count against the assigned instructor's 50GB limit. If per-editor quotas become a requirement, add an `editorId` dimension to the storage stats query.
+- **Per-video-editor storage quota**: today editors can upload without a quota unless one is explicitly set on their assignment. If stricter default per-editor caps become a requirement, add an `editorId` dimension to the storage stats query.

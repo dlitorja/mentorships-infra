@@ -201,9 +201,10 @@ export const attachRecordingFromDailyWebhookAction = action({
     ctx,
     args
   ): Promise<{
-    sessionId: Id<"sessions">;
-    alreadyAttached: boolean;
-    transferTriggered: boolean;
+    sessionId?: Id<"sessions">;
+    alreadyAttached?: boolean;
+    transferTriggered?: boolean;
+    notFound?: boolean;
   }> => {
     const secret = process.env.DAILY_WEBHOOK_SECRET;
     if (!secret) {
@@ -229,6 +230,10 @@ export const attachRecordingFromDailyWebhookAction = action({
         recordingId: parsed.recordingId,
       }
     );
+
+    if (result.sessionId === null) {
+      return { notFound: true };
+    }
 
     if (result.alreadyAttached || parsed.recordingId === undefined) {
       if (!result.alreadyAttached && parsed.recordingId === undefined) {

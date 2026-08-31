@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
 import { MessageSquare } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -78,6 +81,26 @@ function WorkspaceContent({
   // null when no call is active.
 
   const workspacesLoading = false;
+
+  // Map of workspace IDs to their active/joinable sessions so the
+  // workspace list can show a "LIVE" indicator without a separate
+  // query per row.
+  //
+  // PR workspace-live-calls: polls every 5s as a defensive fallback
+  // because the Convex live subscription for this query occasionally
+  // does not push updates when another party starts or ends a call.
+  // Without the poll, the LIVE indicator can stay stale until the user
+  // refreshes.
+  const activeSessionsQuery = useQuery({
+    ...convexQuery(
+      api.sessions.getActiveSessionsForWorkspaces,
+      workspaces && workspaces.length > 0
+        ? { workspaceIds: workspaces.map((w) => w._id) }
+        : "skip"
+    ),
+    refetchInterval: 5000,
+  });
+  const activeSessionsByWorkspaceId = activeSessionsQuery.data ?? {};
 
   useEffect(() => {
     if (
@@ -173,6 +196,7 @@ function WorkspaceContent({
           activeTab={activeTab}
           onChangeTab={setActiveTab}
           selectedWorkspace={selectedWorkspace}
+          activeSessionsByWorkspaceId={activeSessionsByWorkspaceId}
         />
         {/*
          * PR #4b: QuickCapture mounts once inside the provider so
@@ -206,6 +230,7 @@ function WorkspaceInner({
   activeTab,
   onChangeTab,
   selectedWorkspace,
+  activeSessionsByWorkspaceId,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
@@ -215,6 +240,10 @@ function WorkspaceInner({
   activeTab: string;
   onChangeTab: (tab: string) => void;
   selectedWorkspace: UserWorkspace | undefined;
+  activeSessionsByWorkspaceId: Record<
+    Id<"workspaces">,
+    { sessionId: Id<"sessions">; status: "active" | "joinable" }
+  >;
 }) {
   const { session } = useVideoCallContext();
   // PR #4b: pass `sessionId` down to composers so posts during the
@@ -280,6 +309,15 @@ function WorkspaceInner({
                     >
                       <div className="flex items-center">
                         <div className="font-medium truncate flex-1">{workspace.name}</div>
+                        {activeSessionsByWorkspaceId[workspace._id]?.status === "active" && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground shrink-0">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                              <span className="relative inline-flex h-full w-full rounded-full bg-white" />
+                            </span>
+                            LIVE
+                          </span>
+                        )}
                         {/* PR #4c-2: red dot on the workspace picker
                          * row when an ad-hoc call invite is active
                          * for the current user in this workspace. */}
@@ -380,14 +418,14 @@ function WorkspaceInner({
               {!isInCall && (
                 <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
                   <CallStatusPill />
-                  {selectedWorkspace && userRole === "instructor" && (
-                    <StartAdhocButton
-                      workspaceId={selectedWorkspace._id}
-                      role={userRole}
-                    />
+                  {selectedWorkspace && (
+                    <StartAdhocButton workspaceId={selectedWorkspace._id} />
                   )}
-                  {userRole === "instructor" && selectedWorkspace.sessionPackId && (
-                    <SessionCountControls sessionPackId={selectedWorkspace.sessionPackId} />
+                  {selectedWorkspace.sessionPackId && (
+                    <SessionCountControls
+                      sessionPackId={selectedWorkspace.sessionPackId}
+                      readOnly={userRole !== "instructor"}
+                    />
                   )}
                   <WaitingRoom role={userRole} />
                 </div>

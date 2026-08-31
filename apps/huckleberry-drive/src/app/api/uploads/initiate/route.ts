@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { initiateMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
+import { initiateMultipartUpload, abortMultipartUpload, MAX_MULTIPART_UPLOAD_BYTES } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
+import { isAllowedContentType } from "@/lib/limits";
 import { isTurnstileTokenValid, getClientIp } from "@mentorships/security";
 
 interface User {
@@ -116,23 +116,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // PR1: per-instructor storage accounting is enforced inside the
-    // `createUpload` mutation so OCC catches concurrent uploads that
-    // race past a route-side pre-check. Keep a soft pre-check here
-    // for nicer error messages, but treat the mutation as the
-    // authoritative gate.
-    if (dbUser.role !== "admin") {
-      const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
-        instructorId: targetInstructorId,
-      }, { token: convexToken }) as { usedBytes: number; fileCount: number };
-
-      if (stats.usedBytes + size > STORAGE_LIMIT_BYTES) {
-        return NextResponse.json(
-          { error: "Storage limit exceeded. Please delete files or contact support." },
-          { status: 403 }
-        );
-      }
-    }
+    // Per-instructor storage quotas for video editors are enforced inside
+    // the `createUpload` mutation so OCC catches concurrent uploads that
+    // race past the route-side pre-check above. Instructors and admins have
+    // no storage cap; only delegated video-editor uploads are limited by an
+    // explicit per-instructor quota configured in /admin/video-editors.
 
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileId = crypto.randomUUID();
@@ -145,20 +133,90 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       instructorId: targetInstructorId,
     });
 
-    await fetchMutation(api.instructorUploads.createUpload, {
-      id: fileId,
-      instructorId: targetInstructorId,
-      filename: upload.key,
-      originalName: filename,
-      contentType,
-      size,
-      uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
-    }, { token: convexToken });
+    try {
+      await fetchMutation(api.instructorUploads.createUpload, {
+        id: fileId,
+        instructorId: targetInstructorId,
+        filename: upload.key,
+        originalName: filename,
+        contentType,
+        size,
+        uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
+      }, { token: convexToken });
+    } catch (error) {
+      // Authoritative mutation rejected the upload (e.g., assignment removed,
+      // quota exceeded, or concurrent cap violation). Abort the B2 multipart
+      // upload so we do not leave orphaned multipart state.
+      try {
+        await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+      } catch (abortError) {
+        console.error("Failed to abort orphaned multipart upload after createUpload rejection:", {
+          fileId,
+          key: upload.key,
+          uploadId: upload.uploadId,
+          error: abortError instanceof Error ? abortError.message : String(abortError),
+        });
+      }
+      throw error;
+    }
 
-    await fetchMutation(api.instructorUploads.updateUploadStarted, {
-      id: fileId,
-      b2UploadId: upload.uploadId,
-    }, { token: convexToken });
+    try {
+      await fetchMutation(api.instructorUploads.updateUploadStarted, {
+        id: fileId,
+        b2UploadId: upload.uploadId,
+      }, { token: convexToken });
+    } catch (error) {
+      // Metadata update failed after the upload record was created but before
+      // b2UploadId was persisted. Try to abort the B2 multipart upload directly
+      // and then delete the pending Convex row. If either of those fails, fall
+      // back to marking the row for cleanup so the storage-deletion retry path
+      // can reconcile the orphaned multipart state using the persisted
+      // b2UploadId.
+      let abortSucceeded = false;
+      try {
+        await abortMultipartUpload({ key: upload.key, uploadId: upload.uploadId });
+        abortSucceeded = true;
+      } catch (abortError) {
+        console.error("Failed to abort orphaned multipart upload after updateUploadStarted failure:", {
+          fileId,
+          key: upload.key,
+          uploadId: upload.uploadId,
+          error: abortError instanceof Error ? abortError.message : String(abortError),
+        });
+      }
+
+      let rowDeleted = false;
+      if (abortSucceeded) {
+        try {
+          await fetchMutation(api.instructorUploads.deleteUpload, { id: fileId }, { token: convexToken });
+          rowDeleted = true;
+        } catch (deleteError) {
+          console.error("Failed to delete upload record after updateUploadStarted failure:", {
+            fileId,
+            key: upload.key,
+            uploadId: upload.uploadId,
+            error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+          });
+        }
+      }
+
+      if (!rowDeleted) {
+        try {
+          await fetchMutation(api.instructorUploads.markUploadForCleanup, {
+            id: fileId,
+            b2UploadId: upload.uploadId,
+          }, { token: convexToken });
+        } catch (cleanupError) {
+          console.error("Failed to mark upload for cleanup after updateUploadStarted failure:", {
+            fileId,
+            key: upload.key,
+            uploadId: upload.uploadId,
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
+      }
+      throw error;
+    }
 
     return NextResponse.json({
       fileId,

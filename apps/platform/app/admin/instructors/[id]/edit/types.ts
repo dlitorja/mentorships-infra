@@ -60,6 +60,9 @@ export type InstructorFormData = {
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
+  useKajabiCheckout: boolean;
+  kajabiCheckoutUrlOneOnOne: string;
+  kajabiCheckoutUrlGroup: string;
 };
 
 export type ActiveProduct = {

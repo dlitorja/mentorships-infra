@@ -18,10 +18,6 @@ type ClerkUserCreatedEventData = {
   lastName?: string;
 };
 
-function shouldAutoCreateInstructor(): boolean {
-  return process.env.CLERK_AUTO_CREATE_INSTRUCTOR === "true";
-}
-
 export const handleClerkUserCreated = inngest.createFunction(
   {
     id: "handle-clerk-user-created-instructor",
@@ -55,16 +51,6 @@ export const handleClerkUserCreated = inngest.createFunction(
     const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
     return await step.run("create-instructor-on-role-assignment", async () => {
-      if (!shouldAutoCreateInstructor()) {
-        await reportInfo({
-          source: "inngest:clerk-user-instructor-lifecycle",
-          message: "CLERK_AUTO_CREATE_INSTRUCTOR not enabled, skipping auto-creation",
-          level: "info",
-          context: { userId, email, role },
-        });
-        return { processed: true, action: "skipped", reason: "Feature flag disabled" };
-      }
-
       try {
         const raw = await convexServerCall<unknown>(
           "/instructors/create-for-clerk-user",
@@ -165,16 +151,6 @@ export const handleClerkUserUpdated = inngest.createFunction(
 
     if (!wasInstructor && isNowInstructor) {
       return await step.run("create-instructor-on-role-upgrade", async () => {
-        if (!shouldAutoCreateInstructor()) {
-          await reportInfo({
-            source: "inngest:clerk-user-instructor-lifecycle",
-            message: "CLERK_AUTO_CREATE_INSTRUCTOR not enabled, skipping auto-creation on upgrade",
-            level: "info",
-            context: { userId, email, role },
-          });
-          return { processed: true, action: "skipped", reason: "Feature flag disabled" };
-        }
-
         try {
           const raw = await convexServerCall<unknown>(
             "/instructors/create-for-clerk-user",

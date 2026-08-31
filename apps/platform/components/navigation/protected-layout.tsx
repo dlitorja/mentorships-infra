@@ -7,12 +7,7 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import {
   MessageSquare,
-  CalendarClock,
-  UserCircle,
   LayoutDashboard,
-  Calendar,
-  ListChecks,
-  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -31,9 +26,9 @@ interface ProtectedLayoutProps {
 
 /**
  * Server component providing a fixed sidebar navigation for authenticated users.
- * Shows Workspace for all users, plus role-specific navigation items:
- * - Instructors: dashboard, workspace, sessions, availability, submissions, profile, settings
- * - Students: dashboard, workspace, sessions, calendar, settings
+ * For instructors and students only the two primary surfaces are exposed:
+ * Workspace (top) and Dashboard (underneath). Other instructor/student pages are
+ * hidden while those parts of the app are further developed.
  *
  * @param children - Page content to render in the main area
  * @param currentPath - Current URL path for highlighting the active nav item
@@ -45,31 +40,14 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
     ? await fetchQuery(api.instructors.getInstructorByUserId, { userId }, { token })
     : null;
 
-  // Common navigation items
-  const commonItems: NavItem[] = [];
-
-  // Determine navigation items based on user role
-  const roleSpecificItems: NavItem[] = instructorRecord
-    ? [
-        // Instructor navigation - Dashboard first, then Workspace, then instructor-specific items
-        { href: "/instructor/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/workspace", label: "Workspace", icon: MessageSquare },
-        { href: "/instructor/sessions", label: "My Sessions", icon: Calendar },
-        { href: "/instructor/availability", label: "Availability", icon: CalendarClock },
-        { href: "/instructor/onboarding", label: "Onboarding", icon: ListChecks },
-        { href: "/instructor/profile", label: "Profile", icon: UserCircle },
-        { href: "/settings", label: "Settings", icon: Settings },
-      ]
-    : [
-        // Student navigation - Dashboard first, then Workspace, then student-specific items
-        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/workspace", label: "Workspace", icon: MessageSquare },
-        { href: "/sessions", label: "Sessions", icon: Calendar },
-        { href: "/calendar", label: "Calendar", icon: CalendarClock },
-        { href: "/settings", label: "Settings", icon: Settings },
-      ];
-
-  const navItems = [...commonItems, ...roleSpecificItems];
+  // Workspace is always the first/top nav item, followed by the role-specific
+  // dashboard. Instructor/student-specific pages are intentionally hidden while
+  // those surfaces are further developed.
+  const dashboardHref = instructorRecord ? "/instructor/dashboard" : "/dashboard";
+  const navItems: NavItem[] = [
+    { href: "/workspace", label: "Workspace", icon: MessageSquare },
+    { href: dashboardHref, label: "Dashboard", icon: LayoutDashboard },
+  ];
 
   return (
     <div className="min-h-[calc(100vh-5rem)] bg-background">

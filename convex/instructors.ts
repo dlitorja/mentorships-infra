@@ -828,6 +828,10 @@ export const getInstructorBySlug = query({
       // Surface inventory for purchase/waitlist logic; default to 0 when missing
       oneOnOneInventory: (instructor as any)?.oneOnOneInventory ?? 0,
       groupInventory: (instructor as any)?.groupInventory ?? 0,
+      // Surface Kajabi checkout fields for external checkout flow
+      useKajabiCheckout: (instructor as any)?.useKajabiCheckout ?? false,
+      kajabiCheckoutUrlOneOnOne: (instructor as any)?.kajabiCheckoutUrlOneOnOne,
+      kajabiCheckoutUrlGroup: (instructor as any)?.kajabiCheckoutUrlGroup,
     } as any;
   },
 });
@@ -1063,6 +1067,9 @@ export const createInstructor = mutation({
     profileImageUrl: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
+    kajabiCheckoutUrlGroup: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Skip the userId dedup check when no userId is supplied — the
@@ -1115,6 +1122,9 @@ export const createInstructor = mutation({
       maxActiveStudents: args.maxActiveStudents ?? 10,
       oneOnOneInventory: args.oneOnOneInventory ?? 0,
       groupInventory: args.groupInventory ?? 0,
+      useKajabiCheckout: args.useKajabiCheckout,
+      kajabiCheckoutUrlOneOnOne: args.kajabiCheckoutUrlOneOnOne,
+      kajabiCheckoutUrlGroup: args.kajabiCheckoutUrlGroup,
     });
   },
 });
@@ -1256,6 +1266,9 @@ export const updateInstructor = mutation({
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
     legacyInstructorRef: v.optional(v.union(v.string(), v.null())),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.union(v.string(), v.null())),
+    kajabiCheckoutUrlGroup: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -1305,6 +1318,8 @@ export const updateInstructor = mutation({
       "googleRefreshToken",
       "discordVoiceChannelUrl",
       "legacyInstructorRef",
+      "kajabiCheckoutUrlOneOnOne",
+      "kajabiCheckoutUrlGroup",
     ];
     for (const key of nullableKeys) {
       if ((updates as any)[key] === null) {
@@ -2784,6 +2799,13 @@ export const getInstructorByUserIdInternal = internalQuery({
   },
 });
 
+export const getInstructorByIdInternal = internalQuery({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.instructorId);
+  },
+});
+
 export const createInstructorInternal = internalMutation({
   args: {
     userId: v.optional(v.string()),
@@ -2879,6 +2901,7 @@ export const createInstructorForClerkUserInternal = internalAction({
     userId: v.string(),
     email: v.optional(v.string()),
     name: v.optional(v.string()),
+    instructorId: v.optional(v.id("instructors")),
     actorId: v.optional(v.string()),
     actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
   },
@@ -2907,6 +2930,83 @@ export const createInstructorForClerkUserInternal = internalAction({
       });
       console.log("createInstructorForClerkUser: Updated user role to instructor", args.userId);
       return { success: true, instructorId: existing._id, reason: "Already exists" };
+    }
+
+    // Instructors created by the admin dashboard before the Clerk user exists
+    // are stored with a placeholder userId (e.g. `admin-<slug>`). When the
+    // invited instructor later signs up, link the real Clerk userId to that
+    // existing record instead of creating a duplicate.
+    //
+    // Prefer an invitation-specific instructorId when the Clerk webhook carries
+    // one in public metadata; this prevents ambiguous email matches when
+    // multiple placeholder records exist for the same address.
+    const normalizedEmail = args.email?.toLowerCase().trim();
+    if (args.instructorId) {
+      const invited = await ctx.runQuery(
+        internal.instructors.getInstructorByIdInternal,
+        { instructorId: args.instructorId }
+      );
+      if (invited && !isClerkUserId(invited.userId)) {
+        console.log(
+          "createInstructorForClerkUser: Linking invited instructor to Clerk user",
+          args.userId,
+          invited._id
+        );
+        await ctx.runMutation(api.instructors.backfillInstructorUserId, {
+          instructorId: invited._id,
+          userId: args.userId,
+        });
+        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+          userId: args.userId,
+          role: "instructor",
+          actorId,
+          actorRole,
+          audit: {
+            action: "create_instructor_for_clerk_user",
+            targetType: "instructor",
+            targetId: invited._id,
+            details: `Linked invited instructor profile (${invited._id}) to Clerk user ${args.userId}`,
+            metadata: { userId: args.userId, email: normalizedEmail, name: args.name },
+          },
+        });
+        return { success: true, instructorId: invited._id, reason: "Linked invited instructor" };
+      }
+    }
+
+    // Fallback: email-only placeholder lookup for callers that don't have an
+    // invitation-specific instructorId (e.g., manual role changes or older
+    // Inngest events). This still protects against binding to a Clerk userId.
+    if (normalizedEmail) {
+      const byEmail = await ctx.runQuery(
+        internal.instructors.getInstructorByEmailInternal,
+        { email: normalizedEmail }
+      );
+      const placeholder = byEmail.find((inst) => !isClerkUserId(inst.userId));
+      if (placeholder) {
+        console.log(
+          "createInstructorForClerkUser: Linking existing instructor to Clerk user",
+          args.userId,
+          placeholder._id
+        );
+        await ctx.runMutation(api.instructors.backfillInstructorUserId, {
+          instructorId: placeholder._id,
+          userId: args.userId,
+        });
+        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+          userId: args.userId,
+          role: "instructor",
+          actorId,
+          actorRole,
+          audit: {
+            action: "create_instructor_for_clerk_user",
+            targetType: "instructor",
+            targetId: placeholder._id,
+            details: `Linked existing instructor profile (${placeholder._id}) to Clerk user ${args.userId}`,
+            metadata: { userId: args.userId, email: normalizedEmail, name: args.name },
+          },
+        });
+        return { success: true, instructorId: placeholder._id, reason: "Linked existing instructor" };
+      }
     }
 
     const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {

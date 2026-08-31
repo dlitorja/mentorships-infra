@@ -66,6 +66,9 @@ export default defineSchema({
     legacyInstructorRef: v.optional(v.string()),
     tagline: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
+    useKajabiCheckout: v.optional(v.boolean()),
+    kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
+    kajabiCheckoutUrlGroup: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"])
@@ -398,7 +401,8 @@ export default defineSchema({
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_createdBy", ["createdBy"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
-    .index("by_sessionId_isLiveSessionNote", ["sessionId", "isLiveSessionNote"]),
+    .index("by_sessionId_isLiveSessionNote", ["sessionId", "isLiveSessionNote"])
+    .index("by_workspaceId_isLiveSessionNote_deletedAt", ["workspaceId", "isLiveSessionNote", "deletedAt"]),
 
   workspaceNoteComments: defineTable({
     noteId: v.id("workspaceNotes"),

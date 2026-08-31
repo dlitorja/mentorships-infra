@@ -1,3 +1,14 @@
+<!-- PULL REQUEST MERGE POLICY -->
+# Pull Request Merge Policy (CRITICAL)
+
+**NEVER merge a pull request unless the automated code reviews from Greptile and CodeRabbit are visible and have passed.**
+
+- Before merging, verify both the `Greptile Review` and `CodeRabbit` status checks are green on the PR.
+- If either check is missing, pending, or failed, wait for it to complete and pass before merging.
+- If a review raises actionable issues, fix them and re-run the checks before merging.
+- Do not rely on local-only verification; the PR must show the bot reviews in GitHub.
+- If the user explicitly asks to skip or override these checks, confirm the instruction before proceeding.
+
 <!-- NAMING CONVENTIONS - CRITICAL -->
 # Naming Conventions: NEVER use mentor/mentee
 
@@ -57,7 +68,7 @@ Current known version snapshots (verify before relying on these):
 | `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
 | `@clerk/nextjs` (platform) | `^7.3.4` | `7.6.4` | Newer patch/minor available. |
 | `@clerk/nextjs` (web) | `^6.36.5` | `7.6.4` | Major version behind; upgrade separately. |
-| `convex` | `^1.43.0` | `1.43.0` | Latest as of last check. |
+| `convex` | `^1.45.0` | `1.45.0` | Latest as of last check; huckleberry-drive aligned with root. |
 | `@supabase/supabase-js` | `^2.81.1` | `2.111.0` | Minor update available. |
 | `@trigger.dev/sdk` | `4.4.6` | `4.5.9` | Minor update available. |
 | `@trigger.dev/build` | `4.4.6` | `4.5.9` | Minor update available. |
@@ -1838,6 +1849,18 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+## Workspace Safety Policy
+
+**NEVER delete, move, or discard untracked files or uncommitted working-directory changes without explicit user permission.**
+
+- Untracked files and uncommitted changes belong to the user's current work. They may be part of another branch, another PR, or local work in progress.
+- When you need to create an isolated branch or PR, preserve the existing working directory first:
+  - `git stash` modified files
+  - Move untracked files to a temporary location outside the repo (e.g., `/tmp/...`) and restore them afterward
+  - Or ask the user before touching anything
+- If you must switch branches, confirm whether to stash or preserve local changes first. Do not assume untracked files are disposable.
+- If you accidentally delete or lose user work, stop immediately, report exactly what was lost, and do not continue until the user responds.
 
 ## CLI Execution Policy
 

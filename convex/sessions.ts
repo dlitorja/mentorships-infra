@@ -1,5 +1,5 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -1184,7 +1184,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
   handler: async (
     ctx,
     args
-  ): Promise<{ sessionId: Id<"sessions">; alreadyAttached: boolean }> => {
+  ): Promise<{ sessionId: Id<"sessions"> | null; alreadyAttached: boolean }> => {
     const matches = await ctx.db
       .query("sessions")
       .withIndex("by_videoRoomName", (q) =>
@@ -1192,7 +1192,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
       )
       .collect();
     if (matches.length === 0) {
-      throw new Error(`No session found for videoRoomName: ${args.roomName}`);
+      return { sessionId: null, alreadyAttached: false };
     }
     // PR #7 MIGRATE phase: removed the legacy `if (matches.length > 1)
     // throw` guard. Safety case rests on three layers:
@@ -1430,6 +1430,126 @@ export const markRecordingTransferFailed = internalMutation({
  * Auth: instructor on the session only. Students cannot create rooms
  * — this prevents burning Daily quota or creating orphan rooms.
  */
+/**
+ * Shared implementation for persisting a Daily room against a session.
+ * Split out so both the public `setVideoRoom` mutation (scheduled
+ * sessions, instructor-only) and the internal `setVideoRoomInternal`
+ * mutation (ad-hoc calls verified by a trusted action) can reuse the
+ * same conflict/duplicate checks.
+ */
+async function setVideoRoomHelper(
+  ctx: MutationCtx,
+  args: {
+    sessionId: Id<"sessions">;
+    videoRoomName: string;
+    videoRoomUrl: string;
+    roomRecordingEnabled: boolean;
+  }
+): Promise<Doc<"sessions">> {
+  const session = await ctx.db.get(args.sessionId);
+  if (!session) {
+    throw new ConvexError({
+      code: "VIDEO_SESSION_NOT_FOUND",
+      message: "Session not found",
+    });
+  }
+
+  if (session.callEndedAt !== undefined) {
+    return session;
+  }
+
+    if (session.videoRoomName === args.videoRoomName) {
+      if (session.videoRoomUrl !== args.videoRoomUrl) {
+        await ctx.db.patch(args.sessionId, {
+          videoRoomUrl: args.videoRoomUrl,
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
+        const updated = await ctx.db.get(args.sessionId);
+        if (!updated) {
+          throw new ConvexError({
+            code: "VIDEO_SESSION_NOT_FOUND",
+            message: "Session disappeared after update",
+          });
+        }
+        return updated;
+      }
+      // Name + URL match — but roomRecordingEnabled may still have
+      // drifted if a previous 409-recovery PATCH (in resolveDailyRoom)
+      // reconciled Daily to a new consent value. Update the snapshot
+      // to keep the drift detector in recordConsent in sync with
+      // Daily's actual state.
+      if (session.roomRecordingEnabled !== args.roomRecordingEnabled) {
+        await ctx.db.patch(args.sessionId, {
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
+        const updated = await ctx.db.get(args.sessionId);
+        if (!updated) {
+          throw new ConvexError({
+            code: "VIDEO_SESSION_NOT_FOUND",
+            message: "Session disappeared after update",
+          });
+        }
+        return updated;
+      }
+      return session;
+    }
+
+
+  if (session.videoRoomName !== undefined) {
+    throw new ConvexError({
+      code: "VIDEO_ROOM_NAME_CONFLICT",
+      message:
+        "Session already has a different videoRoomName; refusing to overwrite",
+    });
+  }
+
+  // PR #7: widen-phase uniqueness guard. Prevents two distinct
+  // sessions from claiming the same Daily room name — the original
+  // guard was only at the read sites
+  // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
+  // which threw after a duplicate had already been written, so the
+  // webhook would 500 on delivery. Now we reject the conflicting
+  // assignment up front so the caller can retry with a fresh room.
+  //
+  // Uses `.first()` (not `.unique()`) so pre-existing duplicates
+  // from data drift survive the migrate phase without crashing
+  // this code path — `.unique()` would throw on the duplicate and
+  // block the new assignment. The actual uniqueness guarantee comes
+  // from Convex's serializable OCC: a concurrent `.first()` racing
+  // with our `.patch()` would either see our patch (and return
+  // non-null on its own `.first()`) or be rejected by OCC, never
+  // both. We choose `.first()` here because the schema index does
+  // not enforce uniqueness — the only way to prevent duplicates at
+  // the moment is this insert-time check.
+  const owner = await ctx.db
+    .query("sessions")
+    .withIndex("by_videoRoomName", (q) =>
+      q.eq("videoRoomName", args.videoRoomName),
+    )
+    .first();
+  if (owner !== null) {
+    throw new ConvexError({
+      code: "VIDEO_ROOM_NAME_TAKEN",
+      message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
+    });
+  }
+
+  await ctx.db.patch(args.sessionId, {
+    videoRoomName: args.videoRoomName,
+    videoRoomUrl: args.videoRoomUrl,
+    roomRecordingEnabled: args.roomRecordingEnabled,
+  });
+
+  const updated = await ctx.db.get(args.sessionId);
+  if (!updated) {
+    throw new ConvexError({
+      code: "VIDEO_SESSION_NOT_FOUND",
+      message: "Session disappeared after update",
+    });
+  }
+  return updated;
+}
+
 export const setVideoRoom = mutation({
   args: {
     sessionId: v.id("sessions"),
@@ -1461,78 +1581,26 @@ export const setVideoRoom = mutation({
       });
     }
 
-    if (session.callEndedAt !== undefined) {
-      return session;
-    }
+    return await setVideoRoomHelper(ctx, args);
+  },
+});
 
-    if (session.videoRoomName === args.videoRoomName) {
-      if (session.videoRoomUrl !== args.videoRoomUrl) {
-        await ctx.db.patch(args.sessionId, {
-          videoRoomUrl: args.videoRoomUrl,
-          roomRecordingEnabled: args.roomRecordingEnabled,
-        });
-        return await ctx.db.get(args.sessionId);
-      }
-      // Name + URL match — but roomRecordingEnabled may still have
-      // drifted if a previous 409-recovery PATCH (in resolveDailyRoom)
-      // reconciled Daily to a new consent value. Update the snapshot
-      // to keep the drift detector in recordConsent in sync with
-      // Daily's actual state.
-      if (session.roomRecordingEnabled !== args.roomRecordingEnabled) {
-        await ctx.db.patch(args.sessionId, {
-          roomRecordingEnabled: args.roomRecordingEnabled,
-        });
-        return await ctx.db.get(args.sessionId);
-      }
-      return session;
-    }
-
-    if (session.videoRoomName !== undefined) {
-      throw new ConvexError({
-        code: "VIDEO_ROOM_NAME_CONFLICT",
-        message:
-          "Session already has a different videoRoomName; refusing to overwrite",
-      });
-    }
-
-    // PR #7: widen-phase uniqueness guard. Prevents two distinct
-    // sessions from claiming the same Daily room name — the original
-    // guard was only at the read sites
-    // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
-    // which threw after a duplicate had already been written, so the
-    // webhook would 500 on delivery. Now we reject the conflicting
-    // assignment up front so the caller can retry with a fresh room.
-    //
-    // Uses `.first()` (not `.unique()`) so pre-existing duplicates
-    // from data drift survive the migrate phase without crashing
-    // this code path — `.unique()` would throw on the duplicate and
-    // block the new assignment. The actual uniqueness guarantee comes
-    // from Convex's serializable OCC: a concurrent `.first()` racing
-    // with our `.patch()` would either see our patch (and return
-    // non-null on its own `.first()`) or be rejected by OCC, never
-    // both. We choose `.first()` here because the schema index does
-    // not enforce uniqueness — the only way to prevent duplicates at
-    // the moment is this insert-time check.
-    const owner = await ctx.db
-      .query("sessions")
-      .withIndex("by_videoRoomName", (q) =>
-        q.eq("videoRoomName", args.videoRoomName),
-      )
-      .first();
-    if (owner !== null) {
-      throw new ConvexError({
-        code: "VIDEO_ROOM_NAME_TAKEN",
-        message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
-      });
-    }
-
-    await ctx.db.patch(args.sessionId, {
-      videoRoomName: args.videoRoomName,
-      videoRoomUrl: args.videoRoomUrl,
-      roomRecordingEnabled: args.roomRecordingEnabled,
-    });
-
-    return await ctx.db.get(args.sessionId);
+/**
+ * Internal mutation used by the trusted `setVerifiedAdhocVideoRoom`
+ * action to persist a verified Daily room for an ad-hoc session. The
+ * action has already confirmed the caller is a session participant and
+ * that the room exists on Daily, so this mutation only enforces the
+ * schema-level checks (no duplicate room names, no overwrites).
+ */
+export const setVideoRoomInternal = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    videoRoomName: v.string(),
+    videoRoomUrl: v.string(),
+    roomRecordingEnabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    return await setVideoRoomHelper(ctx, args);
   },
 });
 
@@ -1923,6 +1991,86 @@ export const getCallRecordingsForWorkspace = query({
 });
 
 /**
+ * Returns the sessions for a workspace that have a Daily room but no
+ * recording has been attached yet (no `recordingUrl` and no transfer
+ * status). Used by the manual recording sync fallback to backfill
+ * recordings that were created on Daily.co but missed by the webhook.
+ *
+ * Auth: instructor on the workspace or owner of the workspace.
+ */
+export const getSessionsMissingRecordingsForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; videoRoomName: string }[]> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return [];
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return [];
+    }
+    if (workspace.instructorId === undefined) return [];
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
+    if (!isInstructor && !isOwner) {
+      throw new Error("Forbidden");
+    }
+
+    const result = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId_studentId", (q) =>
+        q
+          .eq("instructorId", workspace.instructorId!)
+          .eq("studentId", workspace.ownerId)
+      )
+      .order("desc")
+      .take(50);
+
+    return result
+      .filter(
+        (s) =>
+          s.deletedAt === undefined &&
+          s.videoRoomName !== undefined &&
+          s.recordingUrl === undefined &&
+          s.recordingTransferStatus === undefined
+      )
+      .map((s) => ({ sessionId: s._id, videoRoomName: s.videoRoomName! }));
+  },
+});
+
+/**
+ * Returns true if the authenticated user is allowed to trigger a manual
+ * recording sync for the workspace. Mirrors the auth rules of
+ * `getSessionsMissingRecordingsForWorkspace`.
+ */
+export const canSyncRecordingsForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<boolean> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return false;
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return false;
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return false;
+    }
+    if (workspace.instructorId === undefined) return false;
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    if (instructor !== null && instructor.userId === identity.subject) {
+      return true;
+    }
+    return workspace.ownerId === identity.subject;
+  },
+});
+
+/**
  * Maps the raw `recordingTransferError` (server-side diagnostic
  * text, never returned to the client) to one of four sanitized
  * buckets that the UI uses to render a friendly explanation.
@@ -2119,166 +2267,203 @@ export type CurrentOrUpcomingSession = {
  * Powers the Join Call button on the workspace UI (PR #3): the button
  * is enabled only when `status === "active" | "joinable"`.
  */
-export const getCurrentOrUpcomingSessionForWorkspace = query({
-  args: {
-    workspaceId: v.id("workspaces"),
-  },
-  handler: async (ctx, args): Promise<CurrentOrUpcomingSession | null> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
+/**
+ * Internal helper that implements the current-or-upcoming session
+ * selection logic for a single workspace. Extracted so it can be reused
+ * by the batch active-session lookup used for the workspace-list "LIVE"
+ * indicator without creating a circular dependency.
+ */
+async function getCurrentOrUpcomingSessionForWorkspaceHelper(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">
+): Promise<CurrentOrUpcomingSession | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    return null;
+  }
 
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) {
-      return null;
-    }
-    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
-      return null;
-    }
-    if (workspace.instructorId === undefined) {
-      return null;
-    }
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace) {
+    return null;
+  }
+  if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+    return null;
+  }
+  if (workspace.instructorId === undefined) {
+    return null;
+  }
 
-    const isOwner = workspace.ownerId === identity.subject;
-    let isInstructor = false;
-    const instructor = await ctx.db.get(workspace.instructorId);
-    if (instructor && instructor.userId === identity.subject) {
-      isInstructor = true;
-    }
+  const isOwner = workspace.ownerId === identity.subject;
+  let isInstructor = false;
+  const instructor = await ctx.db.get(workspace.instructorId);
+  if (instructor && instructor.userId === identity.subject) {
+    isInstructor = true;
+  }
 
-    if (!isOwner && !isInstructor) {
-      return null;
-    }
+  if (!isOwner && !isInstructor) {
+    return null;
+  }
 
-    const now = Date.now();
+  const now = Date.now();
 
-    // Bounded read scoped to the next ~30 days of scheduled sessions.
-    // Uses the compound index `by_studentId_status_scheduledAt` so the
-    // result is deterministically ordered by `scheduledAt` ascending —
-    // `.take(50)` is guaranteed to include the next-upcoming session
-    // regardless of how many historical sessions exist (which the
-    // previous `by_studentId`-only query could not guarantee). Also
-    // restricts to status="scheduled" because every active call still
-    // has status="scheduled" until `endCall` transitions it, so this
-    // index covers both active and upcoming candidates.
-    const historyStart = now - 4 * 60 * 60 * 1000;
-    const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
+  // Bounded read scoped to the next ~30 days of scheduled sessions.
+  // Uses the compound index `by_studentId_status_scheduledAt` so the
+  // result is deterministically ordered by `scheduledAt` ascending —
+  // `.take(50)` is guaranteed to include the next-upcoming session
+  // regardless of how many historical sessions exist (which the
+  // previous `by_studentId`-only query could not guarantee). Also
+  // restricts to status="scheduled" because every active call still
+  // has status="scheduled" until `endCall` transitions it, so this
+  // index covers both active and upcoming candidates.
+  const historyStart = now - 4 * 60 * 60 * 1000;
+  const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
 
-    const sessions = await ctx.db
-      .query("sessions")
-      .withIndex("by_studentId_status_scheduledAt", (q) =>
-        q
-          .eq("studentId", workspace.ownerId)
-          .eq("status", "scheduled")
-          .gte("scheduledAt", historyStart)
-          .lte("scheduledAt", futureEnd)
-      )
-      .order("asc")
-      .take(50);
+  const sessions = await ctx.db
+    .query("sessions")
+    .withIndex("by_studentId_status_scheduledAt", (q) =>
+      q
+        .eq("studentId", workspace.ownerId)
+        .eq("status", "scheduled")
+        .gte("scheduledAt", historyStart)
+        .lte("scheduledAt", futureEnd)
+    )
+    .order("asc")
+    .take(50);
 
-    if (sessions.length === 0) {
-      return null;
-    }
+  if (sessions.length === 0) {
+    return null;
+  }
 
-    // Narrow to the workspace's instructor. The compound index is
-    // scoped by `studentId` only — instructor filtering is in-memory
-    // because `instructorId` is not part of any compound index that
-    // also includes `studentId`. The result set is already bounded
-    // (≤ 50), so an in-memory filter is fine.
-    const scoped = sessions.filter(
-      (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
-    );
-    if (scoped.length === 0) {
-      return null;
-    }
+  // Narrow to the workspace's instructor. The compound index is
+  // scoped by `studentId` only — instructor filtering is in-memory
+  // because `instructorId` is not part of any compound index that
+  // also includes `studentId`. The result set is already bounded
+  // (≤ 50), so an in-memory filter is fine.
+  const scoped = sessions.filter(
+    (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
+  );
+  if (scoped.length === 0) {
+    return null;
+  }
 
-    // Pick the most recently started active session, if any. We sort
-    // by `callStartedAt` desc instead of using `find()` so a stale
-    // earlier-scheduled active session can't beat a freshly started
-    // one (which would otherwise happen if `.order("asc")` returned
-    // an older session first in the index).
-    const active = scoped
-      .filter(
-        (s) =>
-          s.callStartedAt !== undefined &&
-          s.callEndedAt === undefined &&
-          s.videoRoomName !== undefined
-      )
-      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
-    if (active && active.callStartedAt !== undefined) {
-      const participantName = isInstructor
-        ? await resolveStudentName(ctx, active.studentId)
-        : await resolveInstructorName(ctx, instructor);
-      return {
-        sessionId: active._id,
-        scheduledAt: active.scheduledAt,
-        status: "active",
-        startedAt: active.callStartedAt,
-        videoRoomName: active.videoRoomName ?? null,
-        videoRoomUrl: active.videoRoomUrl ?? null,
-        participantName,
-        studentId: active.studentId,
-        windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
-        windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
-        recordingConsent: active.recordingConsent ?? null,
-      };
-    }
+  // Pick the most recently started active session, if any. We sort
+  // by `callStartedAt` desc instead of using `find()` so a stale
+  // earlier-scheduled active session can't beat a freshly started
+  // one (which would otherwise happen if `.order("asc")` returned
+  // an older session first in the index).
+  const active = scoped
+    .filter(
+      (s) =>
+        s.callStartedAt !== undefined &&
+        s.callEndedAt === undefined &&
+        s.videoRoomName !== undefined
+    )
+    .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
+  if (active && active.callStartedAt !== undefined) {
+    const participantName = isInstructor
+      ? await resolveStudentName(ctx, active.studentId)
+      : await resolveInstructorName(ctx, instructor);
+    return {
+      sessionId: active._id,
+      scheduledAt: active.scheduledAt,
+      status: "active",
+      startedAt: active.callStartedAt,
+      videoRoomName: active.videoRoomName ?? null,
+      videoRoomUrl: active.videoRoomUrl ?? null,
+      participantName,
+      studentId: active.studentId,
+      windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
+      windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
+      recordingConsent: active.recordingConsent ?? null,
+    };
+  }
 
-    const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
+  const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
 
-    // Ad-hoc catch-up calls beat any stale, never-started scheduled
-    // session for the "next session to act on" pick. Without this
-    // branch, `scoped.find` returns the EARLIEST `scheduledAt`
-    // (`scoped` is ascending), which can be a missed scheduled
-    // session from earlier in the window — hiding the freshly-created
-    // ad-hoc call behind a row that nobody can join. We pick the
-    // most recent ad-hoc (rather than `find` first) in case multiple
-    // exist (shouldn't, but `startAdhocCall`'s self-heal keeps the
-    // table clean even if a cleanup previously failed).
-    const adHocUpcoming = scoped
-      .filter(
-        (s) =>
-          s.callStartedAt === undefined &&
-          s.isAdhoc === true &&
-          s.scheduledAt <= upcomingWindowEnd
-      )
-      .sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+  // Ad-hoc catch-up calls beat any stale, never-started scheduled
+  // session for the "next session to act on" pick. Without this
+  // branch, `scoped.find` returns the EARLIEST `scheduledAt`
+  // (`scoped` is ascending), which can hide a freshly-created ad-hoc
+  // call behind a row that nobody can join. We pick the most recent
+  // ad-hoc in case multiple exist.
+  const adHocUpcoming = scoped
+    .filter(
+      (s) =>
+        s.callStartedAt === undefined &&
+        s.isAdhoc === true &&
+        s.scheduledAt <= upcomingWindowEnd
+    )
+    .sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
 
-    const upcoming = adHocUpcoming ?? scoped.find(
+  const upcoming =
+    adHocUpcoming ??
+    scoped.find(
       (s) =>
         s.callStartedAt === undefined &&
         s.isAdhoc !== true &&
         s.scheduledAt <= upcomingWindowEnd
     );
 
-    if (!upcoming) {
-      return null;
+  if (!upcoming) {
+    return null;
+  }
+
+  const windowOpensAt = upcoming.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+  const windowClosesAt = upcoming.scheduledAt + JOIN_WINDOW_AFTER_MS;
+
+  const status: "joinable" | "scheduled" =
+    now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
+
+  const participantName = isInstructor
+    ? await resolveStudentName(ctx, upcoming.studentId)
+    : await resolveInstructorName(ctx, instructor);
+
+  return {
+    sessionId: upcoming._id,
+    scheduledAt: upcoming.scheduledAt,
+    status,
+    startedAt: null,
+    videoRoomName: null,
+    videoRoomUrl: null,
+    participantName,
+    studentId: upcoming.studentId,
+    windowOpensAt,
+    windowClosesAt,
+    recordingConsent: upcoming.recordingConsent ?? null,
+  };
+}
+
+export const getCurrentOrUpcomingSessionForWorkspace = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args): Promise<CurrentOrUpcomingSession | null> => {
+    return getCurrentOrUpcomingSessionForWorkspaceHelper(ctx, args.workspaceId);
+  },
+});
+
+/**
+ * Returns active/joinable sessions for a set of workspaces in one
+ * round-trip. Powers the workspace-list "LIVE" indicator so every row
+ * can show whether a call is ongoing without making a separate query
+ * per workspace.
+ */
+export const getActiveSessionsForWorkspaces = query({
+  args: {
+    workspaceIds: v.array(v.id("workspaces")),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<Record<Id<"workspaces">, { sessionId: Id<"sessions">; status: "active" | "joinable" }>> => {
+    const result: Record<Id<"workspaces">, { sessionId: Id<"sessions">; status: "active" | "joinable" }> = {};
+    for (const workspaceId of args.workspaceIds) {
+      const session = await getCurrentOrUpcomingSessionForWorkspaceHelper(ctx, workspaceId);
+      if (session && (session.status === "active" || session.status === "joinable")) {
+        result[workspaceId] = { sessionId: session.sessionId, status: session.status };
+      }
     }
-
-    const windowOpensAt = upcoming.scheduledAt - JOIN_WINDOW_BEFORE_MS;
-    const windowClosesAt = upcoming.scheduledAt + JOIN_WINDOW_AFTER_MS;
-
-    const status: "joinable" | "scheduled" =
-      now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
-
-    const participantName = isInstructor
-      ? await resolveStudentName(ctx, upcoming.studentId)
-      : await resolveInstructorName(ctx, instructor);
-
-    return {
-      sessionId: upcoming._id,
-      scheduledAt: upcoming.scheduledAt,
-      status,
-      startedAt: null,
-      videoRoomName: null,
-      videoRoomUrl: null,
-      participantName,
-      studentId: upcoming.studentId,
-      windowOpensAt,
-      windowClosesAt,
-      recordingConsent: upcoming.recordingConsent ?? null,
-    };
+    return result;
   },
 });
 
@@ -2489,7 +2674,7 @@ export const markCallStarted = mutation({
 
 
 /**
- * Instructor-only mutation that creates a synthetic `sessions` row
+ * Participant-only mutation that creates a synthetic `sessions` row
  * for an ad-hoc (catch-up) call started outside any scheduled session.
  *
  * Used by `POST /api/video/start-adhoc` (PR #4a). The route handler
@@ -2498,10 +2683,8 @@ export const markCallStarted = mutation({
  * call (with its retry-on-409 logic) while the database write happens
  * here, transactionally.
  *
- * Auth: caller must be the workspace's instructor (matched via
- * `instructor.userId === identity.subject`). Students never
- * see the UI button (it's hidden at `workspace-client-page.tsx`) AND
- * the endpoint rejects them server-side.
+ * Auth: caller must be either the workspace's instructor or the
+ * workspace owner (student), matched via `identity.subject`.
  *
  * The synthetic row has `isAdhoc: true`, `sessionPackId: undefined`
  * (ad-hoc calls don't consume pack quota; PR #4a widened the field to
@@ -2552,10 +2735,12 @@ export const startAdhocCall = mutation({
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (!instructor || instructor.userId !== identity.subject) {
+    const isInstructor = instructor !== null && instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
+    if (!isInstructor && !isOwner) {
       throw new ConvexError({
-        code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
-        message: "Forbidden: only the workspace's instructor can start an ad-hoc call",
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
       });
     }
 
@@ -2632,11 +2817,13 @@ export const startAdhocCall = mutation({
       scheduledAt: Date.now(),
       status: "scheduled",
       recordingConsent: args.recordingConsent,
-      // PR #4a: initialize the instructor's per-party field to the
-      // consented value (the ad-hoc creator IS the instructor and has
-      // already gone through the consent modal). The student's field
-      // stays undefined until they record their choice.
-      instructorRecordingConsent: args.recordingConsent,
+      // PR #4a: record the starter's per-party consent. The other
+      // party's field stays undefined until they join and record their
+      // choice. The combined value is updated atomically by recordConsent.
+      instructorRecordingConsent: isInstructor
+        ? args.recordingConsent
+        : undefined,
+      studentRecordingConsent: isOwner ? args.recordingConsent : undefined,
       isAdhoc: true,
     });
 
@@ -2800,7 +2987,9 @@ export const deleteOrphanedAdhocSession = mutation({
     }
 
     const instructor = await ctx.db.get(session.instructorId);
-    if (!instructor || instructor.userId !== identity.subject) {
+    const isInstructor = instructor !== null && instructor.userId === identity.subject;
+    const isOwner = session.studentId === identity.subject;
+    if (!isInstructor && !isOwner) {
       return { deleted: false };
     }
 

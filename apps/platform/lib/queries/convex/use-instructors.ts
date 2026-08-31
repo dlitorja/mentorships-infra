@@ -26,6 +26,10 @@ export type PublicInstructor = {
   deletedAt?: number;
   /** Instructors table ID injected by public queries for downstream use. */
   instructorId?: string;
+  /** Kajabi external checkout configuration */
+  useKajabiCheckout?: boolean;
+  kajabiCheckoutUrlOneOnOne?: string;
+  kajabiCheckoutUrlGroup?: string;
 };
 
 /**

@@ -43,8 +43,10 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
     });
   });
 
+  const editorClient = t.withIdentity({ subject: editorId });
+
   // Seed an existing upload that consumes 500 MB.
-  await t.mutation(api.instructorUploads.createUpload, {
+  await editorClient.mutation(api.instructorUploads.createUpload, {
     id: "upload_1",
     instructorId,
     filename: "key/upload_1",
@@ -53,8 +55,6 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
     size: 500 * 1024 * 1024,
     uploadedById: editorId,
   });
-
-  const editorClient = t.withIdentity({ subject: editorId });
 
   const withStorage = await editorClient.query(
     api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
@@ -65,7 +65,7 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
 
   // A 600 MB upload should exceed the remaining 500 MB quota.
   await expect(
-    t.mutation(api.instructorUploads.createUpload, {
+    editorClient.mutation(api.instructorUploads.createUpload, {
       id: "upload_2",
       instructorId,
       filename: "key/upload_2",
@@ -78,7 +78,7 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
 
   // A 100 MB upload should fit.
   await expect(
-    t.mutation(api.instructorUploads.createUpload, {
+    editorClient.mutation(api.instructorUploads.createUpload, {
       id: "upload_3",
       instructorId,
       filename: "key/upload_3",
@@ -173,7 +173,7 @@ test("video editor quotas: no quota means no extra restriction", async () => {
   });
 
   await expect(
-    t.mutation(api.instructorUploads.createUpload, {
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
       id: "upload_4",
       instructorId,
       filename: "key/upload_4",
@@ -183,4 +183,350 @@ test("video editor quotas: no quota means no extra restriction", async () => {
       uploadedById: editorId,
     })
   ).resolves.toBeDefined();
+});
+
+test("video editor uploads: no default instructor cap applies to delegated or self uploads", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_4";
+  const editorId = "editor_4";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor4@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor4@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+    // Seed an instructor-owned upload well above the old 50GB cap.
+    await ctx.db.insert("instructorUploads", {
+      instructorId,
+      filename: "key/instructor-owned",
+      originalName: "instructor-owned.mp4",
+      contentType: "video/mp4",
+      size: 60 * 1024 * 1024 * 1024,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: "instructor-owned",
+    });
+  });
+
+  // The video editor should still be able to upload because no default
+  // instructor cap is applied to delegated uploads.
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_5",
+      instructorId,
+      filename: "key/upload_5",
+      originalName: "upload_5.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024 * 1024,
+      uploadedById: editorId,
+    })
+  ).resolves.toBeDefined();
+
+  // Instructors have no storage cap and can also self-upload.
+  await expect(
+    t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_6",
+      instructorId,
+      filename: "key/upload_6",
+      originalName: "upload_6.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+    })
+  ).resolves.toBeDefined();
+});
+
+test("createUpload: instructors have no storage cap", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_5";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor5@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    // Seed an instructor-owned upload well above the old 50GB cap.
+    await ctx.db.insert("instructorUploads", {
+      instructorId,
+      filename: "key/instructor-owned",
+      originalName: "instructor-owned.mp4",
+      contentType: "video/mp4",
+      size: 60 * 1024 * 1024 * 1024,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: "instructor-owned",
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_7",
+      instructorId,
+      filename: "key/upload_7",
+      originalName: "upload_7.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024 * 1024,
+    })
+  ).resolves.toBeDefined();
+});
+
+test("createUpload: video editor cannot spoof uploadedById to bypass quotas", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_6";
+  const editorId = "editor_6";
+  const otherEditorId = "editor_7";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor6@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor6@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: otherEditorId,
+      email: "editor7@example.com",
+      clerkId: otherEditorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_8",
+      instructorId,
+      filename: "key/upload_8",
+      originalName: "upload_8.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: otherEditorId,
+    })
+  ).rejects.toThrow("Video editor uploads must be performed under their own identity");
+});
+
+test("createUpload: instructor cannot upload to another instructor's storage", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_7";
+  const otherInstructorId = "instructor_8";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor7@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: otherInstructorId,
+      email: "instructor8@example.com",
+      clerkId: otherInstructorId,
+      role: "instructor",
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_9",
+      instructorId: otherInstructorId,
+      filename: "key/upload_9",
+      originalName: "upload_9.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+    })
+  ).rejects.toThrow("Instructors can only upload to their own storage");
+});
+
+test("createUpload: video editor cannot upload to an unassigned instructor", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_9";
+  const editorId = "editor_9";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor9@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor9@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_10",
+      instructorId,
+      filename: "key/upload_10",
+      originalName: "upload_10.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("You are not assigned to this instructor");
+});
+
+test("setVideoEditorAssignmentQuotaByIds: admin can set, clear, and re-set quota", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_quota";
+  const editorId = "editor_quota";
+  const adminId = "admin_quota";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_quota@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_quota@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin_quota@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: 1024,
+    })
+  ).resolves.toEqual({ success: true });
+
+  let assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBe(1024);
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: null,
+    })
+  ).resolves.toEqual({ success: true });
+
+  assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBeUndefined();
+});
+
+test("setVideoEditorAssignmentQuotaByIds: admin is recognized when identity.subject matches clerkId", async () => {
+  const t = convexTest(schema, modules);
+
+  const instructorId = "instructor_quota_clerk";
+  const editorId = "editor_quota_clerk";
+  const adminUserId = "admin_user_id";
+  const adminClerkId = "admin_clerk_id";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_quota_clerk@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_quota_clerk@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    // Admin's primary userId differs from the Clerk subject used by huckleberry-drive.
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin_quota_clerk@example.com",
+      clerkId: adminClerkId,
+      role: "admin",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminClerkId });
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds, {
+      videoEditorId: editorId,
+      instructorId,
+      storageQuotaBytes: 2048,
+    })
+  ).resolves.toEqual({ success: true });
+
+  const assignment = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", editorId).eq("instructorId", instructorId)
+      )
+      .first()
+  );
+  expect(assignment?.storageQuotaBytes).toBe(2048);
 });

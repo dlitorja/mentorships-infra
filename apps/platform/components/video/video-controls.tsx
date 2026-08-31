@@ -7,7 +7,6 @@ import {
   VideoOff,
   ScreenShare,
   PhoneOff,
-  PictureInPicture,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,9 +15,9 @@ import { useVideoCallContext } from "@/lib/video/video-context";
 /**
  * Bottom-center control bar for the in-call VideoPanel.
  *
- * Buttons map to Daily calls (mute/camera/screen-share/leave) and a
- * local PiP toggle. Each button shows a tooltip-style hint with its
- * keyboard shortcut from `lib/video/constants.ts`.
+ * Buttons map to Daily calls (mute/camera/screen-share/leave). Each
+ * button shows a tooltip-style hint with its keyboard shortcut from
+ * `lib/video/constants.ts`.
  *
  * All buttons disable while the call is in `joining` or `leaving`
  * state to prevent double-clicks racing the Daily transition.
@@ -29,11 +28,9 @@ export function VideoControls() {
     isMuted,
     isCameraOff,
     isScreenSharing,
-    isPictureInPicture,
     toggleMute,
     toggleCamera,
     toggleScreenShare,
-    togglePictureInPicture,
     leave,
   } = useVideoCallContext();
 
@@ -73,16 +70,6 @@ export function VideoControls() {
         aria-label={isScreenSharing ? "Stop screen share" : "Start screen share"}
       >
         <ScreenShare className="h-4 w-4" />
-      </Button>
-      <Button
-        type="button"
-        variant={isPictureInPicture ? "default" : "secondary"}
-        size="icon"
-        onClick={togglePictureInPicture}
-        title={isPictureInPicture ? "Exit picture-in-picture (P)" : "Enter picture-in-picture (P)"}
-        aria-label={isPictureInPicture ? "Exit picture-in-picture" : "Enter picture-in-picture"}
-      >
-        <PictureInPicture className="h-4 w-4" />
       </Button>
       <Button
         type="button"

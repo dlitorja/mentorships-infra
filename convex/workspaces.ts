@@ -2492,6 +2492,12 @@ export const migrateWorkspaceImage = action({
  * existing live-session-note row for `(sessionId, true)` and return
  * it without writing if present.
  *
+ * To avoid generating a new note every time a call is restarted in
+ * the same lesson (e.g., network hiccups or technical issues), we
+ * also reuse a recent live session note for the same workspace if one
+ * was created within the last 12 hours. The reused note is re-tagged
+ * to the current session so the Notes tab continues to pin it.
+ *
  * `createdBy` is set to a fixed system marker (`"system"`) because
  * this row is created by `markCallStarted` on behalf of either party,
  * not by a specific user. The Notes composer hides the "delete" /
@@ -2518,6 +2524,24 @@ export const createLiveSessionNote = internalMutation({
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
       throw new Error("Session not found");
+    }
+
+    const LIVE_SESSION_NOTE_REUSE_WINDOW_MS = 12 * 60 * 60 * 1000;
+    const recentWindowStart = Date.now() - LIVE_SESSION_NOTE_REUSE_WINDOW_MS;
+    const recentNote = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_workspaceId_isLiveSessionNote_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("isLiveSessionNote", true).eq("deletedAt", undefined)
+      )
+      .filter((q) => q.gt(q.field("_creationTime"), recentWindowStart))
+      .first();
+
+    if (recentNote) {
+      await ctx.db.patch(recentNote._id, {
+        sessionId: args.sessionId,
+        updatedAt: Date.now(),
+      });
+      return recentNote._id;
     }
 
     const startedAt = session.callStartedAt ?? Date.now();

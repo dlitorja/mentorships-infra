@@ -23,6 +23,9 @@ const defaultFormData: InstructorFormData = {
   oneOnOneInventory: 0,
   groupInventory: 0,
   maxActiveStudents: 10,
+  useKajabiCheckout: false,
+  kajabiCheckoutUrlOneOnOne: "",
+  kajabiCheckoutUrlGroup: "",
 };
 
 export function useInstructorForm(data: InstructorDetail | undefined) {
@@ -53,6 +56,9 @@ export function useInstructorForm(data: InstructorDetail | undefined) {
         oneOnOneInventory: data.oneOnOneInventory ?? 0,
         groupInventory: data.groupInventory ?? 0,
         maxActiveStudents: data.maxActiveStudents ?? 10,
+        useKajabiCheckout: (data as any).useKajabiCheckout ?? false,
+        kajabiCheckoutUrlOneOnOne: (data as any).kajabiCheckoutUrlOneOnOne ?? "",
+        kajabiCheckoutUrlGroup: (data as any).kajabiCheckoutUrlGroup ?? "",
       });
     }
   }, [data]);

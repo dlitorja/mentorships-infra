@@ -22,7 +22,6 @@ interface HeaderProps {
 const navLinks = [
   { href: "/instructors", label: "Instructors", external: false },
   { href: "https://home.huckleberry.art/store", label: "Courses", external: true },
-  { href: "https://discord.gg/4DqDyKZyA8", label: "Discord", external: true },
 ];
 
 type UserLike = { publicMetadata?: { role?: unknown } } | null | undefined;

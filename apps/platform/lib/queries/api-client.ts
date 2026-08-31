@@ -978,6 +978,9 @@ export type UpdateAdminInstructorInput = {
   groupInventory?: number;
   maxActiveStudents?: number;
   instructorId?: string | null;
+  useKajabiCheckout?: boolean;
+  kajabiCheckoutUrlOneOnOne?: string | null;
+  kajabiCheckoutUrlGroup?: string | null;
 };
 
 /**
@@ -1057,6 +1060,9 @@ export async function createAdminInstructor(data: {
   groupInventory?: number;
   maxActiveStudents?: number;
   instructorId?: string | null;
+  useKajabiCheckout?: boolean;
+  kajabiCheckoutUrlOneOnOne?: string;
+  kajabiCheckoutUrlGroup?: string;
 }) {
   return apiFetch<{ success: boolean; message: string; instructor: { id: string } }>(ApiRoutes.adminInstructors, {
     method: "POST",
