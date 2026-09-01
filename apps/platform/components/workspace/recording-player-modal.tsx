@@ -300,9 +300,8 @@ export default function RecordingPlayerModal({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Recordings are stored in Backblaze B2 and accessed via a
-          1-hour signed URL that auto-refreshes while this dialog is
-          open.
+          Recordings are stored securely and the playback link refreshes
+          automatically while this dialog is open.
         </p>
       </DialogContent>
     </Dialog>
