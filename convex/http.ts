@@ -1129,6 +1129,90 @@ http.route({
 });
 
 /**
+ * Bearer-auth endpoint that upserts a single test-fixture instructor.
+ * Called by `apps/platform/scripts/seed-test-instructors.mts` to
+ * create the `test-instructor-waitlist` fixture consumed by
+ * `tests/e2e/waitlist.spec.ts` against the Kernel-backed Playwright
+ * project. The mutation itself enforces the `test-` prefix and
+ * `isTestFixture` check; the HTTP layer just authenticates the caller
+ * with `CONVEX_HTTP_KEY`.
+ */
+export const httpUpsertTestFixtureInstructor = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: {
+    slug?: string;
+    name?: string;
+    bio?: string;
+    tagline?: string;
+    oneOnOneInventory?: number;
+    groupInventory?: number;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { slug, name, bio, tagline, oneOnOneInventory, groupInventory } = body;
+  if (!slug || typeof slug !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid slug" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!name || typeof name !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid name" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!bio || typeof bio !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid bio" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (typeof oneOnOneInventory !== "number" || typeof groupInventory !== "number") {
+    return new Response(JSON.stringify({ error: "Missing or invalid inventory fields" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.instructors.upsertTestFixtureInstructor, {
+      slug,
+      name,
+      bio,
+      tagline: typeof tagline === "string" ? tagline : undefined,
+      oneOnOneInventory,
+      groupInventory,
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+});
+
+http.route({
+  path: "/internal/upsert-test-fixture-instructor",
+  method: "POST",
+  handler: httpUpsertTestFixtureInstructor,
+});
+
+/**
  * R14: bearer-auth HTTP endpoints for the secret-removal migration.
  * Each replaces a public action that previously required a `secret` arg
  * authenticated against a shared secret in both environments. Callers now

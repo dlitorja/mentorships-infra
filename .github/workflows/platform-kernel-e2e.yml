@@ -1,0 +1,89 @@
+name: Platform Kernel E2E
+
+# Manual-trigger workflow that runs the Kernel-backed Playwright suite
+# (`tests/e2e/waitlist.spec.ts`) against an arbitrary Vercel preview
+# + non-prod Convex deployment pair. Cost-controlled (no PR/push
+# trigger), gated on secrets being present, and explicitly NOT a
+# merge gate — failure here does not block the PR that produced
+# these changes.
+#
+# Add to repo secrets (Settings → Secrets → Actions) before first run:
+#   - KERNEL_API_KEY        : kernel.sh API key (from Vercel Marketplace
+#                             integration or kernel.sh dashboard).
+#   - CONVEX_HTTP_KEY       : shared bearer secret for /internal/*
+#                             HTTP actions; must match the value of
+#                             CONVEX_HTTP_KEY in the target Convex
+#                             deployment.
+#
+# Workflow inputs (required per run):
+#   - base_url              : Vercel preview URL the Kernel browser
+#                             can reach (Kernel browsers cannot reach
+#                             localhost:3000 on the runner). For a
+#                             fresh preview, deploy the platform app
+#                             via the Vercel deploy hook first and
+#                             paste the resulting URL here.
+#   - convex_url            : Convex deployment URL whose HTTP_KEY
+#                             matches CONVEX_HTTP_KEY above. Pick a
+#                             non-prod deployment so seed runs cannot
+#                             write to production data.
+#
+# Order of operations:
+#   1. Install deps.
+#   2. Seed test fixture into the chosen Convex deployment.
+#   3. Run Playwright with --project=kernel-chromium (single
+#      project; the default chromium/firefox/webkit projects remain
+#      unaffected, see apps/platform/playwright.config.mts).
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Vercel preview URL (must be reachable from Kernel's cloud browser)"
+        required: true
+        type: string
+      convex_url:
+        description: "Convex deployment URL whose CONVEX_HTTP_KEY matches the secret above"
+        required: true
+        type: string
+
+jobs:
+  e2e:
+    name: Kernel E2E (waitlist spec)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
+      CONVEX_HTTP_KEY: ${{ secrets.CONVEX_HTTP_KEY }}
+      NEXT_PUBLIC_CONVEX_URL: ${{ inputs.convex_url }}
+    steps:
+      - name: Validate secrets
+        if: ${{ !secrets.KERNEL_API_KEY || !secrets.CONVEX_HTTP_KEY }}
+        run: |
+          echo "Missing required secrets. Add KERNEL_API_KEY and CONVEX_HTTP_KEY under Settings → Secrets → Actions before re-running." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install-args: ""
+
+      - name: Seed test fixture
+        working-directory: apps/platform
+        run: pnpm exec tsx scripts/seed-test-instructors.ts
+
+      - name: Run Playwright (kernel-chromium)
+        working-directory: apps/platform
+        run: pnpm exec playwright test --config=./playwright.config.mts --project=kernel-chromium --reporter=line
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: ${{ inputs.base_url }}
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/platform/playwright-report/
+          retention-days: 7

@@ -69,6 +69,11 @@ export default defineSchema({
     useKajabiCheckout: v.optional(v.boolean()),
     kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
     kajabiCheckoutUrlGroup: v.optional(v.string()),
+    // Marks a row as owned by the test-fixture seeder (apps/platform/scripts/seed-test-instructors.ts).
+    // Used by the `upsertTestFixtureInstructor` mutation in convex/instructors.ts to refuse
+    // overwriting an existing instructor that wasn't created as a fixture (defense in depth
+    // against typo'd slugs). Widened additively — pre-existing rows have `undefined`.
+    isTestFixture: v.optional(v.boolean()),
   }).index("by_userId", ["userId"])
     .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"])

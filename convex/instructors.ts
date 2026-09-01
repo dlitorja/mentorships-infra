@@ -406,6 +406,95 @@ export const internalPatchStudentResultImage = internalMutation({
 });
 
 /**
+ * Upserts a single test-fixture instructor and matching profile row.
+ *
+ * Two-layer safety against accidentally overwriting a real instructor:
+ *  1. The slug must start with `test-` (catches most typos).
+ *  2. If an `instructors` row already exists at this slug and
+ *     `isTestFixture !== true`, the mutation refuses — so the
+ *     seeder can never clobber a production instructor even if
+ *     its slug matches a typo'd fixture name.
+ *
+ * Idempotent: safe to run repeatedly; existing fixture rows are
+ * patched, missing rows are inserted. Both writes happen in a
+ * single transaction so a partial failure rolls back cleanly.
+ *
+ * Used exclusively by `apps/platform/scripts/seed-test-instructors.mts`,
+ * which calls this via the `/internal/upsert-test-fixture-instructor`
+ * HTTP action in `convex/http.ts` (CONVEX_HTTP_KEY bearer). Not
+ * exposed via `api.*`; call sites are scripts, not app code.
+ */
+export const upsertTestFixtureInstructor = internalMutation({
+  args: {
+    slug: v.string(),
+    name: v.string(),
+    bio: v.string(),
+    tagline: v.optional(v.string()),
+    oneOnOneInventory: v.number(),
+    groupInventory: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ profileId: Id<"instructorProfiles">; instructorId: Id<"instructors">; slug: string }> => {
+    if (!args.slug.startsWith("test-")) {
+      throw new Error(
+        `Refusing to upsert fixture with slug "${args.slug}"; expected "test-" prefix.`
+      );
+    }
+
+    const existingInstructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (existingInstructor && !existingInstructor.isTestFixture) {
+      throw new Error(
+        `Refusing to overwrite non-fixture instructor at slug "${args.slug}" (isTestFixture=${existingInstructor.isTestFixture ?? false}).`
+      );
+    }
+
+    const profilePatch = {
+      slug: args.slug,
+      name: args.name,
+      bio: args.bio,
+      tagline: args.tagline,
+      isActive: true,
+      isNew: false,
+    };
+
+    let profileId: Id<"instructorProfiles">;
+    const existingProfile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (existingProfile) {
+      await ctx.db.patch(existingProfile._id, profilePatch);
+      profileId = existingProfile._id;
+    } else {
+      profileId = await ctx.db.insert("instructorProfiles", profilePatch);
+    }
+
+    const instructorPatch = {
+      slug: args.slug,
+      name: args.name,
+      oneOnOneInventory: args.oneOnOneInventory,
+      groupInventory: args.groupInventory,
+      isActive: true,
+      isListed: true,
+      isTestFixture: true,
+    };
+
+    let instructorId: Id<"instructors">;
+    if (existingInstructor) {
+      await ctx.db.patch(existingInstructor._id, instructorPatch);
+      instructorId = existingInstructor._id;
+    } else {
+      instructorId = await ctx.db.insert("instructors", instructorPatch);
+    }
+
+    return { profileId, instructorId, slug: args.slug };
+  },
+});
+
+/**
  * Internal backfill scoped to specific slugs.
  * Fetches images from a source site, uploads to Convex Storage, and updates both instructorProfiles and instructors.
  */
