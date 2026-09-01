@@ -3,7 +3,7 @@ import { additionalFiles, syncEnvVars } from "@trigger.dev/build/extensions/core
 
 export default defineConfig({
   project: "proj_fvyorgaijayllujsxzgb",
-  runtime: "node",
+  runtime: "node-24",
   logLevel: "info",
   maxDuration: 3600,
   retries: {

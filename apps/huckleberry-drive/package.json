@@ -10,6 +10,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --skipLibCheck"
   },
+  "engines": {
+    "node": "^24.0.0"
+  },
   "dependencies": {
     "@clerk/nextjs": "^7.3.4",
     "@marsidev/react-turnstile": "^1.1.0",
@@ -24,7 +27,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.13.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

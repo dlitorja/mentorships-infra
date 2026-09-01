@@ -10,6 +10,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit --skipLibCheck"
   },
+  "engines": {
+    "node": "^24.0.0"
+  },
   "dependencies": {
     "@clerk/nextjs": "^7.3.4",
     "@convex-dev/react-query": "^0.1.0",
@@ -60,7 +63,7 @@
     "@eslint/eslintrc": "^3.3.3",
     "@onkernel/sdk": "^0.97.0",
     "@tailwindcss/typography": "^0.5.20",
-    "@types/node": "^20.19.25",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.16.1",
