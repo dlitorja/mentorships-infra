@@ -102,8 +102,8 @@ export function ConsentModal({
           <DialogTitle>Recording consent</DialogTitle>
           <DialogDescription>
             This call can be recorded so both parties can revisit the
-            conversation afterward. Recording is stored in Backblaze B2
-            with the same retention as scheduled sessions. Choose what
+            conversation afterward. Recordings are stored securely and
+            automatically deleted on a rolling basis. Choose what
             you&apos;re comfortable with — the other party sees the same
             choice and either of you can decline.
           </DialogDescription>
