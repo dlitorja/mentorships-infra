@@ -35,7 +35,12 @@ export interface Env {
   // Internal key used by huckleberry-drive to invalidate share-link KV cache
   SHARE_CACHE_INVALIDATION_KEY?: string;
 
-  // Clerk secret key used to verify the Convex JWT before trusting its `sub`
-  // claim for share-link cache keying.
+  // Clerk secret keys used to verify the Convex JWT before trusting its
+  // `sub` claim for share-link cache keying. The Worker is shared between
+  // `apps/platform` and `apps/huckleberry-drive`, which each have their own
+  // Clerk instance. `CLERK_SECRET_KEY` is the huckleberry-drive instance;
+  // `CLERK_SECRET_KEY_PLATFORM` is the apps/platform instance (optional,
+  // tried first when set).
   CLERK_SECRET_KEY?: string;
+  CLERK_SECRET_KEY_PLATFORM?: string;
 }

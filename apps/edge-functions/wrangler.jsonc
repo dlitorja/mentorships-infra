@@ -5,7 +5,7 @@
   "compatibility_date": "2026-08-16",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "//": "Secrets are set via `wrangler secret put` for each env. Do not commit real values. Required secrets: STRIPE_WEBHOOK_SECRET, INNGEST_EVENT_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID, CONVEX_URL, TURNSTILE_SECRET_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY, B2_BUCKET_NAME. Optional: B2_REGION, B2_ENDPOINT, INNGEST_APP_ID, PAYPAL_MODE, ALLOWED_ORIGINS, SHARE_CACHE_TTL_SECONDS, SHARE_CACHE_INVALIDATION_KEY, CLERK_SECRET_KEY."
+    "//": "Secrets are set via `wrangler secret put` for each env. Do not commit real values. Required secrets: STRIPE_WEBHOOK_SECRET, INNGEST_EVENT_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_ID, CONVEX_URL, TURNSTILE_SECRET_KEY, B2_ACCESS_KEY_ID, B2_SECRET_ACCESS_KEY, B2_BUCKET_NAME, CLERK_SECRET_KEY. Optional: B2_REGION, B2_ENDPOINT, INNGEST_APP_ID, PAYPAL_MODE, ALLOWED_ORIGINS, SHARE_CACHE_TTL_SECONDS, SHARE_CACHE_INVALIDATION_KEY, CLERK_SECRET_KEY_PLATFORM. Add `routes: [{ pattern: \"<custom-domain>/*\", zone_id: \"<ZONE_ID>\" }]` (top-level) once the Cloudflare zone from PR-9 runbook is created so zone-level WAF / rate-limit rules cover /webhooks/* and /shared/:token."
   },
   "kv_namespaces": [
     {
@@ -13,5 +13,6 @@
       "id": "7f6ee3150ce54ceaa6ff0e6649b9fa4a",
       "preview_id": "1cd964dfcfdd44968232bf79abc14a90"
     }
-  ]
+  ],
+  "preview_urls": false
 }
