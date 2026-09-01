@@ -13,30 +13,60 @@ type DailyRoom = {
   url: string;
 };
 
-async function dailyFetch(path: string, options: RequestInit): Promise<Response> {
-  const apiKey = process.env.DAILY_API_KEY;
-  if (!apiKey) {
-    throw new Error("DAILY_API_KEY is not configured");
-  }
-  const baseUrl = process.env.DAILY_API_URL ?? DEFAULT_DAILY_API_URL;
-  return fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+/**
+ * Throws a typed ConvexError so the route's catch block can map it to a
+ * 502 with a meaningful message instead of falling through to 500.
+ * Covers any failure inside the verification GET (missing env var,
+ * network error, malformed response, non-2xx status) — the caller
+ * treats all of these as a verification failure, not a session problem.
+ */
+function verificationFailed(message: string): never {
+  throw new ConvexError({
+    code: "VIDEO_ROOM_VERIFICATION_FAILED",
+    message,
   });
 }
 
-function parseDailyRoomResponse(response: Response): Promise<DailyRoom> {
-  return response.json().then((data: unknown) => {
-    const parsed = data as { name?: string; url?: string };
-    if (typeof parsed.name !== "string" || typeof parsed.url !== "string") {
-      throw new Error("Daily room response missing name or url");
-    }
-    return { name: parsed.name, url: parsed.url };
-  });
+async function dailyFetch(path: string, options: RequestInit): Promise<Response> {
+  const apiKey = process.env.DAILY_API_KEY;
+  if (!apiKey) {
+    verificationFailed("DAILY_API_KEY is not configured on the Convex deployment");
+  }
+  const baseUrl = process.env.DAILY_API_URL ?? DEFAULT_DAILY_API_URL;
+  try {
+    return await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+  } catch (networkError) {
+    verificationFailed(
+      `Daily.co ${path} network error: ${
+        networkError instanceof Error ? networkError.message : String(networkError)
+      }`
+    );
+  }
+}
+
+async function parseDailyRoomResponse(response: Response): Promise<DailyRoom> {
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch (parseError) {
+    verificationFailed(
+      `Daily room response was not valid JSON: ${
+        parseError instanceof Error ? parseError.message : String(parseError)
+      }`
+    );
+  }
+  const parsed = data as { name?: unknown; url?: unknown };
+  if (typeof parsed.name !== "string" || typeof parsed.url !== "string") {
+    verificationFailed("Daily room response missing name or url");
+  }
+  return { name: parsed.name, url: parsed.url };
 }
 
 async function getDailyRoom(roomName: string): Promise<DailyRoom | null> {
@@ -47,11 +77,16 @@ async function getDailyRoom(roomName: string): Promise<DailyRoom | null> {
     return null;
   }
   if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    throw new Error(`Daily.co GET /rooms/${encoded} failed: ${response.status} ${text}`);
+    let text: string;
+    try {
+      text = await response.text();
+    } catch {
+      text = response.statusText;
+    }
+    verificationFailed(`Daily.co GET /rooms/${encoded} failed: ${response.status} ${text}`);
   }
 
-  return parseDailyRoomResponse(response);
+  return await parseDailyRoomResponse(response);
 }
 
 /**

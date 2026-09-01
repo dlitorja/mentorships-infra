@@ -28,7 +28,8 @@ type AdhocConvexErrorCode =
   | "VIDEO_ROOM_NAME_CONFLICT"
   | "VIDEO_ROOM_NAME_TAKEN"
   | "VIDEO_ROOM_NOT_FOUND"
-  | "VIDEO_ROOM_URL_MISMATCH";
+  | "VIDEO_ROOM_URL_MISMATCH"
+  | "VIDEO_ROOM_VERIFICATION_FAILED";
 
 function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
   if (
@@ -53,7 +54,13 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
       // will hit the same conflict. Caller must investigate.
       code === "VIDEO_ROOM_NAME_TAKEN" ||
       code === "VIDEO_ROOM_NOT_FOUND" ||
-      code === "VIDEO_ROOM_URL_MISMATCH"
+      code === "VIDEO_ROOM_URL_MISMATCH" ||
+      // Convex action `setVerifiedAdhocVideoRoom` throws this for any
+      // failure inside its verification GET (missing DAILY_API_KEY in
+      // the Convex deployment, malformed response, non-2xx from Daily,
+      // etc.). Maps to 502 — the upstream service (Daily) failed, the
+      // request itself was well-formed.
+      code === "VIDEO_ROOM_VERIFICATION_FAILED"
     ) {
       return code;
     }
@@ -313,7 +320,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     if (
       adhocCode === "VIDEO_ROOM_NOT_FOUND" ||
-      adhocCode === "VIDEO_ROOM_URL_MISMATCH"
+      adhocCode === "VIDEO_ROOM_URL_MISMATCH" ||
+      adhocCode === "VIDEO_ROOM_VERIFICATION_FAILED"
     ) {
       await reportError({
         source: "api/video/start-adhoc",
