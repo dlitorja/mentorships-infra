@@ -7,17 +7,24 @@ const __dirname = path.dirname(__filename);
 
 /**
  * Playwright E2E Test Configuration
- * 
+ *
  * Run tests:
  *   pnpm test              # Run all tests
  *   pnpm test:ui           # Run with UI
  *   pnpm test --project=chromium  # Run specific browser
+ *
+ * Kernel-backed project:
+ *   pnpm test --project=kernel-chromium   # Run waitlist.spec.ts against a
+ *                                          # cloud Chromium via Kernel.
+ *                                          # Requires KERNEL_API_KEY and
+ *                                          # PLAYWRIGHT_TEST_BASE_URL pointing
+ *                                          # at a deployed app (Kernel's
+ *                                          # remote browser cannot reach
+ *                                          # localhost:3000).
  */
 export default defineConfig({
   testDir: path.resolve(__dirname, "../../tests/e2e"),
-  
-  testIgnore: ["**/waitlist.spec.ts"],
-  
+
   fullyParallel: true,
   
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -56,32 +63,60 @@ export default defineConfig({
         {
           name: "setup",
           testMatch: /auth\.setup\.ts/,
+          testIgnore: ["**/waitlist.spec.ts"],
         },
         {
           name: "chromium",
           dependencies: ["setup"],
+          testIgnore: ["**/waitlist.spec.ts"],
           use: { ...devices["Desktop Chrome"] },
+        },
+        {
+          name: "kernel-chromium",
+          testMatch: /waitlist\.spec\.ts/,
+          use: {
+            ...devices["Desktop Chrome"],
+            baseURL:
+              process.env.PLAYWRIGHT_TEST_BASE_URL ||
+              "http://localhost:3000",
+          },
+          webServer: null,
         },
       ]
     : [
         {
           name: "setup",
           testMatch: /auth\.setup\.ts/,
+          testIgnore: ["**/waitlist.spec.ts"],
         },
         {
           name: "chromium",
           dependencies: ["setup"],
+          testIgnore: ["**/waitlist.spec.ts"],
           use: { ...devices["Desktop Chrome"] },
         },
         {
           name: "firefox",
           dependencies: ["setup"],
+          testIgnore: ["**/waitlist.spec.ts"],
           use: { ...devices["Desktop Firefox"] },
         },
         {
           name: "webkit",
           dependencies: ["setup"],
+          testIgnore: ["**/waitlist.spec.ts"],
           use: { ...devices["Desktop Safari"] },
+        },
+        {
+          name: "kernel-chromium",
+          testMatch: /waitlist\.spec\.ts/,
+          use: {
+            ...devices["Desktop Chrome"],
+            baseURL:
+              process.env.PLAYWRIGHT_TEST_BASE_URL ||
+              "http://localhost:3000",
+          },
+          webServer: null,
         },
       ],
 
