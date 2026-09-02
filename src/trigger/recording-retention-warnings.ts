@@ -159,6 +159,37 @@ export const processRecordingRetentionWarningPage = task({
       windows: items.length,
     });
 
+    // Queue the next cursor page FIRST so a permanent failure on this page
+    // (e.g. retries exhausted by a misbehaving recipient) cannot strand later
+    // recipients on the floor. The deterministic idempotency key guarantees
+    // exactly one downstream task per (scan, pageNumber+1) pair, so a retry
+    // of this page after success is a no-op for the queue. Per-recipient
+    // dedupe via `createRecordingRetentionNotification` makes any overlap
+    // safe.
+    if (
+      !page.isDone &&
+      page.continueCursor &&
+      page.continueCursor !== payload.cursor
+    ) {
+      await tasks.trigger(
+        "send-recording-retention-warning-page",
+        {
+          cursor: page.continueCursor,
+          scanStartedAt: payload.scanStartedAt,
+          pageNumber: payload.pageNumber + 1,
+        } satisfies WarningPagePayload,
+        {
+          idempotencyKey: `recording-warning-page:${payload.scanStartedAt}:${payload.pageNumber + 1}`,
+        }
+      );
+      results.nextPageQueued = true;
+    } else if (
+      !page.isDone &&
+      (!page.continueCursor || page.continueCursor === payload.cursor)
+    ) {
+      throw new Error("Recording warning pagination cursor did not advance");
+    }
+
     for (const window of items) {
       for (const recipient of window.recipients) {
         let notificationId: string | null = null;
@@ -241,24 +272,6 @@ export const processRecordingRetentionWarningPage = task({
           });
         }
       }
-    }
-
-    if (!page.isDone) {
-      if (!page.continueCursor || page.continueCursor === payload.cursor) {
-        throw new Error("Recording warning pagination cursor did not advance");
-      }
-      await tasks.trigger(
-        "send-recording-retention-warning-page",
-        {
-          cursor: page.continueCursor,
-          scanStartedAt: payload.scanStartedAt,
-          pageNumber: payload.pageNumber + 1,
-        } satisfies WarningPagePayload,
-        {
-          idempotencyKey: `recording-warning-page:${payload.scanStartedAt}:${payload.pageNumber + 1}`,
-        }
-      );
-      results.nextPageQueued = true;
     }
 
     logger.info("Recording warning page completed", results);

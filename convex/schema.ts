@@ -184,8 +184,8 @@ export default defineSchema({
     // the instructor's 50 most recent overall.
     .index("by_instructorId_studentId", ["instructorId", "studentId"])
     .index(
-      "by_instructor_student_recordingUrl_callStartedAt",
-      ["instructorId", "studentId", "recordingUrl", "callStartedAt"]
+      "by_instructor_student_hasRecordingArtifact_callStartedAt",
+      ["instructorId", "studentId", "hasRecordingArtifact", "callStartedAt"]
     )
     .index(
       "by_instructor_student_transferStatus_callStartedAt",

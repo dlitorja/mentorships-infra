@@ -1997,8 +1997,13 @@ export const getCallRecordingsForWorkspace = query({
       .order("desc")
       .take(targetRecordings + 1);
 
-    // Dual-read during migration using recording-specific indexes. This keeps
-    // the transitional read bounded by recordings rather than total sessions.
+    // Dual-read during migration using recording-specific indexes. Both indexes
+    // order by `callStartedAt` as the trailing field, so a workspace with more
+    // than 50 recording-bearing sessions always returns the most recent calls
+    // even if some are still pending the workspaceId / hasRecordingArtifact
+    // backfill. The legacy path catches rows that have been recorded but whose
+    // recording lifecycle fields haven't been migrated yet; the
+    // transfer-status path catches active and recently-purged recordings.
     const transferStatuses = [
       "pending",
       "uploading",
@@ -2006,20 +2011,20 @@ export const getCallRecordingsForWorkspace = query({
       "failed",
       "purged",
     ] as const;
-    const [legacyUrls, ...legacyStatusGroups] = await Promise.all([
-      ctx.db
-        .query("sessions")
-        .withIndex(
-          "by_instructor_student_recordingUrl_callStartedAt",
-          (q) =>
-            q
-              .eq("instructorId", workspace.instructorId!)
-              .eq("studentId", workspace.ownerId)
-              .gt("recordingUrl", "")
-        )
-        .order("desc")
-        .take(targetRecordings + 1),
-      ...transferStatuses.map((status) =>
+    const legacyArtifact: Doc<"sessions">[] = await ctx.db
+      .query("sessions")
+      .withIndex(
+        "by_instructor_student_hasRecordingArtifact_callStartedAt",
+        (q) =>
+          q
+            .eq("instructorId", workspace.instructorId!)
+            .eq("studentId", workspace.ownerId)
+            .eq("hasRecordingArtifact", true)
+      )
+      .order("desc")
+      .take(targetRecordings + 1);
+    const legacyStatusGroups: Doc<"sessions">[][] = await Promise.all(
+      transferStatuses.map((status) =>
         ctx.db
           .query("sessions")
           .withIndex(
@@ -2032,10 +2037,10 @@ export const getCallRecordingsForWorkspace = query({
           )
           .order("desc")
           .take(targetRecordings + 1)
-      ),
-    ]);
-    const legacyCandidates = [...legacyUrls, ...legacyStatusGroups.flat()];
-    const legacyScanTruncated = [legacyUrls, ...legacyStatusGroups].some(
+      )
+    );
+    const legacyCandidates = [...legacyArtifact, ...legacyStatusGroups.flat()];
+    const legacyScanTruncated = [legacyArtifact, ...legacyStatusGroups].some(
       (group) => group.length > targetRecordings
     );
     const resolvedLegacy: Doc<"sessions">[] = [];

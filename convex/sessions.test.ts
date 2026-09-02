@@ -298,6 +298,11 @@ test("recording query finds an unlinked legacy recording beyond 201 newer sessio
       status: "completed",
       recordingConsent: true,
       recordingUrl: "recordings/legacy/session.mp4",
+      // Simulates a session whose `recordingUrl` predates the workspace
+      // recording fields and was just backfilled by
+      // `backfillSessionWorkspaceLinks`. The dual-read still has to find
+      // it among 220 newer non-recording sessions.
+      hasRecordingArtifact: true,
     });
     for (let index = 0; index < 220; index++) {
       await ctx.db.insert("sessions", {
