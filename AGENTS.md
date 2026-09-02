@@ -63,6 +63,7 @@ Current known version snapshots (verify before relying on these):
 
 | Package / Tool | Current project version | Latest known | Notes |
 | --- | --- | --- | --- |
+| `node` | `24.20.0` (`.nvmrc`) | `24.20.0` | Pinned via `.nvmrc`; CI uses `actions/setup-node` with `node-version-file`. Apps declare `engines.node: ^24.0.0` so Vercel pins explicitly. `apps/edge-functions` is Workers-only and not pinned. |
 | `inngest` (platform) | `^4.14.0` | `4.14.0` | Latest as of last check. |
 | `inngest` (web) | `^3.54.0` | `4.14.0` | Legacy; upgrade to v4 is a separate initiative. |
 | `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
@@ -70,8 +71,8 @@ Current known version snapshots (verify before relying on these):
 | `@clerk/nextjs` (web) | `^6.36.5` | `7.6.4` | Major version behind; upgrade separately. |
 | `convex` | `^1.45.0` | `1.45.0` | Latest as of last check; huckleberry-drive aligned with root. |
 | `@supabase/supabase-js` | `^2.81.1` | `2.111.0` | Minor update available. |
-| `@trigger.dev/sdk` | `4.4.6` | `4.5.9` | Minor update available. |
-| `@trigger.dev/build` | `4.4.6` | `4.5.9` | Minor update available. |
+| `@trigger.dev/sdk` | `^4.5.9` | `4.5.9` | Aligned with Node 24 bump; older `4.4.6` lacked `node-24` runtime type. |
+| `@trigger.dev/build` | `^4.5.9` | `4.5.9` | Aligned with Node 24 bump. |
 | `@trigger.dev/cli` | not installed | `3.3.12` | Not currently in project; add if needed. |
 
 When an upgrade is needed:

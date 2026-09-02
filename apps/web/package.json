@@ -10,6 +10,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit --skipLibCheck"
   },
+  "engines": {
+    "node": "^24.0.0"
+  },
   "dependencies": {
     "@clerk/nextjs": "^7.3.4",
     "@convex-dev/react-query": "^0.1.0",
@@ -49,7 +52,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
-    "@types/node": "^20.19.25",
+    "@types/node": "^24.13.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.22",
