@@ -176,6 +176,7 @@ export async function POST(
           recordingId: session.recordingId,
           dailyS3Key: session.recordingDailyS3Key ?? "",
           durationSeconds: session.recordingDurationSeconds,
+          attemptOffset: session.recordingTransferAttempts ?? 0,
         },
         { idempotencyKey }
       );

@@ -21,6 +21,12 @@ type NotificationWindow = {
   recipients: NotificationRecipient[];
 };
 
+type NotificationPage = {
+  notifications: NotificationWindow[];
+  continueCursor: string;
+  isDone: boolean;
+};
+
 type UserEmailResponse = { email: string | null };
 
 async function callConvex(
@@ -59,18 +65,16 @@ async function callConvex(
  *   1. GET `/recording-retention/for-notification` → array of
  *      sessions approaching their `recordingExpiresAt` within
  *      the warning windows, with their resolved recipients.
- *      The HTTP query is bounded at 500 rows; we re-fetch
- *      until empty (drain pattern, MAX_ITERATIONS=20).
+ *      The HTTP query is cursor-paginated so every due recording
+ *      can be visited without an unbounded Convex read.
  *   2. For each (window, recipient): POST `/recording-retention/notify`
  *      FIRST to dedupe-write the `recordingRetentionNotifications`
  *      row. If the mutation returns `{ skipped: true }`, we
  *      skip the email (a row already exists for this
  *      (session, recipient, threshold) tuple from a prior run).
- *   3. POST `/users/email` to resolve Clerk user → email.
- *   4. Send the Resend email with a Download CTA.
- *
- * Order is intentional (Greptile P1): notify BEFORE email so a
- * transient email failure on retry doesn't double-send.
+ *   3. Send through Resend with a provider idempotency key.
+ *   4. Finalize the Convex row as sent or failed. Failed rows are
+ *      eligible for a later retry instead of being silently suppressed.
  *
  * Dedupe: the Convex `createRecordingRetentionNotification`
  * mutation is idempotent on
@@ -80,17 +84,19 @@ async function sendRecordingDeletionWarningEmail(
   to: string,
   daysUntilDeletion: number,
   workspaceName: string,
-  sessionId: string
-): Promise<void> {
+  sessionId: string,
+  idempotencyKey: string
+): Promise<string> {
   const downloadUrl =
     `${process.env.NEXT_PUBLIC_URL || "https://mentorships.example.com"}/workspace`;
-  await resend.emails.send({
-    from: EMAIL_FROM,
-    to,
-    subject: `Call recording will be deleted in ${daysUntilDeletion} day${
-      daysUntilDeletion === 1 ? "" : "s"
-    }`,
-    html: `
+  const { data, error } = await resend.emails.send(
+    {
+      from: EMAIL_FROM,
+      to,
+      subject: `Call recording will be deleted in ${daysUntilDeletion} day${
+        daysUntilDeletion === 1 ? "" : "s"
+      }`,
+      html: `
       <h1>Call Recording Deletion Warning</h1>
       <p>Hello,</p>
       <p>Your call recording in workspace "<strong>${workspaceName}</strong>" will be permanently deleted in <strong>${daysUntilDeletion} day${
@@ -102,7 +108,16 @@ async function sendRecordingDeletionWarningEmail(
       <p>If you have any questions, please contact your instructor.</p>
       <p>Best regards,<br/>The Mentorships Team</p>
     `,
-  });
+    },
+    { idempotencyKey }
+  );
+  if (error) {
+    throw new Error(`Resend rejected recording warning: ${error.message}`);
+  }
+  if (!data?.id) {
+    throw new Error("Resend returned no email id for recording warning");
+  }
+  return data.id;
 }
 
 export const sendRecordingRetentionWarnings = schedules.task({
@@ -126,13 +141,17 @@ export const sendRecordingRetentionWarnings = schedules.task({
       skippedNoEmail: 0,
     };
 
+    let cursor: string | null = null;
+    const scanStartedAt = Date.now();
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const query = new URLSearchParams({ now: String(scanStartedAt) });
+      if (cursor) query.set("cursor", cursor);
       const page = (await callConvex(
-        "/recording-retention/for-notification"
-      )) as { notifications: NotificationWindow[] };
+        `/recording-retention/for-notification?${query.toString()}`
+      )) as NotificationPage;
 
       const items = page.notifications ?? [];
-      if (items.length === 0) {
+      if (items.length === 0 && page.isDone) {
         logger.info(
           `Drain complete after ${iteration} iteration(s) — no more notification windows`,
           { emailsSent: results.emailsSent, emailsFailed: results.emailsFailed }
@@ -147,6 +166,7 @@ export const sendRecordingRetentionWarnings = schedules.task({
 
       for (const window of items) {
         for (const recipient of window.recipients) {
+          let notificationId: string | null = null;
           try {
             const userResponse = (await callConvex("/users/email", {
               method: "POST",
@@ -161,15 +181,8 @@ export const sendRecordingRetentionWarnings = schedules.task({
               continue;
             }
 
-            // Greptile P1: call /recording-retention/notify FIRST
-            // so the dedupe row is written before the email goes
-            // out. If the email succeeds and notify fails on the
-            // next call, the mutation's `skipped: true` return
-            // tells us a row already exists for this
-            // (session, recipient, threshold) and we skip the
-            // email entirely. This is the inverse of the
-            // previous order (email → notify) which could
-            // double-send if the notify request failed transiently.
+            // Claim the tuple before sending. The row is finalized below,
+            // and failed claims remain eligible for a later retry.
             const dedupeResult = (await callConvex(
               "/recording-retention/notify",
               {
@@ -197,13 +210,24 @@ export const sendRecordingRetentionWarnings = schedules.task({
               );
               continue;
             }
+            notificationId = dedupeResult.id;
 
-            await sendRecordingDeletionWarningEmail(
+            const providerEmailId = await sendRecordingDeletionWarningEmail(
               userResponse.email,
               window.daysUntilDeletion,
               "Mentorship Workspace",
-              window.sessionId
+              window.sessionId,
+              `recording-retention/${window.sessionId}/${recipient.userId}/${window.daysUntilDeletion}`
             );
+
+            await callConvex("/recording-retention/notify/finalize", {
+              method: "POST",
+              body: JSON.stringify({
+                id: notificationId,
+                status: "sent",
+                providerEmailId,
+              }),
+            });
 
             results.emailsSent++;
             logger.info(
@@ -217,6 +241,26 @@ export const sendRecordingRetentionWarnings = schedules.task({
             results.emailsFailed++;
             const message =
               error instanceof Error ? error.message : String(error);
+            if (notificationId) {
+              try {
+                await callConvex("/recording-retention/notify/finalize", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    id: notificationId,
+                    status: "failed",
+                    errorMessage: message.slice(0, 500),
+                  }),
+                });
+              } catch (finalizeError) {
+                logger.error("Failed to persist recording warning failure", {
+                  notificationId,
+                  error:
+                    finalizeError instanceof Error
+                      ? finalizeError.message
+                      : String(finalizeError),
+                });
+              }
+            }
             logger.error("Failed to send recording retention warning", {
               sessionId: window.sessionId,
               recipientUserId: recipient.userId,
@@ -225,6 +269,9 @@ export const sendRecordingRetentionWarnings = schedules.task({
           }
         }
       }
+
+      if (page.isDone) break;
+      cursor = page.continueCursor;
     }
 
     logger.info("Recording retention warnings job completed", results);

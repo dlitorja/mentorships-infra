@@ -2064,12 +2064,21 @@ const httpGetRecordingsNeedingCleanup = httpAction(async (ctx, request) => {
 const httpGetRecordingsForRetentionNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const notifications = await ctx.runQuery(
+  const searchParams = new URL(request.url).searchParams;
+  const cursor = searchParams.get("cursor");
+  const requestedNow = Number(searchParams.get("now"));
+  const now = Number.isFinite(requestedNow) && requestedNow > 0
+    ? requestedNow
+    : Date.now();
+  const page = await ctx.runQuery(
     internal.recordingRetention.getRecordingsForRetentionNotification,
-    { now: Date.now() }
+    {
+      now,
+      paginationOpts: { cursor, numItems: 100 },
+    }
   );
 
-  return new Response(JSON.stringify({ notifications }), {
+  return new Response(JSON.stringify(page), {
     headers: { "Content-Type": "application/json" },
   });
 });
@@ -2162,6 +2171,36 @@ const httpCreateRecordingRetentionNotification = httpAction(async (ctx, request)
   });
 });
 
+const httpFinalizeRecordingRetentionNotification = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = await request.json();
+  if (
+    typeof body.id !== "string" ||
+    (body.status !== "sent" && body.status !== "failed") ||
+    (body.providerEmailId !== undefined && typeof body.providerEmailId !== "string") ||
+    (body.errorMessage !== undefined && typeof body.errorMessage !== "string")
+  ) {
+    return new Response(JSON.stringify({ error: "Invalid notification delivery result" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(
+    internal.recordingRetention.finalizeRecordingRetentionNotification,
+    {
+      id: body.id as any,
+      status: body.status,
+      providerEmailId: body.providerEmailId,
+      errorMessage: body.errorMessage,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 http.route({
   path: "/recording-retention/needing-cleanup",
   method: "GET",
@@ -2184,6 +2223,12 @@ http.route({
   path: "/recording-retention/notify",
   method: "POST",
   handler: httpCreateRecordingRetentionNotification,
+});
+
+http.route({
+  path: "/recording-retention/notify/finalize",
+  method: "POST",
+  handler: httpFinalizeRecordingRetentionNotification,
 });
 
 export default http;

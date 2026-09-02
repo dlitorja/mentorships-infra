@@ -12,12 +12,11 @@ import { getGoogleCalendarClient } from "@/lib/google";
 const updateSessionSchema = z.object({
   status: z.enum(["scheduled", "completed", "canceled", "no_show"]).optional(),
   notes: z.string().optional(),
-  recordingUrl: z.string().url().optional(),
 });
 
 /**
  * PATCH /api/instructor/sessions/[sessionId]
- * Allows an instructor to update a session's status, notes, or recording URL.
+ * Allows an instructor to update a session's status or notes.
  * Emails the student and cleans up calendar events when a session is canceled.
  */
 export async function PATCH(
@@ -64,7 +63,6 @@ export async function PATCH(
     const updateData: {
       status?: "scheduled" | "completed" | "canceled" | "no_show";
       notes?: string;
-      recordingUrl?: string;
       completedAt?: number;
       canceledAt?: number;
     } = {};
@@ -83,10 +81,6 @@ export async function PATCH(
 
     if (validatedData.notes !== undefined) {
       updateData.notes = validatedData.notes;
-    }
-
-    if (validatedData.recordingUrl !== undefined) {
-      updateData.recordingUrl = validatedData.recordingUrl;
     }
 
     const updatedSession = await convex.mutation(api.sessions.updateSession, {

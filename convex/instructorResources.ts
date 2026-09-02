@@ -536,6 +536,7 @@ export const seedActiveSessionForE2E = internalMutation({
     instructorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
+    workspaceId: v.id("workspaces"),
     videoRoomName: v.string(),
     scheduledAt: v.optional(v.number()),
     confirmSeed: v.literal(true),
@@ -544,10 +545,19 @@ export const seedActiveSessionForE2E = internalMutation({
     if (args.confirmSeed !== true) {
       throw new Error("seedActiveSessionForE2E requires confirmSeed: true");
     }
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (
+      !workspace ||
+      workspace.instructorId !== args.instructorId ||
+      workspace.ownerId !== args.studentId
+    ) {
+      throw new Error("Seed workspace does not match session participants");
+    }
     const sessionId = await ctx.db.insert("sessions", {
       instructorId: args.instructorId,
       studentId: args.studentId,
       sessionPackId: args.sessionPackId,
+      workspaceId: args.workspaceId,
       scheduledAt: args.scheduledAt ?? Date.now(),
       status: "scheduled",
       recordingConsent: false,

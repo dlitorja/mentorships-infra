@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
   internalQuery,
@@ -7,8 +8,10 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DELIVERY_CLAIM_STALE_MS = 60 * 60 * 1000;
 
 /**
  * R12: 90-day automatic retention for call recordings uploaded to
@@ -44,7 +47,17 @@ export const DEFAULT_RECORDING_RETENTION_MS =
  * May 14") — a workspace deletion warning at 90 days is too
  * noisy for a single recording.
  */
-const WARNING_THRESHOLDS_DAYS = [30, 7, 1] as const;
+const WARNING_THRESHOLDS_DAYS = [1, 7, 30] as const;
+
+export function getRecordingWarningThreshold(
+  recordingExpiresAt: number,
+  now: number
+): number | null {
+  const remainingMs = recordingExpiresAt - now;
+  if (remainingMs <= 0) return null;
+  const remainingDays = Math.ceil(remainingMs / DAY_MS);
+  return WARNING_THRESHOLDS_DAYS.find((days) => remainingDays <= days) ?? null;
+}
 
 export type RecordingRetentionWindow = {
   sessionId: Id<"sessions">;
@@ -103,48 +116,65 @@ export const getRecordingsNeedingCleanup = internalQuery({
  * inserts that match this key.
  */
 export const getRecordingsForRetentionNotification = internalQuery({
-  args: { now: v.number() },
+  args: {
+    now: v.number(),
+    paginationOpts: paginationOptsValidator,
+  },
   handler: async (
     ctx,
     args
-  ): Promise<RecordingRetentionWindow[]> => {
-    // Greptile P1 (NEW): bound to FUTURE expiries. The cleanup
-    // query uses `q.lt(...)` (already-expired rows); the
-    // warnings query must use `q.gt(...)` to find rows
-    // expiring within 30/7/1 days from now. Without this
-    // bound the per-row `daysUntilDeletion` is always
-    // negative and never matches the warning thresholds,
-    // so the warning job finds zero upcoming recordings
-    // and never sends any pre-deletion email.
+  ): Promise<{
+    notifications: RecordingRetentionWindow[];
+    continueCursor: string;
+    isDone: boolean;
+  }> => {
     const candidates = await ctx.db
       .query("sessions")
       .withIndex("by_recordingExpiresAt", (q) =>
-        q.gt("recordingExpiresAt", args.now)
+        q
+          .gt("recordingExpiresAt", args.now)
+          .lte("recordingExpiresAt", args.now + 30 * DAY_MS)
       )
-      .take(500);
+      .paginate(args.paginationOpts);
 
     const out: RecordingRetentionWindow[] = [];
-    for (const s of candidates) {
+    for (const s of candidates.page) {
       if (s.deletedAt !== undefined) continue;
       if (s.recordingUrl === undefined) continue;
       if (s.recordingExpiresAt === undefined) continue;
       if (s.recordingTransferStatus !== "ready") continue;
 
-      const daysUntilDeletion = Math.floor(
-        (s.recordingExpiresAt - args.now) / DAY_MS
+      const daysUntilDeletion = getRecordingWarningThreshold(
+        s.recordingExpiresAt,
+        args.now
       );
-      if (
-        !WARNING_THRESHOLDS_DAYS.some(
-          (t) => daysUntilDeletion >= t - 1 && daysUntilDeletion <= t + 1
-        )
-      ) {
-        continue;
-      }
+      if (daysUntilDeletion === null) continue;
 
       const workspaceId = await resolveWorkspaceId(ctx, s);
       if (workspaceId === null) continue;
 
-      const recipients = await resolveRecipients(ctx, s);
+      const recipients: RecordingRetentionWindow["recipients"] = [];
+      for (const recipient of await resolveRecipients(ctx, s)) {
+        const existing = await ctx.db
+          .query("recordingRetentionNotifications")
+          .withIndex(
+            "by_sessionId_recipientUserId_daysUntilDeletion",
+            (q) =>
+              q
+                .eq("sessionId", s._id)
+                .eq("recipientUserId", recipient.userId)
+                .eq("daysUntilDeletion", daysUntilDeletion)
+          )
+          .first();
+        if (
+          !existing ||
+          existing.deliveryStatus === "failed" ||
+          (existing.deliveryStatus === "pending" &&
+            existing.sentAt <= args.now - DELIVERY_CLAIM_STALE_MS)
+        ) {
+          recipients.push(recipient);
+        }
+      }
       if (recipients.length === 0) continue;
 
       out.push({
@@ -155,7 +185,11 @@ export const getRecordingsForRetentionNotification = internalQuery({
         recipients,
       });
     }
-    return out;
+    return {
+      notifications: out,
+      continueCursor: candidates.continueCursor,
+      isDone: candidates.isDone,
+    };
   },
 });
 
@@ -189,12 +223,10 @@ async function resolveRecipients(
 }
 
 /**
- * Resolves the workspace that owns this session, used as the
- * foreign key on `recordingRetentionNotifications`. Sessions
- * are 1:1 with (instructorId, studentId) workspaces via the
- * `by_instructorId_ownerId` index on `workspaces` (added in
- * PR #4c-1 for `assertParticipantForSession`). Returns
- * `null` if the workspace is soft-deleted, since we don't
+ * Resolves the workspace that owns this session, used as the foreign key on
+ * `recordingRetentionNotifications`. New rows use the stored workspace ID;
+ * legacy rows require pack evidence or one unambiguous pair. Returns `null`
+ * if the workspace is soft-deleted, since we don't
  * want to send warnings against a workspace that's already
  * being torn down by the workspace retention pipeline.
  */
@@ -202,15 +234,7 @@ async function resolveWorkspaceId(
   ctx: QueryCtx,
   session: Doc<"sessions">
 ): Promise<Id<"workspaces"> | null> {
-  if (!session.instructorId || !session.studentId) return null;
-  const workspace = await ctx.db
-    .query("workspaces")
-    .withIndex("by_instructorId_ownerId", (q) =>
-      q
-        .eq("instructorId", session.instructorId!)
-        .eq("ownerId", session.studentId)
-    )
-    .first();
+  const workspace = await resolveSessionWorkspace(ctx, session);
   if (!workspace) return null;
   if (workspace.deletedAt !== undefined) return null;
   return workspace._id;
@@ -247,13 +271,46 @@ export const createRecordingRetentionNotification = internalMutation({
             .eq("daysUntilDeletion", args.daysUntilDeletion)
       )
       .first();
-    if (existing) return { skipped: true, id: existing._id };
+    const now = Date.now();
+    if (existing) {
+      const retryable =
+        existing.deliveryStatus === "failed" ||
+        (existing.deliveryStatus === "pending" &&
+          existing.sentAt <= now - DELIVERY_CLAIM_STALE_MS);
+      if (!retryable) return { skipped: true, id: existing._id };
+      await ctx.db.patch(existing._id, {
+        sentAt: now,
+        deliveryStatus: "pending",
+        deliveryError: undefined,
+      });
+      return { skipped: false, id: existing._id };
+    }
 
     const id = await ctx.db.insert("recordingRetentionNotifications", {
       ...args,
-      sentAt: Date.now(),
+      sentAt: now,
+      deliveryStatus: "pending",
     });
     return { skipped: false, id };
+  },
+});
+
+export const finalizeRecordingRetentionNotification = internalMutation({
+  args: {
+    id: v.id("recordingRetentionNotifications"),
+    status: v.union(v.literal("sent"), v.literal("failed")),
+    providerEmailId: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const notification = await ctx.db.get(args.id);
+    if (!notification) throw new Error("Notification not found");
+    await ctx.db.patch(args.id, {
+      deliveryStatus: args.status,
+      providerEmailId: args.providerEmailId,
+      deliveryError: args.errorMessage,
+    });
+    return { id: args.id, status: args.status };
   },
 });
 

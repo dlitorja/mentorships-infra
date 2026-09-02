@@ -1,6 +1,7 @@
 import { Migrations } from "@convex-dev/migrations";
 import { internalMutation } from "./_generated/server";
 import { components, internal } from "./_generated/api";
+import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 
 // Central migrations controller. Define individual migrations under `internal.migrations.*`
 // and invoke them via the runner below. See @convex-dev/migrations docs for patterns
@@ -30,35 +31,31 @@ export const backfillLegacyInstructorRef = migrations.define({
 // Convenient runner bound to the backfill
 export const runBackfillLegacyInstructorRef = migrations.runner(internal.migrations.backfillLegacyInstructorRef);
 
-// Rename admin_mentee -> admin_student and backfill studentImageCount from menteeImageCount
-// Idempotent: safe to re-run. This is the migrate step between widen and narrow.
-export const backfillWorkspaceStudentCountsAndType = migrations.define({
-  table: "workspaces",
-  // If you have a lot of workspaces, consider lowering batchSize here
-  migrateOne: async (_ctx, ws: any) => {
-    const patch: Record<string, any> = {};
+export const backfillSessionWorkspaceLinks = migrations.define({
+  table: "sessions",
+  migrateOne: async (ctx, session) => {
+    const patch: {
+      workspaceId?: typeof session.workspaceId;
+      hasRecordingArtifact?: boolean;
+    } = {};
 
-    // Backfill studentImageCount from menteeImageCount if missing or out of sync
-    const menteeCount = ws.menteeImageCount;
-    const studentCount = ws.studentImageCount;
-    // Only backfill when studentImageCount is absent; do not overwrite if it exists and differs
-    if (typeof menteeCount === "number" && typeof studentCount !== "number") {
-      patch.studentImageCount = menteeCount;
+    if (
+      session.hasRecordingArtifact === undefined &&
+      (session.recordingUrl !== undefined ||
+        session.recordingTransferStatus !== undefined)
+    ) {
+      patch.hasRecordingArtifact = true;
     }
 
-    // Rename workspace type
-    if (ws.type === "admin_mentee") {
-      patch.type = "admin_student";
+    if (session.workspaceId === undefined) {
+      const workspace = await resolveSessionWorkspace(ctx, session);
+      if (workspace) patch.workspaceId = workspace._id;
     }
 
-    // Only return a patch if there is something to change
-    if (Object.keys(patch).length > 0) {
-      return patch;
-    }
+    return Object.keys(patch).length > 0 ? patch : undefined;
   },
 });
 
-// Runner alias for convenience
-export const runBackfillWorkspaceStudentCountsAndType = migrations.runner(
-  internal.migrations.backfillWorkspaceStudentCountsAndType,
+export const runBackfillSessionWorkspaceLinks = migrations.runner(
+  internal.migrations.backfillSessionWorkspaceLinks
 );

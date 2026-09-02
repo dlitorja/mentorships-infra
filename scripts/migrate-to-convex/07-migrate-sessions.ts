@@ -12,33 +12,14 @@
  * Those migrations should run first.
  */
 
-import { getDb, sessions, instructors, sessionPacks } from "../../packages/db/src";
+import { getDb, instructors, sessions } from "../../packages/db/src";
 import { spawn } from "child_process";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "../../packages/db/src/schema";
 
 const CONVEX_DEPLOYMENT = process.env.CONVEX_DEPLOYMENT || "dev";
 
-interface DrizzleSession {
-  id: string;
-  mentorId: string;
-  studentId: string;
-  sessionPackId: string;
-  scheduledAt: Date;
-  completedAt: Date | null;
-  canceledAt: Date | null;
-  status: "scheduled" | "completed" | "canceled" | "no_show";
-  recordingConsent: boolean;
-  recordingUrl: string | null;
-  recordingExpiresAt: Date | null;
-  googleCalendarEventId: string | null;
-  notes: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null;
-}
-
-async function runConvexMutation(functionName: string, args: Record<string, unknown>): Promise<unknown> {
+async function runConvexFunction(functionName: string, args: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const argsJson = JSON.stringify(args);
     const child = spawn("npx", [
@@ -93,25 +74,10 @@ async function migrateSessions(): Promise<void> {
   const allSessions = await db.select().from(sessions).all();
   console.log(`Found ${allSessions.length} sessions in Drizzle`);
 
-  console.log("Fetching instructors from Drizzle...");
   const allInstructors = await db.select().from(instructors).all();
-  console.log(`Found ${allInstructors.length} instructors`);
-
-  console.log("Fetching session packs from Drizzle...");
-  const allPacks = await db.select().from(sessionPacks).all();
-  console.log(`Found ${allPacks.length} session packs\n`);
-
-  const instructorMentorIdToConvexId = new Map<string, string>();
-  for (const instructor of allInstructors) {
-    if (instructor.mentorId) {
-      instructorMentorIdToConvexId.set(instructor.mentorId, instructor.id);
-    }
-  }
-
-  const packIdToConvexId = new Map<string, string>();
-  for (const pack of allPacks) {
-    packIdToConvexId.set(pack.id, pack.id);
-  }
+  const instructorUserIdById = new Map(
+    allInstructors.map((instructor) => [instructor.id, instructor.userId])
+  );
 
   let migrated = 0;
   let skipped = 0;
@@ -120,10 +86,26 @@ async function migrateSessions(): Promise<void> {
 
   for (const session of allSessions) {
     try {
-      const convexMentorId = instructorMentorIdToConvexId.get(session.mentorId);
-      const convexPackId = packIdToConvexId.get(session.sessionPackId);
+      if (!session.instructorId) {
+        console.log(`Skipping session: ${session.id} - missing instructor`);
+        skipped++;
+        continue;
+      }
+      const instructorUserId = instructorUserIdById.get(session.instructorId);
+      if (!instructorUserId) {
+        console.log(`Skipping session: ${session.id} - instructor has no user mapping`);
+        skipped++;
+        continue;
+      }
+      const dependencies = (await runConvexFunction(
+        "sessions:resolveLegacySessionDependencies",
+        {
+          instructorUserId,
+          sessionPackLegacyId: session.sessionPackId,
+        }
+      )) as { instructorId: string | null; sessionPackId: string | null };
 
-      if (!convexMentorId || !convexPackId) {
+      if (!dependencies.instructorId || !dependencies.sessionPackId) {
         console.log(`Skipping session: ${session.id} - missing instructor or pack mapping`);
         skipped++;
         continue;
@@ -131,11 +113,11 @@ async function migrateSessions(): Promise<void> {
 
       console.log(`Migrating session: ${session.id} (${session.status})`);
       
-      await runConvexMutation("sessions:migrateSession", {
+      await runConvexFunction("sessions:migrateSession", {
         id: session.id,
-        mentorId: convexMentorId,
+        instructorId: dependencies.instructorId,
         studentId: session.studentId,
-        sessionPackId: convexPackId,
+        sessionPackId: dependencies.sessionPackId,
         scheduledAt: session.scheduledAt.getTime(),
         completedAt: session.completedAt?.getTime() || undefined,
         canceledAt: session.canceledAt?.getTime() || undefined,
@@ -169,6 +151,11 @@ async function migrateSessions(): Promise<void> {
     for (const e of errorDetails) {
       console.log(`  - ${e.sessionId}: ${e.error}`);
     }
+  }
+  if (skipped > 0 || errors > 0) {
+    throw new Error(
+      `Session migration incomplete: ${skipped} skipped, ${errors} failed`
+    );
   }
 }
 

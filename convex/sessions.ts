@@ -5,6 +5,10 @@ import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
+import {
+  resolveSessionWorkspace,
+  resolveWorkspaceForNewSession,
+} from "./lib/sessionWorkspace";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -330,7 +334,10 @@ export const getUpcomingSessions = query({
 
     return sessions.map((session) => ({
       ...session,
-      workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
+      workspaceId:
+        session.workspaceId ??
+        workspaceByInstructorId.get(session.instructorId)?._id ??
+        null,
     }));
   },
 });
@@ -392,7 +399,10 @@ export const getUpcomingSessionsWithInstructor = query({
           scheduledAt: session.scheduledAt,
           status: session.status,
           instructorId: session.instructorId,
-          workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
+          workspaceId:
+            session.workspaceId ??
+            workspaceByInstructorId.get(session.instructorId)?._id ??
+            null,
           instructorUser: instructorUser ? {
             email: instructorUser.email,
           } : null,
@@ -529,7 +539,10 @@ export const getAllStudentSessionsWithInstructor = query({
           notes: session.notes ?? null,
           instructorEmail,
           packId: session.sessionPackId,
-          workspaceId: workspaceByInstructorId.get(session.instructorId)?._id ?? null,
+          workspaceId:
+            session.workspaceId ??
+            workspaceByInstructorId.get(session.instructorId)?._id ??
+            null,
           remainingSessions: sessionPack?.remainingSessions ?? null,
         };
       })
@@ -565,6 +578,28 @@ export const createSession = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (
+      !pack ||
+      pack.deletedAt !== undefined ||
+      pack.instructorId !== args.instructorId ||
+      pack.userId !== args.studentId
+    ) {
+      throw new Error("Session pack does not match this session");
+    }
+    const instructor = await ctx.db.get(args.instructorId);
+    if (
+      identity.subject !== args.studentId &&
+      instructor?.userId !== identity.subject
+    ) {
+      throw new Error("Forbidden");
+    }
+    const workspace = await resolveWorkspaceForNewSession(ctx, args);
+    if (!workspace) {
+      throw new Error("No active workspace matches this session pack");
+    }
     // PR #4a: initialize both per-party consent fields to match the
     // booking-time default. Without this, the first party's modal
     // submission would see `otherParty ?? false` and flip the
@@ -573,6 +608,7 @@ export const createSession = mutation({
     const initialConsent = args.recordingConsent ?? false;
     return await ctx.db.insert("sessions", {
       ...args,
+      workspaceId: workspace._id,
       status: "scheduled",
       recordingConsent: initialConsent,
       instructorRecordingConsent: initialConsent,
@@ -590,8 +626,6 @@ export const updateSession = mutation({
     canceledAt: v.optional(v.number()),
     status: v.optional(v.union(v.literal("scheduled"), v.literal("completed"), v.literal("canceled"), v.literal("no_show"))),
     recordingConsent: v.optional(v.boolean()),
-    recordingUrl: v.optional(v.string()),
-    recordingExpiresAt: v.optional(v.number()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
@@ -606,17 +640,16 @@ export const updateSession = mutation({
 export const completeSession = mutation({
   args: { 
     id: v.id("sessions"),
-    recordingUrl: v.optional(v.string()),
-    recordingExpiresAt: v.optional(v.number()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
-    await ctx.db.patch(id, {
+    const patch: Partial<Doc<"sessions">> = {
       status: "completed",
       completedAt: Date.now(),
       ...updates,
-    });
+    };
+    await ctx.db.patch(id, patch);
     return await ctx.db.get(id);
   },
 });
@@ -729,7 +762,7 @@ export const deleteSession = mutation({
   },
 });
 
-export const migrateSession = mutation({
+export const migrateSession = internalMutation({
   args: {
     id: v.string(),
     instructorId: v.id("instructors"),
@@ -746,6 +779,15 @@ export const migrateSession = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const workspace = await resolveSessionWorkspace(ctx, {
+      instructorId: args.instructorId,
+      studentId: args.studentId,
+      sessionPackId: args.sessionPackId,
+      workspaceId: undefined,
+    });
+    if (!workspace) {
+      throw new Error("No unambiguous workspace matches this session");
+    }
     const existingByCalendarEvent = args.googleCalendarEventId
       ? await ctx.db
           .query("sessions")
@@ -754,12 +796,31 @@ export const migrateSession = mutation({
       : null;
 
     if (existingByCalendarEvent) {
+      if (
+        existingByCalendarEvent.instructorId !== args.instructorId ||
+        existingByCalendarEvent.studentId !== args.studentId ||
+        existingByCalendarEvent.sessionPackId !== args.sessionPackId
+      ) {
+        throw new Error("Existing calendar session does not match import data");
+      }
       const updates: Record<string, unknown> = {};
       if (args.status) updates.status = args.status;
       if (args.completedAt) updates.completedAt = args.completedAt;
       if (args.canceledAt) updates.canceledAt = args.canceledAt;
       if (args.notes) updates.notes = args.notes;
       if (args.recordingUrl) updates.recordingUrl = args.recordingUrl;
+      if (existingByCalendarEvent.workspaceId === undefined) {
+        updates.workspaceId = workspace._id;
+      }
+      if (existingByCalendarEvent.legacyId === undefined) {
+        updates.legacyId = args.id;
+      }
+      if (
+        args.recordingUrl &&
+        existingByCalendarEvent.hasRecordingArtifact !== true
+      ) {
+        updates.hasRecordingArtifact = true;
+      }
       if (args.recordingConsent !== undefined) updates.recordingConsent = args.recordingConsent;
 
       if (Object.keys(updates).length > 0) {
@@ -772,6 +833,7 @@ export const migrateSession = mutation({
       instructorId: args.instructorId,
       studentId: args.studentId,
       sessionPackId: args.sessionPackId,
+      workspaceId: workspace._id,
       scheduledAt: args.scheduledAt,
       completedAt: args.completedAt ?? undefined,
       canceledAt: args.canceledAt ?? undefined,
@@ -784,12 +846,43 @@ export const migrateSession = mutation({
       instructorRecordingConsent: args.recordingConsent ?? false,
       studentRecordingConsent: args.recordingConsent ?? false,
       recordingUrl: args.recordingUrl ?? undefined,
+      hasRecordingArtifact: args.recordingUrl ? true : undefined,
       recordingExpiresAt: args.recordingExpiresAt ?? undefined,
       googleCalendarEventId: args.googleCalendarEventId ?? undefined,
       notes: args.notes ?? undefined,
+      legacyId: args.id,
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const resolveLegacySessionDependencies = internalQuery({
+  args: {
+    instructorUserId: v.string(),
+    sessionPackLegacyId: v.string(),
+  },
+  returns: v.object({
+    instructorId: v.union(v.id("instructors"), v.null()),
+    sessionPackId: v.union(v.id("sessionPacks"), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const [instructor, sessionPack] = await Promise.all([
+      ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorUserId))
+        .unique(),
+      ctx.db
+        .query("sessionPacks")
+        .withIndex("by_legacyId", (q) =>
+          q.eq("legacyId", args.sessionPackLegacyId)
+        )
+        .unique(),
+    ]);
+    return {
+      instructorId: instructor?._id ?? null,
+      sessionPackId: sessionPack?._id ?? null,
+    };
   },
 });
 
@@ -1226,9 +1319,21 @@ export const attachRecordingFromDailyWebhook = internalMutation({
     if (session.recordingTransferStatus === "failed") {
       return { sessionId: session._id, alreadyAttached: true };
     }
+    if (
+      (session.recordingTransferStatus === "pending" ||
+        session.recordingTransferStatus === "uploading") &&
+      session.recordingId !== undefined &&
+      args.recordingId !== undefined &&
+      session.recordingId !== args.recordingId
+    ) {
+      // The data model exposes one recording per session. Keep the first
+      // segment authoritative instead of orphaning a losing B2 upload.
+      return { sessionId: session._id, alreadyAttached: true };
+    }
 
     const patch: Partial<Doc<"sessions">> = {
       recordingTransferStatus: "pending",
+      hasRecordingArtifact: true,
       recordingTransferUpdatedAt: Date.now(),
       recordingDailyS3Key: args.recordingS3Key,
     };
@@ -1262,7 +1367,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
  * want the latest B2 key to win in that race.
  *
  * `b2Key` is the canonical S3-style key the storage package
- * presigns against (`recordings/{sessionId}/{epoch}.mp4`). The
+ * presigns against (`recordings/{sessionId}/{recordingId}.mp4`). The
  * /api/video/recording/[sessionId] route reads `recordingUrl` and
  * passes it to `getStreamUrl` / `getDownloadUrlWithContentDisposition`
  * unchanged.
@@ -1317,6 +1422,7 @@ export const attachRecordingFromB2Upload = internalMutation({
         (retentionDays ?? 90) * 24 * 60 * 60 * 1000;
     const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.b2Key,
+      hasRecordingArtifact: true,
       recordingTransferStatus: "ready",
       recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: undefined,
@@ -1366,6 +1472,7 @@ export const markRecordingTransferRetrying = internalMutation({
     }
     await ctx.db.patch(session._id, {
       recordingTransferStatus: "uploading",
+      hasRecordingArtifact: true,
       recordingTransferAttempts: args.attemptNumber,
       recordingTransferUpdatedAt: Date.now(),
     });
@@ -1400,6 +1507,7 @@ export const markRecordingTransferFailed = internalMutation({
     }
     await ctx.db.patch(session._id, {
       recordingTransferStatus: "failed",
+      hasRecordingArtifact: true,
       recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: args.errorMessage,
       recordingTransferAttempts: args.attempts,
@@ -1859,7 +1967,7 @@ export const getCallRecordingsForWorkspace = query({
     if (!workspace) {
       return { recordings: [], isTruncated: false };
     }
-    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+    if (workspace.deletedAt !== undefined) {
       return { recordings: [], isTruncated: false };
     }
     if (workspace.instructorId === undefined) {
@@ -1876,28 +1984,22 @@ export const getCallRecordingsForWorkspace = query({
       throw new Error("Forbidden");
     }
 
-    // Indexed read scoped to the exact (instructor, student) pair
-    // via `by_instructorId_studentId`. The previous approach
-    // queried `by_instructorId_status_scheduledAt` and `.take(50)`
-    // across the instructor's full session history — fine for a
-    // quiet roster but silently dropped recordings for any
-    // student whose sessions weren't among the instructor's 50
-    // most recent overall. The compound index makes the lookup
-    // exact and unbounded by that cap.
-    //
-    // Greptile R4 P2: the leftover `.take(50)` here was intentional
-    // pagination for the Calls sub-section, not a correctness
-    // bug — but the original ordering was by `_creationTime` while
-    // the UI sorts by `callStartedAt`, which means the last 50
-    // by creation could omit the most-recently-started recording
-    // if some sessions were created later than others.
-    //
-    // PR #convex-egress-3: cap the buffer at 50 to reduce egress.
-    // A typical (instructor, student) pair is well under 50
-    // recordings; anything above 50 will require cursor-based
-    // pagination in a follow-up PR (out of scope here).
     const targetRecordings = 50;
-    let result = await ctx.db
+    const linkedSessions = await ctx.db
+      .query("sessions")
+      .withIndex(
+        "by_workspaceId_and_hasRecordingArtifact_and_callStartedAt",
+        (q) =>
+          q
+            .eq("workspaceId", workspace._id)
+            .eq("hasRecordingArtifact", true)
+      )
+      .order("desc")
+      .take(targetRecordings + 1);
+
+    // Dual-read during migration. Only include an unlinked legacy row when
+    // its pack chain or a single pair workspace resolves to this workspace.
+    const legacyCandidates = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId_studentId", (q) =>
         q
@@ -1905,28 +2007,38 @@ export const getCallRecordingsForWorkspace = query({
           .eq("studentId", workspace.ownerId)
       )
       .order("desc")
-      .paginate({ cursor: null, numItems: targetRecordings });
-
-    let candidateSessions = result.page;
-    // Keep fetching session pages until we have collected the target number of
-    // sessions or exhaust the index. Each session yields at most one recording,
-    // so this prevents a run of recent sessions without recordings from hiding
-    // older valid recordings.
-    while (candidateSessions.length < targetRecordings && !result.isDone) {
-      result = await ctx.db
-        .query("sessions")
-        .withIndex("by_instructorId_studentId", (q) =>
-          q
-            .eq("instructorId", workspace.instructorId!)
-            .eq("studentId", workspace.ownerId)
-        )
-        .order("desc")
-        .paginate({
-          cursor: result.continueCursor,
-          numItems: targetRecordings - candidateSessions.length,
-        });
-      candidateSessions = [...candidateSessions, ...result.page];
+      .take(201);
+    const resolvedLegacy: Doc<"sessions">[] = [];
+    for (const session of legacyCandidates) {
+      if (
+        session.recordingUrl === undefined &&
+        session.recordingTransferStatus === undefined
+      ) {
+        continue;
+      }
+      if (session.workspaceId !== undefined) {
+        if (session.workspaceId === workspace._id) resolvedLegacy.push(session);
+        continue;
+      }
+      const resolvedWorkspace = await resolveSessionWorkspace(ctx, session);
+      if (resolvedWorkspace?._id === workspace._id) {
+        resolvedLegacy.push(session);
+      }
     }
+
+    const sessionsById = new Map(
+      [...linkedSessions, ...resolvedLegacy].map((session) => [
+        session._id,
+        session,
+      ])
+    );
+    const candidateSessions = [...sessionsById.values()]
+      .sort(
+        (a, b) =>
+          (b.callStartedAt ?? b._creationTime) -
+          (a.callStartedAt ?? a._creationTime)
+      )
+      .slice(0, targetRecordings);
 
     const ownerUser = await ctx.db
       .query("users")
@@ -1985,7 +2097,10 @@ export const getCallRecordingsForWorkspace = query({
 
     return {
       recordings: visibleRecordings,
-      isTruncated: !result.isDone,
+      isTruncated:
+        linkedSessions.length > targetRecordings ||
+        legacyCandidates.length > 200 ||
+        sessionsById.size > targetRecordings,
     };
   },
 });
@@ -2032,15 +2147,25 @@ export const getSessionsMissingRecordingsForWorkspace = query({
       .order("desc")
       .take(50);
 
-    return result
-      .filter(
-        (s) =>
-          s.deletedAt === undefined &&
-          s.videoRoomName !== undefined &&
-          s.recordingUrl === undefined &&
-          s.recordingTransferStatus === undefined
-      )
-      .map((s) => ({ sessionId: s._id, videoRoomName: s.videoRoomName! }));
+    const missing: { sessionId: Id<"sessions">; videoRoomName: string }[] = [];
+    for (const session of result) {
+      if (
+        session.deletedAt !== undefined ||
+        session.videoRoomName === undefined ||
+        session.recordingUrl !== undefined ||
+        session.recordingTransferStatus !== undefined
+      ) {
+        continue;
+      }
+      const resolvedWorkspace = await resolveSessionWorkspace(ctx, session);
+      if (resolvedWorkspace?._id === workspace._id) {
+        missing.push({
+          sessionId: session._id,
+          videoRoomName: session.videoRoomName,
+        });
+      }
+    }
+    return missing;
   },
 });
 
@@ -2193,6 +2318,7 @@ export const getActiveSessionForWorkspace = query({
       .filter(
         (s) =>
           s.instructorId === workspace.instructorId &&
+          (s.workspaceId === undefined || s.workspaceId === workspace._id) &&
           s.callStartedAt !== undefined &&
           s.callStartedAt > callActiveWindowStart &&
           s.callEndedAt === undefined &&
@@ -2340,7 +2466,10 @@ async function getCurrentOrUpcomingSessionForWorkspaceHelper(
   // also includes `studentId`. The result set is already bounded
   // (≤ 50), so an in-memory filter is fine.
   const scoped = sessions.filter(
-    (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
+    (s) =>
+      s.instructorId === workspace.instructorId &&
+      (s.workspaceId === undefined || s.workspaceId === workspace._id) &&
+      s.deletedAt === undefined
   );
   if (scoped.length === 0) {
     return null;
@@ -2770,6 +2899,7 @@ export const startAdhocCall = mutation({
     const activeCandidate = candidates.find(
       (s) =>
         s.instructorId === workspace.instructorId &&
+        (s.workspaceId === undefined || s.workspaceId === workspace._id) &&
         s.callEndedAt === undefined &&
         s.deletedAt === undefined &&
         // Only block sessions that were actually started OR ad-hoc
@@ -2813,6 +2943,7 @@ export const startAdhocCall = mutation({
     const sessionId = await ctx.db.insert("sessions", {
       instructorId: workspace.instructorId,
       studentId: workspace.ownerId,
+      workspaceId: workspace._id,
       sessionPackId: undefined,
       scheduledAt: Date.now(),
       status: "scheduled",

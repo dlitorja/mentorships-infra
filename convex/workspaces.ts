@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 
 import {
   WORKSPACE_IMAGE_CAPS,
@@ -63,16 +64,6 @@ export async function getWorkspaceRole(
   }
   if (workspace.ownerId === userId) {
     return "student";
-  }
-  if (workspace.instructorId) {
-    const seatReservation = await ctx.db
-      .query("seatReservations")
-      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-      .filter((q: any) => q.eq(q.field("instructorId"), workspace.instructorId))
-      .first();
-    if (seatReservation) {
-      return "student";
-    }
   }
   return null;
 }
@@ -279,13 +270,10 @@ export async function assertSessionBelongsToWorkspace(
  * - Identity derived from `ctx.auth.getUserIdentity()` only —
  *   caller-supplied user ids are never accepted (Convex auth
  *   guideline).
- * - Workspace lookup uses the compound `by_instructorId_ownerId`
- *   index (PR #4c-1) for an exact `.first()` lookup. No `.take()`
- *   cap and no in-memory scan, so an instructor with thousands of
- *   workspaces is served as fast as one with three.
- * - `deletedAt`/`endedAt` are checked after the indexed lookup so
- *   we never return a torn-down workspace that an attacker could
- *   still claim a session for.
+ * - Workspace lookup prefers the session's immutable `workspaceId`.
+ *   Legacy rows resolve only through pack evidence or one unambiguous pair.
+ * - Soft-deleted workspaces are rejected. Ended workspaces remain readable
+ *   during retention so participants can download recordings.
  * - Returns role `"instructor"` if the caller's Clerk token matches
  *   the session's instructor doc, else `"student"`. Never both.
  */
@@ -318,47 +306,23 @@ export async function assertParticipantForSession(
     throw new Error("Instructor not found");
   }
 
+  const workspace = await resolveSessionWorkspace(ctx, session);
+  if (!workspace) {
+    throw new Error("No unambiguous workspace matches this session");
+  }
+  if (workspace.deletedAt !== undefined) {
+    throw new Error("No retained workspace matches this session");
+  }
   if (instructor.userId === identity.subject) {
-    // Instructor path: find the workspace where this student is
-    // the owner. Single indexed `.first()` — no cap.
-    const workspace = await ctx.db
-      .query("workspaces")
-      .withIndex("by_instructorId_ownerId", (q) =>
-        q
-          .eq("instructorId", session.instructorId)
-          .eq("ownerId", session.studentId)
-      )
-      .first();
-    if (!workspace) {
-      throw new Error("No workspace matches this session");
-    }
-    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
-      throw new Error("No active workspace matches this session");
-    }
     return { session, workspace, role: "instructor" };
   }
-
-  // Student path: find the workspace where the caller is the
-  // owner and the session's instructor is the workspace's
-  // instructor. Same indexed `.first()`.
-  const workspace = await ctx.db
-    .query("workspaces")
-    .withIndex("by_instructorId_ownerId", (q) =>
-      q
-        .eq("instructorId", session.instructorId)
-        .eq("ownerId", identity.subject)
-    )
-    .first();
-  if (!workspace) {
-    throw new Error("Forbidden");
+  if (
+    workspace.ownerId === identity.subject &&
+    session.studentId === identity.subject
+  ) {
+    return { session, workspace, role: "student" };
   }
-  if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
-    throw new Error("Forbidden");
-  }
-  if (workspace.ownerId !== session.studentId) {
-    throw new Error("Forbidden");
-  }
-  return { session, workspace, role: "student" };
+  throw new Error("Forbidden");
 }
 
 /**
@@ -370,10 +334,7 @@ export async function assertParticipantForSession(
  * instead of the stale per-student detail page.
  *
  * Returns the active workspace (`endedAt` undefined, `deletedAt`
- * undefined) for the pair, or `null` if none exists. We deliberately
- * do NOT fall back to ended workspaces because `getWorkspaceByIdForUser`
- * and the `/workspace/[id]` page reject ended workspaces (they
- * redirect to the picker), so a link to one would just bounce.
+ * undefined) for the pair, or `null` if none exists.
  *
  * Uses the `by_instructorId_ownerId` index (PR #4c-1) so this is
  * O(1) for the common case. We collect all matches because the
@@ -459,7 +420,7 @@ export const getWorkspaceByIdForUser = query({
     if (!workspace) {
       return null;
     }
-    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+    if (workspace.deletedAt !== undefined) {
       return null;
     }
     const role = await getWorkspaceRole(ctx, workspace, identity.subject);
@@ -2746,7 +2707,11 @@ export const getSessionParticipantForRecording = query({
         ctx,
         { sessionId: args.sessionId }
       );
-      const recordingS3Key = session.recordingUrl ?? null;
+      const recordingS3Key =
+        session.recordingTransferStatus === "ready" ||
+        session.recordingTransferStatus === undefined
+          ? session.recordingUrl ?? null
+          : null;
       return {
         sessionId: session._id,
         workspaceId: workspace._id,
@@ -2768,6 +2733,8 @@ export const getSessionParticipantForRecording = query({
           "Forbidden",
           "No workspace matches this session",
           "No active workspace matches this session",
+          "No retained workspace matches this session",
+          "No unambiguous workspace matches this session",
           "Session is not paired with an instructor",
           "Instructor not found",
         ].includes(err.message)

@@ -46,6 +46,8 @@ export default defineConfig({
         { name: "EMAIL_FROM", value: process.env.EMAIL_FROM ?? "" },
         { name: "EMAIL_REPLY_TO", value: process.env.EMAIL_REPLY_TO ?? "" },
         { name: "NEXT_PUBLIC_URL", value: process.env.NEXT_PUBLIC_URL ?? "" },
+        { name: "DAILY_API_KEY", value: process.env.DAILY_API_KEY ?? "" },
+        { name: "TRIGGER_CONVEX_CALLBACK_SECRET", value: process.env.TRIGGER_CONVEX_CALLBACK_SECRET ?? "" },
       ]),
     ],
     external: [
