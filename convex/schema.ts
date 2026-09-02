@@ -183,19 +183,13 @@ export default defineSchema({
     // recordings for any student whose sessions weren't among
     // the instructor's 50 most recent overall.
     .index("by_instructorId_studentId", ["instructorId", "studentId"])
-    .index("by_instructorId_and_studentId_and_recordingUrl", [
-      "instructorId",
-      "studentId",
-      "recordingUrl",
-    ])
+    .index(
+      "by_instructor_student_recordingUrl_callStartedAt",
+      ["instructorId", "studentId", "recordingUrl", "callStartedAt"]
+    )
     .index(
       "by_instructor_student_transferStatus_callStartedAt",
-      [
-        "instructorId",
-        "studentId",
-        "recordingTransferStatus",
-        "callStartedAt",
-      ]
+      ["instructorId", "studentId", "recordingTransferStatus", "callStartedAt"]
     )
     .index("by_workspaceId_and_hasRecordingArtifact_and_callStartedAt", [
       "workspaceId",

@@ -2009,12 +2009,15 @@ export const getCallRecordingsForWorkspace = query({
     const [legacyUrls, ...legacyStatusGroups] = await Promise.all([
       ctx.db
         .query("sessions")
-        .withIndex("by_instructorId_and_studentId_and_recordingUrl", (q) =>
-          q
-            .eq("instructorId", workspace.instructorId!)
-            .eq("studentId", workspace.ownerId)
-            .gt("recordingUrl", "")
+        .withIndex(
+          "by_instructor_student_recordingUrl_callStartedAt",
+          (q) =>
+            q
+              .eq("instructorId", workspace.instructorId!)
+              .eq("studentId", workspace.ownerId)
+              .gt("recordingUrl", "")
         )
+        .order("desc")
         .take(targetRecordings + 1),
       ...transferStatuses.map((status) =>
         ctx.db
