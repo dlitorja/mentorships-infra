@@ -56,6 +56,7 @@ const mockMessages = [
     _id: "msg_1",
     workspaceId: "ws_1",
     userId: "user_2",
+    authorDisplayName: "Alex Instructor",
     content: "Hello from instructor",
     type: "text",
   },
@@ -63,6 +64,7 @@ const mockMessages = [
     _id: "msg_2",
     workspaceId: "ws_1",
     userId: "user_1",
+    authorDisplayName: "Student User",
     content: "Hello from student",
     type: "text",
   },
@@ -127,6 +129,8 @@ describe("WorkspaceChat", () => {
     );
     expect(screen.getByText("Hello from instructor")).toBeInTheDocument();
     expect(screen.getByText("Hello from student")).toBeInTheDocument();
+    expect(screen.getByText("Alex Instructor")).toBeInTheDocument();
+    expect(screen.queryByText("user_2")).not.toBeInTheDocument();
     expect(screen.getByText("You")).toBeInTheDocument();
   });
 

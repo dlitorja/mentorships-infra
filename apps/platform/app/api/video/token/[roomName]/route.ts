@@ -36,17 +36,20 @@ export async function GET(
       );
     }
 
-    const roleResult = await fetchQuery(
-      api.sessions.getSessionByVideoRoomName,
-      { videoRoomName: roomName },
-      { token }
-    );
+    const [roleResult, userProfile] = await Promise.all([
+      fetchQuery(
+        api.sessions.getSessionByVideoRoomName,
+        { videoRoomName: roomName },
+        { token }
+      ),
+      fetchQuery(api.users.getCurrentUser, {}, { token }),
+    ]);
 
     if (!roleResult) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const userName = resolveUserName(clerkAuth.sessionClaims, clerkAuth.userId);
+    const userName = resolveUserName(userProfile, roleResult.role);
 
     // Only auto-start cloud recording when we have a positive snapshot that
     // the room was created with recording enabled. Legacy sessions created
@@ -98,22 +101,13 @@ export async function GET(
   }
 }
 
-/**
- * Pulls a display name out of the Clerk session claims. Falls back to
- * the bare Clerk user id if no name fields are present (defensive — the
- * token still works, Daily just shows a less friendly label).
- */
-function resolveUserName(sessionClaims: unknown, fallbackUserId: string): string {
-  if (!sessionClaims || typeof sessionClaims !== "object") {
-    return fallbackUserId;
-  }
-  const claims = sessionClaims as Record<string, unknown>;
-  const firstName = typeof claims.firstName === "string" ? claims.firstName : "";
-  const lastName = typeof claims.lastName === "string" ? claims.lastName : "";
-  const full = `${firstName} ${lastName}`.trim();
-  if (full.length > 0) return full;
-  if (typeof claims.username === "string" && claims.username.length > 0) {
-    return claims.username;
-  }
-  return fallbackUserId;
+function resolveUserName(
+  userProfile: { firstName?: string; lastName?: string } | null,
+  role: "owner" | "participant"
+): string {
+  const fullName = [userProfile?.firstName, userProfile?.lastName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return fullName || (role === "owner" ? "Instructor" : "Student");
 }

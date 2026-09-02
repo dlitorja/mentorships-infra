@@ -479,6 +479,65 @@ export const createUserFromClerk = internalMutation({
   },
 });
 
+/** Synchronizes mutable Clerk profile fields across every linked user row. */
+export const syncClerkProfile = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+    firstName: v.union(v.string(), v.null()),
+    lastName: v.union(v.string(), v.null()),
+  },
+  returns: v.object({ updatedCount: v.number() }),
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.trim().toLowerCase();
+    const [byUserId, byClerkId, byCurrentEmail] = await Promise.all([
+      ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", args.clerkUserId))
+        .collect(),
+      ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkUserId))
+        .collect(),
+      ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect(),
+    ]);
+
+    // ID-linked rows reveal the previous email when Clerk has just changed it.
+    // Include every row on those emails so split onboarding records stay aligned.
+    const previousEmails = new Set(
+      [...byUserId, ...byClerkId].map((user) => user.email.trim().toLowerCase())
+    );
+    previousEmails.delete(normalizedEmail);
+    const byPreviousEmail = await Promise.all(
+      [...previousEmails].map((email) =>
+        ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email)).collect()
+      )
+    );
+
+    const users = new Map(
+      [...byUserId, ...byClerkId, ...byCurrentEmail, ...byPreviousEmail.flat()].map((user) => [
+        user._id,
+        user,
+      ])
+    );
+
+    await Promise.all(
+      [...users.values()].map((user) =>
+        ctx.db.patch(user._id, {
+          email: normalizedEmail,
+          firstName: args.firstName?.trim() || undefined,
+          lastName: args.lastName?.trim() || undefined,
+        })
+      )
+    );
+
+    return { updatedCount: users.size };
+  },
+});
+
 export const getAllUsersForMigration = query({
   handler: async (ctx) => {
     return await ctx.db.query("users").collect();

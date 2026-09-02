@@ -54,7 +54,7 @@ export function NoteComments({
             <div key={comment._id} className="text-sm bg-background rounded p-2">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
-                  {comment.createdBy === currentUserId ? 'You' : comment.createdBy.slice(0, 8)}
+                  {comment.createdBy === currentUserId ? 'You' : comment.authorDisplayName}
                   {' · '}
                   {new Date(comment.createdAt).toLocaleDateString()}
                 </p>

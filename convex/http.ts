@@ -1314,6 +1314,63 @@ export const httpServerVerifiedSetUserClerkId = httpAction(async (ctx, request) 
   }
 });
 
+export const httpServerVerifiedSyncClerkProfile = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!body || typeof body !== "object") {
+    return new Response(JSON.stringify({ error: "Invalid request body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { clerkUserId, email, firstName, lastName } = body as Record<string, unknown>;
+  if (typeof clerkUserId !== "string" || clerkUserId.trim().length === 0) {
+    return new Response(JSON.stringify({ error: "Missing or invalid clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (typeof email !== "string" || !email.includes("@") || email.trim().length === 0) {
+    return new Response(JSON.stringify({ error: "Missing or invalid email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (firstName !== null && typeof firstName !== "string") {
+    return new Response(JSON.stringify({ error: "Invalid firstName" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (lastName !== null && typeof lastName !== "string") {
+    return new Response(JSON.stringify({ error: "Invalid lastName" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(internal.users.syncClerkProfile, {
+    clerkUserId: clerkUserId.trim(),
+    email: email.trim().toLowerCase(),
+    firstName,
+    lastName,
+  });
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 http.route({
   path: "/instructors/create-for-clerk-user",
   method: "POST",
@@ -1336,6 +1393,12 @@ http.route({
   path: "/users/set-clerk-id",
   method: "POST",
   handler: httpServerVerifiedSetUserClerkId,
+});
+
+http.route({
+  path: "/users/sync-clerk-profile",
+  method: "POST",
+  handler: httpServerVerifiedSyncClerkProfile,
 });
 
 /**

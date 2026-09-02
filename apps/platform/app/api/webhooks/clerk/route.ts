@@ -6,17 +6,26 @@ import { convexServerCall } from "@/lib/convex-server-call";
 interface ClerkUserEventData {
   id: string;
   email_addresses: Array<{
+    id: string;
     email_address: string;
   }>;
+  primary_email_address_id?: string | null;
   public_metadata?: {
     role?: string;
     instructorId?: string;
   };
-  first_name?: string;
-  last_name?: string;
+  first_name?: string | null;
+  last_name?: string | null;
   previous_public_metadata?: {
     role?: string;
   };
+}
+
+function getPrimaryEmail(data: ClerkUserEventData): string | undefined {
+  return (
+    data.email_addresses.find((address) => address.id === data.primary_email_address_id) ??
+    data.email_addresses[0]
+  )?.email_address;
 }
 
 interface ClerkUserCreatedEvent {
@@ -55,7 +64,7 @@ export async function POST(req: NextRequest) {
     if (eventType === "user.created") {
       const eventData = evt.data as ClerkUserCreatedEvent["data"];
       const userId = eventData.id;
-      const email = eventData.email_addresses?.[0]?.email_address;
+      const email = getPrimaryEmail(eventData);
       const role = eventData.public_metadata?.role as string | undefined;
       const firstName = eventData.first_name;
       const lastName = eventData.last_name;
@@ -142,7 +151,7 @@ export async function POST(req: NextRequest) {
     if (eventType === "user.updated") {
       const eventData = evt.data as ClerkUserUpdatedEvent["data"];
       const userId = eventData.id;
-      const email = eventData.email_addresses?.[0]?.email_address;
+      const email = getPrimaryEmail(eventData);
       const role = eventData.public_metadata?.role as string | undefined;
       const firstName = eventData.first_name;
       const lastName = eventData.last_name;
@@ -162,8 +171,8 @@ export async function POST(req: NextRequest) {
           userId,
           email,
           role,
-          firstName,
-          lastName,
+          firstName: firstName ?? null,
+          lastName: lastName ?? null,
           previousRole,
         },
       });

@@ -192,7 +192,7 @@ export function ChatMessageList({
                     ? 'text-primary-foreground/70'
                     : 'text-muted-foreground'
                 )}>
-                  {msg.userId === currentUserId ? 'You' : msg.userId.slice(0, 8)}
+                  {msg.userId === currentUserId ? 'You' : msg.authorDisplayName}
                 </p>
               </div>
             </div>

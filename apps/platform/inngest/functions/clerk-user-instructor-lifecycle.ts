@@ -109,8 +109,8 @@ type ClerkUserUpdatedEventData = {
   userId: string;
   email?: string;
   role?: string;
-  firstName?: string;
-  lastName?: string;
+  firstName?: string | null;
+  lastName?: string | null;
   previousRole?: string;
 };
 
@@ -139,6 +139,19 @@ export const handleClerkUserUpdated = inngest.createFunction(
       return { processed: false, reason: "No email provided" };
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+    await step.run("sync-convex-user-profile", async () => {
+      return await convexServerCall<{ updatedCount: number }>(
+        "/users/sync-clerk-profile",
+        {
+          clerkUserId: userId,
+          email: normalizedEmail,
+          firstName: firstName ?? null,
+          lastName: lastName ?? null,
+        }
+      );
+    });
+
     const wasInstructor = previousRole === "instructor";
     const isNowInstructor = role === "instructor";
 
@@ -146,7 +159,6 @@ export const handleClerkUserUpdated = inngest.createFunction(
       return { processed: true, action: "no-op", reason: "No instructor role change" };
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
     const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
     if (!wasInstructor && isNowInstructor) {

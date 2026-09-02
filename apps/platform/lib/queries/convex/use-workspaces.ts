@@ -368,6 +368,7 @@ export interface NoteComment {
   noteId: Id<"workspaceNotes">;
   content: string;
   createdBy: string;
+  authorDisplayName: string;
   createdAt: number;
   deletedAt?: number;
   storageId?: string;

@@ -10,6 +10,7 @@ export interface Message {
   content: string;
   type: 'text' | 'image' | 'file';
   senderRole?: 'student' | 'instructor' | 'admin';
+  authorDisplayName: string;
   sessionId?: Id<'sessions'>;
 }
 
