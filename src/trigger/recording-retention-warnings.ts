@@ -123,17 +123,12 @@ async function sendRecordingDeletionWarningEmail(
 export const sendRecordingRetentionWarnings = schedules.task({
   id: "send-recording-retention-warnings",
   cron: "0 10 * * *",
-  maxDuration: 600,
+  maxDuration: 3600,
   run: async (payload) => {
     logger.info("Starting call-recording retention warnings job", {
       timestamp: payload.timestamp,
     });
 
-    // Greptile P2 (cleanup mirror): drain the queue. The HTTP
-    // query is bounded at 500 rows; if the warnings backlog
-    // exceeds that we re-fetch until empty (or hit the safety
-    // cap below).
-    const MAX_ITERATIONS = 20;
     const results = {
       windows: 0,
       emailsSent: 0,
@@ -143,7 +138,8 @@ export const sendRecordingRetentionWarnings = schedules.task({
 
     let cursor: string | null = null;
     const scanStartedAt = Date.now();
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    let iteration = 0;
+    while (true) {
       const query = new URLSearchParams({ now: String(scanStartedAt) });
       if (cursor) query.set("cursor", cursor);
       const page = (await callConvex(
@@ -271,7 +267,11 @@ export const sendRecordingRetentionWarnings = schedules.task({
       }
 
       if (page.isDone) break;
+      if (!page.continueCursor || page.continueCursor === cursor) {
+        throw new Error("Recording warning pagination cursor did not advance");
+      }
       cursor = page.continueCursor;
+      iteration++;
     }
 
     logger.info("Recording retention warnings job completed", results);

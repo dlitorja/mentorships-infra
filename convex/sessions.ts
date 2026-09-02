@@ -1999,17 +1999,22 @@ export const getCallRecordingsForWorkspace = query({
 
     // Dual-read during migration. Only include an unlinked legacy row when
     // its pack chain or a single pair workspace resolves to this workspace.
-    const legacyCandidates = await ctx.db
+    const legacyCandidates = ctx.db
       .query("sessions")
       .withIndex("by_instructorId_studentId", (q) =>
         q
           .eq("instructorId", workspace.instructorId!)
           .eq("studentId", workspace.ownerId)
       )
-      .order("desc")
-      .take(201);
+      .order("desc");
     const resolvedLegacy: Doc<"sessions">[] = [];
-    for (const session of legacyCandidates) {
+    for await (const session of legacyCandidates) {
+      if (
+        session.workspaceId === workspace._id &&
+        session.hasRecordingArtifact === true
+      ) {
+        continue;
+      }
       if (
         session.recordingUrl === undefined &&
         session.recordingTransferStatus === undefined
@@ -2099,7 +2104,6 @@ export const getCallRecordingsForWorkspace = query({
       recordings: visibleRecordings,
       isTruncated:
         linkedSessions.length > targetRecordings ||
-        legacyCandidates.length > 200 ||
         sessionsById.size > targetRecordings,
     };
   },

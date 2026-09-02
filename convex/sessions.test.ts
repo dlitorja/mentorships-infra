@@ -285,3 +285,37 @@ test("legacy workspace resolution uses pack evidence and refuses an ambiguous pa
   expect(resolved.ambiguous).toBeNull();
   expect(resolved.throughPack?._id).toBe(workspaceId);
 });
+
+test("recording query finds an unlinked legacy recording beyond 201 newer sessions", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId, sessionPackId, workspaceId } = await seedWorkspacePair(t);
+  const legacyRecordingId = await t.run(async (ctx) => {
+    const legacyRecordingId = await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: "user_student_sessions",
+      sessionPackId,
+      scheduledAt: Date.now() - 1_000_000,
+      status: "completed",
+      recordingConsent: true,
+      recordingUrl: "recordings/legacy/session.mp4",
+    });
+    for (let index = 0; index < 220; index++) {
+      await ctx.db.insert("sessions", {
+        instructorId,
+        studentId: "user_student_sessions",
+        sessionPackId,
+        scheduledAt: Date.now() + index,
+        status: "completed",
+        recordingConsent: false,
+      });
+    }
+    return legacyRecordingId;
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_student_sessions" })
+    .query(api.sessions.getCallRecordingsForWorkspace, { workspaceId });
+  expect(result.recordings.map((recording) => recording.sessionId)).toContain(
+    legacyRecordingId
+  );
+});
