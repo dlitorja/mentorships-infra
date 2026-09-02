@@ -1997,18 +1997,46 @@ export const getCallRecordingsForWorkspace = query({
       .order("desc")
       .take(targetRecordings + 1);
 
-    // Dual-read during migration. Only include an unlinked legacy row when
-    // its pack chain or a single pair workspace resolves to this workspace.
-    const legacyCandidates = ctx.db
-      .query("sessions")
-      .withIndex("by_instructorId_studentId", (q) =>
-        q
-          .eq("instructorId", workspace.instructorId!)
-          .eq("studentId", workspace.ownerId)
-      )
-      .order("desc");
+    // Dual-read during migration using recording-specific indexes. This keeps
+    // the transitional read bounded by recordings rather than total sessions.
+    const transferStatuses = [
+      "pending",
+      "uploading",
+      "ready",
+      "failed",
+      "purged",
+    ] as const;
+    const [legacyUrls, ...legacyStatusGroups] = await Promise.all([
+      ctx.db
+        .query("sessions")
+        .withIndex("by_instructorId_and_studentId_and_recordingUrl", (q) =>
+          q
+            .eq("instructorId", workspace.instructorId!)
+            .eq("studentId", workspace.ownerId)
+            .gt("recordingUrl", "")
+        )
+        .take(targetRecordings + 1),
+      ...transferStatuses.map((status) =>
+        ctx.db
+          .query("sessions")
+          .withIndex(
+            "by_instructor_student_transferStatus_callStartedAt",
+            (q) =>
+              q
+                .eq("instructorId", workspace.instructorId!)
+                .eq("studentId", workspace.ownerId)
+                .eq("recordingTransferStatus", status)
+          )
+          .order("desc")
+          .take(targetRecordings + 1)
+      ),
+    ]);
+    const legacyCandidates = [...legacyUrls, ...legacyStatusGroups.flat()];
+    const legacyScanTruncated = [legacyUrls, ...legacyStatusGroups].some(
+      (group) => group.length > targetRecordings
+    );
     const resolvedLegacy: Doc<"sessions">[] = [];
-    for await (const session of legacyCandidates) {
+    for (const session of legacyCandidates) {
       if (
         session.workspaceId === workspace._id &&
         session.hasRecordingArtifact === true
@@ -2104,6 +2132,7 @@ export const getCallRecordingsForWorkspace = query({
       recordings: visibleRecordings,
       isTruncated:
         linkedSessions.length > targetRecordings ||
+        legacyScanTruncated ||
         sessionsById.size > targetRecordings,
     };
   },
