@@ -154,8 +154,6 @@ async function resolveAuthorDisplayNames(
       const displayName =
         (role === "instructor" ? instructor?.name?.trim() : undefined) ||
         userName ||
-        user?.email?.trim() ||
-        (role === "instructor" ? instructor?.email?.trim() : undefined) ||
         (role === "admin" ? "Admin" : role === "instructor" ? "Instructor" : "Student");
       return [author.userId, displayName] as const;
     })

@@ -102,12 +102,12 @@ export async function GET(
 }
 
 function resolveUserName(
-  userProfile: { firstName?: string; lastName?: string; email: string } | null,
+  userProfile: { firstName?: string; lastName?: string } | null,
   role: "owner" | "participant"
 ): string {
   const fullName = [userProfile?.firstName, userProfile?.lastName]
     .filter(Boolean)
     .join(" ")
     .trim();
-  return fullName || userProfile?.email || (role === "owner" ? "Instructor" : "Student");
+  return fullName || (role === "owner" ? "Instructor" : "Student");
 }

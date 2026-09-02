@@ -66,7 +66,7 @@ function mockSession({
   role: "owner" | "participant";
   recordingConsent: boolean;
   roomRecordingEnabled: boolean | null | undefined;
-  profile?: { firstName?: string; lastName?: string; email: string } | null;
+  profile?: { firstName?: string; lastName?: string; email?: string } | null;
 }): void {
   mockFetchQuery
     .mockResolvedValueOnce({ role, recordingConsent, roomRecordingEnabled })
@@ -178,7 +178,7 @@ describe("GET /api/video/token/[roomName]", () => {
     );
   });
 
-  it("uses email and then a role label when the Convex profile has no name", async () => {
+  it("uses a role label when the Convex profile has no name", async () => {
     mockSession({
       role: "participant",
       recordingConsent: true,
@@ -190,7 +190,7 @@ describe("GET /api/video/token/[roomName]", () => {
       params: Promise.resolve({ roomName: "room-1" }),
     });
     expect(mockCreateMeetingToken).toHaveBeenLastCalledWith(
-      expect.objectContaining({ userName: "student@example.com" })
+      expect.objectContaining({ userName: "Student" })
     );
 
     mockSession({
