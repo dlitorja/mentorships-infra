@@ -14,6 +14,7 @@ import {
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
+type AuthorRole = Exclude<WorkspaceRole, null>;
 type WorkspaceCtx = QueryCtx | MutationCtx;
 
 async function isAdmin(ctx: WorkspaceCtx, userId: string): Promise<boolean> {
@@ -122,6 +123,44 @@ async function getCallerWorkspaceRole(
   const role = await getWorkspaceRole(ctx, workspace, identity.subject);
   if (!role) return null;
   return { role, workspace };
+}
+
+async function resolveAuthorDisplayNames(
+  ctx: QueryCtx,
+  workspace: Pick<Doc<"workspaces">, "instructorId">,
+  authors: Array<{ userId: string; role?: AuthorRole }>
+): Promise<Map<string, string>> {
+  const uniqueAuthors = new Map(authors.map((author) => [author.userId, author]));
+  const resolved = await Promise.all(
+    [...uniqueAuthors.values()].map(async (author) => {
+      const [user, instructor] = await Promise.all([
+        ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", author.userId))
+          .first(),
+        ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", author.userId))
+          .first(),
+      ]);
+      const role: AuthorRole =
+        author.role ??
+        (user?.role === "admin"
+          ? "admin"
+          : instructor && instructor._id === workspace.instructorId
+            ? "instructor"
+            : "student");
+      const userName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+      const displayName =
+        (role === "instructor" ? instructor?.name?.trim() : undefined) ||
+        userName ||
+        user?.email?.trim() ||
+        (role === "instructor" ? instructor?.email?.trim() : undefined) ||
+        (role === "admin" ? "Admin" : role === "instructor" ? "Instructor" : "Student");
+      return [author.userId, displayName] as const;
+    })
+  );
+  return new Map(resolved);
 }
 
 /**
@@ -1148,12 +1187,21 @@ export const getNoteComments = query({
       return [];
     }
 
-    return await ctx.db
+    const comments = await ctx.db
       .query("workspaceNoteComments")
       .withIndex("by_noteId", (q) => q.eq("noteId", args.noteId))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .order("asc")
       .collect();
+    const authorDisplayNames = await resolveAuthorDisplayNames(
+      ctx,
+      workspace,
+      comments.map((comment) => ({ userId: comment.createdBy }))
+    );
+    return comments.map((comment) => ({
+      ...comment,
+      authorDisplayName: authorDisplayNames.get(comment.createdBy) ?? "Student",
+    }));
   },
 });
 
@@ -1893,11 +1941,20 @@ export const getWorkspaceMessages = query({
     if (!result) {
       return [];
     }
-    return await ctx.db
+    const messages = await ctx.db
       .query("workspaceMessages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .order("asc")
       .collect();
+    const authorDisplayNames = await resolveAuthorDisplayNames(
+      ctx,
+      result.workspace,
+      messages.map((message) => ({ userId: message.userId, role: message.senderRole }))
+    );
+    return messages.map((message) => ({
+      ...message,
+      authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
+    }));
   },
 });
 
@@ -1921,11 +1978,23 @@ export const getWorkspaceMessagesPaginated = query({
     if (!result) {
       return { page: [], continueCursor: "", isDone: true };
     }
-    return await ctx.db
+    const messages = await ctx.db
       .query("workspaceMessages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .order("desc")
       .paginate(args.paginationOpts);
+    const authorDisplayNames = await resolveAuthorDisplayNames(
+      ctx,
+      result.workspace,
+      messages.page.map((message) => ({ userId: message.userId, role: message.senderRole }))
+    );
+    return {
+      ...messages,
+      page: messages.page.map((message) => ({
+        ...message,
+        authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
+      })),
+    };
   },
 });
 

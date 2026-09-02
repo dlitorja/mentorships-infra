@@ -61,16 +61,16 @@ function mockSession({
   role,
   recordingConsent,
   roomRecordingEnabled,
+  profile = { firstName: "Test", lastName: "User", email: "test@example.com" },
 }: {
-  role: "owner" | "student";
+  role: "owner" | "participant";
   recordingConsent: boolean;
   roomRecordingEnabled: boolean | null | undefined;
+  profile?: { firstName?: string; lastName?: string; email: string } | null;
 }): void {
-  mockFetchQuery.mockResolvedValue({
-    role,
-    recordingConsent,
-    roomRecordingEnabled,
-  });
+  mockFetchQuery
+    .mockResolvedValueOnce({ role, recordingConsent, roomRecordingEnabled })
+    .mockResolvedValueOnce(profile);
 }
 
 function mockAuthenticatedAuth(): void {
@@ -175,6 +175,35 @@ describe("GET /api/video/token/[roomName]", () => {
         isOwner: true,
         startCloudRecording: true,
       })
+    );
+  });
+
+  it("uses email and then a role label when the Convex profile has no name", async () => {
+    mockSession({
+      role: "participant",
+      recordingConsent: true,
+      roomRecordingEnabled: true,
+      profile: { email: "student@example.com" },
+    });
+
+    await GET(tokenRequest("room-1"), {
+      params: Promise.resolve({ roomName: "room-1" }),
+    });
+    expect(mockCreateMeetingToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ userName: "student@example.com" })
+    );
+
+    mockSession({
+      role: "participant",
+      recordingConsent: true,
+      roomRecordingEnabled: true,
+      profile: null,
+    });
+    await GET(tokenRequest("room-2"), {
+      params: Promise.resolve({ roomName: "room-2" }),
+    });
+    expect(mockCreateMeetingToken).toHaveBeenLastCalledWith(
+      expect.objectContaining({ userName: "Student" })
     );
   });
 

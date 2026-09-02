@@ -21,6 +21,7 @@ const modules = import.meta.glob("./**/*.ts");
  *   - POST /instructors/deactivate-by-user-id
  *   - POST /users/set-role
  *   - POST /users/set-clerk-id
+ *   - POST /users/sync-clerk-profile
  */
 
 function bearerHeaders(key: string): Record<string, string> {
@@ -74,6 +75,93 @@ test("http endpoints: 401 with wrong bearer", async () => {
     body: JSON.stringify({ userId: "user_x" }),
   });
   expect(r.status).toBe(401);
+});
+
+test("http /users/sync-clerk-profile: updates linked and split rows", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_student_profile",
+      clerkId: "user_student_profile",
+      email: "old@example.com",
+      firstName: "Old",
+      role: "student",
+    });
+    await ctx.db.insert("users", {
+      userId: "email:old@example.com",
+      clerkId: "placeholder_split",
+      email: "old@example.com",
+      firstName: "Old",
+      role: "student",
+      onboardingAlias: "split-profile",
+    });
+  });
+
+  const response = await t.fetch("/users/sync-clerk-profile", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      clerkUserId: "user_student_profile",
+      email: "NEW@example.com",
+      firstName: "Updated",
+      lastName: "Student",
+    }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ updatedCount: 2 });
+
+  const users = await t.run(async (ctx) => await ctx.db.query("users").collect());
+  expect(users).toHaveLength(2);
+  expect(users).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        email: "new@example.com",
+        firstName: "Updated",
+        lastName: "Student",
+      }),
+      expect.objectContaining({
+        email: "new@example.com",
+        firstName: "Updated",
+        lastName: "Student",
+        onboardingAlias: "split-profile",
+      }),
+    ])
+  );
+});
+
+test("http /users/sync-clerk-profile: clears removed names", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_clear_name",
+      clerkId: "user_clear_name",
+      email: "clear@example.com",
+      firstName: "Remove",
+      lastName: "Me",
+      role: "student",
+    });
+  });
+
+  const response = await t.fetch("/users/sync-clerk-profile", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      clerkUserId: "user_clear_name",
+      email: "clear@example.com",
+      firstName: null,
+      lastName: null,
+    }),
+  });
+  expect(response.status).toBe(200);
+
+  const user = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", "user_clear_name")).first()
+  );
+  expect(user?.firstName).toBeUndefined();
+  expect(user?.lastName).toBeUndefined();
 });
 
 test("http endpoints: 200 with valid bearer, body shape correct", async () => {
