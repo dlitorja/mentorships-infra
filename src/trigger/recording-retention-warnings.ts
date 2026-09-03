@@ -150,6 +150,13 @@ export const processRecordingRetentionWarningPage = task({
       windows: items.length,
       emailsSent: 0,
       emailsFailed: 0,
+      // Greptile R5 P2: track failures that cannot be recovered by the
+      // next daily scan. A `daysUntilDeletion === 1` failure is fatal
+      // because the cleanup task may purge the recording before the
+      // following morning's cron can re-issue the warning — we re-throw
+      // at the end of the page so Trigger.dev retries the whole page and
+      // `createRecordingRetentionNotification` dedupes already-sent rows.
+      urgentFailures: 0,
       skippedNoEmail: 0,
       nextPageQueued: false,
     };
@@ -245,6 +252,9 @@ export const processRecordingRetentionWarningPage = task({
           results.emailsFailed++;
           const message =
             error instanceof Error ? error.message : String(error);
+          if (window.daysUntilDeletion === 1) {
+            results.urgentFailures += 1;
+          }
           if (notificationId) {
             try {
               await callConvex("/recording-retention/notify/finalize", {
@@ -268,10 +278,27 @@ export const processRecordingRetentionWarningPage = task({
           logger.error("Failed to send recording retention warning", {
             sessionId: window.sessionId,
             recipientUserId: recipient.userId,
+            daysUntilDeletion: window.daysUntilDeletion,
             error: message,
           });
         }
       }
+    }
+
+    // Greptile R5 P2: re-throw when a 1-day warning failed so the
+    // Trigger.dev retry budget kicks in. Already-sent recipients are
+    // deduped by `createRecordingRetentionNotification` (the existing
+    // `sent` row returns `skipped: true`), so a retry only re-attempts
+    // the failed ones. 30/7-day failures are logged but not rethrown —
+    // the next daily cron has 6+ days of headroom to retry.
+    if (results.urgentFailures > 0) {
+      logger.error("One-day recording warning failed; retrying page", {
+        pageNumber: payload.pageNumber,
+        urgentFailures: results.urgentFailures,
+      });
+      throw new Error(
+        `${results.urgentFailures} one-day recording warning(s) failed on page ${payload.pageNumber}`
+      );
     }
 
     logger.info("Recording warning page completed", results);

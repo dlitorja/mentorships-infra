@@ -254,7 +254,15 @@ export default function CallsTab({
   const hasNextPage = recordingsQuery.hasNextPage ?? false;
   const groupedRecordings = groupRecordingsByDate(recordings);
 
-  if (recordings.length === 0) {
+  // Greptile R5 P2 (calls-tab.tsx:257): an empty filtered slice with
+  // `hasNextPage` still set means the cursor advanced past recordings
+  // that belong to OTHER workspaces in the same instructor x student
+  // pair. If we early-return the empty state the user never gets the
+  // "Load more" button — older recordings for THIS workspace remain
+  // unreachable. Render the empty state only when the cursor is
+  // actually exhausted; otherwise let the Load more control below
+  // surface so the user can advance the cursor themselves.
+  if (recordings.length === 0 && !hasNextPage) {
     return (
       <Card className="border-dashed">
         <CardContent className="pt-6 pb-6 text-center text-muted-foreground">

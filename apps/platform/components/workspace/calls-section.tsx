@@ -145,7 +145,13 @@ export default function CallsSection({
     recordingsQuery.data?.pages.every((p) => p.isDone) ?? true;
   const hasNextPage = recordingsQuery.hasNextPage ?? false;
 
-  if (recordings.length === 0) {
+  // Greptile R5 P2: an empty filtered slice with `hasNextPage` still
+  // set means the cursor advanced past recordings that belong to
+  // OTHER workspaces in the same instructor x student pair. If we
+  // early-return the empty state the user never gets the "Load more"
+  // button — older recordings for THIS workspace remain unreachable.
+  // Render the empty state only when the cursor is actually exhausted.
+  if (recordings.length === 0 && !hasNextPage) {
     return (
       <section
         aria-label="Call recordings"
