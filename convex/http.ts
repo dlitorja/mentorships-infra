@@ -2125,6 +2125,7 @@ const httpCreateRecordingRetentionNotification = httpAction(async (ctx, request)
     notificationType?: "expiry_warning" | "deleted";
     recordingExpiresAt?: number;
     daysUntilDeletion?: number;
+    forceRetry?: boolean;
   } = {};
   try {
     body = await request.json();
@@ -2163,6 +2164,7 @@ const httpCreateRecordingRetentionNotification = httpAction(async (ctx, request)
       notificationType: body.notificationType!,
       recordingExpiresAt: body.recordingExpiresAt!,
       daysUntilDeletion: body.daysUntilDeletion!,
+      forceRetry: body.forceRetry === true,
     }
   );
 

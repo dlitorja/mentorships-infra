@@ -138,15 +138,24 @@ export const processRecordingRetentionWarningPage = task({
     maxTimeoutInMs: 60_000,
     randomize: true,
   },
-  run: async (payload: WarningPagePayload) => {
+  run: async (payload: WarningPagePayload, { ctx }) => {
     const query = new URLSearchParams({ now: String(payload.scanStartedAt) });
     if (payload.cursor) query.set("cursor", payload.cursor);
     const page = (await callConvex(
       `/recording-retention/for-notification?${query.toString()}`
     )) as NotificationPage;
     const items = page.notifications ?? [];
+    // Greptile R5 P3: when this is a Trigger.dev retry, force the
+    // dedupe to re-claim rows that may still be in `pending` state.
+    // The previous attempt may have left them `pending` because the
+    // failed-status finalize call also failed (Convex outage / network
+    // blip); without the override the staleness check would skip the
+    // re-claim for up to an hour, by which time the daily cleanup may
+    // have purged the recording.
+    const forceRetry = ctx.attempt.number > 1;
     const results = {
       pageNumber: payload.pageNumber,
+      attempt: ctx.attempt.number,
       windows: items.length,
       emailsSent: 0,
       emailsFailed: 0,
@@ -163,6 +172,7 @@ export const processRecordingRetentionWarningPage = task({
 
     logger.info("Processing recording warning page", {
       pageNumber: payload.pageNumber,
+      attempt: ctx.attempt.number,
       windows: items.length,
     });
 
@@ -226,6 +236,7 @@ export const processRecordingRetentionWarningPage = task({
                 notificationType: "expiry_warning",
                 recordingExpiresAt: window.recordingExpiresAt,
                 daysUntilDeletion: window.daysUntilDeletion,
+                forceRetry,
               }),
             }
           )) as { skipped: boolean; id: string };
@@ -279,6 +290,7 @@ export const processRecordingRetentionWarningPage = task({
             sessionId: window.sessionId,
             recipientUserId: recipient.userId,
             daysUntilDeletion: window.daysUntilDeletion,
+            attempt: ctx.attempt.number,
             error: message,
           });
         }
@@ -290,11 +302,12 @@ export const processRecordingRetentionWarningPage = task({
     // deduped by `createRecordingRetentionNotification` (the existing
     // `sent` row returns `skipped: true`), so a retry only re-attempts
     // the failed ones. 30/7-day failures are logged but not rethrown —
-    // the next daily cron has 6+ days of headroom to retry.
+    // the next daily cron has 6+ days of headroom.
     if (results.urgentFailures > 0) {
       logger.error("One-day recording warning failed; retrying page", {
         pageNumber: payload.pageNumber,
         urgentFailures: results.urgentFailures,
+        attempt: ctx.attempt.number,
       });
       throw new Error(
         `${results.urgentFailures} one-day recording warning(s) failed on page ${payload.pageNumber}`

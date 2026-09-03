@@ -258,6 +258,13 @@ export const createRecordingRetentionNotification = internalMutation({
     notificationType: v.union(v.literal("expiry_warning"), v.literal("deleted")),
     recordingExpiresAt: v.number(),
     daysUntilDeletion: v.number(),
+    // Greptile R5 P2: when the caller is a Trigger.dev retry of the
+    // warning-page task, the previous attempt may have left the row
+    // in `pending` state because the failed-status finalize call also
+    // failed (Convex outage / network blip). Without this override the
+    // staleness check would skip the re-claim for up to an hour, by
+    // which time the daily cleanup may have purged the recording.
+    forceRetry: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -274,6 +281,7 @@ export const createRecordingRetentionNotification = internalMutation({
     const now = Date.now();
     if (existing) {
       const retryable =
+        args.forceRetry === true ||
         existing.deliveryStatus === "failed" ||
         (existing.deliveryStatus === "pending" &&
           existing.sentAt <= now - DELIVERY_CLAIM_STALE_MS);
