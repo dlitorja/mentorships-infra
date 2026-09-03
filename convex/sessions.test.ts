@@ -328,3 +328,68 @@ test("recording query finds an unlinked legacy recording beyond 201 newer sessio
     legacyRecordingId
   );
 });
+
+test("recording pagination advances across pages and does not re-emit the same recordings", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId, workspaceId } = await seedWorkspacePair(t);
+  const recordingIds = await t.run(async (ctx) => {
+    const ids: Id<"sessions">[] = [];
+    // 60 recordings all belonging to this workspace, ordered so the
+    // first-inserted row is the OLDEST (callStartedAt in ascending order).
+    // A naive fixed-prefix dual-read would only surface the first
+    // numItems rows on every page and never reach the older recordings.
+    for (let index = 0; index < 60; index++) {
+      ids.push(
+        await ctx.db.insert("sessions", {
+          instructorId,
+          studentId: "user_student_sessions",
+          workspaceId,
+          scheduledAt: Date.now() - 1_000_000 + index * 1000,
+          status: "completed",
+          recordingConsent: true,
+          callStartedAt: Date.now() - 1_000_000 + index * 1000,
+          recordingUrl: `recordings/bulk/${index}.mp4`,
+          recordingTransferStatus: "ready",
+          hasRecordingArtifact: true,
+        })
+      );
+    }
+    return ids;
+  });
+
+  const student = t.withIdentity({ subject: "user_student_sessions" });
+  const pageSize = 25;
+  const seenAcrossPages = new Set<Id<"sessions">>();
+  let cursor: string | null = null;
+  let isDone = false;
+  let pagesFetched = 0;
+
+  while (!isDone) {
+    const result = await student.query(
+      api.sessions.getCallRecordingsForWorkspace,
+      {
+        workspaceId,
+        paginationOpts: { numItems: pageSize, cursor },
+      }
+    );
+    pagesFetched += 1;
+    for (const row of result.page) {
+      // Cursor MUST advance — no session should appear on more than one
+      // page. A re-emit would mean the legacy fixed-prefix leak Greptile
+      // R5 P1 flagged is back.
+      expect(seenAcrossPages.has(row.sessionId)).toBe(false);
+      seenAcrossPages.add(row.sessionId);
+    }
+    isDone = result.isDone;
+    cursor = result.continueCursor;
+    // Belt + suspenders: 4 pages is more than enough for 60 rows at
+    // pageSize 25 (3 pages: 25+25+10). If we ever loop past 4 pages the
+    // cursor is stuck.
+    expect(pagesFetched).toBeLessThanOrEqual(4);
+  }
+
+  expect(seenAcrossPages.size).toBe(60);
+  for (const id of recordingIds) {
+    expect(seenAcrossPages.has(id)).toBe(true);
+  }
+});

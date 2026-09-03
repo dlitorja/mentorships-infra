@@ -1993,44 +1993,24 @@ export const getCallRecordingsForWorkspace = query({
 
     const requestedItems = args.paginationOpts.numItems;
     const numItems = Math.min(Math.max(requestedItems, 1), 50);
-    const targetRecordings = numItems;
 
-    const linkedPage = await ctx.db
-      .query("sessions")
-      .withIndex(
-        "by_workspaceId_and_hasRecordingArtifact_and_callStartedAt",
-        (q) =>
-          q
-            .eq("workspaceId", workspace._id)
-            .eq("hasRecordingArtifact", true)
-      )
-      .order("desc")
-      .paginate({ numItems, cursor: args.paginationOpts.cursor });
-
-    // Dual-read during migration using recording-specific indexes. Both indexes
-    // order by `callStartedAt` as the trailing field, so a workspace with more
-    // than 50 recording-bearing sessions always returns the most recent calls
-    // even if some are still pending the workspaceId / hasRecordingArtifact
-    // backfill. The legacy path catches rows that have been recorded but whose
-    // recording lifecycle fields haven't been migrated yet; the
-    // transfer-status path catches active and recently-purged recordings.
+    // Greptile R5 P1: paginate the pair-wide recording index directly so the
+    // cursor advances naturally across pages. The previous design dual-read a
+    // workspaceId-backed index AND scanned a fixed (targetRecordings + 1)
+    // prefix of two legacy indexes, which meant that once the linked cursor
+    // reported `isDone: true` the function still reported `isDone: false`
+    // (because the legacy scans could keep filling), while older recordings
+    // past that fixed prefix were never reached on any page.
     //
-    // We use `.take()` on the legacy indexes (not `.paginate()`) because
-    // Convex limits a function to one `.paginate()` call per execution —
-    // the linked-sessions read above already consumes that budget. The
-    // legacy scans always start from the most recent pair-wide rows and
-    // bound their reads at (targetRecordings + 1) per index. The
-    // resolver then filters down to recordings that actually belong to
-    // THIS workspace. Subsequent pages re-scan the legacy indexes from
-    // scratch and dedupe by `_id` against the already-returned set.
-    const transferStatuses = [
-      "pending",
-      "uploading",
-      "ready",
-      "failed",
-      "purged",
-    ] as const;
-    const legacyArtifact: Doc<"sessions">[] = await ctx.db
+    // The chosen index covers BOTH post-migration rows (where
+    // `workspaceId` is set and `hasRecordingArtifact === true`) AND
+    // pre-migration rows that have a `recordingUrl` written but predate the
+    // workspaceId backfill, because every code path that writes a recording
+    // URL also flips `hasRecordingArtifact` to true (see
+    // `attachRecordingFromB2Upload` and the calendar-event sync at
+    // `createSession`). The resolver below dedupes by `_id` so the user only
+    // sees recordings that actually belong to THIS workspace.
+    const candidatePage = await ctx.db
       .query("sessions")
       .withIndex(
         "by_instructor_student_hasRecordingArtifact_callStartedAt",
@@ -2041,64 +2021,31 @@ export const getCallRecordingsForWorkspace = query({
             .eq("hasRecordingArtifact", true)
       )
       .order("desc")
-      .take(targetRecordings + 1);
-    const legacyStatusGroups: Doc<"sessions">[][] = await Promise.all(
-      transferStatuses.map((status) =>
-        ctx.db
-          .query("sessions")
-          .withIndex(
-            "by_instructor_student_transferStatus_callStartedAt",
-            (q) =>
-              q
-                .eq("instructorId", workspace.instructorId!)
-                .eq("studentId", workspace.ownerId)
-                .eq("recordingTransferStatus", status)
-          )
-          .order("desc")
-          .take(targetRecordings + 1)
-      )
-    );
-    const legacyCandidates = [...legacyArtifact, ...legacyStatusGroups.flat()];
-    const legacyScanTruncated = [legacyArtifact, ...legacyStatusGroups].some(
-      (group) => group.length > targetRecordings
-    );
-    const resolvedLegacy: Doc<"sessions">[] = [];
-    for (const session of legacyCandidates) {
-      if (
-        session.workspaceId === workspace._id &&
-        session.hasRecordingArtifact === true
-      ) {
-        continue;
-      }
+      .paginate({ numItems, cursor: args.paginationOpts.cursor });
+
+    const resolvedSessions: Doc<"sessions">[] = [];
+    const seenIds = new Set<Id<"sessions">>();
+    for (const session of candidatePage.page) {
+      if (seenIds.has(session._id)) continue;
+      if (session.deletedAt !== undefined) continue;
       if (
         session.recordingUrl === undefined &&
         session.recordingTransferStatus === undefined
       ) {
         continue;
       }
+      seenIds.add(session._id);
       if (session.workspaceId !== undefined) {
-        if (session.workspaceId === workspace._id) resolvedLegacy.push(session);
+        if (session.workspaceId === workspace._id) {
+          resolvedSessions.push(session);
+        }
         continue;
       }
       const resolvedWorkspace = await resolveSessionWorkspace(ctx, session);
       if (resolvedWorkspace?._id === workspace._id) {
-        resolvedLegacy.push(session);
+        resolvedSessions.push(session);
       }
     }
-
-    const sessionsById = new Map(
-      [...linkedPage.page, ...resolvedLegacy].map((session) => [
-        session._id,
-        session,
-      ])
-    );
-    const candidateSessions = [...sessionsById.values()]
-      .sort(
-        (a, b) =>
-          (b.callStartedAt ?? b._creationTime) -
-          (a.callStartedAt ?? a._creationTime)
-      )
-      .slice(0, targetRecordings);
 
     const ownerUser = await ctx.db
       .query("users")
@@ -2109,21 +2056,7 @@ export const getCallRecordingsForWorkspace = query({
       ownerUser?.email ||
       null;
 
-    const visibleRecordings: CallRecording[] = candidateSessions
-      .filter((s) => {
-        if (s.deletedAt !== undefined) return false;
-        // Include the row if EITHER the legacy gate (recordingUrl set)
-        // OR the new transfer-pipeline gate (any non-null transfer
-        // status, including `pending`/`uploading`/`failed`/`purged`).
-        // `purged` is included so the UI can render a "Deleted on
-        // [date]" pill instead of silently dropping the row — the
-        // audit trail matters when the user reports "where did my
-        // recording go?"
-        return (
-          s.recordingUrl !== undefined ||
-          s.recordingTransferStatus !== undefined
-        );
-      })
+    const visibleRecordings: CallRecording[] = resolvedSessions
       .map((s) => ({
         sessionId: s._id,
         callStartedAt: s.callStartedAt ?? null,
@@ -2147,26 +2080,29 @@ export const getCallRecordingsForWorkspace = query({
         recordingDeletedAt: s.recordingDeletedAt ?? null,
       }))
       // Sort by callStartedAt desc — nulls last so ad-hoc calls
-      // with no start timestamp sink to the bottom.
+      // with no start timestamp sink to the bottom. This sorts the
+      // slice we read for the page so the user sees most-recent-first
+      // even when some rows in the underlying pair-wide scan belong
+      // to a different workspace and were filtered out above.
       .sort((a, b) => {
         if (a.callStartedAt === null && b.callStartedAt === null) return 0;
         if (a.callStartedAt === null) return 1;
         if (b.callStartedAt === null) return -1;
         return b.callStartedAt - a.callStartedAt;
-      });
+      })
+      .slice(0, numItems);
 
-    // Take the visibleRecordings slice for this page so subsequent calls
-    // don't keep re-emitting the same rows. The cursor returned is the
-    // linked-sessions index cursor — legacy reads re-scan from scratch
-    // and dedupe by `_id` across pages.
-    const pagedSlice = visibleRecordings.slice(0, numItems);
-    const linkedContinue = linkedPage.continueCursor;
-    const isDone = linkedPage.isDone && !legacyScanTruncated;
-
+    // Greptile R5 P1: report `isDone` based on the pair-wide paginate,
+    // not on whether the resolver produced `numItems` rows. If the
+    // candidate page was filled but the resolver dropped everything
+    // (e.g. all rows belonged to a different workspace), we still
+    // forward the cursor — otherwise the UI would loop forever.
+    // The cursor advances naturally as the underlying index walk
+    // progresses, so older recordings remain reachable across pages.
     return {
-      page: pagedSlice,
-      isDone,
-      continueCursor: linkedContinue,
+      page: visibleRecordings,
+      isDone: candidatePage.isDone,
+      continueCursor: candidatePage.continueCursor,
     };
   },
 });
