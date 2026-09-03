@@ -1953,25 +1953,32 @@ export type CallRecording = {
 };
 
 export const getCallRecordingsForWorkspace = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    paginationOpts: paginationOptsValidator,
+  },
   handler: async (
     ctx,
     args
-  ): Promise<{ recordings: CallRecording[]; isTruncated: boolean }> => {
+  ): Promise<{
+    page: CallRecording[];
+    isDone: boolean;
+    continueCursor: string;
+  }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      return { recordings: [], isTruncated: false };
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
-      return { recordings: [], isTruncated: false };
+      return { page: [], isDone: true, continueCursor: "" };
     }
     if (workspace.deletedAt !== undefined) {
-      return { recordings: [], isTruncated: false };
+      return { page: [], isDone: true, continueCursor: "" };
     }
     if (workspace.instructorId === undefined) {
-      return { recordings: [], isTruncated: false };
+      return { page: [], isDone: true, continueCursor: "" };
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
@@ -1984,8 +1991,11 @@ export const getCallRecordingsForWorkspace = query({
       throw new Error("Forbidden");
     }
 
-    const targetRecordings = 50;
-    const linkedSessions = await ctx.db
+    const requestedItems = args.paginationOpts.numItems;
+    const numItems = Math.min(Math.max(requestedItems, 1), 50);
+    const targetRecordings = numItems;
+
+    const linkedPage = await ctx.db
       .query("sessions")
       .withIndex(
         "by_workspaceId_and_hasRecordingArtifact_and_callStartedAt",
@@ -1995,7 +2005,7 @@ export const getCallRecordingsForWorkspace = query({
             .eq("hasRecordingArtifact", true)
       )
       .order("desc")
-      .take(targetRecordings + 1);
+      .paginate({ numItems, cursor: args.paginationOpts.cursor });
 
     // Dual-read during migration using recording-specific indexes. Both indexes
     // order by `callStartedAt` as the trailing field, so a workspace with more
@@ -2004,6 +2014,15 @@ export const getCallRecordingsForWorkspace = query({
     // backfill. The legacy path catches rows that have been recorded but whose
     // recording lifecycle fields haven't been migrated yet; the
     // transfer-status path catches active and recently-purged recordings.
+    //
+    // We use `.take()` on the legacy indexes (not `.paginate()`) because
+    // Convex limits a function to one `.paginate()` call per execution —
+    // the linked-sessions read above already consumes that budget. The
+    // legacy scans always start from the most recent pair-wide rows and
+    // bound their reads at (targetRecordings + 1) per index. The
+    // resolver then filters down to recordings that actually belong to
+    // THIS workspace. Subsequent pages re-scan the legacy indexes from
+    // scratch and dedupe by `_id` against the already-returned set.
     const transferStatuses = [
       "pending",
       "uploading",
@@ -2068,7 +2087,7 @@ export const getCallRecordingsForWorkspace = query({
     }
 
     const sessionsById = new Map(
-      [...linkedSessions, ...resolvedLegacy].map((session) => [
+      [...linkedPage.page, ...resolvedLegacy].map((session) => [
         session._id,
         session,
       ])
@@ -2136,12 +2155,18 @@ export const getCallRecordingsForWorkspace = query({
         return b.callStartedAt - a.callStartedAt;
       });
 
+    // Take the visibleRecordings slice for this page so subsequent calls
+    // don't keep re-emitting the same rows. The cursor returned is the
+    // linked-sessions index cursor — legacy reads re-scan from scratch
+    // and dedupe by `_id` across pages.
+    const pagedSlice = visibleRecordings.slice(0, numItems);
+    const linkedContinue = linkedPage.continueCursor;
+    const isDone = linkedPage.isDone && !legacyScanTruncated;
+
     return {
-      recordings: visibleRecordings,
-      isTruncated:
-        linkedSessions.length > targetRecordings ||
-        legacyScanTruncated ||
-        sessionsById.size > targetRecordings,
+      page: pagedSlice,
+      isDone,
+      continueCursor: linkedContinue,
     };
   },
 });

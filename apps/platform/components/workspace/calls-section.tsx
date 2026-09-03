@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
@@ -13,9 +13,14 @@ import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
 import RecordingPlayerModal from "./recording-player-modal";
 
+const PAGE_SIZE = 25;
+
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
->["recordings"][number];
+>["page"][number];
+type CallRecordingPage = FunctionReturnType<
+  typeof api.sessions.getCallRecordingsForWorkspace
+>;
 
 /**
  * PR #4c-1 + video-recording-to-b2: Calls sub-section at the top of
@@ -47,11 +52,35 @@ interface CallsSectionProps {
 export default function CallsSection({
   workspaceId,
 }: CallsSectionProps): React.ReactElement {
-  const recordingsQuery = useQuery(
-    convexQuery(api.sessions.getCallRecordingsForWorkspace, {
-      workspaceId,
-    })
-  );
+  const recordingsQuery = useInfiniteQuery({
+    queryKey: convexQuery(
+      api.sessions.getCallRecordingsForWorkspace,
+      {
+        workspaceId,
+        paginationOpts: { numItems: PAGE_SIZE, cursor: null },
+      }
+    ).queryKey,
+    queryFn: (ctx) => {
+      const opts = convexQuery(
+        api.sessions.getCallRecordingsForWorkspace,
+        {
+          workspaceId,
+          paginationOpts: {
+            numItems: PAGE_SIZE,
+            cursor: (ctx.pageParam ?? null) as string | null,
+          },
+        }
+      );
+      const fn = opts.queryFn;
+      if (!fn) {
+        throw new Error("convexQuery returned no queryFn — ConvexQueryClient not connected");
+      }
+      return fn(ctx) as Promise<CallRecordingPage>;
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: CallRecordingPage) =>
+      lastPage.isDone ? undefined : lastPage.continueCursor,
+  });
   const [openSessionId, setOpenSessionId] =
     useState<Id<"sessions"> | null>(null);
 
@@ -101,14 +130,20 @@ export default function CallsSection({
     );
   }
 
-  // CodeRabbit R5: the previous `as CallRecording[]` cast was a
-  // hand-rolled type mirror that drifted from the actual query
-  // return shape. We use the inferred type from
-  // `recordingsQuery.data ?? []` so any future shape change in
-  // `getCallRecordingsForWorkspace` surfaces as a tsc error here
-  // instead of silently being masked by the cast.
-  const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
-  const isTruncated = recordingsQuery.data?.isTruncated ?? false;
+  // De-dup pages by session id in case a legacy dual-read returns an
+  // already-shown row on a later page.
+  const seen = new Set<Id<"sessions">>();
+  const recordings: CallRecording[] = [];
+  for (const page of recordingsQuery.data?.pages ?? []) {
+    for (const recording of page.page) {
+      if (seen.has(recording.sessionId)) continue;
+      seen.add(recording.sessionId);
+      recordings.push(recording);
+    }
+  }
+  const isDone =
+    recordingsQuery.data?.pages.every((p) => p.isDone) ?? true;
+  const hasNextPage = recordingsQuery.hasNextPage ?? false;
 
   if (recordings.length === 0) {
     return (
@@ -148,11 +183,6 @@ export default function CallsSection({
           ({recordings.length})
         </span>
       </div>
-      {isTruncated && (
-        <p className="px-1 text-xs text-muted-foreground">
-          Showing the most recent recordings. Some calls may not be listed.
-        </p>
-      )}
 
       <ul className="divide-y">
         {recordings.map((recording) => (
@@ -163,6 +193,24 @@ export default function CallsSection({
           />
         ))}
       </ul>
+
+      {!isDone && hasNextPage ? (
+        <div className="flex justify-center pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => recordingsQuery.fetchNextPage()}
+            disabled={recordingsQuery.isFetchingNextPage}
+            aria-label="Load more recordings"
+          >
+            {recordingsQuery.isFetchingNextPage ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+            ) : null}
+            {recordingsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+          </Button>
+        </div>
+      ) : null}
 
       {openRecording ? (
         <RecordingPlayerModal

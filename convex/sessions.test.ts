@@ -186,16 +186,16 @@ test("recordings stay isolated to their workspace and remain readable after it e
 
   const endedRecordings = await student.query(
     api.sessions.getCallRecordingsForWorkspace,
-    { workspaceId: endedWorkspaceId }
+    { workspaceId: endedWorkspaceId, paginationOpts: { numItems: 50, cursor: null } }
   );
   const activeRecordings = await student.query(
     api.sessions.getCallRecordingsForWorkspace,
-    { workspaceId: activeWorkspaceId }
+    { workspaceId: activeWorkspaceId, paginationOpts: { numItems: 50, cursor: null } }
   );
-  expect(endedRecordings.recordings.map((row) => row.sessionId)).toEqual([
+  expect(endedRecordings.page.map((row) => row.sessionId)).toEqual([
     endedSessionId,
   ]);
-  expect(activeRecordings.recordings).toHaveLength(1);
+  expect(activeRecordings.page).toHaveLength(1);
 
   const endedWorkspace = await student.query(
     api.workspaces.getWorkspaceByIdForUser,
@@ -236,8 +236,9 @@ test("recordings stay isolated to their workspace and remain readable after it e
   expect(
     await student.query(api.sessions.getCallRecordingsForWorkspace, {
       workspaceId: endedWorkspaceId,
+      paginationOpts: { numItems: 50, cursor: null },
     })
-  ).toEqual({ recordings: [], isTruncated: false });
+  ).toEqual({ page: [], isDone: true, continueCursor: "" });
   expect(
     await student.query(api.workspaces.getSessionParticipantForRecording, {
       sessionId: endedSessionId,
@@ -319,8 +320,11 @@ test("recording query finds an unlinked legacy recording beyond 201 newer sessio
 
   const result = await t
     .withIdentity({ subject: "user_student_sessions" })
-    .query(api.sessions.getCallRecordingsForWorkspace, { workspaceId });
-  expect(result.recordings.map((recording) => recording.sessionId)).toContain(
+    .query(api.sessions.getCallRecordingsForWorkspace, {
+      workspaceId,
+      paginationOpts: { numItems: 50, cursor: null },
+    });
+  expect(result.page.map((recording) => recording.sessionId)).toContain(
     legacyRecordingId
   );
 });
