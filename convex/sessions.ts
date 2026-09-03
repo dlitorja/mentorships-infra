@@ -2010,6 +2010,21 @@ export const getCallRecordingsForWorkspace = query({
     // `attachRecordingFromB2Upload` and the calendar-event sync at
     // `createSession`). The resolver below dedupes by `_id` so the user only
     // sees recordings that actually belong to THIS workspace.
+    //
+    // Greptile R5 P5: the paginated index only matches rows where
+    // `hasRecordingArtifact === true`. Pre-migration rows that ONLY
+    // have `recordingTransferStatus` set (the late-stage transfer
+    // pipeline flipped transfer status BEFORE the workspace backfill
+    // ran `hasRecordingArtifact`) would be invisible to this query
+    // until the backfill completes. A secondary `.take()` per
+    // transfer-status value was tried here but the lack of a stable
+    // cursor on the secondary scan (only one `.paginate()` per query
+    // function execution is allowed) caused those rows to re-emit on
+    // every page. The chosen mitigation is the deploy-time
+    // pre-requisite documented below — `backfillSessionWorkspaceLinks`
+    // flips `hasRecordingArtifact` on every row that has a recording
+    // URL or transfer status, so this query is correct post-backfill.
+    // The migration is idempotent and safe to re-run.
     const candidatePage = await ctx.db
       .query("sessions")
       .withIndex(
@@ -2023,6 +2038,17 @@ export const getCallRecordingsForWorkspace = query({
       .order("desc")
       .paginate({ numItems, cursor: args.paginationOpts.cursor });
 
+    // Resolve workspaceId for each row in the paginated page. Rows whose
+    // `workspaceId` is already set match this workspace directly; rows
+    // pre-dating the backfill fall through to `resolveSessionWorkspace`
+    // which uses pack/pair-workspace evidence to determine the right
+    // workspace. Greptile R5 P5: the paginated index requires
+    // `hasRecordingArtifact === true`. The deploy-time pre-requisite is
+    // that `convex/migrations.ts:backfillSessionWorkspaceLinks` has
+    // completed — it flips `hasRecordingArtifact` on every row that has
+    // a `recordingUrl` or `recordingTransferStatus`, so this query is
+    // correct post-backfill. The migration is idempotent and safe to
+    // re-run.
     const resolvedSessions: Doc<"sessions">[] = [];
     const seenIds = new Set<Id<"sessions">>();
     for (const session of candidatePage.page) {
