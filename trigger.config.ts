@@ -33,22 +33,53 @@ export default defineConfig({
       // `CONVEX_HTTP_KEY`, and the B2 credentials are undefined at
       // runtime in deploy builds and the task fails with
       // "Convex deployment URL or HTTP key not configured".
-      syncEnvVars(async () => [
-        { name: "NEXT_PUBLIC_CONVEX_URL", value: process.env.NEXT_PUBLIC_CONVEX_URL ?? "" },
-        { name: "CONVEX_HTTP_KEY", value: process.env.CONVEX_HTTP_KEY ?? "" },
-        { name: "B2_KEY_ID", value: process.env.B2_KEY_ID ?? "" },
-        { name: "B2_APPLICATION_KEY", value: process.env.B2_APPLICATION_KEY ?? "" },
-        { name: "B2_BUCKET_NAME", value: process.env.B2_BUCKET_NAME ?? "instructor-uploads" },
-        { name: "B2_REGION", value: process.env.B2_REGION ?? "us-west-002" },
-        { name: "B2_ENDPOINT", value: process.env.B2_ENDPOINT ?? "" },
-        { name: "B2_DOWNLOAD_HOST", value: process.env.B2_DOWNLOAD_HOST ?? "download.backblazeb2.com" },
-        { name: "RESEND_API_KEY", value: process.env.RESEND_API_KEY ?? "" },
-        { name: "EMAIL_FROM", value: process.env.EMAIL_FROM ?? "" },
-        { name: "EMAIL_REPLY_TO", value: process.env.EMAIL_REPLY_TO ?? "" },
-        { name: "NEXT_PUBLIC_URL", value: process.env.NEXT_PUBLIC_URL ?? "" },
-        { name: "DAILY_API_KEY", value: process.env.DAILY_API_KEY ?? "" },
-        { name: "TRIGGER_CONVEX_CALLBACK_SECRET", value: process.env.TRIGGER_CONVEX_CALLBACK_SECRET ?? "" },
-      ]),
+      //
+      // IMPORTANT: `syncEnvVars` defaults to `override: true`, which
+      // would overwrite any existing production secret with an empty
+      // string on a deploy from a machine that lacks the secret in
+      // its local env. We guard against that by only emitting a row
+      // when the local process.env value is non-empty. CI deploys
+      // that have these secrets in env still push them; a developer
+      // deploy from a machine without them leaves production env
+      // untouched. Defaults that have safe public fallbacks (B2
+      // bucket name, B2 region, B2 download host) are still emitted
+      // because they're not secrets.
+      syncEnvVars(async () => {
+        const emitted: Array<{ name: string; value: string }> = [];
+        const pushIfPresent = (name: string, raw: string | undefined) => {
+          const value = raw?.trim();
+          if (value && value.length > 0) {
+            emitted.push({ name, value });
+          }
+        };
+        pushIfPresent("NEXT_PUBLIC_CONVEX_URL", process.env.NEXT_PUBLIC_CONVEX_URL);
+        pushIfPresent("CONVEX_HTTP_KEY", process.env.CONVEX_HTTP_KEY);
+        pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
+        pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);
+        pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
+        pushIfPresent("RESEND_API_KEY", process.env.RESEND_API_KEY);
+        pushIfPresent("EMAIL_FROM", process.env.EMAIL_FROM);
+        pushIfPresent("EMAIL_REPLY_TO", process.env.EMAIL_REPLY_TO);
+        pushIfPresent("NEXT_PUBLIC_URL", process.env.NEXT_PUBLIC_URL);
+        pushIfPresent("DAILY_API_KEY", process.env.DAILY_API_KEY);
+        pushIfPresent(
+          "TRIGGER_CONVEX_CALLBACK_SECRET",
+          process.env.TRIGGER_CONVEX_CALLBACK_SECRET
+        );
+        emitted.push({
+          name: "B2_BUCKET_NAME",
+          value: process.env.B2_BUCKET_NAME ?? "instructor-uploads",
+        });
+        emitted.push({
+          name: "B2_REGION",
+          value: process.env.B2_REGION ?? "us-west-002",
+        });
+        emitted.push({
+          name: "B2_DOWNLOAD_HOST",
+          value: process.env.B2_DOWNLOAD_HOST ?? "download.backblazeb2.com",
+        });
+        return emitted;
+      }),
     ],
     external: [
       "archiver",
