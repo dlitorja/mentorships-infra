@@ -280,6 +280,15 @@ export const createRecordingRetentionNotification = internalMutation({
       .first();
     const now = Date.now();
     if (existing) {
+      // Greptile R5 P2/P3: `forceRetry` lets the page task's Trigger.dev
+      // retry bypass the staleness check for rows the previous attempt
+      // left in `pending` (e.g., when the failed-status finalize call
+      // also failed). We never re-send already-`sent` rows — that's
+      // the whole point of the dedupe — so `sent` is always non-retryable
+      // regardless of the override.
+      if (existing.deliveryStatus === "sent") {
+        return { skipped: true, id: existing._id };
+      }
       const retryable =
         args.forceRetry === true ||
         existing.deliveryStatus === "failed" ||
