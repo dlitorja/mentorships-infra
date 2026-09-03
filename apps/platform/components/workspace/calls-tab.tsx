@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
@@ -24,7 +24,12 @@ const syncSuccessResponseSchema = z.object({
 
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
->["recordings"][number];
+>["page"][number];
+type CallRecordingPage = FunctionReturnType<
+  typeof api.sessions.getCallRecordingsForWorkspace
+>;
+
+const RECORDINGS_PAGE_SIZE = 25;
 
 interface CallsTabProps {
   workspaceId: Id<"workspaces">;
@@ -118,11 +123,35 @@ export default function CallsTab({
   workspaceId,
 }: CallsTabProps): React.ReactElement {
   const queryClient = useQueryClient();
-  const recordingsQuery = useQuery(
-    convexQuery(api.sessions.getCallRecordingsForWorkspace, {
-      workspaceId,
-    })
-  );
+  const recordingsQuery = useInfiniteQuery({
+    queryKey: convexQuery(
+      api.sessions.getCallRecordingsForWorkspace,
+      {
+        workspaceId,
+        paginationOpts: { numItems: RECORDINGS_PAGE_SIZE, cursor: null },
+      }
+    ).queryKey,
+    queryFn: (ctx) => {
+      const opts = convexQuery(
+        api.sessions.getCallRecordingsForWorkspace,
+        {
+          workspaceId,
+          paginationOpts: {
+            numItems: RECORDINGS_PAGE_SIZE,
+            cursor: (ctx.pageParam ?? null) as string | null,
+          },
+        }
+      );
+      const fn = opts.queryFn;
+      if (!fn) {
+        throw new Error("convexQuery returned no queryFn — ConvexQueryClient not connected");
+      }
+      return fn(ctx) as Promise<CallRecordingPage>;
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: CallRecordingPage) =>
+      lastPage.isDone ? undefined : lastPage.continueCursor,
+  });
   const canSyncQuery = useQuery(
     convexQuery(api.sessions.canSyncRecordingsForWorkspace, { workspaceId })
   );
@@ -146,9 +175,9 @@ export default function CallsTab({
     },
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({
-        queryKey: convexQuery(api.sessions.getCallRecordingsForWorkspace, {
-          workspaceId: variables.workspaceId,
-        }).queryKey,
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          q.queryKey[1] === api.sessions.getCallRecordingsForWorkspace,
       });
       const lastSyncKey = getLastSyncKey(variables.workspaceId);
       setLastSyncTimestamp(lastSyncKey, Date.now());
@@ -213,11 +242,27 @@ export default function CallsTab({
     );
   }
 
-  const recordings: CallRecording[] = recordingsQuery.data?.recordings ?? [];
-  const isTruncated = recordingsQuery.data?.isTruncated ?? false;
+  const seen = new Set<Id<"sessions">>();
+  const recordings: CallRecording[] = [];
+  for (const page of recordingsQuery.data?.pages ?? []) {
+    for (const recording of page.page) {
+      if (seen.has(recording.sessionId)) continue;
+      seen.add(recording.sessionId);
+      recordings.push(recording);
+    }
+  }
+  const hasNextPage = recordingsQuery.hasNextPage ?? false;
   const groupedRecordings = groupRecordingsByDate(recordings);
 
-  if (recordings.length === 0) {
+  // Greptile R5 P2 (calls-tab.tsx:257): an empty filtered slice with
+  // `hasNextPage` still set means the cursor advanced past recordings
+  // that belong to OTHER workspaces in the same instructor x student
+  // pair. If we early-return the empty state the user never gets the
+  // "Load more" button — older recordings for THIS workspace remain
+  // unreachable. Render the empty state only when the cursor is
+  // actually exhausted; otherwise let the Load more control below
+  // surface so the user can advance the cursor themselves.
+  if (recordings.length === 0 && !hasNextPage) {
     return (
       <Card className="border-dashed">
         <CardContent className="pt-6 pb-6 text-center text-muted-foreground">
@@ -277,10 +322,22 @@ export default function CallsTab({
           {(syncMutation.data?.synced ?? 0) === 1 ? "" : "s"}.
         </p>
       )}
-      {isTruncated && (
-        <p className="text-xs text-muted-foreground">
-          Showing the most recent recordings. Some calls may not be listed.
-        </p>
+      {hasNextPage && (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => recordingsQuery.fetchNextPage()}
+            disabled={recordingsQuery.isFetchingNextPage}
+            aria-label="Load more recordings"
+          >
+            {recordingsQuery.isFetchingNextPage ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+            ) : null}
+            {recordingsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+          </Button>
+        </div>
       )}
 
       <div className="space-y-6">

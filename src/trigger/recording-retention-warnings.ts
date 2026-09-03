@@ -1,4 +1,4 @@
-import { logger, schedules } from "@trigger.dev/sdk";
+import { logger, schedules, task, tasks } from "@trigger.dev/sdk";
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -21,7 +21,19 @@ type NotificationWindow = {
   recipients: NotificationRecipient[];
 };
 
+type NotificationPage = {
+  notifications: NotificationWindow[];
+  continueCursor: string;
+  isDone: boolean;
+};
+
 type UserEmailResponse = { email: string | null };
+
+type WarningPagePayload = {
+  cursor: string | null;
+  scanStartedAt: number;
+  pageNumber: number;
+};
 
 async function callConvex(
   path: string,
@@ -56,21 +68,21 @@ async function callConvex(
  * Schedule: `0 10 * * *` UTC.
  *
  * Pipeline:
- *   1. GET `/recording-retention/for-notification` → array of
+ *   1. The schedule queues one durable task carrying the first-page cursor.
+ *   2. GET `/recording-retention/for-notification` → array of
  *      sessions approaching their `recordingExpiresAt` within
  *      the warning windows, with their resolved recipients.
- *      The HTTP query is bounded at 500 rows; we re-fetch
- *      until empty (drain pattern, MAX_ITERATIONS=20).
- *   2. For each (window, recipient): POST `/recording-retention/notify`
+ *      The HTTP query is cursor-paginated so every due recording
+ *      can be visited without an unbounded Convex read.
+ *   3. For each (window, recipient): POST `/recording-retention/notify`
  *      FIRST to dedupe-write the `recordingRetentionNotifications`
  *      row. If the mutation returns `{ skipped: true }`, we
  *      skip the email (a row already exists for this
  *      (session, recipient, threshold) tuple from a prior run).
- *   3. POST `/users/email` to resolve Clerk user → email.
- *   4. Send the Resend email with a Download CTA.
- *
- * Order is intentional (Greptile P1): notify BEFORE email so a
- * transient email failure on retry doesn't double-send.
+ *   4. Send through Resend with a provider idempotency key.
+ *   5. Finalize the Convex row as sent or failed. Failed rows are
+ *      eligible for a later retry instead of being silently suppressed.
+ *   6. Queue the next cursor page with a deterministic task idempotency key.
  *
  * Dedupe: the Convex `createRecordingRetentionNotification`
  * mutation is idempotent on
@@ -80,17 +92,19 @@ async function sendRecordingDeletionWarningEmail(
   to: string,
   daysUntilDeletion: number,
   workspaceName: string,
-  sessionId: string
-): Promise<void> {
+  sessionId: string,
+  idempotencyKey: string
+): Promise<string> {
   const downloadUrl =
     `${process.env.NEXT_PUBLIC_URL || "https://mentorships.example.com"}/workspace`;
-  await resend.emails.send({
-    from: EMAIL_FROM,
-    to,
-    subject: `Call recording will be deleted in ${daysUntilDeletion} day${
-      daysUntilDeletion === 1 ? "" : "s"
-    }`,
-    html: `
+  const { data, error } = await resend.emails.send(
+    {
+      from: EMAIL_FROM,
+      to,
+      subject: `Call recording will be deleted in ${daysUntilDeletion} day${
+        daysUntilDeletion === 1 ? "" : "s"
+      }`,
+      html: `
       <h1>Call Recording Deletion Warning</h1>
       <p>Hello,</p>
       <p>Your call recording in workspace "<strong>${workspaceName}</strong>" will be permanently deleted in <strong>${daysUntilDeletion} day${
@@ -102,132 +116,224 @@ async function sendRecordingDeletionWarningEmail(
       <p>If you have any questions, please contact your instructor.</p>
       <p>Best regards,<br/>The Mentorships Team</p>
     `,
-  });
+    },
+    { idempotencyKey }
+  );
+  if (error) {
+    throw new Error(`Resend rejected recording warning: ${error.message}`);
+  }
+  if (!data?.id) {
+    throw new Error("Resend returned no email id for recording warning");
+  }
+  return data.id;
 }
 
-export const sendRecordingRetentionWarnings = schedules.task({
-  id: "send-recording-retention-warnings",
-  cron: "0 10 * * *",
+export const processRecordingRetentionWarningPage = task({
+  id: "send-recording-retention-warning-page",
   maxDuration: 600,
-  run: async (payload) => {
-    logger.info("Starting call-recording retention warnings job", {
-      timestamp: payload.timestamp,
-    });
-
-    // Greptile P2 (cleanup mirror): drain the queue. The HTTP
-    // query is bounded at 500 rows; if the warnings backlog
-    // exceeds that we re-fetch until empty (or hit the safety
-    // cap below).
-    const MAX_ITERATIONS = 20;
+  retry: {
+    maxAttempts: 5,
+    factor: 2,
+    minTimeoutInMs: 5_000,
+    maxTimeoutInMs: 60_000,
+    randomize: true,
+  },
+  run: async (payload: WarningPagePayload, { ctx }) => {
+    const query = new URLSearchParams({ now: String(payload.scanStartedAt) });
+    if (payload.cursor) query.set("cursor", payload.cursor);
+    const page = (await callConvex(
+      `/recording-retention/for-notification?${query.toString()}`
+    )) as NotificationPage;
+    const items = page.notifications ?? [];
+    // Greptile R5 P3: when this is a Trigger.dev retry, force the
+    // dedupe to re-claim rows that may still be in `pending` state.
+    // The previous attempt may have left them `pending` because the
+    // failed-status finalize call also failed (Convex outage / network
+    // blip); without the override the staleness check would skip the
+    // re-claim for up to an hour, by which time the daily cleanup may
+    // have purged the recording.
+    const forceRetry = ctx.attempt.number > 1;
     const results = {
-      windows: 0,
+      pageNumber: payload.pageNumber,
+      attempt: ctx.attempt.number,
+      windows: items.length,
       emailsSent: 0,
       emailsFailed: 0,
+      // Greptile R5 P2: track failures that cannot be recovered by the
+      // next daily scan. A `daysUntilDeletion === 1` failure is fatal
+      // because the cleanup task may purge the recording before the
+      // following morning's cron can re-issue the warning — we re-throw
+      // at the end of the page so Trigger.dev retries the whole page and
+      // `createRecordingRetentionNotification` dedupes already-sent rows.
+      urgentFailures: 0,
       skippedNoEmail: 0,
+      nextPageQueued: false,
     };
 
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      const page = (await callConvex(
-        "/recording-retention/for-notification"
-      )) as { notifications: NotificationWindow[] };
+    logger.info("Processing recording warning page", {
+      pageNumber: payload.pageNumber,
+      attempt: ctx.attempt.number,
+      windows: items.length,
+    });
 
-      const items = page.notifications ?? [];
-      if (items.length === 0) {
-        logger.info(
-          `Drain complete after ${iteration} iteration(s) — no more notification windows`,
-          { emailsSent: results.emailsSent, emailsFailed: results.emailsFailed }
-        );
-        break;
-      }
-
-      results.windows += items.length;
-      logger.info(
-        `Iteration ${iteration}: processing ${items.length} recording windows`
+    // Queue the next cursor page FIRST so a permanent failure on this page
+    // (e.g. retries exhausted by a misbehaving recipient) cannot strand later
+    // recipients on the floor. The deterministic idempotency key guarantees
+    // exactly one downstream task per (scan, pageNumber+1) pair, so a retry
+    // of this page after success is a no-op for the queue. Per-recipient
+    // dedupe via `createRecordingRetentionNotification` makes any overlap
+    // safe.
+    if (
+      !page.isDone &&
+      page.continueCursor &&
+      page.continueCursor !== payload.cursor
+    ) {
+      await tasks.trigger(
+        "send-recording-retention-warning-page",
+        {
+          cursor: page.continueCursor,
+          scanStartedAt: payload.scanStartedAt,
+          pageNumber: payload.pageNumber + 1,
+        } satisfies WarningPagePayload,
+        {
+          idempotencyKey: `recording-warning-page:${payload.scanStartedAt}:${payload.pageNumber + 1}`,
+        }
       );
+      results.nextPageQueued = true;
+    } else if (
+      !page.isDone &&
+      (!page.continueCursor || page.continueCursor === payload.cursor)
+    ) {
+      throw new Error("Recording warning pagination cursor did not advance");
+    }
 
-      for (const window of items) {
-        for (const recipient of window.recipients) {
-          try {
-            const userResponse = (await callConvex("/users/email", {
+    for (const window of items) {
+      for (const recipient of window.recipients) {
+        let notificationId: string | null = null;
+        try {
+          const userResponse = (await callConvex("/users/email", {
+            method: "POST",
+            body: JSON.stringify({ clerkId: recipient.userId }),
+          })) as UserEmailResponse;
+
+          if (!userResponse.email) {
+            results.skippedNoEmail++;
+            logger.warn(`No email found for user ${recipient.userId}`, {
+              sessionId: window.sessionId,
+            });
+            continue;
+          }
+
+          const dedupeResult = (await callConvex(
+            "/recording-retention/notify",
+            {
               method: "POST",
-              body: JSON.stringify({ clerkId: recipient.userId }),
-            })) as UserEmailResponse;
-
-            if (!userResponse.email) {
-              results.skippedNoEmail++;
-              logger.warn(`No email found for user ${recipient.userId}`, {
+              body: JSON.stringify({
                 sessionId: window.sessionId,
-              });
-              continue;
+                workspaceId: window.workspaceId,
+                recipientUserId: recipient.userId,
+                recipientRole: recipient.role,
+                notificationType: "expiry_warning",
+                recordingExpiresAt: window.recordingExpiresAt,
+                daysUntilDeletion: window.daysUntilDeletion,
+                forceRetry,
+              }),
             }
+          )) as { skipped: boolean; id: string };
 
-            // Greptile P1: call /recording-retention/notify FIRST
-            // so the dedupe row is written before the email goes
-            // out. If the email succeeds and notify fails on the
-            // next call, the mutation's `skipped: true` return
-            // tells us a row already exists for this
-            // (session, recipient, threshold) and we skip the
-            // email entirely. This is the inverse of the
-            // previous order (email → notify) which could
-            // double-send if the notify request failed transiently.
-            const dedupeResult = (await callConvex(
-              "/recording-retention/notify",
-              {
+          if (dedupeResult.skipped) continue;
+          notificationId = dedupeResult.id;
+          const providerEmailId = await sendRecordingDeletionWarningEmail(
+            userResponse.email,
+            window.daysUntilDeletion,
+            "Mentorship Workspace",
+            window.sessionId,
+            `recording-retention/${window.sessionId}/${recipient.userId}/${window.daysUntilDeletion}`
+          );
+          await callConvex("/recording-retention/notify/finalize", {
+            method: "POST",
+            body: JSON.stringify({
+              id: notificationId,
+              status: "sent",
+              providerEmailId,
+            }),
+          });
+          results.emailsSent++;
+        } catch (error) {
+          results.emailsFailed++;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (window.daysUntilDeletion === 1) {
+            results.urgentFailures += 1;
+          }
+          if (notificationId) {
+            try {
+              await callConvex("/recording-retention/notify/finalize", {
                 method: "POST",
                 body: JSON.stringify({
-                  sessionId: window.sessionId,
-                  workspaceId: window.workspaceId,
-                  recipientUserId: recipient.userId,
-                  recipientRole: recipient.role,
-                  notificationType: "expiry_warning",
-                  recordingExpiresAt: window.recordingExpiresAt,
-                  daysUntilDeletion: window.daysUntilDeletion,
+                  id: notificationId,
+                  status: "failed",
+                  errorMessage: message.slice(0, 500),
                 }),
-              }
-            )) as { skipped: boolean; id: string };
-
-            if (dedupeResult.skipped) {
-              logger.info(
-                `Skipped email — dedupe row already exists for ${recipient.userId} @ ${window.daysUntilDeletion} days`,
-                {
-                  sessionId: window.sessionId,
-                  recipientUserId: recipient.userId,
-                  notificationId: dedupeResult.id,
-                }
-              );
-              continue;
+              });
+            } catch (finalizeError) {
+              logger.error("Failed to persist recording warning failure", {
+                notificationId,
+                error:
+                  finalizeError instanceof Error
+                    ? finalizeError.message
+                    : String(finalizeError),
+              });
             }
-
-            await sendRecordingDeletionWarningEmail(
-              userResponse.email,
-              window.daysUntilDeletion,
-              "Mentorship Workspace",
-              window.sessionId
-            );
-
-            results.emailsSent++;
-            logger.info(
-              `Sent recording retention warning to ${userResponse.email} (${window.daysUntilDeletion} days)`,
-              {
-                sessionId: window.sessionId,
-                recipientUserId: recipient.userId,
-              }
-            );
-          } catch (error) {
-            results.emailsFailed++;
-            const message =
-              error instanceof Error ? error.message : String(error);
-            logger.error("Failed to send recording retention warning", {
-              sessionId: window.sessionId,
-              recipientUserId: recipient.userId,
-              error: message,
-            });
           }
+          logger.error("Failed to send recording retention warning", {
+            sessionId: window.sessionId,
+            recipientUserId: recipient.userId,
+            daysUntilDeletion: window.daysUntilDeletion,
+            attempt: ctx.attempt.number,
+            error: message,
+          });
         }
       }
     }
 
-    logger.info("Recording retention warnings job completed", results);
+    // Greptile R5 P2: re-throw when a 1-day warning failed so the
+    // Trigger.dev retry budget kicks in. Already-sent recipients are
+    // deduped by `createRecordingRetentionNotification` (the existing
+    // `sent` row returns `skipped: true`), so a retry only re-attempts
+    // the failed ones. 30/7-day failures are logged but not rethrown —
+    // the next daily cron has 6+ days of headroom.
+    if (results.urgentFailures > 0) {
+      logger.error("One-day recording warning failed; retrying page", {
+        pageNumber: payload.pageNumber,
+        urgentFailures: results.urgentFailures,
+        attempt: ctx.attempt.number,
+      });
+      throw new Error(
+        `${results.urgentFailures} one-day recording warning(s) failed on page ${payload.pageNumber}`
+      );
+    }
+
+    logger.info("Recording warning page completed", results);
     return results;
+  },
+});
+
+export const sendRecordingRetentionWarnings = schedules.task({
+  id: "send-recording-retention-warnings",
+  cron: "0 10 * * *",
+  maxDuration: 60,
+  run: async (payload) => {
+    const scanStartedAt = payload.timestamp.getTime();
+    const handle = await tasks.trigger(
+      "send-recording-retention-warning-page",
+      { cursor: null, scanStartedAt, pageNumber: 0 } satisfies WarningPagePayload,
+      { idempotencyKey: `recording-warning-page:${scanStartedAt}:0` }
+    );
+    logger.info("Queued recording retention warning scan", {
+      scanStartedAt,
+      runId: handle.id,
+    });
+    return { runId: handle.id, scanStartedAt };
   },
 });

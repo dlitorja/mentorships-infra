@@ -17,6 +17,7 @@ type Payload = {
   recordingId: string;
   dailyS3Key: string;
   durationSeconds?: number;
+  attemptOffset?: number;
 };
 
 type CallbackBody = {
@@ -40,7 +41,7 @@ type CallbackBody = {
  *   1. Fetch a short-lived presigned download URL via Daily's
  *      access-link API.
  *   2. Stream the MP4 into B2 with a single PutObjectCommand at
- *      `recordings/{sessionId}/{epoch}.mp4` (≤5 GiB).
+ *      `recordings/{sessionId}/{recordingId}.mp4` (≤5 GiB).
  *   3. Call back into Convex (`sessions.attachRecordingFromB2Upload`)
  *      to write the B2 key into `sessions.recordingUrl`.
  *   4. Best-effort DELETE the Daily copy so we don't accumulate
@@ -76,18 +77,19 @@ export const transferDailyRecordingToB2 = task({
     randomize: true,
   },
   run: async (payload: Payload, { ctx }) => {
+    const attemptNumber = (payload.attemptOffset ?? 0) + ctx.attempt.number;
     logger.info("Recording transfer started", {
       sessionId: payload.sessionId,
       recordingId: payload.recordingId,
-      attempt: ctx.attempt.number,
+      attempt: attemptNumber,
     });
     metadata.set("sessionId", payload.sessionId);
     metadata.set("recordingId", payload.recordingId);
-    metadata.set("attempt", ctx.attempt.number);
+    metadata.set("attempt", attemptNumber);
 
     await convexCallback("mark-retrying", {
       sessionId: payload.sessionId,
-      attemptNumber: ctx.attempt.number,
+      attemptNumber,
     });
 
     const downloadUrl = await getDailyRecordingAccessLink(payload.recordingId);
@@ -100,8 +102,9 @@ export const transferDailyRecordingToB2 = task({
       recordingId: payload.recordingId,
     });
 
-    const epoch = Date.now();
-    const b2Key = `recordings/${payload.sessionId}/${epoch}.mp4`;
+    // A stable key makes retries overwrite the same object instead of
+    // leaking one B2 object whenever upload succeeds but the callback fails.
+    const b2Key = `recordings/${payload.sessionId}/${encodeURIComponent(payload.recordingId)}.mp4`;
     const uploadResult = await uploadFromUrl({
       sourceUrl: downloadUrl,
       key: b2Key,
@@ -146,10 +149,11 @@ export const transferDailyRecordingToB2 = task({
     };
   },
   catchError: async ({ error, ctx, payload }) => {
+    const attemptNumber = (payload.attemptOffset ?? 0) + ctx.attempt.number;
     logger.error("Recording transfer failed", {
       sessionId: payload.sessionId,
       recordingId: payload.recordingId,
-      attempt: ctx.attempt.number,
+      attempt: attemptNumber,
       maxAttempts: ctx.run.maxAttempts ?? 1,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -158,11 +162,11 @@ export const transferDailyRecordingToB2 = task({
         sessionId: payload.sessionId,
         errorMessage:
           error instanceof Error ? error.message : String(error),
-        attempts: ctx.attempt.number,
+        attempts: attemptNumber,
       });
       logger.error("Recording transfer marked failed (no retries left)", {
         sessionId: payload.sessionId,
-        attempts: ctx.attempt.number,
+        attempts: attemptNumber,
       });
     }
   },

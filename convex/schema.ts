@@ -77,6 +77,7 @@ export default defineSchema({
   sessions: defineTable({
     instructorId: v.id("instructors"),
     studentId: v.string(),
+    workspaceId: v.optional(v.id("workspaces")),
     // Widen: PR #4a made this optional to support ad-hoc calls
     // (instructor-started catch-up calls outside scheduled sessions).
     // Existing scheduled-call rows have a value; ad-hoc rows leave
@@ -112,6 +113,9 @@ export default defineSchema({
     isAdhoc: v.optional(v.boolean()),
     recordingDurationSeconds: v.optional(v.number()),
     recordingId: v.optional(v.string()),
+    // Materialized recording presence keeps the Videos query indexed even
+    // after retention purges the B2 object but preserves the history row.
+    hasRecordingArtifact: v.optional(v.boolean()),
     // Post-webhook Daily → B2 transfer pipeline state. The webhook
     // handler sets this to "pending" + triggers a Trigger.dev task;
     // the task flips it through "uploading" → "ready" (B2 key written
@@ -179,6 +183,19 @@ export default defineSchema({
     // recordings for any student whose sessions weren't among
     // the instructor's 50 most recent overall.
     .index("by_instructorId_studentId", ["instructorId", "studentId"])
+    .index(
+      "by_instructor_student_hasRecordingArtifact_callStartedAt",
+      ["instructorId", "studentId", "hasRecordingArtifact", "callStartedAt"]
+    )
+    .index(
+      "by_instructor_student_transferStatus_callStartedAt",
+      ["instructorId", "studentId", "recordingTransferStatus", "callStartedAt"]
+    )
+    .index("by_workspaceId_and_hasRecordingArtifact_and_callStartedAt", [
+      "workspaceId",
+      "hasRecordingArtifact",
+      "callStartedAt",
+    ])
     // R12: indexed read for the daily retention-cleanup query
     // (`convex/recordingRetention.getRecordingsNeedingCleanup`).
     // The cleanup predicate is `recordingExpiresAt < now &&
@@ -226,7 +243,8 @@ export default defineSchema({
     .index("by_expiresAt", ["expiresAt"])
     .index("by_userId_instructorId_status", ["userId", "instructorId", "status"])
     .index("by_paymentId", ["paymentId"])
-    .index("by_userId_status_expiresAt", ["userId", "status", "expiresAt"]),
+    .index("by_userId_status_expiresAt", ["userId", "status", "expiresAt"])
+    .index("by_legacyId", ["legacyId"]),
 
   orders: defineTable({
     userId: v.string(),
@@ -380,7 +398,14 @@ export default defineSchema({
     // indexed read, instead of an unbounded `.take(N)` + in-memory
     // scan that would silently deny access to instructors past
     // the cap. Additive — no migration needed.
-    .index("by_instructorId_ownerId", ["instructorId", "ownerId"]),
+    .index("by_instructorId_ownerId", ["instructorId", "ownerId"])
+    .index("by_instructorId_and_ownerId_and_type_and_endedAt_and_deletedAt", [
+      "instructorId",
+      "ownerId",
+      "type",
+      "endedAt",
+      "deletedAt",
+    ]),
 
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),
@@ -513,6 +538,13 @@ export default defineSchema({
     recipientRole: v.union(v.literal("instructor"), v.literal("student")),
     notificationType: v.union(v.literal("expiry_warning"), v.literal("deleted")),
     sentAt: v.number(),
+    deliveryStatus: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("sent"),
+      v.literal("failed")
+    )),
+    providerEmailId: v.optional(v.string()),
+    deliveryError: v.optional(v.string()),
     acknowledgedAt: v.optional(v.number()),
     recordingExpiresAt: v.number(),
     daysUntilDeletion: v.number(),

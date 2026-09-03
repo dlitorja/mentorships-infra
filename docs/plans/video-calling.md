@@ -704,7 +704,7 @@ The actual implementation is a post-webhook transfer pipeline:
                             ▼
 [Trigger.dev task]         transfer-daily-recording-to-b2
                             │  1. GET /recordings/{id}/access-link → presigned URL
-                            │  2. PutObjectCommand to B2 at recordings/{sessionId}/{epoch}.mp4
+                            │  2. PutObjectCommand to B2 at recordings/{sessionId}/{recordingId}.mp4
                             │     via packages/storage/src/uploads.ts uploadFromUrl()
                             │  3. Convex HTTP callback: attachRecordingFromB2Upload
                             │     → writes sessions.recordingUrl = b2Key

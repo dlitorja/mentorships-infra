@@ -109,12 +109,9 @@ function parseVerifiedPayload(rawBody: string): {
  * at-least-once semantics on the `recording.ready-to-download`
  * event) reuse the same Trigger.dev run id and don't double-upload.
  *
- * If the trigger request fails for any reason we surface the error
- * so the Next.js route layer returns 500 — but the Convex
- * `attachRecordingFromDailyWebhook` mutation has ALREADY written
- * `recordingTransferStatus: "pending"` to the row by this point,
- * so the drift monitor (`convex/audit/recordingTransferAudit.ts`)
- * can re-fire the transfer task from the cron path.
+ * If the trigger request fails, the action marks the transfer failed
+ * before surfacing the error. This prevents a row from remaining
+ * permanently pending and exposes the existing instructor retry action.
  */
 async function triggerTransferTask(params: {
   sessionId: Id<"sessions">;
@@ -169,7 +166,7 @@ async function triggerTransferTask(params: {
  *      with the (sessionId, recordingId) idempotency key, which streams
  *      the MP4 out of Daily's storage via the access-link API and
  *      `PutObjectCommand`s it into the B2 bucket at
- *      `recordings/{sessionId}/{epoch}.mp4`. The task then calls back
+ *      `recordings/{sessionId}/{recordingId}.mp4`. The task then calls back
  *      into `sessions.attachRecordingFromB2Upload` via the
  *      `/recording-transfer/attach-from-b2` HTTP endpoint to write the
  *      B2 key into `sessions.recordingUrl`.
@@ -253,12 +250,23 @@ export const attachRecordingFromDailyWebhookAction = action({
       };
     }
 
-    await triggerTransferTask({
-      sessionId: result.sessionId,
-      recordingId: parsed.recordingId,
-      dailyS3Key: parsed.s3Key,
-      durationSeconds: parsed.durationSeconds,
-    });
+    try {
+      await triggerTransferTask({
+        sessionId: result.sessionId,
+        recordingId: parsed.recordingId,
+        dailyS3Key: parsed.s3Key,
+        durationSeconds: parsed.durationSeconds,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.sessions.markRecordingTransferFailed, {
+        sessionId: result.sessionId,
+        errorMessage: `Unable to start recording transfer: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        attempts: 0,
+      });
+      throw error;
+    }
 
     return {
       sessionId: result.sessionId,

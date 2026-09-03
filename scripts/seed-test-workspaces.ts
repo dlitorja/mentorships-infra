@@ -194,6 +194,7 @@ async function createActiveSession(
   instructorId: string,
   studentId: string,
   sessionPackId: string,
+  workspaceId: string,
 ): Promise<string> {
   console.log(`  Creating active session for ${studentId}...`);
   try {
@@ -203,6 +204,7 @@ async function createActiveSession(
         instructorId,
         studentId,
         sessionPackId,
+        workspaceId,
         videoRoomName: SEED_VIDEO_ROOM_NAME,
         confirmSeed: true,
       },
@@ -237,7 +239,7 @@ async function main() {
 
   console.log("\n--- Creating Workspace ---");
   if (instructorId !== "existing" && instructorId !== "test-instructor-") {
-    await createMentorshipWorkspace(
+    const workspaceId = await createMentorshipWorkspace(
       TEST_USERS.student.userId,
       instructorId,
       "Test Student-Instructor Workspace"
@@ -256,12 +258,13 @@ async function main() {
       instructorId,
     );
 
-    if (sessionPackId !== "existing") {
+    if (sessionPackId !== "existing" && workspaceId !== "existing") {
       console.log("\n--- Creating Active Session ---");
       await createActiveSession(
         instructorId,
         TEST_USERS.student.userId,
         sessionPackId,
+        workspaceId,
       );
       console.log(`  Room name: ${SEED_VIDEO_ROOM_NAME}`);
     } else {

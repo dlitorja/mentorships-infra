@@ -69,13 +69,17 @@ export const getWorkspacesForNotification = query({
   },
 });
 
-/** Looks up a user's email address by their Clerk ID. */
+/** Looks up a user's email address by either platform or auth-provider ID. */
 export const getUserEmail = query({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
     const { clerkId } = args;
 
-    const user = await ctx.db
+    const platformUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", clerkId))
+      .first();
+    const user = platformUser ?? await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
       .first();
