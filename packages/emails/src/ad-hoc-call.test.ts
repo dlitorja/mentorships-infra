@@ -60,6 +60,35 @@ describe("buildAdHocCallInviteEmail", () => {
     expect(result.html).toContain("&quot;Gallery&quot;");
   });
 
+  it("falls back to role-only copy when caller name is empty (no duplicated role wording)", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.subject).toBe("Your instructor started a mentorship call");
+    expect(result.text).toContain("Your instructor has started");
+    expect(result.text).not.toContain("Your instructor Your instructor");
+    expect(result.html).toContain("Your instructor has started");
+    expect(result.html).not.toContain("Your instructor Your instructor");
+  });
+
+  it("treats whitespace-only caller name the same as empty", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "   ",
+      callerRole: "student",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.subject).toBe("Your student started a mentorship call");
+    expect(result.text).not.toMatch(/Your student\s+Your student/);
+  });
+
   it("builds a deep link containing both workspaceId and sessionId", () => {
     const result = buildAdHocCallInviteEmail({
       callerName: "Sarah Lee",

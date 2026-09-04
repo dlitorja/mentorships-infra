@@ -535,16 +535,18 @@ async function fetchUserContact(
  * caller so the recipient's invite email reads "<caller> started a
  * mentorship call" regardless of who actually started it.
  *
- * The instructor has a custom `name` field on the `instructors`
- * table that we can use directly. The student (workspace owner)
- * does not — we fall back to their Clerk firstName/lastName.
- * If both fail, we use role-based generics ("Your instructor" /
- * "Your student") so the subject line is never empty.
+ * Returns JUST the name (no role prefix). The email template layers
+ * "Your instructor" / "Your student" on top via `callerRole`, so
+ * if the name lookup fails the template falls back to a generic
+ * "Your instructor has started…" rather than producing duplicated
+ * role wording like "Your instructor Your instructor has started…"
+ * (Greptile P2).
  *
- * The instructor-name path keeps the existing fallback string
- * "Your instructor" so historical emails (which always framed
- * the caller as the instructor) still read sensibly even when the
- * Clerk lookup fails for an instructor who somehow lacks a name.
+ * The instructor has a custom `name` field on the `instructors`
+ * table that we use directly. The student (workspace owner) does
+ * not — we fall back to their Clerk firstName. If both fail we
+ * return an empty string and let the template's callerRole-only
+ * copy take over.
  */
 async function resolveCallerName(args: {
   callerUserId: string;
@@ -564,7 +566,7 @@ async function resolveCallerName(args: {
     if (fallback.firstName) {
       return fallback.firstName;
     }
-    return "Your instructor";
+    return "";
   }
 
   if (args.callerIsOwner) {
@@ -572,8 +574,8 @@ async function resolveCallerName(args: {
     if (contact.firstName) {
       return contact.firstName;
     }
-    return "Your student";
+    return "";
   }
 
-  return "Your instructor";
+  return "";
 }

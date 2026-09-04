@@ -48,12 +48,22 @@ export function buildAdHocCallInviteEmail(args: {
   sessionId: string;
 }) {
   const joinUrl = `${getBaseUrl()}/workspace/${args.workspaceId}?join=${args.sessionId}`;
-  const subject = `${args.callerName} started a mentorship call`;
   const callerPronoun =
     args.callerRole === "instructor" ? "Your instructor" : "Your student";
+  const trimmedName = args.callerName.trim();
+  // When the caller-name lookup failed, fall back to the role-only
+  // framing rather than emitting duplicated role wording like
+  // "Your instructor Your instructor has started…" (Greptile P2).
+  const subject = trimmedName.length > 0
+    ? `${trimmedName} started a mentorship call`
+    : `${callerPronoun} started a mentorship call`;
+
+  const bodyOpening = trimmedName.length > 0
+    ? `${callerPronoun} ${trimmedName} has started a mentorship call in ${args.workspaceName}.`
+    : `${callerPronoun} has started a mentorship call in ${args.workspaceName}.`;
 
   const text = [
-    `${callerPronoun} ${args.callerName} has started a mentorship call in ${args.workspaceName}.`,
+    bodyOpening,
     "",
     "Click below to join the session:",
     joinUrl,
@@ -61,14 +71,19 @@ export function buildAdHocCallInviteEmail(args: {
     "If the link does not work, sign in to your Huckleberry Mentorships account and open the workspace from your dashboard.",
   ].join("\n");
 
+  const nameHtmlBlock = trimmedName.length > 0
+    ? `${escapeHtml(callerPronoun)} <strong>${escapeHtml(trimmedName)}</strong> has started a mentorship call in
+       <strong>${escapeHtml(args.workspaceName)}</strong>.`
+    : `${escapeHtml(callerPronoun)} has started a mentorship call in
+       <strong>${escapeHtml(args.workspaceName)}</strong>.`;
+
   const html = `
     <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:640px;margin:0 auto;padding:24px;color:#111827">
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">Huckleberry Mentorships</div>
       <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:6px">Mentorship call started</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
-          ${escapeHtml(callerPronoun)} <strong>${escapeHtml(args.callerName)}</strong> has started a mentorship call in
-          <strong>${escapeHtml(args.workspaceName)}</strong>.
+          ${nameHtmlBlock}
         </div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
           Click the button below to join the session.
