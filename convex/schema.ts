@@ -840,19 +840,32 @@ export default defineSchema({
     .index("by_viewerUserId_createdAt", ["viewerUserId", "createdAt"]),
 
   // PR #4c-2: in-app + email notification rows for ad-hoc call
-  // invitations. One row is created when an instructor starts an
-  // ad-hoc call and the student is the recipient. Deduped on
-  // `(userId, sessionId)` via `by_userId_sessionId` — re-starting
-  // the same call does not create a duplicate. `emailSentAt` marks
-  // the idempotency token for the Resend task (Trigger.dev retries
+  // invitations. One row is created when EITHER the workspace's
+  // instructor OR the workspace's student starts an ad-hoc call;
+  // the OTHER party is the recipient. Deduped on `(userId,
+  // sessionId)` via `by_userId_sessionId` — re-starting the same
+  // call does not create a duplicate. `emailSentAt` marks the
+  // idempotency token for the Resend task (Trigger.dev retries
   // can run the task repeatedly without spamming the recipient).
   // 24-hour TTL on `expiresAt` so unread badges auto-expire and do
   // not stay red forever when the student never opens them.
+  //
+  // `callerRole` records who started the call (instructor vs.
+  // student) so the toast/email/bell can phrase the invite as
+  // "Your instructor has started…" vs "Your student has started…"
+  // rather than always defaulting to the instructor framing. The
+  // student-initiated case was previously mislabeled as the
+  // instructor having started the call. Optional for rows inserted
+  // before this field existed; the UI falls back to instructor
+  // framing when it is absent.
   inCallNotifications: defineTable({
     userId: v.string(),
     sessionId: v.id("sessions"),
     workspaceId: v.id("workspaces"),
     kind: v.literal("ad_hoc_call_invite"),
+    callerRole: v.optional(
+      v.union(v.literal("instructor"), v.literal("student"))
+    ),
     createdAt: v.number(),
     expiresAt: v.number(),
     readAt: v.optional(v.number()),

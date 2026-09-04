@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildAdHocCallInviteEmail } from "./ad-hoc-call";
 
 describe("buildAdHocCallInviteEmail", () => {
-  it("includes instructor name, workspace name, and a deep-link URL", () => {
+  it("includes caller name, workspace name, and a deep-link URL when caller is instructor", () => {
     const result = buildAdHocCallInviteEmail({
-      instructorName: "Sarah Lee",
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
       workspaceName: "Acrylic Painting Mentorship",
       workspaceId: "ws_abc123",
       sessionId: "se_xyz789",
@@ -13,20 +14,37 @@ describe("buildAdHocCallInviteEmail", () => {
     expect(result.subject).toBe("Sarah Lee started a mentorship call");
     expect(result.headers["X-Email-Type"]).toBe("ad_hoc_call_invite");
 
-    expect(result.text).toContain("Sarah Lee");
+    expect(result.text).toContain("Your instructor Sarah Lee");
     expect(result.text).toContain("Acrylic Painting Mentorship");
     expect(result.text).toContain(
       "/workspace/ws_abc123?join=se_xyz789"
     );
 
+    expect(result.html).toContain("Your instructor");
     expect(result.html).toContain("Sarah Lee");
     expect(result.html).toContain("Acrylic Painting Mentorship");
     expect(result.html).toContain("/workspace/ws_abc123?join=se_xyz789");
   });
 
-  it("escapes HTML in instructor and workspace names", () => {
+  it("phrases the invite as 'Your student' when caller is the student", () => {
     const result = buildAdHocCallInviteEmail({
-      instructorName: "<script>alert(1)</script>",
+      callerName: "Marcus Reed",
+      callerRole: "student",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.subject).toBe("Marcus Reed started a mentorship call");
+    expect(result.text).toContain("Your student Marcus Reed");
+    expect(result.html).toContain("Your student");
+    expect(result.html).toContain("Marcus Reed");
+  });
+
+  it("escapes HTML in caller and workspace names", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "<script>alert(1)</script>",
+      callerRole: "instructor",
       workspaceName: "Studio & \"Gallery\"",
       workspaceId: "ws_abc123",
       sessionId: "se_xyz789",
@@ -42,9 +60,39 @@ describe("buildAdHocCallInviteEmail", () => {
     expect(result.html).toContain("&quot;Gallery&quot;");
   });
 
+  it("falls back to role-only copy when caller name is empty (no duplicated role wording)", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.subject).toBe("Your instructor started a mentorship call");
+    expect(result.text).toContain("Your instructor has started");
+    expect(result.text).not.toContain("Your instructor Your instructor");
+    expect(result.html).toContain("Your instructor has started");
+    expect(result.html).not.toContain("Your instructor Your instructor");
+  });
+
+  it("treats whitespace-only caller name the same as empty", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "   ",
+      callerRole: "student",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.subject).toBe("Your student started a mentorship call");
+    expect(result.text).not.toMatch(/Your student\s+Your student/);
+  });
+
   it("builds a deep link containing both workspaceId and sessionId", () => {
     const result = buildAdHocCallInviteEmail({
-      instructorName: "Sarah Lee",
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
       workspaceName: "Acrylic Painting Mentorship",
       workspaceId: "ws_abc123",
       sessionId: "se_xyz789",

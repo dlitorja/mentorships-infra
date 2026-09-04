@@ -422,12 +422,6 @@ async function enqueueAdHocCallEmail(args: {
       )
     : null;
 
-  const instructorName =
-    typeof instructorRecord?.name === "string" &&
-    instructorRecord.name.trim().length > 0
-      ? instructorRecord.name.trim()
-      : "Your instructor";
-
   // Notify the other participant. The student gets the email when the
   // instructor starts the call, and the instructor gets it when the
   // student starts the call.
@@ -458,6 +452,23 @@ async function enqueueAdHocCallEmail(args: {
     return;
   }
 
+  // Resolve the caller's display name so the recipient's email says
+  // "[caller] started a mentorship call" — not always the instructor.
+  // Previously this was hardcoded to the instructor's name, which was
+  // misleading when the student was the caller and the instructor was
+  // the recipient (the instructor would receive an email saying
+  // "<their own name> started a mentorship call").
+  const callerRole: "instructor" | "student" = callerIsInstructor
+    ? "instructor"
+    : "student";
+  const callerName = await resolveCallerName({
+    callerUserId: args.callerUserId,
+    callerIsOwner,
+    callerIsInstructor,
+    instructorRecordName: instructorRecord?.name ?? null,
+    ownerId: workspace.ownerId,
+  });
+
   const idempotencyKey = `ad-hoc-call-email:${String(args.sessionId)}:${recipientUserId}`;
 
   try {
@@ -470,7 +481,8 @@ async function enqueueAdHocCallEmail(args: {
         recipientFirstName,
         sessionId: String(args.sessionId),
         workspaceId: String(args.workspaceId),
-        instructorName,
+        callerName,
+        callerRole,
         workspaceName: workspace.name || "your mentorship workspace",
       },
       { idempotencyKey }
@@ -516,4 +528,54 @@ async function fetchUserContact(
   } catch {
     return { email: null, firstName: null };
   }
+}
+
+/**
+ * PR #incoming-call-caller-role: resolves a display name for the
+ * caller so the recipient's invite email reads "<caller> started a
+ * mentorship call" regardless of who actually started it.
+ *
+ * Returns JUST the name (no role prefix). The email template layers
+ * "Your instructor" / "Your student" on top via `callerRole`, so
+ * if the name lookup fails the template falls back to a generic
+ * "Your instructor has started…" rather than producing duplicated
+ * role wording like "Your instructor Your instructor has started…"
+ * (Greptile P2).
+ *
+ * The instructor has a custom `name` field on the `instructors`
+ * table that we use directly. The student (workspace owner) does
+ * not — we fall back to their Clerk firstName. If both fail we
+ * return an empty string and let the template's callerRole-only
+ * copy take over.
+ */
+async function resolveCallerName(args: {
+  callerUserId: string;
+  callerIsOwner: boolean;
+  callerIsInstructor: boolean;
+  instructorRecordName: string | null;
+  ownerId: string;
+}): Promise<string> {
+  if (args.callerIsInstructor) {
+    if (
+      typeof args.instructorRecordName === "string" &&
+      args.instructorRecordName.trim().length > 0
+    ) {
+      return args.instructorRecordName.trim();
+    }
+    const fallback = await fetchUserContact(args.callerUserId);
+    if (fallback.firstName) {
+      return fallback.firstName;
+    }
+    return "";
+  }
+
+  if (args.callerIsOwner) {
+    const contact = await fetchUserContact(args.callerUserId);
+    if (contact.firstName) {
+      return contact.firstName;
+    }
+    return "";
+  }
+
+  return "";
 }

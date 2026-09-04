@@ -39,6 +39,13 @@ import {
  * Sound/desktop gated by user preferences in localStorage and
  * OS-level permission state. Preferences are read on mount and
  * refreshed via the cross-tab `storage` event (no polling).
+ *
+ * PR #incoming-call-caller-role: phrasing is role-aware so a
+ * student-initiated call says "Your student has started…" rather
+ * than always defaulting to the instructor framing. Notifications
+ * inserted before `callerRole` was added fall back to the
+ * instructor framing — the worst case is the legacy wording, not
+ * a crash.
  */
 export function IncomingCallToast() {
   const router = useRouter();
@@ -82,9 +89,13 @@ export function IncomingCallToast() {
     if (!fresh) return;
 
     const deepLink = `/workspace/${fresh.workspaceId}?join=${fresh.sessionId}`;
+    const body =
+      fresh.callerRole === "student"
+        ? "Your student has started an ad-hoc session."
+        : "Your instructor has started an ad-hoc session.";
 
     toast("Video call started", {
-      description: "Your instructor has started an ad-hoc session.",
+      description: body,
       icon: <Phone className="h-4 w-4" />,
       duration: 30_000,
       action: {
@@ -102,7 +113,7 @@ export function IncomingCallToast() {
     if (preferences.desktopEnabled && getDesktopPermission() === "granted") {
       showDesktopNotification({
         title: "Video call started",
-        body: "Your instructor has started an ad-hoc session.",
+        body,
         onClick: () => {
           router.push(deepLink);
         },

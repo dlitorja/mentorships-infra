@@ -9,26 +9,29 @@ type Payload = {
   recipientFirstName: string | null;
   sessionId: string;
   workspaceId: string;
-  instructorName: string;
+  callerName: string;
+  callerRole: "instructor" | "student";
   workspaceName: string;
 };
 
 /**
- * PR #4c-2: sends the ad-hoc call invite email to a student whose
- * instructor just started an ad-hoc mentorship call.
+ * PR #4c-2: sends the ad-hoc call invite email to the OTHER
+ * workspace participant — the one who did NOT start the call.
+ * Originally instructor-only (PR #797 extended it to students).
  *
  * Idempotency model:
  *   The HTTP route `POST /api/video/start-adhoc` calls
  *   `tasks.trigger(...)` with an `idempotencyKey` of
- *   `ad-hoc-call-email:{sessionId}:{recipientUserId}:{callStartedAt}`.
- *   Trigger.dev deduplicates at the task level: a re-trigger with the
- *   same key within the idempotency window returns the original run
- *   id without re-running the task body. So a transient Resend
- *   failure + retry, OR a duplicate `startAdhocCall` click, will not
- *   double-email the student.
+ *   `ad-hoc-call-email:{sessionId}:{recipientUserId}`. Trigger.dev
+ *   deduplicates at the task level: a re-trigger with the same key
+ *   within the idempotency window returns the original run id
+ *   without re-running the task body. So a transient Resend
+ *   failure + retry, OR a duplicate `startAdhocCall` click, will
+ *   not double-email the recipient.
  *
- *   Note: a *new* call (different `callStartedAt`) intentionally
- *   bypasses dedupe so the student is notified of the second call.
+ *   Note: a *new* call (different sessionId) intentionally
+ *   bypasses dedupe so the recipient is notified of the second
+ *   call.
  *
  * Failure handling:
  *   - Resend returns `{ ok: false }` on bad config / hard error:
@@ -51,7 +54,8 @@ export const sendAdHocCallInviteEmail = task({
     const greetingName = payload.recipientFirstName?.trim() || "there";
 
     const built = buildAdHocCallInviteEmail({
-      instructorName: payload.instructorName,
+      callerName: payload.callerName,
+      callerRole: payload.callerRole,
       workspaceName: payload.workspaceName,
       workspaceId: payload.workspaceId,
       sessionId: payload.sessionId,

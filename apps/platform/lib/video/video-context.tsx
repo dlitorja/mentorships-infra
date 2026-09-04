@@ -56,10 +56,25 @@ export type VideoCallStatus =
  * it through React Context so child components (`VideoPanel`, PiP,
  * `CallStatusPill`) can subscribe without prop drilling. One ticker
  * drives durationSeconds — only the components that render it re-render.
+ *
+ * `isSessionLoading` is true ONLY while the workspace's current-or-
+ * upcoming session query is in its first fetch. Consumers can use it
+ * to distinguish "we don't know yet whether a call exists" (loading)
+ * from "we know there is no call" (`session === null`). Without this
+ * flag, callers must pick between (a) flashing a "Start call" button
+ * during the loading window that could collide with a freshly-created
+ * session, or (b) hiding the button until loading settles, which lets
+ * the server-side 409 error toast do the talking.
+ *
+ * The provider keeps `session === null` while loading so existing
+ * consumers that already key off `if (session)` don't need to change.
+ * New code that wants the loading distinction should branch on
+ * `isSessionLoading` BEFORE checking `session`.
  */
 export type VideoCallContextValue = {
   workspaceId: Id<"workspaces"> | null;
   session: CurrentOrUpcomingSession | null;
+  isSessionLoading: boolean;
   status: VideoCallStatus;
   isMuted: boolean;
   isCameraOff: boolean;
