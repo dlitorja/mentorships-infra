@@ -15,18 +15,17 @@ const modules = import.meta.glob("./**/*.ts");
  *
  * `verifyCallbackSecret` must:
  *   - 401 when the `X-Trigger-Callback-Secret` header is missing.
- *   - 401 when the header is present but wrong.
- *   - NOT throw `ReferenceError: Buffer is not defined` (caught
- *     2026-09-04 by a Tier-1 smoke test against prod). The old
- *     implementation used `Buffer.from(...)` / `Buffer.alloc(...)`,
- *     which are Node-only globals and don't exist in Convex's V8
- *     isolate runtime — every callback was 500'ing.
- *   - 200 when the header matches `CONVEX_TRIGGER_CALLBACK_SECRET`.
+ *   - 401 when the header is present but wrong (any length, any bytes).
+ *   - 200 + actual session-row patch when the header matches
+ *     `CONVEX_TRIGGER_CALLBACK_SECRET` (proves the full happy path:
+ *     auth gate → validator → mutation → db.write).
  *
- * Note: we don't drive an actual mutation end-to-end here because
- * the seed session row would need real recording data. The
- * mutation would return 422/500 on a missing session, which is
- * fine — what matters is that the auth path doesn't 500.
+ * Regression guard: `ReferenceError: Buffer is not defined` (caught
+ * 2026-09-04 by a Tier-1 smoke test against prod). The pre-fix
+ * implementation used `Buffer.from(...)` / `Buffer.alloc(...)`,
+ * which are Node-only globals and do not exist in Convex's V8
+ * isolate runtime — every callback was 500'ing for ~7 weeks
+ * (commit 2aa50df3b 2026-07-18).
  */
 
 const VALID_KEY = "test-http-key";
