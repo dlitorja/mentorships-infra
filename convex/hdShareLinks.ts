@@ -197,15 +197,28 @@ export const resolveShareByToken = query({
       return { kind: "not_found" as const };
     }
 
-    // PR1: creator-preview bypass. The share creator (or any admin)
-    // can preview their own share without requiring the recipient role.
-    // Previously only `video_editor` could resolve; an instructor who
-    // sent a link to themselves for QA, or an admin auditing a share,
-    // would hit `forbidden`.
+    // Phase 1: cheap authorization. None of these need the upload, so
+    // an unauthorized caller never learns whether the underlying file
+    // exists or has been deleted (Greptile P2).
     const isCreator = share.createdByUserId === user.userId;
     const isAdmin = user.role === "admin";
     const isVideoEditor = user.role === "video_editor";
-    if (!isCreator && !isAdmin && !isVideoEditor) {
+
+    // Phase 2: for instructor callers not already authorized above,
+    // look up the upload to check whether they own the underlying file.
+    // This read is restricted to the instructor role so non-owner
+    // callers cannot distinguish "active file" from "deleted file" via
+    // the differing `forbidden` vs `file_missing` responses.
+    let upload: Doc<"instructorUploads"> | null = null;
+    let isOwningInstructor = false;
+    if (!isCreator && !isAdmin && !isVideoEditor && user.role === "instructor") {
+      upload = await ctx.db.get(share.uploadId);
+      if (upload && upload.instructorId === user.userId) {
+        isOwningInstructor = true;
+      }
+    }
+
+    if (!isCreator && !isAdmin && !isVideoEditor && !isOwningInstructor) {
       return { kind: "forbidden" as const };
     }
 
@@ -218,7 +231,12 @@ export const resolveShareByToken = query({
       return { kind: "expired" as const, expiresAt: share.expiresAt };
     }
 
-    const upload = await ctx.db.get(share.uploadId);
+    // Load the upload now that authorization, revocation, and expiry
+    // have been validated, so file-availability state is only revealed
+    // to callers in the share audience.
+    if (!upload) {
+      upload = await ctx.db.get(share.uploadId);
+    }
     if (!upload || upload.status === "deleted") {
       return { kind: "file_missing" as const };
     }

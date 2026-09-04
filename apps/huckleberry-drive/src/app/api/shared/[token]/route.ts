@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { requireVideoEditor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { getDownloadUrlWithContentDisposition } from "@mentorships/storage/src/downloads";
@@ -12,8 +11,15 @@ interface Params {
 
 export async function POST(request: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
-    await requireVideoEditor();
-    const { getToken } = await auth();
+    // Role-based access is enforced by `resolveShareByToken` so that
+    // the owning instructor can also download shares they receive from
+    // video editors. We only require an authenticated Clerk session
+    // here to keep Turnstile from being exercised by unauthenticated
+    // callers.
+    const { userId, getToken } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const { token } = await params;
 
@@ -101,13 +107,6 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
     return NextResponse.json({ downloadUrl });
   } catch (error) {
     console.error("Shared download error:", error);
-
-    if (error instanceof UnauthorizedError) {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    if (error instanceof ForbiddenError) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
 
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
