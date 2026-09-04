@@ -95,7 +95,7 @@ export function ShareDialog({ uploadId, originalName, open, onClose }: ShareDial
             <div className="mt-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Anyone with this link who is signed in as a video editor can view and download this file.
+                  Anyone with this link who is signed in as a video editor or is the file&apos;s instructor can view and download this file.
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -170,7 +170,7 @@ export function ShareDialog({ uploadId, originalName, open, onClose }: ShareDial
                   />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Anyone signed in as a video editor can open the link. You can revoke it at any time.
+                  Anyone signed in as a video editor or the file&apos;s instructor can open the link. You can revoke it at any time.
                 </p>
               </div>
 

@@ -313,7 +313,7 @@ export default function SharesPage(): React.ReactElement {
         <div>
           <h1 className="text-3xl font-bold text-slate-100">Shares</h1>
           <p className="text-slate-400 mt-1">
-            Manage links you have shared with video editors.
+            Manage links you have shared. Video editors and the file&apos;s instructor can open them.
           </p>
         </div>
         <button

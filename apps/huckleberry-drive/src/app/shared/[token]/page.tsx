@@ -80,11 +80,12 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
     return (
       <div className="max-w-2xl mx-auto py-12 px-4">
         <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 text-center">
-          <h1 className="text-2xl font-bold text-slate-100 mb-2">Editors only</h1>
+          <h1 className="text-2xl font-bold text-slate-100 mb-2">Access restricted</h1>
           <p className="text-slate-400">
-            This share link is only available to users with the video editor role.
-            Ask the person who shared this link to share with the right audience, or
-            contact an admin if you believe you should have access.
+            This share link is only available to video editors and the instructor
+            who owns the file. Ask the person who shared this link to share with
+            the right audience, or contact an admin if you believe you should
+            have access.
           </p>
         </div>
       </div>
