@@ -91,38 +91,57 @@ test("recording-transfer callback auth: 401 with wrong callback secret (differen
   expect(r.status).toBe(401);
 });
 
-test("recording-transfer callback auth: passes verifyCallbackSecret with matching secret (no Buffer ReferenceError)", async () => {
+test("recording-transfer callback auth: matching secret + valid session → 200 + session row patched", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = VALID_KEY;
   process.env.CONVEX_TRIGGER_CALLBACK_SECRET = VALID_CALLBACK_SECRET;
 
-  let status: number | null = null;
-  let error: unknown = null;
-  try {
-    const r = await t.fetch("/recording-transfer/attach-from-b2", {
-      method: "POST",
-      headers: bearerAndCallbackHeaders(VALID_KEY, VALID_CALLBACK_SECRET),
-      body: JSON.stringify({ sessionId: "j1abc", b2Key: "recordings/test/test.mp4" }),
+  // Seed an instructor + session in the `uploading` state so the
+  // mutation will actually patch the row (early-returns when
+  // status is already `ready`).
+  const { sessionId, instructorId } = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rhtt",
+      email: "instructor-rhtt@example.com",
+      name: "Test Instructor",
+      slug: "test-instructor-rhtt",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
     });
-    status = r.status;
-  } catch (e) {
-    // `t.fetch` re-throws Convex validator/mutation errors as
-    // exceptions instead of returning a Response. The pre-fix
-    // bug surfaced as `ReferenceError: Buffer is not defined`,
-    // which we explicitly want to NOT see. Any other error
-    // (validator rejection of the fake sessionId, missing
-    // sessions row, etc.) proves auth passed and the handler
-    // reached `ctx.runMutation`.
-    error = e;
-  }
-  if (error !== null) {
-    const msg = String((error as Error)?.message ?? error);
-    expect(msg).not.toMatch(/Buffer is not defined/);
-    expect(msg).not.toMatch(/ReferenceError/);
-  } else {
-    expect(status).not.toBe(500);
-    expect(status).not.toBe(401);
-  }
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: "user_student_rhtt",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "uploading",
+    });
+    return { sessionId, instructorId };
+  });
+
+  const b2Key = `recordings/${sessionId}/rec.mp4`;
+  const r = await t.fetch("/recording-transfer/attach-from-b2", {
+    method: "POST",
+    headers: bearerAndCallbackHeaders(VALID_KEY, VALID_CALLBACK_SECRET),
+    body: JSON.stringify({ sessionId, b2Key, durationSeconds: 42 }),
+  });
+  expect(r.status).toBe(200);
+
+  // Verify the mutation actually ran end-to-end (auth passed,
+  // validator passed, b2Key prefix passed, session found, row
+  // patched). This is the full happy path that proves the
+  // fix didn't break anything downstream of the auth gate.
+  const session = await t.run(async (ctx) => {
+    return await ctx.db.get(sessionId);
+  });
+  expect(session).not.toBeNull();
+  expect(session?.recordingUrl).toBe(b2Key);
+  expect(session?.hasRecordingArtifact).toBe(true);
+  expect(session?.recordingTransferStatus).toBe("ready");
+  expect(session?.recordingDurationSeconds).toBe(42);
 });
 
 test("recording-transfer mark-retrying callback auth: 401 without callback secret", async () => {
