@@ -252,7 +252,7 @@ Before any code lands, the user creates these resources outside the repo. The ag
 |---|---|---|
 | Daily.co account + domain | https://dashboard.daily.co/ | `DAILY_API_KEY` |
 | Daily.co webhook secret | Daily dashboard → room webhook config (base64) | `DAILY_WEBHOOK_SECRET` |
-| Trigger.dev → Convex recording-transfer callback secret | 32+ bytes random; shared between Convex action and Trigger task | `TRIGGER_CONVEX_CALLBACK_SECRET` |
+| Trigger.dev → Convex recording-transfer callback secret | 32+ bytes random; shared between Convex action and Trigger task | `CONVEX_TRIGGER_CALLBACK_SECRET` |
 | B2 bucket for recordings | Backblaze B2 | `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_NAME` |
 | Webhook secret (Daily → `/api/webhooks/daily/recordings`) | Daily dashboard generates the secret as base64 (NOT hex). Paste into Daily webhook config + Vercel as `DAILY_WEBHOOK_SECRET`. | `DAILY_WEBHOOK_SECRET` |
 

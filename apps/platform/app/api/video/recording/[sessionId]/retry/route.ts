@@ -51,7 +51,7 @@ export const runtime = "nodejs";
  * manual retry endpoint would 409 on the next click.
  *
  * The `mark-retrying` / `mark-failed` callbacks share the same
- * `TRIGGER_CONVEX_CALLBACK_SECRET` + `CONVEX_HTTP_KEY` auth as the
+ * `CONVEX_TRIGGER_CALLBACK_SECRET` + `CONVEX_HTTP_KEY` auth as the
  * Trigger task — there is no public Convex mutation for these
  * transitions (Greptile review flagged the prior
  * `markRecordingTransferRetryingPublic` mutation as an auth
@@ -135,14 +135,14 @@ export async function POST(
       );
     }
 
-    const callbackSecret = process.env.TRIGGER_CONVEX_CALLBACK_SECRET;
+    const callbackSecret = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
     const convexHttpKey = process.env.CONVEX_HTTP_KEY;
     if (!callbackSecret || !convexUrl || !convexHttpKey) {
       await reportError({
         source: "api/video/recording/retry",
         error: new Error(
-          "TRIGGER_CONVEX_CALLBACK_SECRET / NEXT_PUBLIC_CONVEX_URL / CONVEX_HTTP_KEY are not all configured"
+          "CONVEX_TRIGGER_CALLBACK_SECRET / NEXT_PUBLIC_CONVEX_URL / CONVEX_HTTP_KEY are not all configured"
         ),
         message: "Transfer retry is not configured",
         level: "error",
