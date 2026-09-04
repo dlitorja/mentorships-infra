@@ -108,6 +108,13 @@ export const createAdHocCallNotification = mutation({
     if (recipientUserId === undefined) {
       throw new Error("Cannot determine ad-hoc call notification recipient");
     }
+    // Records WHO started the call so the toast/email/bell can phrase
+    // the invite correctly: "Your instructor has started…" vs
+    // "Your student has started…". The student-initiated case was
+    // previously mislabeled as the instructor having started the call.
+    const callerRole: "instructor" | "student" = isInstructor
+      ? "instructor"
+      : "student";
     const now = Date.now();
 
     const existing = await ctx.db
@@ -120,10 +127,13 @@ export const createAdHocCallNotification = mutation({
     if (existing) {
       // Refresh expiry so a re-issued call surfaces again to the
       // student; clear `readAt` so the badge comes back if they had
-      // marked it read between call restarts.
+      // marked it read between call restarts. Also patch `callerRole`
+      // so a re-issue from the OTHER party (e.g., student started
+      // after instructor's call ended) flips the framing correctly.
       await ctx.db.patch(existing._id, {
         expiresAt: now + TWENTY_FOUR_HOURS_MS,
         readAt: undefined,
+        callerRole,
       });
       return existing._id;
     }
@@ -133,6 +143,7 @@ export const createAdHocCallNotification = mutation({
       sessionId: args.sessionId,
       workspaceId: args.workspaceId,
       kind: "ad_hoc_call_invite",
+      callerRole,
       createdAt: now,
       expiresAt: now + TWENTY_FOUR_HOURS_MS,
     });

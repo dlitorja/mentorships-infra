@@ -49,7 +49,7 @@ export function StartAdhocButton({
 }: StartAdhocButtonProps): React.ReactElement | null {
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const { session, requestJoin } = useVideoCallContext();
+  const { session, isSessionLoading, requestJoin } = useVideoCallContext();
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
@@ -91,6 +91,38 @@ export function StartAdhocButton({
   // Only show the start affordance when there is no session. Once a
   // session exists (joinable/active/error), the call-status indicator
   // and Join button take over.
+  //
+  // PR #incoming-call-caller-role / #start-button-race: also hide the
+  // button while the workspace session query is in its first fetch so
+  // the user can't click "Start" in the brief window before the
+  // subscription resolves. Without this guard, the button flashed
+  // visible for ~100ms on workspace mount even when the other party
+  // had already started an active call — and a click during that
+  // window produced a misleading "Another call is already active"
+  // 409 toast. The server-side guard in `startAdhocCall` still
+  // catches the race if a click slips through (e.g. on slow
+  // connections), but hiding the affordance here means the user
+  // never has to interpret that error in normal usage.
+  //
+  // We render a disabled "Loading…" placeholder during the fetch so
+  // the action row's layout stays stable instead of popping the
+  // button in after the first paint.
+  if (isSessionLoading) {
+    return (
+      <Button
+        type="button"
+        variant="default"
+        size="lg"
+        disabled
+        aria-label="Checking for active call"
+        className="bg-blue-600 text-white font-semibold text-base shadow-sm opacity-60"
+      >
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Checking for active call…
+      </Button>
+    );
+  }
+
   if (session) {
     return null;
   }

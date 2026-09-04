@@ -10,37 +10,50 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Builds an ad-hoc call invitation email for the student.
+ * Builds an ad-hoc call invitation email for the OTHER workspace
+ * participant (whichever party did NOT start the call).
  *
- * Sent when an instructor starts an ad-hoc mentorship call
- * (PR #4a) and the student is offline / away from the workspace
- * UI. The email deep-links to `/workspace/{workspaceId}?join={sessionId}`
- * so a single click lands the student in the join modal.
+ * Sent when EITHER party on a workspace starts an ad-hoc
+ * mentorship call (PR #797 extended this beyond instructor-only),
+ * and the recipient is offline / away from the workspace UI. The
+ * email deep-links to `/workspace/{workspaceId}?join={sessionId}`
+ * so a single click lands the recipient in the join modal.
  *
- * The instructor's name and workspace name are interpolated so
- * the email reads as a personal invite rather than a generic
+ * The caller's display name and workspace name are interpolated
+ * so the email reads as a personal invite rather than a generic
  * notification. Names are escaped defensively even though the
- * inputs come from auth-gated server code paths — defense in depth
- * for the case where a future code path accepts user-supplied
- * names.
+ * inputs come from auth-gated server code paths — defense in
+ * depth for the case where a future code path accepts
+ * user-supplied names.
  *
- * @param args.instructorName - Display name of the instructor who started the call
+ * PR #incoming-call-caller-role: renamed `instructorName` →
+ * `callerName` and added `callerRole` so the subject/body match
+ * who actually started the call. The previous wording always
+ * framed it as the instructor, which was misleading when the
+ * student was the caller and the instructor was the recipient.
+ *
+ * @param args.callerName - Display name of the person who started the call
+ * @param args.callerRole - "instructor" or "student"; selects the
+ *   sentence framing ("Your instructor…" vs "Your student…")
  * @param args.workspaceName - Display name of the mentorship workspace
  * @param args.workspaceId - Convex workspace id, used to build the deep link
  * @param args.sessionId - Convex session id, used to build the deep link
  * @returns Email payload with subject, text, HTML, and X-Email-Type header
  */
 export function buildAdHocCallInviteEmail(args: {
-  instructorName: string;
+  callerName: string;
+  callerRole: "instructor" | "student";
   workspaceName: string;
   workspaceId: string;
   sessionId: string;
 }) {
   const joinUrl = `${getBaseUrl()}/workspace/${args.workspaceId}?join=${args.sessionId}`;
-  const subject = `${args.instructorName} started a mentorship call`;
+  const subject = `${args.callerName} started a mentorship call`;
+  const callerPronoun =
+    args.callerRole === "instructor" ? "Your instructor" : "Your student";
 
   const text = [
-    `${args.instructorName} has started a mentorship call in ${args.workspaceName}.`,
+    `${callerPronoun} ${args.callerName} has started a mentorship call in ${args.workspaceName}.`,
     "",
     "Click below to join the session:",
     joinUrl,
@@ -54,7 +67,7 @@ export function buildAdHocCallInviteEmail(args: {
       <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:6px">Mentorship call started</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
-          <strong>${escapeHtml(args.instructorName)}</strong> has started a mentorship call in
+          ${escapeHtml(callerPronoun)} <strong>${escapeHtml(args.callerName)}</strong> has started a mentorship call in
           <strong>${escapeHtml(args.workspaceName)}</strong>.
         </div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">

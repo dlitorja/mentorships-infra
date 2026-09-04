@@ -205,6 +205,25 @@ function VideoCallProviderInner({
     return sessionQuery.data ?? null;
   }, [deepLinkEffectiveSession, sessionQuery.data]);
 
+  // PR #incoming-call-caller-role / #start-button-race: surface the
+  // workspace session query's loading flag so consumers can distinguish
+  // "we don't know yet" from "we know there's no session". Convex's
+  // first fetch returns `data === undefined` until the round-trip
+  // resolves, which previously collapsed to `session === null` and made
+  // the Start button flash briefly even when an active session existed.
+  // Without this signal the only defense against a duplicate ad-hoc
+  // call was the server-side 409 — the UI showed a misleading error
+  // toast for a situation the button shouldn't have been visible in
+  // the first place.
+  //
+  // `sessionQuery.isLoading` is only true on the very first fetch; the
+  // subsequent 5s polls (`refetchInterval`) keep `isLoading` false
+  // because they have a previous value to fall back on. That's the
+  // behavior we want: the Start button hides during the first fetch,
+  // but stays available between polls (when we already have a stale
+  // answer) so the user is never stuck on a placeholder.
+  const isSessionLoading = sessionQuery.isLoading && sessionQuery.data === undefined;
+
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   // PR workspace-calls: tracks the session the user explicitly asked to
   // join (via the Start Call button or a deep-link). The provider only
@@ -362,6 +381,7 @@ function VideoCallProviderInner({
     () => ({
       workspaceId,
       session,
+      isSessionLoading,
       status: call.status,
       isMuted: call.isMuted,
       isCameraOff: call.isCameraOff,
@@ -382,6 +402,7 @@ function VideoCallProviderInner({
     [
       workspaceId,
       session,
+      isSessionLoading,
       call.status,
       call.isMuted,
       call.isCameraOff,

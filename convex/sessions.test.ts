@@ -393,3 +393,174 @@ test("recording pagination advances across pages and does not re-emit the same r
     expect(seenAcrossPages.has(id)).toBe(true);
   }
 });
+
+/**
+ * Regression suite for the production bug where an instructor who
+ * had a call running saw a misleading popup inviting them to join
+ * a separate call the student had just started. The root cause was
+ * twofold:
+ *   1. The student was able to start a second ad-hoc call while the
+ *      instructor's first one was still active.
+ *   2. The notification always framed the invite as "Your instructor
+ *      has started…", so the instructor couldn't tell whose call
+ *      the popup referred to.
+ *
+ * These tests pin the server-side guard that prevents (1): once a
+ * caller has started an ad-hoc call on a workspace, the OTHER party
+ * cannot start a second one — they must click Join on the existing
+ * call instead. The corresponding UI fix lives in
+ * `apps/platform/components/notifications/incoming-call-toast.tsx`
+ * and `apps/platform/components/video/start-adhoc-button.tsx`.
+ */
+
+const INSTRUCTOR_SUBJECT = "user_adhoc_instructor";
+const STUDENT_SUBJECT = "user_adhoc_student";
+
+async function seedAdhocWorkspace(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_SUBJECT,
+      email: "instructor@example.com",
+      name: "Test Instructor",
+      slug: "test-instructor-adhoc-guard",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Shared Workspace",
+      ownerId: STUDENT_SUBJECT,
+      instructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+    return { instructorId, workspaceId };
+  });
+}
+
+test("startAdhocCall: instructor can start when no call is active", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId } = await seedAdhocWorkspace(t);
+
+  const { sessionId } = await t
+    .withIdentity({ subject: INSTRUCTOR_SUBJECT })
+    .mutation(api.sessions.startAdhocCall, {
+      workspaceId: workspaceId as any,
+      recordingConsent: true,
+    });
+
+  const session = await t.run(async (ctx) => ctx.db.get(sessionId as any));
+  expect(session).toMatchObject({
+    instructorId: expect.anything(),
+    studentId: STUDENT_SUBJECT,
+    workspaceId: workspaceId as any,
+    isAdhoc: true,
+    status: "scheduled",
+  });
+});
+
+test("startAdhocCall: student can start when no call is active", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId } = await seedAdhocWorkspace(t);
+
+  const { sessionId } = await t
+    .withIdentity({ subject: STUDENT_SUBJECT })
+    .mutation(api.sessions.startAdhocCall, {
+      workspaceId: workspaceId as any,
+      recordingConsent: false,
+    });
+
+  const session = await t.run(async (ctx) => ctx.db.get(sessionId as any));
+  expect(session).toMatchObject({
+    studentId: STUDENT_SUBJECT,
+    isAdhoc: true,
+    status: "scheduled",
+  });
+});
+
+test("startAdhocCall: blocks the OTHER party when instructor already started a call (S1 active)", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId } = await seedAdhocWorkspace(t);
+
+  // Instructor starts S1, then `markCallStarted` flips it to "active"
+  // (with videoRoomName so it's joinable). The full flow matters here:
+  // we need to assert the guard catches the active case, not just
+  // "any session exists".
+  const { sessionId: instructorSessionId } = await t
+    .withIdentity({ subject: INSTRUCTOR_SUBJECT })
+    .mutation(api.sessions.startAdhocCall, {
+      workspaceId: workspaceId as any,
+      recordingConsent: true,
+    });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(instructorSessionId as any, {
+      callStartedAt: Date.now(),
+      videoRoomName: "mentorship-1",
+      videoRoomUrl: "https://example.daily.co/mentorship-1",
+    });
+  });
+
+  // Student tries to start a SECOND ad-hoc call on the same workspace.
+  await expect(
+    t
+      .withIdentity({ subject: STUDENT_SUBJECT })
+      .mutation(api.sessions.startAdhocCall, {
+        workspaceId: workspaceId as any,
+        recordingConsent: false,
+      })
+  ).rejects.toMatchObject({
+    data: { code: "VIDEO_FORBIDDEN_CALL_ACTIVE" },
+  });
+
+  // S1 must still be the only session on the workspace.
+  const sessions = await t.run(async (ctx) =>
+    ctx.db
+      .query("sessions")
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", STUDENT_SUBJECT)
+          .eq("status", "scheduled")
+      )
+      .collect()
+  );
+  const forThisWorkspace = sessions.filter(
+    (s) => String(s.workspaceId) === String(workspaceId)
+  );
+  expect(forThisWorkspace).toHaveLength(1);
+  expect(String(forThisWorkspace[0]._id)).toBe(String(instructorSessionId));
+});
+
+test("startAdhocCall: blocks the OTHER party when student already started a call (S1 active)", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId } = await seedAdhocWorkspace(t);
+
+  // Symmetric to the previous test but with the student as the
+  // starter — the instructor must be refused for the same reason.
+  const { sessionId: studentSessionId } = await t
+    .withIdentity({ subject: STUDENT_SUBJECT })
+    .mutation(api.sessions.startAdhocCall, {
+      workspaceId: workspaceId as any,
+      recordingConsent: false,
+    });
+  await t.run(async (ctx) => {
+    await ctx.db.patch(studentSessionId as any, {
+      callStartedAt: Date.now(),
+      videoRoomName: "mentorship-2",
+      videoRoomUrl: "https://example.daily.co/mentorship-2",
+    });
+  });
+
+  await expect(
+    t
+      .withIdentity({ subject: INSTRUCTOR_SUBJECT })
+      .mutation(api.sessions.startAdhocCall, {
+        workspaceId: workspaceId as any,
+        recordingConsent: true,
+      })
+  ).rejects.toMatchObject({
+    data: { code: "VIDEO_FORBIDDEN_CALL_ACTIVE" },
+  });
+});

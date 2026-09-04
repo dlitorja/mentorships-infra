@@ -150,7 +150,11 @@ export function NotificationBell() {
                     }}
                     className="block text-sm hover:underline"
                   >
-                    <div className="font-medium">Video call started</div>
+                    <div className="font-medium">
+                      {n.callerRole === "student"
+                        ? "Your student started a call"
+                        : "Your instructor started a call"}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {formatRelativeTime(now - n.createdAt)}
                     </div>
