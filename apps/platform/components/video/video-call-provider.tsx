@@ -216,13 +216,27 @@ function VideoCallProviderInner({
   // toast for a situation the button shouldn't have been visible in
   // the first place.
   //
+  // We treat three "we don't know yet" cases identically:
+  //   1. `isLoading` is true on the first fetch (no cached value yet).
+  //   2. `isError` is true on the first fetch and `data === undefined`
+  //      — the initial round-trip failed (network blip, Convex outage)
+  //      and we have no cached value to fall back on. This is the
+  //      Greptile-flagged gap: previously the button appeared because
+  //      `session === null` and the user got a misleading "Another
+  //      call is already active" 409 toast.
+  //   3. `data === undefined` for any other transient reason before
+  //      the first result lands.
+  //
   // `sessionQuery.isLoading` is only true on the very first fetch; the
   // subsequent 5s polls (`refetchInterval`) keep `isLoading` false
   // because they have a previous value to fall back on. That's the
-  // behavior we want: the Start button hides during the first fetch,
-  // but stays available between polls (when we already have a stale
-  // answer) so the user is never stuck on a placeholder.
-  const isSessionLoading = sessionQuery.isLoading && sessionQuery.data === undefined;
+  // behavior we want: the Start button hides during the first fetch
+  // (and during any failed first fetch), but stays available between
+  // polls (when we already have a stale answer) so the user is never
+  // stuck on a placeholder.
+  const isSessionLoading =
+    (sessionQuery.isLoading || sessionQuery.isError) &&
+    sessionQuery.data === undefined;
 
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   // PR workspace-calls: tracks the session the user explicitly asked to
