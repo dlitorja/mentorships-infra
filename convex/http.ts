@@ -1924,20 +1924,15 @@ function verifyCallbackSecret(request: Request): boolean {
   if (!expected) return false;
   const provided = request.headers.get("X-Trigger-Callback-Secret");
   if (provided === null) return false;
-  // Constant-time compare on equal-length buffers; pad to a
-  // fixed-length buffer so the timing-side-channel doesn't leak
-  // the secret length.
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  const len = Math.max(a.length, b.length, 64);
-  const aPadded = Buffer.alloc(len);
-  const bPadded = Buffer.alloc(len);
-  a.copy(aPadded);
-  b.copy(bPadded);
-  return a.length === b.length && timingSafeEqualStr(aPadded, bPadded);
-}
-
-function timingSafeEqualStr(a: Buffer, b: Buffer): boolean {
+  // Constant-time-ish compare on equal-length byte arrays.
+  // TextEncoder is the V8-safe replacement for `Buffer.from(string)`
+  // — `Buffer` is not defined in the Convex isolate runtime and using
+  // it here produced `ReferenceError: Buffer is not defined` on prod
+  // (caught 2026-09-04 by a Tier-1 smoke test).
+  const enc = new TextEncoder();
+  const a = enc.encode(provided);
+  const b = enc.encode(expected);
+  if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
     diff |= a[i] ^ b[i];
