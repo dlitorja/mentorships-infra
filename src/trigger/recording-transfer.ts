@@ -10,7 +10,7 @@ import { uploadFromUrl } from "@mentorships/storage";
 const CONVEX_DEPLOYMENT_URL =
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
-const CALLBACK_SECRET = process.env.TRIGGER_CONVEX_CALLBACK_SECRET;
+const CALLBACK_SECRET = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
 
 type Payload = {
   sessionId: string;
@@ -191,7 +191,7 @@ async function convexCallback(
   }
   if (!CALLBACK_SECRET) {
     throw new Error(
-      "TRIGGER_CONVEX_CALLBACK_SECRET not set — refusing to callback without shared secret"
+      "CONVEX_TRIGGER_CALLBACK_SECRET not set — refusing to callback without shared secret"
     );
   }
   const response = await fetch(

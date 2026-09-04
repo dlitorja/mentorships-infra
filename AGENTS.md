@@ -37,8 +37,10 @@ We prefer automating ops via CLI tools instead of asking humans to run them manu
 
 `trigger.config.ts` uses `syncEnvVars` to push env vars into the Trigger.dev project at deploy time. The extension defaults to `override: true`, which means a deploy from a machine WITHOUT a secret in its local `.env` would overwrite the production secret in the Trigger.dev project with an empty string. The config guards against this by only emitting a row when the local process.env value is non-empty. Safe public defaults (B2 bucket name, region, download host) are still emitted.
 
+**Reserved-prefix block:** Trigger.dev's `syncEnvVars` silently strips any env var whose name starts with `TRIGGER_` (it's reserved for the platform's own runtime). See `node_modules/@trigger.dev/build/dist/esm/extensions/core/syncEnvVars.js` (`UNSYNCABLE_ENV_VARS_PREFIXES = ["TRIGGER_"]`). If you need to sync an env var consumed by a Trigger task, give it a name that does **not** start with `TRIGGER_` (e.g. `CONVEX_TRIGGER_CALLBACK_SECRET` rather than `TRIGGER_CONVEX_CALLBACK_SECRET`). There is also no CLI `env set` command; the only way to populate a var that bypasses the prefix filter is to set it in the Trigger.dev dashboard by hand, which is why this rename exists.
+
 When deploying:
-- CI deploys must have all required secrets (`CONVEX_HTTP_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_ENDPOINT`, `DAILY_API_KEY`, `RESEND_API_KEY`, `TRIGGER_CONVEX_CALLBACK_SECRET`, etc.) in the deploy environment.
+- CI deploys must have all required secrets (`CONVEX_HTTP_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_ENDPOINT`, `DAILY_API_KEY`, `RESEND_API_KEY`, `CONVEX_TRIGGER_CALLBACK_SECRET`, etc.) in the deploy environment.
 - Local deploys from a developer machine will only push the secrets that are present in their `.env.local`. Production secrets are not overwritten by missing local values.
 - To validate a deploy without actually deploying: `npx trigger.dev@4.5.15 deploy --dry-run` (must match the installed `@trigger.dev/sdk` version).
 
@@ -48,7 +50,7 @@ Required env vars for the recording pipeline tasks (`transfer-daily-recording-to
 - `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_ENDPOINT`, `B2_BUCKET_NAME`, `B2_REGION`, `B2_DOWNLOAD_HOST`
 - `DAILY_API_KEY` (only for the transfer task)
 - `RESEND_API_KEY`, `EMAIL_FROM` (only for the warning task)
-- `TRIGGER_CONVEX_CALLBACK_SECRET` (only for the transfer task callback)
+- `CONVEX_TRIGGER_CALLBACK_SECRET` (only for the transfer task callback)
 
 
 This repo’s DB changes follow widen-migrate-narrow using Supabase CLI. Assistants will:

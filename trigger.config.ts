@@ -63,8 +63,8 @@ export default defineConfig({
         pushIfPresent("NEXT_PUBLIC_URL", process.env.NEXT_PUBLIC_URL);
         pushIfPresent("DAILY_API_KEY", process.env.DAILY_API_KEY);
         pushIfPresent(
-          "TRIGGER_CONVEX_CALLBACK_SECRET",
-          process.env.TRIGGER_CONVEX_CALLBACK_SECRET
+          "CONVEX_TRIGGER_CALLBACK_SECRET",
+          process.env.CONVEX_TRIGGER_CALLBACK_SECRET
         );
         emitted.push({
           name: "B2_BUCKET_NAME",

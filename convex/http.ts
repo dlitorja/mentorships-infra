@@ -1905,7 +1905,7 @@ http.route({
  * `verifyAuth` above) PLUS an additional `X-Trigger-Callback-Secret`
  * header so a leaked Convex deploy key alone cannot be used to
  * forge a callback. The shared secret is
- * `TRIGGER_CONVEX_CALLBACK_SECRET` and is set identically on
+ * `CONVEX_TRIGGER_CALLBACK_SECRET` and is set identically on
  * both sides; this is the standard "two-key" pattern for
  * service-to-service callbacks.
  *
@@ -1920,7 +1920,7 @@ http.route({
  */
 
 function verifyCallbackSecret(request: Request): boolean {
-  const expected = process.env.TRIGGER_CONVEX_CALLBACK_SECRET;
+  const expected = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
   if (!expected) return false;
   const provided = request.headers.get("X-Trigger-Callback-Secret");
   if (provided === null) return false;

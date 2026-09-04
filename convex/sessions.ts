@@ -1374,7 +1374,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
  *
  * Security: this is `internalMutation` and is only reachable
  * through the HTTP endpoint, which validates
- * `TRIGGER_CONVEX_CALLBACK_SECRET` (see `convex/http.ts`). The
+ * `CONVEX_TRIGGER_CALLBACK_SECRET` (see `convex/http.ts`). The
  * endpoint also clamps `b2Key` to the `recordings/` prefix so an
  * attacker who somehow obtained the callback secret could not
  * write an arbitrary B2 key for any session.
@@ -1455,7 +1455,7 @@ export const attachRecordingFromB2Upload = internalMutation({
  * No public mutation exists — Greptile review flagged a prior
  * `markRecordingTransferRetryingPublic` wrapper as an auth
  * bypass; the Next.js retry route now POSTs to the HTTP endpoint
- * directly using `TRIGGER_CONVEX_CALLBACK_SECRET` instead.
+ * directly using `CONVEX_TRIGGER_CALLBACK_SECRET` instead.
  */
 export const markRecordingTransferRetrying = internalMutation({
   args: {
