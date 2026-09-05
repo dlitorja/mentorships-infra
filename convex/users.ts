@@ -1077,10 +1077,23 @@ export const hardDeleteUser = mutation({
       });
     }
 
+    // The per-user workspaceAliases table is keyed by userId; rows
+    // contain the (possibly nickname) the user picked for a
+    // workspace. Without this pass a hard-deleted account would
+    // leave participant-chosen names in the database indefinitely.
+    const userAliases = await ctx.db
+      .query("workspaceAliases")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    for (const alias of userAliases) {
+      await ctx.db.delete(alias._id);
+    }
+
     return {
       success: true,
       userId: args.userId,
       filesQueued: filesToDelete.length,
+      aliasesRemoved: userAliases.length,
     };
   },
 });

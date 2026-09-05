@@ -1,7 +1,7 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
 
-/** Deletes all notes, links, images, and messages belonging to a workspace and resets its image counts. */
+/** Deletes all notes, links, images, messages, and per-user aliases belonging to a workspace and resets its image counts. */
 export const deleteAllWorkspaceContent = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -39,6 +39,20 @@ export const deleteAllWorkspaceContent = mutation({
       await ctx.db.delete(message._id);
     }
 
+    // Per-user workspace aliases live on their own table keyed by
+    // (workspaceId, userId). Without this step, retention cleanup
+    // would leave behind alias rows containing the workspace's
+    // participant-chosen names long after the workspace itself is
+    // gone — a privacy regression for soft-delete / 18-month
+    // retention paths.
+    const aliases = await ctx.db
+      .query("workspaceAliases")
+      .withIndex("by_workspaceId_userId", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    for (const alias of aliases) {
+      await ctx.db.delete(alias._id);
+    }
+
     await ctx.db.patch(workspaceId, {
       studentImageCount: 0,
       instructorImageCount: 0,
@@ -50,6 +64,7 @@ export const deleteAllWorkspaceContent = mutation({
         links: links.length,
         images: images.length,
         messages: messages.length,
+        aliases: aliases.length,
       },
     };
   },

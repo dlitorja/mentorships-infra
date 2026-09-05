@@ -28,6 +28,7 @@ import { RetentionWarningBanner } from "@/components/workspace/retention-warning
 import { RecordingRetentionWarningBanner } from "@/components/workspace/recording-retention-warning-banner";
 import { SessionCountControls } from "@/components/workspace/session-count-controls";
 import { WorkspaceTabsList } from "@/components/workspace/workspace-tabs-list";
+import { WorkspaceRenameTitle } from "@/components/workspace/workspace-rename-title";
 import { VideoCallProvider } from "@/components/video/video-call-provider";
 import { CallStatusPill } from "@/components/video/call-status-pill";
 import { CallOverlay } from "@/components/video/call-overlay";
@@ -46,6 +47,7 @@ import type { UserRole } from "@/lib/auth-helpers";
 type UserWorkspace = {
   _id: Id<"workspaces">;
   name?: string;
+  displayName?: string;
   description?: string;
   ownerId?: string;
   instructorId?: Id<"instructors">;
@@ -308,7 +310,9 @@ function WorkspaceInner({
                       }`}
                     >
                       <div className="flex items-center">
-                        <div className="font-medium truncate flex-1">{workspace.name}</div>
+                        <div className="font-medium truncate flex-1">
+                          {workspace.displayName ?? workspace.name}
+                        </div>
                         {activeSessionsByWorkspaceId[workspace._id]?.status === "active" && (
                           <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground shrink-0">
                             <span className="relative flex h-1.5 w-1.5">
@@ -394,15 +398,26 @@ function WorkspaceInner({
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
             <Card className={`flex flex-col ${useFullHeight ? "h-full" : ""}`}>
+              {/* Per-user workspace aliasing replaces the prior
+               * "Mentorship workspace for {student} with {instructor}"
+               * description subheader. The displayName already encodes
+               * the participant's chosen name and the type chips
+               * below the title carry the role context, so the
+               * subheader would be redundant.
+               */}
               <CardHeader className="pb-3 shrink-0">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
-                    {selectedWorkspace.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {selectedWorkspace.description}
-                      </p>
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <WorkspaceRenameTitle
+                      workspaceId={selectedWorkspace._id}
+                      displayName={
+                        selectedWorkspace.displayName ?? selectedWorkspace.name ?? ""
+                      }
+                      defaultName={selectedWorkspace.name ?? ""}
+                      canRename={
+                        userRole === "instructor" || userRole === "student"
+                      }
+                    />
                   </div>
                 </div>
               </CardHeader>
