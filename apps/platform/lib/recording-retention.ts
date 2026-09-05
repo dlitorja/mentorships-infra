@@ -1,6 +1,6 @@
 /**
  * R12: pure formatting helpers shared between
- * `apps/platform/components/workspace/calls-section.tsx`,
+ * `apps/platform/components/workspace/calls-tab.tsx`,
  * `apps/platform/components/workspace/recording-player-modal.tsx`,
  * and `apps/platform/lib/recording-retention.test.ts`.
  *
@@ -14,7 +14,7 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Per-row caption under each recording in `calls-section.tsx`.
+ * Per-row caption under each recording in `calls-tab.tsx`.
  * Tight urgency thresholds: anything ≤7 days is coloured red.
  */
 export function summarizeRetention(

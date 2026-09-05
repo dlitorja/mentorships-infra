@@ -1921,7 +1921,7 @@ export type CallRecording = {
   // intentionally NOT returned to the client (it can contain
   // presigned URLs, B2 endpoint diagnostics, etc.); the UI
   // translates the code to a user-facing string via
-  // `summarizeTransferError` in `apps/platform/components/workspace/calls-section.tsx`.
+  // `summarizeTransferError` in `apps/platform/components/workspace/calls-tab.tsx`.
   recordingTransferErrorCode:
     | "daily_purged"
     | "storage"

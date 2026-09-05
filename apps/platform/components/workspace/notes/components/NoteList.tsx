@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Plus, Loader2, FileText, Pin } from 'lucide-react';
 import { Id, type Doc } from '@/convex/_generated/dataModel';
 import type { NoteSummary } from '../types';
-import CallsSection from '../../calls-section';
 import { NoteListItem } from './NoteListItem';
 import { NoteCreateForm } from './NoteCreateForm';
 
@@ -35,7 +34,6 @@ interface NoteListProps {
   isLoadingMoreNotes: boolean;
   canLoadMoreNotes: boolean;
   onLoadMore: () => void;
-  workspaceId: Id<'workspaces'>;
   titleInputRef: React.RefObject<HTMLInputElement | null>;
   titleEditGuardRef: React.MutableRefObject<boolean>;
   editingNoteIdRef: React.MutableRefObject<Id<'workspaceNotes'> | null>;
@@ -70,7 +68,6 @@ export function NoteList({
   isLoadingMoreNotes,
   canLoadMoreNotes,
   onLoadMore,
-  workspaceId,
   titleInputRef,
   titleEditGuardRef,
   editingNoteIdRef,
@@ -110,13 +107,6 @@ export function NoteList({
       />
 
       <div className="flex-1 overflow-y-auto space-y-1">
-        {/* PR #4c-1: Calls sub-section. Lists past call recordings
-         * with Play (modal) + Download (signed B2 URL) actions.
-         * Sits above the live-session note so users scrolling
-         * the list see recordings first, then the live note
-         * (which only renders while a call is active). */}
-        <CallsSection workspaceId={workspaceId} />
-
         {/* PR #4b: pinned live-session note. While a call is active,
          * `markCallStarted` has fired `createLiveSessionNote` and
          * the row exists with `isLiveSessionNote: true`. We render

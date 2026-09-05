@@ -234,7 +234,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         isLoadingMoreNotes={isLoadingMoreNotes}
         canLoadMoreNotes={canLoadMoreNotes}
         onLoadMore={() => notesQuery.loadMore(50)}
-        workspaceId={workspaceId}
         titleInputRef={titleInputRef}
         titleEditGuardRef={titleEditGuardRef}
         editingNoteIdRef={editingNoteIdRef}

@@ -210,7 +210,7 @@ Merged via [PR #705](https://github.com/dlitorja/mentorships-infra/pull/705). `n
 10. **Cap `getCallRecordingsForWorkspace`** in `convex/sessions.ts`.
      - Reduce the `.take(200)` buffer to `.paginate({ cursor: null, numItems: 50 })` and return `{ recordings, isTruncated }`.
      - Update the surrounding comment to reflect the new cap.
-     - The `calls-section.tsx` and `calls-tab.tsx` consumers consume the new response shape and show a truncation notice; full cursor-based pagination is left as a future follow-up if workspaces exceed 50 recordings.
+     - The `calls-tab.tsx` consumer consumes the new response shape and shows a truncation notice; full cursor-based pagination is left as a future follow-up if workspaces exceed 50 recordings.
 
 ### Verification
 

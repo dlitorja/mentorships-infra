@@ -760,7 +760,7 @@ Call recordings uploaded to B2 are auto-deleted after **90 days** (configurable 
     │  POST /recording-retention/notify per (session, recipient, threshold)
     │  Resend email + dedupe-write recordingRetentionNotifications row
     ▼
-[UI]                  Per-row "auto-deletes in N days" caption in calls-section.tsx
+[UI]                  Per-row "auto-deletes in N days" caption in calls-tab.tsx
     │  Modal countdown line in recording-player-modal.tsx
     │  RecordingRetentionWarningBanner at workspace top
 ```
@@ -775,7 +775,7 @@ Key implementation files (R12):
 - `convex/crons.ts` — `audit-recording-retention-drift` hourly
 - `src/trigger/recording-retention.ts` — `cleanup-expired-call-recordings` (cron `0 5 * * *`)
 - `src/trigger/recording-retention-warnings.ts` — `send-recording-retention-warnings` (cron `0 10 * * *`)
-- `apps/platform/components/workspace/calls-section.tsx` — per-row countdown + "Deleted on [date]" pill for `purged` rows
+- `apps/platform/components/workspace/calls-tab.tsx` — per-row countdown + "Deleted on [date]" pill for `purged` rows
 - `apps/platform/components/workspace/recording-player-modal.tsx` — modal header countdown
 - `apps/platform/components/workspace/recording-retention-warning-banner.tsx` — in-app banner mounted in `workspace-client-page.tsx`
 - `apps/platform/lib/queries/convex/use-recordings.ts` — TanStack Query hooks
