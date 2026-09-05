@@ -119,7 +119,12 @@ export function WorkspaceRenameTitle({
   const reset = async () => {
     try {
       await setAlias.mutateAsync({ workspaceId, alias: "" });
-      setOptimisticAlias("");
+      // Optimistically render the default name; the server resolves
+      // a cleared alias back to `defaultName`, so storing the default
+      // here lets the reconciliation effect clear the override once
+      // the parent prop catches up. Storing "" would render a blank
+      // title because displayName would never equal "".
+      setOptimisticAlias(defaultName);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not reset workspace name", {
