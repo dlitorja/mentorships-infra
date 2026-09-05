@@ -20,6 +20,8 @@ export const ApiRoutes = {
   adminInstructorStudentResults: (id: string) => `/api/admin/instructors/${encodeURIComponent(id)}/student-results`,
   adminInstructorStudentResult: (id: string, resultId: string) =>
     `/api/admin/instructors/${encodeURIComponent(id)}/student-results/${encodeURIComponent(resultId)}`,
+  adminInstructorInvite: (id: string) =>
+    `/api/admin/instructors/${encodeURIComponent(id)}/invite`,
   adminInstructorsUpload: "/api/admin/instructors/upload",
   adminInstructorsBackfillImages: "/api/admin/instructors/backfill-images",
 
