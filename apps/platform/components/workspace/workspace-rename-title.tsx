@@ -22,6 +22,17 @@ interface WorkspaceRenameTitleProps {
 }
 
 /**
+ * Optimistic alias override scoped to a single workspace so that
+ * switching workspaces (or a late-resolving mutation for a
+ * previously-selected workspace) cannot leak one workspace's alias
+ * onto another.
+ */
+type OptimisticAlias = {
+  workspaceId: Id<"workspaces">;
+  value: string;
+};
+
+/**
  * Inline rename control for a workspace's title.
  *
  * - Click the pencil to edit.
@@ -43,11 +54,11 @@ interface WorkspaceRenameTitleProps {
  * `displayName` from a server-rendered prop, which doesn't refresh
  * after a client-side mutation. To keep the title from reverting to
  * the default name on Enter/blur we hold an `optimisticAlias`
- * override locally for immediate feedback, then call
- * `router.refresh()` so the server component re-runs with the new
- * alias. The override is also cleared whenever `workspaceId`
- * changes so switching workspaces never leaks one workspace's
- * alias onto another.
+ * override locally (keyed by workspaceId) for immediate feedback,
+ * then call `router.refresh()` so the server component re-runs with
+ * the new alias. The override only applies to the workspace it
+ * belongs to, so a late-resolving rename for a previously selected
+ * workspace can never bleed onto the workspace the user is on now.
  */
 export function WorkspaceRenameTitle({
   workspaceId,
@@ -59,22 +70,20 @@ export function WorkspaceRenameTitle({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [saving, setSaving] = useState(false);
-  // null when no in-flight optimistic update; otherwise the alias
-  // value the user just committed (defaultName on reset). Cleared
-  // when the parent prop catches up or when the workspaceId
-  // changes (so switching workspaces never leaks the alias).
-  const [optimisticAlias, setOptimisticAlias] = useState<string | null>(null);
+  const [optimisticAlias, setOptimisticAlias] = useState<OptimisticAlias | null>(
+    null
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setAlias = useSetWorkspaceAlias();
   const router = useRouter();
 
-  const effectiveDisplayName = optimisticAlias ?? displayName;
-
-  // Switching workspaces must not carry one workspace's optimistic
-  // alias onto another — drop the override on workspaceId change.
-  useEffect(() => {
-    setOptimisticAlias(null);
-  }, [workspaceId]);
+  // The optimistic override applies only when it belongs to the
+  // currently-rendered workspace. A late-resolving mutation for a
+  // previously-selected workspace cannot bleed onto the current one.
+  const effectiveDisplayName =
+    optimisticAlias && optimisticAlias.workspaceId === workspaceId
+      ? optimisticAlias.value
+      : displayName;
 
   useEffect(() => {
     if (!editing) {
@@ -82,14 +91,18 @@ export function WorkspaceRenameTitle({
     }
   }, [effectiveDisplayName, editing]);
 
-  // Reconcile: once the parent prop carries our optimistic value,
-  // drop the override so subsequent renders read straight from the
-  // (now-fresh) server-rendered prop.
+  // Reconcile: once the parent prop carries our optimistic value
+  // for this workspace, drop the override so subsequent renders
+  // read straight from the (now-fresh) server-rendered prop.
   useEffect(() => {
-    if (optimisticAlias !== null && displayName === optimisticAlias) {
+    if (
+      optimisticAlias &&
+      optimisticAlias.workspaceId === workspaceId &&
+      displayName === optimisticAlias.value
+    ) {
       setOptimisticAlias(null);
     }
-  }, [displayName, optimisticAlias]);
+  }, [displayName, optimisticAlias, workspaceId]);
 
   useEffect(() => {
     if (editing) {
@@ -106,10 +119,15 @@ export function WorkspaceRenameTitle({
       setEditing(false);
       return;
     }
+    // Capture the workspaceId at call time so a late-resolving
+    // mutation can be matched against the workspace the user was
+    // editing when they hit Enter (not whatever workspace they are
+    // viewing now).
+    const targetWorkspaceId = workspaceId;
     setSaving(true);
     try {
-      await setAlias.mutateAsync({ workspaceId, alias: trimmed });
-      setOptimisticAlias(trimmed);
+      await setAlias.mutateAsync({ workspaceId: targetWorkspaceId, alias: trimmed });
+      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: trimmed });
       setEditing(false);
       // Re-run the server component so the workspace list + the
       // rename control both render the new alias from the canonical
@@ -134,14 +152,15 @@ export function WorkspaceRenameTitle({
   };
 
   const reset = async () => {
+    const targetWorkspaceId = workspaceId;
     try {
-      await setAlias.mutateAsync({ workspaceId, alias: "" });
+      await setAlias.mutateAsync({ workspaceId: targetWorkspaceId, alias: "" });
       // Optimistically render the default name; the server resolves
       // a cleared alias back to `defaultName`, so storing the default
       // here lets the reconciliation effect clear the override once
       // the parent prop catches up. Storing "" would render a blank
       // title because displayName would never equal "".
-      setOptimisticAlias(defaultName);
+      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: defaultName });
       router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
