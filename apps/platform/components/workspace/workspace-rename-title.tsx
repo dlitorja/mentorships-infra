@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -38,11 +39,15 @@ interface WorkspaceRenameTitleProps {
  * the alias indicator (reset) so the user can retry instead of
  * having their input silently discarded.
  *
- * Optimistic updates: the parent passes `displayName` from a
- * server-rendered prop, which doesn't refresh after a client-side
- * mutation. To keep the title from reverting to the default name
- * on Enter/blur, the component tracks `optimisticAlias` locally and
- * uses it for rendering until the parent prop catches up.
+ * Optimistic updates + server refresh: the parent passes
+ * `displayName` from a server-rendered prop, which doesn't refresh
+ * after a client-side mutation. To keep the title from reverting to
+ * the default name on Enter/blur we hold an `optimisticAlias`
+ * override locally for immediate feedback, then call
+ * `router.refresh()` so the server component re-runs with the new
+ * alias. The override is also cleared whenever `workspaceId`
+ * changes so switching workspaces never leaks one workspace's
+ * alias onto another.
  */
 export function WorkspaceRenameTitle({
   workspaceId,
@@ -55,13 +60,21 @@ export function WorkspaceRenameTitle({
   const [draft, setDraft] = useState(displayName);
   const [saving, setSaving] = useState(false);
   // null when no in-flight optimistic update; otherwise the alias
-  // value the user just committed ("" for reset). Cleared once the
-  // parent prop catches up.
+  // value the user just committed (defaultName on reset). Cleared
+  // when the parent prop catches up or when the workspaceId
+  // changes (so switching workspaces never leaks the alias).
   const [optimisticAlias, setOptimisticAlias] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setAlias = useSetWorkspaceAlias();
+  const router = useRouter();
 
   const effectiveDisplayName = optimisticAlias ?? displayName;
+
+  // Switching workspaces must not carry one workspace's optimistic
+  // alias onto another — drop the override on workspaceId change.
+  useEffect(() => {
+    setOptimisticAlias(null);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (!editing) {
@@ -98,6 +111,10 @@ export function WorkspaceRenameTitle({
       await setAlias.mutateAsync({ workspaceId, alias: trimmed });
       setOptimisticAlias(trimmed);
       setEditing(false);
+      // Re-run the server component so the workspace list + the
+      // rename control both render the new alias from the canonical
+      // server-side source of truth instead of the local override.
+      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not rename workspace", {
@@ -125,6 +142,7 @@ export function WorkspaceRenameTitle({
       // the parent prop catches up. Storing "" would render a blank
       // title because displayName would never equal "".
       setOptimisticAlias(defaultName);
+      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not reset workspace name", {
