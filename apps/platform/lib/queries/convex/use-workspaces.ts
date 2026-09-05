@@ -533,6 +533,35 @@ export function useUpdateWorkspace() {
 }
 
 /**
+ * Per-user alias mutation hook. Sets or clears the caller's private
+ * rename for a workspace. The alias is local to the caller — it does
+ * not affect what the other participant sees. Invalidates every
+ * workspace read path so the rename takes effect everywhere the
+ * caller views it (picker, header card, sidebar).
+ */
+export function useSetWorkspaceAlias() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.setWorkspaceAlias),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceById"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceByIdForUser"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorWorkspaces"],
+      });
+    },
+  });
+}
+
+/**
  * Represents a workspace export job (ZIP, PDF, or Markdown).
  */
 export interface WorkspaceExport {

@@ -407,6 +407,23 @@ export default defineSchema({
       "deletedAt",
     ]),
 
+  /**
+   * Per-user display alias for a workspace. Each user (instructor or
+   * student) can override the workspace's default `name` with their own
+   * private alias — e.g., an instructor can label a student by a
+   * nickname, and the student can label the workspace by a preferred
+   * name. Aliases are scoped per `(workspaceId, userId)`: one user
+   * renaming the workspace never affects what the other participant
+   * sees. Defaults to `workspaces.name` when the row is missing.
+   */
+  workspaceAliases: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.string(),
+    alias: v.string(),
+    updatedAt: v.number(),
+  }).index("by_workspaceId_userId", ["workspaceId", "userId"])
+    .index("by_userId", ["userId"]),
+
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),
     title: v.string(),
