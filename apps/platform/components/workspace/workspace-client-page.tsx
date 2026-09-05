@@ -398,6 +398,13 @@ function WorkspaceInner({
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
             <Card className={`flex flex-col ${useFullHeight ? "h-full" : ""}`}>
+              {/* Per-user workspace aliasing replaces the prior
+               * "Mentorship workspace for {student} with {instructor}"
+               * description subheader. The displayName already encodes
+               * the participant's chosen name and the type chips
+               * below the title carry the role context, so the
+               * subheader would be redundant.
+               */}
               <CardHeader className="pb-3 shrink-0">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
@@ -407,7 +414,9 @@ function WorkspaceInner({
                         selectedWorkspace.displayName ?? selectedWorkspace.name ?? ""
                       }
                       defaultName={selectedWorkspace.name ?? ""}
-                      canRename
+                      canRename={
+                        userRole === "instructor" || userRole === "student"
+                      }
                     />
                   </div>
                 </div>

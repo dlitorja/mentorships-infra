@@ -353,3 +353,50 @@ test("deleteAllWorkspaceContent removes the workspace's alias rows", async () =>
   rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
   expect(rows.length).toBe(0);
 });
+
+test("hardDeleteUser removes the user's alias rows", async () => {
+  // Account hard-deletes are a separate lifecycle from workspace
+  // retention. When the user row goes away, their personal alias
+  // choices must go with it so the database doesn't retain
+  // participant-chosen names after the account is gone.
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedAliasWorkspace(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.setWorkspaceAlias, {
+    workspaceId,
+    alias: "Personal Nickname",
+  });
+  let rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(1);
+
+  // Seed an admin to authorize the hard delete, then drive it.
+  const adminUserId = "user_admin_hard_delete";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      clerkId: adminUserId,
+      email: "admin-hard-delete@example.com",
+      role: "admin",
+    });
+    // Soft-delete the student first (hardDeleteUser requires it).
+    await ctx.db.patch(studentUserId as any, {}).catch(() => undefined);
+    const studentRow = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", studentUserId))
+      .first();
+    if (studentRow) {
+      await ctx.db.patch(studentRow._id, { deletedAt: Date.now() });
+    }
+  });
+
+  const admin = t.withIdentity({ subject: adminUserId });
+  const result = await admin.mutation(api.users.hardDeleteUser, {
+    userId: studentUserId,
+  });
+  expect(result.success).toBe(true);
+  expect(result.aliasesRemoved).toBe(1);
+
+  rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(0);
+});
