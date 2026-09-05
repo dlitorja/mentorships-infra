@@ -201,6 +201,7 @@ export default function EditInstructorPage() {
             instructorsData={instructorsData}
             onSendInvitation={handleSendInvitation}
             isSendingInvitation={sendInvitationMutation.isPending}
+            savedEmail={data?.email || ""}
           />
         </TabsContent>
 

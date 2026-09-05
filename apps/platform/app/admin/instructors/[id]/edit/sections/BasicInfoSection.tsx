@@ -35,6 +35,7 @@ interface BasicInfoSectionProps {
   instructorsData?: InstructorsResponse;
   onSendInvitation: () => void;
   isSendingInvitation: boolean;
+  savedEmail: string;
 }
 
 export function BasicInfoSection({
@@ -44,13 +45,24 @@ export function BasicInfoSection({
   instructorsData,
   onSendInvitation,
   isSendingInvitation,
+  savedEmail,
 }: BasicInfoSectionProps) {
   const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
   const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
 
-  const hasEmail = !!(formData.email || "").trim();
+  const draftEmail = (formData.email || "").trim().toLowerCase();
+  const persistedEmail = (savedEmail || "").trim().toLowerCase();
+  const hasEmail = !!persistedEmail;
   const alreadyConnected = !!formData.userId;
-  const canInvite = hasEmail && !alreadyConnected;
+  const hasUnsavedEmailChanges = !!draftEmail && draftEmail !== persistedEmail;
+  const canInvite = hasEmail && !alreadyConnected && !hasUnsavedEmailChanges;
+  const inviteTooltip = !hasEmail
+    ? "Set an email first"
+    : alreadyConnected
+      ? "Already connected to Clerk"
+      : hasUnsavedEmailChanges
+        ? "Save Changes first so the invitation is sent to the right address"
+        : "Send a Clerk invitation to this email";
 
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -102,7 +114,7 @@ export function BasicInfoSection({
                 <Badge variant="default" className="bg-green-600">
                   Connected
                 </Badge>
-              ) : formData.email ? (
+              ) : persistedEmail ? (
                 <Badge variant="outline">Not Connected</Badge>
               ) : (
                 <Badge variant="secondary">No Email</Badge>
@@ -115,11 +127,7 @@ export function BasicInfoSection({
                 size="sm"
                 disabled={!canInvite || isSendingInvitation}
                 onClick={() => setConfirmOpen(true)}
-                title={
-                  !hasEmail
-                    ? "Set an email first"
-                    : "Send a Clerk invitation to this email"
-                }
+                title={inviteTooltip}
               >
                 {isSendingInvitation ? (
                   <>
@@ -135,6 +143,12 @@ export function BasicInfoSection({
               </Button>
             )}
           </div>
+          {hasUnsavedEmailChanges && (
+            <p className="text-xs text-amber-600">
+              You have unsaved email changes. Click <strong>Save Changes</strong>{" "}
+              before sending the invitation so it goes to the right address.
+            </p>
+          )}
           {formData.userId && (
             <p className="text-xs text-muted-foreground">Clerk User ID: {formData.userId}</p>
           )}
@@ -218,7 +232,7 @@ export function BasicInfoSection({
             <DialogTitle>Send Clerk Invitation</DialogTitle>
             <DialogDescription>
               We will send a sign-up invitation to{" "}
-              <span className="font-medium text-foreground">{formData.email}</span>.
+              <span className="font-medium text-foreground">{savedEmail}</span>.
               They will create a Clerk account, and once they accept, this
               instructor profile will be linked automatically.
             </DialogDescription>
