@@ -13,6 +13,7 @@ import { isValidDiscordUrl } from "@/lib/validation/discord";
 import { useUpdateInstructor } from "./hooks/use-update-instructor";
 import { useInstructorForm } from "./hooks/use-instructor-form";
 import { useTestimonialsAndResults } from "./hooks/use-testimonials-and-results";
+import { useSendInstructorInvitation } from "./hooks/use-send-instructor-invitation";
 import { BasicInfoSection } from "./sections/BasicInfoSection";
 import { ImagesSection } from "./sections/ImagesSection";
 import { TagsSection } from "./sections/TagsSection";
@@ -92,6 +93,23 @@ export default function EditInstructorPage() {
     setTestimonialForm,
     setStudentResultForm,
   });
+
+  const sendInvitationMutation = useSendInstructorInvitation({ instructorId });
+
+  const handleSendInvitation = () => {
+    setError(null);
+    setSuccessMessage("");
+    setShowSuccessDialog(false);
+    sendInvitationMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        setSuccessMessage(result.message || "Invitation sent");
+        setShowSuccessDialog(true);
+      },
+      onError: (err) => {
+        setError(err instanceof Error ? err.message : "Failed to send invitation");
+      },
+    });
+  };
 
   const handleSave = () => {
     setError(null);
@@ -181,6 +199,8 @@ export default function EditInstructorPage() {
             setFormData={setFormData}
             setActiveTab={setActiveTab}
             instructorsData={instructorsData}
+            onSendInvitation={handleSendInvitation}
+            isSendingInvitation={sendInvitationMutation.isPending}
           />
         </TabsContent>
 

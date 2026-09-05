@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from "react";
+import { Mail, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +16,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 import { NONE_SENTINEL } from "../types";
 import type { InstructorsResponse, InstructorFormData } from "../types";
@@ -23,11 +33,31 @@ interface BasicInfoSectionProps {
   setFormData: React.Dispatch<React.SetStateAction<InstructorFormData>>;
   setActiveTab: (tab: string) => void;
   instructorsData?: InstructorsResponse;
+  onSendInvitation: () => void;
+  isSendingInvitation: boolean;
 }
 
-export function BasicInfoSection({ formData, setFormData, setActiveTab, instructorsData }: BasicInfoSectionProps) {
+export function BasicInfoSection({
+  formData,
+  setFormData,
+  setActiveTab,
+  instructorsData,
+  onSendInvitation,
+  isSendingInvitation,
+}: BasicInfoSectionProps) {
   const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
   const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
+
+  const hasEmail = !!(formData.email || "").trim();
+  const alreadyConnected = !!formData.userId;
+  const canInvite = hasEmail && !alreadyConnected;
+
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const handleConfirmSend = () => {
+    setConfirmOpen(false);
+    onSendInvitation();
+  };
 
   return (
     <Card>
@@ -61,17 +91,48 @@ export function BasicInfoSection({ formData, setFormData, setActiveTab, instruct
               onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
               placeholder="instructor@example.com"
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Save the profile first, then use the button below to send the invitation.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Clerk Status:</span>
-            {formData.userId ? (
-              <Badge variant="default" className="bg-green-600">
-                Connected
-              </Badge>
-            ) : formData.email ? (
-              <Badge variant="outline">Not Connected</Badge>
-            ) : (
-              <Badge variant="secondary">No Email</Badge>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Clerk Status:</span>
+              {formData.userId ? (
+                <Badge variant="default" className="bg-green-600">
+                  Connected
+                </Badge>
+              ) : formData.email ? (
+                <Badge variant="outline">Not Connected</Badge>
+              ) : (
+                <Badge variant="secondary">No Email</Badge>
+              )}
+            </div>
+            {!alreadyConnected && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canInvite || isSendingInvitation}
+                onClick={() => setConfirmOpen(true)}
+                title={
+                  !hasEmail
+                    ? "Set an email first"
+                    : "Send a Clerk invitation to this email"
+                }
+              >
+                {isSendingInvitation ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Send Clerk Invitation
+                  </>
+                )}
+              </Button>
             )}
           </div>
           {formData.userId && (
@@ -150,6 +211,35 @@ export function BasicInfoSection({ formData, setFormData, setActiveTab, instruct
           <Button onClick={() => setActiveTab("images")}>Next</Button>
         </div>
       </CardContent>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Clerk Invitation</DialogTitle>
+            <DialogDescription>
+              We will send a sign-up invitation to{" "}
+              <span className="font-medium text-foreground">{formData.email}</span>.
+              They will create a Clerk account, and once they accept, this
+              instructor profile will be linked automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={isSendingInvitation}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmSend} disabled={isSendingInvitation}>
+              {isSendingInvitation ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending…
+                </>
+              ) : (
+                "Send Invitation"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
