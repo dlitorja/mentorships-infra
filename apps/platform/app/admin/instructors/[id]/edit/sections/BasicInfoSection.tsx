@@ -54,7 +54,7 @@ export function BasicInfoSection({
   const persistedEmail = (savedEmail || "").trim().toLowerCase();
   const hasEmail = !!persistedEmail;
   const alreadyConnected = !!formData.userId;
-  const hasUnsavedEmailChanges = !!draftEmail && draftEmail !== persistedEmail;
+  const hasUnsavedEmailChanges = draftEmail !== persistedEmail;
   const canInvite = hasEmail && !alreadyConnected && !hasUnsavedEmailChanges;
   const inviteTooltip = !hasEmail
     ? "Set an email first"

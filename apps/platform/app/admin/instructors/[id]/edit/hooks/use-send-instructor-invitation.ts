@@ -11,6 +11,8 @@ export interface SendInstructorInvitationResult {
   email?: string;
 }
 
+const ACCEPTANCE_REFRESH_DELAY_MS = 15_000;
+
 async function sendInvitation(instructorId: string): Promise<SendInstructorInvitationResult> {
   const response = await fetch(ApiRoutes.adminInstructorInvite(instructorId), {
     method: "POST",
@@ -40,10 +42,15 @@ export function useSendInstructorInvitation({
   return useMutation({
     mutationFn: () => sendInvitation(instructorId),
     onSuccess: () => {
-      // The Clerk webhook will eventually link userId to this instructor.
-      // Refetching now surfaces the latest server state; once accepted, the
-      // "Clerk Status" badge will flip to "Connected".
+      // Immediate refresh: surfaces current server state.
       queryClient.invalidateQueries({ queryKey: ["instructor", instructorId] });
+      // The Clerk webhook links userId to this instructor when the user accepts.
+      // A short delayed refetch covers the common case where acceptance happens
+      // within seconds; for slower acceptances the badge updates on the next
+      // page load or after another edit + refetch.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["instructor", instructorId] });
+      }, ACCEPTANCE_REFRESH_DELAY_MS);
     },
   });
 }
