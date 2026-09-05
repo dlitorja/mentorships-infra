@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
+import { convexQueryClient } from "@/lib/providers/query-provider";
 import RecordingPlayerModal from "./recording-player-modal";
 
 const PAGE_SIZE = 25;
@@ -60,8 +61,11 @@ export default function CallsSection({
         paginationOpts: { numItems: PAGE_SIZE, cursor: null },
       }
     ).queryKey,
-    queryFn: (ctx) => {
-      const opts = convexQuery(
+    queryFn: async (ctx) => {
+      if (!convexQueryClient) {
+        throw new Error("ConvexQueryClient not initialized");
+      }
+      const opts = convexQueryClient.queryOptions(
         api.sessions.getCallRecordingsForWorkspace,
         {
           workspaceId,
@@ -72,8 +76,8 @@ export default function CallsSection({
         }
       );
       const fn = opts.queryFn;
-      if (!fn) {
-        throw new Error("convexQuery returned no queryFn — ConvexQueryClient not connected");
+      if (typeof fn !== "function") {
+        throw new Error("ConvexQueryClient.queryOptions returned no queryFn");
       }
       return fn(ctx) as Promise<CallRecordingPage>;
     },

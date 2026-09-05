@@ -13,6 +13,7 @@ import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retenti
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
 import { z } from "zod";
+import { convexQueryClient } from "@/lib/providers/query-provider";
 import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
 
@@ -131,8 +132,11 @@ export default function CallsTab({
         paginationOpts: { numItems: RECORDINGS_PAGE_SIZE, cursor: null },
       }
     ).queryKey,
-    queryFn: (ctx) => {
-      const opts = convexQuery(
+    queryFn: async (ctx) => {
+      if (!convexQueryClient) {
+        throw new Error("ConvexQueryClient not initialized");
+      }
+      const opts = convexQueryClient.queryOptions(
         api.sessions.getCallRecordingsForWorkspace,
         {
           workspaceId,
@@ -143,8 +147,8 @@ export default function CallsTab({
         }
       );
       const fn = opts.queryFn;
-      if (!fn) {
-        throw new Error("convexQuery returned no queryFn — ConvexQueryClient not connected");
+      if (typeof fn !== "function") {
+        throw new Error("ConvexQueryClient.queryOptions returned no queryFn");
       }
       return fn(ctx) as Promise<CallRecordingPage>;
     },
