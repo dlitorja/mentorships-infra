@@ -37,6 +37,12 @@ interface WorkspaceRenameTitleProps {
  * errors via `sonner` and keep the editor open (commit) or restore
  * the alias indicator (reset) so the user can retry instead of
  * having their input silently discarded.
+ *
+ * Optimistic updates: the parent passes `displayName` from a
+ * server-rendered prop, which doesn't refresh after a client-side
+ * mutation. To keep the title from reverting to the default name
+ * on Enter/blur, the component tracks `optimisticAlias` locally and
+ * uses it for rendering until the parent prop catches up.
  */
 export function WorkspaceRenameTitle({
   workspaceId,
@@ -48,14 +54,29 @@ export function WorkspaceRenameTitle({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [saving, setSaving] = useState(false);
+  // null when no in-flight optimistic update; otherwise the alias
+  // value the user just committed ("" for reset). Cleared once the
+  // parent prop catches up.
+  const [optimisticAlias, setOptimisticAlias] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setAlias = useSetWorkspaceAlias();
 
+  const effectiveDisplayName = optimisticAlias ?? displayName;
+
   useEffect(() => {
     if (!editing) {
-      setDraft(displayName);
+      setDraft(effectiveDisplayName);
     }
-  }, [displayName, editing]);
+  }, [effectiveDisplayName, editing]);
+
+  // Reconcile: once the parent prop carries our optimistic value,
+  // drop the override so subsequent renders read straight from the
+  // (now-fresh) server-rendered prop.
+  useEffect(() => {
+    if (optimisticAlias !== null && displayName === optimisticAlias) {
+      setOptimisticAlias(null);
+    }
+  }, [displayName, optimisticAlias]);
 
   useEffect(() => {
     if (editing) {
@@ -65,7 +86,7 @@ export function WorkspaceRenameTitle({
   }, [editing]);
 
   const trimmed = draft.trim();
-  const dirty = trimmed !== displayName;
+  const dirty = trimmed !== effectiveDisplayName;
 
   const commit = async () => {
     if (!dirty) {
@@ -75,6 +96,7 @@ export function WorkspaceRenameTitle({
     setSaving(true);
     try {
       await setAlias.mutateAsync({ workspaceId, alias: trimmed });
+      setOptimisticAlias(trimmed);
       setEditing(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -90,13 +112,14 @@ export function WorkspaceRenameTitle({
   };
 
   const cancel = () => {
-    setDraft(displayName);
+    setDraft(effectiveDisplayName);
     setEditing(false);
   };
 
   const reset = async () => {
     try {
       await setAlias.mutateAsync({ workspaceId, alias: "" });
+      setOptimisticAlias("");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not reset workspace name", {
@@ -105,12 +128,12 @@ export function WorkspaceRenameTitle({
     }
   };
 
-  const isAliased = displayName.trim() !== defaultName.trim();
+  const isAliased = effectiveDisplayName.trim() !== defaultName.trim();
 
   if (!canRename) {
     return (
       <div className={cn("flex items-center gap-2 min-w-0", className)}>
-        <h1 className="text-xl font-semibold truncate">{displayName}</h1>
+        <h1 className="text-xl font-semibold truncate">{effectiveDisplayName}</h1>
       </div>
     );
   }
@@ -148,7 +171,7 @@ export function WorkspaceRenameTitle({
             onClick={() => setEditing(true)}
             aria-label="Rename workspace"
           >
-            <h1 className="text-xl font-semibold truncate">{displayName}</h1>
+            <h1 className="text-xl font-semibold truncate">{effectiveDisplayName}</h1>
             <Pencil className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
             {isAliased && (
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
