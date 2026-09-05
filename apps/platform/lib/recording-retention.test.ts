@@ -10,7 +10,7 @@ import {
  * R12: pure unit tests for the retention-countdown formatters
  * in `apps/platform/lib/recording-retention.ts`. These
  * functions are imported by both
- * `apps/platform/components/workspace/calls-section.tsx` and
+ * `apps/platform/components/workspace/calls-tab.tsx` and
  * `apps/platform/components/workspace/recording-player-modal.tsx`
  * — centralising them here (CodeRabbit #2) means a copy-paste
  * drift surfaces as a typecheck or test failure in CI instead

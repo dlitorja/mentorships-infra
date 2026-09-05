@@ -14,7 +14,6 @@ import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
 import { z } from "zod";
 import { convexQueryClient } from "@/lib/providers/query-provider";
-import { formatDuration, summarizeTransferError } from "./calls-section";
 import RecordingPlayerModal from "./recording-player-modal";
 
 const syncErrorResponseSchema = z.object({ error: z.string() }).partial();
@@ -113,12 +112,12 @@ function groupRecordingsByDate(
  * recordings visible as first-class files in the workspace rather than
  * hidden in a small subsection of the Notes tab.
  *
- * Recordings remain gated by the same server-side auth as
- * `CallsSection`; the workspace instructor and owner (the student who
- * purchased the workspace) can see them. The tab is intentionally shown
- * to all roles, matching the visibility of the existing Notes tab calls
- * section, because the server returns the data for both the instructor
- * and the owner.
+ * Recordings are gated by the same server-side auth as the underlying
+ * `getCallRecordingsForWorkspace` Convex query: only the workspace
+ * instructor and the student who purchased the workspace can see them.
+ * The tab is intentionally shown to all roles because the server returns
+ * the data for both the instructor and the owner; for every other role
+ * the query returns an empty page.
  */
 export default function CallsTab({
   workspaceId,
@@ -574,4 +573,51 @@ function SyncButton({ onSync, isPending, error }: SyncButtonProps): React.ReactE
       ) : null}
     </div>
   );
+}
+
+/**
+ * Maps a server-derived `recordingTransferErrorCode` to a
+ * user-facing one-liner. The raw error string is intentionally
+ * NOT returned to the client (CodeRabbit review flagged that the
+ * prior tooltip text could leak presigned URLs, B2 endpoint
+ * diagnostics, or other provider internals); the Convex query
+ * classifies the raw message into one of these four buckets.
+ *
+ * Most common causes in production:
+ *   - Daily auto-purged the recording (>7 days old) → `daily_purged`
+ *   - B2 credentials missing or rotated → `storage`
+ *   - Transient network blip on the Trigger task → `network`
+ *   - Anything else → `unknown`
+ */
+function summarizeTransferError(
+  code: NonNullable<CallRecording["recordingTransferErrorCode"]>
+): string {
+  switch (code) {
+    case "daily_purged":
+      return "Daily purged this recording before the transfer ran. Retrying won't help — please contact support.";
+    case "storage":
+      return "Could not save to storage. Click retry; if it keeps failing, contact support.";
+    case "network":
+      return "Network blip during transfer. Click retry to try again.";
+    case "unknown":
+    default:
+      return "Something went wrong saving the recording. Click retry; if it keeps failing, contact support.";
+  }
+}
+
+function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return "0:00";
+  }
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  if (hours > 0) {
+    return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+  }
+  return `${minutes}:${pad(seconds)}`;
+}
+
+function pad(n: number): string {
+  return n.toString().padStart(2, "0");
 }

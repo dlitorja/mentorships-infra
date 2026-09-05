@@ -15,7 +15,7 @@ import { formatRetentionCountdown, isRetentionUrgent } from "@/lib/recording-ret
 
 /**
  * PR #4c-1: modal video player for a single past call recording.
- * Mounted by `CallsSection` when the user clicks "Play" on a row.
+ * Mounted by `CallsTab` when the user clicks "Play" on a row.
  *
  * Signed-URL TTL: 1 hour. We re-fetch the URL 60 s before it
  * expires so playback is uninterrupted for users watching a
