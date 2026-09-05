@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -170,6 +170,90 @@ test("setWorkspaceAlias: rejects users not on the workspace", async () => {
   ).rejects.toThrow(/Not authorized to rename this workspace/);
 });
 
+test("setWorkspaceAlias: rejects platform admins (no participant boundary)", async () => {
+  // Per-user aliasing is for participants only. The mutation's
+  // role check must reject an admin identity even if `isAdmin`
+  // would otherwise let them read the workspace.
+  const t = convexTest(schema, modules);
+  const { workspaceId, instructorUserId } = await seedAliasWorkspace(t);
+  const adminUserId = "user_admin_alias";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      clerkId: adminUserId,
+      email: "admin-alias@example.com",
+      role: "admin",
+    });
+    // Make sure the instructor exists so the admin's identity is
+    // not the only one that resolves.
+    void instructorUserId;
+  });
+
+  const admin = t.withIdentity({ subject: adminUserId });
+  await expect(
+    admin.mutation(api.workspaces.setWorkspaceAlias, {
+      workspaceId,
+      alias: "Admin Override",
+    })
+  ).rejects.toThrow(/Not authorized to rename this workspace/);
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(0);
+});
+
+test("setWorkspaceAliasInternal: accepts a participant userId without auth identity", async () => {
+  // Trusted server-side callers don't carry an end-user identity,
+  // so the internal variant must accept the target userId explicitly
+  // and still enforce the participant-only boundary.
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedAliasWorkspace(t);
+
+  await t.mutation(internal.workspaces.setWorkspaceAliasInternal, {
+    workspaceId,
+    userId: studentUserId,
+    alias: "Trusted Rename",
+  });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(1);
+  expect(rows[0].alias).toBe("Trusted Rename");
+  expect(rows[0].userId).toBe(studentUserId);
+});
+
+test("setWorkspaceAliasInternal: rejects non-participant userIds", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId } = await seedAliasWorkspace(t);
+
+  await expect(
+    t.mutation(internal.workspaces.setWorkspaceAliasInternal, {
+      workspaceId,
+      userId: "user_random_stranger_internal",
+      alias: "Internal Pwned",
+    })
+  ).rejects.toThrow(/Not authorized to rename this workspace/);
+});
+
+test("setWorkspaceAliasInternal: clears an alias when alias is empty", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedAliasWorkspace(t);
+
+  await t.mutation(internal.workspaces.setWorkspaceAliasInternal, {
+    workspaceId,
+    userId: studentUserId,
+    alias: "First",
+  });
+  let rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(1);
+
+  await t.mutation(internal.workspaces.setWorkspaceAliasInternal, {
+    workspaceId,
+    userId: studentUserId,
+    alias: "  ",
+  });
+  rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(0);
+});
+
 test("setWorkspaceAlias: two participants get distinct aliases and neither sees the other", async () => {
   const t = convexTest(schema, modules);
   const { workspaceId, studentUserId, instructorUserId } = await seedAliasWorkspace(t);
@@ -242,4 +326,30 @@ test("getUserWorkspaces: each row carries the caller's displayName alias", async
   expect(instructorList.length).toBe(1);
   expect(instructorList[0].displayName).toBe("Instructor View Name");
   expect(instructorList[0].name).toBe("Default Workspace Name");
+});
+
+test("deleteAllWorkspaceContent removes the workspace's alias rows", async () => {
+  // Retention cleanup must take aliases with the workspace so
+  // participant-chosen names don't outlive the workspace itself.
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId, instructorUserId } = await seedAliasWorkspace(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.setWorkspaceAlias, {
+    workspaceId,
+    alias: "Personal Name",
+  });
+  const instructor = t.withIdentity({ subject: instructorUserId });
+  await instructor.mutation(api.workspaces.setWorkspaceAlias, {
+    workspaceId,
+    alias: "Instructor Nickname",
+  });
+
+  let rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(2);
+
+  await t.mutation(api.workspaces.deleteAllWorkspaceContent, { workspaceId });
+
+  rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
+  expect(rows.length).toBe(0);
 });

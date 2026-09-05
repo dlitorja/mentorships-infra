@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useSetWorkspaceAlias } from "@/lib/queries/convex/use-workspaces";
 import { Id } from "../../../../convex/_generated/dataModel";
@@ -31,6 +32,11 @@ interface WorkspaceRenameTitleProps {
  *
  * Renaming is gated by `canRename`, which the parent sets to false
  * for read-only surfaces (admin pages, ad-hoc-call overlays, etc.).
+ *
+ * Failure handling: both the commit and Reset paths surface
+ * errors via `sonner` and keep the editor open (commit) or restore
+ * the alias indicator (reset) so the user can retry instead of
+ * having their input silently discarded.
  */
 export function WorkspaceRenameTitle({
   workspaceId,
@@ -41,6 +47,7 @@ export function WorkspaceRenameTitle({
 }: WorkspaceRenameTitleProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setAlias = useSetWorkspaceAlias();
 
@@ -65,18 +72,37 @@ export function WorkspaceRenameTitle({
       setEditing(false);
       return;
     }
+    setSaving(true);
     try {
       await setAlias.mutateAsync({ workspaceId, alias: trimmed });
-    } catch (error) {
-      console.error("Failed to rename workspace:", error);
-    } finally {
       setEditing(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error("Could not rename workspace", {
+        description: message,
+      });
+      // Keep the editor open so the user can adjust the draft and
+      // retry. The local `draft` state still holds what they typed,
+      // and the next attempt will surface a fresh server error.
+    } finally {
+      setSaving(false);
     }
   };
 
   const cancel = () => {
     setDraft(displayName);
     setEditing(false);
+  };
+
+  const reset = async () => {
+    try {
+      await setAlias.mutateAsync({ workspaceId, alias: "" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error("Could not reset workspace name", {
+        description: message,
+      });
+    }
   };
 
   const isAliased = displayName.trim() !== defaultName.trim();
@@ -98,9 +124,12 @@ export function WorkspaceRenameTitle({
           value={draft}
           maxLength={120}
           aria-label="Rename workspace"
-          className="text-xl font-semibold bg-transparent border-b border-input focus:outline-none focus:border-primary min-w-0 flex-1"
+          disabled={saving}
+          className="text-xl font-semibold bg-transparent border-b border-input focus:outline-none focus:border-primary min-w-0 flex-1 disabled:opacity-60"
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
+          onBlur={() => {
+            void commit();
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -132,8 +161,7 @@ export function WorkspaceRenameTitle({
               type="button"
               className="text-xs text-muted-foreground hover:text-foreground shrink-0"
               onClick={() => {
-                setDraft("");
-                void setAlias.mutateAsync({ workspaceId, alias: "" });
+                void reset();
               }}
               title={`Reset to default: ${defaultName}`}
             >

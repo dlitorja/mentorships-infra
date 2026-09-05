@@ -832,29 +832,22 @@ const setWorkspaceAliasArgs = {
   alias: v.string(),
 } as const;
 
-async function setWorkspaceAliasImpl(
-  ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; alias: string }
-) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error("Unauthorized");
-  }
-  const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
-  if (!workspace) {
-    throw new Error("Workspace not found");
-  }
-  const role = await getWorkspaceRole(ctx, workspace, identity.subject);
-  if (!role) {
-    throw new Error("Not authorized to rename this workspace");
-  }
+const setWorkspaceAliasInternalArgs = {
+  workspaceId: v.id("workspaces"),
+  userId: v.string(),
+  alias: v.string(),
+} as const;
 
+async function writeAlias(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; userId: string; alias: string }
+): Promise<{ cleared: boolean; alias: string }> {
   const trimmed = args.alias.trim();
 
   const existing = await ctx.db
     .query("workspaceAliases")
     .withIndex("by_workspaceId_userId", (q) =>
-      q.eq("workspaceId", args.workspaceId).eq("userId", identity.subject)
+      q.eq("workspaceId", args.workspaceId).eq("userId", args.userId)
     )
     .first();
 
@@ -862,7 +855,7 @@ async function setWorkspaceAliasImpl(
     if (existing) {
       await ctx.db.delete(existing._id);
     }
-    return { cleared: true, alias: "" as string };
+    return { cleared: true, alias: "" };
   }
 
   if (trimmed.length > 120) {
@@ -879,22 +872,50 @@ async function setWorkspaceAliasImpl(
 
   await ctx.db.insert("workspaceAliases", {
     workspaceId: args.workspaceId,
-    userId: identity.subject,
+    userId: args.userId,
     alias: trimmed,
     updatedAt: Date.now(),
   });
   return { cleared: false, alias: trimmed };
 }
 
+async function setWorkspaceAliasImpl(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; alias: string }
+) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+  const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
+  if (!workspace) {
+    throw new Error("Workspace not found");
+  }
+  const role = await getWorkspaceRole(ctx, workspace, identity.subject);
+  // Per-user aliasing is reserved for the workspace's participants
+  // (instructor + student). Admins are intentionally excluded so the
+  // rename surface cannot be exercised by a platform-wide account
+  // that has no business relationship with the workspace.
+  if (role !== "instructor" && role !== "student") {
+    throw new Error("Not authorized to rename this workspace");
+  }
+  return await writeAlias(ctx, {
+    workspaceId: args.workspaceId,
+    userId: identity.subject,
+    alias: args.alias,
+  });
+}
+
 /**
  * Sets or clears the caller's private alias for a workspace.
  *
- * Each user (instructor OR student) can rename a workspace they
- * participate in, but the rename is scoped to that user — the other
+ * Each participating instructor OR student can rename a workspace
+ * they belong to, but the rename is scoped to that user — the other
  * participant's view is unaffected. Pass an empty/whitespace string
  * to clear the alias and revert to the workspace's default `name`.
  * Defaults to the workspace name when no alias row exists for the
- * caller.
+ * caller. Platform admins are intentionally rejected; the rename
+ * surface is for participants only.
  */
 export const setWorkspaceAlias = mutation({
   args: setWorkspaceAliasArgs,
@@ -903,11 +924,30 @@ export const setWorkspaceAlias = mutation({
   },
 });
 
-/** Internal variant of setWorkspaceAlias for trusted callers. */
+/**
+ * Internal variant of setWorkspaceAlias for trusted callers
+ * (admin scripts, retention re-keys, migrations). Accepts the target
+ * `userId` explicitly because server-side internal calls do not
+ * carry an end-user identity. Still enforces the participant
+ * boundary so a misbehaving caller cannot write aliases for
+ * arbitrary userIds.
+ */
 export const setWorkspaceAliasInternal = internalMutation({
-  args: setWorkspaceAliasArgs,
+  args: setWorkspaceAliasInternalArgs,
   handler: async (ctx, args) => {
-    return await setWorkspaceAliasImpl(ctx, args);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+    const role = await getWorkspaceRole(ctx, workspace, args.userId);
+    if (role !== "instructor" && role !== "student") {
+      throw new Error("Not authorized to rename this workspace");
+    }
+    return await writeAlias(ctx, {
+      workspaceId: args.workspaceId,
+      userId: args.userId,
+      alias: args.alias,
+    });
   },
 });
 
@@ -2495,7 +2535,7 @@ export const acknowledgeNotification = mutation({
   },
 });
 
-/** Permanently deletes all notes, links, images, and messages in a workspace and resets image counters. */
+/** Permanently deletes all notes, links, images, messages, and per-user aliases in a workspace and resets image counters. */
 export const deleteAllWorkspaceContent = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -2531,12 +2571,28 @@ export const deleteAllWorkspaceContent = mutation({
       await ctx.db.delete(message._id);
     }
 
+    const aliases = await ctx.db
+      .query("workspaceAliases")
+      .withIndex("by_workspaceId_userId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const alias of aliases) {
+      await ctx.db.delete(alias._id);
+    }
+
     await ctx.db.patch(args.workspaceId, {
       studentImageCount: 0,
       instructorImageCount: 0,
     });
 
-    return { deleted: { notes: notes.length, links: links.length, images: images.length, messages: messages.length } };
+    return {
+      deleted: {
+        notes: notes.length,
+        links: links.length,
+        images: images.length,
+        messages: messages.length,
+        aliases: aliases.length,
+      },
+    };
   },
 });
 

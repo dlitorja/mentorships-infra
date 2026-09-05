@@ -67,9 +67,21 @@ async function seedWorkspaceAndUsers(
   return { workspaceId, instructorId, studentUserId, instructorUserId, instructorRowId };
 }
 
+/**
+ * `createWorkspaceExport` falls back to `TRIGGER_API_KEY` when
+ * `TRIGGER_SECRET_KEY` is unset, so a test environment that exports
+ * only one of them could leave the row in "pending" while the test
+ * expects it to have failed. Clear both before any test that asserts
+ * on the post-mutation status.
+ */
+function clearTriggerCredentials(): void {
+  delete process.env.TRIGGER_SECRET_KEY;
+  delete process.env.TRIGGER_API_KEY;
+}
+
 test("createWorkspaceExport inserts a pending row for the authenticated student", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
@@ -95,7 +107,7 @@ test("createWorkspaceExport inserts a pending row for the authenticated student"
 
 test("createWorkspaceExport rejects an unauthenticated caller", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   await expect(
@@ -109,7 +121,7 @@ test("createWorkspaceExport rejects an unauthenticated caller", async () => {
 
 test("createWorkspaceExport rejects a non-participant", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId } = await seedWorkspaceAndUsers(t);
 
   const stranger = t.withIdentity({ subject: "user_random_stranger" });
@@ -124,7 +136,7 @@ test("createWorkspaceExport rejects a non-participant", async () => {
 
 test("createWorkspaceExport stores the auth subject even when client userId disagrees", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
@@ -226,7 +238,7 @@ test("cancelWorkspaceExport rejects an unauthenticated caller", async () => {
 
 test("getWorkspaceExports returns up to 10 most recent exports for participants", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
@@ -244,7 +256,7 @@ test("getWorkspaceExports returns up to 10 most recent exports for participants"
 
 test("getWorkspaceExports returns empty for non-participants", async () => {
   const t = convexTest(schema, modules);
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { workspaceId } = await seedWorkspaceAndUsers(t);
 
   const stranger = t.withIdentity({ subject: "user_random_stranger_query" });
@@ -373,7 +385,7 @@ test("HTTP /workspace/export/update-status updates status and downloadUrl", asyn
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { exportId } = await student.mutation(api.workspaces.createWorkspaceExport, {
     workspaceId,
     userId: studentUserId,
@@ -404,7 +416,7 @@ test("HTTP /workspace/export/update-status refuses to downgrade a completed expo
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { exportId } = await student.mutation(api.workspaces.createWorkspaceExport, {
     workspaceId,
     userId: studentUserId,
@@ -463,7 +475,7 @@ test("HTTP /workspace/export/get returns the export's owner + workspace", async 
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
   const student = t.withIdentity({ subject: studentUserId });
-  delete process.env.TRIGGER_SECRET_KEY;
+  clearTriggerCredentials();
   const { exportId } = await student.mutation(api.workspaces.createWorkspaceExport, {
     workspaceId,
     userId: studentUserId,
