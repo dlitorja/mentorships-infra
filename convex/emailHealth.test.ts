@@ -110,6 +110,31 @@ test("emailHealth: rejects non-admin callers", async () => {
   ).rejects.toThrow(/Administrator role required/);
 });
 
+test("emailHealth: split-id admin record is still recognized via by_userId", async () => {
+  const t = convexTest(schema, modules);
+  const SHARED_CLERK_ID = "user_split_clerk";
+  const ADMIN_USER_ID = "user_split_admin";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: ADMIN_USER_ID,
+      email: "split-admin@example.com",
+      clerkId: SHARED_CLERK_ID,
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_split_student",
+      email: "split-student@example.com",
+      clerkId: SHARED_CLERK_ID,
+      role: "student",
+    });
+  });
+  const client = t.withIdentity({ subject: ADMIN_USER_ID });
+  const summary = await client.query(internal.queries.emailHealth.getEmailHealthSummary, {
+    windowDays: 7,
+  });
+  expect(summary.totals.domains).toBe(0);
+});
+
 test("emailHealth: empty database returns zero totals and empty domains", async () => {
   const t = convexTest(schema, modules);
   await seedAdmin(t);

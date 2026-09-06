@@ -18,10 +18,17 @@ export const getEmailHealthSummary = query({
     if (!identity) {
       throw new Error("Authentication required");
     }
-    const viewer = await ctx.db
+    const userByUserId = await ctx.db
       .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
+    const userByClerkId = userByUserId
+      ? null
+      : await ctx.db
+          .query("users")
+          .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+          .first();
+    const viewer = userByUserId ?? userByClerkId;
     if (!viewer || viewer.role !== "admin") {
       throw new Error("Administrator role required");
     }
