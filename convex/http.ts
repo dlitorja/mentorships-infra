@@ -879,6 +879,249 @@ async function verifySvixSignature(
   return result === 0;
 }
 
+/**
+ * Resend sends webhooks via Svix. The signing secret is `whsec_<base64>`;
+ * the HMAC key is the base64-decoded portion (the part after `whsec_`).
+ * Signed content is `${svix_id}.${svix_timestamp}.${rawBody}`. The
+ * `svix-signature` header is space-delimited `v1,<base64>` entries.
+ *
+ * This differs from the existing `verifySvixSignature` (used by the Clerk
+ * handler) because Resend follows the canonical Svix spec exactly; Clerk
+ * uses a non-standard convention that the existing helper matches. Keep
+ * both — do not refactor Clerk's handler here.
+ */
+async function verifyResendSvixSignature(
+  secret: string,
+  body: string,
+  svixId: string,
+  svixTimestamp: string,
+  svixSignature: string
+): Promise<boolean> {
+  const keyBase64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+  let keyView: Uint8Array<ArrayBuffer>;
+  try {
+    const binary = atob(keyBase64);
+    const buffer = new ArrayBuffer(binary.length);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+      view[i] = binary.charCodeAt(i);
+    }
+    keyView = view;
+  } catch {
+    return false;
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyView,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signedContent = encoder.encode(`${svixId}.${svixTimestamp}.${body}`);
+  const sigBuffer = await crypto.subtle.sign("HMAC", key, signedContent);
+  const sigArray = new Uint8Array(sigBuffer);
+
+  const expected = btoa(String.fromCharCode(...sigArray));
+  const candidates = svixSignature.split(" ").filter((part) => part.startsWith("v1,"));
+  for (const candidate of candidates) {
+    const candidateBytes = candidate.slice("v1,".length);
+    if (candidateBytes.length !== expected.length) continue;
+
+    let mismatch = 0;
+    for (let i = 0; i < expected.length; i++) {
+      mismatch |= expected.charCodeAt(i) ^ candidateBytes.charCodeAt(i);
+    }
+    if (mismatch === 0) return true;
+  }
+  return false;
+}
+
+function domainFromEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  return at === -1 ? "" : email.slice(at + 1).toLowerCase();
+}
+
+function parseCreatedAtToEpoch(createdAt: string | undefined, fallback: number): number {
+  if (!createdAt) return fallback;
+  const ms = Date.parse(createdAt);
+  return Number.isFinite(ms) ? ms : fallback;
+}
+
+type ResendWebhookEvent = {
+  type: string;
+  created_at?: string;
+  data: Record<string, unknown>;
+};
+
+export const httpPostResendWebhook = httpAction(async (ctx, request) => {
+  const RESEND_WEBHOOK_SECRET = process.env.RESEND_WEBHOOK_SECRET;
+
+  if (!RESEND_WEBHOOK_SECRET) {
+    console.error("RESEND_WEBHOOK_SECRET is not configured");
+    return new Response(JSON.stringify({ error: "Webhook not configured" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const body = await request.text();
+  const svixId = request.headers.get("svix-id") ?? "";
+  const svixTimestamp = request.headers.get("svix-timestamp") ?? "";
+  const svixSignature = request.headers.get("svix-signature") ?? "";
+
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    return new Response(JSON.stringify({ error: "Missing Svix headers" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const timestampMs = parseInt(svixTimestamp, 10) * 1000;
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 300_000) {
+    return new Response(JSON.stringify({ error: "Webhook timestamp too old" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const valid = await verifyResendSvixSignature(
+    RESEND_WEBHOOK_SECRET,
+    body,
+    svixId,
+    svixTimestamp,
+    svixSignature
+  );
+  if (!valid) {
+    return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  let event: ResendWebhookEvent;
+  try {
+    event = JSON.parse(body) as ResendWebhookEvent;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const receivedAt = Date.now();
+  const occurredAt = parseCreatedAtToEpoch(event.created_at, receivedAt);
+  const eventType = event.type;
+  const data = event.data ?? {};
+
+  switch (eventType) {
+    case "suppression.added": {
+      const origin = data.origin;
+      const email = data.email;
+      if (typeof email !== "string" || typeof origin !== "string") {
+        console.warn("resend webhook: suppression.added missing email/origin", { eventType });
+        return new Response(null, { status: 200 });
+      }
+      const kind =
+        origin === "bounce" ? "bounce" : origin === "complaint" ? "complaint" : "unsubscribe";
+      const suppressionId = typeof data.id === "string" ? data.id : "unknown";
+      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind,
+        email,
+        domain: domainFromEmail(email),
+        resendId: `suppress:${suppressionId}`,
+        reason: origin,
+        receivedAt,
+        occurredAt,
+        audienceId: typeof data.source_id === "string" ? data.source_id : undefined,
+        raw: event,
+      });
+      break;
+    }
+    case "email.bounced": {
+      const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
+      const email = recipients[0];
+      const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
+      const bounce = (data.bounce ?? {}) as { type?: string; message?: string };
+      if (!email) {
+        console.warn("resend webhook: email.bounced without recipients", { eventType });
+        return new Response(null, { status: 200 });
+      }
+      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind: "bounce",
+        email,
+        domain: domainFromEmail(email),
+        resendId: emailId,
+        bounceType: bounce.type,
+        reason: bounce.message,
+        receivedAt,
+        occurredAt,
+        raw: event,
+      });
+      break;
+    }
+    case "email.complained": {
+      const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
+      const email = recipients[0];
+      const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
+      if (!email) {
+        console.warn("resend webhook: email.complained without recipients", { eventType });
+        return new Response(null, { status: 200 });
+      }
+      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind: "complaint",
+        email,
+        domain: domainFromEmail(email),
+        resendId: emailId,
+        reason: "Marked as spam",
+        receivedAt,
+        occurredAt,
+        raw: event,
+      });
+      break;
+    }
+    case "email.suppressed": {
+      const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
+      const email = recipients[0];
+      const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
+      const suppressed = (data.suppressed ?? {}) as { type?: string; message?: string };
+      if (!email) {
+        console.warn("resend webhook: email.suppressed without recipients", { eventType });
+        return new Response(null, { status: 200 });
+      }
+      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind: "bounce",
+        email,
+        domain: domainFromEmail(email),
+        resendId: emailId,
+        bounceType: suppressed.type,
+        reason: suppressed.message,
+        receivedAt,
+        occurredAt,
+        raw: event,
+      });
+      break;
+    }
+    case "suppression.removed":
+      console.log("resend webhook: suppression.removed acknowledged (reconcile cron handles removal)", {
+        eventType,
+      });
+      break;
+    default:
+      console.log("resend webhook: ignored event", eventType);
+  }
+
+  return new Response(null, { status: 200 });
+});
+
+http.route({
+  path: "/webhooks/resend",
+  method: "POST",
+  handler: httpPostResendWebhook,
+});
+
 export const httpClerkWebhook = httpAction(async (ctx, request) => {
   const CLERK_WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
 
