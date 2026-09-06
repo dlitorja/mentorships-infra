@@ -59,12 +59,14 @@ test("suppressionListQueries.getListStateRowsBefore: returns list:* rows with re
     receivedAt: NOW - 200_000,
   });
 
-  const rows = await t.query(
+  const result = await t.query(
     "queries/suppressionListQueries:getListStateRowsBefore" as never,
     { before: NOW }
   );
-  expect(rows).toHaveLength(2);
-  expect(rows.map((r) => r.resendId).sort()).toEqual(["list:abc", "list:gone"]);
+  expect(result.truncated).toBe(false);
+  expect(result.scannedPages).toBe(1);
+  expect(result.rows).toHaveLength(2);
+  expect(result.rows.map((r: { resendId: string }) => r.resendId).sort()).toEqual(["list:abc", "list:gone"]);
 });
 
 test("suppressionListQueries.getListStateRowsBefore: excludes rows receivedAt >= before", async () => {
@@ -84,12 +86,12 @@ test("suppressionListQueries.getListStateRowsBefore: excludes rows receivedAt >=
     receivedAt: NOW + 100_000,
   });
 
-  const rows = await t.query(
+  const result = await t.query(
     "queries/suppressionListQueries:getListStateRowsBefore" as never,
     { before: NOW }
   );
-  expect(rows).toHaveLength(1);
-  expect(rows[0].resendId).toBe("list:abc");
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0].resendId).toBe("list:abc");
 });
 
 test("suppressionListQueries.getListStateRowsBefore: excludes suppress:* and event:* and removed:* prefixes", async () => {
@@ -123,21 +125,22 @@ test("suppressionListQueries.getListStateRowsBefore: excludes suppress:* and eve
     receivedAt: NOW - 100_000,
   });
 
-  const rows = await t.query(
+  const result = await t.query(
     "queries/suppressionListQueries:getListStateRowsBefore" as never,
     { before: NOW }
   );
-  expect(rows).toHaveLength(1);
-  expect(rows[0].resendId).toBe("list:abc");
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0].resendId).toBe("list:abc");
 });
 
-test("suppressionListQueries.getListStateRowsBefore: returns empty when no list: rows exist", async () => {
+test("suppressionListQueries.getListStateRowsBefore: empty result when no list: rows exist", async () => {
   const t = convexTest(schema, modules);
-  const rows = await t.query(
+  const result = await t.query(
     "queries/suppressionListQueries:getListStateRowsBefore" as never,
     { before: NOW }
   );
-  expect(rows).toEqual([]);
+  expect(result.rows).toEqual([]);
+  expect(result.truncated).toBe(false);
 });
 
 test("schema: deniedDomains table accepts the documented fields", async () => {

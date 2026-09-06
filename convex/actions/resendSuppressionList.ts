@@ -192,11 +192,23 @@ export const finalizeReconcile = internalAction({
     activeIds: v.array(v.string()),
     runStartedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const listRows = await ctx.runQuery(
+  handler: async (ctx, args): Promise<{
+    activeCount: number;
+    candidates: number;
+    listScanTruncated: boolean;
+    listScanPages: number;
+  }> => {
+    const listScan: { rows: Array<{
+      resendId: string;
+      email: string;
+      domain: string;
+      kind: "bounce" | "complaint" | "unsubscribe" | "removed";
+      receivedAt: number;
+    }>; truncated: boolean; scannedPages: number } = await ctx.runQuery(
       internal.queries.suppressionListQueries.getListStateRowsBefore,
       { before: args.runStartedAt - 60_000 }
     );
+    const listRows = listScan.rows;
 
     const activeSet = new Set(args.activeIds);
     const removedCandidates = new Map<string, { resendId: string; email: string; domain: string }>();
@@ -222,6 +234,8 @@ export const finalizeReconcile = internalAction({
     return {
       activeCount: activeSet.size,
       candidates: candidatesArr.length,
+      listScanTruncated: listScan.truncated,
+      listScanPages: listScan.scannedPages,
     };
   },
 });
@@ -305,7 +319,7 @@ export const finalizeReconcileBatch = internalAction({
 export const runReconcileSuppressionList = internalAction({
   args: {},
   handler: async (ctx): Promise<
-    | { scheduled: true; runStartedAt: number }
+    | { scheduled: true; runStartedAt: number; staleRecovered?: boolean }
     | {
         scheduled: false;
         runStartedAt: number;
@@ -330,6 +344,6 @@ export const runReconcileSuppressionList = internalAction({
       activeIds: [],
       runStartedAt,
     });
-    return { scheduled: true, runStartedAt };
+    return { scheduled: true, runStartedAt, staleRecovered: "staleRecovered" in lock ? lock.staleRecovered : undefined };
   },
 });

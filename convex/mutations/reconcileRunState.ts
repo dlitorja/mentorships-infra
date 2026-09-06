@@ -2,6 +2,7 @@ import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
 const RECONCILE_MIN_INTERVAL_MS = 30 * 60 * 1000;
+const STALE_RUN_MS = 60 * 60 * 1000;
 
 export const tryStartReconcile = internalMutation({
   args: {
@@ -11,6 +12,19 @@ export const tryStartReconcile = internalMutation({
     const existing = await ctx.db.query("reconcileRunState").first();
     if (existing) {
       if (existing.currentRunStartedAt !== undefined) {
+        const inProgressAge = args.runStartedAt - existing.currentRunStartedAt;
+        if (inProgressAge > STALE_RUN_MS) {
+          await ctx.db.patch(existing._id, {
+            currentRunStartedAt: args.runStartedAt,
+            lastStartedAt: args.runStartedAt,
+          });
+          return {
+            acquired: true as const,
+            staleRecovered: true as const,
+            currentRunStartedAt: args.runStartedAt,
+            previousStartedAt: existing.lastStartedAt,
+          };
+        }
         return {
           acquired: false as const,
           reason: "reconcile_in_progress" as const,

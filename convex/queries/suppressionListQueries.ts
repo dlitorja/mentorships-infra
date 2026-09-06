@@ -2,6 +2,7 @@ import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 
 const PAGE_SIZE = 1000;
+const MAX_PAGES = 100;
 
 export const getListStateRowsBefore = internalQuery({
   args: {
@@ -19,7 +20,7 @@ export const getListStateRowsBefore = internalQuery({
     let cursor: string | null = null;
     let isDone = false;
     let pages = 0;
-    while (!isDone && pages < 20) {
+    while (!isDone && pages < MAX_PAGES) {
       const result = await ctx.db
         .query("suppressionEvents")
         .withIndex("by_resendId_and_kind", (q) =>
@@ -44,6 +45,10 @@ export const getListStateRowsBefore = internalQuery({
       cursor = result.isDone ? null : result.continueCursor;
     }
 
-    return out;
+    return {
+      rows: out,
+      truncated: !isDone,
+      scannedPages: pages,
+    };
   },
 });
