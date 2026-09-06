@@ -104,6 +104,11 @@ export const seedSuppressionEventsFromList = internalAction({
 export const reconcileSuppressionListPage = internalAction({
   args: {
     after: v.optional(v.string()),
+    // Bounded by Convex scheduler arg limit (1 MB). Resend suppression
+    // IDs are ~36 chars; this supports ~27k entries. Realistic
+    // suppression lists are <5k. If a tenant ever exceeds this, the
+    // scheduler will reject the call; mitigation = store activeIds
+    // in a temp table keyed by runStartedAt and read in finalize.
     activeIds: v.array(v.string()),
     runStartedAt: v.number(),
   },
@@ -264,8 +269,9 @@ export const finalizeReconcileBatch = internalAction({
         await ctx.runMutation(internal.mutations.reconcileRunState.markReconcileCompleted, {
           completedAt: Date.now(),
         });
+        return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: true };
       }
-      return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: args.markCompleted ?? false };
+      return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: false };
     }
     const head = args.batch.slice(0, FINALIZE_BATCH_SIZE);
     const tail = args.batch.slice(FINALIZE_BATCH_SIZE);
@@ -273,7 +279,7 @@ export const finalizeReconcileBatch = internalAction({
     if (tail.length > 0) {
       await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
         batch: tail,
-        markCompleted: false,
+        markCompleted: args.markCompleted ?? false,
       });
       return {
         upserted: written.upserted,

@@ -24,6 +24,12 @@ import { internal } from "./_generated/api";
  *   Resend Suppression List against `suppressionEvents` to detect
  *   rows the webhook missed + entries that have been removed. See
  *   `convex/actions/resendSuppressionList.ts`.
+ * - backfill-suppression-dashboard-relevant: Runs every 24 hours,
+ *   idempotently stamps the `dashboardRelevant` flag on every
+ *   `suppressionEvents` row whose flag is missing or wrong. The first
+ *   run after the schema change backfills all rows; subsequent runs
+ *   no-op because the flag is already correct. See
+ *   `convex/actions/backfillDashboardRelevant.ts`.
  */
 const crons = cronJobs();
 
@@ -87,6 +93,13 @@ crons.interval(
   "reconcile-resend-suppression-list",
   { hours: 6 },
   internal.actions.resendSuppressionList.runReconcileSuppressionList,
+  {}
+);
+
+crons.interval(
+  "backfill-suppression-dashboard-relevant",
+  { hours: 24 },
+  internal.actions.backfillDashboardRelevant.runBackfillDashboardRelevant,
   {}
 );
 
