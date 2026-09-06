@@ -105,6 +105,7 @@ export const reconcileSuppressionListPage = internalAction({
   args: {
     after: v.optional(v.string()),
     activeIds: v.array(v.string()),
+    runStartedAt: v.number(),
   },
   handler: async (ctx, args) => {
     const apiKey = process.env.RESEND_API_KEY;
@@ -157,6 +158,7 @@ export const reconcileSuppressionListPage = internalAction({
       await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.reconcileSuppressionListPage, {
         after: lastId,
         activeIds: seenIds,
+        runStartedAt: args.runStartedAt,
       });
       return {
         fetched: payload.data.length,
@@ -168,6 +170,7 @@ export const reconcileSuppressionListPage = internalAction({
 
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcile, {
       activeIds: seenIds,
+      runStartedAt: args.runStartedAt,
     });
 
     return {
@@ -182,11 +185,12 @@ export const reconcileSuppressionListPage = internalAction({
 export const finalizeReconcile = internalAction({
   args: {
     activeIds: v.array(v.string()),
+    runStartedAt: v.number(),
   },
   handler: async (ctx, args) => {
     const listRows = await ctx.runQuery(
-      internal.queries.suppressionListQueries.getListStateRows,
-      {}
+      internal.queries.suppressionListQueries.getListStateRowsBefore,
+      { before: args.runStartedAt - 60_000 }
     );
 
     const activeSet = new Set(args.activeIds);
@@ -205,40 +209,81 @@ export const finalizeReconcile = internalAction({
       });
     }
 
-    let removedUpserted = 0;
-    let removedAlreadyPresent = 0;
-    const receivedAt = Date.now();
-    for (const [, info] of removedCandidates) {
-      const result = await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
-        kind: "removed",
-        email: info.email,
-        domain: info.domain,
-        resendId: `removed:${info.resendId.replace(/^list:/, "")}`,
-        reason: "Reconcile detected removal",
-        receivedAt,
-        occurredAt: receivedAt,
-        raw: { removedFromActiveSet: true, originalSuppression: info.resendId },
+    const BATCH_SIZE = 100;
+    const candidatesArr = Array.from(removedCandidates.values());
+    if (candidatesArr.length > BATCH_SIZE) {
+      const firstBatch = candidatesArr.slice(0, BATCH_SIZE);
+      const remainder = candidatesArr.slice(BATCH_SIZE);
+      await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
+        batch: remainder,
       });
-      if (result.created) removedUpserted++;
-      else removedAlreadyPresent++;
+      await writeRemovalBatch(ctx, firstBatch);
+      return {
+        activeCount: activeSet.size,
+        candidates: candidatesArr.length,
+        processedInThisCall: firstBatch.length,
+        remainingBatches: Math.ceil(remainder.length / BATCH_SIZE),
+      };
     }
 
+    const written = await writeRemovalBatch(ctx, candidatesArr);
     return {
       activeCount: activeSet.size,
-      candidates: removedCandidates.size,
-      removedUpserted,
-      removedAlreadyPresent,
+      candidates: candidatesArr.length,
+      written,
     };
+  },
+});
+
+async function writeRemovalBatch(
+  ctx: { runMutation: Function },
+  batch: { resendId: string; email: string; domain: string }[]
+): Promise<{ upserted: number; alreadyPresent: number }> {
+  let upserted = 0;
+  let alreadyPresent = 0;
+  const receivedAt = Date.now();
+  for (const info of batch) {
+    const result = await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+      kind: "removed",
+      email: info.email,
+      domain: info.domain,
+      resendId: `removed:${info.resendId.replace(/^list:/, "")}`,
+      reason: "Reconcile detected removal",
+      receivedAt,
+      occurredAt: receivedAt,
+      raw: { removedFromActiveSet: true, originalSuppression: info.resendId },
+    });
+    if (result.created) upserted++;
+    else alreadyPresent++;
+  }
+  return { upserted, alreadyPresent };
+}
+
+export const finalizeReconcileBatch = internalAction({
+  args: {
+    batch: v.array(
+      v.object({
+        resendId: v.string(),
+        email: v.string(),
+        domain: v.string(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const written = await writeRemovalBatch(ctx, args.batch);
+    return { ...written, batchSize: args.batch.length };
   },
 });
 
 export const runReconcileSuppressionList = internalAction({
   args: {},
   handler: async (ctx) => {
+    const runStartedAt = Date.now();
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.reconcileSuppressionListPage, {
       after: undefined,
       activeIds: [],
+      runStartedAt,
     });
-    return { scheduled: true };
+    return { scheduled: true, runStartedAt };
   },
 });

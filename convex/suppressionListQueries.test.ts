@@ -14,7 +14,8 @@ async function insertRow(
     email: string;
     domain: string;
     resendId: string;
-    occurredAt: number;
+    receivedAt: number;
+    occurredAt?: number;
   }
 ): Promise<void> {
   await t.run(async (ctx) => {
@@ -25,86 +26,108 @@ async function insertRow(
       resendId: args.resendId,
       bounceType: undefined,
       reason: undefined,
-      receivedAt: args.occurredAt,
-      occurredAt: args.occurredAt,
+      receivedAt: args.receivedAt,
+      occurredAt: args.occurredAt ?? args.receivedAt,
       audienceId: undefined,
       raw: {},
     });
   });
 }
 
-test("suppressionListQueries.getListStateRows: returns list:* rows regardless of kind", async () => {
+test("suppressionListQueries.getListStateRowsBefore: returns list:* rows with receivedAt < before", async () => {
   const t = convexTest(schema, modules);
   await insertRow(t, {
     kind: "bounce",
     email: "a@example.com",
     domain: "example.com",
     resendId: "list:abc",
-    occurredAt: NOW,
+    receivedAt: NOW - 100_000,
   });
   await insertRow(t, {
     kind: "removed",
     email: "b@example.com",
     domain: "example.com",
     resendId: "list:gone",
-    occurredAt: NOW,
+    receivedAt: NOW - 200_000,
   });
 
   const rows = await t.query(
-    // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getListStateRows" as never,
-    {}
+    "queries/suppressionListQueries:getListStateRowsBefore" as never,
+    { before: NOW }
   );
   expect(rows).toHaveLength(2);
   expect(rows.map((r) => r.resendId).sort()).toEqual(["list:abc", "list:gone"]);
 });
 
-test("suppressionListQueries.getListStateRows: excludes suppress:* and event:* prefixes", async () => {
+test("suppressionListQueries.getListStateRowsBefore: excludes rows receivedAt >= before", async () => {
   const t = convexTest(schema, modules);
   await insertRow(t, {
     kind: "bounce",
     email: "a@example.com",
     domain: "example.com",
     resendId: "list:abc",
-    occurredAt: NOW,
+    receivedAt: NOW - 100_000,
+  });
+  await insertRow(t, {
+    kind: "bounce",
+    email: "b@example.com",
+    domain: "example.com",
+    resendId: "list:def",
+    receivedAt: NOW + 100_000,
+  });
+
+  const rows = await t.query(
+    "queries/suppressionListQueries:getListStateRowsBefore" as never,
+    { before: NOW }
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].resendId).toBe("list:abc");
+});
+
+test("suppressionListQueries.getListStateRowsBefore: excludes suppress:* and event:* and removed:* prefixes", async () => {
+  const t = convexTest(schema, modules);
+  await insertRow(t, {
+    kind: "bounce",
+    email: "a@example.com",
+    domain: "example.com",
+    resendId: "list:abc",
+    receivedAt: NOW - 100_000,
   });
   await insertRow(t, {
     kind: "bounce",
     email: "b@example.com",
     domain: "example.com",
     resendId: "suppress:webhook1",
-    occurredAt: NOW,
+    receivedAt: NOW - 100_000,
   });
   await insertRow(t, {
     kind: "bounce",
     email: "c@example.com",
     domain: "example.com",
     resendId: "event:email_123:c@example.com",
-    occurredAt: NOW,
+    receivedAt: NOW - 100_000,
   });
   await insertRow(t, {
     kind: "removed",
     email: "d@example.com",
     domain: "example.com",
     resendId: "removed:gone1",
-    occurredAt: NOW,
+    receivedAt: NOW - 100_000,
   });
 
   const rows = await t.query(
-    // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getListStateRows" as never,
-    {}
+    "queries/suppressionListQueries:getListStateRowsBefore" as never,
+    { before: NOW }
   );
   expect(rows).toHaveLength(1);
   expect(rows[0].resendId).toBe("list:abc");
 });
 
-test("suppressionListQueries.getListStateRows: returns empty when no list: rows exist", async () => {
+test("suppressionListQueries.getListStateRowsBefore: returns empty when no list: rows exist", async () => {
   const t = convexTest(schema, modules);
   const rows = await t.query(
-    // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getListStateRows" as never,
-    {}
+    "queries/suppressionListQueries:getListStateRowsBefore" as never,
+    { before: NOW }
   );
   expect(rows).toEqual([]);
 });
