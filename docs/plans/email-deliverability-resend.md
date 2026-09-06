@@ -9,6 +9,29 @@ Phased rollout of sender-reputation isolation, ground-truth suppression tracking
 - 🔵 queued (not started)
 - ⏸ blocked / deferred
 
+## Progress (live)
+
+Last updated 2026-09-06 after PR Suppressions 2b merged. Current branch: `pr/suppressions-2c-dashboard` (not yet pushed).
+
+| PR | Title | Status | Merge | Notes |
+|---|---|---|---|---|
+| Phase 0 / PR Split-domains 1a | sender split + typed env wiring | ✅ shipped | #822 → `238db198` | Closes split-domains work |
+| Phase 1 / PR Suppressions 2a | `suppressionEvents` table + D5 backfill action | ✅ shipped | #823 → `89edf2ba` | Greptile 5/5; 13 CI checks + 4 Vercel previews green |
+| Phase 1 / PR Suppressions 2b | Svix-verified `/resend/webhook` | ✅ shipped | #824 → `2348fbaa` | Greptile 5/5; 16 CI checks + 4 Vercel previews green; verifier fails closed on asymmetric prefixes |
+| Phase 1 / PR Suppressions 2c | `/admin/email-health` tile + reconcile cron | 🔵 in progress | branch `pr/suppressions-2c-dashboard` | Work starts after this update |
+| Phase 2 / PR Metrics 3a | `dailyEmailMetrics` + ingestion cron | 🔵 queued | — | depends on 2c (per-day volume baseline) |
+| Phase 2 / PR Metrics 3b | overlay metrics on dashboard tile | 🔵 queued | — | depends on 3a + 2c |
+| Phase 2 / PR Metrics 3c | Inngest agent triage | 🔵 queued | — | optional (D3); depends on 3b |
+| Phase 3 / PR Verify 4a | webhook tests | ✅ landed as part of 2b | — | 16 convex-test cases in `convex/resendWebhook.test.ts` |
+| Phase 3 / PR Verify 4b | metrics cron e2e test | 🔵 queued | — | depends on 3a |
+
+**Cumulative test counts**: 169 convex-test pass (20 files) · 406 vitest pass (48 files) · typecheck clean · lint clean across all apps.
+
+**Known scope adjustments from original plan**
+
+- **PR 2c added a reconcile cron** (`reconcileSuppressionList` every 6h) that was originally scoped in PR 2b but deferred. It now lives in PR 2c because it closes the ground-truth loop that the dashboard tile reports on (detects `suppression.removed` events + catches any rows the webhook missed).
+- **PR 2c uses absolute count thresholds**, not bounce-rate/complaint-rate (those arrive with PR 3b once `dailyEmailMetrics` provides the delivered baseline). Threshold values documented in PR 2c scope below.
+
 ## Open decisions
 
 Confirmed with defaults (2026-09-06):
@@ -195,7 +218,7 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ---
 
-### 🔵 PR Suppressions 2c — `/admin/email-health` dashboard tile
+### 🟡 PR Suppressions 2c — `/admin/email-health` dashboard tile + reconcile cron
 
 **Why**: surface per-domain rates vs. Gmail/Yahoo thresholds (bounce > 0.05, complaint > 0.003) so on-call sees a spike before the inbox provider does.
 
@@ -381,7 +404,7 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 ```
 PR 1a ✅ (squash-merged as #822)
    ↓
-PR 2a (table) → PR 2b (handler) → PR 2c (UI tile) ── [gate: 4a tests pass]
+PR 2a ✅ (#823 → 89edf2ba) → PR 2b ✅ (#824 → 2348fbaa) → PR 2c (UI tile + reconcile cron) ── [gate: 4a tests pass]
    ↓
 PR 3a (cron) → PR 3b (chart overlay) → PR 3c (agent, optional) ── [gate: 4b tests pass]
    ↓
@@ -398,7 +421,7 @@ Each PR must clear: `pnpm run typecheck` + `pnpm exec vitest run` + `pnpm run li
 | `EMAIL_FROM_TRANSACTIONAL` | `.env.example`, Trigger sync, Convex env | `resolveFrom("transactional")`, `env.EMAIL_FROM_TRANSACTIONAL` | shipped in #822 |
 | `EMAIL_FROM_MARKETING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("marketing")` in apps/platform, apps/web, apps/marketing | shipped in #822 |
 | `EMAIL_FROM_STAGING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("staging")` (not yet called by any wrapper; reserved for Trigger dev/CI smoke tests) | shipped in #822 |
-| `RESEND_WEBHOOK_SECRET` | `.env.example`, Convex env | Convex `/resend/webhook` handler | declared; **consumed in PR Suppressions 2b** |
+| `RESEND_WEBHOOK_SECRET` | `.env.example`, Convex env | Convex `/resend/webhook` handler | shipped in #824 |
 
 ## Related docs
 
