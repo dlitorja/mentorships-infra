@@ -77,7 +77,19 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ## Phase 1 — Suppressions webhook (ground truth for Phase 2)
 
-### 🔵 PR Suppressions 2a — `suppressionEvents` table + types
+### ✅ PR Suppressions 2a — `suppressionEvents` table + backfill action
+
+**Shipped**: PR #823 squash-merged as `89edf2ba` (2026-09-06). Greptile confidence 5/5; all 13 CI checks + 4 Vercel previews green at merge.
+
+**What landed**
+
+- `convex/schema.ts`: `suppressionEvents` table with 4 indexes — `by_occurredAt`, `by_domain_and_occurredAt`, `by_kind_and_occurredAt`, `by_resendId_and_kind` (idempotency). Time-window indexes use `occurredAt` so backfilled historical suppressions appear on the dashboard at their actual event time, not the moment of ingestion.
+- `convex/mutations/suppressionEvents.ts`: `upsertSuppressionEvent` as **internal** mutation; idempotent on `(\`resendId\`, \`kind\`)`.
+- `convex/actions/resendSuppressionList.ts`: `seedSuppressionEventsFromList` as **internal** action; paginates `GET /v1/suppressions` (limit=100, `after` cursor), maps `origin: "bounce"|"complaint"|"manual"` → `kind: "bounce"|"complaint"|"unsubscribe"`, synthetic `resendId` prefix `list:<id>` to avoid collision with PR 2b's message-ID keys. Schedules next page via `ctx.scheduler.runAfter(0, …)`.
+- `convex/suppressionEvents.test.ts`: 3 convex-test cases (idempotency, distinct-kind-for-same-resendId, occurredAt-vs-receivedAt regression guard).
+- `docs/plans/email-deliverability-resend.md`: plan ships with its first PR per policy.
+
+**Known non-blocking gap (deferred)**: mocked action tests for the pagination path (cursor continuation, malformed timestamps, empty page with `has_more: true`) — Greptile P2 inline comment, marked non-blocking. Will land alongside PR 2b's webhook tests.
 
 **Why**: ground-truth per-message suppression events; Resend's batched `/metrics` API can disagree with webhook events for suppression-induced drops.
 
