@@ -3,7 +3,12 @@ import { v } from "convex/values";
 
 export const upsertSuppressionEvent = internalMutation({
   args: {
-    kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
+    kind: v.union(
+      v.literal("bounce"),
+      v.literal("complaint"),
+      v.literal("unsubscribe"),
+      v.literal("removed")
+    ),
     email: v.string(),
     domain: v.string(),
     resendId: v.string(),
@@ -26,7 +31,17 @@ export const upsertSuppressionEvent = internalMutation({
       return { id: existing._id, created: false };
     }
 
-    const id = await ctx.db.insert("suppressionEvents", args);
+    const id = await ctx.db.insert("suppressionEvents", {
+      ...args,
+      dashboardRelevant: isDashboardRelevant(args.resendId, args.kind),
+    });
     return { id, created: true };
   },
 });
+
+export function isDashboardRelevant(resendId: string, kind: string): boolean {
+  if (resendId.startsWith("list:")) return true;
+  if (resendId.startsWith("event:")) return true;
+  if (resendId.startsWith("removed:") && kind === "removed") return true;
+  return false;
+}

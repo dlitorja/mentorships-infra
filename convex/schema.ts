@@ -991,7 +991,12 @@ export default defineSchema({
     .index("by_email_source", ["email", "source"]),
 
   suppressionEvents: defineTable({
-    kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
+    kind: v.union(
+      v.literal("bounce"),
+      v.literal("complaint"),
+      v.literal("unsubscribe"),
+      v.literal("removed")
+    ),
     email: v.string(),
     domain: v.string(),
     resendId: v.string(),
@@ -1000,9 +1005,31 @@ export default defineSchema({
     receivedAt: v.number(),
     occurredAt: v.number(),
     audienceId: v.optional(v.string()),
+    dashboardRelevant: v.optional(v.boolean()),
     raw: v.any(),
   }).index("by_occurredAt", ["occurredAt"])
     .index("by_domain_and_occurredAt", ["domain", "occurredAt"])
     .index("by_kind_and_occurredAt", ["kind", "occurredAt"])
-    .index("by_resendId_and_kind", ["resendId", "kind"]),
+    .index("by_resendId_and_kind", ["resendId", "kind"])
+    .index("by_dashboardRelevant_and_occurredAt", ["dashboardRelevant", "occurredAt"]),
+
+  deniedDomains: defineTable({
+    domain: v.string(),
+    firstDeniedAt: v.number(),
+    lastDeniedAt: v.number(),
+    kind: v.union(v.literal("bounce"), v.literal("complaint")),
+    note: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedByUserId: v.optional(v.string()),
+  })
+    .index("by_domain", ["domain"])
+    .index("by_lastDeniedAt", ["lastDeniedAt"])
+    .index("by_kind", ["kind"]),
+
+  reconcileRunState: defineTable({
+    lastStartedAt: v.number(),
+    currentRunStartedAt: v.optional(v.number()),
+    currentRunId: v.optional(v.string()),
+    lastCompletedAt: v.optional(v.number()),
+  }),
 });

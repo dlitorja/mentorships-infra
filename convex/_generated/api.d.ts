@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as actions_backfillDashboardRelevant from "../actions/backfillDashboardRelevant.js";
 import type * as actions_resendSuppressionList from "../actions/resendSuppressionList.js";
 import type * as adhocVideoActions from "../adhocVideoActions.js";
 import type * as admin from "../admin.js";
@@ -38,13 +39,17 @@ import type * as migrationQueries from "../migrationQueries.js";
 import type * as migrations from "../migrations.js";
 import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
+import type * as mutations_backfillDashboardRelevant from "../mutations/backfillDashboardRelevant.js";
 import type * as mutations_http from "../mutations/http.js";
+import type * as mutations_reconcileRunState from "../mutations/reconcileRunState.js";
 import type * as mutations_suppressionEvents from "../mutations/suppressionEvents.js";
 import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
 import type * as products from "../products.js";
+import type * as queries_emailHealth from "../queries/emailHealth.js";
 import type * as queries_http from "../queries/http.js";
+import type * as queries_suppressionListQueries from "../queries/suppressionListQueries.js";
 import type * as recordingRetention from "../recordingRetention.js";
 import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
@@ -68,6 +73,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "actions/backfillDashboardRelevant": typeof actions_backfillDashboardRelevant;
   "actions/resendSuppressionList": typeof actions_resendSuppressionList;
   adhocVideoActions: typeof adhocVideoActions;
   admin: typeof admin;
@@ -98,13 +104,17 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
+  "mutations/backfillDashboardRelevant": typeof mutations_backfillDashboardRelevant;
   "mutations/http": typeof mutations_http;
+  "mutations/reconcileRunState": typeof mutations_reconcileRunState;
   "mutations/suppressionEvents": typeof mutations_suppressionEvents;
   notifications: typeof notifications;
   orders: typeof orders;
   payments: typeof payments;
   products: typeof products;
+  "queries/emailHealth": typeof queries_emailHealth;
   "queries/http": typeof queries_http;
+  "queries/suppressionListQueries": typeof queries_suppressionListQueries;
   recordingRetention: typeof recordingRetention;
   seatReservations: typeof seatReservations;
   seed: typeof seed;
