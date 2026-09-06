@@ -127,7 +127,13 @@ export function WorkspaceRenameTitle({
     setSaving(true);
     try {
       await setAlias.mutateAsync({ workspaceId: targetWorkspaceId, alias: trimmed });
-      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: trimmed });
+      // A whitespace-only draft is sent as an empty alias, which
+      // the server resolves back to `defaultName`. Mirror that
+      // resolution here so the reconciliation effect clears the
+      // override once the server prop catches up; storing ""
+      // would never reconcile and would leave the title blank.
+      const optimisticValue = trimmed === "" ? defaultName : trimmed;
+      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: optimisticValue });
       setEditing(false);
       // Re-run the server component so the workspace list + the
       // rename control both render the new alias from the canonical
