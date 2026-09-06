@@ -37,6 +37,7 @@ async function sendRetentionWarningEmail(
     from,
     to,
     subject: `Your workspace content will be deleted in ${daysUntilDeletion} days`,
+    headers: { "X-Email-Kind": "transactional" },
     html: `
       <h1>Workspace Content Deletion Warning</h1>
       <p>Hello,</p>

@@ -104,6 +104,7 @@ async function sendRecordingDeletionWarningEmail(
       subject: `Call recording will be deleted in ${daysUntilDeletion} day${
         daysUntilDeletion === 1 ? "" : "s"
       }`,
+      headers: { "X-Email-Kind": "transactional" },
       html: `
       <h1>Call Recording Deletion Warning</h1>
       <p>Hello,</p>

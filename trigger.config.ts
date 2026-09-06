@@ -63,7 +63,6 @@ export default defineConfig({
         pushIfPresent("EMAIL_FROM_MARKETING", process.env.EMAIL_FROM_MARKETING);
         pushIfPresent("EMAIL_FROM_STAGING", process.env.EMAIL_FROM_STAGING);
         pushIfPresent("EMAIL_REPLY_TO", process.env.EMAIL_REPLY_TO);
-        pushIfPresent("RESEND_WEBHOOK_SECRET", process.env.RESEND_WEBHOOK_SECRET);
         pushIfPresent("NEXT_PUBLIC_URL", process.env.NEXT_PUBLIC_URL);
         pushIfPresent("DAILY_API_KEY", process.env.DAILY_API_KEY);
         pushIfPresent(

@@ -49,6 +49,18 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
+function requireFromAddress(kind: EmailKind): string {
+  const from = resolveFrom(kind);
+  if (!from) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        `Email sender not configured for kind=${kind}. Set EMAIL_FROM_TRANSACTIONAL (or matching kind) or EMAIL_FROM.`
+      );
+    }
+  }
+  return from ?? "";
+}
+
 /**
  * Send a transactional email.
  *
@@ -62,7 +74,7 @@ function getResendClient(): Resend | null {
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
   const kind: EmailKind = args.kind ?? "transactional";
-  const from = resolveFrom(kind);
+  const from = requireFromAddress(kind);
 
   if (!resend || !from) {
     return {
@@ -123,7 +135,7 @@ type SendTemplateEmailArgs = {
 export async function sendTemplateEmail(args: SendTemplateEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
   const kind: EmailKind = args.kind ?? "transactional";
-  const from = resolveFrom(kind);
+  const from = requireFromAddress(kind);
 
   if (!resend || !from) {
     return {
