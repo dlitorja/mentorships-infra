@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,17 @@ interface WorkspaceRenameTitleProps {
 }
 
 /**
+ * Optimistic alias override scoped to a single workspace so that
+ * switching workspaces (or a late-resolving mutation for a
+ * previously-selected workspace) cannot leak one workspace's alias
+ * onto another.
+ */
+type OptimisticAlias = {
+  workspaceId: Id<"workspaces">;
+  value: string;
+};
+
+/**
  * Inline rename control for a workspace's title.
  *
  * - Click the pencil to edit.
@@ -37,6 +49,16 @@ interface WorkspaceRenameTitleProps {
  * errors via `sonner` and keep the editor open (commit) or restore
  * the alias indicator (reset) so the user can retry instead of
  * having their input silently discarded.
+ *
+ * Optimistic updates + server refresh: the parent passes
+ * `displayName` from a server-rendered prop, which doesn't refresh
+ * after a client-side mutation. To keep the title from reverting to
+ * the default name on Enter/blur we hold an `optimisticAlias`
+ * override locally (keyed by workspaceId) for immediate feedback,
+ * then call `router.refresh()` so the server component re-runs with
+ * the new alias. The override only applies to the workspace it
+ * belongs to, so a late-resolving rename for a previously selected
+ * workspace can never bleed onto the workspace the user is on now.
  */
 export function WorkspaceRenameTitle({
   workspaceId,
@@ -48,14 +70,39 @@ export function WorkspaceRenameTitle({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
   const [saving, setSaving] = useState(false);
+  const [optimisticAlias, setOptimisticAlias] = useState<OptimisticAlias | null>(
+    null
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
   const setAlias = useSetWorkspaceAlias();
+  const router = useRouter();
+
+  // The optimistic override applies only when it belongs to the
+  // currently-rendered workspace. A late-resolving mutation for a
+  // previously-selected workspace cannot bleed onto the current one.
+  const effectiveDisplayName =
+    optimisticAlias && optimisticAlias.workspaceId === workspaceId
+      ? optimisticAlias.value
+      : displayName;
 
   useEffect(() => {
     if (!editing) {
-      setDraft(displayName);
+      setDraft(effectiveDisplayName);
     }
-  }, [displayName, editing]);
+  }, [effectiveDisplayName, editing]);
+
+  // Reconcile: once the parent prop carries our optimistic value
+  // for this workspace, drop the override so subsequent renders
+  // read straight from the (now-fresh) server-rendered prop.
+  useEffect(() => {
+    if (
+      optimisticAlias &&
+      optimisticAlias.workspaceId === workspaceId &&
+      displayName === optimisticAlias.value
+    ) {
+      setOptimisticAlias(null);
+    }
+  }, [displayName, optimisticAlias, workspaceId]);
 
   useEffect(() => {
     if (editing) {
@@ -65,17 +112,33 @@ export function WorkspaceRenameTitle({
   }, [editing]);
 
   const trimmed = draft.trim();
-  const dirty = trimmed !== displayName;
+  const dirty = trimmed !== effectiveDisplayName;
 
   const commit = async () => {
     if (!dirty) {
       setEditing(false);
       return;
     }
+    // Capture the workspaceId at call time so a late-resolving
+    // mutation can be matched against the workspace the user was
+    // editing when they hit Enter (not whatever workspace they are
+    // viewing now).
+    const targetWorkspaceId = workspaceId;
     setSaving(true);
     try {
-      await setAlias.mutateAsync({ workspaceId, alias: trimmed });
+      await setAlias.mutateAsync({ workspaceId: targetWorkspaceId, alias: trimmed });
+      // A whitespace-only draft is sent as an empty alias, which
+      // the server resolves back to `defaultName`. Mirror that
+      // resolution here so the reconciliation effect clears the
+      // override once the server prop catches up; storing ""
+      // would never reconcile and would leave the title blank.
+      const optimisticValue = trimmed === "" ? defaultName : trimmed;
+      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: optimisticValue });
       setEditing(false);
+      // Re-run the server component so the workspace list + the
+      // rename control both render the new alias from the canonical
+      // server-side source of truth instead of the local override.
+      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not rename workspace", {
@@ -90,13 +153,21 @@ export function WorkspaceRenameTitle({
   };
 
   const cancel = () => {
-    setDraft(displayName);
+    setDraft(effectiveDisplayName);
     setEditing(false);
   };
 
   const reset = async () => {
+    const targetWorkspaceId = workspaceId;
     try {
-      await setAlias.mutateAsync({ workspaceId, alias: "" });
+      await setAlias.mutateAsync({ workspaceId: targetWorkspaceId, alias: "" });
+      // Optimistically render the default name; the server resolves
+      // a cleared alias back to `defaultName`, so storing the default
+      // here lets the reconciliation effect clear the override once
+      // the parent prop catches up. Storing "" would render a blank
+      // title because displayName would never equal "".
+      setOptimisticAlias({ workspaceId: targetWorkspaceId, value: defaultName });
+      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error("Could not reset workspace name", {
@@ -105,12 +176,12 @@ export function WorkspaceRenameTitle({
     }
   };
 
-  const isAliased = displayName.trim() !== defaultName.trim();
+  const isAliased = effectiveDisplayName.trim() !== defaultName.trim();
 
   if (!canRename) {
     return (
       <div className={cn("flex items-center gap-2 min-w-0", className)}>
-        <h1 className="text-xl font-semibold truncate">{displayName}</h1>
+        <h1 className="text-xl font-semibold truncate">{effectiveDisplayName}</h1>
       </div>
     );
   }
@@ -148,7 +219,7 @@ export function WorkspaceRenameTitle({
             onClick={() => setEditing(true)}
             aria-label="Rename workspace"
           >
-            <h1 className="text-xl font-semibold truncate">{displayName}</h1>
+            <h1 className="text-xl font-semibold truncate">{effectiveDisplayName}</h1>
             <Pencil className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
             {isAliased && (
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
