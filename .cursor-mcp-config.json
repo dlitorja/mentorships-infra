@@ -77,10 +77,9 @@
       }
     },
     "resend": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "resend-mcp@2.19.0"
+        "./node_modules/resend-mcp/dist/index.js"
       ],
       "env": {
         "RESEND_API_KEY": "${RESEND_API_KEY}",
@@ -88,10 +87,9 @@
       }
     },
     "firecrawl": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "firecrawl-mcp@3.24.0"
+        "./node_modules/firecrawl-mcp/dist/index.js"
       ],
       "env": {
         "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"

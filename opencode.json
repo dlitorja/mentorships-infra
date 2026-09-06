@@ -4,7 +4,7 @@
   "mcp": {
     "resend": {
       "type": "local",
-      "command": ["npx", "-y", "resend-mcp@2.19.0"],
+      "command": ["node", "./node_modules/resend-mcp/dist/index.js"],
       "enabled": true,
       "environment": {
         "RESEND_API_KEY": "{env:RESEND_API_KEY}",
@@ -13,7 +13,7 @@
     },
     "firecrawl": {
       "type": "local",
-      "command": ["npx", "-y", "firecrawl-mcp@3.24.0"],
+      "command": ["node", "./node_modules/firecrawl-mcp/dist/index.js"],
       "enabled": true,
       "environment": {
         "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}"
