@@ -60,6 +60,7 @@ async function seed(
 ): Promise<void> {
   for (const r of rows) {
     await t.run(async (ctx) => {
+      const dashboardRelevant = computeDashboardRelevant(r.resendId, r.kind);
       await ctx.db.insert("suppressionEvents", {
         kind: r.kind,
         email: r.email,
@@ -70,10 +71,17 @@ async function seed(
         receivedAt: r.occurredAt,
         occurredAt: r.occurredAt,
         audienceId: undefined,
+        dashboardRelevant,
         raw: { seed: true },
       });
     });
   }
+}
+
+function computeDashboardRelevant(resendId: string, kind: string): boolean {
+  if (resendId.startsWith("list:") || resendId.startsWith("event:")) return true;
+  if (resendId.startsWith("removed:") && kind === "removed") return true;
+  return false;
 }
 
 test("emailHealth: rejects unauthenticated callers", async () => {

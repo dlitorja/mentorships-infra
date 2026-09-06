@@ -1005,11 +1005,13 @@ export default defineSchema({
     receivedAt: v.number(),
     occurredAt: v.number(),
     audienceId: v.optional(v.string()),
+    dashboardRelevant: v.optional(v.boolean()),
     raw: v.any(),
   }).index("by_occurredAt", ["occurredAt"])
     .index("by_domain_and_occurredAt", ["domain", "occurredAt"])
     .index("by_kind_and_occurredAt", ["kind", "occurredAt"])
-    .index("by_resendId_and_kind", ["resendId", "kind"]),
+    .index("by_resendId_and_kind", ["resendId", "kind"])
+    .index("by_dashboardRelevant_and_occurredAt", ["dashboardRelevant", "occurredAt"]),
 
   deniedDomains: defineTable({
     domain: v.string(),
@@ -1026,5 +1028,7 @@ export default defineSchema({
 
   reconcileRunState: defineTable({
     lastStartedAt: v.number(),
+    currentRunStartedAt: v.optional(v.number()),
+    lastCompletedAt: v.optional(v.number()),
   }),
 });

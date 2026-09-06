@@ -19,6 +19,7 @@ async function insertRow(
   }
 ): Promise<void> {
   await t.run(async (ctx) => {
+    const dashboardRelevant = computeDashboardRelevant(args.resendId, args.kind);
     await ctx.db.insert("suppressionEvents", {
       kind: args.kind,
       email: args.email,
@@ -29,9 +30,16 @@ async function insertRow(
       receivedAt: args.receivedAt,
       occurredAt: args.occurredAt ?? args.receivedAt,
       audienceId: undefined,
+      dashboardRelevant,
       raw: {},
     });
   });
+}
+
+function computeDashboardRelevant(resendId: string, kind: string): boolean {
+  if (resendId.startsWith("list:") || resendId.startsWith("event:")) return true;
+  if (resendId.startsWith("removed:") && kind === "removed") return true;
+  return false;
 }
 
 test("suppressionListQueries.getListStateRowsBefore: returns list:* rows with receivedAt < before", async () => {

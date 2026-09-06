@@ -212,6 +212,7 @@ export const finalizeReconcile = internalAction({
     const candidatesArr = Array.from(removedCandidates.values());
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
       batch: candidatesArr,
+      markCompleted: true,
     });
     return {
       activeCount: activeSet.size,
@@ -255,10 +256,16 @@ export const finalizeReconcileBatch = internalAction({
         domain: v.string(),
       })
     ),
+    markCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (args.batch.length === 0) {
-      return { upserted: 0, alreadyPresent: 0, remaining: 0 };
+      if (args.markCompleted) {
+        await ctx.runMutation(internal.mutations.reconcileRunState.markReconcileCompleted, {
+          completedAt: Date.now(),
+        });
+      }
+      return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: args.markCompleted ?? false };
     }
     const head = args.batch.slice(0, FINALIZE_BATCH_SIZE);
     const tail = args.batch.slice(FINALIZE_BATCH_SIZE);
@@ -266,12 +273,25 @@ export const finalizeReconcileBatch = internalAction({
     if (tail.length > 0) {
       await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
         batch: tail,
+        markCompleted: false,
+      });
+      return {
+        upserted: written.upserted,
+        alreadyPresent: written.alreadyPresent,
+        remaining: tail.length,
+        completed: false,
+      };
+    }
+    if (args.markCompleted) {
+      await ctx.runMutation(internal.mutations.reconcileRunState.markReconcileCompleted, {
+        completedAt: Date.now(),
       });
     }
     return {
       upserted: written.upserted,
       alreadyPresent: written.alreadyPresent,
-      remaining: tail.length,
+      remaining: 0,
+      completed: args.markCompleted ?? false,
     };
   },
 });

@@ -10,21 +10,56 @@ export const tryStartReconcile = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("reconcileRunState").first();
     if (existing) {
+      if (existing.currentRunStartedAt !== undefined) {
+        return {
+          acquired: false as const,
+          reason: "reconcile_in_progress" as const,
+          currentRunStartedAt: existing.currentRunStartedAt,
+          previousStartedAt: existing.lastStartedAt,
+        };
+      }
       const elapsed = args.runStartedAt - existing.lastStartedAt;
       if (elapsed < RECONCILE_MIN_INTERVAL_MS) {
         return {
           acquired: false as const,
           reason: "another_recent_reconcile" as const,
+          currentRunStartedAt: null,
           previousStartedAt: existing.lastStartedAt,
         };
       }
-      await ctx.db.patch(existing._id, { lastStartedAt: args.runStartedAt });
+      await ctx.db.patch(existing._id, {
+        currentRunStartedAt: args.runStartedAt,
+        lastStartedAt: args.runStartedAt,
+      });
       return {
         acquired: true as const,
+        currentRunStartedAt: args.runStartedAt,
         previousStartedAt: existing.lastStartedAt,
       };
     }
-    await ctx.db.insert("reconcileRunState", { lastStartedAt: args.runStartedAt });
-    return { acquired: true as const, previousStartedAt: null };
+    await ctx.db.insert("reconcileRunState", {
+      currentRunStartedAt: args.runStartedAt,
+      lastStartedAt: args.runStartedAt,
+    });
+    return {
+      acquired: true as const,
+      currentRunStartedAt: args.runStartedAt,
+      previousStartedAt: null,
+    };
+  },
+});
+
+export const markReconcileCompleted = internalMutation({
+  args: {
+    completedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("reconcileRunState").first();
+    if (!existing) return { found: false };
+    await ctx.db.patch(existing._id, {
+      currentRunStartedAt: undefined,
+      lastCompletedAt: args.completedAt,
+    });
+    return { found: true };
   },
 });

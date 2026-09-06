@@ -29,13 +29,13 @@ export const getEmailHealthSummary = query({
     const windowDays = Math.max(1, Math.min(args.windowDays, 90));
     const cutoff = Date.now() - windowDays * DAY_MS;
 
-    const recentAll = await ctx.db
+    const recent = await ctx.db
       .query("suppressionEvents")
-      .withIndex("by_occurredAt", (q) => q.gte("occurredAt", cutoff))
+      .withIndex("by_dashboardRelevant_and_occurredAt", (q) =>
+        q.eq("dashboardRelevant", true).gte("occurredAt", cutoff)
+      )
       .order("desc")
       .take(SCAN_CAP);
-
-    const recent = recentAll.filter(isDashboardRelevantRow);
 
     const byDomain = new Map<
       string,
@@ -114,7 +114,7 @@ export const getEmailHealthSummary = query({
       windowDays,
       scannedRows: recent.length,
       scanCap: SCAN_CAP,
-      truncated: recentAll.length === SCAN_CAP,
+      truncated: recent.length === SCAN_CAP,
       totals,
       domains,
       recentEvents,
@@ -130,16 +130,6 @@ export const getEmailHealthSummary = query({
     };
   },
 });
-
-function isDashboardRelevantRow(row: { resendId: string; kind: string }): boolean {
-  if (row.resendId.startsWith("list:") || row.resendId.startsWith("event:")) {
-    return true;
-  }
-  if (row.resendId.startsWith("removed:")) {
-    return row.kind === "removed";
-  }
-  return false;
-}
 
 function severityFor(bucket: {
   bounces: number;

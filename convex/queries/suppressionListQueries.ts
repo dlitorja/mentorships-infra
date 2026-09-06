@@ -1,6 +1,8 @@
 import { internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 
+const LIST_ROW_SCAN_CAP = 5000;
+
 export const getListStateRowsBefore = internalQuery({
   args: {
     before: v.number(),
@@ -11,7 +13,7 @@ export const getListStateRowsBefore = internalQuery({
       .withIndex("by_resendId_and_kind", (q) =>
         q.gte("resendId", "list:").lt("resendId", "list;")
       )
-      .collect();
+      .take(LIST_ROW_SCAN_CAP);
     return rows
       .filter((r) => r.receivedAt < args.before)
       .map((r) => ({
