@@ -880,8 +880,16 @@ async function verifySvixSignature(
 }
 
 /**
- * Resend sends webhooks via Svix. The signing secret is `whsec_<base64>`;
- * the HMAC key is the base64-decoded portion (the part after `whsec_`).
+ * Resend sends webhooks via Svix. The signing secret is base64-encoded with
+ * one of the standard-webhooks prefixes:
+ *   - `whsec_<base64>` — Resend's documented format (symmetric HMAC)
+ *   - `whsecret_v1_<base64>` — variant used by some Svix-issued secrets
+ *   - `whsk_<base64>` — asymmetric secret key (NOT supported today; if
+ *     Resend ever rotates to asymmetric keys, this verifier must be
+ *     extended to also handle ed25519 with `whpk_<base64>` public key)
+ *   - `whpk_<base64>` — asymmetric public key (verification only)
+ *
+ * The HMAC key is the base64-decoded portion after stripping the prefix.
  * Signed content is `${svix_id}.${svix_timestamp}.${rawBody}`. The
  * `svix-signature` header is space-delimited `v1,<base64>` entries.
  *
@@ -890,6 +898,8 @@ async function verifySvixSignature(
  * uses a non-standard convention that the existing helper matches. Keep
  * both — do not refactor Clerk's handler here.
  */
+const SUPPORTED_SECRET_PREFIXES = ["whsec_", "whsecret_v1_", "whsk_", "whpk_"] as const;
+
 async function verifyResendSvixSignature(
   secret: string,
   body: string,
@@ -897,7 +907,13 @@ async function verifyResendSvixSignature(
   svixTimestamp: string,
   svixSignature: string
 ): Promise<boolean> {
-  const keyBase64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
+  let keyBase64 = secret;
+  for (const prefix of SUPPORTED_SECRET_PREFIXES) {
+    if (secret.startsWith(prefix)) {
+      keyBase64 = secret.slice(prefix.length);
+      break;
+    }
+  }
   let keyView: Uint8Array<ArrayBuffer>;
   try {
     const binary = atob(keyBase64);
@@ -1042,66 +1058,69 @@ export const httpPostResendWebhook = httpAction(async (ctx, request) => {
     }
     case "email.bounced": {
       const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
-      const email = recipients[0];
       const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
       const bounce = (data.bounce ?? {}) as { type?: string; message?: string };
-      if (!email) {
+      if (recipients.length === 0) {
         console.warn("resend webhook: email.bounced without recipients", { eventType });
         return new Response(null, { status: 200 });
       }
-      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
-        kind: "bounce",
-        email,
-        domain: domainFromEmail(email),
-        resendId: emailId,
-        bounceType: bounce.type,
-        reason: bounce.message,
-        receivedAt,
-        occurredAt,
-        raw: event,
-      });
+      for (const email of recipients) {
+        await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+          kind: "bounce",
+          email,
+          domain: domainFromEmail(email),
+          resendId: `event:${emailId}:${email}`,
+          bounceType: bounce.type,
+          reason: bounce.message,
+          receivedAt,
+          occurredAt,
+          raw: event,
+        });
+      }
       break;
     }
     case "email.complained": {
       const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
-      const email = recipients[0];
       const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
-      if (!email) {
+      if (recipients.length === 0) {
         console.warn("resend webhook: email.complained without recipients", { eventType });
         return new Response(null, { status: 200 });
       }
-      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
-        kind: "complaint",
-        email,
-        domain: domainFromEmail(email),
-        resendId: emailId,
-        reason: "Marked as spam",
-        receivedAt,
-        occurredAt,
-        raw: event,
-      });
+      for (const email of recipients) {
+        await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+          kind: "complaint",
+          email,
+          domain: domainFromEmail(email),
+          resendId: `event:${emailId}:${email}`,
+          reason: "Marked as spam",
+          receivedAt,
+          occurredAt,
+          raw: event,
+        });
+      }
       break;
     }
     case "email.suppressed": {
       const recipients = Array.isArray(data.to) ? (data.to as string[]) : [];
-      const email = recipients[0];
       const emailId = typeof data.email_id === "string" ? data.email_id : "unknown";
       const suppressed = (data.suppressed ?? {}) as { type?: string; message?: string };
-      if (!email) {
+      if (recipients.length === 0) {
         console.warn("resend webhook: email.suppressed without recipients", { eventType });
         return new Response(null, { status: 200 });
       }
-      await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
-        kind: "bounce",
-        email,
-        domain: domainFromEmail(email),
-        resendId: emailId,
-        bounceType: suppressed.type,
-        reason: suppressed.message,
-        receivedAt,
-        occurredAt,
-        raw: event,
-      });
+      for (const email of recipients) {
+        await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+          kind: "bounce",
+          email,
+          domain: domainFromEmail(email),
+          resendId: `event:${emailId}:${email}`,
+          bounceType: suppressed.type,
+          reason: suppressed.message,
+          receivedAt,
+          occurredAt,
+          raw: event,
+        });
+      }
       break;
     }
     case "suppression.removed":

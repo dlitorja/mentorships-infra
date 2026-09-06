@@ -209,7 +209,47 @@ test("resend webhook: email.bounced writes bounce row with bounceType", async ()
   expect(rows[0].kind).toBe("bounce");
   expect(rows[0].bounceType).toBe("Permanent");
   expect(rows[0].reason).toBe("Mailbox does not exist");
-  expect(rows[0].resendId).toBe("email_zzz");
+  expect(rows[0].resendId).toBe("event:email_zzz:carol@example.com");
+});
+
+test("resend webhook: email.bounced writes one row per recipient (multi-recipient)", async () => {
+  setup();
+  const t = convexTest(schema, modules);
+
+  const event = {
+    type: "email.bounced",
+    created_at: "2026-09-06T13:15:00.000Z",
+    data: {
+      email_id: "email_multi_1",
+      to: ["recipient1@example.com", "recipient2@example.com", "recipient3@example.com"],
+      bounce: { type: "Transient", message: "Mailbox full" },
+    },
+  };
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const headers = await signedHeadersFor(body, "msg_bounced_multi_1", now);
+
+  const response = await t.fetch(PATH, { method: "POST", headers, body });
+  expect(response.status).toBe(200);
+
+  const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
+  expect(rows).toHaveLength(3);
+
+  const byEmail = Object.fromEntries(rows.map((r) => [r.email, r]));
+  expect(byEmail["recipient1@example.com"].resendId).toBe(
+    "event:email_multi_1:recipient1@example.com"
+  );
+  expect(byEmail["recipient2@example.com"].resendId).toBe(
+    "event:email_multi_1:recipient2@example.com"
+  );
+  expect(byEmail["recipient3@example.com"].resendId).toBe(
+    "event:email_multi_1:recipient3@example.com"
+  );
+  for (const row of rows) {
+    expect(row.kind).toBe("bounce");
+    expect(row.bounceType).toBe("Transient");
+    expect(row.reason).toBe("Mailbox full");
+  }
 });
 
 test("resend webhook: email.complained writes complaint row", async () => {
@@ -234,7 +274,31 @@ test("resend webhook: email.complained writes complaint row", async () => {
   const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
   expect(rows).toHaveLength(1);
   expect(rows[0].kind).toBe("complaint");
-  expect(rows[0].resendId).toBe("email_qqq");
+  expect(rows[0].resendId).toBe("event:email_qqq:dave@example.com");
+});
+
+test("resend webhook: email.complained writes one row per recipient", async () => {
+  setup();
+  const t = convexTest(schema, modules);
+
+  const event = {
+    type: "email.complained",
+    created_at: "2026-09-06T14:15:00.000Z",
+    data: {
+      email_id: "email_multi_complaint",
+      to: ["a@example.com", "b@example.com"],
+    },
+  };
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const headers = await signedHeadersFor(body, "msg_complained_multi_1", now);
+
+  const response = await t.fetch(PATH, { method: "POST", headers, body });
+  expect(response.status).toBe(200);
+
+  const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.kind === "complaint")).toBe(true);
 });
 
 test("resend webhook: suppression.removed is acknowledged but does NOT write a row", async () => {
@@ -286,7 +350,7 @@ test("resend webhook: email.suppressed writes bounce row with data.suppressed.ty
   expect(rows[0].bounceType).toBe("OnAccountSuppressionList");
   expect(rows[0].reason).toBe("Resend has suppressed sending to this address");
   expect(rows[0].email).toBe("grace@example.com");
-  expect(rows[0].resendId).toBe("email_suppressed_1");
+  expect(rows[0].resendId).toBe("event:email_suppressed_1:grace@example.com");
 });
 
 test("resend webhook: email.suppressed is idempotent on replay", async () => {
@@ -338,4 +402,31 @@ test("resend webhook: idempotent on Resend message replay (same svix-id + email_
 
   const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
   expect(rows).toHaveLength(1);
+});
+
+test("resend webhook: accepts whsecret_v1_ secret prefix (variant Svix format)", async () => {
+  process.env.RESEND_WEBHOOK_SECRET = `whsecret_v1_${WEBHOOK_SECRET_BASE64}`;
+  const t = convexTest(schema, modules);
+
+  const event = {
+    type: "suppression.added",
+    created_at: "2026-09-06T17:00:00.000Z",
+    data: {
+      id: "sup_whsecret_v1",
+      email: "iris@example.com",
+      origin: "complaint",
+    },
+  };
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const headers = await signedHeadersFor(body, "msg_whsecret_v1", now);
+
+  const response = await t.fetch(PATH, { method: "POST", headers, body });
+  expect(response.status).toBe(200);
+
+  const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
+  expect(rows).toHaveLength(1);
+  expect(rows[0].kind).toBe("complaint");
+  expect(rows[0].email).toBe("iris@example.com");
+  process.env.RESEND_WEBHOOK_SECRET = WEBHOOK_SECRET;
 });
