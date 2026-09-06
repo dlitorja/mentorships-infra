@@ -1001,8 +1001,8 @@ export default defineSchema({
     occurredAt: v.number(),
     audienceId: v.optional(v.string()),
     raw: v.any(),
-  }).index("by_receivedAt", ["receivedAt"])
-    .index("by_domain_and_receivedAt", ["domain", "receivedAt"])
-    .index("by_kind_and_receivedAt", ["kind", "receivedAt"])
+  }).index("by_occurredAt", ["occurredAt"])
+    .index("by_domain_and_occurredAt", ["domain", "occurredAt"])
+    .index("by_kind_and_occurredAt", ["kind", "occurredAt"])
     .index("by_resendId_and_kind", ["resendId", "kind"]),
 });

@@ -87,14 +87,18 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
   - `kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe"))`
   - `email: v.string()` — recipient address
   - `domain: v.string()` — recipient domain (for grouping; not user-input)
-  - `resendId: v.string()` — Resend message id
+  - `resendId: v.string()` — Resend message id (synthetic `list:<id>` for backfill rows from `/v1/suppressions`)
   - `bounceType: v.optional(v.string())` (e.g. `hard`, `soft`)
   - `reason: v.optional(v.string())`
-  - `receivedAt: v.number()` — webhook arrival timestamp (epoch ms)
-  - `occurredAt: v.number()` — event timestamp from payload
+  - `receivedAt: v.number()` — **ingestion** timestamp (epoch ms) — when Convex wrote the row; useful for audit / "what arrived today" queries
+  - `occurredAt: v.number()` — **event** timestamp (epoch ms) — when Resend recorded the suppression; backfilled rows use the API's `created_at` so historical suppressions appear at their actual time on the dashboard, not the moment of ingestion
   - `audienceId: v.optional(v.string())`
   - `raw: v.any()` — full Svix-verified payload (forensic lookup)
-- Indexes: `["receivedAt"]`, `["domain", "receivedAt"]`, `["kind", "receivedAt"]`, `["resendId", "kind"]` (idempotency)
+- Indexes (all on `occurredAt` so time-windowed dashboards scan event time, not ingestion time):
+  - `["occurredAt"]`
+  - `["domain", "occurredAt"]`
+  - `["kind", "occurredAt"]`
+  - `["resendId", "kind"]` — idempotency
 - Discriminated-union validator using `v.union(v.object(...))` per `convex/_generated/ai/guidelines.md:51`
 - One-shot backfill action `seedSuppressionEventsFromList` (D5) that pulls `GET /v1/suppressions` and seeds the table
 
@@ -106,14 +110,15 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 - Schema compiles (`pnpm run typecheck`)
 - Empty table created in Convex deployment
 - Backfill action callable, idempotent on `["resendId", "kind"]` index
+- `pnpm run test:convex` passes including the 3 new `suppressionEvents.test.ts` cases (idempotency, distinct-kind-for-same-resendId, occurredAt-vs-receivedAt)
 
 **Verification**
 
 - `pnpm run typecheck`
+- `pnpm run test:convex`
 - `npx convex codegen && git diff convex/_generated/` → only generated types changed
-- Pre-flight: declare `["domain", "receivedAt"]` as `staged: true` so deploy isn't blocked; remove `staged` in a follow-up once populated
 
-**Risks**: large backfilled tables block deploy; keep `staged: true` for the multi-column index and remove in a follow-up.
+**Risks**: large backfilled tables block deploy on fresh deployments; if scaling past ~10k rows is expected, switch to per-month partitioning (out of scope here).
 
 ---
 
@@ -194,7 +199,7 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 - Manual: navigate to `/admin/email-health` in preview, confirm renders with no errors
 - Insert test rows via `npx convex data` and confirm thresholds flip
 
-**Risks**: queries over `suppressionEvents` can grow unbounded; use indexed window scan with `withIndex("by_receivedAt", q => q.gt("receivedAt", cutoff))` and `.take(1000)` cap; aggregate counts in-memory for the bounded window.
+**Risks**: queries over `suppressionEvents` can grow unbounded; use indexed window scan with `withIndex("by_occurredAt", q => q.gt("occurredAt", cutoff))` and `.take(1000)` cap; aggregate counts in-memory for the bounded window.
 
 ---
 
