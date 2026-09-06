@@ -75,6 +75,25 @@
       "env": {
         "CLERK_SECRET_KEY": "${CLERK_SECRET_KEY}"
       }
+    },
+    "resend": {
+      "command": "node",
+      "args": [
+        "./node_modules/resend-mcp/dist/index.js"
+      ],
+      "env": {
+        "RESEND_API_KEY": "${RESEND_API_KEY}",
+        "SENDER_EMAIL_ADDRESS": "${EMAIL_FROM}"
+      }
+    },
+    "firecrawl": {
+      "command": "node",
+      "args": [
+        "./node_modules/firecrawl-mcp/dist/index.js"
+      ],
+      "env": {
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+      }
     }
   }
 }

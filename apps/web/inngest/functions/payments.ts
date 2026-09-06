@@ -330,6 +330,7 @@ const completedOrder = await step.run("update-order", async () => {
         subject: hasClerkAccount ? "Your mentorship purchase is confirmed" : "Claim your account to access your session pack",
         html,
         headers: { "X-Email-Type": hasClerkAccount ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        kind: "transactional",
       });
 
       await reportInfo({
@@ -750,6 +751,7 @@ export const processPayPalCheckout = inngest.createFunction(
         subject: hasClerkAccount ? "Your mentorship purchase is confirmed" : "Claim your account to access your session pack",
         html,
         headers: { "X-Email-Type": hasClerkAccount ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        kind: "transactional",
       });
 
       await reportInfo({

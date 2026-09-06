@@ -368,6 +368,7 @@ export const processStripeCheckout = inngest.createFunction(
           : "Your mentorship purchase is confirmed",
         html,
         headers: { "X-Email-Type": magicLinkSent ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        kind: "transactional",
       });
 
       const parsedResult = parseEmailResult(res);

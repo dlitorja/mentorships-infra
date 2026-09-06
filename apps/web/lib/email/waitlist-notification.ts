@@ -1,8 +1,9 @@
 import { Resend } from "resend";
+import { resolveFrom } from "../../../../packages/emails/src/envelope";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const FROM_ADDRESS = process.env.EMAIL_FROM || "Mentorships <onboarding@mentorships.com>";
+const FROM_ADDRESS = resolveFrom("marketing") || "Mentorships <onboarding@mentorships.com>";
 
 export interface WaitlistNotificationData {
   instructorName: string;

@@ -1,4 +1,5 @@
 import { mutation, query, internalMutation, internalQuery, internalAction, action } from "./_generated/server";
+import { env } from "./_generated/server";
 import type { GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
@@ -1209,7 +1210,7 @@ export const sendDeleteFailureAlert = internalAction({
     }
 
     const adminEmail = process.env.ADMIN_ALERT_EMAIL ?? "huckleberryartinc@gmail.com";
-    const fromAddress = process.env.EMAIL_FROM ?? "Huckleberry Drive <alerts@huckleberry.art>";
+    const fromAddress = env.EMAIL_FROM_TRANSACTIONAL ?? process.env.EMAIL_FROM ?? "Huckleberry Drive <alerts@huckleberry.art>";
 
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
@@ -1218,6 +1219,7 @@ export const sendDeleteFailureAlert = internalAction({
       from: fromAddress,
       to: [adminEmail],
       subject: `⚠️ File Deletion Failed After Retries: ${instructorInfo.name}`,
+      headers: { "X-Email-Kind": "transactional" },
       html: `
         <h2>File Deletion Alert</h2>
         <p>An upload deletion failed after 3 retry attempts and required manual cleanup.</p>

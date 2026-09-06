@@ -213,6 +213,7 @@ export async function POST(req: NextRequest) {
             html: refundEmail.html,
             text: refundEmail.text,
             headers: refundEmail.headers,
+            kind: "transactional",
           });
         }
       }

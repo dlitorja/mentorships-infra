@@ -1,9 +1,8 @@
 import { logger, schedules, task, tasks } from "@trigger.dev/sdk";
 import { Resend } from "resend";
+import { resolveFrom } from "../../packages/emails/src/envelope";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const EMAIL_FROM =
-  process.env.EMAIL_FROM || "noreply@mentorships.example.com";
 const CONVEX_DEPLOYMENT_URL =
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
@@ -97,13 +96,15 @@ async function sendRecordingDeletionWarningEmail(
 ): Promise<string> {
   const downloadUrl =
     `${process.env.NEXT_PUBLIC_URL || "https://mentorships.example.com"}/workspace`;
+  const from = resolveFrom("transactional") || "noreply@mentorships.example.com";
   const { data, error } = await resend.emails.send(
     {
-      from: EMAIL_FROM,
+      from,
       to,
       subject: `Call recording will be deleted in ${daysUntilDeletion} day${
         daysUntilDeletion === 1 ? "" : "s"
       }`,
+      headers: { "X-Email-Kind": "transactional" },
       html: `
       <h1>Call Recording Deletion Warning</h1>
       <p>Hello,</p>

@@ -214,6 +214,7 @@ export const onboardingFlow = inngest.createFunction(
             "X-Session-Pack-Id": pack._id,
             "X-Instructor-Id": instructor._id,
           },
+          kind: "transactional",
         });
       }
 
@@ -237,6 +238,7 @@ export const onboardingFlow = inngest.createFunction(
           "X-Session-Pack-Id": pack._id,
           "X-Instructor-Id": instructor._id,
         },
+        kind: "transactional",
       });
     });
 
@@ -304,6 +306,7 @@ export const onboardingFlow = inngest.createFunction(
             "X-Session-Pack-Id": pack._id,
             "X-Instructor-Id": instructor._id,
           },
+          kind: "transactional",
         });
         return { sent: result.ok, resendId: result.ok ? result.id : null };
       }
@@ -327,6 +330,7 @@ export const onboardingFlow = inngest.createFunction(
           "X-Session-Pack-Id": pack._id,
           "X-Instructor-Id": instructor._id,
         },
+        kind: "transactional",
       });
 
       return { sent: sendResult.ok, resendId: sendResult.ok ? sendResult.id : null };
@@ -371,6 +375,7 @@ export const onboardingFlow = inngest.createFunction(
                 "X-Session-Pack-Id": pack._id,
                 "X-Instructor-Id": instructor._id,
               },
+              kind: "transactional",
             });
             return res;
           })
@@ -408,6 +413,7 @@ export const onboardingFlow = inngest.createFunction(
               "X-Session-Pack-Id": pack._id,
               "X-Instructor-Id": instructor._id,
             },
+            kind: "transactional",
           })
         )
       );

@@ -1,19 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sendEmail, sendTemplateEmail } from "./send";
-
-// R7 (PR 8): the skip-on-missing-key behavior is the contract that
-// allows the onboarding workflow to run cleanly in CI / dev / preview
-// environments where no Resend credentials are present. Lock it down
-// here so future refactors cannot silently flip the dev → production
-// branches or re-introduce network calls during the skip path.
+import { resolveFrom } from "./envelope";
 
 const ORIGINAL_RESEND = process.env.RESEND_API_KEY;
 const ORIGINAL_FROM = process.env.EMAIL_FROM;
+const ORIGINAL_FROM_TX = process.env.EMAIL_FROM_TRANSACTIONAL;
+const ORIGINAL_FROM_MKT = process.env.EMAIL_FROM_MARKETING;
+const ORIGINAL_FROM_STG = process.env.EMAIL_FROM_STAGING;
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
 function clearEmailEnv() {
   delete process.env.RESEND_API_KEY;
   delete process.env.EMAIL_FROM;
+  delete process.env.EMAIL_FROM_TRANSACTIONAL;
+  delete process.env.EMAIL_FROM_MARKETING;
+  delete process.env.EMAIL_FROM_STAGING;
 }
 
 beforeEach(() => {
@@ -25,6 +26,12 @@ afterEach(() => {
   else process.env.RESEND_API_KEY = ORIGINAL_RESEND;
   if (ORIGINAL_FROM === undefined) delete process.env.EMAIL_FROM;
   else process.env.EMAIL_FROM = ORIGINAL_FROM;
+  if (ORIGINAL_FROM_TX === undefined) delete process.env.EMAIL_FROM_TRANSACTIONAL;
+  else process.env.EMAIL_FROM_TRANSACTIONAL = ORIGINAL_FROM_TX;
+  if (ORIGINAL_FROM_MKT === undefined) delete process.env.EMAIL_FROM_MARKETING;
+  else process.env.EMAIL_FROM_MARKETING = ORIGINAL_FROM_MKT;
+  if (ORIGINAL_FROM_STG === undefined) delete process.env.EMAIL_FROM_STAGING;
+  else process.env.EMAIL_FROM_STAGING = ORIGINAL_FROM_STG;
   if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
 });
@@ -75,11 +82,6 @@ describe("sendEmail skip-on-missing-key behavior", () => {
 
   it("does not attempt to instantiate the Resend client on the skip path", async () => {
     process.env.NODE_ENV = "development";
-    // No spy is needed beyond proving the function short-circuits before
-    // touching the network: if it ever stopped short-circuiting, the
-    // test would either throw (no API key on Resend internals) or
-    // hang (real network). The shape assertion above plus the
-    // immediate return proves the contract.
     const result = await sendEmail({
       to: "user@example.com",
       subject: "Welcome",
@@ -115,5 +117,41 @@ describe("sendTemplateEmail skip-on-missing-key behavior", () => {
       ok: false,
       error: "Email provider not configured",
     });
+  });
+});
+
+describe("resolveFrom sender selection", () => {
+  it("prefers EMAIL_FROM_TRANSACTIONAL for transactional kind", () => {
+    process.env.EMAIL_FROM_TRANSACTIONAL = "tx@tx.example";
+    process.env.EMAIL_FROM = "legacy@legacy.example";
+    expect(resolveFrom("transactional")).toBe("tx@tx.example");
+  });
+
+  it("falls back to EMAIL_FROM for transactional when dedicated var is unset", () => {
+    process.env.EMAIL_FROM = "legacy@legacy.example";
+    expect(resolveFrom("transactional")).toBe("legacy@legacy.example");
+  });
+
+  it("returns EMAIL_FROM_MARKETING for marketing kind, never the legacy EMAIL_FROM", () => {
+    process.env.EMAIL_FROM = "legacy@legacy.example";
+    process.env.EMAIL_FROM_MARKETING = "mkt@mkt.example";
+    expect(resolveFrom("marketing")).toBe("mkt@mkt.example");
+  });
+
+  it("falls back to EMAIL_FROM for marketing when EMAIL_FROM_MARKETING is unset", () => {
+    process.env.EMAIL_FROM = "legacy@legacy.example";
+    expect(resolveFrom("marketing")).toBe("legacy@legacy.example");
+  });
+
+  it("returns EMAIL_FROM_STAGING for staging kind", () => {
+    process.env.EMAIL_FROM_STAGING = "stg@stg.example";
+    process.env.EMAIL_FROM = "legacy@legacy.example";
+    expect(resolveFrom("staging")).toBe("stg@stg.example");
+  });
+
+  it("returns null when no from env var is set", () => {
+    expect(resolveFrom("transactional")).toBeNull();
+    expect(resolveFrom("marketing")).toBeNull();
+    expect(resolveFrom("staging")).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ export const bookingNotifications = task({
         payload.instructorName || "Instructor",
         payload.studentTimeZone,
       );
-      await sendEmail({ to: payload.studentEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers });
+      await sendEmail({ to: payload.studentEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers, kind: "transactional" });
     }
 
     // Instructor email
@@ -43,7 +43,7 @@ export const bookingNotifications = task({
         payload.studentEmail,
         payload.instructorTimeZone,
       );
-      await sendEmail({ to: payload.instructorEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers });
+      await sendEmail({ to: payload.instructorEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers, kind: "transactional" });
     }
 
     return { ok: true } as const;
