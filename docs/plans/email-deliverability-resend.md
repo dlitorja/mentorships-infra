@@ -11,21 +11,21 @@ Phased rollout of sender-reputation isolation, ground-truth suppression tracking
 
 ## Progress (live)
 
-Last updated 2026-09-06 after PR Suppressions 2b merged. Current branch: `pr/suppressions-2c-dashboard` (not yet pushed).
+Last updated 2026-09-06 after PR Suppressions 2c merged. Next: PR Metrics 3a (depends on 2c).
 
 | PR | Title | Status | Merge | Notes |
 |---|---|---|---|---|
 | Phase 0 / PR Split-domains 1a | sender split + typed env wiring | ✅ shipped | #822 → `238db198` | Closes split-domains work |
 | Phase 1 / PR Suppressions 2a | `suppressionEvents` table + D5 backfill action | ✅ shipped | #823 → `89edf2ba` | Greptile 5/5; 13 CI checks + 4 Vercel previews green |
 | Phase 1 / PR Suppressions 2b | Svix-verified `/resend/webhook` | ✅ shipped | #824 → `2348fbaa` | Greptile 5/5; 16 CI checks + 4 Vercel previews green; verifier fails closed on asymmetric prefixes |
-| Phase 1 / PR Suppressions 2c | `/admin/email-health` tile + reconcile cron | 🔵 in progress | branch `pr/suppressions-2c-dashboard` | Work starts after this update |
+| Phase 1 / PR Suppressions 2c | `/admin/email-health` tile + reconcile cron | ✅ shipped | #825 → `48ed175a` | Greptile 4/5 (last cycle); 17 CI checks + 4 Vercel previews green; reconcile cron every 6h + dashboard-relevant backfill cron every 24h |
 | Phase 2 / PR Metrics 3a | `dailyEmailMetrics` + ingestion cron | 🔵 queued | — | depends on 2c (per-day volume baseline) |
 | Phase 2 / PR Metrics 3b | overlay metrics on dashboard tile | 🔵 queued | — | depends on 3a + 2c |
 | Phase 2 / PR Metrics 3c | Inngest agent triage | 🔵 queued | — | optional (D3); depends on 3b |
 | Phase 3 / PR Verify 4a | webhook tests | ✅ landed as part of 2b | — | 16 convex-test cases in `convex/resendWebhook.test.ts` |
 | Phase 3 / PR Verify 4b | metrics cron e2e test | 🔵 queued | — | depends on 3a |
 
-**Cumulative test counts**: 169 convex-test pass (20 files) · 406 vitest pass (48 files) · typecheck clean · lint clean across all apps.
+**Cumulative test counts**: 195 convex-test pass (23 files) · 406 vitest pass (48 files) · typecheck clean · lint clean across all apps.
 
 **Known scope adjustments from original plan**
 
@@ -218,34 +218,45 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ---
 
-### 🟡 PR Suppressions 2c — `/admin/email-health` dashboard tile + reconcile cron
+### ✅ PR Suppressions 2c — `/admin/email-health` dashboard tile + reconcile cron
 
 **Why**: surface per-domain rates vs. Gmail/Yahoo thresholds (bounce > 0.05, complaint > 0.003) so on-call sees a spike before the inbox provider does.
 
-**Scope**
+**Status**: shipped as PR #825 → squash commit `48ed175a` on `main`. Greptile 4/5 on last cycle (1 outstanding theoretical race, writes idempotent so no data corruption); 17 CI checks + 4 Vercel previews green.
 
-- `convex/queries/emailHealth.ts`: `getEmailHealthSummary({ windowDays: 7 })` returning per-domain aggregates: `{ domain, bounces, complaints, unsubscribes, deliveredTotal, bounceRate, complaintRate }`
-- `convex/schema.ts`: add `deniedDomains` table (when domain hits threshold, surface here). Fields: `domain`, `firstDeniedAt`, `lastDeniedAt`, `kind: v.union(v.literal("bounce"), v.literal("complaint"))`, `note: v.optional(v.string())`
-- New route `apps/platform/app/admin/email-health/page.tsx` (Server Component) that calls the query and renders: per-domain rate cards, threshold badges, recent suppression events list (last 100), link to Resend dashboard
-- New summary card on `apps/platform/app/admin/page.tsx` linking to the route — only shown when at least one `deniedDomains` row exists OR 7-day bounce rate > 0.02 (early-warning)
-- Reuse `Card` + `CardContent`/`CardHeader`/`CardTitle` from `@/components/ui/card` matching existing admin page pattern
+**Scope shipped**
 
-**Out of scope**: alerting (Phase 2 agent plugin), auto-suppression, hourly granularity
+- `convex/queries/emailHealth.ts`: `getEmailHealthSummary({ windowDays: 7 })` returning per-domain aggregates + severity + recent events + deniedDomains. **Auth**: `ctx.auth.getUserIdentity()` + role check on `users` table via `by_userId` first, falling back to `by_clerkId` (handles split-id admins from PR admin-onboarding #1). Query is a public `query(...)` but throws "Authentication required" or "Administrator role required" — defense in depth alongside page-level `requireRole("admin")`.
+- `convex/schema.ts`: added `deniedDomains` table with 3 indexes (`by_domain`, `by_lastDeniedAt`, `by_kind`); extended `suppressionEvents.kind` union with `"removed"`; widened `suppressionEvents` with optional `dashboardRelevant: v.boolean()` + new index `by_dashboardRelevant_and_occurredAt`; added `reconcileRunState` singleton (`lastStartedAt`, `currentRunStartedAt`, `currentRunId`, `lastCompletedAt`).
+- New route `apps/platform/app/admin/email-health/page.tsx` (Server Component) — per-domain severity cards (red/yellow/green), recent events table, denied domains list, link to Resend dashboard.
+- New summary card `apps/platform/app/admin/email-health-summary-card.tsx` — appears on `/admin` only when deniedDomains exist OR a domain hits the red-severity threshold. Wrapped in null-check on `getConvexAuthToken()` + try/catch on `fetchQuery` so a missing token cannot break the parent `/admin` page.
+- Reconcile cron `reconcile-resend-suppression-list` (every 6h) — paginates `GET https://api.resend.com/suppressions`, upserts `list:<id>` rows (idempotent with PR 2a backfill). Removes via `list:<id>` rows that disappeared (writes `removed:<id>` rows). **Mutex**: 30-min min interval + 60-min stale recovery; per-run `runId` tokens prevent superseded chains from clearing newer locks; every scheduled action calls `isCurrentRun` as first statement and aborts if ownership has moved on. **Filter**: only iterates `list:<id>` rows with `receivedAt < runStartedAt - 60s` so rows upserted during the current run aren't false-positive removals.
+- Backfill cron `backfill-suppression-dashboard-relevant` (every 24h, idempotent) — stamps `dashboardRelevant` flag on existing rows so the dashboard index picks them up.
+- Thresholds (absolute counts over 7-day window, NOT rates — rates deferred to PR 3b): bounces ≥ 100 = red, ≥ 50 = yellow; complaints ≥ 25 = red, ≥ 13 = yellow; unsubscribes ≥ 200 = red, ≥ 100 = yellow.
+
+**Out of scope**: alerting (Phase 2 agent plugin), auto-suppression, hourly granularity, rate-based thresholds (deferred to PR 3b)
 
 **Acceptance criteria**
 
-- Page renders within 500 ms with synthetic seed data (no email send required)
-- Threshold badges turn red when `bounceRate > 0.05` or `complaintRate > 0.003`
-- Summary card on `/admin` appears when threshold breached
-- All Convex queries type-check against `_generated/server.d.ts`
-- Page is read-only (no mutations exposed)
+- Page renders within 500 ms with synthetic seed data (no email send required) — verified with 9 convex-test cases
+- Threshold badges turn red when absolute counts exceed threshold — verified with severity tests
+- Summary card on `/admin` appears when threshold breached OR denied domains exist — verified with summary-card alert logic
+- All Convex queries type-check against `_generated/server.d.ts` — `pnpm run typecheck` clean
+- Page is read-only (no mutations exposed) — verified, only `internal.mutations.reconcileRunState.tryStartReconcile` exists and is admin-gated via cron
+- Reconcile cron idempotent with PR 2a backfill (uses `list:<id>` namespace, dedupes via `by_resendId_and_kind` index)
 
-**Verification**
+**Verification results**
 
-- `pnpm run typecheck` clean
-- `pnpm exec vitest run` clean
-- Manual: navigate to `/admin/email-health` in preview, confirm renders with no errors
-- Insert test rows via `npx convex data` and confirm thresholds flip
+- `pnpm run typecheck` ✓
+- `pnpm run test:convex --run` ✓ (23 files / 195 tests including 9 new emailHealth, 4 suppressionListQueries, 8 reconcileRunState, plus updated suppressionEvents tests)
+- `pnpm exec vitest run` ✓ (48 files / 406 tests + 3 skipped)
+- 17 GitHub CI checks green (Detect Changes, E2E, Greptile Review, Lint & Type Check, Unit Tests, typecheck-apps, typecheck-convex, convex-codegen, Build, build-apps, 4× Vercel previews, CodeRabbit skip+pass)
+- Local `npx greptile@latest review --diff` final: 4/5
+
+**Documented scaling bounds** (each bounded well above any realistic Resend tenant):
+
+- `activeIds` carried through scheduler args is bounded by Convex's 1 MB scheduler-arg limit (~27k Resend suppression IDs); escape hatch = temp table keyed by `runStartedAt` for tenants above the bound.
+- `getListStateRowsBefore` scans up to 100 pages × 1000 rows = 100k rows of `list:*` rows before reporting `truncated: true`. Above 100k, removal detection is partial but the dashboard query surfaces `scanCap` and `truncated` so ops can spot it.
 
 **Risks**: queries over `suppressionEvents` can grow unbounded; use indexed window scan with `withIndex("by_occurredAt", q => q.gt("occurredAt", cutoff))` and `.take(1000)` cap; aggregate counts in-memory for the bounded window.
 
