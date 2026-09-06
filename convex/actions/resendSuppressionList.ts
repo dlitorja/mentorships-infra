@@ -209,28 +209,13 @@ export const finalizeReconcile = internalAction({
       });
     }
 
-    const BATCH_SIZE = 100;
     const candidatesArr = Array.from(removedCandidates.values());
-    if (candidatesArr.length > BATCH_SIZE) {
-      const firstBatch = candidatesArr.slice(0, BATCH_SIZE);
-      const remainder = candidatesArr.slice(BATCH_SIZE);
-      await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
-        batch: remainder,
-      });
-      await writeRemovalBatch(ctx, firstBatch);
-      return {
-        activeCount: activeSet.size,
-        candidates: candidatesArr.length,
-        processedInThisCall: firstBatch.length,
-        remainingBatches: Math.ceil(remainder.length / BATCH_SIZE),
-      };
-    }
-
-    const written = await writeRemovalBatch(ctx, candidatesArr);
+    await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
+      batch: candidatesArr,
+    });
     return {
       activeCount: activeSet.size,
       candidates: candidatesArr.length,
-      written,
     };
   },
 });
@@ -259,6 +244,8 @@ async function writeRemovalBatch(
   return { upserted, alreadyPresent };
 }
 
+const FINALIZE_BATCH_SIZE = 100;
+
 export const finalizeReconcileBatch = internalAction({
   args: {
     batch: v.array(
@@ -270,15 +257,48 @@ export const finalizeReconcileBatch = internalAction({
     ),
   },
   handler: async (ctx, args) => {
-    const written = await writeRemovalBatch(ctx, args.batch);
-    return { ...written, batchSize: args.batch.length };
+    if (args.batch.length === 0) {
+      return { upserted: 0, alreadyPresent: 0, remaining: 0 };
+    }
+    const head = args.batch.slice(0, FINALIZE_BATCH_SIZE);
+    const tail = args.batch.slice(FINALIZE_BATCH_SIZE);
+    const written = await writeRemovalBatch(ctx, head);
+    if (tail.length > 0) {
+      await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
+        batch: tail,
+      });
+    }
+    return {
+      upserted: written.upserted,
+      alreadyPresent: written.alreadyPresent,
+      remaining: tail.length,
+    };
   },
 });
 
 export const runReconcileSuppressionList = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<
+    | { scheduled: true; runStartedAt: number }
+    | {
+        scheduled: false;
+        runStartedAt: number;
+        reason: string;
+        previousStartedAt: number | null;
+      }
+  > => {
     const runStartedAt = Date.now();
+    const lock = await ctx.runMutation(internal.mutations.reconcileRunState.tryStartReconcile, {
+      runStartedAt,
+    });
+    if (!lock.acquired) {
+      return {
+        scheduled: false,
+        runStartedAt,
+        reason: lock.reason,
+        previousStartedAt: lock.previousStartedAt,
+      };
+    }
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.reconcileSuppressionListPage, {
       after: undefined,
       activeIds: [],

@@ -14,14 +14,28 @@ export const getEmailHealthSummary = query({
     windowDays: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Authentication required");
+    }
+    const viewer = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!viewer || viewer.role !== "admin") {
+      throw new Error("Administrator role required");
+    }
+
     const windowDays = Math.max(1, Math.min(args.windowDays, 90));
     const cutoff = Date.now() - windowDays * DAY_MS;
 
-    const recent = await ctx.db
+    const recentAll = await ctx.db
       .query("suppressionEvents")
       .withIndex("by_occurredAt", (q) => q.gte("occurredAt", cutoff))
       .order("desc")
       .take(SCAN_CAP);
+
+    const recent = recentAll.filter(isDashboardRelevantRow);
 
     const byDomain = new Map<
       string,
@@ -100,7 +114,7 @@ export const getEmailHealthSummary = query({
       windowDays,
       scannedRows: recent.length,
       scanCap: SCAN_CAP,
-      truncated: recent.length === SCAN_CAP,
+      truncated: recentAll.length === SCAN_CAP,
       totals,
       domains,
       recentEvents,
@@ -116,6 +130,16 @@ export const getEmailHealthSummary = query({
     };
   },
 });
+
+function isDashboardRelevantRow(row: { resendId: string; kind: string }): boolean {
+  if (row.resendId.startsWith("list:") || row.resendId.startsWith("event:")) {
+    return true;
+  }
+  if (row.resendId.startsWith("removed:")) {
+    return row.kind === "removed";
+  }
+  return false;
+}
 
 function severityFor(bucket: {
   bounces: number;

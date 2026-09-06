@@ -39,6 +39,7 @@ import type * as migrations from "../migrations.js";
 import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
+import type * as mutations_reconcileRunState from "../mutations/reconcileRunState.js";
 import type * as mutations_suppressionEvents from "../mutations/suppressionEvents.js";
 import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
@@ -101,6 +102,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
+  "mutations/reconcileRunState": typeof mutations_reconcileRunState;
   "mutations/suppressionEvents": typeof mutations_suppressionEvents;
   notifications: typeof notifications;
   orders: typeof orders;

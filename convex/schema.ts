@@ -1023,4 +1023,8 @@ export default defineSchema({
     .index("by_domain", ["domain"])
     .index("by_lastDeniedAt", ["lastDeniedAt"])
     .index("by_kind", ["kind"]),
+
+  reconcileRunState: defineTable({
+    lastStartedAt: v.number(),
+  }),
 });
