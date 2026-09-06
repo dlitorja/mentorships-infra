@@ -249,6 +249,7 @@ async function notifyExportReady(
     text: built.text,
     html: built.html,
     headers: built.headers,
+    kind: "transactional",
   });
 
   if (!result.ok && "skipped" in result && result.skipped) {

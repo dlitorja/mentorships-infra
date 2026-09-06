@@ -30,6 +30,10 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly EMAIL_FROM_MARKETING: string | undefined;
+  readonly EMAIL_FROM_STAGING: string | undefined;
+  readonly EMAIL_FROM_TRANSACTIONAL: string | undefined;
+  readonly RESEND_WEBHOOK_SECRET: string | undefined;
 };
 
 /**

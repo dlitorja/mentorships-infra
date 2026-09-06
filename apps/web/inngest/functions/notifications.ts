@@ -75,6 +75,7 @@ export const handleNotificationSend = inngest.createFunction(
         html: emailContent.html,
         text: emailContent.text,
         headers: emailContent.headers,
+        kind: "transactional",
       });
     });
 

@@ -306,6 +306,7 @@ export const processPayPalCheckout = inngest.createFunction(
           : "Your mentorship purchase is confirmed — Create your account",
         html,
         headers: { "X-Email-Type": magicLinkSent ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        kind: "transactional",
       });
 
       const parsedResult = parseEmailResult(res);

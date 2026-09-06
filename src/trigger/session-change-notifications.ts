@@ -72,6 +72,7 @@ export const sessionCanceledNotifications = task({
       text: built.text,
       html: built.html,
       headers: built.headers,
+      kind: "transactional",
     });
 
     return { ok: true };
@@ -107,6 +108,7 @@ export const sessionRescheduledNotifications = task({
       text: built.text,
       html: built.html,
       headers: built.headers,
+      kind: "transactional",
     });
 
     return { ok: true };
@@ -175,6 +177,7 @@ export const studentCancelledBookingNotifications = task({
       text: built.text,
       html: built.html,
       headers: built.headers,
+      kind: "transactional",
     });
 
     return { ok: true };
@@ -250,6 +253,7 @@ export const sendSessionReminders = schedules.task({
             text: studentEmail.text,
             html: studentEmail.html,
             headers: studentEmail.headers,
+            kind: "transactional",
           });
         }
 
@@ -270,6 +274,7 @@ export const sendSessionReminders = schedules.task({
             text: instructorEmail.text,
             html: instructorEmail.html,
             headers: instructorEmail.headers,
+            kind: "transactional",
           });
         }
 

@@ -1,4 +1,23 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-20250514"
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "mcp": {
+    "resend": {
+      "type": "local",
+      "command": ["npx", "-y", "resend-mcp"],
+      "enabled": true,
+      "environment": {
+        "RESEND_API_KEY": "{env:RESEND_API_KEY}",
+        "SENDER_EMAIL_ADDRESS": "{env:EMAIL_FROM}"
+      }
+    },
+    "firecrawl": {
+      "type": "local",
+      "command": ["npx", "-y", "@mendable/firecrawl-mcp"],
+      "enabled": true,
+      "environment": {
+        "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}"
+      }
+    }
+  }
 }

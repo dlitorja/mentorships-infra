@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { instructors, getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
+import { resolveFrom } from "../../../../packages/emails/src/envelope";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -20,10 +21,10 @@ function getResendClient(): Resend | null {
 }
 
 function getFromAddress(): string | null {
-  const from = process.env.EMAIL_FROM;
+  const from = resolveFrom("marketing");
   if (!from) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("EMAIL_FROM is not set (required in production)");
+      throw new Error("EMAIL_FROM_MARKETING is not set (required in production)");
     }
     return null;
   }

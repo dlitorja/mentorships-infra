@@ -268,6 +268,7 @@ export const onboardingFlow = createDefer(
             "X-Session-Pack-Id": pack._id,
             "X-Instructor-Id": instructor._id,
           },
+          kind: "transactional",
         });
       }
 
@@ -293,6 +294,7 @@ export const onboardingFlow = createDefer(
           "X-Session-Pack-Id": pack._id,
           "X-Instructor-Id": instructor._id,
         },
+        kind: "transactional",
       });
     });
 
@@ -394,6 +396,7 @@ export const onboardingFlow = createDefer(
             "X-Session-Pack-Id": pack._id,
             "X-Instructor-Id": instructor._id,
           },
+          kind: "transactional",
         });
         return { sent: res.ok, resendId: res.ok ? res.id : null };
       }
@@ -419,6 +422,7 @@ export const onboardingFlow = createDefer(
           "X-Session-Pack-Id": pack._id,
           "X-Instructor-Id": instructor._id,
         },
+        kind: "transactional",
       });
 
       return { sent: sendResult.ok, resendId: sendResult.ok ? sendResult.id : null };
@@ -466,6 +470,7 @@ export const onboardingFlow = createDefer(
                 "X-Session-Pack-Id": pack._id,
                 "X-Instructor-Id": instructor._id,
               },
+              kind: "transactional",
             });
             return res;
           })
@@ -505,6 +510,7 @@ export const onboardingFlow = createDefer(
               "X-Session-Pack-Id": pack._id,
               "X-Instructor-Id": instructor._id,
             },
+            kind: "transactional",
           })
         )
       );
@@ -737,6 +743,8 @@ export const adminOnboardingFlow = inngest.createFunction(
             : undefined,
           templateData: templateData as Record<string, unknown>,
           headers: { "X-Email-Type": "admin_onboarding_student", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+          kind: "transactional",
+          idempotencyKey,
         });
       } else {
         const content = buildPurchaseOnboardingEmail(templateData);
@@ -746,6 +754,8 @@ export const adminOnboardingFlow = inngest.createFunction(
           html: content.html,
           text: content.text,
           headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+          kind: "transactional",
+          idempotencyKey,
         });
       }
 
@@ -867,6 +877,8 @@ export const adminOnboardingFlow = inngest.createFunction(
               : undefined,
             templateData: templateData as Record<string, unknown>,
             headers: { "X-Email-Type": "admin_onboarding_instructor", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+            kind: "transactional",
+            idempotencyKey,
           });
         } else {
           const content = buildInstructorOnboardingEmail(templateData);
@@ -876,6 +888,8 @@ export const adminOnboardingFlow = inngest.createFunction(
             html: content.html,
             text: content.text,
             headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+            kind: "transactional",
+            idempotencyKey,
           });
         }
 
@@ -1082,6 +1096,8 @@ export const adminOnboardingFlow = inngest.createFunction(
                 subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
                 templateData: adminPrep.templateData as Record<string, unknown>,
                 headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+                kind: "transactional",
+                idempotencyKey,
               });
             } else {
               const content = buildAdminPurchaseEmail(adminPrep.templateData);
@@ -1091,6 +1107,8 @@ export const adminOnboardingFlow = inngest.createFunction(
                 html: content.html,
                 text: content.text,
                 headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+                kind: "transactional",
+                idempotencyKey,
               });
             }
             // PR 4 cloud-review fix (CodeRabbit #9221): report when the
@@ -1353,6 +1371,7 @@ export const adminOnboardingFlow = inngest.createFunction(
                   html,
                   text,
                   headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
+                  kind: "transactional",
                 });
                 if (!res.ok) {
                   reportError({

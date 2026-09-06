@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { EmailKind, resolveFrom } from "./envelope";
 
 export type SendEmailArgs = {
   to: string;
@@ -7,6 +8,8 @@ export type SendEmailArgs = {
   text?: string;
   replyTo?: string;
   headers?: Record<string, string>;
+  kind?: EmailKind;
+  idempotencyKey?: string;
 };
 
 export type SendEmailResult =
@@ -29,10 +32,6 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
-function getFromAddress(): string | null {
-  return process.env.EMAIL_FROM || null;
-}
-
 /**
  * Sends an email using Resend.
  * In production, returns the email ID on success. In development without API key, returns a skipped result.
@@ -43,11 +42,14 @@ function getFromAddress(): string | null {
  * @param args.text - Plain text body content
  * @param args.replyTo - Optional reply-to address
  * @param args.headers - Optional custom headers
+ * @param args.kind - Sender purpose: "transactional" (default), "marketing", or "staging". Picks the matching `EMAIL_FROM_*` env var so sender reputation stays isolated across streams.
+ * @param args.idempotencyKey - Optional Resend provider idempotency key, forwarded to the API call.
  * @returns Result object with ok flag, email ID on success, or error/skipped reason
  */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
-  const from = getFromAddress();
+  const kind: EmailKind = args.kind ?? "transactional";
+  const from = resolveFrom(kind);
   if (!resend || !from) {
     if (process.env.NODE_ENV === "production") {
       return { ok: false, error: "Email provider not configured" };
@@ -58,18 +60,22 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const replyTo = args.replyTo || process.env.EMAIL_REPLY_TO || undefined;
 
   try {
-    const result = await resend.emails.send({
-      from,
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-      replyTo,
-      headers: {
-        ...args.headers,
-        "X-App-Base-Url": getBaseUrl(),
-      },
-    } as any);
+    const result = await resend.emails.send(
+      {
+        from,
+        to: args.to,
+        subject: args.subject,
+        html: args.html,
+        text: args.text,
+        replyTo,
+        headers: {
+          ...args.headers,
+          "X-App-Base-Url": getBaseUrl(),
+          "X-Email-Kind": kind,
+        },
+      } as any,
+      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+    );
 
     return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
   } catch (error) {
@@ -86,6 +92,8 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
  * @param args.templateId - Resend template identifier
  * @param args.templateData - Key-value pairs for template variables
  * @param args.headers - Optional custom headers
+ * @param args.kind - Sender purpose (see sendEmail). Defaults to "transactional".
+ * @param args.idempotencyKey - Optional Resend provider idempotency key.
  * @returns Result object with ok flag, email ID on success, or error/skipped reason
  */
 export async function sendTemplateEmail(args: {
@@ -94,9 +102,12 @@ export async function sendTemplateEmail(args: {
   templateId: string;
   templateData: Record<string, any>;
   headers?: Record<string, string>;
+  kind?: EmailKind;
+  idempotencyKey?: string;
 }): Promise<SendEmailResult> {
   const resend = getResendClient();
-  const from = getFromAddress();
+  const kind: EmailKind = args.kind ?? "transactional";
+  const from = resolveFrom(kind);
   if (!resend || !from) {
     if (process.env.NODE_ENV === "production") {
       return { ok: false, error: "Email provider not configured" };
@@ -105,13 +116,16 @@ export async function sendTemplateEmail(args: {
   }
 
   try {
-    const result = await resend.emails.send({
-      from,
-      to: args.to,
-      subject: args.subject,
-      template: { id: args.templateId, variables: args.templateData },
-      headers: args.headers,
-    } as any);
+    const result = await resend.emails.send(
+      {
+        from,
+        to: args.to,
+        subject: args.subject,
+        template: { id: args.templateId, variables: args.templateData },
+        headers: { ...args.headers, "X-Email-Kind": kind },
+      } as any,
+      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+    );
     return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

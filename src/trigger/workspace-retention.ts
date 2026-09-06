@@ -1,8 +1,8 @@
 import { logger, schedules } from "@trigger.dev/sdk";
 import { Resend } from "resend";
+import { resolveFrom } from "../../packages/emails/src/envelope";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const EMAIL_FROM = process.env.EMAIL_FROM || "noreply@mentorships.example.com";
 const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
@@ -32,8 +32,9 @@ async function sendRetentionWarningEmail(
   daysUntilDeletion: number,
   workspaceName: string
 ): Promise<void> {
+  const from = resolveFrom("transactional") || "noreply@mentorships.example.com";
   await resend.emails.send({
-    from: EMAIL_FROM,
+    from,
     to,
     subject: `Your workspace content will be deleted in ${daysUntilDeletion} days`,
     html: `

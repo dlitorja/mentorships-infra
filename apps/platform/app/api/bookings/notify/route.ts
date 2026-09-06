@@ -48,13 +48,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Student email
     if (booking.studentEmail) {
       const built = buildBookingConfirmationEmail(new Date(booking.startUtc), booking.studentName, instructor.name || "Instructor", booking.timezone);
-      await sendEmail({ to: booking.studentEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers });
+      await sendEmail({ to: booking.studentEmail, subject: built.subject, text: built.text, html: built.html, headers: built.headers, kind: "transactional" });
     }
 
     // Instructor email
     if (instructor.email && booking.studentEmail) {
       const built = buildInstructorNotificationEmail(new Date(booking.startUtc), instructor.name || "Instructor", booking.studentName, booking.studentEmail, instructor.timeZone || null);
-      await sendEmail({ to: instructor.email, subject: built.subject, text: built.text, html: built.html, headers: built.headers });
+      await sendEmail({ to: instructor.email, subject: built.subject, text: built.text, html: built.html, headers: built.headers, kind: "transactional" });
     }
 
     return NextResponse.json({ success: true });

@@ -40,6 +40,7 @@ export const bookingSeriesNotifications = task({
         subject: summary.student.subject,
         text: summary.student.text,
         headers: summary.student.headers,
+        kind: "transactional",
       });
     }
 
@@ -49,6 +50,7 @@ export const bookingSeriesNotifications = task({
         subject: summary.instructor.subject,
         text: summary.instructor.text,
         headers: summary.instructor.headers,
+        kind: "transactional",
       });
     }
 

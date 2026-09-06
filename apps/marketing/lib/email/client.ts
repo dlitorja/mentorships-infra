@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { resolveFrom } from "../../../../packages/emails/src/envelope";
 
 export function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -13,10 +14,10 @@ export function getResendClient(): Resend | null {
 }
 
 export function getFromAddress(): string | null {
-  const from = process.env.EMAIL_FROM;
+  const from = resolveFrom("marketing");
   if (!from) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("EMAIL_FROM is not set (required in production)");
+      throw new Error("EMAIL_FROM_MARKETING is not set (required in production)");
     }
     return null;
   }

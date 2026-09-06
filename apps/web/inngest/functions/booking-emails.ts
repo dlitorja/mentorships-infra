@@ -110,6 +110,7 @@ export const handleSessionBookingEmails = inngest.createFunction(
           html: emailContent.html,
           text: emailContent.text,
           headers: emailContent.headers,
+          kind: "transactional",
         });
 
         if (result.ok) {
@@ -149,6 +150,7 @@ export const handleSessionBookingEmails = inngest.createFunction(
           html: emailContent.html,
           text: emailContent.text,
           headers: emailContent.headers,
+          kind: "transactional",
         });
 
         if (result.ok) {
@@ -240,6 +242,7 @@ export const handleSessionReminderEmails = inngest.createFunction(
           html: emailContent.html,
           text: emailContent.text,
           headers: emailContent.headers,
+          kind: "transactional",
         });
 
         if (result.ok) {
@@ -340,6 +343,7 @@ export const handleSessionCancellationEmails = inngest.createFunction(
           html: emailContent.html,
           text: emailContent.text,
           headers: emailContent.headers,
+          kind: "transactional",
         });
 
         if (result.ok) {
@@ -368,6 +372,7 @@ export const handleSessionCancellationEmails = inngest.createFunction(
           html: emailContent.html,
           text: emailContent.text,
           headers: emailContent.headers,
+          kind: "transactional",
         });
 
         if (result.ok) {

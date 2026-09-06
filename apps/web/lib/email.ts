@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { EmailKind, resolveFrom } from "../../../packages/emails/src/envelope";
 
 type SendEmailArgs = {
   to: string;
@@ -11,6 +12,8 @@ type SendEmailArgs = {
    * Useful for provider debugging and basic correlation.
    */
   headers?: Record<string, string>;
+  kind?: EmailKind;
+  idempotencyKey?: string;
 };
 
 type SendEmailResult =
@@ -46,27 +49,20 @@ function getResendClient(): Resend | null {
   return new Resend(apiKey);
 }
 
-function getFromAddress(): string | null {
-  const from = process.env.EMAIL_FROM;
-  if (!from) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("EMAIL_FROM is not set (required in production)");
-    }
-    return null;
-  }
-  return from;
-}
-
 /**
  * Send a transactional email.
  *
  * Notes:
  * - In non-production environments, missing email config will skip sending.
  * - In production, missing config throws to surface misconfiguration early.
+ *
+ * @param args.kind - Sender purpose ("transactional" by default, "marketing", or "staging"). Picks the matching `EMAIL_FROM_*` env var so sender reputation stays isolated.
+ * @param args.idempotencyKey - Optional Resend provider idempotency key.
  */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
-  const from = getFromAddress();
+  const kind: EmailKind = args.kind ?? "transactional";
+  const from = resolveFrom(kind);
 
   if (!resend || !from) {
     return {
@@ -79,18 +75,22 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const replyTo = args.replyTo || process.env.EMAIL_REPLY_TO || undefined;
 
   try {
-    const result = await resend.emails.send({
-      from,
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-      replyTo,
-      headers: {
-        ...args.headers,
-        "X-App-Base-Url": getBaseUrl(),
+    const result = await resend.emails.send(
+      {
+        from,
+        to: args.to,
+        subject: args.subject,
+        html: args.html,
+        text: args.text,
+        replyTo,
+        headers: {
+          ...args.headers,
+          "X-App-Base-Url": getBaseUrl(),
+          "X-Email-Kind": kind,
+        },
       },
-    });
+      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+    );
 
     return { ok: true, id: typeof result.data?.id === "string" ? result.data.id : null };
   } catch (error) {
@@ -109,6 +109,8 @@ type SendTemplateEmailArgs = {
   /** Variables passed to the Resend hosted template */
   templateData: Record<string, any>;
   headers?: Record<string, string>;
+  kind?: EmailKind;
+  idempotencyKey?: string;
 };
 
 /**
@@ -120,7 +122,8 @@ type SendTemplateEmailArgs = {
  */
 export async function sendTemplateEmail(args: SendTemplateEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
-  const from = getFromAddress();
+  const kind: EmailKind = args.kind ?? "transactional";
+  const from = resolveFrom(kind);
 
   if (!resend || !from) {
     return {
@@ -131,21 +134,22 @@ export async function sendTemplateEmail(args: SendTemplateEmailArgs): Promise<Se
   }
 
   try {
-    const result = await resend.emails.send({
-      from,
-      to: args.to,
-      subject: args.subject, // optional override; template default used if undefined
-      // Resend hosted template usage (Context7 docs):
-      // https://resend.com/docs/dashboard/templates/introduction
-      template: {
-        id: args.templateId,
-        variables: args.templateData,
-      },
-      headers: {
-        ...args.headers,
-        "X-App-Base-Url": getBaseUrl(),
-      },
-    } as any);
+    const result = await resend.emails.send(
+      {
+        from,
+        to: args.to,
+        subject: args.subject,
+        template: {
+          id: args.templateId,
+          variables: args.templateData,
+        },
+        headers: {
+          ...args.headers,
+          "X-Email-Kind": kind,
+        },
+      } as any,
+      args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
+    );
 
     return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
   } catch (error) {

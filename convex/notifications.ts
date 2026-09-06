@@ -1,6 +1,7 @@
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { env } from "./_generated/server";
 
 type NotificationSendResult = {
   success: boolean;
@@ -224,7 +225,7 @@ function getResendClient(): { apiKey: string } | null {
 }
 
 function getFromAddress(): string | null {
-  return process.env.EMAIL_FROM ?? null;
+  return env.EMAIL_FROM_TRANSACTIONAL ?? process.env.EMAIL_FROM ?? null;
 }
 
 async function sendEmailInternal(args: {
@@ -257,7 +258,7 @@ async function sendEmailInternal(args: {
         subject: args.subject,
         html: args.html,
         text: args.text,
-        headers: args.headers,
+        headers: { ...args.headers, "X-Email-Kind": "transactional" },
       }),
     });
 

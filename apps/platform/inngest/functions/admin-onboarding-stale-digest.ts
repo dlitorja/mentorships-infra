@@ -119,7 +119,7 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // were reported.
       await Promise.all(adminEmails.map(async function(adminEmail: string) {
         try {
-          const res = await sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" } });
+          const res = await sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" }, kind: "transactional" });
           if (!res.ok) {
             reportError({
               source: "inngest:admin-onboarding-stale-digest",
