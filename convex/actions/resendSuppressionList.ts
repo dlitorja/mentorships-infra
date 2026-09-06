@@ -111,6 +111,7 @@ export const reconcileSuppressionListPage = internalAction({
     // in a temp table keyed by runStartedAt and read in finalize.
     activeIds: v.array(v.string()),
     runStartedAt: v.number(),
+    runId: v.string(),
   },
   handler: async (ctx, args) => {
     const apiKey = process.env.RESEND_API_KEY;
@@ -164,6 +165,7 @@ export const reconcileSuppressionListPage = internalAction({
         after: lastId,
         activeIds: seenIds,
         runStartedAt: args.runStartedAt,
+        runId: args.runId,
       });
       return {
         fetched: payload.data.length,
@@ -176,6 +178,7 @@ export const reconcileSuppressionListPage = internalAction({
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcile, {
       activeIds: seenIds,
       runStartedAt: args.runStartedAt,
+      runId: args.runId,
     });
 
     return {
@@ -191,6 +194,7 @@ export const finalizeReconcile = internalAction({
   args: {
     activeIds: v.array(v.string()),
     runStartedAt: v.number(),
+    runId: v.string(),
   },
   handler: async (ctx, args): Promise<{
     activeCount: number;
@@ -230,6 +234,8 @@ export const finalizeReconcile = internalAction({
     await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
       batch: candidatesArr,
       markCompleted: true,
+      runStartedAt: args.runStartedAt,
+      runId: args.runId,
     });
     return {
       activeCount: activeSet.size,
@@ -276,14 +282,26 @@ export const finalizeReconcileBatch = internalAction({
       })
     ),
     markCompleted: v.optional(v.boolean()),
+    runStartedAt: v.optional(v.number()),
+    runId: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    upserted: number;
+    alreadyPresent: number;
+    remaining: number;
+    completed: boolean;
+  }> => {
     if (args.batch.length === 0) {
-      if (args.markCompleted) {
-        await ctx.runMutation(internal.mutations.reconcileRunState.markReconcileCompleted, {
-          completedAt: Date.now(),
-        });
-        return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: true };
+      if (args.markCompleted && args.runStartedAt !== undefined && args.runId !== undefined) {
+        const result: { found: boolean; cleared: boolean; reason?: "superseded" | "id_mismatch" } = await ctx.runMutation(
+          internal.mutations.reconcileRunState.markReconcileCompleted,
+          {
+            completedAt: Date.now(),
+            runStartedAt: args.runStartedAt,
+            runId: args.runId,
+          }
+        );
+        return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: result.cleared };
       }
       return { upserted: 0, alreadyPresent: 0, remaining: 0, completed: false };
     }
@@ -294,6 +312,8 @@ export const finalizeReconcileBatch = internalAction({
       await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcileBatch, {
         batch: tail,
         markCompleted: args.markCompleted ?? false,
+        runStartedAt: args.runStartedAt,
+        runId: args.runId,
       });
       return {
         upserted: written.upserted,
@@ -302,16 +322,27 @@ export const finalizeReconcileBatch = internalAction({
         completed: false,
       };
     }
-    if (args.markCompleted) {
-      await ctx.runMutation(internal.mutations.reconcileRunState.markReconcileCompleted, {
-        completedAt: Date.now(),
-      });
+    if (args.markCompleted && args.runStartedAt !== undefined && args.runId !== undefined) {
+      const result: { found: boolean; cleared: boolean; reason?: "superseded" | "id_mismatch" } = await ctx.runMutation(
+        internal.mutations.reconcileRunState.markReconcileCompleted,
+        {
+          completedAt: Date.now(),
+          runStartedAt: args.runStartedAt,
+          runId: args.runId,
+        }
+      );
+      return {
+        upserted: written.upserted,
+        alreadyPresent: written.alreadyPresent,
+        remaining: 0,
+        completed: result.cleared,
+      };
     }
     return {
       upserted: written.upserted,
       alreadyPresent: written.alreadyPresent,
       remaining: 0,
-      completed: args.markCompleted ?? false,
+      completed: false,
     };
   },
 });
@@ -319,7 +350,7 @@ export const finalizeReconcileBatch = internalAction({
 export const runReconcileSuppressionList = internalAction({
   args: {},
   handler: async (ctx): Promise<
-    | { scheduled: true; runStartedAt: number; staleRecovered?: boolean }
+    | { scheduled: true; runStartedAt: number; runId: string; staleRecovered?: boolean }
     | {
         scheduled: false;
         runStartedAt: number;
@@ -343,7 +374,13 @@ export const runReconcileSuppressionList = internalAction({
       after: undefined,
       activeIds: [],
       runStartedAt,
+      runId: lock.runId,
     });
-    return { scheduled: true, runStartedAt, staleRecovered: "staleRecovered" in lock ? lock.staleRecovered : undefined };
+    return {
+      scheduled: true,
+      runStartedAt,
+      runId: lock.runId,
+      staleRecovered: "staleRecovered" in lock ? lock.staleRecovered : undefined,
+    };
   },
 });

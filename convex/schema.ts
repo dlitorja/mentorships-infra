@@ -1029,6 +1029,7 @@ export default defineSchema({
   reconcileRunState: defineTable({
     lastStartedAt: v.number(),
     currentRunStartedAt: v.optional(v.number()),
+    currentRunId: v.optional(v.string()),
     lastCompletedAt: v.optional(v.number()),
   }),
 });
