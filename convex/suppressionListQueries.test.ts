@@ -5,7 +5,6 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 8, 6, 12, 0, 0);
 
 async function insertRow(
@@ -34,46 +33,46 @@ async function insertRow(
   });
 }
 
-test("suppressionListQueries.getActiveSuppressionRows: filters out removed rows", async () => {
+test("suppressionListQueries.getListStateRows: returns list:* rows regardless of kind", async () => {
   const t = convexTest(schema, modules);
   await insertRow(t, {
     kind: "bounce",
     email: "a@example.com",
     domain: "example.com",
-    resendId: "suppress:abc",
+    resendId: "list:abc",
     occurredAt: NOW,
   });
   await insertRow(t, {
     kind: "removed",
     email: "b@example.com",
     domain: "example.com",
-    resendId: "suppress:gone",
+    resendId: "list:gone",
     occurredAt: NOW,
   });
 
   const rows = await t.query(
     // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getActiveSuppressionRows" as never,
+    "queries/suppressionListQueries:getListStateRows" as never,
     {}
   );
-  expect(rows).toHaveLength(1);
-  expect(rows[0].resendId).toBe("suppress:abc");
+  expect(rows).toHaveLength(2);
+  expect(rows.map((r) => r.resendId).sort()).toEqual(["list:abc", "list:gone"]);
 });
 
-test("suppressionListQueries.getActiveSuppressionRows: excludes list:* and event:* prefixes", async () => {
+test("suppressionListQueries.getListStateRows: excludes suppress:* and event:* prefixes", async () => {
   const t = convexTest(schema, modules);
   await insertRow(t, {
     kind: "bounce",
     email: "a@example.com",
     domain: "example.com",
-    resendId: "suppress:abc",
+    resendId: "list:abc",
     occurredAt: NOW,
   });
   await insertRow(t, {
     kind: "bounce",
     email: "b@example.com",
     domain: "example.com",
-    resendId: "list:backfilled",
+    resendId: "suppress:webhook1",
     occurredAt: NOW,
   });
   await insertRow(t, {
@@ -83,21 +82,28 @@ test("suppressionListQueries.getActiveSuppressionRows: excludes list:* and event
     resendId: "event:email_123:c@example.com",
     occurredAt: NOW,
   });
+  await insertRow(t, {
+    kind: "removed",
+    email: "d@example.com",
+    domain: "example.com",
+    resendId: "removed:gone1",
+    occurredAt: NOW,
+  });
 
   const rows = await t.query(
     // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getActiveSuppressionRows" as never,
+    "queries/suppressionListQueries:getListStateRows" as never,
     {}
   );
   expect(rows).toHaveLength(1);
-  expect(rows[0].resendId).toBe("suppress:abc");
+  expect(rows[0].resendId).toBe("list:abc");
 });
 
-test("suppressionListQueries.getActiveSuppressionRows: returns empty when no suppress: rows exist", async () => {
+test("suppressionListQueries.getListStateRows: returns empty when no list: rows exist", async () => {
   const t = convexTest(schema, modules);
   const rows = await t.query(
     // @ts-expect-error internal query reference not in api.d.ts export surface
-    "queries/suppressionListQueries:getActiveSuppressionRows" as never,
+    "queries/suppressionListQueries:getListStateRows" as never,
     {}
   );
   expect(rows).toEqual([]);
@@ -118,5 +124,3 @@ test("schema: deniedDomains table accepts the documented fields", async () => {
   expect(rows).toHaveLength(1);
   expect(rows[0].domain).toBe("test.com");
 });
-
-void DAY_MS;

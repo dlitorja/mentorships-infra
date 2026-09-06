@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SCAN_CAP = 5_000;
+const RECENT_LIMIT = 100;
 
 const BOUNCE_RED_THRESHOLD = 100;
 const COMPLAINT_RED_THRESHOLD = 25;
@@ -19,6 +20,7 @@ export const getEmailHealthSummary = query({
     const recent = await ctx.db
       .query("suppressionEvents")
       .withIndex("by_occurredAt", (q) => q.gte("occurredAt", cutoff))
+      .order("desc")
       .take(SCAN_CAP);
 
     const byDomain = new Map<
@@ -71,18 +73,15 @@ export const getEmailHealthSummary = query({
       return b.bounces + b.complaints + b.unsubscribes - (a.bounces + a.complaints + a.unsubscribes);
     });
 
-    const recentEvents = recent
-      .sort((a, b) => b.occurredAt - a.occurredAt)
-      .slice(0, 100)
-      .map((e) => ({
-        kind: e.kind,
-        email: e.email,
-        domain: e.domain,
-        resendId: e.resendId,
-        bounceType: e.bounceType ?? null,
-        reason: e.reason ?? null,
-        occurredAt: e.occurredAt,
-      }));
+    const recentEvents = recent.slice(0, RECENT_LIMIT).map((e) => ({
+      kind: e.kind,
+      email: e.email,
+      domain: e.domain,
+      resendId: e.resendId,
+      bounceType: e.bounceType ?? null,
+      reason: e.reason ?? null,
+      occurredAt: e.occurredAt,
+    }));
 
     const totals = domains.reduce(
       (acc, d) => ({

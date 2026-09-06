@@ -140,7 +140,7 @@ export const reconcileSuppressionListPage = internalAction({
         kind,
         email: entry.email,
         domain: domainFromEmail(entry.email),
-        resendId: `suppress:${entry.id}`,
+        resendId: `list:${entry.id}`,
         reason: entry.origin,
         receivedAt,
         occurredAt,
@@ -184,15 +184,16 @@ export const finalizeReconcile = internalAction({
     activeIds: v.array(v.string()),
   },
   handler: async (ctx, args) => {
-    const suppressRows = await ctx.runQuery(
-      internal.queries.suppressionListQueries.getActiveSuppressionRows,
+    const listRows = await ctx.runQuery(
+      internal.queries.suppressionListQueries.getListStateRows,
       {}
     );
 
     const activeSet = new Set(args.activeIds);
     const removedCandidates = new Map<string, { resendId: string; email: string; domain: string }>();
-    for (const row of suppressRows) {
-      const match = row.resendId.match(/^suppress:(.+)$/);
+    for (const row of listRows) {
+      if (row.kind === "removed") continue;
+      const match = row.resendId.match(/^list:(.+)$/);
       if (!match) continue;
       const suppressionId = match[1];
       if (activeSet.has(suppressionId)) continue;
@@ -212,7 +213,7 @@ export const finalizeReconcile = internalAction({
         kind: "removed",
         email: info.email,
         domain: info.domain,
-        resendId: `removed:${info.resendId.replace(/^suppress:/, "")}`,
+        resendId: `removed:${info.resendId.replace(/^list:/, "")}`,
         reason: "Reconcile detected removal",
         receivedAt,
         occurredAt: receivedAt,

@@ -12,8 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Mail, ShieldAlert } from "lucide-react";
 
-const RED_BAR_THRESHOLD = 50;
-
 export async function EmailHealthSummaryCard(): Promise<React.JSX.Element | null> {
   const token = await getConvexAuthToken();
   const summary = await fetchQuery(
@@ -24,11 +22,8 @@ export async function EmailHealthSummaryCard(): Promise<React.JSX.Element | null
 
   const hasDenied = summary.deniedDomains.length > 0;
   const redDomains = summary.domains.filter((d) => d.severity === "red");
-  const hasEarlyWarning =
-    redDomains.length > 0 ||
-    summary.domains.some((d) => d.bounces >= RED_BAR_THRESHOLD);
 
-  if (!hasDenied && !hasEarlyWarning) return null;
+  if (!hasDenied && redDomains.length === 0) return null;
 
   return (
     <Card className="border-red-200 bg-red-50/40">
