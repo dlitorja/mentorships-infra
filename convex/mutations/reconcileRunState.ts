@@ -1,4 +1,4 @@
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 
 const RECONCILE_MIN_INTERVAL_MS = 30 * 60 * 1000;
@@ -71,6 +71,27 @@ export const tryStartReconcile = internalMutation({
       currentRunStartedAt: args.runStartedAt,
       previousStartedAt: null,
     };
+  },
+});
+
+export const isCurrentRun = internalQuery({
+  args: {
+    runStartedAt: v.number(),
+    runId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("reconcileRunState").first();
+    if (!existing) return { current: false, reason: "no_state" as const };
+    if (existing.currentRunStartedAt === undefined) {
+      return { current: false, reason: "no_active_run" as const };
+    }
+    if (existing.currentRunStartedAt !== args.runStartedAt) {
+      return { current: false, reason: "superseded" as const };
+    }
+    if (existing.currentRunId !== args.runId) {
+      return { current: false, reason: "id_mismatch" as const };
+    }
+    return { current: true, reason: "match" as const };
   },
 });
 

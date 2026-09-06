@@ -111,3 +111,54 @@ test("reconcileRunState.markReconcileCompleted: mismatched runId is refused (sup
   expect(result.cleared).toBe(false);
   expect(result.reason).toBe("superseded");
 });
+
+test("reconcileRunState.isCurrentRun: matches the active run", async () => {
+  const t = convexTest(schema, modules);
+  const lock = await t.run(async (ctx) => {
+    return ctx.runMutation(internal.mutations.reconcileRunState.tryStartReconcile, {
+      runStartedAt: NOW,
+    });
+  });
+  if (!lock.acquired) throw new Error("expected acquired");
+  const result = await t.query(internal.mutations.reconcileRunState.isCurrentRun, {
+    runStartedAt: NOW,
+    runId: lock.runId,
+  });
+  expect(result.current).toBe(true);
+});
+
+test("reconcileRunState.isCurrentRun: returns superseded when current run has moved on", async () => {
+  const t = convexTest(schema, modules);
+  const lockA = await t.run(async (ctx) => {
+    return ctx.runMutation(internal.mutations.reconcileRunState.tryStartReconcile, {
+      runStartedAt: NOW,
+    });
+  });
+  if (!lockA.acquired) throw new Error("expected acquired");
+  await t.run(async (ctx) => {
+    return ctx.runMutation(internal.mutations.reconcileRunState.tryStartReconcile, {
+      runStartedAt: NOW + 90 * 60 * 1000,
+    });
+  });
+  const result = await t.query(internal.mutations.reconcileRunState.isCurrentRun, {
+    runStartedAt: NOW,
+    runId: lockA.runId,
+  });
+  expect(result.current).toBe(false);
+  expect(result.reason).toBe("superseded");
+});
+
+test("reconcileRunState.isCurrentRun: returns id_mismatch for wrong runId with matching runStartedAt", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    return ctx.runMutation(internal.mutations.reconcileRunState.tryStartReconcile, {
+      runStartedAt: NOW,
+    });
+  });
+  const result = await t.query(internal.mutations.reconcileRunState.isCurrentRun, {
+    runStartedAt: NOW,
+    runId: "wrong-run-id",
+  });
+  expect(result.current).toBe(false);
+  expect(result.reason).toBe("id_mismatch");
+});

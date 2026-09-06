@@ -113,7 +113,23 @@ export const reconcileSuppressionListPage = internalAction({
     runStartedAt: v.number(),
     runId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<
+    | { aborted: true; reason: string }
+    | {
+        fetched: number;
+        upserted: number;
+        alreadyPresent: number;
+        hasMore: boolean;
+      }
+  > => {
+    const ownership: { current: boolean; reason: "no_state" | "no_active_run" | "superseded" | "id_mismatch" | "match" } = await ctx.runQuery(
+      internal.mutations.reconcileRunState.isCurrentRun,
+      { runStartedAt: args.runStartedAt, runId: args.runId }
+    );
+    if (!ownership.current) {
+      return { aborted: true, reason: ownership.reason };
+    }
+
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       throw new Error("RESEND_API_KEY is not set (required for Suppression List reconcile)");
@@ -196,12 +212,26 @@ export const finalizeReconcile = internalAction({
     runStartedAt: v.number(),
     runId: v.string(),
   },
-  handler: async (ctx, args): Promise<{
-    activeCount: number;
-    candidates: number;
-    listScanTruncated: boolean;
-    listScanPages: number;
-  }> => {
+  handler: async (ctx, args): Promise<
+    | {
+        aborted: true;
+        reason: string;
+      }
+    | {
+        activeCount: number;
+        candidates: number;
+        listScanTruncated: boolean;
+        listScanPages: number;
+      }
+  > => {
+    const ownership = await ctx.runQuery(
+      internal.mutations.reconcileRunState.isCurrentRun,
+      { runStartedAt: args.runStartedAt, runId: args.runId }
+    );
+    if (!ownership.current) {
+      return { aborted: true, reason: ownership.reason };
+    }
+
     const listScan: { rows: Array<{
       resendId: string;
       email: string;

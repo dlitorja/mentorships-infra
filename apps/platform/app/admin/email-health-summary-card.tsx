@@ -14,11 +14,18 @@ import { Mail, ShieldAlert } from "lucide-react";
 
 export async function EmailHealthSummaryCard(): Promise<React.JSX.Element | null> {
   const token = await getConvexAuthToken();
-  const summary = await fetchQuery(
-    api.queries.emailHealth.getEmailHealthSummary,
-    { windowDays: 7 },
-    { token: token ?? undefined }
-  );
+  if (!token) return null;
+
+  let summary;
+  try {
+    summary = await fetchQuery(
+      api.queries.emailHealth.getEmailHealthSummary,
+      { windowDays: 7 },
+      { token }
+    );
+  } catch {
+    return null;
+  }
 
   const hasDenied = summary.deniedDomains.length > 0;
   const redDomains = summary.domains.filter((d) => d.severity === "red");
