@@ -134,7 +134,7 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ---
 
-### 🔵 PR Suppressions 2b — Svix-verified webhook handler
+### ✅ PR Suppressions 2b — Svix-verified webhook handler (PR #824 → `2348fbaa`)
 
 **Why**: write Resend per-message events to `suppressionEvents` with cryptographic integrity so the dashboard never trusts unsigned data.
 
@@ -179,6 +179,19 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 - Svix secret rotation: handle `whsecret_v1` and `whsec_…` prefix variants; trim `v1,` prefix on signature
 - Raw body must be read once and passed to both signature verification and JSON parsing — don't re-read the request
 - Time skew: reject `svix-timestamp` older than 5 minutes (Svix replay window)
+
+**Shipped**: PR #824 squash-merged as `2348fbaa` (2026-09-06). Greptile confidence 5/5; all 16 CI checks + 4 Vercel previews green at merge.
+
+**What landed**
+
+- `convex/http.ts`: new `httpPostResendWebhook` httpAction registered at `POST /resend/webhook`. Reads raw body once via `request.text()` and passes the exact same bytes to the verifier and JSON parser. Verifies canonical Svix HMAC-SHA256 over `${svix_id}.${svix_timestamp}.${rawBody}` with constant-time signature comparison and a 5-minute timestamp skew window. Verifier strips any of the two supported symmetric prefixes (`whsec_`, `whsecret_v1_`) before base64-decoding the HMAC key; **asymmetric prefixes (`whsk_`, `whpk_`) are intentionally rejected** to avoid the security hole where a configured public key could be used as an HMAC key to forge accepted signatures. Event handlers: `suppression.added` (origin→kind), `email.bounced`, `email.complained`, `email.suppressed` — each writes **one row per recipient** (loop over `data.to[]`); `suppression.removed` is 200-acknowledged without writing (PR 2c reconcile cron will detect removals via `/v1/suppressions` diff). Calls fully-qualified `internal.mutations.suppressionEvents.upsertSuppressionEvent` from the handler.
+- `convex/resendWebhook.test.ts`: 16 convex-test cases — 500 when `RESEND_WEBHOOK_SECRET` missing, 400 on missing Svix headers, 401 on bad signature, 401 on stale timestamp, every supported event type with row assertions, multi-recipient split into N rows, `whsecret_v1_` prefix accepted, suppression.removed does NOT write, replay idempotency for `email.suppressed` and `email.bounced`.
+- `resendId` namespace convention (no collision across the 3 sources):
+  - backfill (PR 2a): `list:<suppression-list-uuid>`
+  - webhook `suppression.added` (PR 2b): `suppress:<id>` (one suppression list entry = one recipient)
+  - webhook `email.bounced` / `email.complained` / `email.suppressed` (PR 2b): `event:<email_id>:<recipient>` (one row per recipient of multi-recipient deliveries)
+
+**Known non-blocking gap (deferred)**: the periodic `reconcileSuppressionList` cron mentioned in scope lands in PR 2c alongside the dashboard tile; until then, a removed suppression is 200-acknowledged without writing, which the D5 backfill (PR 2a) catches on next manual trigger.
 
 ---
 
