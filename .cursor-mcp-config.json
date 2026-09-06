@@ -80,7 +80,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "resend-mcp"
+        "resend-mcp@2.19.0"
       ],
       "env": {
         "RESEND_API_KEY": "${RESEND_API_KEY}",
@@ -91,7 +91,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@mendable/firecrawl-mcp"
+        "firecrawl-mcp@3.24.0"
       ],
       "env": {
         "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"

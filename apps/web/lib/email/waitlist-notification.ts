@@ -3,7 +3,7 @@ import { resolveFrom } from "../../../../packages/emails/src/envelope";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-const FROM_ADDRESS = resolveFrom("transactional") || "Mentorships <onboarding@mentorships.com>";
+const FROM_ADDRESS = resolveFrom("marketing") || "Mentorships <onboarding@mentorships.com>";
 
 export interface WaitlistNotificationData {
   instructorName: string;
