@@ -1117,7 +1117,7 @@ export const httpPostResendWebhook = httpAction(async (ctx, request) => {
 });
 
 http.route({
-  path: "/webhooks/resend",
+  path: "/resend/webhook",
   method: "POST",
   handler: httpPostResendWebhook,
 });

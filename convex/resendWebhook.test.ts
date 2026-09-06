@@ -7,7 +7,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 const WEBHOOK_SECRET_BASE64 = "dGVzdC1zZWNyZXQ=";
 const WEBHOOK_SECRET = `whsec_${WEBHOOK_SECRET_BASE64}`;
-const PATH = "/webhooks/resend";
+const PATH = "/resend/webhook";
 
 async function signSvix(body: string, svixId: string, svixTimestamp: number): Promise<string> {
   const keyBinary = atob(WEBHOOK_SECRET_BASE64);
@@ -255,6 +255,62 @@ test("resend webhook: suppression.removed is acknowledged but does NOT write a r
 
   const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
   expect(rows).toHaveLength(0);
+});
+
+test("resend webhook: email.suppressed writes bounce row with data.suppressed.type as bounceType", async () => {
+  setup();
+  const t = convexTest(schema, modules);
+
+  const event = {
+    type: "email.suppressed",
+    created_at: "2026-09-06T16:00:00.000Z",
+    data: {
+      email_id: "email_suppressed_1",
+      to: ["grace@example.com"],
+      suppressed: {
+        type: "OnAccountSuppressionList",
+        message: "Resend has suppressed sending to this address",
+      },
+    },
+  };
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const headers = await signedHeadersFor(body, "msg_suppressed_1", now);
+
+  const response = await t.fetch(PATH, { method: "POST", headers, body });
+  expect(response.status).toBe(200);
+
+  const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
+  expect(rows).toHaveLength(1);
+  expect(rows[0].kind).toBe("bounce");
+  expect(rows[0].bounceType).toBe("OnAccountSuppressionList");
+  expect(rows[0].reason).toBe("Resend has suppressed sending to this address");
+  expect(rows[0].email).toBe("grace@example.com");
+  expect(rows[0].resendId).toBe("email_suppressed_1");
+});
+
+test("resend webhook: email.suppressed is idempotent on replay", async () => {
+  setup();
+  const t = convexTest(schema, modules);
+
+  const event = {
+    type: "email.suppressed",
+    created_at: "2026-09-06T16:30:00.000Z",
+    data: {
+      email_id: "email_suppressed_2",
+      to: ["henry@example.com"],
+      suppressed: { type: "OnAccountSuppressionList", message: "Suppressed" },
+    },
+  };
+  const body = JSON.stringify(event);
+  const now = Math.floor(Date.now() / 1000);
+  const headers = await signedHeadersFor(body, "msg_suppressed_2", now);
+
+  await t.fetch(PATH, { method: "POST", headers, body });
+  await t.fetch(PATH, { method: "POST", headers, body });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("suppressionEvents").collect());
+  expect(rows).toHaveLength(1);
 });
 
 test("resend webhook: idempotent on Resend message replay (same svix-id + email_id)", async () => {
