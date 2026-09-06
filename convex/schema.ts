@@ -989,4 +989,20 @@ export default defineSchema({
     .index("by_submittedByUserId", ["submittedByUserId"])
     .index("by_onboardingAlias", ["onboardingAlias"])
     .index("by_email_source", ["email", "source"]),
+
+  suppressionEvents: defineTable({
+    kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
+    email: v.string(),
+    domain: v.string(),
+    resendId: v.string(),
+    bounceType: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    receivedAt: v.number(),
+    occurredAt: v.number(),
+    audienceId: v.optional(v.string()),
+    raw: v.any(),
+  }).index("by_receivedAt", ["receivedAt"])
+    .index("by_domain_and_receivedAt", ["domain", "receivedAt"])
+    .index("by_kind_and_receivedAt", ["kind", "receivedAt"])
+    .index("by_resendId_and_kind", ["resendId", "kind"]),
 });

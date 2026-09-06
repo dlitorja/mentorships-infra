@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as actions_resendSuppressionList from "../actions/resendSuppressionList.js";
 import type * as adhocVideoActions from "../adhocVideoActions.js";
 import type * as admin from "../admin.js";
 import type * as adminOnboarding from "../adminOnboarding.js";
@@ -38,6 +39,7 @@ import type * as migrations from "../migrations.js";
 import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
+import type * as mutations_suppressionEvents from "../mutations/suppressionEvents.js";
 import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
@@ -66,6 +68,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "actions/resendSuppressionList": typeof actions_resendSuppressionList;
   adhocVideoActions: typeof adhocVideoActions;
   admin: typeof admin;
   adminOnboarding: typeof adminOnboarding;
@@ -96,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
+  "mutations/suppressionEvents": typeof mutations_suppressionEvents;
   notifications: typeof notifications;
   orders: typeof orders;
   payments: typeof payments;
