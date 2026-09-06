@@ -20,6 +20,10 @@ import { internal } from "./_generated/api";
  *   recordings whose `recordingExpiresAt` has passed but were not
  *   marked `purged` by the cleanup schedule. See
  *   `convex/audit/recordingRetentionAudit.ts`.
+ * - reconcile-resend-suppression-list: Runs every 6 hours, syncs the
+ *   Resend Suppression List against `suppressionEvents` to detect
+ *   rows the webhook missed + entries that have been removed. See
+ *   `convex/actions/resendSuppressionList.ts`.
  */
 const crons = cronJobs();
 
@@ -76,6 +80,13 @@ crons.interval(
   "audit-recording-retention-drift",
   { hours: 1 },
   internal.audit.recordingRetentionAudit.auditRecordingRetentionDriftMonitor,
+  {}
+);
+
+crons.interval(
+  "reconcile-resend-suppression-list",
+  { hours: 6 },
+  internal.actions.resendSuppressionList.runReconcileSuppressionList,
   {}
 );
 

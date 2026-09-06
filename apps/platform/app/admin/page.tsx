@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { AdminStats } from "./admin-stats";
 import { AdminInstructorsSection } from "./admin-instructors-section";
+import { EmailHealthSummaryCard } from "./email-health-summary-card";
 
 function AdminStatsSkeleton() {
   return (
@@ -44,6 +45,10 @@ export default function AdminDashboard() {
 
       <Suspense fallback={<AdminStatsSkeleton />}>
         <AdminStats />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <EmailHealthSummaryCard />
       </Suspense>
 
       {/* Quick Actions */}

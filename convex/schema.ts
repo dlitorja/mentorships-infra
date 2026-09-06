@@ -991,7 +991,12 @@ export default defineSchema({
     .index("by_email_source", ["email", "source"]),
 
   suppressionEvents: defineTable({
-    kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
+    kind: v.union(
+      v.literal("bounce"),
+      v.literal("complaint"),
+      v.literal("unsubscribe"),
+      v.literal("removed")
+    ),
     email: v.string(),
     domain: v.string(),
     resendId: v.string(),
@@ -1005,4 +1010,17 @@ export default defineSchema({
     .index("by_domain_and_occurredAt", ["domain", "occurredAt"])
     .index("by_kind_and_occurredAt", ["kind", "occurredAt"])
     .index("by_resendId_and_kind", ["resendId", "kind"]),
+
+  deniedDomains: defineTable({
+    domain: v.string(),
+    firstDeniedAt: v.number(),
+    lastDeniedAt: v.number(),
+    kind: v.union(v.literal("bounce"), v.literal("complaint")),
+    note: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.number()),
+    acknowledgedByUserId: v.optional(v.string()),
+  })
+    .index("by_domain", ["domain"])
+    .index("by_lastDeniedAt", ["lastDeniedAt"])
+    .index("by_kind", ["kind"]),
 });

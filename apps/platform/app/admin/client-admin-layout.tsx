@@ -17,6 +17,7 @@ import {
   Folder,
   ScrollText,
   LogOut,
+  Mail,
 } from "lucide-react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/onboardings", label: "Onboardings", icon: ListChecks },
   { href: "/admin/workspaces", label: "Workspaces", icon: Folder },
+  { href: "/admin/email-health", label: "Email Health", icon: Mail },
   { href: "/admin/audit-logs", label: "Audit Logs", icon: ScrollText },
 ];
 

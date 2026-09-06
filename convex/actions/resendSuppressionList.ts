@@ -100,3 +100,144 @@ export const seedSuppressionEventsFromList = internalAction({
     };
   },
 });
+
+export const reconcileSuppressionListPage = internalAction({
+  args: {
+    after: v.optional(v.string()),
+    activeIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error("RESEND_API_KEY is not set (required for Suppression List reconcile)");
+    }
+
+    const url = new URL(RESEND_SUPPRESSIONS_URL);
+    url.searchParams.set("limit", String(PAGE_LIMIT));
+    if (args.after) {
+      url.searchParams.set("after", args.after);
+    }
+
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Resend Suppression List fetch failed: ${response.status} ${body}`);
+    }
+
+    const payload = (await response.json()) as ResendSuppressionListResponse;
+    const receivedAt = Date.now();
+
+    let upserted = 0;
+    let alreadyPresent = 0;
+    const seenIds = [...args.activeIds];
+    for (const entry of payload.data) {
+      const kind = originToKind(entry.origin);
+      const occurredAt = parseCreatedAtToEpoch(entry.created_at, receivedAt);
+      const result = await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind,
+        email: entry.email,
+        domain: domainFromEmail(entry.email),
+        resendId: `suppress:${entry.id}`,
+        reason: entry.origin,
+        receivedAt,
+        occurredAt,
+        audienceId: entry.source_id ?? undefined,
+        raw: entry,
+      });
+      if (result.created) upserted++;
+      else alreadyPresent++;
+      seenIds.push(entry.id);
+    }
+
+    if (payload.has_more && payload.data.length > 0) {
+      const lastId = payload.data[payload.data.length - 1].id;
+      await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.reconcileSuppressionListPage, {
+        after: lastId,
+        activeIds: seenIds,
+      });
+      return {
+        fetched: payload.data.length,
+        upserted,
+        alreadyPresent,
+        hasMore: true,
+      };
+    }
+
+    await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.finalizeReconcile, {
+      activeIds: seenIds,
+    });
+
+    return {
+      fetched: payload.data.length,
+      upserted,
+      alreadyPresent,
+      hasMore: false,
+    };
+  },
+});
+
+export const finalizeReconcile = internalAction({
+  args: {
+    activeIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const suppressRows = await ctx.runQuery(
+      internal.queries.suppressionListQueries.getActiveSuppressionRows,
+      {}
+    );
+
+    const activeSet = new Set(args.activeIds);
+    const removedCandidates = new Map<string, { resendId: string; email: string; domain: string }>();
+    for (const row of suppressRows) {
+      const match = row.resendId.match(/^suppress:(.+)$/);
+      if (!match) continue;
+      const suppressionId = match[1];
+      if (activeSet.has(suppressionId)) continue;
+      if (removedCandidates.has(suppressionId)) continue;
+      removedCandidates.set(suppressionId, {
+        resendId: row.resendId,
+        email: row.email,
+        domain: row.domain,
+      });
+    }
+
+    let removedUpserted = 0;
+    let removedAlreadyPresent = 0;
+    const receivedAt = Date.now();
+    for (const [, info] of removedCandidates) {
+      const result = await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
+        kind: "removed",
+        email: info.email,
+        domain: info.domain,
+        resendId: `removed:${info.resendId.replace(/^suppress:/, "")}`,
+        reason: "Reconcile detected removal",
+        receivedAt,
+        occurredAt: receivedAt,
+        raw: { removedFromActiveSet: true, originalSuppression: info.resendId },
+      });
+      if (result.created) removedUpserted++;
+      else removedAlreadyPresent++;
+    }
+
+    return {
+      activeCount: activeSet.size,
+      candidates: removedCandidates.size,
+      removedUpserted,
+      removedAlreadyPresent,
+    };
+  },
+});
+
+export const runReconcileSuppressionList = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.reconcileSuppressionListPage, {
+      after: undefined,
+      activeIds: [],
+    });
+    return { scheduled: true };
+  },
+});

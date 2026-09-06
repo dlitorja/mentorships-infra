@@ -3,7 +3,12 @@ import { v } from "convex/values";
 
 export const upsertSuppressionEvent = internalMutation({
   args: {
-    kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
+    kind: v.union(
+      v.literal("bounce"),
+      v.literal("complaint"),
+      v.literal("unsubscribe"),
+      v.literal("removed")
+    ),
     email: v.string(),
     domain: v.string(),
     resendId: v.string(),
