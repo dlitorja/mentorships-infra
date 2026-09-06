@@ -881,13 +881,16 @@ async function verifySvixSignature(
 
 /**
  * Resend sends webhooks via Svix. The signing secret is base64-encoded with
- * one of the standard-webhooks prefixes:
- *   - `whsec_<base64>` — Resend's documented format (symmetric HMAC)
- *   - `whsecret_v1_<base64>` — variant used by some Svix-issued secrets
- *   - `whsk_<base64>` — asymmetric secret key (NOT supported today; if
- *     Resend ever rotates to asymmetric keys, this verifier must be
- *     extended to also handle ed25519 with `whpk_<base64>` public key)
- *   - `whpk_<base64>` — asymmetric public key (verification only)
+ * one of the supported prefixes for symmetric HMAC verification:
+ *   - `whsec_<base64>` — Resend's documented format
+ *   - `whsecret_v1_<base64>` — variant used by some Svix-issued rotated
+ *     secrets; identical HMAC-SHA256 algorithm
+ *
+ * Asymmetric prefixes (`whsk_`, `whpk_`) are intentionally NOT supported:
+ * importing their base64-decoded bytes as an HMAC key would let an attacker
+ * submit a forged public-key prefix and pass verification. If Resend ever
+ * rotates to ed25519, add a separate verifier branch here that branches on
+ * the prefix and imports the key as ed25519 instead of HMAC.
  *
  * The HMAC key is the base64-decoded portion after stripping the prefix.
  * Signed content is `${svix_id}.${svix_timestamp}.${rawBody}`. The
@@ -898,7 +901,7 @@ async function verifySvixSignature(
  * uses a non-standard convention that the existing helper matches. Keep
  * both — do not refactor Clerk's handler here.
  */
-const SUPPORTED_SECRET_PREFIXES = ["whsec_", "whsecret_v1_", "whsk_", "whpk_"] as const;
+const SUPPORTED_HMAC_SECRET_PREFIXES = ["whsec_", "whsecret_v1_"] as const;
 
 async function verifyResendSvixSignature(
   secret: string,
@@ -908,7 +911,7 @@ async function verifyResendSvixSignature(
   svixSignature: string
 ): Promise<boolean> {
   let keyBase64 = secret;
-  for (const prefix of SUPPORTED_SECRET_PREFIXES) {
+  for (const prefix of SUPPORTED_HMAC_SECRET_PREFIXES) {
     if (secret.startsWith(prefix)) {
       keyBase64 = secret.slice(prefix.length);
       break;
