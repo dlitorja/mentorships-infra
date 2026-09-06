@@ -69,7 +69,7 @@ export const seedSuppressionEventsFromList = internalAction({
     for (const entry of payload.data) {
       const kind = originToKind(entry.origin);
       const occurredAt = parseCreatedAtToEpoch(entry.created_at, receivedAt);
-      const result = await ctx.runMutation(internal.suppressionEvents.upsertSuppressionEvent, {
+      const result = await ctx.runMutation(internal.mutations.suppressionEvents.upsertSuppressionEvent, {
         kind,
         email: entry.email,
         domain: domainFromEmail(entry.email),
@@ -86,7 +86,7 @@ export const seedSuppressionEventsFromList = internalAction({
 
     if (payload.has_more && payload.data.length > 0) {
       const lastId = payload.data[payload.data.length - 1].id;
-      await ctx.scheduler.runAfter(0, internal.resendSuppressionList.seedSuppressionEventsFromList, {
+      await ctx.scheduler.runAfter(0, internal.actions.resendSuppressionList.seedSuppressionEventsFromList, {
         after: lastId,
       });
     }

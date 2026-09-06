@@ -1,7 +1,7 @@
-import { mutation } from "../_generated/server";
+import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
-export const upsertSuppressionEvent = mutation({
+export const upsertSuppressionEvent = internalMutation({
   args: {
     kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("unsubscribe")),
     email: v.string(),
