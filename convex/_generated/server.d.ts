@@ -33,6 +33,7 @@ type Env = {
   readonly EMAIL_FROM_MARKETING: string | undefined;
   readonly EMAIL_FROM_STAGING: string | undefined;
   readonly EMAIL_FROM_TRANSACTIONAL: string | undefined;
+  readonly RESEND_API_KEY: string | undefined;
   readonly RESEND_WEBHOOK_SECRET: string | undefined;
 };
 

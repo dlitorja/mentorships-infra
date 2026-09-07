@@ -1032,4 +1032,33 @@ export default defineSchema({
     currentRunId: v.optional(v.string()),
     lastCompletedAt: v.optional(v.number()),
   }),
+
+  // PR Metrics 3a: per-day batched counts from Resend's
+  // `GET /v1/emails/metrics?granularity=daily&dimensions=period`.
+  // Provides the volume baseline that PR 3b uses to compute
+  // bounce / complaint / unsubscribe RATES for the dashboard
+  // (Phase 1 PR 2c uses absolute counts over the 7-day window
+  // because this table did not exist yet). Idempotency key is
+  // `(date, audienceId, kind)` — Resend's daily count for a
+  // given (audience, kind) is updated in place on every cron run
+  // because the API's "as of now" total for a day refines over
+  // time. `source` discriminates between the API path (PR 3a)
+  // and the future webhook-aggregated path (PR 3c if requested).
+  dailyEmailMetrics: defineTable({
+    date: v.string(),
+    audienceId: v.optional(v.string()),
+    kind: v.union(
+      v.literal("bounce"),
+      v.literal("complaint"),
+      v.literal("delivery"),
+      v.literal("open"),
+      v.literal("click")
+    ),
+    count: v.number(),
+    source: v.union(v.literal("api"), v.literal("webhook_reconcile")),
+    ingestedAt: v.number(),
+  })
+    .index("by_date", ["date"])
+    .index("by_date_and_kind", ["date", "kind"])
+    .index("by_date_and_audienceId_and_kind", ["date", "audienceId", "kind"]),
 });

@@ -9,6 +9,7 @@
  */
 
 import type * as actions_backfillDashboardRelevant from "../actions/backfillDashboardRelevant.js";
+import type * as actions_resendMetrics from "../actions/resendMetrics.js";
 import type * as actions_resendSuppressionList from "../actions/resendSuppressionList.js";
 import type * as adhocVideoActions from "../adhocVideoActions.js";
 import type * as admin from "../admin.js";
@@ -40,6 +41,7 @@ import type * as migrations from "../migrations.js";
 import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_backfillDashboardRelevant from "../mutations/backfillDashboardRelevant.js";
+import type * as mutations_dailyEmailMetrics from "../mutations/dailyEmailMetrics.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as mutations_reconcileRunState from "../mutations/reconcileRunState.js";
 import type * as mutations_suppressionEvents from "../mutations/suppressionEvents.js";
@@ -74,6 +76,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "actions/backfillDashboardRelevant": typeof actions_backfillDashboardRelevant;
+  "actions/resendMetrics": typeof actions_resendMetrics;
   "actions/resendSuppressionList": typeof actions_resendSuppressionList;
   adhocVideoActions: typeof adhocVideoActions;
   admin: typeof admin;
@@ -105,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/backfillDashboardRelevant": typeof mutations_backfillDashboardRelevant;
+  "mutations/dailyEmailMetrics": typeof mutations_dailyEmailMetrics;
   "mutations/http": typeof mutations_http;
   "mutations/reconcileRunState": typeof mutations_reconcileRunState;
   "mutations/suppressionEvents": typeof mutations_suppressionEvents;
