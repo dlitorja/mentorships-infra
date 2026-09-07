@@ -415,7 +415,7 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 ```
 PR 1a ✅ (squash-merged as #822)
    ↓
-PR 2a ✅ (#823 → 89edf2ba) → PR 2b ✅ (#824 → 2348fbaa) → PR 2c (UI tile + reconcile cron) ── [gate: 4a tests pass]
+PR 2a ✅ (#823 → 89edf2ba) → PR 2b ✅ (#824 → 2348fbaa) → PR 2c ✅ (#825 → 48ed175a)
    ↓
 PR 3a (cron) → PR 3b (chart overlay) → PR 3c (agent, optional) ── [gate: 4b tests pass]
    ↓
@@ -433,6 +433,7 @@ Each PR must clear: `pnpm run typecheck` + `pnpm exec vitest run` + `pnpm run li
 | `EMAIL_FROM_MARKETING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("marketing")` in apps/platform, apps/web, apps/marketing | shipped in #822 |
 | `EMAIL_FROM_STAGING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("staging")` (not yet called by any wrapper; reserved for Trigger dev/CI smoke tests) | shipped in #822 |
 | `RESEND_WEBHOOK_SECRET` | `.env.example`, Convex env | Convex `/resend/webhook` handler | shipped in #824 |
+| `RESEND_API_KEY` | `.env.example`, Convex env | PR 2a backfill action `seedSuppressionEventsFromList` + PR 2c reconcile cron + PR 3a metrics cron (added in #825 for backfill+cron, will be reused in 3a) | shipped in #825 |
 
 ## Related docs
 
