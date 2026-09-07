@@ -66,7 +66,7 @@ export default function EditInstructorPage() {
     },
   });
 
-  const { formData, setFormData, customSpecialty, setCustomSpecialty, customBackground, setCustomBackground, toggleTag, addCustomTag, removePortfolioImage, updateSocial } = useInstructorForm(data);
+  const { formData, setFormData, customSpecialty, setCustomSpecialty, customBackground, setCustomBackground, toggleTag, addCustomTag, removePortfolioImage, reorderPortfolioImages, movePortfolioImage, updateSocial } = useInstructorForm(data);
 
   const updateMutation = useUpdateInstructor({
     instructorId,
@@ -210,6 +210,8 @@ export default function EditInstructorPage() {
             formData={formData}
             setFormData={setFormData}
             removePortfolioImage={removePortfolioImage}
+            reorderPortfolioImages={reorderPortfolioImages}
+            movePortfolioImage={movePortfolioImage}
             setActiveTab={setActiveTab}
             instructorId={instructorId}
           />
