@@ -30,11 +30,7 @@ export const upsertDailyMetrics = internalMutation({
         )
         .first();
       if (existing) {
-        if (
-          existing.count !== row.count ||
-          existing.source !== row.source ||
-          existing.ingestedAt !== row.ingestedAt
-        ) {
+        if (existing.count !== row.count || existing.source !== row.source) {
           await ctx.db.patch(existing._id, {
             count: row.count,
             source: row.source,

@@ -5,7 +5,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 
 const RESEND_METRICS_URL = "https://api.resend.com/emails/metrics";
-const MAX_RETRIES = 4;
+const MAX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 30_000;
 
@@ -71,12 +71,16 @@ function isRetryableStatus(status: number): boolean {
 export function parseMetricsResponse(
   payload: ResendMetricsResponse,
   ingestedAt: number
-): DailyEmailMetricRowFromApi[] {
+): { rows: DailyEmailMetricRowFromApi[]; unparseableRows: number } {
   const rows: DailyEmailMetricRowFromApi[] = [];
+  let unparseableRows = 0;
   for (const dataRow of payload.data ?? []) {
     const period = dataRow.period ?? dataRow.date ?? "";
     const date = periodToDate(period);
-    if (!date) continue;
+    if (!date) {
+      unparseableRows++;
+      continue;
+    }
 
     if (typeof dataRow.delivered === "number") {
       rows.push({ date, kind: "delivery", count: dataRow.delivered, source: "api", ingestedAt });
@@ -94,7 +98,7 @@ export function parseMetricsResponse(
       rows.push({ date, kind: "click", count: dataRow.clicked, source: "api", ingestedAt });
     }
   }
-  return rows;
+  return { rows, unparseableRows };
 }
 
 export const fetchAndStore = internalAction({
@@ -109,6 +113,7 @@ export const fetchAndStore = internalAction({
     windowStart: string;
     windowEnd: string;
     fetchedDays: number;
+    unparseableRows: number;
     inserted: number;
     updated: number;
     unchanged: number;
@@ -138,7 +143,7 @@ export const fetchAndStore = internalAction({
     let response: Response | null = null;
     let attempts = 0;
     let lastError: Error | null = null;
-    for (attempts = 0; attempts < MAX_RETRIES; attempts++) {
+    for (attempts = 0; attempts < MAX_ATTEMPTS; attempts++) {
       try {
         response = await fetch(url.toString(), {
           method: "GET",
@@ -178,13 +183,20 @@ export const fetchAndStore = internalAction({
 
     const payload = (await response.json()) as ResendMetricsResponse;
     const ingestedAt = Date.now();
-    const rows = parseMetricsResponse(payload, ingestedAt);
+    const { rows, unparseableRows } = parseMetricsResponse(payload, ingestedAt);
+
+    if (rows.length === 0 && unparseableRows > 0) {
+      throw new Error(
+        `Resend metrics response had ${unparseableRows} unparseable rows (no valid periods); treating as failed ingestion run`
+      );
+    }
 
     if (rows.length === 0) {
       return {
         windowStart: startDate,
         windowEnd: endDate,
         fetchedDays: payload.data?.length ?? 0,
+        unparseableRows,
         inserted: 0,
         updated: 0,
         unchanged: 0,
@@ -200,6 +212,7 @@ export const fetchAndStore = internalAction({
       windowStart: startDate,
       windowEnd: endDate,
       fetchedDays: payload.data?.length ?? 0,
+      unparseableRows,
       inserted: result.inserted,
       updated: result.updated,
       unchanged: result.unchanged,
