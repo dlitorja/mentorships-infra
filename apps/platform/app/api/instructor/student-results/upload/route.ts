@@ -8,20 +8,33 @@ const ALLOWED_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
-];
+] as const;
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+const MIME_TO_EXTENSION: Record<(typeof ALLOWED_TYPES)[number], string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
+
 /**
- * Extracts the lower-case file extension from a filename.
- * Returns an empty string for extensionless or trailing-dot filenames so
- * callers can reject them explicitly rather than assuming a default.
+ * Extracts the lower-case file extension from a filename. When the
+ * filename has no usable extension, fall back to the MIME-derived
+ * extension so compressed blobs (which arrive with filename "blob" or
+ * empty via FormData) can still be validated.
  */
-function getFileExtension(filename: string): string {
+export function getFileExtension(filename: string, mimeType?: string): string {
   const lastDot = filename.lastIndexOf(".");
-  if (lastDot === -1 || lastDot === filename.length - 1) return "";
-  return filename.slice(lastDot).toLowerCase();
+  if (lastDot !== -1 && lastDot !== filename.length - 1) {
+    return filename.slice(lastDot).toLowerCase();
+  }
+  if (mimeType && (ALLOWED_TYPES as readonly string[]).includes(mimeType)) {
+    return MIME_TO_EXTENSION[mimeType as (typeof ALLOWED_TYPES)[number]];
+  }
+  return "";
 }
 
 /**
@@ -56,7 +69,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!(ALLOWED_TYPES as readonly string[]).includes(file.type)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: jpg, png, webp, gif" },
         { status: 400 }
@@ -70,7 +83,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fileExtension = getFileExtension(file.name);
+    const fileExtension = getFileExtension(file.name, file.type);
     if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
       return NextResponse.json(
         { error: "Invalid file extension" },
