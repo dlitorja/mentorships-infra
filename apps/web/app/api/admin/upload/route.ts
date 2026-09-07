@@ -9,7 +9,7 @@ const ALLOWED_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
-];
+] as const;
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -22,9 +22,28 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
-function getFileExtension(filename: string): string {
-  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-  return ext || ".jpg";
+const MIME_TO_EXTENSION: Record<(typeof ALLOWED_TYPES)[number], string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
+
+/**
+ * Returns the file's extension (including leading dot) or "" if it cannot be
+ * determined. When the filename has no usable extension, fall back to the
+ * MIME-derived extension so compressed blobs (which arrive with filename
+ * "blob" or empty via FormData) can still be validated.
+ */
+export function getFileExtension(filename: string, mimeType?: string): string {
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot !== -1 && lastDot !== filename.length - 1) {
+    return filename.slice(lastDot).toLowerCase();
+  }
+  if (mimeType && (ALLOWED_TYPES as readonly string[]).includes(mimeType)) {
+    return MIME_TO_EXTENSION[mimeType as (typeof ALLOWED_TYPES)[number]];
+  }
+  return "";
 }
 
 const storageIdSchema = z.object({
@@ -56,7 +75,7 @@ export async function POST(req: NextRequest) {
     const file: File = fileRaw;
     console.log("[upload] File:", file.name, file.type, file.size);
 
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!(ALLOWED_TYPES as readonly string[]).includes(file.type)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: jpg, png, webp, gif" },
         { status: 400 }
@@ -70,7 +89,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fileExtension = getFileExtension(file.name);
+    const fileExtension = getFileExtension(file.name, file.type);
     if (!ALLOWED_EXTENSIONS.includes(fileExtension)) {
       return NextResponse.json(
         { error: "Invalid file extension" },
