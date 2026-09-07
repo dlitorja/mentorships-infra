@@ -30,6 +30,11 @@ import { internal } from "./_generated/api";
  *   run after the schema change backfills all rows; subsequent runs
  *   no-op because the flag is already correct. See
  *   `convex/actions/backfillDashboardRelevant.ts`.
+ * - fetch-resend-metrics: Runs every 6 hours, pulls the daily batched
+ *   counts from `GET https://api.resend.com/emails/metrics` and
+ *   upserts them into `dailyEmailMetrics`. Provides the volume baseline
+ *   that PR Metrics 3b uses for rate-based thresholds on the email
+ *   health dashboard. See `convex/actions/resendMetrics.ts`.
  */
 const crons = cronJobs();
 
@@ -100,6 +105,13 @@ crons.interval(
   "backfill-suppression-dashboard-relevant",
   { hours: 24 },
   internal.actions.backfillDashboardRelevant.runBackfillDashboardRelevant,
+  {}
+);
+
+crons.interval(
+  "fetch-resend-metrics",
+  { hours: 6 },
+  internal.actions.resendMetrics.fetchAndStore,
   {}
 );
 

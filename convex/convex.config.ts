@@ -8,6 +8,7 @@ const convex = defineApp({
     EMAIL_FROM_MARKETING: v.optional(v.string()),
     EMAIL_FROM_STAGING: v.optional(v.string()),
     RESEND_WEBHOOK_SECRET: v.optional(v.string()),
+    RESEND_API_KEY: v.optional(v.string()),
   },
 });
 convex.use(migrations);
