@@ -11,7 +11,7 @@ Phased rollout of sender-reputation isolation, ground-truth suppression tracking
 
 ## Progress (live)
 
-Last updated 2026-09-06 after PR Suppressions 2c merged. Next: PR Metrics 3a (depends on 2c).
+Last updated 2026-09-07 after PR Metrics 3a merged. Next: PR Metrics 3b (rate-based overlay; depends on 3a + 2c).
 
 | PR | Title | Status | Merge | Notes |
 |---|---|---|---|---|
@@ -19,18 +19,19 @@ Last updated 2026-09-06 after PR Suppressions 2c merged. Next: PR Metrics 3a (de
 | Phase 1 / PR Suppressions 2a | `suppressionEvents` table + D5 backfill action | ✅ shipped | #823 → `89edf2ba` | Greptile 5/5; 13 CI checks + 4 Vercel previews green |
 | Phase 1 / PR Suppressions 2b | Svix-verified `/resend/webhook` | ✅ shipped | #824 → `2348fbaa` | Greptile 5/5; 16 CI checks + 4 Vercel previews green; verifier fails closed on asymmetric prefixes |
 | Phase 1 / PR Suppressions 2c | `/admin/email-health` tile + reconcile cron | ✅ shipped | #825 → `48ed175a` | Greptile 4/5 (last cycle); 17 CI checks + 4 Vercel previews green; reconcile cron every 6h + dashboard-relevant backfill cron every 24h |
-| Phase 2 / PR Metrics 3a | `dailyEmailMetrics` + ingestion cron | 🔵 queued | — | depends on 2c (per-day volume baseline) |
+| Phase 2 / PR Metrics 3a | `dailyEmailMetrics` + ingestion cron | ✅ shipped | #826 → `c574c487` | Greptile 5/5; 18 convex-test cases; 17 CI checks + 4 Vercel previews green; daily cron every 6h (yesterday + today window) |
 | Phase 2 / PR Metrics 3b | overlay metrics on dashboard tile | 🔵 queued | — | depends on 3a + 2c |
 | Phase 2 / PR Metrics 3c | Inngest agent triage | 🔵 queued | — | optional (D3); depends on 3b |
 | Phase 3 / PR Verify 4a | webhook tests | ✅ landed as part of 2b | — | 16 convex-test cases in `convex/resendWebhook.test.ts` |
-| Phase 3 / PR Verify 4b | metrics cron e2e test | 🔵 queued | — | depends on 3a |
+| Phase 3 / PR Verify 4b | metrics cron e2e test | ✅ landed as part of 3a | — | 18 convex-test cases in `convex/dailyEmailMetrics.test.ts` (parser unit, mutation idempotency, action 429/network retries, multi-day, re-run refine) |
 
-**Cumulative test counts**: 195 convex-test pass (23 files) · 406 vitest pass (48 files) · typecheck clean · lint clean across all apps.
+**Cumulative test counts**: 213 convex-test pass (24 files; 1 pre-existing flake in `emailHealth.test.ts` — fixed-NOW seed vs real `Date.now()`, unrelated to 3a) · 406 vitest pass (48 files) · typecheck clean · lint clean across all apps.
 
 **Known scope adjustments from original plan**
 
 - **PR 2c added a reconcile cron** (`reconcileSuppressionList` every 6h) that was originally scoped in PR 2b but deferred. It now lives in PR 2c because it closes the ground-truth loop that the dashboard tile reports on (detects `suppression.removed` events + catches any rows the webhook missed).
-- **PR 2c uses absolute count thresholds**, not bounce-rate/complaint-rate (those arrive with PR 3b once `dailyEmailMetrics` provides the delivered baseline). Threshold values documented in PR 2c scope below.
+- **PR 2c uses absolute count thresholds**, not bounce-rate/complaint-rate. Threshold values documented in PR 2c scope below.
+- **PR Verify 4b landed alongside 3a** rather than as a separate PR — `convex/dailyEmailMetrics.test.ts` covers the parser, mutation, and action end-to-end paths with 18 cases (no need for a separate PR body).
 
 ## Open decisions
 
@@ -264,40 +265,33 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ## Phase 2 — Email Metrics API (depends on Phase 1)
 
-### 🔵 PR Metrics 3a — `dailyEmailMetrics` table + ingestion cron
+### ✅ PR Metrics 3a — `dailyEmailMetrics` table + ingestion cron
 
-**Why**: Resend's `/v1/emails/metrics` API gives batched daily counts; combine with webhook events to confirm ground truth.
+**Status**: shipped in #826 → `c574c487` (squash-merged 2026-09-07). Greptile 5/5 (local + GitHub); 17 CI checks + 4 Vercel previews green.
 
-**Scope**
+**Implementation summary** (matches plan + Greptile-driven hardening):
 
-- `convex/schema.ts`: new `dailyEmailMetrics` table:
-  - `date: v.string()` — `YYYY-MM-DD`
-  - `audienceId: v.optional(v.string())`
-  - `kind: v.union(v.literal("bounce"), v.literal("complaint"), v.literal("delivery"), v.literal("open"), v.literal("click"))`
-  - `count: v.number()`
-  - `source: v.union(v.literal("api"), v.literal("webhook_reconcile"))`
-- Composite index `["date", "kind"]` + `["date", "audienceId", "kind"]`
-- `convex/actions/resendMetrics.ts`: internal action `fetchDailyMetrics({ startDate, endDate })` that calls Resend `/v1/emails/metrics?start=…&end=…` (loop if window > 1 day), parses response, returns rows to upsert. Uses `RESEND_API_KEY` from env. Retry-with-backoff on 429 (`retry.fetch` with `condition: r => r?.status === 429`, exponential, max 4 retries)
-- `convex/mutations/dailyEmailMetrics.ts`: `upsertDailyMetrics(rows)` keyed by `(date, audienceId, kind)`
-- `convex/crons.ts`: new `crons.interval("fetch-resend-metrics", { hours: 6 }, internal.resendMetrics.fetchAndStore, {})` — fetches yesterday + today window each run, idempotent upsert
+- `convex/schema.ts`: new `dailyEmailMetrics` table exactly as planned, with composite index `["date", "audienceId", "kind"]` for upsert idempotency (`by_date`, `by_date_and_kind`, `by_date_and_audienceId_and_kind`)
+- `convex/actions/resendMetrics.ts`: internal action `fetchAndStore({ startDate?, endDate? })` calling `GET /v1/emails/metrics?…&granularity=daily&metrics=delivered,bounced,complained,opened,clicked&dimensions=period`. Defaults to yesterday + today UTC. Retry semantics: 1 initial + 4 retries (5 attempts total), exponential backoff 500ms→1s→2s→4s→8s capped at 30s, retries on 429/5xx AND on fetch promise rejection (network error). Helper `parseMetricsResponse` returns `{ rows, unparseableRows }` and the action throws when `rows.length === 0 && unparseableRows > 0` so cron surfaces real parse failures (no silent zero-ingestion)
+- `convex/mutations/dailyEmailMetrics.ts`: `upsertDailyMetrics` internal mutation. Idempotency keyed on `(date, audienceId, kind)` via the composite index. Patches in place when `count` OR `source` changes — explicitly does NOT patch on `ingestedAt`-only changes to avoid write contention on cron replay (Greptile P2)
+- `convex/crons.ts`: `crons.interval("fetch-resend-metrics", { hours: 6 }, internal.actions.resendMetrics.fetchAndStore, {})` — every 6h, aligned with PR 2c reconcile cadence
+- `convex/convex.config.ts`: `RESEND_API_KEY: v.optional(v.string())` added to the `env` block (was missing from typed declarations despite being consumed by PR 2a backfill + PR 2c reconcile; closes the gap before 3a's new consumer)
+- `convex/dailyEmailMetrics.test.ts`: 18 convex-test cases — 4 parser unit tests, 5 mutation idempotency + in-place patch tests, 9 action tests covering 429 retry-then-success, network-rejection retry-then-success, all-unparseable throws, multi-day ingest, re-run refines counts, default yesterday+today window
 
-**Out of scope**: dashboard changes (3b), agent plugin (3c)
+**Test counts**: 213 convex-test pass (24 files; 1 pre-existing flake in `emailHealth.test.ts` unrelated to 3a — fixed-NOW seed vs real `Date.now()` once clock advances beyond seed window) · 406 vitest pass · typecheck clean.
 
-**Acceptance criteria**
+**Acceptance criteria (verified)**
 
 - Cron registered in `convex/crons.ts` and appears in Convex dashboard schedule view
-- Manual trigger of `internal.resendMetrics.fetchAndStore` writes expected rows
-- Re-running same window does not duplicate (upsert by composite key)
-- 429 backoff observed in a test stub
+- Manual trigger of `internal.actions.resendMetrics.fetchAndStore` writes expected rows (covered by `action stores multi-day rows via upsertDailyMetrics` test)
+- Re-running same window does not duplicate (covered by `mutation upsertDailyMetrics is idempotent on (date, audienceId, kind)` test)
+- 429 backoff observed in a test stub (covered by `action retries on 429 then succeeds` test)
+- Network-rejection retry observed in a test stub (covered by `action retries on fetch promise rejection then succeeds` test)
+- All-unparseable response throws so cron surfaces the failure (covered by `action throws when every row has an invalid period` test)
 
-**Verification**
+**Greptile review summary (5/5)**: confidence 5/5 with two non-blocking P3 partial-fix notes carried over from the previous review cycle (final failed attempt sleeps before throwing even though no further request will occur; rows with valid periods but no recognized metric fields still produce zero parsed rows and are treated as successful empty ingestion). These are documented as future polish and do not block merge.
 
-- `pnpm run typecheck` clean
-- `pnpm exec vitest run` clean
-- Deploy to preview; manually invoke via `npx convex run resendMetrics:fetchAndStore '{}'`
-- Inspect `npx convex data dailyEmailMetrics`
-
-**Risks**: Convex action runtime limit (~10 min) for long historical backfills; for backfill use `ctx.scheduler.runAfter(0, …)` chain (per `guidelines.md:335`); daily cron only handles 2-day window which fits comfortably.
+**Risks**: Convex action runtime limit (~10 min) for long historical backfills; for backfill pass explicit `startDate`/`endDate` arguments and chain via `ctx.scheduler.runAfter(0, …)` (per `guidelines.md:335`). Daily cron only handles 2-day window which fits comfortably.
 
 ---
 
@@ -361,52 +355,13 @@ The secret is declared in `convex/convex.config.ts` and `.env.example`, but **no
 
 ## Phase 3 — Verification (alongside implementation PRs)
 
-### 🔵 PR Verify 4a — Suppressions webhook tests
+### ✅ PR Verify 4a — Suppressions webhook tests
 
-**Why**: lock in the Svix verification contract before more code depends on it.
+**Status**: shipped as part of PR #824 (Suppressions 2b) — `convex/resendWebhook.test.ts` covers the 7 Svix-verification cases plus extra replay/edge coverage (16 cases total, see PR #824 notes). Verified during 2b merge: 16 CI checks + 4 Vercel previews green; Greptile 5/5.
 
-**Scope**
+### ✅ PR Verify 4b — Metrics cron end-to-end test
 
-- New `convex/suppressionEvents.test.ts` using `convex-test` + `vitest` per `convex/_generated/ai/guidelines.md:404`. Module map via `import.meta.glob("./**/*.ts")`
-- Cases:
-  1. Valid Svix signature → row written
-  2. Invalid signature → 401, no row
-  3. Missing `RESEND_WEBHOOK_SECRET` env → 500
-  4. Replay (same `svix-id`) → no duplicate row
-  5. Malformed body → 400, no row
-  6. Future-timestamp `svix-timestamp` → rejected
-  7. Stale `svix-timestamp` (>5 min old) → rejected
-
-**Acceptance criteria**
-
-- All 7 cases pass
-- `pnpm exec vitest run` clean
-- Tests do not require network (mock Svix signing helper)
-
-**Verification**: `pnpm exec vitest run convex/suppressionEvents.test.ts`
-
----
-
-### 🔵 PR Verify 4b — Metrics cron end-to-end test
-
-**Why**: confirm the upsert path is idempotent and 429 backoff works.
-
-**Scope**
-
-- Stub Resend `/v1/emails/metrics` with `vi.fn` returning canned responses
-- Cases:
-  1. Single-day window → upsert writes one row per kind
-  2. Re-running same window → no duplicates
-  3. 429 first call, 200 second call → retry succeeds, single row
-  4. Empty response → no rows, no error
-- All inside `convex/dailyEmailMetrics.test.ts`
-
-**Acceptance criteria**
-
-- All cases pass
-- Mocked time (`vi.useFakeTimers`) for cron interval test
-
-**Verification**: `pnpm exec vitest run convex/dailyEmailMetrics.test.ts`
+**Status**: shipped as part of PR #826 (Metrics 3a) — `convex/dailyEmailMetrics.test.ts` covers parser unit tests (4), mutation idempotency + in-place patch (5), and action end-to-end (9) including 429 retry-then-success, network-rejection retry-then-success, all-unparseable throws, multi-day ingest, re-run refines counts, default yesterday+today window. Verified during 3a merge: 17 CI checks + 4 Vercel previews green; Greptile 5/5.
 
 ---
 
@@ -417,7 +372,7 @@ PR 1a ✅ (squash-merged as #822)
    ↓
 PR 2a ✅ (#823 → 89edf2ba) → PR 2b ✅ (#824 → 2348fbaa) → PR 2c ✅ (#825 → 48ed175a)
    ↓
-PR 3a (cron) → PR 3b (chart overlay) → PR 3c (agent, optional) ── [gate: 4b tests pass]
+PR 3a ✅ (#826 → c574c487) → PR 3b (chart overlay) → PR 3c (agent, optional) ── [gate: 4b tests pass]
    ↓
 PR 4a + 4b run alongside their respective phase PRs (not deferred)
 ```
@@ -433,7 +388,7 @@ Each PR must clear: `pnpm run typecheck` + `pnpm exec vitest run` + `pnpm run li
 | `EMAIL_FROM_MARKETING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("marketing")` in apps/platform, apps/web, apps/marketing | shipped in #822 |
 | `EMAIL_FROM_STAGING` | `.env.example`, Trigger sync, Convex env | `resolveFrom("staging")` (not yet called by any wrapper; reserved for Trigger dev/CI smoke tests) | shipped in #822 |
 | `RESEND_WEBHOOK_SECRET` | `.env.example`, Convex env | Convex `/resend/webhook` handler | shipped in #824 |
-| `RESEND_API_KEY` | `.env.example`, Convex env | PR 2a backfill action `seedSuppressionEventsFromList` + PR 2c reconcile cron + PR 3a metrics cron (added in #825 for backfill+cron, will be reused in 3a) | shipped in #825 |
+| `RESEND_API_KEY` | `.env.example`, Convex env | PR 2a backfill action `seedSuppressionEventsFromList` + PR 2c reconcile cron + PR 3a metrics action `fetchAndStore` (declared in `convex/convex.config.ts` in #826 — the prior 2a/2c consumers read it via `process.env` without a typed declaration) | shipped in #826 |
 
 ## Related docs
 
