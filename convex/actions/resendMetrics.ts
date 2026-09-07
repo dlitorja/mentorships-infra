@@ -139,10 +139,22 @@ export const fetchAndStore = internalAction({
     let attempts = 0;
     let lastError: Error | null = null;
     for (attempts = 0; attempts < MAX_RETRIES; attempts++) {
-      response = await fetch(url.toString(), {
-        method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
+      try {
+        response = await fetch(url.toString(), {
+          method: "GET",
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+      } catch (networkError) {
+        const backoffMs = Math.min(
+          MAX_BACKOFF_MS,
+          BASE_BACKOFF_MS * Math.pow(2, attempts)
+        );
+        lastError = new Error(
+          `Resend metrics network error on attempt ${attempts + 1}: ${networkError instanceof Error ? networkError.message : String(networkError)}`
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
       if (isRetryableStatus(response.status)) {
         const backoffMs = Math.min(
           MAX_BACKOFF_MS,

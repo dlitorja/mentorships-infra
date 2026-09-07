@@ -435,6 +435,34 @@ test("fetchAndStore: multi-day response upserts all parsed rows", async () => {
   });
 });
 
+test("fetchAndStore: network rejection on first attempt then 200 on second writes rows and records attempts=2", async () => {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  fetchMock
+    .mockRejectedValueOnce(new TypeError("fetch failed: ECONNRESET"))
+    .mockResolvedValueOnce(
+      jsonResponse({
+        data: [{ period: "2026-09-05", bounced: 3 }],
+      })
+    );
+
+  const t = convexTest(schema, modules);
+  const result = await t.action(internal.actions.resendMetrics.fetchAndStore, {
+    startDate: "2026-09-05",
+    endDate: "2026-09-06",
+  });
+
+  expect(result.attempts).toBe(2);
+  expect(result.inserted).toBe(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db.query("dailyEmailMetrics").collect();
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.kind).toBe("bounce");
+  expect(rows[0]?.count).toBe(3);
+});
+
 test("fetchAndStore: re-running the same window patches refined counts in place", async () => {
   const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
   fetchMock.mockResolvedValueOnce(
