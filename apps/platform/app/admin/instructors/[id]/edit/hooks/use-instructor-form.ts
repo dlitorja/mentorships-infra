@@ -101,6 +101,22 @@ export function useInstructorForm(data: InstructorDetail | undefined) {
     }));
   };
 
+  const reorderPortfolioImages = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setFormData((prev) => {
+      const next = prev.portfolioImages.slice();
+      if (fromIndex < 0 || fromIndex >= next.length) return prev;
+      const clampedTo = Math.max(0, Math.min(toIndex, next.length - 1));
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(clampedTo, 0, moved);
+      return { ...prev, portfolioImages: next };
+    });
+  };
+
+  const movePortfolioImage = (index: number, direction: -1 | 1) => {
+    reorderPortfolioImages(index, index + direction);
+  };
+
   const updateSocial = (key: keyof Socials, value: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -121,6 +137,8 @@ export function useInstructorForm(data: InstructorDetail | undefined) {
     addCustomTag,
     addPortfolioImage,
     removePortfolioImage,
+    reorderPortfolioImages,
+    movePortfolioImage,
     updateSocial,
   };
 }
