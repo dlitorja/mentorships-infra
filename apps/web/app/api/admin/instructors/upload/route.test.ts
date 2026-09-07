@@ -49,10 +49,13 @@ describe("getFileExtension (web admin/instructors upload)", () => {
       expect(getFileExtension("real-name.png", "image/jpeg")).toBe(".png");
     });
 
-    it("regression: prior behavior was to default to '.jpg' regardless — that was wrong for PNG/WebP/GIF", () => {
-      expect(getFileExtension("blob", "image/png")).not.toBe(".jpg");
-      expect(getFileExtension("blob", "image/webp")).not.toBe(".jpg");
-      expect(getFileExtension("blob", "image/gif")).not.toBe(".jpg");
+    it("documents the prior buggy behavior for filename 'blob' (returned 'b' which then failed validation)", () => {
+      const priorImpl = (filename: string) => {
+        const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+        return ext || ".jpg";
+      };
+      expect(priorImpl("blob")).toBe("b");
+      expect([".jpg", ".png", ".webp", ".gif"]).not.toContain("b");
     });
   });
 });

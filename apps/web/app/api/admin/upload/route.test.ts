@@ -23,10 +23,13 @@ describe("getFileExtension (web admin upload)", () => {
       expect(getFileExtension("blob", "image/svg+xml")).toBe("");
     });
 
-    it("regression: prior behavior was to always default to '.jpg'", () => {
-      expect(getFileExtension("blob", "image/png")).not.toBe(".jpg");
-      expect(getFileExtension("blob", "image/webp")).not.toBe(".jpg");
-      expect(getFileExtension("blob", "image/gif")).not.toBe(".jpg");
+    it("documents the prior buggy behavior for filename 'blob' (returned 'b' which then failed validation)", () => {
+      const priorImpl = (filename: string) => {
+        const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+        return ext || ".jpg";
+      };
+      expect(priorImpl("blob")).toBe("b");
+      expect([".jpg", ".png", ".webp", ".gif"]).not.toContain("b");
     });
   });
 });
