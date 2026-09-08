@@ -174,3 +174,48 @@ test("getInstructorBySlug surfaces inventory and kajabi fields from instructors"
   expect(result?.kajabiCheckoutUrlOneOnOne).toBe("https://kajabi.example/one-on-one");
   expect(result?.kajabiCheckoutUrlGroup).toBe("https://kajabi.example/group");
 });
+
+test("getInstructorBySlug does NOT expose operational metadata (PR 3 security regression guard)", async () => {
+  // PR 3 security: the query is unauthenticated. The previous shape spread the
+  // full instructor document after stripping googleRefreshToken, leaking
+  // googleCalendarId, googleRefreshToken, timeZone, workingHours, scheduling
+  // fields, discordVoiceChannelUrl, stripe* metadata, etc. The query must
+  // use an explicit public allowlist and omit operational fields.
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    const id = await seedInstructor(ctx, { slug: "operational" });
+    await ctx.db.patch(id, {
+      googleRefreshToken: "secret-refresh-token",
+      googleCalendarId: "ops-calendar-id",
+      timeZone: "America/New_York",
+      workingHours: { mon: { start: "09:00", end: "17:00" } },
+      bufferMinutesBetweenSessions: 15,
+      minBookingLeadMinutes: 60,
+      maxBookingAdvanceDays: 30,
+      blockedDateRanges: [{ start: "2026-01-01", end: "2026-01-07", label: "Holiday" }],
+      discordVoiceChannelUrl: "https://discord.com/channels/secret",
+      maxActiveStudents: 10,
+    } as any);
+  });
+
+  const result = await t.query(api.instructors.getInstructorBySlug, {
+    slug: "operational",
+  });
+
+  expect(result).not.toBeNull();
+  const exposed = result as Record<string, unknown>;
+  for (const forbidden of [
+    "googleRefreshToken",
+    "googleCalendarId",
+    "timeZone",
+    "workingHours",
+    "bufferMinutesBetweenSessions",
+    "minBookingLeadMinutes",
+    "maxBookingAdvanceDays",
+    "blockedDateRanges",
+    "discordVoiceChannelUrl",
+    "maxActiveStudents",
+  ]) {
+    expect(exposed[forbidden]).toBeUndefined();
+  }
+});

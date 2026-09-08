@@ -85,11 +85,29 @@ function mapSocials(socials?: { platform: string; url: string }[]): Record<strin
   return Object.keys(mapped).length > 0 ? mapped : undefined;
 }
 
-async function upsertInstructorProfile(instructor: Instructor): Promise<void> {
+async function getInstructorIdBySlug(slug: string): Promise<string | null> {
+  const result = (await runConvexMutation('instructors:getInstructorBySlugForAdmin', {
+    slug,
+  })) as { _id?: string } | null;
+  return result?._id ?? null;
+}
+
+async function upsertInstructor(instructor: Instructor): Promise<void> {
   const isActive = !instructor.isHidden;
 
-  await runConvexMutation('instructors:upsertInstructorProfile', {
-    slug: instructor.slug,
+  // PR 3: `instructors` is the canonical source of truth. The legacy
+  // `upsertInstructorProfile` mutation was deleted; look up the canonical id
+  // by slug and update via `updateInstructor`, which writes both tables
+  // atomically through the PR 1 helper.
+  const id = await getInstructorIdBySlug(instructor.slug);
+  if (!id) {
+    throw new Error(
+      `No instructor row found for slug ${instructor.slug}. Run seedInstructorsWithProducts first.`
+    );
+  }
+
+  await runConvexMutation('instructors:updateInstructor', {
+    id,
     name: instructor.name,
     tagline: instructor.tagline,
     bio: instructor.bio,
@@ -113,7 +131,7 @@ async function upsertTestimonial(instructorId: string, testimonial: Testimonial)
 }
 
 async function upsertMenteeResult(instructorId: string, imageUrl: string): Promise<void> {
-  await runConvexMutation('instructors:upsertMenteeResult', {
+  await runConvexMutation('instructors:upsertStudentResult', {
     instructorId,
     imageUrl,
     studentName: undefined,
@@ -134,12 +152,12 @@ async function migrate(): Promise<void> {
     console.log(`\n[${instructor.slug}] ${instructor.name}`);
 
     try {
-      console.log('  - Upserting instructor profile...');
-      await upsertInstructorProfile(instructor);
+      console.log('  - Upserting instructor row...');
+      await upsertInstructor(instructor);
       profilesCreated++;
-      console.log('    ✓ Profile upserted');
+      console.log('    ✓ Instructor upserted');
     } catch (e: any) {
-      console.error(`    ✗ Profile failed: ${e.message}`);
+      console.error(`    ✗ Instructor failed: ${e.message}`);
       errors++;
       continue;
     }

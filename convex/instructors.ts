@@ -995,21 +995,39 @@ export const getInstructorBySlug = query({
       instructor.portfolioImages
     );
 
-    // Strip sensitive fields and return a profile-shaped object with
-    // instructorId injected for legacy callers. Inventory and Kajabi fields
-    // already live on `instructors` so we surface them here too.
-    const { googleRefreshToken, ...safe } = instructor as any;
+    // PR 3: explicitly allow-list the public-facing fields. The query is
+    // unauthenticated (public instructor profile pages), so we must NOT spread
+    // the full `instructors` document — that would leak calendar, Discord,
+    // scheduling metadata, and other operational fields to the public.
+    // Mirrors the historical `instructorProfiles` row shape plus a few
+    // instructors-only fields (instructorId, inventory, kajabi) that public
+    // callers already depend on.
     return {
-      ...safe,
+      _id: instructor._id,
+      _creationTime: instructor._creationTime,
+      slug: instructor.slug,
+      userId: instructor.userId,
+      name: instructor.name,
+      email: instructor.email,
+      tagline: instructor.tagline,
+      bio: instructor.bio,
+      specialties: instructor.specialties,
+      background: instructor.background,
+      socials: instructor.socials,
       profileImageUrl,
       portfolioImages,
+      profileImageStorageId: instructor.profileImageStorageId,
+      profileImageUploadPath: instructor.profileImageUploadPath,
+      isActive: instructor.isActive,
+      isNew: instructor.isNew,
+      legacyInstructorRef: instructor.legacyInstructorRef,
       instructorId: instructor._id,
       oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
       groupInventory: (instructor as any).groupInventory ?? 0,
       useKajabiCheckout: (instructor as any).useKajabiCheckout ?? false,
       kajabiCheckoutUrlOneOnOne: (instructor as any).kajabiCheckoutUrlOneOnOne,
       kajabiCheckoutUrlGroup: (instructor as any).kajabiCheckoutUrlGroup,
-    } as any;
+    };
   },
 });
 

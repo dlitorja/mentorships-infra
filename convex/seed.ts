@@ -521,8 +521,9 @@ export const seedInstructorsWithProducts = mutation({
 });
 
 /**
- * Clears all instructors, instructorProfiles, and products.
- * Used to reset demo environment before reseeding.
+ * Clears all instructors and products. Used to reset demo environment before
+ * reseeding. The legacy `instructorProfiles` table is preserved — PR 4 will
+ * drop it entirely after a soak period.
  * For development/demo purposes only.
  */
 export const clearInstructorsAndProducts = mutation({

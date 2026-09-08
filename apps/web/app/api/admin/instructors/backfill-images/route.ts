@@ -56,7 +56,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     convex.setAuth(token);
 
     type Summary = {
-      processedProfiles: number;
       processedInstructors: number;
       processedPortfolioImages: number;
       processedStudentResults: number;
@@ -65,7 +64,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
 
     const summary: Summary = {
-      processedProfiles: 0,
       processedInstructors: 0,
       processedPortfolioImages: 0,
       processedStudentResults: 0,
