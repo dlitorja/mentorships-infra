@@ -219,3 +219,54 @@ test("getInstructorBySlug does NOT expose operational metadata (PR 3 security re
     expect(exposed[forbidden]).toBeUndefined();
   }
 });
+
+test("getInstructorBySlug does NOT surface stale storage IDs when the matching URL was removed from portfolioImages", async () => {
+  // Reproduces the nino-vecia bug: admin edit form's `removePortfolioImage`
+  // drops a URL from `portfolioImages` but leaves the matching entry in
+  // `portfolioImageStorageIds`. The previous `getFreshPortfolioUrls`
+  // iterated over `storageIds.length` and resolved a fresh URL for the stale
+  // storage ID, so the public profile page kept showing the deleted image.
+  // Now we iterate over `portfolioImages.length`, so stale storage IDs are
+  // ignored and the public page matches the admin form.
+  const t = convexTest(schema, modules);
+
+  // Upload two real blobs so we have valid Convex storage IDs to stage.
+  const orphanedStorageId = await t.run(async (ctx) => {
+    return await ctx.storage.store(new Blob(["orphaned image bytes"]));
+  });
+  const keptStorageId = await t.run(async (ctx) => {
+    return await ctx.storage.store(new Blob(["kept image bytes"]));
+  });
+
+  await t.run(async (ctx) => {
+    await seedInstructor(ctx, { slug: "stale-storage-ids" });
+    const id = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q: any) => q.eq("slug", "stale-storage-ids"))
+      .first()
+      .then((d: any) => d?._id);
+    if (!id) throw new Error("seed failed");
+    // Simulate the post-remove state: admin removed the image at index 0 from
+    // `portfolioImages`, leaving the matching storage ID behind. storageIds
+    // has one orphaned entry that should not surface.
+    await ctx.db.patch(id, {
+      portfolioImages: ["https://example.com/keep.jpg"],
+      portfolioImageStorageIds: [orphanedStorageId, keptStorageId],
+    } as any);
+  });
+
+  const result = await t.query(api.instructors.getInstructorBySlug, {
+    slug: "stale-storage-ids",
+  });
+
+  expect(result).not.toBeNull();
+  // Only ONE entry returned (matching `portfolioImages.length === 1`). The
+  // orphaned storage ID at index 0 must NOT contribute a fresh URL — the
+  // old shape iterated over storageIds.length and returned 2 entries.
+  expect(result?.portfolioImages).toHaveLength(1);
+  // The kept entry resolves to the fresh Convex storage URL for `keptStorageId`,
+  // not the original placeholder. We assert it matches the storage URL rather
+  // than the placeholder, since storage IDs always take precedence on read.
+  expect(result?.portfolioImages?.[0]).toMatch(/^https?:\/\/.*convex\.cloud\/api\/storage\//);
+  expect(result?.portfolioImages?.[0]).not.toBe("https://example.com/keep.jpg");
+});

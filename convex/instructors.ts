@@ -45,12 +45,20 @@ async function getFreshPortfolioUrls(
   storageIds: string[] | undefined,
   fallbackUrls: string[] | undefined
 ): Promise<string[] | undefined> {
-  if (!storageIds || storageIds.length === 0) return fallbackUrls;
+  // `portfolioImages` is the canonical display list; iterate over its length
+  // so stale `portfolioImageStorageIds` for removed images cannot surface as
+  // ghost URLs. The previous shape iterated over `storageIds.length`, which
+  // caused the public profile page to keep showing images whose URL was
+  // already removed from `portfolioImages` (the admin edit form removed the
+  // URL but left the matching storageId behind — those entries then resolved
+  // to fresh Convex storage URLs on the public page).
+  if (!fallbackUrls || fallbackUrls.length === 0) return fallbackUrls;
   const urls = await Promise.all(
-    storageIds.map(async (sid, i) => {
-      if (!sid) return fallbackUrls?.[i];
-      const url = await ctx.storage.getUrl(sid as Id<"_storage">);
-      return url ?? fallbackUrls?.[i];
+    fallbackUrls.map(async (url, i) => {
+      const sid = storageIds?.[i];
+      if (!sid) return url;
+      const fresh = await ctx.storage.getUrl(sid as Id<"_storage">);
+      return fresh ?? url;
     })
   );
   return urls.filter((u): u is string => u !== undefined);
