@@ -157,9 +157,11 @@ export const reconcileInstructorProfilePortfolioImages = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
+    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831).
     const inst = (await ctx.db
       .query("instructors")
-      .withIndex("by_slug", (q) => q.eq("slug", profile.slug))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .filter((q) => q.eq(q.field("slug"), profile.slug))
       .first()) as InstructorRow | null;
 
     const profileUrls = profile.portfolioImages ?? [];
@@ -222,24 +224,30 @@ export const runReconcileInstructorProfilePortfolioImages = migrations.runner(
 );
 
 // Reconcile the profile image (URL + storage ID). Prefer the storage-backed
-// version from whichever side has one. Otherwise fall back to the URL on
-// either side. If only one side has data, propagate it to the other.
+// version from whichever side has BOTH a storage ID AND a URL. Otherwise
+// fall back to the URL on either side. If only one side has data,
+// propagate it to the other.
 export const reconcileInstructorProfileImage = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
+    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831).
     const inst = (await ctx.db
       .query("instructors")
-      .withIndex("by_slug", (q) => q.eq("slug", profile.slug))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .filter((q) => q.eq(q.field("slug"), profile.slug))
       .first()) as InstructorRow | null;
 
-    // Pick the canonical pair: prefer storage-backed version.
+    // Pick the canonical pair: prefer a side that has BOTH storage ID and
+    // URL (a complete storage-backed version). A half-set storage ID with
+    // no URL would be useless — fall through to URL-only branches in that
+    // case (Greptile P1 review on PR #831).
     let url: string | undefined;
     let sid: string | undefined;
-    if (profile.profileImageStorageId) {
+    if (profile.profileImageStorageId && profile.profileImageUrl) {
       sid = profile.profileImageStorageId;
       url = profile.profileImageUrl;
-    } else if (inst?.profileImageStorageId) {
+    } else if (inst?.profileImageStorageId && inst.profileImageUrl) {
       sid = inst.profileImageStorageId;
       url = inst.profileImageUrl;
     } else if (profile.profileImageUrl) {
@@ -290,9 +298,13 @@ export const reconcileInstructorProfileMetadata = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
+    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831 —
+    // `by_slug` is non-unique and historical soft-deletes can produce
+    // multiple rows for one slug; pick the active one).
     const inst = (await ctx.db
       .query("instructors")
-      .withIndex("by_slug", (q) => q.eq("slug", profile.slug))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .filter((q) => q.eq(q.field("slug"), profile.slug))
       .first()) as InstructorRow | null;
 
     const fields: Array<keyof InstructorProfileRow> = [
@@ -323,11 +335,19 @@ export const reconcileInstructorProfileMetadata = migrations.define({
       }
     }
 
-    if (inst?.name !== undefined && inst.name !== profile.name) {
-      profilePatch.name = inst.name;
+    // `name` and `isActive` — special-case: the profile table requires both,
+    // so they always have a value there. Bidirectional reconciliation:
+    // instructor wins when defined; otherwise profile's value propagates
+    // back to the instructor (Greptile P1 review on PR #831).
+    if (inst?.name !== undefined) {
+      if (inst.name !== profile.name) profilePatch.name = inst.name;
+    } else if (profile.name) {
+      instructorPatch.name = profile.name;
     }
-    if (inst?.isActive !== undefined && inst.isActive !== profile.isActive) {
-      profilePatch.isActive = inst.isActive;
+    if (inst?.isActive !== undefined) {
+      if (inst.isActive !== profile.isActive) profilePatch.isActive = inst.isActive;
+    } else {
+      instructorPatch.isActive = profile.isActive;
     }
 
     if (Object.keys(profilePatch).length === 0 && Object.keys(instructorPatch).length === 0) {

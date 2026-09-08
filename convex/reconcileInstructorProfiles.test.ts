@@ -331,6 +331,116 @@ test("reconcileInstructorProfileMetadata is idempotent — second run is a no-op
   expect(instructorAfterSecond?.updatedAt).toBe(updatedAt1);
 });
 
+test("reconcileInstructorProfileImage: half-set storage (SID without URL) falls through to URL-only branches", async () => {
+  // Greptile P1 review on PR #831: a SID with no URL would be useless.
+  // The migration must require both SID AND URL for the storage-backed
+  // branch; otherwise fall through to URL-only.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+
+  // Profile has SID only (no URL). Instructor has both SID + URL.
+  // Storage-backed branch requires both, so the profile's half-set is
+  // ignored and the instructor's complete pair wins.
+  const { profileId, instructorId } = await seedDivergedRow(t, {
+    slug: "image-halfset-sid-only",
+    profilePortfolio: { urls: [], sids: [] },
+    instructorPortfolio: { urls: [], sids: [] },
+    profileImage: { url: undefined as any, sid: "SID_ORPHAN" },
+    instructorImage: { url: "https://new.example.com/p.png", sid: "SID_NEW" },
+  });
+
+  await t.mutation(internal.migrations.runReconcileInstructorProfileImage, {});
+
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+  const instructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  // Profile gets the complete (URL, SID) pair from the instructor.
+  expect(profile?.profileImageUrl).toBe("https://new.example.com/p.png");
+  expect(profile?.profileImageStorageId).toBe("SID_NEW");
+  expect(instructor?.profileImageUrl).toBe("https://new.example.com/p.png");
+  expect(instructor?.profileImageStorageId).toBe("SID_NEW");
+});
+
+test("reconcileInstructorProfileMetadata: profile name/isActive propagate back when instructor lacks them", async () => {
+  // Greptile P1 review on PR #831: `name` and `isActive` require
+  // bidirectional reconciliation. The profile always has a value (schema
+  // requires them); the migration must propagate profile → instructor
+  // when the instructor is missing those fields.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  const { profileId, instructorId } = await t.run(async (ctx) => {
+    const profileId = await ctx.db.insert("instructorProfiles", {
+      slug: "meta-name-isactive-fallback",
+      name: "Profile Canonical Name",
+      isActive: false,
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      slug: "meta-name-isactive-fallback",
+      // name and isActive intentionally undefined.
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { profileId, instructorId };
+  });
+
+  await t.mutation(internal.migrations.runReconcileInstructorProfileMetadata, {});
+
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+  const instructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(profile?.name).toBe("Profile Canonical Name");
+  expect(profile?.isActive).toBe(false);
+  expect(instructor?.name).toBe("Profile Canonical Name");
+  expect(instructor?.isActive).toBe(false);
+});
+
+test("reconciliations skip soft-deleted instructor rows", async () => {
+  // Greptile P2 review on PR #831: `by_slug` is non-unique; historical
+  // soft-deleted rows must not be selected as the active instructor.
+  // Insert a soft-deleted instructor with a misleading name; the
+  // migrations should leave the active instructor's row alone (no
+  // patch on it; no propagation of the soft-deleted name to the
+  // profile).
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+
+  const { profileId, activeInstructorId } = await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", {
+      slug: "soft-delete-slug",
+      name: "Soft Deleted Wrong Name",
+      deletedAt: Date.now() - 1000,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    const profileId = await ctx.db.insert("instructorProfiles", {
+      slug: "soft-delete-slug",
+      name: "Active Name",
+      isActive: true,
+      bio: "Profile bio",
+    });
+    const activeInstructorId = await ctx.db.insert("instructors", {
+      slug: "soft-delete-slug",
+      name: "Active Name",
+      bio: "Instructor bio",
+      isActive: true,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { profileId, activeInstructorId };
+  });
+
+  await t.mutation(internal.migrations.runReconcileInstructorProfileMetadata, {});
+
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+  const activeInstructor = await t.run(async (ctx) => await ctx.db.get(activeInstructorId));
+  // Profile name must NOT be overwritten by the soft-deleted row.
+  expect(profile?.name).toBe("Active Name");
+  // Profile bio must come from the active instructor (not the soft-deleted).
+  expect(profile?.bio).toBe("Instructor bio");
+  expect(activeInstructor?.bio).toBe("Instructor bio");
+});
+
 test("reconciliation suite: full end-to-end run on a divergent row leaves both tables in lockstep", async () => {
   // Plan §PR 2 acceptance: a single divergent instructor (e.g. nino-vecia)
   // passes all three migrations and ends with identical rows. This is the
