@@ -61,19 +61,6 @@ async function migrateInstructors(convex) {
             url: url || instructor.profileImageUrl,
           });
 
-          if (instructor.slug) {
-            try {
-              await convex.mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-                slug: instructor.slug,
-                storageId,
-                url: url || instructor.profileImageUrl,
-              });
-              console.log(`  Updated instructorProfiles as well`);
-            } catch (e) {
-              console.warn(`    Could not update instructorProfiles: ${e.message}`);
-            }
-          }
-
           console.log(`  Profile image migrated: storageId=${storageId}`);
         } catch (err) {
           console.error(`  Error migrating profile image: ${err.message}`);
@@ -137,22 +124,6 @@ async function migrateInstructors(convex) {
           urls: newUrls,
         });
         console.log(`  Updated portfolio storage IDs`);
-
-        if (instructor.slug) {
-          try {
-            const profile = await convex.query(api.instructors.getInstructorBySlug, { slug: instructor.slug });
-            if (profile) {
-              await convex.mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-                slug: instructor.slug,
-                storageIds: newStorageIds,
-                urls: newUrls,
-              });
-              console.log(`  Updated instructorProfiles portfolio as well`);
-            }
-          } catch (e) {
-            console.warn(`    Could not update instructorProfiles portfolio: ${e.message}`);
-          }
-        }
       } catch (err) {
         console.error(`  Error updating portfolio storage IDs: ${err.message}`);
       }
@@ -162,103 +133,15 @@ async function migrateInstructors(convex) {
   console.log("\nInstructor migration complete!");
 }
 
-async function migrateInstructorProfiles(convex) {
-  console.log("\n=== Migrating instructorProfiles ===");
+async function migrateStudentResults(convex) {
+  console.log("\n=== Migrating student results ===");
 
-  const profiles = await convex.query(api.instructors.listInstructorProfilesInternal, {});
+  const results = await convex.query(api.instructors.listStudentResultsInternal, {});
 
-  console.log(`Found ${profiles.length} profiles`);
-
-  for (const profile of profiles) {
-    console.log(`\nProcessing profile: ${profile.name || profile.slug} (${profile._id})`);
-
-    if (profile.profileImageUrl && !profile.profileImageStorageId) {
-      const localPath = getLocalFilePath(profile.profileImageUrl);
-      if (fs.existsSync(localPath)) {
-        try {
-          console.log(`  Migrating profile image from: ${localPath}`);
-          const arrayBuffer = fs.readFileSync(localPath);
-          const { storageId } = await uploadToConvex(convex, arrayBuffer);
-          const url = await getStorageUrl(convex, storageId);
-
-          await convex.mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-            slug: profile.slug,
-            storageId,
-            url: url || profile.profileImageUrl,
-          });
-
-          console.log(`  Profile image migrated: storageId=${storageId}`);
-        } catch (err) {
-          console.error(`  Error migrating profile image: ${err.message}`);
-        }
-      } else {
-        console.log(`  Profile image NOT FOUND at: ${localPath}`);
-      }
-    }
-
-    if (profile.portfolioImages && profile.portfolioImages.length > 0) {
-      const currentStorageIds = profile.portfolioImageStorageIds || [];
-      const newStorageIds = [...currentStorageIds];
-      const newUrls = [...profile.portfolioImages];
-
-      for (let i = 0; i < profile.portfolioImages.length; i++) {
-        const imageUrl = profile.portfolioImages[i];
-        if (!imageUrl) continue;
-
-        const existingStorageId = currentStorageIds[i];
-        if (existingStorageId) continue;
-
-        const localPath = getLocalFilePath(imageUrl);
-        if (!fs.existsSync(localPath)) {
-          console.log(`  Portfolio ${i} NOT FOUND at: ${localPath}`);
-          continue;
-        }
-
-        try {
-          console.log(`  Migrating portfolio image ${i} from: ${localPath}`);
-          const arrayBuffer = fs.readFileSync(localPath);
-          const { storageId } = await uploadToConvex(convex, arrayBuffer);
-          const url = await getStorageUrl(convex, storageId);
-
-          while (newStorageIds.length <= i) {
-            newStorageIds.push("");
-          }
-          while (newUrls.length <= i) {
-            newUrls.push("");
-          }
-
-          newStorageIds[i] = storageId;
-          newUrls[i] = url || imageUrl;
-        } catch (err) {
-          console.error(`  Error migrating portfolio image ${i}: ${err.message}`);
-        }
-      }
-
-      try {
-        await convex.mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-          slug: profile.slug,
-          storageIds: newStorageIds,
-          urls: newUrls,
-        });
-        console.log(`  Updated portfolio storage IDs`);
-      } catch (err) {
-        console.error(`  Error updating portfolio: ${err.message}`);
-      }
-    }
-  }
-
-  console.log("\nInstructorProfiles migration complete!");
-}
-
-async function migrateMenteeResults(convex) {
-  console.log("\n=== Migrating mentee results ===");
-
-  const results = await convex.query(api.instructors.listMenteeResultsInternal, {});
-
-  console.log(`Found ${results.length} mentee results`);
+  console.log(`Found ${results.length} student results`);
 
   for (const result of results) {
-    console.log(`\nProcessing mentee result: ${result._id}`);
+    console.log(`\nProcessing student result: ${result._id}`);
 
     if (result.imageUrl && !result.imageStorageId) {
       const localPath = getLocalFilePath(result.imageUrl);
@@ -269,15 +152,15 @@ async function migrateMenteeResults(convex) {
           const { storageId } = await uploadToConvex(convex, arrayBuffer);
           const url = await getStorageUrl(convex, storageId);
 
-          await convex.mutation(api.instructors.updateMenteeResultStorageId, {
-            menteeResultId: result._id,
+          await convex.mutation(api.instructors.updateStudentResultStorageId, {
+            studentResultId: result._id,
             storageId,
             url: url || result.imageUrl,
           });
 
-          console.log(`  Mentee result image migrated: storageId=${storageId}`);
+          console.log(`  Student result image migrated: storageId=${storageId}`);
         } catch (err) {
-          console.error(`  Error migrating mentee result image: ${err.message}`);
+          console.error(`  Error migrating student result image: ${err.message}`);
         }
       } else {
         console.log(`  Image NOT FOUND at: ${localPath}`);
@@ -289,7 +172,7 @@ async function migrateMenteeResults(convex) {
     }
   }
 
-  console.log("\nMentee results migration complete!");
+  console.log("\nStudent results migration complete!");
 }
 
 async function main() {
@@ -303,8 +186,7 @@ async function main() {
 
   try {
     await migrateInstructors(convex);
-    await migrateInstructorProfiles(convex);
-    await migrateMenteeResults(convex);
+    await migrateStudentResults(convex);
 
     console.log("\n===========================================");
     console.log("=== Migration Summary ===");
@@ -314,23 +196,19 @@ async function main() {
 
     console.log(`Instructors needing profile migration: ${status.instructorsNeedingProfileMigration}`);
     console.log(`Instructors needing portfolio migration: ${status.instructorsNeedingPortfolioMigration}`);
-    console.log(`Profiles needing profile migration: ${status.profilesNeedingProfileMigration}`);
-    console.log(`Profiles needing portfolio migration: ${status.profilesNeedingPortfolioMigration}`);
-    console.log(`Mentee results needing migration: ${status.menteeResultsNeedingMigration}`);
     console.log(`Instructors with storageId: ${status.instructorsWithStorageId}`);
     console.log(`Profiles with storageId: ${status.profilesWithStorageId}`);
+    console.log(`Total instructors: ${status.totalInstructors}`);
+    console.log(`Total profiles: ${status.totalProfiles}`);
 
     const totalRemaining =
       status.instructorsNeedingProfileMigration +
-      status.instructorsNeedingPortfolioMigration +
-      status.profilesNeedingProfileMigration +
-      status.profilesNeedingPortfolioMigration +
-      status.menteeResultsNeedingMigration;
+      status.instructorsNeedingPortfolioMigration;
 
     if (totalRemaining === 0) {
-      console.log("\n✓ All images have been migrated!");
+      console.log("\n✓ All instructor images have been migrated!");
     } else {
-      console.log(`\n✗ ${totalRemaining} images still need migration`);
+      console.log(`\n✗ ${totalRemaining} instructor images still need migration`);
     }
 
     console.log("\nMigration complete!");
