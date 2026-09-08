@@ -393,52 +393,53 @@ test("reconcileInstructorProfileMetadata: profile name/isActive propagate back w
   expect(instructor?.isActive).toBe(false);
 });
 
-test("reconciliations skip soft-deleted instructor rows", async () => {
-  // Greptile P2 review on PR #831: `by_slug` is non-unique; historical
-  // soft-deleted rows must not be selected as the active instructor.
-  // Insert a soft-deleted instructor with a misleading name; the
-  // migrations should leave the active instructor's row alone (no
-  // patch on it; no propagation of the soft-deleted name to the
-  // profile).
+test("reconciliations pick the most recently updated row when multiple active instructor rows share a slug", async () => {
+  // Greptile P2 review on PR #831: ambiguity must be detected and handled
+  // explicitly. The migration should pick the most recently updated active
+  // row as the deterministic winner when multiple active rows share a slug.
   const t = convexTest(schema, modules);
   migrationsTest.register(t);
 
-  const { profileId, activeInstructorId } = await t.run(async (ctx) => {
-    await ctx.db.insert("instructors", {
-      slug: "soft-delete-slug",
-      name: "Soft Deleted Wrong Name",
-      deletedAt: Date.now() - 1000,
-      maxActiveStudents: 10,
-      oneOnOneInventory: 0,
-      groupInventory: 0,
-    });
+  const { profileId, olderInstructorId, newerInstructorId } = await t.run(async (ctx) => {
     const profileId = await ctx.db.insert("instructorProfiles", {
-      slug: "soft-delete-slug",
-      name: "Active Name",
+      slug: "duplicate-slug",
+      name: "Profile Name",
       isActive: true,
       bio: "Profile bio",
     });
-    const activeInstructorId = await ctx.db.insert("instructors", {
-      slug: "soft-delete-slug",
-      name: "Active Name",
-      bio: "Instructor bio",
+    const olderInstructorId = await ctx.db.insert("instructors", {
+      slug: "duplicate-slug",
+      name: "Older Active",
+      bio: "Older bio",
       isActive: true,
+      updatedAt: 100,
       maxActiveStudents: 10,
       oneOnOneInventory: 0,
       groupInventory: 0,
     });
-    return { profileId, activeInstructorId };
+    const newerInstructorId = await ctx.db.insert("instructors", {
+      slug: "duplicate-slug",
+      name: "Newer Active",
+      bio: "Newer bio",
+      isActive: true,
+      updatedAt: 200,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { profileId, olderInstructorId, newerInstructorId };
   });
 
   await t.mutation(internal.migrations.runReconcileInstructorProfileMetadata, {});
 
   const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
-  const activeInstructor = await t.run(async (ctx) => await ctx.db.get(activeInstructorId));
-  // Profile name must NOT be overwritten by the soft-deleted row.
-  expect(profile?.name).toBe("Active Name");
-  // Profile bio must come from the active instructor (not the soft-deleted).
-  expect(profile?.bio).toBe("Instructor bio");
-  expect(activeInstructor?.bio).toBe("Instructor bio");
+  const older = await t.run(async (ctx) => await ctx.db.get(olderInstructorId));
+  const newer = await t.run(async (ctx) => await ctx.db.get(newerInstructorId));
+  // Profile picks up the newer row's bio (deterministic winner).
+  expect(profile?.bio).toBe("Newer bio");
+  expect(older?.bio).toBe("Older bio");
+  // Newer row was already the canonical value — no patch needed.
+  expect(newer?.bio).toBe("Newer bio");
 });
 
 test("reconciliation suite: full end-to-end run on a divergent row leaves both tables in lockstep", async () => {

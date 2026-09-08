@@ -1,5 +1,5 @@
 import { Migrations } from "@convex-dev/migrations";
-import { internalMutation } from "./_generated/server";
+import { MutationCtx, internalMutation } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 
@@ -117,7 +117,31 @@ type InstructorRow = {
   profileImageUploadPath?: string;
   portfolioImages?: string[];
   portfolioImageStorageIds?: string[];
+  updatedAt?: number;
 };
+
+// Look up the canonical (most recently updated, non-deleted) instructor row
+// for a given slug. Multiple active rows for one slug indicate data
+// integrity issues — log a warning so operators can investigate, and use
+// the most recently updated row as the deterministic winner (Greptile P2
+// review on PR #831).
+async function findActiveInstructorBySlug(
+  ctx: MutationCtx,
+  slug: string
+): Promise<InstructorRow | null> {
+  const matches = (await ctx.db
+    .query("instructors")
+    .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+    .filter((q) => q.eq(q.field("slug"), slug))
+    .collect()) as InstructorRow[];
+  if (matches.length <= 1) return matches[0] ?? null;
+  console.warn(
+    `[reconcile] slug=${slug} has ${matches.length} active instructor rows; ` +
+      "using most recently updated as the canonical winner. Investigate duplicates."
+  );
+  matches.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return matches[0];
+}
 
 function arraysEqual(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
   if (a === b) return true;
@@ -157,12 +181,7 @@ export const reconcileInstructorProfilePortfolioImages = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
-    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831).
-    const inst = (await ctx.db
-      .query("instructors")
-      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .filter((q) => q.eq(q.field("slug"), profile.slug))
-      .first()) as InstructorRow | null;
+    const inst = await findActiveInstructorBySlug(ctx, profile.slug);
 
     const profileUrls = profile.portfolioImages ?? [];
     const profileSids = profile.portfolioImageStorageIds ?? [];
@@ -231,12 +250,7 @@ export const reconcileInstructorProfileImage = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
-    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831).
-    const inst = (await ctx.db
-      .query("instructors")
-      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .filter((q) => q.eq(q.field("slug"), profile.slug))
-      .first()) as InstructorRow | null;
+    const inst = await findActiveInstructorBySlug(ctx, profile.slug);
 
     // Pick the canonical pair: prefer a side that has BOTH storage ID and
     // URL (a complete storage-backed version). A half-set storage ID with
@@ -298,14 +312,10 @@ export const reconcileInstructorProfileMetadata = migrations.define({
   table: "instructorProfiles",
   migrateOne: async (ctx, profile: InstructorProfileRow) => {
     if (!profile.slug) return undefined;
-    // Skip soft-deleted instructor rows (Greptile P2 review on PR #831 —
-    // `by_slug` is non-unique and historical soft-deletes can produce
-    // multiple rows for one slug; pick the active one).
-    const inst = (await ctx.db
-      .query("instructors")
-      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .filter((q) => q.eq(q.field("slug"), profile.slug))
-      .first()) as InstructorRow | null;
+    // `by_slug` is non-unique; soft-deletes can produce multiple rows.
+    // `findActiveInstructorBySlug` filters them out, sorts by `updatedAt`
+    // desc, and warns if duplicates remain.
+    const inst = await findActiveInstructorBySlug(ctx, profile.slug);
 
     const fields: Array<keyof InstructorProfileRow> = [
       "userId",
