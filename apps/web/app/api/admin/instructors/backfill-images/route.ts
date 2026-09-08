@@ -109,58 +109,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     };
 
-    const [profiles, instructors] = await Promise.all([
-      convex.query(api.instructors.listInstructorProfilesInternal, {} as any),
-      convex.query(api.instructors.listInstructorsInternal, {} as any),
-    ]);
-    const bySlug = new Map<string, any>();
-    for (const inst of instructors as any[]) {
-      if (inst.slug) bySlug.set(inst.slug, inst);
-    }
+    // PR 3: iterate instructors only — the legacy instructorProfiles table is
+    // no longer consulted as a source of truth.
+    const instructors = await convex.query(
+      api.instructors.listInstructorsInternal,
+      {} as any
+    );
 
     let processed = 0;
     const max = typeof limit === "number" ? limit : Number.POSITIVE_INFINITY;
 
-    for (const profile of profiles as any[]) {
+    for (const inst of instructors as any[]) {
       if (processed >= max) break;
-      const slug = profile.slug as string | undefined;
+      if (!inst?._id) continue;
       try {
-        const inst = slug ? bySlug.get(slug) : undefined;
-        if (!profile.profileImageStorageId && profile.profileImageUrl) {
-          const src = abs(profile.profileImageUrl);
+        if (!inst.profileImageStorageId && inst.profileImageUrl) {
+          const src = abs(inst.profileImageUrl);
           if (src && !dryRun) {
             const u = await uploadFromUrl(src);
             if ("error" in u) {
-              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${u.error}` });
-            } else if (inst?._id) {
-              // PR 1: matching instructor → atomic dual-write mutation.
+              summary.errors.push({ kind: "profile", id: inst.slug || inst._id, message: `upload failed for ${src}: ${u.error}` });
+            } else {
+              // updateInstructorProfileStorageId is the atomic mutation from
+              // PR 1; it patches the instructors row in one transaction.
               await convex.mutation(api.instructors.updateInstructorProfileStorageId, {
                 instructorId: inst._id,
                 storageId: u.storageId,
                 url: u.url,
               } as any);
               summary.processedInstructors++;
-              summary.processedProfiles++;
-            } else {
-              // PR 1: no matching instructor — legacy profile-only path so
-              // the upload isn't orphaned (Greptile P1 review on PR #830).
-              await convex.mutation(
-                api.instructors.updateInstructorProfileStorageIdForProfile,
-                {
-                  slug,
-                  storageId: u.storageId,
-                  url: u.url,
-                } as any
-              );
-              summary.processedProfiles++;
-              summary.skipped++;
             }
           }
           processed++;
         }
 
-        const urls: string[] = (profile.portfolioImages ?? []) as string[];
-        const sids: string[] = (profile.portfolioImageStorageIds ?? []) as string[];
+        const urls: string[] = (inst.portfolioImages ?? []) as string[];
+        const sids: string[] = (inst.portfolioImageStorageIds ?? []) as string[];
         const idxs = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
         if (idxs.length > 0) {
           const newUrls = [...urls];
@@ -171,7 +155,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             if (src && !dryRun) {
               const u = await uploadFromUrl(src);
               if ("error" in u) {
-                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${u.error}` });
+                summary.errors.push({ kind: "portfolio", id: `${inst.slug || inst._id}[${i}]`, message: `upload failed for ${src}: ${u.error}` });
               } else {
                 newUrls[i] = u.url;
                 newSids[i] = u.storageId;
@@ -181,29 +165,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             processed++;
           }
           if (!dryRun && idxs.length > 0) {
-            if (inst?._id) {
-              // PR 1: matching instructor → atomic dual-write.
-              await convex.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
-                instructorId: inst._id,
-                storageIds: newSids,
-                urls: newUrls,
-              } as any);
-            } else {
-              // PR 1: no matching instructor — legacy profile-only path.
-              await convex.mutation(
-                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
-                {
-                  slug,
-                  storageIds: newSids,
-                  urls: newUrls,
-                } as any
-              );
-              summary.skipped++;
-            }
+            // updateInstructorPortfolioStorageIds is the atomic mutation from
+            // PR 1; it patches the instructors row in one transaction.
+            await convex.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
+              instructorId: inst._id,
+              storageIds: newSids,
+              urls: newUrls,
+            } as any);
           }
         }
       } catch (e) {
-        summary.errors.push({ kind: "profile", id: slug || "unknown", message: e instanceof Error ? e.message : String(e) });
+        summary.errors.push({ kind: "instructor", id: inst.slug || inst._id, message: e instanceof Error ? e.message : String(e) });
         summary.skipped++;
       }
     }

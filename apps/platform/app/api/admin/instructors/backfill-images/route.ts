@@ -117,8 +117,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     };
 
-    type InstructorRow = { slug?: string; _id?: string };
-    type ProfileRow = {
+    type InstructorRow = {
+      _id?: string;
       slug?: string;
       profileImageStorageId?: string;
       profileImageUrl?: string;
@@ -135,67 +135,45 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return id as Id<"instructors">;
     }
 
-    // Admin-protected lists
-    const [profiles, instructors] = await Promise.all([
-      client.query(api.instructors.listInstructorProfilesInternal, {}),
-      client.query(api.instructors.listInstructorsInternal, {}),
-    ]);
-    const bySlug = new Map<string, InstructorRow>();
-    for (const inst of instructors as InstructorRow[]) {
-      if (inst.slug) bySlug.set(inst.slug, inst);
-    }
+    // PR 3: iterate instructors only — the legacy instructorProfiles table is
+    // no longer consulted as a source of truth.
+    const instructors = await client.query(
+      api.instructors.listInstructorsInternal,
+      {}
+    );
 
     let processed = 0;
     const max = typeof limit === "number" ? limit : Number.POSITIVE_INFINITY;
 
-    // Profiles and portfolios
-    for (const profile of profiles as ProfileRow[]) {
+    // profile + portfolio images per instructor
+    for (const inst of instructors as InstructorRow[]) {
       if (processed >= max) break;
-      const slug = profile.slug;
-      if (!slug) continue;
+      if (!inst?._id) continue;
       try {
-        const inst = slug ? bySlug.get(slug) : undefined;
         // profile image
-        if (!profile.profileImageStorageId && profile.profileImageUrl) {
-          const src = abs(profile.profileImageUrl);
+        if (!inst.profileImageStorageId && inst.profileImageUrl) {
+          const src = abs(inst.profileImageUrl);
           if (src && !dryRun) {
             const u = await uploadFromUrl(src);
             if ("error" in u) {
-              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${u.error}` });
-            } else if (inst?._id) {
-              // PR 1: when a matching instructor exists, the public mutation
-              // writes BOTH tables atomically.
+              summary.errors.push({ kind: "profile", id: inst.slug || inst._id, message: `upload failed for ${src}: ${u.error}` });
+            } else {
+              // updateInstructorProfileStorageId is the atomic mutation from
+              // PR 1; it patches the instructors row in one transaction.
               await client.mutation(api.instructors.updateInstructorProfileStorageId, {
                 instructorId: castInstructorId(inst._id),
                 storageId: u.storageId,
                 url: u.url,
               });
               summary.processedInstructors++;
-              summary.processedProfiles++;
-            } else {
-              // PR 1: no matching instructor. The profile table is still the
-              // source of truth here — fall back to the legacy profile-only
-              // mutation so the image lands somewhere instead of leaving an
-              // orphaned upload. Greptile review on PR #830 caught this
-              // regression; see INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md.
-              await client.mutation(
-                api.instructors.updateInstructorProfileStorageIdForProfile,
-                {
-                  slug,
-                  storageId: u.storageId,
-                  url: u.url,
-                }
-              );
-              summary.processedProfiles++;
-              summary.skipped++;
             }
           }
           processed++;
         }
 
         // portfolio images
-        const urls: string[] = profile.portfolioImages ?? [];
-        const sids: string[] = profile.portfolioImageStorageIds ?? [];
+        const urls: string[] = inst.portfolioImages ?? [];
+        const sids: string[] = inst.portfolioImageStorageIds ?? [];
         const idxs = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
         if (idxs.length > 0) {
           const newUrls = [...urls];
@@ -206,7 +184,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             if (src && !dryRun) {
               const u = await uploadFromUrl(src);
               if ("error" in u) {
-                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${u.error}` });
+                summary.errors.push({ kind: "portfolio", id: `${inst.slug || inst._id}[${i}]`, message: `upload failed for ${src}: ${u.error}` });
               } else {
                 newUrls[i] = u.url;
                 newSids[i] = u.storageId;
@@ -216,30 +194,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             processed++;
           }
           if (!dryRun && idxs.length > 0) {
-            if (inst?._id) {
-              // PR 1: same — public mutation is atomic.
-              await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
-                instructorId: castInstructorId(inst._id),
-                storageIds: newSids,
-                urls: newUrls,
-              });
-            } else {
-              // PR 1: no matching instructor — legacy profile-only path so the
-              // upload isn't orphaned.
-              await client.mutation(
-                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
-                {
-                  slug,
-                  storageIds: newSids,
-                  urls: newUrls,
-                }
-              );
-              summary.skipped++;
-            }
+            // updateInstructorPortfolioStorageIds is the atomic mutation from
+            // PR 1; it patches the instructors row in one transaction.
+            await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
+              instructorId: castInstructorId(inst._id),
+              storageIds: newSids,
+              urls: newUrls,
+            });
           }
         }
       } catch (e) {
-        summary.errors.push({ kind: "profile", id: slug || "unknown", message: e instanceof Error ? e.message : String(e) });
+        summary.errors.push({ kind: "instructor", id: inst.slug || inst._id, message: e instanceof Error ? e.message : String(e) });
         summary.skipped++;
       }
     }

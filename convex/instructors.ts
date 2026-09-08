@@ -67,6 +67,9 @@ export const getMigrationStatus = query({
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
 
+    // PR 3: `instructors` is the canonical source of truth; the legacy
+    // `instructorProfiles` table is read-only here for diagnostic comparison
+    // and will be dropped in PR 4.
     const instructors = await ctx.db.query("instructors").collect();
     const profiles = await ctx.db.query("instructorProfiles").collect();
 
@@ -80,24 +83,12 @@ export const getMigrationStatus = query({
       (!i.portfolioImageStorageIds || i.portfolioImageStorageIds.length < i.portfolioImages.length)
     ).length;
 
-    const profilesNeedingProfileMigration = profiles.filter(
-      (p) => p.profileImageUrl && !p.profileImageStorageId
-    ).length;
-
-    const profilesNeedingPortfolioMigration = profiles.filter(
-      (p) => p.portfolioImages &&
-      p.portfolioImages.length > 0 &&
-      (!p.portfolioImageStorageIds || p.portfolioImageStorageIds.length < p.portfolioImages.length)
-    ).length;
-
     const instructorsWithStorageId = instructors.filter((i) => i.profileImageStorageId).length;
     const profilesWithStorageId = profiles.filter((p) => p.profileImageStorageId).length;
 
     return {
       instructorsNeedingProfileMigration,
       instructorsNeedingPortfolioMigration,
-      profilesNeedingProfileMigration,
-      profilesNeedingPortfolioMigration,
       instructorsWithStorageId,
       profilesWithStorageId,
       totalInstructors: instructors.length,
@@ -168,17 +159,12 @@ export const backfillImages = action({
     }
     const includeStudentResults = args.includeStudentResults !== false;
 
-    // Load profiles and instructors
-    const [profiles, instructors] = await Promise.all([
-      ctx.runQuery(api.instructors.listInstructorProfilesInternal, {} as any),
-      ctx.runQuery(api.instructors.listInstructorsInternal, {} as any),
-    ]);
-
-    // Index instructors by slug for convenience
-    const instructorBySlug = new Map<string, any>();
-    for (const inst of instructors as any[]) {
-      if (inst.slug) instructorBySlug.set(inst.slug, inst);
-    }
+    // PR 3: `instructors` is the canonical source. Iterate directly — there is
+    // no separate profile table to consult.
+    const instructors = await ctx.runQuery(
+      api.instructors.listInstructorsInternal,
+      {} as any
+    );
 
     const maxItems = args.limit ?? Number.POSITIVE_INFINITY;
     let processedCount = 0;
@@ -201,53 +187,36 @@ export const backfillImages = action({
       }
     };
 
-    // Backfill profile images and portfolio images
-    for (const profile of profiles as any[]) {
+    // Backfill profile images and portfolio images for every instructor
+    for (const inst of instructors as any[]) {
       if (processedCount >= maxItems) break;
-      const slug: string | undefined = profile.slug;
+      if (!inst?._id) continue;
       try {
-        const inst = slug ? instructorBySlug.get(slug) : undefined;
-
         // Profile image
-        if (!profile.profileImageStorageId && profile.profileImageUrl) {
-          const src = absoluteUrl(baseUrl, profile.profileImageUrl);
+        if (!inst.profileImageStorageId && inst.profileImageUrl) {
+          const src = absoluteUrl(baseUrl, inst.profileImageUrl);
           if (src && !args.dryRun) {
             const uploaded = await uploadFromUrl(src);
-            if (!('error' in uploaded)) {
-              if (inst?._id) {
-                // PR 1: matching instructor → atomic dual-write mutation.
-                await ctx.runMutation(api.instructors.updateInstructorProfileStorageId, {
+            if (!("error" in uploaded)) {
+              await ctx.runMutation(
+                api.instructors.updateInstructorProfileStorageId,
+                {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
-                } as any);
-                summary.processedInstructors += 1;
-                summary.processedProfiles += 1;
-              } else {
-                // PR 1: no matching instructor — fall back to the legacy
-                // profile-only mutation so the upload isn't orphaned
-                // (Greptile P1 review on PR #830).
-                await ctx.runMutation(
-                  api.instructors.updateInstructorProfileStorageIdForProfile,
-                  {
-                    slug,
-                    storageId: uploaded.storageId,
-                    url: uploaded.url,
-                  } as any
-                );
-                summary.processedProfiles += 1;
-                summary.skipped += 1;
-              }
+                } as any
+              );
+              summary.processedInstructors += 1;
             } else {
-              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
+              summary.errors.push({ kind: "profile", id: inst.slug || inst._id, message: `upload failed for ${src}: ${uploaded.error}` });
             }
           }
           processedCount++;
         }
 
         // Portfolio images
-        const urls: string[] = (profile.portfolioImages ?? []) as string[];
-        const sids: string[] = (profile.portfolioImageStorageIds ?? []) as string[];
+        const urls: string[] = (inst.portfolioImages ?? []) as string[];
+        const sids: string[] = (inst.portfolioImageStorageIds ?? []) as string[];
         const toProcess: number[] = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
         if (toProcess.length > 0) {
           const newUrls = [...urls];
@@ -257,40 +226,29 @@ export const backfillImages = action({
             const src = absoluteUrl(baseUrl, urls[i]);
             if (src && !args.dryRun) {
               const uploaded = await uploadFromUrl(src);
-              if (!('error' in uploaded)) {
+              if (!("error" in uploaded)) {
                 newUrls[i] = uploaded.url;
                 newSids[i] = uploaded.storageId;
                 summary.processedPortfolioImages += 1;
               } else {
-                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
+                summary.errors.push({ kind: "portfolio", id: `${inst.slug || inst._id}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
               }
             }
             processedCount++;
           }
           if (!args.dryRun && toProcess.length > 0) {
-            if (inst?._id) {
-              // PR 1: matching instructor → atomic dual-write.
-              await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
+            await ctx.runMutation(
+              api.instructors.updateInstructorPortfolioStorageIds,
+              {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
-              } as any);
-            } else {
-              // PR 1: no matching instructor — legacy profile-only path.
-              await ctx.runMutation(
-                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
-                {
-                  slug,
-                  storageIds: newSids,
-                  urls: newUrls,
-                } as any
-              );
-              summary.skipped += 1;
-            }
+              } as any
+            );
           }
         }
       } catch (e) {
-        summary.errors.push({ kind: "profile", id: slug || "unknown", message: e instanceof Error ? e.message : String(e) });
+        summary.errors.push({ kind: "instructor", id: inst.slug || inst._id, message: e instanceof Error ? e.message : String(e) });
         summary.skipped += 1;
       }
     }
@@ -333,13 +291,6 @@ export const backfillImages = action({
  * Keep scope tight and reuse existing logic. These are intentionally not exported via api.*
  */
 
-export const listInstructorProfilesAll = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("instructorProfiles").collect();
-  },
-});
-
 export const listInstructorsAll = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -354,38 +305,6 @@ export const listStudentResultsAll = internalQuery({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("studentResults").collect();
-  },
-});
-
-export const internalPatchInstructorProfileImageBySlug = internalMutation({
-  args: { slug: v.string(), storageId: v.string(), url: v.string() },
-  handler: async (ctx, args) => {
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-    if (!profile) throw new Error("Instructor profile not found");
-    await ctx.db.patch(profile._id, {
-      profileImageStorageId: args.storageId,
-      profileImageUrl: args.url,
-    });
-    return { storageId: args.storageId, url: args.url };
-  },
-});
-
-export const internalPatchInstructorPortfolioBySlug = internalMutation({
-  args: { slug: v.string(), storageIds: v.array(v.string()), urls: v.array(v.string()) },
-  handler: async (ctx, args) => {
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-    if (!profile) throw new Error("Instructor profile not found");
-    await ctx.db.patch(profile._id, {
-      portfolioImageStorageIds: args.storageIds,
-      portfolioImages: args.urls,
-    });
-    return { storageIds: args.storageIds, urls: args.urls };
   },
 });
 
@@ -771,64 +690,46 @@ export const backfillImagesForSlugs = internalAction({
       }
     };
 
-    const [profiles, instructors] = await Promise.all([
-      ctx.runQuery(internal.instructors.listInstructorProfilesAll, {}),
-      ctx.runQuery(internal.instructors.listInstructorsAll, {}),
-    ]);
+    // PR 3: `instructors` is the canonical source; iterate directly.
+    const instructors = await ctx.runQuery(
+      internal.instructors.listInstructorsAll,
+      {}
+    );
 
     const allowed = new Set(args.slugs.map((s) => s.trim()).filter(Boolean));
-    const bySlug = new Map<string, any>();
-    for (const inst of instructors as any[]) {
-      if (inst.slug && allowed.has(inst.slug)) bySlug.set(inst.slug, inst);
-    }
 
-    // Process profiles for selected slugs
-    for (const profile of (profiles as any[])) {
+    // Process selected slugs
+    for (const inst of (instructors as any[])) {
       if (processedCount >= maxItems) break;
-      const slug: string | undefined = profile.slug;
+      const slug: string | undefined = inst.slug;
       if (!slug || !allowed.has(slug)) continue;
+      if (!inst?._id) continue;
       try {
-        const inst = bySlug.get(slug);
-
         // Profile image
-        if (!profile.profileImageStorageId && profile.profileImageUrl) {
-          const src = abs(profile.profileImageUrl);
+        if (!inst.profileImageStorageId && inst.profileImageUrl) {
+          const src = abs(inst.profileImageUrl);
           if (src) {
             const uploaded = await uploadFromUrl(src);
             if (!("error" in uploaded)) {
-              if (inst?._id) {
-                // PR 1: matching instructor → atomic dual-write.
-                await ctx.runMutation(internal.instructors.internalAtomicSetProfileImage, {
+              await ctx.runMutation(
+                internal.instructors.internalAtomicSetProfileImage,
+                {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
-                } as any);
-                summary.processedInstructors += 1;
-                summary.processedProfiles += 1;
-              } else {
-                // PR 1: no matching instructor — internal profile-only
-                // mutation so the upload isn't orphaned (Greptile P1 on #830).
-                await ctx.runMutation(
-                  internal.instructors.internalPatchInstructorProfileImageBySlug,
-                  {
-                    slug,
-                    storageId: uploaded.storageId,
-                    url: uploaded.url,
-                  } as any
-                );
-                summary.processedProfiles += 1;
-                summary.skipped += 1;
-              }
+                } as any
+              );
+              summary.processedInstructors += 1;
             } else {
-              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
+              summary.errors.push({ kind: "profile", id: slug, message: `upload failed for ${src}: ${uploaded.error}` });
             }
           }
           processedCount++;
         }
 
         // Portfolio images
-        const urls: string[] = (profile.portfolioImages ?? []) as string[];
-        const sids: string[] = (profile.portfolioImageStorageIds ?? []) as string[];
+        const urls: string[] = (inst.portfolioImages ?? []) as string[];
+        const sids: string[] = (inst.portfolioImageStorageIds ?? []) as string[];
         const toProcess: number[] = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
         if (toProcess.length > 0) {
           const newUrls = [...urls];
@@ -843,44 +744,38 @@ export const backfillImagesForSlugs = internalAction({
                 newSids[i] = uploaded.storageId;
                 summary.processedPortfolioImages += 1;
               } else {
-                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
+                summary.errors.push({ kind: "portfolio", id: `${slug}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
               }
             }
             processedCount++;
           }
           if (toProcess.length > 0) {
-            if (inst?._id) {
-              // PR 1: matching instructor → atomic dual-write.
-              await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
+            await ctx.runMutation(
+              internal.instructors.internalAtomicSetPortfolioImages,
+              {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
-              } as any);
-            } else {
-              // PR 1: no matching instructor — internal profile-only.
-              await ctx.runMutation(
-                internal.instructors.internalPatchInstructorPortfolioBySlug,
-                {
-                  slug,
-                  storageIds: newSids,
-                  urls: newUrls,
-                } as any
-              );
-              summary.skipped += 1;
-            }
+              } as any
+            );
           }
         }
       } catch (e) {
-        summary.errors.push({ kind: "profile", id: slug || "unknown", message: e instanceof Error ? e.message : String(e) });
+        summary.errors.push({ kind: "instructor", id: slug, message: e instanceof Error ? e.message : String(e) });
         summary.skipped += 1;
       }
     }
 
     if (args.includeStudentResults !== false) {
       const studentResults = await ctx.runQuery(internal.instructors.listStudentResultsAll, {});
-      // Map instructorId to slug for filtering
+      // PR 3: only include student results whose instructor slug is in the
+      // allowed set. `instructors._id` is the canonical reference; iterate
+      // the already-loaded instructor list to collect their ids.
       const allowedInstructorIds = new Set(
-        Array.from(bySlug.values()).map((i: any) => i?._id).filter(Boolean)
+        (instructors as any[])
+          .filter((i) => i?.slug && allowed.has(i.slug))
+          .map((i) => i._id)
+          .filter(Boolean)
       );
       for (const r of studentResults as any[]) {
         if (processedCount >= maxItems) break;
@@ -962,20 +857,6 @@ export const listInstructorsInternal = query({
         return { ...inst, profileImageUrl };
       })
     );
-  },
-});
-
-export const listInstructorProfilesInternal = query({
-  args: {},
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
-    return await ctx.db.query("instructorProfiles").collect();
   },
 });
 
@@ -1092,62 +973,42 @@ export const getInstructorsByIds = query({
   },
 });
 
-/** Returns the instructor profile matching the given slug. */
+/** Returns the instructor document matching the given slug. */
 export const getInstructorBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-    if (!profile) {
-      // Fallback: some environments may have only an instructors row without a separate profile
-      const instructorOnly = await ctx.db
-        .query("instructors")
-        .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-        .first();
-      if (!instructorOnly) return null;
-      if (instructorOnly.isListed === false) return null;
-
-      const fallbackProfileImageUrl = await getFreshProfileUrl(
-        ctx,
-        instructorOnly.profileImageStorageId,
-        instructorOnly.profileImageUrl
-      );
-      const fallbackPortfolioImages = await getFreshPortfolioUrls(
-        ctx,
-        instructorOnly.portfolioImageStorageIds,
-        instructorOnly.portfolioImages
-      );
-      // Strip sensitive fields and return a profile-like object with injected instructorId
-      const { googleRefreshToken, ...safe } = instructorOnly as any;
-      return {
-        ...safe,
-        profileImageUrl: fallbackProfileImageUrl,
-        portfolioImages: fallbackPortfolioImages,
-        instructorId: instructorOnly._id,
-      } as any;
-    }
-    // Also fetch the instructor by slug to expose its _id for downstream queries
     const instructor = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .first();
-    if (instructor?.isListed === false) return null;
-    const profileImageUrl = await getFreshProfileUrl(ctx, profile.profileImageStorageId, profile.profileImageUrl);
-    const portfolioImages = await getFreshPortfolioUrls(ctx, profile.portfolioImageStorageIds, profile.portfolioImages);
+    if (!instructor) return null;
+    if (instructor.isListed === false) return null;
+
+    const profileImageUrl = await getFreshProfileUrl(
+      ctx,
+      instructor.profileImageStorageId,
+      instructor.profileImageUrl
+    );
+    const portfolioImages = await getFreshPortfolioUrls(
+      ctx,
+      instructor.portfolioImageStorageIds,
+      instructor.portfolioImages
+    );
+
+    // Strip sensitive fields and return a profile-shaped object with
+    // instructorId injected for legacy callers. Inventory and Kajabi fields
+    // already live on `instructors` so we surface them here too.
+    const { googleRefreshToken, ...safe } = instructor as any;
     return {
-      ...profile,
+      ...safe,
       profileImageUrl,
       portfolioImages,
-      instructorId: instructor?._id,
-      // Surface inventory for purchase/waitlist logic; default to 0 when missing
-      oneOnOneInventory: (instructor as any)?.oneOnOneInventory ?? 0,
-      groupInventory: (instructor as any)?.groupInventory ?? 0,
-      // Surface Kajabi checkout fields for external checkout flow
-      useKajabiCheckout: (instructor as any)?.useKajabiCheckout ?? false,
-      kajabiCheckoutUrlOneOnOne: (instructor as any)?.kajabiCheckoutUrlOneOnOne,
-      kajabiCheckoutUrlGroup: (instructor as any)?.kajabiCheckoutUrlGroup,
+      instructorId: instructor._id,
+      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
+      groupInventory: (instructor as any).groupInventory ?? 0,
+      useKajabiCheckout: (instructor as any).useKajabiCheckout ?? false,
+      kajabiCheckoutUrlOneOnOne: (instructor as any).kajabiCheckoutUrlOneOnOne,
+      kajabiCheckoutUrlGroup: (instructor as any).kajabiCheckoutUrlGroup,
     } as any;
   },
 });
@@ -1857,59 +1718,6 @@ export const createStudentResultWithStorage = mutation({
   },
 });
 
-/** Idempotent upsert for instructor profiles, keyed on slug. */
-export const upsertInstructorProfile = mutation({
-  args: {
-    slug: v.string(),
-    name: v.string(),
-    tagline: v.optional(v.string()),
-    bio: v.optional(v.string()),
-    specialties: v.optional(v.array(v.string())),
-    background: v.optional(v.array(v.string())),
-    profileImageUrl: v.optional(v.string()),
-    portfolioImages: v.optional(v.array(v.string())),
-    socials: v.optional(v.any()),
-    isActive: v.boolean(),
-    isNew: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query('instructorProfiles')
-      .withIndex('by_slug', (q) => q.eq('slug', args.slug))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        name: args.name,
-        tagline: args.tagline,
-        bio: args.bio,
-        specialties: args.specialties,
-        background: args.background,
-        profileImageUrl: args.profileImageUrl,
-        portfolioImages: args.portfolioImages,
-        socials: args.socials,
-        isActive: args.isActive,
-        isNew: args.isNew,
-      });
-      return existing._id;
-    }
-
-    return await ctx.db.insert('instructorProfiles', {
-      slug: args.slug,
-      name: args.name,
-      tagline: args.tagline,
-      bio: args.bio,
-      specialties: args.specialties,
-      background: args.background,
-      profileImageUrl: args.profileImageUrl,
-      portfolioImages: args.portfolioImages,
-      socials: args.socials,
-      isActive: args.isActive,
-      isNew: args.isNew,
-    });
-  },
-});
-
 /** Idempotent upsert for instructor testimonials, keyed on instructorId + name + text. */
 export const upsertInstructorTestimonial = mutation({
   args: {
@@ -2331,98 +2139,6 @@ export const updateStudentResultStorageId = mutation({
     });
 
     return { storageId: args.storageId, url: args.url };
-  },
-});
-
-export const updateInstructorProfileStorageIdForProfile = mutation({
-  args: {
-    slug: v.string(),
-    storageId: v.string(),
-    url: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-
-    if (!profile) {
-      throw new Error("Instructor profile not found");
-    }
-
-    await ctx.db.patch(profile._id, {
-      profileImageStorageId: args.storageId,
-      profileImageUrl: args.url,
-    });
-    return { storageId: args.storageId, url: args.url };
-  },
-});
-
-export const updateInstructorPortfolioStorageIdsForProfile = mutation({
-  args: {
-    slug: v.string(),
-    storageIds: v.array(v.string()),
-    urls: v.array(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-
-    if (!profile) {
-      throw new Error("Instructor profile not found");
-    }
-
-    await ctx.db.patch(profile._id, {
-      portfolioImageStorageIds: args.storageIds,
-      portfolioImages: args.urls,
-    });
-    return { storageIds: args.storageIds, urls: args.urls };
-  },
-});
-
-export const updateInstructorProfilePortfolioImages = mutation({
-  args: {
-    slug: v.string(),
-    portfolioImages: v.array(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
-    const profile = await ctx.db
-      .query("instructorProfiles")
-      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-
-    if (!profile) {
-      console.warn(`Instructor profile not found for slug ${args.slug}, skipping portfolioImages update`);
-      return { portfolioImages: args.portfolioImages };
-    }
-
-    await ctx.db.patch(profile._id, {
-      portfolioImages: args.portfolioImages,
-    });
-    return { portfolioImages: args.portfolioImages };
   },
 });
 
