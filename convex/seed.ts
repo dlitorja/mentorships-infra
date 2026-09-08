@@ -409,112 +409,6 @@ const instructorData: InstructorSeedData[] = [
 ];
 
 /**
- * Seeds instructor profiles from static data.
- * Updates existing profiles if they exist, otherwise creates new ones.
- * Also seeds testimonials and student results for each instructor.
- * For development/demo purposes only.
- */
-export const seedInstructorProfiles = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const results: { instructor: string; profileId: any; testimonials: number; studentResults: number }[] = [];
-
-    for (const instructor of instructorData) {
-      const existingProfile = await ctx.db
-        .query("instructorProfiles")
-        .withIndex("by_slug", (q) => q.eq("slug", instructor.slug))
-        .first();
-
-      let profileId: any;
-
-      if (existingProfile) {
-        await ctx.db.patch(existingProfile._id, {
-          name: instructor.name,
-          tagline: instructor.tagline,
-          bio: instructor.bio,
-          specialties: instructor.specialties,
-          background: instructor.background,
-          profileImageUrl: instructor.profileImageUrl,
-          portfolioImages: instructor.portfolioImages,
-          socials: instructor.socials,
-          isActive: instructor.isActive,
-          isNew: instructor.isNew,
-        });
-        profileId = existingProfile._id;
-      } else {
-        profileId = await ctx.db.insert("instructorProfiles", {
-          slug: instructor.slug,
-          name: instructor.name,
-          tagline: instructor.tagline,
-          bio: instructor.bio,
-          specialties: instructor.specialties,
-          background: instructor.background,
-          profileImageUrl: instructor.profileImageUrl,
-          portfolioImages: instructor.portfolioImages,
-          socials: instructor.socials,
-          isActive: instructor.isActive,
-          isNew: instructor.isNew,
-        });
-      }
-
-      let testimonialCount = 0;
-      for (const testimonial of instructor.testimonials) {
-        const existingTestimonial = await ctx.db
-          .query("instructorTestimonials")
-          .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor.slug))
-          .filter((q) => q.and(
-            q.eq(q.field("name"), testimonial.name),
-            q.eq(q.field("text"), testimonial.text)
-          ))
-          .first();
-
-        if (!existingTestimonial) {
-          await ctx.db.insert("instructorTestimonials", {
-            instructorId: instructor.slug,
-            name: testimonial.name,
-            text: testimonial.text,
-            role: testimonial.role,
-          });
-          testimonialCount++;
-        }
-      }
-
-      let studentResultCount = 0;
-      for (const result of instructor.studentResults) {
-        const existingResult = await ctx.db
-          .query("studentResults")
-          .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor.slug))
-          .filter((q) => q.eq(q.field("imageUrl"), result.imageUrl))
-          .first();
-
-        if (!existingResult) {
-          await ctx.db.insert("studentResults", {
-            instructorId: instructor.slug,
-            imageUrl: result.imageUrl,
-            studentName: result.studentName,
-            createdAt: Date.now(),
-          });
-          studentResultCount++;
-        }
-      }
-
-      results.push({
-        instructor: instructor.name,
-        profileId,
-        testimonials: testimonialCount,
-        studentResults: studentResultCount,
-      });
-    }
-
-    return {
-      message: "Seed completed",
-      results,
-      totalInstructors: instructorData.length,
-    };
-  },
-});
-
-/**
  * Seeds instructors and their products from static data.
  * Creates instructor records and associated products with Stripe/PayPal IDs.
  * Skips instructors that already exist by slug.
@@ -627,44 +521,10 @@ export const seedInstructorsWithProducts = mutation({
 });
 
 /**
- * Backfills instructorProfile records with mentor IDs matching their instructor slugs.
- * For migrating legacy data where mentor IDs were stored separately.
- * For development/demo purposes only.
- */
-export const backfillInstructorProfileMentorIds = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const profiles = await ctx.db.query("instructorProfiles").collect();
-    const results: { slug: string; legacyInstructorRef: string | null }[] = [];
-
-    for (const profile of profiles) {
-      const instructor = await ctx.db
-        .query("instructors")
-        .withIndex("by_slug", (q) => q.eq("slug", profile.slug))
-        .first();
-
-      if (instructor) {
-        await ctx.db.patch(profile._id, {
-          legacyInstructorRef: instructor._id.toString(),
-        });
-        results.push({ slug: profile.slug, legacyInstructorRef: instructor._id.toString() });
-      } else {
-        results.push({ slug: profile.slug, legacyInstructorRef: null });
-      }
-    }
-
-    return {
-      message: "Backfill completed",
-      results,
-      totalProfiles: profiles.length,
-    };
-  },
-});
-
-/**
- * Clears all instructors, instructorProfiles, and products.
- * Used to reset demo environment before reseeding.
- * For development/demo purposes only.
+ * Clears all instructors, products, and (until PR 4 drops it) the legacy
+ * `instructorProfiles` rows that PR 1's atomic helpers still write to.
+ * Used to reset the demo environment before reseeding. For development/demo
+ * purposes only.
  */
 export const clearInstructorsAndProducts = mutation({
   args: { confirm: v.boolean() },
@@ -691,16 +551,25 @@ export const clearInstructorsAndProducts = mutation({
       await ctx.db.delete(product._id);
     }
 
+    const profiles = await ctx.db.query("instructorProfiles").collect();
+    for (const profile of profiles) {
+      await ctx.db.delete(profile._id);
+    }
+
     return {
-      message: "Cleared instructors and products",
+      message: "Cleared instructors, products, and profiles",
       instructorsDeleted: instructors.length,
       productsDeleted: products.length,
+      profilesDeleted: profiles.length,
     };
   },
 });
 
 /**
- * Clears all instructor data including profiles, testimonials, and student results.
+ * Clears all instructor data including testimonials, student results, and
+ * (until PR 4 drops it) the legacy `instructorProfiles` rows that PR 1's
+ * atomic helpers still write to. Leaving those rows behind would let stale
+ * dual-write data survive the reset.
  * For development/demo purposes only.
  */
 export const clearInstructorData = mutation({
@@ -718,11 +587,6 @@ export const clearInstructorData = mutation({
       return { message: "Please pass confirm: true to actually clear data" };
     }
 
-    const profiles = await ctx.db.query("instructorProfiles").collect();
-    for (const profile of profiles) {
-      await ctx.db.delete(profile._id);
-    }
-
     const testimonials = await ctx.db.query("instructorTestimonials").collect();
     for (const testimonial of testimonials) {
       await ctx.db.delete(testimonial._id);
@@ -733,11 +597,16 @@ export const clearInstructorData = mutation({
       await ctx.db.delete(result._id);
     }
 
+    const profiles = await ctx.db.query("instructorProfiles").collect();
+    for (const profile of profiles) {
+      await ctx.db.delete(profile._id);
+    }
+
     return {
-      message: "Cleared all instructor data",
-      profilesDeleted: profiles.length,
+      message: "Cleared instructor testimonials, student results, and profiles",
       testimonialsDeleted: testimonials.length,
       studentResultsDeleted: studentResults.length,
+      profilesDeleted: profiles.length,
     };
   },
 });

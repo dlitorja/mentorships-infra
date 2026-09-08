@@ -157,7 +157,7 @@ Goal: stop reading from and writing to `instructorProfiles`. The two tables matc
 
 Changes:
 
-1. **`convex/instructors.ts:780` (`getInstructorBySlug`)**: remove the `instructorProfiles` lookup entirely. Read only from `instructors`. Return the existing fields (`instructorId`, `oneOnOneInventory`, `groupInventory`, `useKajabiCheckout`, etc.) by joining on slug.
+1. **`convex/instructors.ts:780` (`getInstructorBySlug`)**: remove the `instructorProfiles` lookup entirely. Read only from `instructors`. Return the existing fields (`instructorId`, `oneOnOneInventory`, `groupInventory`, `useKajabiCheckout`, etc.) by joining on slug. **Security update after Greptile P1:** the public allowlist must be explicit — the query is unauthenticated, so spreading the full `instructors` document leaks `googleCalendarId`, `timeZone`, `workingHours`, scheduling metadata, and `discordVoiceChannelUrl`. The shipped implementation constructs an explicit public shape mirroring the historical `instructorProfiles` row plus a few `instructors`-only fields (`instructorId`, inventory, kajabi).
 2. **`apps/platform/app/api/admin/instructors/[id]/route.ts:152-166`**: remove the `instructorProfiles` merge block. The merged `portfolioImages` is now identical to `instructor.portfolioImages`.
 3. **`apps/platform/app/api/admin/instructors/[id]/route.ts:400-424`**: remove the second `updateInstructorProfilePortfolioImages` call entirely (the atomic helper from PR 1 still does it for safety during the transition window; this PR removes the manual call).
 4. **`convex/instructors.ts:2031` (`updateInstructorProfilePortfolioImages`)**: delete the export. No callers remain.
@@ -165,13 +165,17 @@ Changes:
 6. **`convex/instructors.ts:1970-2028` (`updateInstructorProfileStorageIdForProfile`, `updateInstructorPortfolioStorageIdsForProfile`)**: delete. No callers remain after PR 1.
 7. **`convex/seed.ts:417` (`seedInstructorProfiles`)**: delete. `seedInstructorsAndProducts` is the only writer and writes to `instructors`.
 8. **`convex/seed.ts:634` (`backfillInstructorProfileMentorIds`)**: delete. No-op after `instructors` is canonical.
-9. **`convex/seed.ts:706` (`clearInstructorData`)**: drop the `instructorProfiles` deletion branch (no-op since the table no longer exists, but cleaner).
+9. **`convex/seed.ts:566` (`clearInstructorData`) + `convex/seed.ts:529` (`clearInstructorsAndProducts`)**: PR 1's atomic helpers still dual-write to `instructorProfiles` until PR 4, so the dev resets must keep deleting those rows to avoid leaving stale data behind. The original plan said to drop the deletion; the shipped implementation retains it and surfaces `profilesDeleted` in the return value.
 10. **`convex/instructors.ts:1525` (`upsertInstructorProfile`)**: delete. The admin form's PUT (`apps/platform/app/api/admin/instructors/[id]/route.ts`) goes through `updateInstructor` directly, which writes to `instructors`.
-11. **Add `convex/getInstructorBySlug.test.ts`** (convex-test) that:
+11. **`apps/platform/app/api/admin/instructors/backfill-images/route.ts` + `apps/web/app/api/admin/instructors/backfill-images/route.ts`**: iterate `instructors` only (no `listInstructorProfilesInternal`). Drop the always-zero `processedProfiles` summary field (the dual-write atomic helper from PR 1 covers the legacy table during the soak window).
+12. **Add `convex/getInstructorBySlug.test.ts`** (convex-test) that:
     - Inserts an instructor row with 5 portfolio URLs and a profile image.
     - Calls `getInstructorBySlug`.
     - Asserts the response has the 5 URLs in the same order.
     - Asserts the response does NOT depend on any `instructorProfiles` row (test passes with the profile table empty, then again with the profile table deleted entirely).
+    - Pins the public allowlist (regression test that confirms `googleRefreshToken`, `googleCalendarId`, `timeZone`, `workingHours`, scheduling metadata, and `discordVoiceChannelUrl` stay private).
+13. **`scripts/migrate-instructors-to-convex.ts`**: stop calling the deleted `instructors:upsertInstructorProfile` mutation. Resolve the instructor id by slug (`instructors:getInstructorBySlugForAdmin`) and call `updateInstructor`. Rename `instructors:upsertMenteeResult` → `instructors:upsertStudentResult`.
+14. **`scripts/migrate-instructor-images.mjs`**: drop the entire `migrateInstructorProfiles` phase (the profile table is no longer a migration source). Rename `migrateMenteeResults` → `migrateStudentResults`, `listMenteeResultsInternal` → `listStudentResultsInternal`, `updateMenteeResultStorageId` → `updateStudentResultStorageId`. Update the summary printout to match the new `getMigrationStatus` return shape.
 
 Verification:
 - `pnpm --filter apps/platform run typecheck`
@@ -182,6 +186,8 @@ Verification:
 - Manually: `/instructors/nino-vecia` shows all portfolio images.
 - Manually: edit nino-vecia in admin (add, remove, reorder) → reload → confirm public page reflects.
 - Search the entire repo for remaining `instructorProfiles` references with `grep -rn instructorProfiles apps packages convex` — should return zero hits except in the schema definition itself (next PR).
+
+Status: ✅ Shipped as PR #832, squash-merged. Branch `feat/instructor-profile-narrow`, commits `e7ca79b7` → `3c94656c` (Greptile round 1 fixes: P1 security allowlist + script fixes) → `c880b5a7` (Greptile round 2 fixes: scripts + reset behavior).
 
 Risk: Medium-low. After PR 2, the two tables are identical, so reads from either source produce the same answer. Switching the reader is a refactor with no behavioral change. Mitigations:
 - Deploy PR 3 with feature flag / staged rollout if possible (Convex doesn't have feature flags; rely on staging soak + prod smoke test).
