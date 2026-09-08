@@ -163,11 +163,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             if ("error" in u) {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${u.error}` });
             } else {
-              await client.mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-                slug,
-                storageId: u.storageId,
-                url: u.url,
-              });
+              // PR 1: the public mutation now writes BOTH tables atomically.
+              // The earlier *ForProfile call (which only wrote the profile
+              // table) is gone so the two tables cannot diverge mid-backfill.
               if (inst?._id) {
                 await client.mutation(api.instructors.updateInstructorProfileStorageId, {
                   instructorId: castInstructorId(inst._id),
@@ -204,19 +202,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             }
             processed++;
           }
-          if (!dryRun && idxs.length > 0) {
-            await client.mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-              slug,
+          if (!dryRun && idxs.length > 0 && inst?._id) {
+            // PR 1: same — public mutation is atomic.
+            await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
+              instructorId: castInstructorId(inst._id),
               storageIds: newSids,
               urls: newUrls,
             });
-            if (inst?._id) {
-              await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
-                instructorId: castInstructorId(inst._id),
-                storageIds: newSids,
-                urls: newUrls,
-              });
-            }
           }
         }
       } catch (e) {

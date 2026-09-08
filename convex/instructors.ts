@@ -214,11 +214,9 @@ export const backfillImages = action({
           if (src && !args.dryRun) {
             const uploaded = await uploadFromUrl(src);
             if (!('error' in uploaded)) {
-              await ctx.runMutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-                slug,
-                storageId: uploaded.storageId,
-                url: uploaded.url,
-              } as any);
+              // PR 1: the public mutation now writes BOTH tables atomically.
+              // The earlier *ForProfile call (which only wrote the profile
+              // table) is gone so the two tables cannot diverge mid-backfill.
               if (inst?._id) {
                 await ctx.runMutation(api.instructors.updateInstructorProfileStorageId, {
                   instructorId: inst._id,
@@ -257,19 +255,13 @@ export const backfillImages = action({
             }
             processedCount++;
           }
-          if (!args.dryRun && toProcess.length > 0) {
-            await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-              slug,
+          if (!args.dryRun && toProcess.length > 0 && inst?._id) {
+            // PR 1: same — public mutation is atomic.
+            await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
+              instructorId: inst._id,
               storageIds: newSids,
               urls: newUrls,
             } as any);
-            if (inst?._id) {
-              await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
-                instructorId: inst._id,
-                storageIds: newSids,
-                urls: newUrls,
-              } as any);
-            }
           }
         }
       } catch (e) {
@@ -619,11 +611,17 @@ export const internalAtomicUpdateProfileFields = internalMutation({
     if (!instructor) throw new Error("Instructor not found");
 
     const overlap = pickOverlapping(args.fields as Record<string, unknown> | undefined);
-    if (Object.keys(overlap).length === 0) {
-      return { updatedFields: [] as string[], updatedProfile: false };
-    }
 
-    await ctx.db.patch(args.instructorId, overlap as Partial<Doc<"instructors">>);
+    // PR 1: always patch `instructors` here (with `updatedAt` if nothing else)
+    // so callers don't need a separate outer patch and the whole update is
+    // committed atomically. See INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md and
+    // Greptile review on PR #830.
+    const instructorsPatch: Record<string, unknown> = { updatedAt: Date.now(), ...overlap };
+    await ctx.db.patch(args.instructorId, instructorsPatch as Partial<Doc<"instructors">>);
+
+    if (Object.keys(overlap).length === 0) {
+      return { updatedFields: [], updatedProfile: false };
+    }
 
     const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
     if (profile) {
@@ -632,6 +630,53 @@ export const internalAtomicUpdateProfileFields = internalMutation({
     }
 
     return { updatedFields: Object.keys(overlap), updatedProfile: false };
+  },
+});
+
+/**
+ * Full-update atomic helper used by the admin `updateInstructor` mutation.
+ *
+ * Splits the incoming `fields` into the overlapping subset (written to BOTH
+ * `instructors` and `instructorProfiles`) and the instructors-only subset
+ * (written to `instructors` alone). All writes — including `updatedAt` —
+ * happen inside this single transaction, so callers do not need any outer
+ * `ctx.db.patch` calls. This is the structural fix for the partial-commit
+ * concern Greptile raised on PR #830 for the previous shape that called
+ * `internalAtomicUpdateProfileFields` and then patched `instructors` outside.
+ */
+export const internalAtomicFullUpdateInstructor = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    fields: v.any(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const allFields = (args.fields ?? {}) as Record<string, unknown>;
+    const overlap = pickOverlapping(allFields);
+    const overlapKeySet = new Set<string>(PROFILE_OVERLAPPING_FIELDS);
+    const instructorsOnly: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(allFields)) {
+      if (!overlapKeySet.has(k)) instructorsOnly[k] = v;
+    }
+
+    const instructorsPatch: Record<string, unknown> = {
+      updatedAt: Date.now(),
+      ...overlap,
+      ...instructorsOnly,
+    };
+    await ctx.db.patch(args.instructorId, instructorsPatch as Partial<Doc<"instructors">>);
+
+    if (Object.keys(overlap).length > 0) {
+      const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+      if (profile) {
+        await ctx.db.patch(profile._id, overlap as Partial<Doc<"instructorProfiles">>);
+      }
+    }
+
+    return null;
   },
 });
 
@@ -726,13 +771,11 @@ export const backfillImagesForSlugs = internalAction({
           if (src) {
             const uploaded = await uploadFromUrl(src);
             if (!("error" in uploaded)) {
-              await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageBySlug, {
-                slug,
-                storageId: uploaded.storageId,
-                url: uploaded.url,
-              } as any);
+              // PR 1: the public atomic mutation writes BOTH tables in one
+              // transaction. Drop the profile-only then instructor-only
+              // sequence — it was a divergence source.
               if (inst?._id) {
-                await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageById, {
+                await ctx.runMutation(internal.instructors.internalAtomicSetProfileImage, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
@@ -769,19 +812,13 @@ export const backfillImagesForSlugs = internalAction({
             }
             processedCount++;
           }
-          if (toProcess.length > 0) {
-            await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioBySlug, {
-              slug,
+          if (toProcess.length > 0 && inst?._id) {
+            // PR 1: same — public mutation is atomic.
+            await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
+              instructorId: inst._id,
               storageIds: newSids,
               urls: newUrls,
             } as any);
-            if (inst?._id) {
-              await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioById, {
-                instructorId: inst._id,
-                storageIds: newSids,
-                urls: newUrls,
-              } as any);
-            }
           }
         }
       } catch (e) {
@@ -1557,26 +1594,17 @@ export const updateInstructor = mutation({
       }
     }
 
-    // PR 1: route overlapping fields through the atomic helper so both
-    // `instructors` and `instructorProfiles` are updated in one transaction.
-    // Non-overlapping fields (inventory, kajabi, isListed, calendar, working
-    // hours, etc.) are still patched on `instructors` directly — they don't
-    // exist on the profile table.
-    const overlapKeySet = new Set<string>(PROFILE_OVERLAPPING_FIELDS);
-    const instructorsOnly: Record<string, unknown> = { updatedAt: Date.now() };
-    for (const [k, v] of Object.entries(updates)) {
-      if (!overlapKeySet.has(k)) {
-        instructorsOnly[k] = v;
-      }
-    }
+    // PR 1: delegate the full update to one atomic helper that writes BOTH
+    // tables (overlapping fields) and the instructors-only fields, all inside
+    // a single transaction. No outer writes here — that was the partial-commit
+    // risk Greptile flagged on the previous shape (runMutation + outer patch).
     await ctx.runMutation(
-      internal.instructors.internalAtomicUpdateProfileFields,
+      internal.instructors.internalAtomicFullUpdateInstructor,
       {
         instructorId: id,
         fields: updates,
       }
     );
-    await ctx.db.patch(id, instructorsOnly as Partial<Doc<"instructors">>);
     return await ctx.db.get(id);
   },
 });
@@ -1610,9 +1638,9 @@ export const updateInstructorProfile = mutation({
       return await ctx.db.get(id);
     }
 
-    // PR 1: route overlapping fields through the atomic helper so both tables
-    // are updated in one transaction. The instructor-only timestamp remains
-    // patched here so the public contract is unchanged.
+    // PR 1: delegate fully to the atomic helper. `internalAtomicUpdateProfileFields`
+    // now also patches `updatedAt` on `instructors`, so no outer writes are
+    // needed and the whole update commits atomically.
     await ctx.runMutation(
       internal.instructors.internalAtomicUpdateProfileFields,
       {
@@ -1620,7 +1648,6 @@ export const updateInstructorProfile = mutation({
         fields: updates,
       }
     );
-    await ctx.db.patch(id, { updatedAt: Date.now() });
     return await ctx.db.get(id);
   },
 });

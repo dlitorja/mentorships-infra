@@ -26,6 +26,7 @@ async function seedInstructorWithProfile(
 ): Promise<{ instructorId: string; profileId?: string }> {
   const slug = opts.slug ?? "nino-vecia";
   const userId = opts.userId ?? "user_owner";
+  const now = Date.now();
   const instructorId = await ctx.db.insert("instructors", {
     userId,
     slug,
@@ -34,6 +35,7 @@ async function seedInstructorWithProfile(
     isActive: true,
     portfolioImages: opts.instructorPortfolio,
     portfolioImageStorageIds: opts.instructorPortfolio?.map((_, i) => `sid_inst_${i}`),
+    updatedAt: now,
   });
   let profileId: string | undefined;
   if (opts.profilePortfolio !== undefined) {
@@ -333,4 +335,128 @@ test("public updateInstructor writes overlapping fields to both tables (PR 1 con
   expect(instructor?.maxActiveStudents).toBe(25);
   expect(instructor?.oneOnOneInventory).toBe(3);
   expect(profile?.maxActiveStudents).toBeUndefined();
+});
+
+test("internalAtomicFullUpdateInstructor writes both tables for overlapping + instructors-only for the rest in one transaction", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId, profileId } = await t.run(async (ctx) => {
+    await seedAdmin(ctx);
+    return seedInstructorWithProfile(ctx, {
+      slug: "atomic-full-update",
+      instructorPortfolio: ["https://example.com/old.png"],
+      profilePortfolio: ["https://example.com/old.png"],
+    });
+  });
+
+  await t
+    .withIdentity({ subject: "user_admin" })
+    .mutation(api.instructors.updateInstructor, {
+      id: instructorId as any,
+      // overlapping — both tables
+      tagline: "Full-update tagline",
+      bio: "Full-update bio",
+      portfolioImages: ["https://example.com/x.png"],
+      // instructors-only
+      maxActiveStudents: 25,
+      oneOnOneInventory: 3,
+      kajabiCheckoutUrlOneOnOne: "https://kajabi.test/1on1",
+    });
+
+  const instructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId!));
+
+  expect(instructor?.tagline).toBe("Full-update tagline");
+  expect(profile?.tagline).toBe("Full-update tagline");
+  expect(instructor?.bio).toBe("Full-update bio");
+  expect(profile?.bio).toBe("Full-update bio");
+  expect(instructor?.portfolioImages).toEqual(["https://example.com/x.png"]);
+  expect(profile?.portfolioImages).toEqual(["https://example.com/x.png"]);
+
+  expect(instructor?.maxActiveStudents).toBe(25);
+  expect(instructor?.oneOnOneInventory).toBe(3);
+  expect(instructor?.kajabiCheckoutUrlOneOnOne).toBe("https://kajabi.test/1on1");
+  expect(profile?.maxActiveStudents).toBeUndefined();
+  expect(profile?.oneOnOneInventory).toBeUndefined();
+  expect(profile?.kajabiCheckoutUrlOneOnOne).toBeUndefined();
+
+  // updatedAt bumped on instructors
+  expect(typeof instructor?.updatedAt).toBe("number");
+});
+
+test("internalAtomicFullUpdateInstructor rolls back BOTH tables when the instructor-side write fails", async () => {
+  // Atomicity contract from Greptile P1 review on PR #830: a single Convex
+  // transaction must back the entire update. If the instructors-side patch
+  // throws (e.g. schema validator rejects a field), neither table is committed.
+  const t = convexTest(schema, modules);
+  const { instructorId, profileId } = await t.run(async (ctx) => {
+    await seedAdmin(ctx);
+    return seedInstructorWithProfile(ctx, {
+      slug: "atomic-rollback",
+      instructorPortfolio: ["https://example.com/before.png"],
+      profilePortfolio: ["https://example.com/before.png"],
+    });
+  });
+
+  const beforeInstructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  const beforeProfile = await t.run(async (ctx) => await ctx.db.get(profileId!));
+  const beforeUpdatedAt = beforeInstructor?.updatedAt;
+  expect(beforeUpdatedAt).toBeTypeOf("number");
+
+  // Force a failure: maxActiveStudents is typed `v.number()` in the
+  // `instructors` schema, so the string below violates the validator on the
+  // instructors patch. The helper accepts `v.any()` for `fields` so the
+  // argument validator itself doesn't reject — the schema validator on
+  // `db.patch` does, which is exactly the failure mode we want.
+  await expect(
+    t.mutation(internal.instructors.internalAtomicFullUpdateInstructor, {
+      instructorId: instructorId as any,
+      fields: {
+        tagline: "Should not commit",
+        bio: "Should not commit",
+        maxActiveStudents: "not-a-number",
+      },
+    })
+  ).rejects.toThrow();
+
+  // Neither table should have been touched.
+  const afterInstructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  const afterProfile = await t.run(async (ctx) => await ctx.db.get(profileId!));
+  expect(afterInstructor?.tagline).toBe(beforeInstructor?.tagline);
+  expect(afterInstructor?.bio).toBe(beforeInstructor?.bio);
+  expect(afterInstructor?.portfolioImages).toEqual(["https://example.com/before.png"]);
+  expect(afterInstructor?.updatedAt).toBe(beforeUpdatedAt);
+  expect(afterProfile?.tagline).toBe(beforeProfile?.tagline);
+  expect(afterProfile?.bio).toBe(beforeProfile?.bio);
+  expect(afterProfile?.portfolioImages).toEqual(["https://example.com/before.png"]);
+});
+
+test("updateInstructorProfile sets updatedAt on instructors without an outer patch", async () => {
+  // Greptile P1 concern on the previous shape: the public mutation patched
+  // `instructors.updatedAt` outside the atomic helper, which risked a
+  // partial commit. The helper now sets `updatedAt` itself; this test
+  // verifies the public mutation does not need to.
+  const t = convexTest(schema, modules);
+  const { instructorId, profileId } = await t.run(async (ctx) => {
+    await seedAdmin(ctx);
+    return seedInstructorWithProfile(ctx, {
+      slug: "atomic-profile-updatedAt",
+      instructorPortfolio: ["https://example.com/old.png"],
+      profilePortfolio: ["https://example.com/old.png"],
+    });
+  });
+  const beforeUpdatedAt = (await t.run(async (ctx) => await ctx.db.get(instructorId)))?.updatedAt;
+  await new Promise((r) => setTimeout(r, 5));
+
+  await t
+    .withIdentity({ subject: "user_owner" })
+    .mutation(api.instructors.updateInstructorProfile, {
+      id: instructorId as any,
+      tagline: "Owner updated tagline",
+    });
+
+  const instructor = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId!));
+  expect(instructor?.tagline).toBe("Owner updated tagline");
+  expect(profile?.tagline).toBe("Owner updated tagline");
+  expect(instructor?.updatedAt).toBeGreaterThan(beforeUpdatedAt ?? 0);
 });
