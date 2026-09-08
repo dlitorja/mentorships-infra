@@ -460,3 +460,55 @@ test("updateInstructorProfile sets updatedAt on instructors without an outer pat
   expect(profile?.tagline).toBe("Owner updated tagline");
   expect(instructor?.updatedAt).toBeGreaterThan(beforeUpdatedAt ?? 0);
 });
+
+test("legacy *ForProfile mutations still write ONLY to instructorProfiles (fallback for unmatched slugs)", async () => {
+  // Greptile P1 on PR #830 commit dec19fe1: when an instructorProfiles row
+  // has no matching instructors row, the atomic dual-write mutation cannot
+  // run (it requires an instructorId). The legacy *ForProfile mutations are
+  // retained as a fallback so the backfill doesn't orphan the upload. This
+  // test pins that fallback contract.
+  const t = convexTest(schema, modules);
+  const profileId = await t.run(async (ctx) => {
+    await seedAdmin(ctx);
+    return await ctx.db.insert("instructorProfiles", {
+      slug: "orphan-profile",
+      userId: "user_owner",
+      name: "Orphan Profile",
+      isActive: true,
+      portfolioImages: ["https://example.com/old.png"],
+      portfolioImageStorageIds: ["sid_old"],
+    });
+  });
+
+  await t
+    .withIdentity({ subject: "user_admin" })
+    .mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
+      slug: "orphan-profile",
+      storageId: "sid_profile_new",
+      url: "https://example.com/new-profile.png",
+    });
+
+  await t
+    .withIdentity({ subject: "user_admin" })
+    .mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
+      slug: "orphan-profile",
+      storageIds: ["sid_x", "sid_y"],
+      urls: ["https://example.com/x.png", "https://example.com/y.png"],
+    });
+
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+  expect(profile?.profileImageUrl).toBe("https://example.com/new-profile.png");
+  expect(profile?.profileImageStorageId).toBe("sid_profile_new");
+  expect(profile?.portfolioImages).toEqual([
+    "https://example.com/x.png",
+    "https://example.com/y.png",
+  ]);
+  expect(profile?.portfolioImageStorageIds).toEqual(["sid_x", "sid_y"]);
+  // Critically: no instructors row exists for this slug, so this proves the
+  // legacy path is isolated to the profile table and doesn't write anywhere
+  // unexpected.
+  const allInstructors = await t.run(async (ctx) =>
+    ctx.db.query("instructors").withIndex("by_slug", (q) => q.eq("slug", "orphan-profile")).collect()
+  );
+  expect(allInstructors).toHaveLength(0);
+});

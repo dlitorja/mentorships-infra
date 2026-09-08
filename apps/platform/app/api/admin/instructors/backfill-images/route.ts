@@ -162,19 +162,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const u = await uploadFromUrl(src);
             if ("error" in u) {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${u.error}` });
+            } else if (inst?._id) {
+              // PR 1: when a matching instructor exists, the public mutation
+              // writes BOTH tables atomically.
+              await client.mutation(api.instructors.updateInstructorProfileStorageId, {
+                instructorId: castInstructorId(inst._id),
+                storageId: u.storageId,
+                url: u.url,
+              });
+              summary.processedInstructors++;
+              summary.processedProfiles++;
             } else {
-              // PR 1: the public mutation now writes BOTH tables atomically.
-              // The earlier *ForProfile call (which only wrote the profile
-              // table) is gone so the two tables cannot diverge mid-backfill.
-              if (inst?._id) {
-                await client.mutation(api.instructors.updateInstructorProfileStorageId, {
-                  instructorId: castInstructorId(inst._id),
+              // PR 1: no matching instructor. The profile table is still the
+              // source of truth here — fall back to the legacy profile-only
+              // mutation so the image lands somewhere instead of leaving an
+              // orphaned upload. Greptile review on PR #830 caught this
+              // regression; see INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md.
+              await client.mutation(
+                api.instructors.updateInstructorProfileStorageIdForProfile,
+                {
+                  slug,
                   storageId: u.storageId,
                   url: u.url,
-                });
-                summary.processedInstructors++;
-              }
+                }
+              );
               summary.processedProfiles++;
+              summary.skipped++;
             }
           }
           processed++;
@@ -202,13 +215,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             }
             processed++;
           }
-          if (!dryRun && idxs.length > 0 && inst?._id) {
-            // PR 1: same — public mutation is atomic.
-            await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
-              instructorId: castInstructorId(inst._id),
-              storageIds: newSids,
-              urls: newUrls,
-            });
+          if (!dryRun && idxs.length > 0) {
+            if (inst?._id) {
+              // PR 1: same — public mutation is atomic.
+              await client.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
+                instructorId: castInstructorId(inst._id),
+                storageIds: newSids,
+                urls: newUrls,
+              });
+            } else {
+              // PR 1: no matching instructor — legacy profile-only path so the
+              // upload isn't orphaned.
+              await client.mutation(
+                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                }
+              );
+              summary.skipped++;
+            }
           }
         }
       } catch (e) {

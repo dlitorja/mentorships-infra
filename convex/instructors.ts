@@ -214,18 +214,30 @@ export const backfillImages = action({
           if (src && !args.dryRun) {
             const uploaded = await uploadFromUrl(src);
             if (!('error' in uploaded)) {
-              // PR 1: the public mutation now writes BOTH tables atomically.
-              // The earlier *ForProfile call (which only wrote the profile
-              // table) is gone so the two tables cannot diverge mid-backfill.
               if (inst?._id) {
+                // PR 1: matching instructor → atomic dual-write mutation.
                 await ctx.runMutation(api.instructors.updateInstructorProfileStorageId, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
                 } as any);
                 summary.processedInstructors += 1;
+                summary.processedProfiles += 1;
+              } else {
+                // PR 1: no matching instructor — fall back to the legacy
+                // profile-only mutation so the upload isn't orphaned
+                // (Greptile P1 review on PR #830).
+                await ctx.runMutation(
+                  api.instructors.updateInstructorProfileStorageIdForProfile,
+                  {
+                    slug,
+                    storageId: uploaded.storageId,
+                    url: uploaded.url,
+                  } as any
+                );
+                summary.processedProfiles += 1;
+                summary.skipped += 1;
               }
-              summary.processedProfiles += 1;
             } else {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
             }
@@ -255,13 +267,26 @@ export const backfillImages = action({
             }
             processedCount++;
           }
-          if (!args.dryRun && toProcess.length > 0 && inst?._id) {
-            // PR 1: same — public mutation is atomic.
-            await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
-              instructorId: inst._id,
-              storageIds: newSids,
-              urls: newUrls,
-            } as any);
+          if (!args.dryRun && toProcess.length > 0) {
+            if (inst?._id) {
+              // PR 1: matching instructor → atomic dual-write.
+              await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
+                instructorId: inst._id,
+                storageIds: newSids,
+                urls: newUrls,
+              } as any);
+            } else {
+              // PR 1: no matching instructor — legacy profile-only path.
+              await ctx.runMutation(
+                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                } as any
+              );
+              summary.skipped += 1;
+            }
           }
         }
       } catch (e) {
@@ -771,18 +796,29 @@ export const backfillImagesForSlugs = internalAction({
           if (src) {
             const uploaded = await uploadFromUrl(src);
             if (!("error" in uploaded)) {
-              // PR 1: the public atomic mutation writes BOTH tables in one
-              // transaction. Drop the profile-only then instructor-only
-              // sequence — it was a divergence source.
               if (inst?._id) {
+                // PR 1: matching instructor → atomic dual-write.
                 await ctx.runMutation(internal.instructors.internalAtomicSetProfileImage, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
                 } as any);
                 summary.processedInstructors += 1;
+                summary.processedProfiles += 1;
+              } else {
+                // PR 1: no matching instructor — internal profile-only
+                // mutation so the upload isn't orphaned (Greptile P1 on #830).
+                await ctx.runMutation(
+                  internal.instructors.internalPatchInstructorProfileImageBySlug,
+                  {
+                    slug,
+                    storageId: uploaded.storageId,
+                    url: uploaded.url,
+                  } as any
+                );
+                summary.processedProfiles += 1;
+                summary.skipped += 1;
               }
-              summary.processedProfiles += 1;
             } else {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
             }
@@ -812,13 +848,26 @@ export const backfillImagesForSlugs = internalAction({
             }
             processedCount++;
           }
-          if (toProcess.length > 0 && inst?._id) {
-            // PR 1: same — public mutation is atomic.
-            await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
-              instructorId: inst._id,
-              storageIds: newSids,
-              urls: newUrls,
-            } as any);
+          if (toProcess.length > 0) {
+            if (inst?._id) {
+              // PR 1: matching instructor → atomic dual-write.
+              await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
+                instructorId: inst._id,
+                storageIds: newSids,
+                urls: newUrls,
+              } as any);
+            } else {
+              // PR 1: no matching instructor — internal profile-only.
+              await ctx.runMutation(
+                internal.instructors.internalPatchInstructorPortfolioBySlug,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                } as any
+              );
+              summary.skipped += 1;
+            }
           }
         }
       } catch (e) {
