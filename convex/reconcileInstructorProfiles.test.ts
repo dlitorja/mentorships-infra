@@ -393,6 +393,57 @@ test("reconcileInstructorProfileMetadata: profile name/isActive propagate back w
   expect(instructor?.isActive).toBe(false);
 });
 
+test("reconciliations filter out soft-deleted instructor rows AND skip the soft-deleted match when collecting by slug", async () => {
+  // Greptile P2 review on PR #831 commit `50c6cad4`: a `by_deletedAt` filter
+  // scans the entire active-instructor table per profile (O(N) per row,
+  // quadratic total). The lookup must use `by_slug` for O(1) reads of the
+  // small set of rows sharing the slug, then filter out soft-deleted rows
+  // in memory. This test verifies the soft-deleted row is correctly
+  // excluded when the active instructor is found via the slug index.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+
+  const { profileId, activeInstructorId, softDeletedId } = await t.run(async (ctx) => {
+    const softDeletedId = await ctx.db.insert("instructors", {
+      slug: "index-soft-delete",
+      name: "Soft Deleted Wrong Name",
+      bio: "Soft deleted bio",
+      deletedAt: Date.now() - 1000,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    const profileId = await ctx.db.insert("instructorProfiles", {
+      slug: "index-soft-delete",
+      name: "Active Name",
+      isActive: true,
+      bio: "Profile bio",
+    });
+    const activeInstructorId = await ctx.db.insert("instructors", {
+      slug: "index-soft-delete",
+      name: "Active Name",
+      bio: "Instructor bio",
+      isActive: true,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { profileId, activeInstructorId, softDeletedId };
+  });
+
+  await t.mutation(internal.migrations.runReconcileInstructorProfileMetadata, {});
+
+  const profile = await t.run(async (ctx) => await ctx.db.get(profileId));
+  const active = await t.run(async (ctx) => await ctx.db.get(activeInstructorId));
+  const softDeleted = await t.run(async (ctx) => await ctx.db.get(softDeletedId));
+  // Profile bio comes from the active row (NOT the soft-deleted).
+  expect(profile?.bio).toBe("Instructor bio");
+  expect(profile?.name).toBe("Active Name");
+  // Soft-deleted row is untouched.
+  expect(softDeleted?.bio).toBe("Soft deleted bio");
+  expect(active?.bio).toBe("Instructor bio");
+});
+
 test("reconciliations pick the most recently updated row when multiple active instructor rows share a slug", async () => {
   // Greptile P2 review on PR #831: ambiguity must be detected and handled
   // explicitly. The migration should pick the most recently updated active

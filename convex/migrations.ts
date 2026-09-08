@@ -118,29 +118,33 @@ type InstructorRow = {
   portfolioImages?: string[];
   portfolioImageStorageIds?: string[];
   updatedAt?: number;
+  deletedAt?: number;
 };
 
 // Look up the canonical (most recently updated, non-deleted) instructor row
-// for a given slug. Multiple active rows for one slug indicate data
-// integrity issues — log a warning so operators can investigate, and use
-// the most recently updated row as the deterministic winner (Greptile P2
-// review on PR #831).
+// for a given slug. Uses the `by_slug` index for an O(1) read of the small
+// set of rows sharing the slug, then filters out soft-deleted rows in
+// memory. Multiple active rows for one slug indicate data integrity
+// issues — log a warning so operators can investigate, and use the most
+// recently updated row as the deterministic winner (Greptile P2 reviews
+// on PR #831).
 async function findActiveInstructorBySlug(
   ctx: MutationCtx,
   slug: string
 ): Promise<InstructorRow | null> {
   const matches = (await ctx.db
     .query("instructors")
-    .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-    .filter((q) => q.eq(q.field("slug"), slug))
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
     .collect()) as InstructorRow[];
-  if (matches.length <= 1) return matches[0] ?? null;
+  const active = matches.filter((row) => row.deletedAt === undefined);
+  if (active.length === 0) return null;
+  if (active.length === 1) return active[0];
   console.warn(
-    `[reconcile] slug=${slug} has ${matches.length} active instructor rows; ` +
+    `[reconcile] slug=${slug} has ${active.length} active instructor rows; ` +
       "using most recently updated as the canonical winner. Investigate duplicates."
   );
-  matches.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  return matches[0];
+  active.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return active[0];
 }
 
 function arraysEqual(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
