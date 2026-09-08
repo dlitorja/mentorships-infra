@@ -148,46 +148,23 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === "profile") {
+      // PR 1: updateInstructorProfileStorageId is now atomic — both tables
+      // are updated in one transaction.
       await convex.mutation(api.instructors.updateInstructorProfileStorageId, {
         instructorId: instructorId as Id<"instructors">,
         storageId,
         url: url ?? `convex://storage/${storageId}`,
       });
-      if (instructor.slug) {
-        try {
-          await convex.mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-            slug: instructor.slug,
-            storageId,
-            url: url ?? `convex://storage/${storageId}`,
-          });
-        } catch (e) {
-          console.warn(`Failed to update instructorProfiles for slug ${instructor.slug}:`, e);
-        }
-      }
     } else if (type === "portfolio") {
       const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
       const currentUrls = instructor.portfolioImages ?? [];
+      // PR 1: updateInstructorPortfolioStorageIds is now atomic — both tables
+      // are updated in one transaction.
       await convex.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
         instructorId: instructorId as Id<"instructors">,
         storageIds: [...currentStorageIds, storageId],
         urls: [...currentUrls, url ?? `convex://storage/${storageId}`],
       });
-      if (instructor.slug) {
-        try {
-          const profile = await convex.query(api.instructors.getInstructorBySlug, { slug: instructor.slug });
-          if (profile) {
-            const profileStorageIds = profile.portfolioImageStorageIds ?? [];
-            const profileUrls = profile.portfolioImages ?? [];
-            await convex.mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-              slug: instructor.slug,
-              storageIds: [...profileStorageIds, storageId],
-              urls: [...profileUrls, url ?? `convex://storage/${storageId}`],
-            });
-          }
-        } catch (e) {
-          console.warn(`Failed to update instructorProfiles for slug ${instructor.slug}:`, e);
-        }
-      }
     }
 
     return NextResponse.json({

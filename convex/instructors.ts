@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { internal, api } from "./_generated/api";
-import type { QueryCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
@@ -214,20 +214,30 @@ export const backfillImages = action({
           if (src && !args.dryRun) {
             const uploaded = await uploadFromUrl(src);
             if (!('error' in uploaded)) {
-              await ctx.runMutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-                slug,
-                storageId: uploaded.storageId,
-                url: uploaded.url,
-              } as any);
               if (inst?._id) {
+                // PR 1: matching instructor → atomic dual-write mutation.
                 await ctx.runMutation(api.instructors.updateInstructorProfileStorageId, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
                 } as any);
                 summary.processedInstructors += 1;
+                summary.processedProfiles += 1;
+              } else {
+                // PR 1: no matching instructor — fall back to the legacy
+                // profile-only mutation so the upload isn't orphaned
+                // (Greptile P1 review on PR #830).
+                await ctx.runMutation(
+                  api.instructors.updateInstructorProfileStorageIdForProfile,
+                  {
+                    slug,
+                    storageId: uploaded.storageId,
+                    url: uploaded.url,
+                  } as any
+                );
+                summary.processedProfiles += 1;
+                summary.skipped += 1;
               }
-              summary.processedProfiles += 1;
             } else {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
             }
@@ -258,17 +268,24 @@ export const backfillImages = action({
             processedCount++;
           }
           if (!args.dryRun && toProcess.length > 0) {
-            await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-              slug,
-              storageIds: newSids,
-              urls: newUrls,
-            } as any);
             if (inst?._id) {
+              // PR 1: matching instructor → atomic dual-write.
               await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
               } as any);
+            } else {
+              // PR 1: no matching instructor — legacy profile-only path.
+              await ctx.runMutation(
+                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                } as any
+              );
+              summary.skipped += 1;
             }
           }
         }
@@ -406,6 +423,289 @@ export const internalPatchStudentResultImage = internalMutation({
 });
 
 /**
+ * Fields that exist on BOTH `instructors` and `instructorProfiles`.
+ * Mutations that touch these fields must use an atomic dual-write helper so the
+ * two tables cannot diverge. See INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md.
+ */
+const PROFILE_OVERLAPPING_FIELDS = [
+  "userId",
+  "legacyInstructorRef",
+  "email",
+  "name",
+  "slug",
+  "tagline",
+  "bio",
+  "specialties",
+  "background",
+  "socials",
+  "isActive",
+  "isNew",
+  "profileImageUrl",
+  "profileImageStorageId",
+  "profileImageUploadPath",
+  "portfolioImages",
+  "portfolioImageStorageIds",
+] as const;
+type OverlappingField = (typeof PROFILE_OVERLAPPING_FIELDS)[number];
+type OverlappingPatch = Partial<Record<OverlappingField, unknown>>;
+
+/**
+ * Splits an update payload into the subset of fields shared by both tables.
+ * Anything not shared (e.g. googleCalendarId, inventory, kajabi URLs) is dropped
+ * so callers can pass the full args of updateInstructor without re-filtering.
+ */
+function pickOverlapping(fields: Record<string, unknown> | undefined | null): OverlappingPatch {
+  if (!fields) return {};
+  const picked: OverlappingPatch = {};
+  for (const key of PROFILE_OVERLAPPING_FIELDS) {
+    if (key in fields) {
+      picked[key] = fields[key];
+    }
+  }
+  return picked;
+}
+
+/**
+ * Looks up the matching `instructorProfiles` row by slug. Returns null when no
+ * profile exists — atomic helpers no-op the profile table in that case so the
+ * `instructors` write still succeeds (matches today's lenient behavior).
+ */
+async function findProfileByInstructorSlug(
+  ctx: MutationCtx,
+  slug: string | undefined
+): Promise<Doc<"instructorProfiles"> | null> {
+  if (!slug) return null;
+  return await ctx.db
+    .query("instructorProfiles")
+    .withIndex("by_slug", (q) => q.eq("slug", slug))
+    .first();
+}
+
+/**
+ * Appends a portfolio image (URL + storageId) to BOTH the `instructors` row and
+ * the matching `instructorProfiles` row in a single Convex transaction. If no
+ * profile row exists for the slug, the `instructors` write still commits and
+ * the profile table is left alone. Throws when the instructor row is missing.
+ *
+ * Replaces the public addInstructorPortfolioImage and updateInstructorPortfolioStorageIds
+ * bodies so the two tables cannot diverge.
+ */
+export const internalAtomicAddPortfolioImage = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    url: v.string(),
+    storageId: v.string(),
+  },
+  // Explicit return type avoids the module self-reference cycle that arises
+  // when callers in the same file do `return await ctx.runMutation(internal.X)`.
+  returns: v.object({
+    storageId: v.string(),
+    url: v.string(),
+    index: v.number(),
+  }),
+  handler: async (ctx, args): Promise<{ storageId: string; url: string; index: number }> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const currentUrls = instructor.portfolioImages ?? [];
+    const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
+    const newUrls = [...currentUrls, args.url];
+    const newStorageIds = [...currentStorageIds, args.storageId];
+
+    await ctx.db.patch(args.instructorId, {
+      portfolioImages: newUrls,
+      portfolioImageStorageIds: newStorageIds,
+    });
+
+    const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+    if (profile) {
+      // Read the profile's own current arrays as the base so this helper
+      // preserves the public addInstructorPortfolioImage contract (which
+      // historically appended to the profile's own list, not the instructor's).
+      const profileCurrentUrls = profile.portfolioImages ?? [];
+      const profileCurrentStorageIds = profile.portfolioImageStorageIds ?? [];
+      await ctx.db.patch(profile._id, {
+        portfolioImages: [...profileCurrentUrls, args.url],
+        portfolioImageStorageIds: [...profileCurrentStorageIds, args.storageId],
+      });
+    }
+
+    return {
+      storageId: args.storageId,
+      url: args.url,
+      index: currentUrls.length,
+    };
+  },
+});
+
+/**
+ * Replaces the full portfolio image list (URLs + storageIds) on BOTH tables in
+ * one transaction. Used by the admin upload route which reads the current list
+ * client-side and writes back the appended version.
+ */
+export const internalAtomicSetPortfolioImages = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    urls: v.array(v.string()),
+    storageIds: v.array(v.string()),
+  },
+  returns: v.object({
+    urls: v.array(v.string()),
+    storageIds: v.array(v.string()),
+  }),
+  handler: async (ctx, args): Promise<{ urls: string[]; storageIds: string[] }> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    await ctx.db.patch(args.instructorId, {
+      portfolioImages: args.urls,
+      portfolioImageStorageIds: args.storageIds,
+    });
+
+    const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+    if (profile) {
+      await ctx.db.patch(profile._id, {
+        portfolioImages: args.urls,
+        portfolioImageStorageIds: args.storageIds,
+      });
+    }
+
+    return { urls: args.urls, storageIds: args.storageIds };
+  },
+});
+
+/**
+ * Sets the profile picture (URL + storageId) on BOTH tables in one transaction.
+ * Replaces the bodies of addInstructorProfileImage and updateInstructorProfileStorageId.
+ */
+export const internalAtomicSetProfileImage = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    url: v.string(),
+    storageId: v.string(),
+  },
+  returns: v.object({
+    url: v.string(),
+    storageId: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{ url: string; storageId: string }> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    await ctx.db.patch(args.instructorId, {
+      profileImageUrl: args.url,
+      profileImageStorageId: args.storageId,
+    });
+
+    const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+    if (profile) {
+      await ctx.db.patch(profile._id, {
+        profileImageUrl: args.url,
+        profileImageStorageId: args.storageId,
+      });
+    }
+
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+/**
+ * Patches the subset of overlapping profile fields on BOTH tables in one
+ * transaction. Non-overlapping fields (inventory, calendar, working hours,
+ * kajabi, isListed, etc.) are ignored — the caller is responsible for those
+ * because they live only on `instructors`. The profile table is no-op'd when
+ * no matching row exists for the slug.
+ *
+ * This is the atomic core of updateInstructor — every overlapping field passed
+ * to the public mutation flows through here so the two tables stay in sync.
+ */
+export const internalAtomicUpdateProfileFields = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    fields: v.any(),
+  },
+  returns: v.object({
+    updatedFields: v.array(v.string()),
+    updatedProfile: v.boolean(),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ updatedFields: string[]; updatedProfile: boolean }> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const overlap = pickOverlapping(args.fields as Record<string, unknown> | undefined);
+
+    // PR 1: always patch `instructors` here (with `updatedAt` if nothing else)
+    // so callers don't need a separate outer patch and the whole update is
+    // committed atomically. See INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md and
+    // Greptile review on PR #830.
+    const instructorsPatch: Record<string, unknown> = { updatedAt: Date.now(), ...overlap };
+    await ctx.db.patch(args.instructorId, instructorsPatch as Partial<Doc<"instructors">>);
+
+    if (Object.keys(overlap).length === 0) {
+      return { updatedFields: [], updatedProfile: false };
+    }
+
+    const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+    if (profile) {
+      await ctx.db.patch(profile._id, overlap as Partial<Doc<"instructorProfiles">>);
+      return { updatedFields: Object.keys(overlap), updatedProfile: true };
+    }
+
+    return { updatedFields: Object.keys(overlap), updatedProfile: false };
+  },
+});
+
+/**
+ * Full-update atomic helper used by the admin `updateInstructor` mutation.
+ *
+ * Splits the incoming `fields` into the overlapping subset (written to BOTH
+ * `instructors` and `instructorProfiles`) and the instructors-only subset
+ * (written to `instructors` alone). All writes — including `updatedAt` —
+ * happen inside this single transaction, so callers do not need any outer
+ * `ctx.db.patch` calls. This is the structural fix for the partial-commit
+ * concern Greptile raised on PR #830 for the previous shape that called
+ * `internalAtomicUpdateProfileFields` and then patched `instructors` outside.
+ */
+export const internalAtomicFullUpdateInstructor = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    fields: v.any(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const allFields = (args.fields ?? {}) as Record<string, unknown>;
+    const overlap = pickOverlapping(allFields);
+    const overlapKeySet = new Set<string>(PROFILE_OVERLAPPING_FIELDS);
+    const instructorsOnly: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(allFields)) {
+      if (!overlapKeySet.has(k)) instructorsOnly[k] = v;
+    }
+
+    const instructorsPatch: Record<string, unknown> = {
+      updatedAt: Date.now(),
+      ...overlap,
+      ...instructorsOnly,
+    };
+    await ctx.db.patch(args.instructorId, instructorsPatch as Partial<Doc<"instructors">>);
+
+    if (Object.keys(overlap).length > 0) {
+      const profile = await findProfileByInstructorSlug(ctx, instructor.slug);
+      if (profile) {
+        await ctx.db.patch(profile._id, overlap as Partial<Doc<"instructorProfiles">>);
+      }
+    }
+
+    return null;
+  },
+});
+
+/**
  * Internal backfill scoped to specific slugs.
  * Fetches images from a source site, uploads to Convex Storage, and updates both instructorProfiles and instructors.
  */
@@ -496,20 +796,29 @@ export const backfillImagesForSlugs = internalAction({
           if (src) {
             const uploaded = await uploadFromUrl(src);
             if (!("error" in uploaded)) {
-              await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageBySlug, {
-                slug,
-                storageId: uploaded.storageId,
-                url: uploaded.url,
-              } as any);
               if (inst?._id) {
-                await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageById, {
+                // PR 1: matching instructor → atomic dual-write.
+                await ctx.runMutation(internal.instructors.internalAtomicSetProfileImage, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
                 } as any);
                 summary.processedInstructors += 1;
+                summary.processedProfiles += 1;
+              } else {
+                // PR 1: no matching instructor — internal profile-only
+                // mutation so the upload isn't orphaned (Greptile P1 on #830).
+                await ctx.runMutation(
+                  internal.instructors.internalPatchInstructorProfileImageBySlug,
+                  {
+                    slug,
+                    storageId: uploaded.storageId,
+                    url: uploaded.url,
+                  } as any
+                );
+                summary.processedProfiles += 1;
+                summary.skipped += 1;
               }
-              summary.processedProfiles += 1;
             } else {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
             }
@@ -540,17 +849,24 @@ export const backfillImagesForSlugs = internalAction({
             processedCount++;
           }
           if (toProcess.length > 0) {
-            await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioBySlug, {
-              slug,
-              storageIds: newSids,
-              urls: newUrls,
-            } as any);
             if (inst?._id) {
-              await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioById, {
+              // PR 1: matching instructor → atomic dual-write.
+              await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
               } as any);
+            } else {
+              // PR 1: no matching instructor — internal profile-only.
+              await ctx.runMutation(
+                internal.instructors.internalPatchInstructorPortfolioBySlug,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                } as any
+              );
+              summary.skipped += 1;
             }
           }
         }
@@ -1326,7 +1642,18 @@ export const updateInstructor = mutation({
         (updates as any)[key] = undefined;
       }
     }
-    await ctx.db.patch(id, { ...(updates as any), updatedAt: Date.now() });
+
+    // PR 1: delegate the full update to one atomic helper that writes BOTH
+    // tables (overlapping fields) and the instructors-only fields, all inside
+    // a single transaction. No outer writes here — that was the partial-commit
+    // risk Greptile flagged on the previous shape (runMutation + outer patch).
+    await ctx.runMutation(
+      internal.instructors.internalAtomicFullUpdateInstructor,
+      {
+        instructorId: id,
+        fields: updates,
+      }
+    );
     return await ctx.db.get(id);
   },
 });
@@ -1360,7 +1687,16 @@ export const updateInstructorProfile = mutation({
       return await ctx.db.get(id);
     }
 
-    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
+    // PR 1: delegate fully to the atomic helper. `internalAtomicUpdateProfileFields`
+    // now also patches `updatedAt` on `instructors`, so no outer writes are
+    // needed and the whole update commits atomically.
+    await ctx.runMutation(
+      internal.instructors.internalAtomicUpdateProfileFields,
+      {
+        instructorId: id,
+        fields: updates,
+      }
+    );
     return await ctx.db.get(id);
   },
 });
@@ -1740,7 +2076,18 @@ export const addInstructorPortfolioImage = mutation({
     storageId: v.string(),
     contentType: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  // PR 1: explicit return type breaks the module self-reference cycle that
+  // arose when this public mutation started delegating to an internal helper
+  // declared in the same file. See INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md.
+  returns: v.object({
+    storageId: v.string(),
+    url: v.string(),
+    index: v.number(),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ storageId: string; url: string; index: number }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -1757,16 +2104,16 @@ export const addInstructorPortfolioImage = mutation({
       throw new Error("Failed to get URL for storage ID");
     }
 
-    const currentPortfolioImages = instructor.portfolioImages ?? [];
-    const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
-    const index = currentPortfolioImages.length;
-
-    await ctx.db.patch(args.instructorId, {
-      portfolioImages: [...currentPortfolioImages, url],
-      portfolioImageStorageIds: [...currentStorageIds, args.storageId],
-    });
-
-    return { storageId: args.storageId, url, index };
+    // PR 1: delegate to the atomic helper so both `instructors` and the matching
+    // `instructorProfiles` row are updated in a single Convex transaction.
+    return await ctx.runMutation(
+      internal.instructors.internalAtomicAddPortfolioImage,
+      {
+        instructorId: args.instructorId,
+        url,
+        storageId: args.storageId,
+      }
+    );
   },
 });
 
@@ -1777,7 +2124,12 @@ export const addInstructorProfileImage = mutation({
     storageId: v.string(),
     contentType: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  // PR 1: explicit return type breaks the module self-reference cycle.
+  returns: v.object({
+    storageId: v.string(),
+    url: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{ storageId: string; url: string }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -1794,12 +2146,15 @@ export const addInstructorProfileImage = mutation({
       throw new Error("Failed to get URL for storage ID");
     }
 
-    await ctx.db.patch(args.instructorId, {
-      profileImageUrl: url,
-      profileImageStorageId: args.storageId,
-    });
-
-    return { storageId: args.storageId, url };
+    // PR 1: delegate to the atomic helper so both tables are updated in one transaction.
+    return await ctx.runMutation(
+      internal.instructors.internalAtomicSetProfileImage,
+      {
+        instructorId: args.instructorId,
+        url,
+        storageId: args.storageId,
+      }
+    );
   },
 });
 
@@ -1901,7 +2256,12 @@ export const updateInstructorProfileStorageId = mutation({
     storageId: v.string(),
     url: v.string(),
   },
-  handler: async (ctx, args) => {
+  // PR 1: explicit return type breaks the module self-reference cycle.
+  returns: v.object({
+    storageId: v.string(),
+    url: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{ storageId: string; url: string }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
     const user = await ctx.db
@@ -1909,11 +2269,15 @@ export const updateInstructorProfileStorageId = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    await ctx.db.patch(args.instructorId, {
-      profileImageStorageId: args.storageId,
-      profileImageUrl: args.url,
-    });
-    return { storageId: args.storageId, url: args.url };
+    // PR 1: delegate to the atomic helper so both tables are updated in one transaction.
+    return await ctx.runMutation(
+      internal.instructors.internalAtomicSetProfileImage,
+      {
+        instructorId: args.instructorId,
+        url: args.url,
+        storageId: args.storageId,
+      }
+    );
   },
 });
 
@@ -1923,7 +2287,9 @@ export const updateInstructorPortfolioStorageIds = mutation({
     storageIds: v.array(v.string()),
     urls: v.array(v.string()),
   },
-  handler: async (ctx, args) => {
+  // PR 1: explicit return type breaks the module self-reference cycle.
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
     const user = await ctx.db
@@ -1931,11 +2297,13 @@ export const updateInstructorPortfolioStorageIds = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    await ctx.db.patch(args.instructorId, {
-      portfolioImageStorageIds: args.storageIds,
-      portfolioImages: args.urls,
+    // PR 1: delegate to the atomic helper so both tables are updated in one transaction.
+    await ctx.runMutation(internal.instructors.internalAtomicSetPortfolioImages, {
+      instructorId: args.instructorId,
+      urls: args.urls,
+      storageIds: args.storageIds,
     });
-    return { storageIds: args.storageIds, urls: args.urls };
+    return null;
   },
 });
 

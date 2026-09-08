@@ -397,31 +397,11 @@ export async function PUT(
       );
     }
 
-    if (data.portfolioImages !== undefined && existing && typeof existing === "object" && "slug" in existing) {
-      const slug = (existing as Record<string, unknown>).slug as string;
-      console.log("[DEBUG PUT] Updating portfolioImages:", {
-        dataPortfolioImages: data.portfolioImages,
-        slug,
-      });
-      if (slug) {
-        try {
-          await convex.mutation(api.instructors.updateInstructorProfilePortfolioImages, {
-            slug,
-            portfolioImages: data.portfolioImages,
-          });
-          console.log("[DEBUG PUT] instructorProfiles updated successfully");
-        } catch (profileErr) {
-          console.error("[DEBUG PUT] Failed to update instructorProfiles:", profileErr);
-        }
-      } else {
-        console.log("[DEBUG PUT] No slug, skipping instructorProfiles update");
-      }
-    } else {
-      console.log("[DEBUG PUT] Skipping instructorProfiles update:", {
-        portfolioImagesDefined: data.portfolioImages !== undefined,
-        existingExists: !!existing,
-      });
-    }
+    // PR 1: the atomic updateInstructor handles the dual-write to
+    // `instructorProfiles` for overlapping fields. The previous second-mutation
+    // dance (call updateInstructor, then updateInstructorProfilePortfolioImages)
+    // was non-atomic and caused public/admin portfolio divergence; both tables
+    // are now updated together inside one transaction.
 
     return NextResponse.json({
       success: true,

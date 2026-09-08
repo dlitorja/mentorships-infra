@@ -132,21 +132,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const u = await uploadFromUrl(src);
             if ("error" in u) {
               summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${u.error}` });
-            } else {
-              await convex.mutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
-                slug,
+            } else if (inst?._id) {
+              // PR 1: matching instructor → atomic dual-write mutation.
+              await convex.mutation(api.instructors.updateInstructorProfileStorageId, {
+                instructorId: inst._id,
                 storageId: u.storageId,
                 url: u.url,
               } as any);
-              if (inst?._id) {
-                await convex.mutation(api.instructors.updateInstructorProfileStorageId, {
-                  instructorId: inst._id,
+              summary.processedInstructors++;
+              summary.processedProfiles++;
+            } else {
+              // PR 1: no matching instructor — legacy profile-only path so
+              // the upload isn't orphaned (Greptile P1 review on PR #830).
+              await convex.mutation(
+                api.instructors.updateInstructorProfileStorageIdForProfile,
+                {
+                  slug,
                   storageId: u.storageId,
                   url: u.url,
-                } as any);
-                summary.processedInstructors++;
-              }
+                } as any
+              );
               summary.processedProfiles++;
+              summary.skipped++;
             }
           }
           processed++;
@@ -174,17 +181,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             processed++;
           }
           if (!dryRun && idxs.length > 0) {
-            await convex.mutation(api.instructors.updateInstructorPortfolioStorageIdsForProfile, {
-              slug,
-              storageIds: newSids,
-              urls: newUrls,
-            } as any);
             if (inst?._id) {
+              // PR 1: matching instructor → atomic dual-write.
               await convex.mutation(api.instructors.updateInstructorPortfolioStorageIds, {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
               } as any);
+            } else {
+              // PR 1: no matching instructor — legacy profile-only path.
+              await convex.mutation(
+                api.instructors.updateInstructorPortfolioStorageIdsForProfile,
+                {
+                  slug,
+                  storageIds: newSids,
+                  urls: newUrls,
+                } as any
+              );
+              summary.skipped++;
             }
           }
         }
