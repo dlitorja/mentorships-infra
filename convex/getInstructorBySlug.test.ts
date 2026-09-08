@@ -220,17 +220,15 @@ test("getInstructorBySlug does NOT expose operational metadata (PR 3 security re
   }
 });
 
-test("getInstructorBySlug does NOT surface stale storage IDs when the matching URL was removed from portfolioImages", async () => {
+test("getInstructorBySlug does NOT surface stale storage IDs when arrays diverge in length", async () => {
   // Reproduces the nino-vecia bug: admin edit form's `removePortfolioImage`
   // drops a URL from `portfolioImages` but leaves the matching entry in
-  // `portfolioImageStorageIds`. The previous `getFreshPortfolioUrls`
-  // iterated over `storageIds.length` and resolved a fresh URL for the stale
-  // storage ID, so the public profile page kept showing the deleted image.
-  // Now we iterate over `portfolioImages.length`, so stale storage IDs are
-  // ignored and the public page matches the admin form.
+  // `portfolioImageStorageIds`. When the two arrays diverge in length, the
+  // public profile page must NOT trust positional pairing — the orphan
+  // storage ID would otherwise resolve to a fresh URL and surface a deleted
+  // image. The defensive read path falls back to the canonical URLs.
   const t = convexTest(schema, modules);
 
-  // Upload two real blobs so we have valid Convex storage IDs to stage.
   const orphanedStorageId = await t.run(async (ctx) => {
     return await ctx.storage.store(new Blob(["orphaned image bytes"]));
   });
@@ -246,9 +244,8 @@ test("getInstructorBySlug does NOT surface stale storage IDs when the matching U
       .first()
       .then((d: any) => d?._id);
     if (!id) throw new Error("seed failed");
-    // Simulate the post-remove state: admin removed the image at index 0 from
-    // `portfolioImages`, leaving the matching storage ID behind. storageIds
-    // has one orphaned entry that should not surface.
+    // Simulate the post-remove state: admin removed the image at index 0
+    // from `portfolioImages`, leaving the matching storage ID behind.
     await ctx.db.patch(id, {
       portfolioImages: ["https://example.com/keep.jpg"],
       portfolioImageStorageIds: [orphanedStorageId, keptStorageId],
@@ -260,13 +257,48 @@ test("getInstructorBySlug does NOT surface stale storage IDs when the matching U
   });
 
   expect(result).not.toBeNull();
-  // Only ONE entry returned (matching `portfolioImages.length === 1`). The
-  // orphaned storage ID at index 0 must NOT contribute a fresh URL — the
-  // old shape iterated over storageIds.length and returned 2 entries.
-  expect(result?.portfolioImages).toHaveLength(1);
-  // The kept entry resolves to the fresh Convex storage URL for `keptStorageId`,
-  // not the original placeholder. We assert it matches the storage URL rather
-  // than the placeholder, since storage IDs always take precedence on read.
-  expect(result?.portfolioImages?.[0]).toMatch(/^https?:\/\/.*convex\.cloud\/api\/storage\//);
-  expect(result?.portfolioImages?.[0]).not.toBe("https://example.com/keep.jpg");
+  // Lengths diverge → ignore storage IDs, return canonical URLs only.
+  expect(result?.portfolioImages).toEqual(["https://example.com/keep.jpg"]);
+});
+
+test("getInstructorBySlug pairs storage IDs with URLs by index when lengths match", async () => {
+  // Happy path: when the two arrays have matching length and are
+  // index-aligned, the read path pairs them and prefers fresh storage URLs.
+  const t = convexTest(schema, modules);
+
+  const firstStorageId = await t.run(async (ctx) => {
+    return await ctx.storage.store(new Blob(["first image bytes"]));
+  });
+  const secondStorageId = await t.run(async (ctx) => {
+    return await ctx.storage.store(new Blob(["second image bytes"]));
+  });
+
+  await t.run(async (ctx) => {
+    await seedInstructor(ctx, { slug: "aligned-storage-ids" });
+    const id = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q: any) => q.eq("slug", "aligned-storage-ids"))
+      .first()
+      .then((d: any) => d?._id);
+    if (!id) throw new Error("seed failed");
+    await ctx.db.patch(id, {
+      portfolioImages: [
+        "https://example.com/old-1.jpg",
+        "https://example.com/old-2.jpg",
+      ],
+      portfolioImageStorageIds: [firstStorageId, secondStorageId],
+    } as any);
+  });
+
+  const result = await t.query(api.instructors.getInstructorBySlug, {
+    slug: "aligned-storage-ids",
+  });
+
+  expect(result).not.toBeNull();
+  expect(result?.portfolioImages).toHaveLength(2);
+  // Each entry resolves to its paired storage URL, not the placeholder.
+  for (const url of result?.portfolioImages ?? []) {
+    expect(url).toMatch(/^https?:\/\/.*convex\.cloud\/api\/storage\//);
+    expect(url).not.toMatch(/^https:\/\/example\.com\//);
+  }
 });
