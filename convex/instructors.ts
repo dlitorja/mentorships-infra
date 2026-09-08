@@ -45,12 +45,23 @@ async function getFreshPortfolioUrls(
   storageIds: string[] | undefined,
   fallbackUrls: string[] | undefined
 ): Promise<string[] | undefined> {
-  if (!storageIds || storageIds.length === 0) return fallbackUrls;
+  // `portfolioImages` is the canonical display list. `portfolioImageStorageIds`
+  // should be the same length and index-aligned, but legacy data and the
+  // admin edit form's "remove image" path historically only patched
+  // `portfolioImages`, leaving orphaned storage IDs behind. We must NOT
+  // trust positional pairing when the lengths diverge — those orphan IDs
+  // resolve to fresh Convex storage URLs and would surface deleted images.
+  //
+  // - Lengths match: pair by index, prefer the fresh storage URL.
+  // - Lengths diverge: ignore storage IDs entirely, return the canonical URLs.
+  if (!fallbackUrls || fallbackUrls.length === 0) return fallbackUrls;
+  if (!storageIds || storageIds.length !== fallbackUrls.length) return fallbackUrls;
   const urls = await Promise.all(
-    storageIds.map(async (sid, i) => {
-      if (!sid) return fallbackUrls?.[i];
-      const url = await ctx.storage.getUrl(sid as Id<"_storage">);
-      return url ?? fallbackUrls?.[i];
+    fallbackUrls.map(async (url, i) => {
+      const sid = storageIds[i];
+      if (!sid) return url;
+      const fresh = await ctx.storage.getUrl(sid as Id<"_storage">);
+      return fresh ?? url;
     })
   );
   return urls.filter((u): u is string => u !== undefined);
