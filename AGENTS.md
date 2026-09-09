@@ -254,6 +254,45 @@ This exposes Clerk operations to Cursor, VS Code, and OpenCode agents so you can
 - **Do not change Clerk code or env vars**; this section is for inspection and debugging only. Use `clerk env pull` only when the user explicitly approves it.
 - **Do not create, update, or delete users, orgs, sessions, or memberships** via the Clerk CLI unless the user explicitly asks for it.
 
+# Linear (Project Management)
+
+This project tracks post-merge operational work (verification, monitoring, housekeeping) in **Linear** via the official hosted MCP server. Agents can create and update issues directly.
+
+## MCP server
+
+The workspace `opencode.json` registers a remote MCP server:
+
+```json
+"linear": {
+  "type": "remote",
+  "url": "https://mcp.linear.app/mcp",
+  "enabled": true,
+  "oauth": {}
+}
+```
+
+OAuth is handled by opencode on first use — the agent calls a tool, opencode opens a browser window for the user to approve, and the resulting token is reused across sessions.
+
+**Read-only mode** is available at `https://mcp.linear.app/mcp/readonly` for agents that should only browse, not write.
+
+## When to use
+
+- Creating tracker items for smoke tests, monitoring windows, follow-ups, and housekeeping.
+- Updating issue state (`In Progress`, `Done`) as work completes.
+- Linking issues to PRs via Linear's GitHub integration (auto-links via branch name + PR title).
+
+**Do NOT** use Linear for:
+
+- Replacing GitHub Issues for code-review feedback — those stay on the PR.
+- Replacing commit messages — those stay on the commit.
+- Creating issues without explicit user direction when the work could be done immediately instead.
+
+## Reference
+
+- Linear MCP server: <https://linear.app/docs/mcp.md>
+- Linear Agent (bidirectional MCP): <https://linear.app/docs/connect-mcp-servers>
+- GitHub PR ↔ Linear issue sync: configure in Linear workspace settings > GitHub
+
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
 
