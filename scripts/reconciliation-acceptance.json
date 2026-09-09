@@ -1,0 +1,66 @@
+[
+  {
+    "slug": "kim-myatt",
+    "field": "socials",
+    "reason": "Instructor's `undefined` matches on-record state for kim-myatt.",
+    "profileValue": {
+      "instagram": "https://www.instagram.com/ysvyri/",
+      "website": "https://www.ysvyri.com",
+      "youtube": "https://www.youtube.com/@ysvyri"
+    }
+  },
+  {
+    "slug": "nino-vecia",
+    "field": "profileImageUrl",
+    "reason": "PR 3 migrated from legacy Kajabi local path to Convex storage URL. Instructor has the live URL.",
+    "profileValue": "/instructors/nino-vecia/profile.jpg"
+  },
+  {
+    "slug": "nino-vecia",
+    "field": "portfolioImageStorageIds",
+    "reason": "Profile's 1 ID is a subset of instructor's 6 IDs. Instructor has all the data plus more.",
+    "profileValue": [
+      "kg269md5e3e1nykf8jfkgpqr4s8dy2z6"
+    ]
+  },
+  {
+    "slug": "kimea-zizzari",
+    "field": "socials",
+    "reason": "URL preserved in both rows; PR 3 changed the schema shape from `{key:url}` to `[{platform,url}]`.",
+    "profileValue": {
+      "instagram": "https://www.instagram.com/kimeazizzari/"
+    }
+  },
+  {
+    "slug": "keven-mallqui",
+    "field": "socials",
+    "reason": "URL preserved in both rows; same PR 3 schema shape change.",
+    "profileValue": {
+      "instagram": "https://www.instagram.com/seekevdraw/?hl=en"
+    }
+  },
+  {
+    "slug": "daniel-new",
+    "field": "tagline",
+    "reason": "Admin form writes to `instructors` only post-PR 3. Instructor has the newer/curated version.",
+    "profileValue": "Artist, Youtuber and Entrepreneur helping you build your personal project"
+  },
+  {
+    "slug": "daniel-new",
+    "field": "bio",
+    "reason": "Admin form writes to `instructors` only post-PR 3. Instructor has the newer canonical text (curly quotes + trailing whitespace); profile has the older text (straight quotes + LF newlines).",
+    "profileValue": "Daniel wants to help you build your personal project. You know, the one you keep avoiding because it's scary. The one you keep overthinking because you care too much. The one you can't stop thinking about because deep down you know it's what you're meant to do... your dream. That one.\n\nLet's get started.\n\nDaniel began pursuing his own personal project a few years ago called Figure8. He is an Artist, Youtuber and Entrepreneur."
+  },
+  {
+    "slug": "daniel-new",
+    "field": "specialties",
+    "reason": "Admin form writes to `instructors` only post-PR 3. Instructor has the curated canonical list.",
+    "profileValue": [
+      "traditional media",
+      "self-taught",
+      "sketching",
+      "ink",
+      "fantasy"
+    ]
+  }
+]

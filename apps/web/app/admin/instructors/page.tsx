@@ -44,7 +44,6 @@ type InstructorsResponse = {
 };
 
 type BackfillSummary = {
-  processedProfiles: number;
   processedInstructors: number;
   processedPortfolioImages: number;
   processedStudentResults: number;
@@ -454,8 +453,7 @@ function BackfillImagesPanel() {
 
       {summary && (
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Profiles" value={summary.processedProfiles} />
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <Stat label="Instructors" value={summary.processedInstructors} />
             <Stat label="Portfolio Images" value={summary.processedPortfolioImages} />
             <Stat label="Student Results" value={summary.processedStudentResults} />

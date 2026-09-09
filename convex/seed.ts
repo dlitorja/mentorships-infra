@@ -521,10 +521,8 @@ export const seedInstructorsWithProducts = mutation({
 });
 
 /**
- * Clears all instructors, products, and (until PR 4 drops it) the legacy
- * `instructorProfiles` rows that PR 1's atomic helpers still write to.
- * Used to reset the demo environment before reseeding. For development/demo
- * purposes only.
+ * Clears all instructors and products. Used to reset the demo environment
+ * before reseeding. For development/demo purposes only.
  */
 export const clearInstructorsAndProducts = mutation({
   args: { confirm: v.boolean() },
@@ -551,25 +549,16 @@ export const clearInstructorsAndProducts = mutation({
       await ctx.db.delete(product._id);
     }
 
-    const profiles = await ctx.db.query("instructorProfiles").collect();
-    for (const profile of profiles) {
-      await ctx.db.delete(profile._id);
-    }
-
     return {
-      message: "Cleared instructors, products, and profiles",
+      message: "Cleared instructors and products",
       instructorsDeleted: instructors.length,
       productsDeleted: products.length,
-      profilesDeleted: profiles.length,
     };
   },
 });
 
 /**
- * Clears all instructor data including testimonials, student results, and
- * (until PR 4 drops it) the legacy `instructorProfiles` rows that PR 1's
- * atomic helpers still write to. Leaving those rows behind would let stale
- * dual-write data survive the reset.
+ * Clears all instructor data including testimonials and student results.
  * For development/demo purposes only.
  */
 export const clearInstructorData = mutation({
@@ -597,16 +586,10 @@ export const clearInstructorData = mutation({
       await ctx.db.delete(result._id);
     }
 
-    const profiles = await ctx.db.query("instructorProfiles").collect();
-    for (const profile of profiles) {
-      await ctx.db.delete(profile._id);
-    }
-
     return {
-      message: "Cleared instructor testimonials, student results, and profiles",
+      message: "Cleared instructor testimonials and student results",
       testimonialsDeleted: testimonials.length,
       studentResultsDeleted: studentResults.length,
-      profilesDeleted: profiles.length,
     };
   },
 });

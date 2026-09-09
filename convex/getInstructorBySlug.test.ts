@@ -60,9 +60,7 @@ test("getInstructorBySlug returns 5 portfolio URLs in the same order as stored",
   expect(result?.instructorId).toBeDefined();
 });
 
-test("getInstructorBySlug works when instructorProfiles is empty", async () => {
-  // PR 3 contract: the query reads ONLY from `instructors`. An empty (or
-  // missing) profile table must not affect the response.
+test("getInstructorBySlug returns portfolio images and profile image from the instructors row", async () => {
   const t = convexTest(schema, modules);
   await t.run(async (ctx) => {
     await seedInstructor(ctx, {
@@ -84,36 +82,6 @@ test("getInstructorBySlug works when instructorProfiles is empty", async () => {
   expect(result?.profileImageUrl).toBe("https://example.com/p.png");
 });
 
-test("getInstructorBySlug ignores instructorProfiles row even when one exists", async () => {
-  // Even if a stale instructorProfiles row exists, the query reads only from
-  // the instructors table. Profile fields on the response must come from the
-  // instructors row, not the profile row.
-  const t = convexTest(schema, modules);
-  await t.run(async (ctx) => {
-    await seedInstructor(ctx, {
-      slug: "profile-divergence",
-      portfolioImages: ["https://instructors.example/1.png"],
-      profileImageUrl: "https://instructors.example/profile.png",
-    });
-    await ctx.db.insert("instructorProfiles", {
-      slug: "profile-divergence",
-      name: "Profile-Table-Name",
-      isActive: true,
-      profileImageUrl: "https://profiles.example/profile.png",
-      portfolioImages: ["https://profiles.example/1.png", "https://profiles.example/2.png"],
-    });
-  });
-
-  const result = await t.query(api.instructors.getInstructorBySlug, {
-    slug: "profile-divergence",
-  });
-
-  expect(result).not.toBeNull();
-  expect(result?.name).toBe("Nino Vecia");
-  expect(result?.profileImageUrl).toBe("https://instructors.example/profile.png");
-  expect(result?.portfolioImages).toEqual(["https://instructors.example/1.png"]);
-});
-
 test("getInstructorBySlug returns null when isListed is false", async () => {
   const t = convexTest(schema, modules);
   await t.run(async (ctx) => {
@@ -128,16 +96,9 @@ test("getInstructorBySlug returns null when isListed is false", async () => {
 
 test("getInstructorBySlug returns null when no instructor exists", async () => {
   const t = convexTest(schema, modules);
-  await t.run(async (ctx) => {
-    await ctx.db.insert("instructorProfiles", {
-      slug: "ghost-profile-only",
-      name: "Ghost",
-      isActive: true,
-    });
-  });
 
   const result = await t.query(api.instructors.getInstructorBySlug, {
-    slug: "ghost-profile-only",
+    slug: "ghost-no-row",
   });
   expect(result).toBeNull();
 });
