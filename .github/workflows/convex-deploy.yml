@@ -10,8 +10,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  reconcile-gate:
+    runs-on: ubuntu-latest
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install-args: ""
+      - name: Verify instructorProfiles reconciliation against prod
+        run: node scripts/check-reconciliation-status.mjs --prod --acceptance-file scripts/reconciliation-acceptance.json
+
   deploy:
     runs-on: ubuntu-latest
+    needs: reconcile-gate
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production

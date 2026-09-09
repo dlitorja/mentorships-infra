@@ -133,8 +133,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return id as Id<"instructors">;
     }
 
-    // PR 3: iterate instructors only — the legacy instructorProfiles table is
-    // no longer consulted as a source of truth.
+    // PR 4: iterate instructors only — the legacy instructorProfiles table has
+    // been dropped from the schema.
     const instructors = await client.query(
       api.instructors.listInstructorsInternal,
       {}

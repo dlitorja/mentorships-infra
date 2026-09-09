@@ -197,9 +197,7 @@ async function main() {
     console.log(`Instructors needing profile migration: ${status.instructorsNeedingProfileMigration}`);
     console.log(`Instructors needing portfolio migration: ${status.instructorsNeedingPortfolioMigration}`);
     console.log(`Instructors with storageId: ${status.instructorsWithStorageId}`);
-    console.log(`Profiles with storageId: ${status.profilesWithStorageId}`);
     console.log(`Total instructors: ${status.totalInstructors}`);
-    console.log(`Total profiles: ${status.totalProfiles}`);
 
     const totalRemaining =
       status.instructorsNeedingProfileMigration +

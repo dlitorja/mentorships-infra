@@ -1604,7 +1604,6 @@ export async function syncInstructorRole() {
  */
 
 export type BackfillSummary = {
-  processedProfiles: number;
   processedInstructors: number;
   processedPortfolioImages: number;
   processedStudentResults: number;

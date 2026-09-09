@@ -329,30 +329,6 @@ export default defineSchema({
     .index("by_status", ["status"]) 
     .index("by_studentEmail", ["studentEmail"]) ,
 
-  instructorProfiles: defineTable({
-    userId: v.optional(v.string()),
-    legacyInstructorRef: v.optional(v.string()),
-    email: v.optional(v.string()),
-    name: v.string(),
-    slug: v.string(),
-    tagline: v.optional(v.string()),
-    bio: v.optional(v.string()),
-    specialties: v.optional(v.array(v.string())),
-    background: v.optional(v.array(v.string())),
-    profileImageUrl: v.optional(v.string()),
-    profileImageStorageId: v.optional(v.string()),
-    profileImageUploadPath: v.optional(v.string()),
-    portfolioImages: v.optional(v.array(v.string())),
-    portfolioImageStorageIds: v.optional(v.array(v.string())),
-    socials: v.optional(v.any()),
-    isActive: v.boolean(),
-    isNew: v.optional(v.boolean()),
-  }).index("by_slug", ["slug"])
-    .index("by_userId", ["userId"])
-    .index("by_email", ["email"])
-    .index("by_legacyInstructorRef", ["legacyInstructorRef"])
-    .index("by_isActive", ["isActive"]),
-
   instructorTestimonials: defineTable({
     instructorId: v.optional(v.string()), // Using string to allow legacy IDs
     name: v.string(),
