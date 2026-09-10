@@ -229,7 +229,8 @@ Commands:
   issue <id>                         Get issue by id or identifier (e.g. HUC-12)
   issues [--team <key>] [--project <id>] [--limit <n>]
                                       List issues (filters: team, project, limit)
-  update-issue <id> --state <name>   Update issue state (Backlog, Todo, In Progress, Done, Canceled)
+update-issue <id> [--state <name>] [--title <t>] [--description <d>] [--assignee <u>] [--priority <0-4>] [--project <id>] [--team <key>]
+                                      Update issue fields. At least one --flag is required.
   create-issue --team <key> --title <t> [--description <d>] [--project <id>] [--priority <0-4>]
                                       Create a new issue
   add-comment <id> --body <body>     Add a comment to an issue
@@ -247,6 +248,7 @@ Examples:
   linear issues --team HUC --limit 20
   linear issue HUC-12
   linear update-issue HUC-12 --state Done
+linear update-issue HUC-10 --description "$(cat body.md)"
   linear add-comment HUC-12 --body "Fixed in PR #838."
 `;
 }
@@ -336,8 +338,14 @@ async function main() {
     case "update-issue": {
       const [id] = rest;
       if (!id) throw new Error("update-issue <id> requires an issue id");
-      if (!args.flags.state) throw new Error("--state is required");
-      result = await session.toolCall("save_issue", { id, state: args.flags.state });
+      const fields = {};
+      for (const k of ["title", "description", "state", "assignee", "priority", "project", "team"]) {
+        if (args.flags[k] !== undefined) fields[k] = args.flags[k];
+      }
+      if (Object.keys(fields).length === 0) {
+        throw new Error("update-issue requires at least one --flag (state, title, description, assignee, priority, project, team)");
+      }
+      result = await session.toolCall("save_issue", { id, ...fields });
       break;
     }
     case "create-issue": {
