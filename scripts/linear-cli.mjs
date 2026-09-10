@@ -229,7 +229,8 @@ Commands:
   issue <id>                         Get issue by id or identifier (e.g. HUC-12)
   issues [--team <key>] [--project <id>] [--limit <n>]
                                       List issues (filters: team, project, limit)
-update-issue <id> [--state <name>] [--title <t>] [--description <d>] [--assignee <u>] [--priority <0-4>] [--project <id>] [--team <key>]
+update-issue <id> [--state <name>] [--title <t>] [--description <d>] [--assignee <u>]
+                  [--priority <0-4>] [--project <id>] [--team <key>]
                                       Update issue fields. At least one --flag is required.
   create-issue --team <key> --title <t> [--description <d>] [--project <id>] [--priority <0-4>]
                                       Create a new issue
@@ -340,7 +341,9 @@ async function main() {
       if (!id) throw new Error("update-issue <id> requires an issue id");
       const fields = {};
       for (const k of ["title", "description", "state", "assignee", "priority", "project", "team"]) {
-        if (args.flags[k] !== undefined) fields[k] = args.flags[k];
+        if (args.flags[k] !== undefined) {
+          fields[k] = k === "priority" ? parseInt(args.flags[k], 10) : args.flags[k];
+        }
       }
       if (Object.keys(fields).length === 0) {
         throw new Error("update-issue requires at least one --flag (state, title, description, assignee, priority, project, team)");
