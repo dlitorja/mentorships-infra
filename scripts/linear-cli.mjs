@@ -229,8 +229,9 @@ Commands:
   issue <id>                         Get issue by id or identifier (e.g. HUC-12)
   issues [--team <key>] [--project <id>] [--limit <n>]
                                       List issues (filters: team, project, limit)
-update-issue <id> [--state <name>] [--title <t>] [--description <d>] [--assignee <u>]
-                  [--priority <0-4>] [--project <id>] [--team <key>]
+update-issue <id> [--state <name>] [--title <t>] [--description <d>]
+                  [--assignee <u>] [--priority <0-4>] [--project <id>]
+                  [--team <key>]
                                       Update issue fields. At least one --flag is required.
   create-issue --team <key> --title <t> [--description <d>] [--project <id>] [--priority <0-4>]
                                       Create a new issue
@@ -249,7 +250,7 @@ Examples:
   linear issues --team HUC --limit 20
   linear issue HUC-12
   linear update-issue HUC-12 --state Done
-linear update-issue HUC-10 --description "$(cat body.md)"
+  linear update-issue HUC-10 --description "$(cat body.md)"
   linear add-comment HUC-12 --body "Fixed in PR #838."
 `;
 }
@@ -340,10 +341,15 @@ async function main() {
       const [id] = rest;
       if (!id) throw new Error("update-issue <id> requires an issue id");
       const fields = {};
-      for (const k of ["title", "description", "state", "assignee", "priority", "project", "team"]) {
-        if (args.flags[k] !== undefined) {
-          fields[k] = k === "priority" ? parseInt(args.flags[k], 10) : args.flags[k];
+      for (const k of ["title", "description", "state", "assignee", "project", "team"]) {
+        if (args.flags[k] !== undefined) fields[k] = args.flags[k];
+      }
+      if (args.flags.priority !== undefined) {
+        const n = Number(args.flags.priority);
+        if (!Number.isInteger(n) || n < 0 || n > 4) {
+          throw new Error(`--priority must be an integer 0..4 (got '${args.flags.priority}'). 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low.`);
         }
+        fields.priority = n;
       }
       if (Object.keys(fields).length === 0) {
         throw new Error("update-issue requires at least one --flag (state, title, description, assignee, priority, project, team)");
@@ -354,12 +360,20 @@ async function main() {
     case "create-issue": {
       if (!args.flags.team) throw new Error("--team is required");
       if (!args.flags.title) throw new Error("--title is required");
+      let priority;
+      if (args.flags.priority !== undefined) {
+        const n = Number(args.flags.priority);
+        if (!Number.isInteger(n) || n < 0 || n > 4) {
+          throw new Error(`--priority must be an integer 0..4 (got '${args.flags.priority}'). 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low.`);
+        }
+        priority = n;
+      }
       result = await session.toolCall("save_issue", {
         team: args.flags.team,
         title: args.flags.title,
         description: args.flags.description,
         project: args.flags.project,
-        priority: args.flags.priority ? parseInt(args.flags.priority, 10) : undefined,
+        priority,
       });
       break;
     }
