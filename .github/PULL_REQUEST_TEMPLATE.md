@@ -12,4 +12,4 @@
 
 <!-- Schema-changing PRs (modifies `convex/schema.ts`):
      create a `Verify "..." on prod` issue in Linear with the `schema-change` label
-     and link it here as `Refs HUC-XX`. See AGENTS.md → Linear → Schema-changing PR convention. -->
+     and link it here as `Refs HUC-XX` (NOT `Fixes` — see AGENTS.md). -->
