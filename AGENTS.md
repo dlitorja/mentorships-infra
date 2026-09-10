@@ -256,7 +256,7 @@ This exposes Clerk operations to Cursor, VS Code, and OpenCode agents so you can
 
 # Linear (Project Management)
 
-This project tracks post-merge operational work (verification, monitoring, housekeeping) in **Linear** via the official hosted MCP server. Agents can create and update issues directly.
+Linear is used in this repo for **post-merge operational risk** — the things that live outside the PR/commit lifecycle. It is **not** a general planning system. If the work is a feature, a bug, or a refactor, it goes in a PR. Linear tracks what happens *after* the PR merges.
 
 ## MCP server
 
@@ -273,25 +273,60 @@ The workspace `opencode.json` registers a remote MCP server:
 
 OAuth is handled by opencode on first use — the agent calls a tool, opencode opens a browser window for the user to approve, and the resulting token is reused across sessions.
 
-**Read-only mode** is available at `https://mcp.linear.app/mcp/readonly` for agents that should only browse, not write.
+**Read-only mode** is available at `https://mcp.linear.app/mcp/readonly` (use if operator only wants browse, not write).
 
-## When to use
+## When to use Linear
 
-- Creating tracker items for smoke tests, monitoring windows, follow-ups, and housekeeping.
-- Updating issue state (`In Progress`, `Done`) as work completes.
-- Linking issues to PRs via Linear's GitHub integration (auto-links via branch name + PR title).
+Create or update issues for:
 
-**Do NOT** use Linear for:
+- **Post-merge verification** — the T1–T5 smoke-test pattern from a 4-PR arc. See `docs/post-merge/instructor-profiles-consolidation.md` for the canonical example.
+- **Production monitoring windows** — 24h / 48h check-ins after a high-risk merge.
+- **Cross-PR housekeeping** — small follow-ups that don't warrant their own PR (e.g. "Update plan doc line 225", "Archive acceptance JSON").
+- **Deferred-but-tracked work** — only when there is a clear owner AND a target date. Issues without both rot fast.
+- **Multi-PR arc tracking** — when a feature spans 3+ PRs, create a Linear Project to host the verification issues rather than a `HANDOFF.md`.
 
-- Replacing GitHub Issues for code-review feedback — those stay on the PR.
-- Replacing commit messages — those stay on the commit.
-- Creating issues without explicit user direction when the work could be done immediately instead.
+Move issues through `In Progress` → `Done` as work completes. Linear's GitHub integration auto-links issues to PRs via branch name / PR title (`HUC-12` in branch `chore/fix-huc-12`).
+
+## When NOT to use Linear
+
+- Code review feedback (Greptile / CodeRabbit — stays on the PR).
+- Commit messages, PR descriptions (the commit/PR is the artifact).
+- Features, bug fixes, refactors (use a PR).
+- Anything completable in the current session.
+- Roadmap items with no owner. They will rot; the doc alone is fine.
+
+## Schema-changing PR convention
+
+Any PR that modifies `convex/schema.ts` MUST have a corresponding verification issue in Linear. This is a **manual agent step at PR open time** — no CI automation.
+
+Files under `convex/_generated/` regenerate on every `convex deploy`, including routine codegen (new queries, env var types). Treat `_generated/` diffs as codegen artifacts unless `convex/schema.ts` is also changed in the same PR.
+
+When opening a schema-touching PR, the agent:
+
+1. Ensures the `schema-change` label exists in the team (idempotent create — purple `#a855f7`).
+2. Creates a verification issue:
+   - Title: `Verify "<change summary>" on prod`
+   - Project: `Schema Changes` (create once, idempotent, blue `#3b82f6`) — if no project fits, leave the issue without one; the `schema-change` label is what identifies it.
+   - Labels: `schema-change`, `verification`, `prod`.
+   - State: `Backlog` initially; move to `In Progress` once the PR merges.
+   - Description: Phase 1 smoke tests appropriate to the change (modeled on T1–T5 from the instructorProfiles arc: confirm schema deployed, exercise the affected read path, exercise the affected write path on every app that writes the table).
+3. Adds `Refs HUC-XX` to the PR description (auto-link via Linear's GitHub integration). **Use `Refs`, not `Fixes`** — `Fixes` auto-closes the issue when the PR merges, but the verification work is meant to happen *after* the merge.
+
+This convention exists because schema drops / renames are the highest-blast-radius PR type in this repo and have caught us before (see `INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md` for the 4-PR arc that prompted it).
+
+## HANDOFF.md vs Linear
+
+- **`HANDOFF.md`** (e.g. `docs/post-merge/HANDOFF.md`) is reserved for genuine session-broken cases: a previous agent died mid-task, OAuth flow blocked, partial work that's hard to reconstruct from commit history alone. The instructorProfiles arc's handoff is the canonical example — the OAuth popup had to be authorized by the next session's operator, and the 9 verification tasks needed to be created. Treat the file as a **snapshot in time** — branch state and "Latest commit" references become stale on later merges by design; the file documents the state at the moment of interruption, not the current state.
+- **Linear** is the canonical home for multi-PR arc tracking, post-merge verification, and any work that needs to survive across sessions or handoffs.
+
+Going forward, **do not** write new `HANDOFF.md` files for multi-PR arcs — open a Linear Project instead. Reserve `HANDOFF.md` for the narrow set of cases where work was actually interrupted and reconstruction is hard.
 
 ## Reference
 
 - Linear MCP server: <https://linear.app/docs/mcp.md>
 - Linear Agent (bidirectional MCP): <https://linear.app/docs/connect-mcp-servers>
 - GitHub PR ↔ Linear issue sync: configure in Linear workspace settings > GitHub
+- Canonical example: `docs/post-merge/instructor-profiles-consolidation.md` (the 9-issue spec that produced the `Post-Merge Verification` project).
 
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
