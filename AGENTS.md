@@ -1,13 +1,15 @@
 <!-- PULL REQUEST MERGE POLICY -->
 # Pull Request Merge Policy (CRITICAL)
 
-**NEVER merge a pull request unless the automated code reviews from Greptile and CodeRabbit are visible and have passed.**
+**Prefer both Greptile and CodeRabbit to review and approve a pull request before merge; require approval from at least one.**
 
-- Before merging, verify both the `Greptile Review` and `CodeRabbit` status checks are green on the PR.
-- If either check is missing, pending, or failed, wait for it to complete and pass before merging.
-- If a review raises actionable issues, fix them and re-run the checks before merging.
-- Do not rely on local-only verification; the PR must show the bot reviews in GitHub.
-- If the user explicitly asks to skip or override these checks, confirm the instruction before proceeding.
+- Aim: both `Greptile Review` and `CodeRabbit` should be visible and have approved the PR before merging.
+- Minimum: at least one of the two must be visible and have approved the PR. Greptile is the primary reviewer; CodeRabbit is supplementary.
+- If a review raises actionable issues (P1/P2 from Greptile, or actionable comments from CodeRabbit), fix them and re-run the check before merging.
+- If CodeRabbit is unavailable (e.g., the bot posts a "skip review" notice because the repo has fewer than 10 stars), skip it and rely on Greptile alone.
+- If Greptile is unavailable for any reason, wait for it to catch up; only fall back to CodeRabbit alone if Greptile's bot has not responded after a reasonable wait AND the user has been informed.
+- Do not rely on local-only verification; at least one bot review must be visible in GitHub.
+- If neither bot has responded AND the user explicitly asks to skip or override these checks, confirm the instruction before proceeding.
 
 <!-- NAMING CONVENTIONS - CRITICAL -->
 # Naming Conventions: NEVER use mentor/mentee
