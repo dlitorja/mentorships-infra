@@ -260,7 +260,31 @@ This exposes Clerk operations to Cursor, VS Code, and OpenCode agents so you can
 
 Linear is used in this repo for **post-merge operational risk** — the things that live outside the PR/commit lifecycle. It is **not** a general planning system. If the work is a feature, a bug, or a refactor, it goes in a PR. Linear tracks what happens *after* the PR merges.
 
-## MCP server
+## CLI wrapper (use this, not raw MCP)
+
+Opencode's Linear MCP server (see "MCP server" below) is connected but its 65 tools are NOT loaded into the agent's available tool list. The OAuth token works — it's just that opencode doesn't expose the tools to the model.
+
+To work around this without burning personal API keys each session, use `scripts/linear-cli.mjs`. The wrapper:
+
+- Reads the OAuth access token from opencode's MCP auth cache (`~/.local/share/opencode/mcp-auth.json` or `~/.config/opencode/...`). Token refreshes automatically; **no manual key rotation needed.**
+- Initializes a session with the Linear MCP server and calls tools by name.
+- Falls back to `LINEAR_API_KEY` env var if the cache is missing.
+- Wraps `list_teams`, `list_issues`, `get_issue`, `save_issue`, `save_comment`, etc. as subcommands.
+
+```bash
+node scripts/linear-cli.mjs teams
+node scripts/linear-cli.mjs issues --team HUC --limit 20
+node scripts/linear-cli.mjs issue HUC-12
+node scripts/linear-cli.mjs update-issue HUC-12 --state Done
+node scripts/linear-cli.mjs add-comment HUC-12 --body "Fixed in PR #838."
+node scripts/linear-cli.mjs create-issue --team HUC --title "..." --description "..."
+```
+
+Set `LINEAR_CLI_VERBOSE=1` to print which auth source was used. Set `LINEAR_CLI_DEBUG=1` to dump full error stacks.
+
+If neither the MCP cache nor `LINEAR_API_KEY` is available, the wrapper errors with a clear instruction to run `opencode mcp auth linear` (one-time browser approval, ~30 seconds). After that initial setup, the wrapper works across all future sessions without further intervention.
+
+## MCP server (reference)
 
 The workspace `opencode.json` registers a remote MCP server:
 
@@ -274,6 +298,8 @@ The workspace `opencode.json` registers a remote MCP server:
 ```
 
 OAuth is handled by opencode on first use — the agent calls a tool, opencode opens a browser window for the user to approve, and the resulting token is reused across sessions.
+
+**Why we don't rely on the MCP server directly:** opencode currently advertises the Linear MCP as "✓ connected (OAuth)" but does NOT load its 65 tools into the agent's available tool list (Cloudflare MCPs load fine; Linear doesn't). The MCP server itself is functional — `scripts/linear-cli.mjs` proves it. The issue is in opencode's tool-registration path. Until that's fixed, use the CLI wrapper.
 
 **Read-only mode** is available at `https://mcp.linear.app/mcp/readonly` (use if operator only wants browse, not write).
 
