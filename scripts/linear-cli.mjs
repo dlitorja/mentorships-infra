@@ -73,16 +73,21 @@ async function tryRefresh(entry, source) {
   return json.access_token;
 }
 
-function parseResponse(text, contentType) {
+function parseResponse(text, contentType, requestId = null) {
   if (contentType?.includes("text/event-stream")) {
+    const events = [];
     for (const line of text.split("\n")) {
       if (line.startsWith("data: ")) {
         try {
-          return JSON.parse(line.slice(6));
+          events.push(JSON.parse(line.slice(6)));
         } catch {}
       }
     }
-    return null;
+    if (requestId !== null) {
+      const match = events.find((e) => e?.id === requestId);
+      if (match) return match;
+    }
+    return events.find((e) => e?.id !== undefined) ?? events[0] ?? null;
   }
   try {
     return JSON.parse(text);
@@ -114,7 +119,9 @@ class McpSession {
     if (!res.ok) {
       const body = await res.text();
       if (res.status === 401 && this.cached) {
-        const refreshed = await tryRefresh(this.cached.entry, this.cached.source);
+        const cachedRef = this.cached;
+        this.cached = null;
+        const refreshed = await tryRefresh(cachedRef.entry, cachedRef.source);
         if (refreshed) {
           this.token = refreshed;
           return this.call(method, params, id);
@@ -124,7 +131,11 @@ class McpSession {
     }
     const newSession = res.headers.get("mcp-session-id");
     if (newSession) this.sessionId = newSession;
-    const parsed = parseResponse(await res.text(), res.headers.get("content-type"));
+    const parsed = parseResponse(
+      await res.text(),
+      res.headers.get("content-type"),
+      id
+    );
     if (parsed?.error) {
       throw new Error(`MCP ${method} error: ${JSON.stringify(parsed.error)}`);
     }
