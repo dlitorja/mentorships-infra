@@ -1,5 +1,6 @@
-<!-- Optional Linear: leave blank if N/A; otherwise `Fixes HUC-XX` or `Refs HUC-XX`.
-     Linear's GitHub integration auto-links issues by branch name / PR title. -->
+<!-- Optional Linear: leave blank if N/A; otherwise `Refs HUC-XX`.
+     Linear's GitHub integration auto-links issues by branch name / PR title.
+     Use `Refs`, not `Fixes` — `Fixes` auto-closes the issue when the PR merges. -->
 
 ## What & why
 

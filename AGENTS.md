@@ -310,13 +310,13 @@ When opening a schema-touching PR, the agent:
    - Labels: `schema-change`, `verification`, `prod`.
    - State: `Backlog` initially; move to `In Progress` once the PR merges.
    - Description: Phase 1 smoke tests appropriate to the change (modeled on T1–T5 from the instructorProfiles arc: confirm schema deployed, exercise the affected read path, exercise the affected write path on every app that writes the table).
-3. Adds `Fixes HUC-XX` or `Refs HUC-XX` to the PR description (auto-link via Linear's GitHub integration).
+3. Adds `Refs HUC-XX` to the PR description (auto-link via Linear's GitHub integration). **Use `Refs`, not `Fixes`** — `Fixes` auto-closes the issue when the PR merges, but the verification work is meant to happen *after* the merge.
 
 This convention exists because schema drops / renames are the highest-blast-radius PR type in this repo and have caught us before (see `INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md` for the 4-PR arc that prompted it).
 
 ## HANDOFF.md vs Linear
 
-- **`HANDOFF.md`** (e.g. `docs/post-merge/HANDOFF.md`) is reserved for genuine session-broken cases: a previous agent died mid-task, OAuth flow blocked, partial work that's hard to reconstruct from commit history alone. The instructorProfiles arc's handoff is the canonical example — the OAuth popup had to be authorized by the next session's operator, and the 9 verification tasks needed to be created.
+- **`HANDOFF.md`** (e.g. `docs/post-merge/HANDOFF.md`) is reserved for genuine session-broken cases: a previous agent died mid-task, OAuth flow blocked, partial work that's hard to reconstruct from commit history alone. The instructorProfiles arc's handoff is the canonical example — the OAuth popup had to be authorized by the next session's operator, and the 9 verification tasks needed to be created. Treat the file as a **snapshot in time** — branch state and "Latest commit" references become stale on later merges by design; the file documents the state at the moment of interruption, not the current state.
 - **Linear** is the canonical home for multi-PR arc tracking, post-merge verification, and any work that needs to survive across sessions or handoffs.
 
 Going forward, **do not** write new `HANDOFF.md` files for multi-PR arcs — open a Linear Project instead. Reserve `HANDOFF.md` for the narrow set of cases where work was actually interrupted and reconstruction is hard.
