@@ -9,6 +9,6 @@
 
 <!-- One line: how was this verified locally? (typecheck, test, manual repro, etc.) -->
 
-<!-- Schema-changing PRs (touches `convex/schema.ts` or `convex/_generated/`):
+<!-- Schema-changing PRs (modifies `convex/schema.ts`):
      create a `Verify "..." on prod` issue in Linear with the `schema-change` label
      and link it here as `Fixes HUC-XX`. See AGENTS.md → Linear → Schema-changing PR convention. -->

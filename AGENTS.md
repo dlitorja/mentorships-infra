@@ -297,7 +297,9 @@ Move issues through `In Progress` → `Done` as work completes. Linear's GitHub 
 
 ## Schema-changing PR convention
 
-Any PR that modifies `convex/schema.ts` or files under `convex/_generated/` MUST have a corresponding verification issue in Linear. This is a **manual agent step at PR open time** — no CI automation.
+Any PR that modifies `convex/schema.ts` MUST have a corresponding verification issue in Linear. This is a **manual agent step at PR open time** — no CI automation.
+
+Files under `convex/_generated/` regenerate on every `convex deploy`, including routine codegen (new queries, env var types). Treat `_generated/` diffs as codegen artifacts unless `convex/schema.ts` is also changed in the same PR.
 
 When opening a schema-touching PR, the agent:
 
