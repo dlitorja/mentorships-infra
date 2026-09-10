@@ -21,7 +21,7 @@ jobs:
         with:
           install-args: ""
       - name: Verify instructorProfiles reconciliation against prod
-        run: node scripts/check-reconciliation-status.mjs --prod --acceptance-file scripts/reconciliation-acceptance.json
+        run: node scripts/check-reconciliation-status.mjs --prod --acceptance-file docs/post-merge/reconciliation-acceptance.json
 
   deploy:
     runs-on: ubuntu-latest

@@ -222,7 +222,7 @@ Verification:
 - `npx convex data instructorProfiles` returns "Table not found" after deploy (expected).
 - Manual smoke test on staging: `/instructors/nino-vecia` still renders; admin edit form saves images; portfolio upload route returns success.
 
-Status: 🚧 PR opened (this PR). Pending squash-merge + Convex deploy.
+Status: ✅ Merged in PR #834 + Convex deployed. Post-arc verification (smoke tests, monitoring windows) and housekeeping tracked in the [Post-Merge Verification](https://linear.app/huckleberry-art-dev/project/post-merge-verification-d121ebad4b70) Linear project (HUC-5..HUC-13). This document is now historical; future schema-deletion work should follow the widen-migrate-narrow sequencing defined in AGENTS.md, not re-use this plan as a template.
 
 Risk: Low. Schema deletion in Convex is reversible by re-adding the definition + restoring the snapshot. Mitigations:
 
