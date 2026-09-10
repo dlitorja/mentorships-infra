@@ -75,7 +75,7 @@ Each task below is a single operator action. Estimated 15–25 minutes total.
 - **Target date**: 2026-09-10 (24h after merge)
 - **Estimated time**: 5 min
 - **Checklist**:
-  - [ ] Convex runtime logs (`npx convex logs --prod --since 24h` or dashboard → Logs → last 24h): no `TypeError` mentioning `instructorProfiles` or `_id` undefined
+  - [ ] Convex runtime logs (dashboard → Logs → filter last 24h, search `instructorProfiles`, or CLI: `npx convex logs --prod --history 1000 --success | grep -iE "instructorProfiles|TypeError|_id"`): no `TypeError` mentioning `instructorProfiles` or `_id` undefined
   - [ ] Convex dashboard → Functions view: error rate on `instructors:*` mutations not above the 7-day pre-merge baseline
   - [ ] Public `/instructors/<slug>` p95 load time not worse than 7-day pre-merge baseline
   - [ ] Sentry / error tracker: no new error patterns mentioning `instructorProfiles`
