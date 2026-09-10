@@ -114,6 +114,7 @@ Each task below is a single operator action. Estimated 15–25 minutes total.
   - (A) Leave in place as audit trail of the 8 reviewed divergences for PR 4 prod.
   - (B) Move to `docs/archive/instructor-profiles-acceptance-2026-09-09.json` (out of `scripts/`, since the gate is a no-op post-merge).
 - **Recommendation**: (A) — minimal churn, the file is small (66 lines), and the `reason` fields document the audit decision. Worth revisiting only if the `scripts/` directory becomes cluttered.
+- **Resolution (post-arc)**: Option (B) chosen — moved to `docs/post-merge/reconciliation-acceptance.json` (not `docs/archive/...`) and the CI workflow updated to match. Linear issue HUC-13 tracked the decision; merge commit lives on `chore/post-arc-housekeeping`.
 
 ---
 
