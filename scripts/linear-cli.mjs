@@ -387,7 +387,8 @@ async function main() {
     case "comments": {
       const [id] = rest;
       if (!id) throw new Error("comments <id> requires an issue id");
-      result = await session.toolCall("list_comments", { issueId: id });
+      const resp = await session.toolCall("list_comments", { issueId: id });
+      result = resp.comments ?? resp;
       break;
     }
     default:
