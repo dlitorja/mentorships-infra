@@ -1097,6 +1097,11 @@ export const getInstructorsForAdmin = query({
  * only reference instructors who are actually live in Clerk. The admin
  * instructors list page still uses `getInstructorsForAdmin` (every row,
  * regardless of Clerk state).
+ *
+ * The filter runs before the limit is applied: collecting the full
+ * `deletedAt === undefined` index range, filtering, then slicing, so a row of
+ * placeholder userIds at the front of the index can't push connected rows
+ * past the take window.
  */
 export const getConnectedInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
@@ -1110,22 +1115,21 @@ export const getConnectedInstructorsForAdmin = query({
       throw new Error("Forbidden");
     }
     const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
-    const candidates = await ctx.db
+    const connected = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .take(limit);
+      .collect()
+      .then((rows) => rows.filter((inst) => isClerkUserId(inst.userId)).slice(0, limit));
 
     const seatReservations = await ctx.db.query("seatReservations").collect();
 
     return Promise.all(
-      candidates
-        .filter((inst) => isClerkUserId(inst.userId))
-        .map(async (inst) => {
-          const activeStudentCount = seatReservations.filter(
-            (sr) => sr.instructorId === inst._id && sr.status === "active"
-          ).length;
-          return toInstructorListItem(ctx, inst, { activeStudentCount });
-        })
+      connected.map(async (inst) => {
+        const activeStudentCount = seatReservations.filter(
+          (sr) => sr.instructorId === inst._id && sr.status === "active"
+        ).length;
+        return toInstructorListItem(ctx, inst, { activeStudentCount });
+      })
     );
   },
 });
