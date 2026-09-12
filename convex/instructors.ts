@@ -1134,13 +1134,15 @@ export const getConnectedInstructorsForAdmin = query({
       cursor = result.continueCursor;
     }
 
-    const seatReservations = await ctx.db.query("seatReservations").collect();
-
     return Promise.all(
       connected.map(async (inst) => {
-        const activeStudentCount = seatReservations.filter(
-          (sr) => sr.instructorId === inst._id && sr.status === "active"
-        ).length;
+        const activeStudentCount = await ctx.db
+          .query("seatReservations")
+          .withIndex("by_instructorId_status", (q) =>
+            q.eq("instructorId", inst._id).eq("status", "active")
+          )
+          .collect()
+          .then((rows) => rows.length);
         return toInstructorListItem(ctx, inst, { activeStudentCount });
       })
     );
