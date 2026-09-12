@@ -1088,6 +1088,48 @@ export const getInstructorsForAdmin = query({
   },
 });
 
+/**
+ * Returns non-deleted instructors who have completed Clerk user creation.
+ * A row qualifies when its `userId` is a real Clerk user ID (matches the
+ * `user_…` pattern), so placeholder values like `admin-${slug}` are excluded.
+ *
+ * Used by the edit-instructor form's "Instructor ID" dropdown so admins can
+ * only reference instructors who are actually live in Clerk. The admin
+ * instructors list page still uses `getInstructorsForAdmin` (every row,
+ * regardless of Clerk state).
+ */
+export const getConnectedInstructorsForAdmin = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
+      throw new Error("Forbidden");
+    }
+    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
+    const candidates = await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .take(limit);
+
+    const seatReservations = await ctx.db.query("seatReservations").collect();
+
+    return Promise.all(
+      candidates
+        .filter((inst) => isClerkUserId(inst.userId))
+        .map(async (inst) => {
+          const activeStudentCount = seatReservations.filter(
+            (sr) => sr.instructorId === inst._id && sr.status === "active"
+          ).length;
+          return toInstructorListItem(ctx, inst, { activeStudentCount });
+        })
+    );
+  },
+});
+
 /** Returns an instructor by slug from the instructors table. */
 export const getInstructorBySlugForAdmin = query({
   args: { slug: v.string() },

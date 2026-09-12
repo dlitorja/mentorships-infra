@@ -919,10 +919,15 @@ export type AdminInstructorListItem = {
 /**
  * List instructors for admin
  */
-export async function getAdminInstructors(params?: { pageSize?: number; includeInactive?: boolean }) {
+export async function getAdminInstructors(params?: {
+  pageSize?: number;
+  includeInactive?: boolean;
+  connected?: boolean;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
+  if (params?.connected) searchParams.set("connected", "true");
   const query = searchParams.toString();
   return apiFetch<{ instructors: AdminInstructorListItem[] }>(
     `${ApiRoutes.adminInstructors}${query ? `?${query}` : ""}`

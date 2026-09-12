@@ -10,14 +10,23 @@ import type { Id } from "@/convex/_generated/dataModel";
 /**
  * GET /api/admin/instructors
  * Lists instructors with lightweight stats for the admin UI. Requires admin role.
+ *
+ * Query params:
+ *   - `connected=true` to return only instructors whose Clerk user creation
+ *     completed (their `userId` is a real Clerk user ID, not a placeholder).
+ *     Used by the edit-instructor form's "Instructor ID" dropdown so admins
+ *     can't accidentally reference instructors who haven't signed up yet.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
 
     const convex = await getAuthenticatedConvexClient();
 
-    const instructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
+    const connected = new URL(req.url).searchParams.get("connected") === "true";
+    const instructors = connected
+      ? await convex.query(api.instructors.getConnectedInstructorsForAdmin, {})
+      : await convex.query(api.instructors.getInstructorsForAdmin, {});
 
     // Compute product-active flags in a single query to avoid N+1 lookups
     const instructorIds = instructors.map((inst) => inst._id);

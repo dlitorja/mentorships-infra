@@ -220,6 +220,9 @@ export function BasicInfoSection({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground mt-1">
+            Only instructors who have completed Clerk sign-up are listed.
+          </p>
         </div>
         <div className="flex justify-end">
           <Button onClick={() => setActiveTab("images")}>Next</Button>
