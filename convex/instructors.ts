@@ -1098,10 +1098,11 @@ export const getInstructorsForAdmin = query({
  * instructors list page still uses `getInstructorsForAdmin` (every row,
  * regardless of Clerk state).
  *
- * The filter runs before the limit is applied: collecting the full
- * `deletedAt === undefined` index range, filtering, then slicing, so a row of
- * placeholder userIds at the front of the index can't push connected rows
- * past the take window.
+ * The scan is bounded: it walks the `by_userId` index from the `user_…`
+ * prefix forward in fixed-size pages and stops once `limit` connected rows
+ * have been collected (or the index is exhausted). This keeps the read cost
+ * proportional to the result size rather than the size of the instructor
+ * table.
  */
 export const getConnectedInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
@@ -1115,11 +1116,23 @@ export const getConnectedInstructorsForAdmin = query({
       throw new Error("Forbidden");
     }
     const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
-    const connected = await ctx.db
-      .query("instructors")
-      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .collect()
-      .then((rows) => rows.filter((inst) => isClerkUserId(inst.userId)).slice(0, limit));
+    const pageSize = Math.max(limit * 2, 200);
+    const connected: Doc<"instructors">[] = [];
+    let cursor: string | null = null;
+    while (connected.length < limit) {
+      const result = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.gte("userId", "user_"))
+        .paginate({ numItems: pageSize, cursor });
+      for (const inst of result.page) {
+        if (inst.deletedAt === undefined && isClerkUserId(inst.userId)) {
+          connected.push(inst);
+          if (connected.length >= limit) break;
+        }
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
 
     const seatReservations = await ctx.db.query("seatReservations").collect();
 
