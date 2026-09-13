@@ -913,6 +913,12 @@ export const getInstructorBySlug = query({
 // narrow shape so we don't stream full portfolios to listing pages.
 const DEFAULT_INSTRUCTOR_LIST_LIMIT = 100;
 
+// Hard upper bound on the limit arg accepted by public instructor-listing
+// queries. Even though the Next.js /api/admin/instructors route clamps
+// pageSize to 500, this query is also callable directly from authenticated
+// admin clients, so the trust boundary must enforce the cap itself.
+const MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT = 500;
+
 type InstructorListItem = {
   _id: Id<"instructors">;
   _creationTime: number;
@@ -1084,6 +1090,80 @@ export const getInstructorsForAdmin = query({
         ).length;
         return toInstructorListItem(ctx, inst, { activeStudentCount });
       })
+    );
+  },
+});
+
+/**
+ * Returns non-deleted instructors who have completed Clerk user creation.
+ * A row qualifies when its `userId` is a real Clerk user ID (matches the
+ * `user_…` pattern), so placeholder values like `admin-${slug}` are excluded.
+ *
+ * Used by the edit-instructor form's "Instructor ID" dropdown so admins can
+ * only reference instructors who are actually live in Clerk. The admin
+ * instructors list page still uses `getInstructorsForAdmin` (every row,
+ * regardless of Clerk state). The connected-only query intentionally does
+ * not compute active-student counts — those would require an extra read
+ * per matched instructor and the dropdown doesn't display them anyway;
+ * the list page gets its counts from the unfiltered query.
+ *
+ * The scan is bounded: it paginates the `by_deletedAt` index (rows where
+ * `deletedAt === undefined`) in fixed-size pages, applies the connected
+ * filter per row, and stops once `limit` rows have been collected. The
+ * loop is capped at `maxIterations` pages (8000 reads under Convex's
+ * 8192-doc per-query budget) so a sparse active set can't blow the budget.
+ * The `limit` arg is validated to be a finite positive integer and capped
+ * at `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
+ */
+export const getConnectedInstructorsForAdmin = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
+      throw new Error("Forbidden");
+    }
+    const requestedLimit = args.limit;
+    const limit =
+      typeof requestedLimit === "number" && Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.floor(requestedLimit), MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT)
+        : DEFAULT_INSTRUCTOR_LIST_LIMIT;
+    // Smaller fixed page size + iteration cap that respects Convex's
+    // 8192-doc query-read budget. With pageSize=200 we can walk at most 40
+    // pages (8000 reads) before Convex would refuse the query, so a sparse
+    // active set has the best possible chance of yielding `limit` connected
+    // rows while still being bounded.
+    const pageSize = 200;
+    const maxIterations = Math.floor(8000 / pageSize);
+    const connected: Doc<"instructors">[] = [];
+    let cursor: string | null = null;
+    let iterations = 0;
+    while (connected.length < limit && iterations < maxIterations) {
+      iterations++;
+      const result = await ctx.db
+        .query("instructors")
+        .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+        .paginate({ numItems: pageSize, cursor });
+      for (const inst of result.page) {
+        if (isClerkUserId(inst.userId)) {
+          connected.push(inst);
+          if (connected.length >= limit) break;
+        }
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+
+    // The dropdown doesn't display active-student counts, so skip the
+    // per-instructor seatReservation lookup here. The admin list page
+    // gets its counts via the unchanged getInstructorsForAdmin. Reporting
+    // 0 keeps the wire shape compatible with callers that parse
+    // activeStudentCount as a required number.
+    return Promise.all(
+      connected.map(async (inst) => toInstructorListItem(ctx, inst, { activeStudentCount: 0 }))
     );
   },
 });

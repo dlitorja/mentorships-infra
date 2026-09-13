@@ -59,9 +59,9 @@ export default function EditInstructorPage() {
   });
 
   const { data: instructorsData } = useQuery({
-    queryKey: ["instructors-for-admin"],
+    queryKey: ["instructors-for-admin", "connected"],
     queryFn: async () => {
-      const result = await getAdminInstructors({ pageSize: 100 });
+      const result = await getAdminInstructors({ pageSize: 500, connected: true });
       return instructorsResponseSchema.parse(result);
     },
   });
