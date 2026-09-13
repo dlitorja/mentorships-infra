@@ -1108,7 +1108,11 @@ export const getInstructorsForAdmin = query({
  * `deletedAt === undefined`) in fixed-size pages, applies the connected
  * filter per row, and stops once `limit` rows have been collected. Walking
  * the deletedAt index keeps the read cost proportional to the size of the
- * current active instructor set, not the historical Clerk-linked set.
+ * current active instructor set, not the historical Clerk-linked set. The
+ * loop is also capped at `maxIterations` pages so a sparse active set
+ * (mostly placeholders) cannot exhaust the read budget. The `limit` arg is
+ * validated to be a finite positive integer and capped at
+ * `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
  */
 export const getConnectedInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
@@ -1121,14 +1125,21 @@ export const getConnectedInstructorsForAdmin = query({
     if (!isAdmin) {
       throw new Error("Forbidden");
     }
-    const limit = Math.min(
-      Math.max(1, Math.floor(args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT)),
-      MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT
-    );
+    const requestedLimit = args.limit;
+    const limit =
+      typeof requestedLimit === "number" && Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.min(Math.floor(requestedLimit), MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT)
+        : DEFAULT_INSTRUCTOR_LIST_LIMIT;
     const pageSize = Math.max(limit * 2, 200);
+    // Hard upper bound on pages walked per query so a sparse active set
+    // (lots of placeholders, few Clerk-linked rows) can't drive the read
+    // budget up to the size of the entire active instructor table.
+    const maxIterations = Math.max(5, Math.ceil(limit / pageSize) * 4);
     const connected: Doc<"instructors">[] = [];
     let cursor: string | null = null;
-    while (connected.length < limit) {
+    let iterations = 0;
+    while (connected.length < limit && iterations < maxIterations) {
+      iterations++;
       const result = await ctx.db
         .query("instructors")
         .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
