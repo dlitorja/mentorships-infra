@@ -1102,17 +1102,18 @@ export const getInstructorsForAdmin = query({
  * Used by the edit-instructor form's "Instructor ID" dropdown so admins can
  * only reference instructors who are actually live in Clerk. The admin
  * instructors list page still uses `getInstructorsForAdmin` (every row,
- * regardless of Clerk state).
+ * regardless of Clerk state). The connected-only query intentionally does
+ * not compute active-student counts — those would require an extra read
+ * per matched instructor and the dropdown doesn't display them anyway;
+ * the list page gets its counts from the unfiltered query.
  *
  * The scan is bounded: it paginates the `by_deletedAt` index (rows where
  * `deletedAt === undefined`) in fixed-size pages, applies the connected
- * filter per row, and stops once `limit` rows have been collected. Walking
- * the deletedAt index keeps the read cost proportional to the size of the
- * current active instructor set, not the historical Clerk-linked set. The
- * loop is also capped at `maxIterations` pages so a sparse active set
- * (mostly placeholders) cannot exhaust the read budget. The `limit` arg is
- * validated to be a finite positive integer and capped at
- * `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
+ * filter per row, and stops once `limit` rows have been collected. The
+ * loop is capped at `maxIterations` pages (8000 reads under Convex's
+ * 8192-doc per-query budget) so a sparse active set can't blow the budget.
+ * The `limit` arg is validated to be a finite positive integer and capped
+ * at `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
  */
 export const getConnectedInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
@@ -1156,17 +1157,13 @@ export const getConnectedInstructorsForAdmin = query({
       cursor = result.continueCursor;
     }
 
+    // The dropdown doesn't display active-student counts, so skip the
+    // per-instructor seatReservation lookup here. The admin list page
+    // gets its counts via the unchanged getInstructorsForAdmin. Reporting
+    // 0 keeps the wire shape compatible with callers that parse
+    // activeStudentCount as a required number.
     return Promise.all(
-      connected.map(async (inst) => {
-        const activeStudentCount = await ctx.db
-          .query("seatReservations")
-          .withIndex("by_instructorId_status", (q) =>
-            q.eq("instructorId", inst._id).eq("status", "active")
-          )
-          .collect()
-          .then((rows) => rows.length);
-        return toInstructorListItem(ctx, inst, { activeStudentCount });
-      })
+      connected.map(async (inst) => toInstructorListItem(ctx, inst, { activeStudentCount: 0 }))
     );
   },
 });
