@@ -913,6 +913,12 @@ export const getInstructorBySlug = query({
 // narrow shape so we don't stream full portfolios to listing pages.
 const DEFAULT_INSTRUCTOR_LIST_LIMIT = 100;
 
+// Hard upper bound on the limit arg accepted by public instructor-listing
+// queries. Even though the Next.js /api/admin/instructors route clamps
+// pageSize to 500, this query is also callable directly from authenticated
+// admin clients, so the trust boundary must enforce the cap itself.
+const MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT = 500;
+
 type InstructorListItem = {
   _id: Id<"instructors">;
   _creationTime: number;
@@ -1115,7 +1121,10 @@ export const getConnectedInstructorsForAdmin = query({
     if (!isAdmin) {
       throw new Error("Forbidden");
     }
-    const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
+    const limit = Math.min(
+      Math.max(1, Math.floor(args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT)),
+      MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT
+    );
     const pageSize = Math.max(limit * 2, 200);
     const connected: Doc<"instructors">[] = [];
     let cursor: string | null = null;
