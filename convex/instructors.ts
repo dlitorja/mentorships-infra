@@ -1098,11 +1098,11 @@ export const getInstructorsForAdmin = query({
  * instructors list page still uses `getInstructorsForAdmin` (every row,
  * regardless of Clerk state).
  *
- * The scan is bounded: it walks the `by_userId` index from the `user_…`
- * prefix forward in fixed-size pages and stops once `limit` connected rows
- * have been collected (or the index is exhausted). This keeps the read cost
- * proportional to the result size rather than the size of the instructor
- * table.
+ * The scan is bounded: it paginates the `by_deletedAt` index (rows where
+ * `deletedAt === undefined`) in fixed-size pages, applies the connected
+ * filter per row, and stops once `limit` rows have been collected. Walking
+ * the deletedAt index keeps the read cost proportional to the size of the
+ * current active instructor set, not the historical Clerk-linked set.
  */
 export const getConnectedInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
@@ -1122,10 +1122,10 @@ export const getConnectedInstructorsForAdmin = query({
     while (connected.length < limit) {
       const result = await ctx.db
         .query("instructors")
-        .withIndex("by_userId", (q) => q.gte("userId", "user_"))
+        .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
         .paginate({ numItems: pageSize, cursor });
       for (const inst of result.page) {
-        if (inst.deletedAt === undefined && isClerkUserId(inst.userId)) {
+        if (isClerkUserId(inst.userId)) {
           connected.push(inst);
           if (connected.length >= limit) break;
         }
