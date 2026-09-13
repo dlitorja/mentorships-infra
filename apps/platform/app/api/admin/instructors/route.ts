@@ -16,6 +16,8 @@ import type { Id } from "@/convex/_generated/dataModel";
  *     completed (their `userId` is a real Clerk user ID, not a placeholder).
  *     Used by the edit-instructor form's "Instructor ID" dropdown so admins
  *     can't accidentally reference instructors who haven't signed up yet.
+ *   - `pageSize=<n>` forwarded as the Convex `limit`. Optional; falls back
+ *     to `DEFAULT_INSTRUCTOR_LIST_LIMIT` (100) when omitted.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -23,10 +25,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const convex = await getAuthenticatedConvexClient();
 
-    const connected = new URL(req.url).searchParams.get("connected") === "true";
+    const url = new URL(req.url);
+    const connected = url.searchParams.get("connected") === "true";
+    const pageSizeRaw = url.searchParams.get("pageSize");
+    const pageSize = pageSizeRaw ? Number(pageSizeRaw) : undefined;
+    const limitArg = Number.isFinite(pageSize) && (pageSize as number) > 0 ? { limit: pageSize as number } : {};
     const instructors = connected
-      ? await convex.query(api.instructors.getConnectedInstructorsForAdmin, {})
-      : await convex.query(api.instructors.getInstructorsForAdmin, {});
+      ? await convex.query(api.instructors.getConnectedInstructorsForAdmin, limitArg)
+      : await convex.query(api.instructors.getInstructorsForAdmin, limitArg);
 
     // Compute product-active flags in a single query to avoid N+1 lookups
     const instructorIds = instructors.map((inst) => inst._id);
