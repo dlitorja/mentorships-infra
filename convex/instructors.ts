@@ -1130,11 +1130,12 @@ export const getConnectedInstructorsForAdmin = query({
       typeof requestedLimit === "number" && Number.isFinite(requestedLimit) && requestedLimit > 0
         ? Math.min(Math.floor(requestedLimit), MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT)
         : DEFAULT_INSTRUCTOR_LIST_LIMIT;
-    const pageSize = Math.max(limit * 2, 200);
-    // Hard upper bound on pages walked per query so a sparse active set
-    // (lots of placeholders, few Clerk-linked rows) can't drive the read
-    // budget up to the size of the entire active instructor table.
-    const maxIterations = Math.max(5, Math.ceil(limit / pageSize) * 4);
+    // Smaller fixed page size + generous iteration cap so a sparse active
+    // set (lots of placeholders, few Clerk-linked rows) still has a good
+    // chance of finding `limit` connected rows. Total reads stay well under
+    // Convex's 8192-doc query limit.
+    const pageSize = 200;
+    const maxIterations = Math.max(10, Math.ceil(limit / pageSize) * 8);
     const connected: Doc<"instructors">[] = [];
     let cursor: string | null = null;
     let iterations = 0;
