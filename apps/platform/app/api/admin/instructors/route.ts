@@ -8,6 +8,13 @@ import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitati
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
+ * Maximum page size the admin instructor endpoint will accept. Callers asking
+ * for more are clamped down to this value so a runaway client can't ask the
+ * Convex query to do arbitrarily large reads.
+ */
+const MAX_INSTRUCTOR_LIST_PAGE_SIZE = 500;
+
+/**
  * GET /api/admin/instructors
  * Lists instructors with lightweight stats for the admin UI. Requires admin role.
  *
@@ -17,7 +24,8 @@ import type { Id } from "@/convex/_generated/dataModel";
  *     Used by the edit-instructor form's "Instructor ID" dropdown so admins
  *     can't accidentally reference instructors who haven't signed up yet.
  *   - `pageSize=<n>` forwarded as the Convex `limit`. Optional; falls back
- *     to `DEFAULT_INSTRUCTOR_LIST_LIMIT` (100) when omitted.
+ *     to `DEFAULT_INSTRUCTOR_LIST_LIMIT` (100) when omitted. Clamped to
+ *     `[1, MAX_INSTRUCTOR_LIST_PAGE_SIZE]` to protect against runaway reads.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -28,8 +36,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const url = new URL(req.url);
     const connected = url.searchParams.get("connected") === "true";
     const pageSizeRaw = url.searchParams.get("pageSize");
-    const pageSize = pageSizeRaw ? Number(pageSizeRaw) : undefined;
-    const limitArg = Number.isFinite(pageSize) && (pageSize as number) > 0 ? { limit: pageSize as number } : {};
+    const parsed = pageSizeRaw ? Number(pageSizeRaw) : undefined;
+    const clamped =
+      Number.isFinite(parsed) && (parsed as number) > 0
+        ? Math.min(Math.floor(parsed as number), MAX_INSTRUCTOR_LIST_PAGE_SIZE)
+        : undefined;
+    const limitArg = clamped !== undefined ? { limit: clamped } : {};
     const instructors = connected
       ? await convex.query(api.instructors.getConnectedInstructorsForAdmin, limitArg)
       : await convex.query(api.instructors.getInstructorsForAdmin, limitArg);
