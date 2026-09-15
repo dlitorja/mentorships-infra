@@ -3,13 +3,13 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { CourseCard } from "@/components/portals/course-card";
 import { BundleCard } from "@/components/portals/bundle-card";
-import { CountdownTimer } from "@/components/portals/countdown-timer";
+import { BaseCard } from "@/components/portals/base-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Gift } from "lucide-react";
+import { Briefcase, Gift } from "lucide-react";
 import { getPortalBySlug, getAllPortals } from "@/config/instructor-portals";
 
-const SALE_END_DATE = new Date("2026-05-05T00:00:00-07:00");
+const NEIL_GRAY_MENTORSHIP_URL = "https://home.huckleberry.art/offers/ADNkiMXF/checkout";
 
 function isNeilGrayPortal(slug: string): boolean {
   return slug === "neil-gray";
@@ -57,10 +57,18 @@ export default async function InstructorCoursesPage({
       <div className="container mx-auto px-4 py-8 md:py-12">
         <div className="mx-auto max-w-2xl">
           {showLaunchSale && (
-            <CountdownTimer
-              endDate={SALE_END_DATE}
-title="LAUNCH SALE - ENDS MAY 5TH"
-            />
+            <section className="mb-12">
+              <h2 className="mb-6 text-3xl font-bold tracking-tight text-center md:text-left">
+                1-on-1 Mentorship
+              </h2>
+              <BaseCard
+                title="1-on-1 Mentorship with Neil Gray"
+                description="Work directly with Neil Gray on your art. Personalized guidance tailored to your goals and skill level."
+                url={NEIL_GRAY_MENTORSHIP_URL}
+                buttonText="Buy 1-on-1 Mentorship"
+                icon={<Briefcase className="h-5 w-5" />}
+              />
+            </section>
           )}
 
           {bundles.length > 0 && (
