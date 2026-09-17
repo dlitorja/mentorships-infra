@@ -773,6 +773,99 @@ export const getInstructorByUserId = query({
   },
 });
 
+/**
+ * Linking status of the calling user, derived from
+ * `ctx.auth.getUserIdentity()` server-side (no client-supplied userId).
+ *
+ * Returned discriminator lets the caller distinguish three failure modes
+ * that `getInstructorByUserId` collapses into "no instructor":
+ *
+ *   - `linked`               — happy path; `instructorId` is usable
+ *   - `no_instructor`        — caller has no Clerk identity, or no
+ *                              instructor record matches by userId or
+ *                              by email
+ *   - `needs_reconciliation` — caller has an instructor record whose
+ *                              `userId` is a Clerk ID that does NOT
+ *                              match the caller's current Clerk
+ *                              `subject`, but their email matches
+ *                              the instructor record's email. This
+ *                              is the silent-drop case from
+ *                              `linkClerkUserToInstructor`:
+ *                              the instructor signed in with a new
+ *                              Clerk account (or lost the old one),
+ *                              and the webhook refused to overwrite
+ *                              the existing `userId`. Without this
+ *                              signal, the caller sees an unhelpful
+ *                              404 and has no path forward.
+ *
+ * Why a separate query instead of a richer return shape on
+ * `getInstructorByUserId`:
+ *   - `getInstructorByUserId` is called from ~30 places across
+ *     apps/platform and apps/web. Changing its return type to a
+ *     discriminator object would force every caller to update.
+ *   - `getInstructorLinkingStatusForCurrentUser` is the
+ *     narrow-surface fix: callers that only want the linked
+ *     instructor keep using `getInstructorByUserId`; callers
+ *     that want to surface reconciliation state call this query
+ *     in addition.
+ *
+ * Security:
+ *   - Uses `identity.subject` and `identity.email` server-side;
+ *     no client-supplied user identifiers.
+ *   - `by_email` is a top-level index, so the email lookup is
+ *     bounded to instructors with that exact email. No need to
+ *     gate by Clerk user.
+ */
+export const getInstructorLinkingStatusForCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { status: "no_instructor" as const };
+    }
+    const userId = identity.subject;
+
+    // 1. Normal path: instructor exists for this Clerk user.
+    const byUserId = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first();
+    if (byUserId) {
+      return {
+        status: "linked" as const,
+        instructorId: byUserId._id,
+      };
+    }
+
+    // 2. Reconciliation path: caller has an instructor record
+    //    bound to a DIFFERENT Clerk userId, but with the same
+    //    email. Return the existing Clerk userId so the UI can
+    //    tell the instructor "sign in with the email at X" or
+    //    file an admin request to relink.
+    //
+    //    Skipped when the caller has no email on their Clerk
+    //    identity — emails are optional on Clerk sessions, and
+    //    we don't want to do an unfiltered scan.
+    const email = identity.email?.toLowerCase().trim();
+    if (email) {
+      const byEmail = await ctx.db
+        .query("instructors")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .first();
+      if (byEmail && byEmail.userId && isClerkUserId(byEmail.userId) && byEmail.userId !== userId) {
+        return {
+          status: "needs_reconciliation" as const,
+          instructorId: byEmail._id,
+          email,
+          existingClerkUserId: byEmail.userId,
+        };
+      }
+    }
+
+    return { status: "no_instructor" as const };
+  },
+});
+
 export const getCurrentInstructor = query({
   args: {},
   handler: async (ctx) => {
@@ -2752,6 +2845,34 @@ export const linkClerkUserToInstructor = internalAction({
       // placeholder would block the instructor from ever signing
       // in as themselves.
       if (instructor.userId && instructor.userId !== userId && isClerkUserId(instructor.userId)) {
+        // Surface this refusal instead of silently dropping it at
+        // the webhook call site (`convex/http.ts:httpClerkWebhook`).
+        // Without this, the instructor keeps signing in with the
+        // new Clerk account while `getInstructorByUserId` keeps
+        // returning null, and the only fix is a manual DB write.
+        // A `console.warn` makes the refusal visible in Convex logs;
+        // the audit-log row makes it queryable in
+        // `listAuditLogs({ action: "instructor_linking_refused" })`
+        // so an admin dashboard can surface "needs reconciliation"
+        // without scraping logs.
+        console.warn(
+          `[linkClerkUserToInstructor] REFUSAL: instructor ${instructor._id} (email=${normalizedEmail}, existingClerkUser=${instructor.userId}) cannot be relinked to new Clerk user ${userId}. Run internal.instructors.linkInstructorToLegacyMentor to fix.`,
+        );
+        await ctx.runMutation(internal.auditLog.recordAuditLog, {
+          actorId: "system",
+          actorRole: "system",
+          action: "instructor_linking_refused",
+          targetType: "instructor",
+          targetId: instructor._id,
+          details:
+            `Instructor ${instructor._id} (${normalizedEmail}) is already linked to Clerk user ${instructor.userId}; refusing to relink to new Clerk user ${userId}.`,
+          metadata: {
+            email: normalizedEmail,
+            existingClerkUserId: instructor.userId,
+            newClerkUserId: userId,
+            fix: "Run internal.instructors.linkInstructorToLegacyMentor to repoint userId.",
+          },
+        });
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
         // Update with the Clerk userId (handles placeholder userIds like "admin-slug")
