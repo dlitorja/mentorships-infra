@@ -137,9 +137,11 @@ export default function StudentsPage(): React.JSX.Element {
 
   const students = data?.items ?? [];
 
-  const displayName = (s: StudentItem) => {
-    return s.email || s.userId || "Unknown";
+  const primaryLabel = (s: StudentItem) => {
+    return s.email || s.userId || "Unknown email";
   };
+
+  const isClerkUserId = (id: string) => id.startsWith("user_");
 
   const handleOpenAddSessions = (student: StudentItem) => {
     setSelectedStudent(student);
@@ -220,8 +222,17 @@ export default function StudentsPage(): React.JSX.Element {
                 <li key={s.userId || idx} className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium">{displayName(s)}</div>
-                      <div className="text-sm text-muted-foreground">{s.email || s.userId}</div>
+                      <div className="font-medium">{primaryLabel(s)}</div>
+                      <div
+                        className="text-xs text-muted-foreground font-mono break-all"
+                        title={
+                          isClerkUserId(s.userId)
+                            ? "Clerk user ID (for debugging)"
+                            : "Internal user identifier (not yet synced to Clerk)"
+                        }
+                      >
+                        {isClerkUserId(s.userId) ? "Clerk ID" : "Internal ID"}: {s.userId}
+                      </div>
                       {(s.sessionPacks ?? []).length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {(s.sessionPacks ?? []).map((pack) => (
@@ -254,15 +265,19 @@ export default function StudentsPage(): React.JSX.Element {
           <DialogHeader>
             <DialogTitle>Add Sessions to Student</DialogTitle>
             <DialogDescription>
-              Add session pack to {selectedStudent ? displayName(selectedStudent) : "student"} without payment flow.
+              Add session pack to {selectedStudent ? primaryLabel(selectedStudent) : "student"} without payment flow.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {selectedStudent && (
               <div className="text-sm text-muted-foreground">
-                Student: <span className="font-medium text-foreground">{displayName(selectedStudent)}</span>
+                Student: <span className="font-medium text-foreground">{primaryLabel(selectedStudent)}</span>
                 <br />
                 Email: {selectedStudent.email || "N/A"}
+                <br />
+                <span className="font-mono break-all">
+                  {isClerkUserId(selectedStudent.userId) ? "Clerk ID" : "Internal ID"}: {selectedStudent.userId}
+                </span>
               </div>
             )}
 

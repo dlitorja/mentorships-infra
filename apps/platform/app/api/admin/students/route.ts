@@ -4,25 +4,11 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { auth } from "@clerk/nextjs/server";
-
-type ConvexSessionPack = {
-  id: string;
-  instructorId: string;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: string;
-};
-
-type ConvexStudent = {
-  userId: string;
-  email: string | null;
-  sessionPacks: ConvexSessionPack[];
-};
+import { auth, clerkClient } from "@clerk/nextjs/server";
+import {
+  enrichStudentEmails,
+  type ConvexStudent,
+} from "@/lib/admin/student-enrichment";
 
 type GetStudentsForAdminResult = {
   items: ConvexStudent[];
@@ -114,11 +100,13 @@ export async function GET(req: NextRequest) {
       throw err;
     }
 
+    const items = await enrichStudentEmails(result.items, clerkClient);
+
     return NextResponse.json({
-      items: result.items.map((student) => ({
+      items: items.map((student) => ({
         userId: student.userId,
         email: student.email,
-        sessionPacks: (student.sessionPacks ?? []).map((pack) => ({
+        sessionPacks: student.sessionPacks.map((pack) => ({
           id: pack.id,
           instructorId: pack.instructorId,
           instructorName: pack.instructorName,
