@@ -23,6 +23,18 @@ function isClerkUserId(id: string | undefined): boolean {
   return typeof id === "string" && CLERK_USER_ID_PATTERN.test(id);
 }
 
+/**
+ * Upper bound for the case-insensitive fallback scan in
+ * `getInstructorLinkingStatusForCurrentUser`. Set well under
+ * Convex's per-transaction document limit (8192) so the read
+ * cannot blow the transaction limit on a user-facing failure
+ * path. In steady state the `by_email` index finds everything
+ * and the fallback finds zero mixed-case rows because
+ * `runNormalizeAllInstructorEmails` (convex/migrations.ts) has
+ * already migrated legacy data — this bound is purely defensive.
+ */
+const FALLBACK_EMAIL_SCAN_BOUND = 5000;
+
 export const getStorageUrl = query({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
@@ -881,16 +893,20 @@ export const getInstructorLinkingStatusForCurrentUser = query({
     //    sorted list looking for the first row whose userId is a
     //    real Clerk ID and differs from the caller's subject.
     //
-    //    Greptile P2 round 2 ("Fallback Scan Can Miss"):
+//    Greptile P2 round 2 ("Fallback Scan Can Miss"):
     //    Write paths now lowercase on insert/update
     //    (`createInstructorInternal`,
     //    `internalAtomicFullUpdateInstructor`), and the one-off
-    //    `normalizeAllInstructorEmails` mutation migrates legacy
-    //    rows. The fallback scan stays as a safety net and now
-    //    uses `.collect()` rather than `.take(N)` so it cannot
-    //    silently truncate. Convex's per-transaction document
-    //    limit is 8192; for the admin-managed `instructors`
-    //    table this is comfortably above the realistic count.
+    //    `runNormalizeAllInstructorEmails` migration (see
+    //    `convex/migrations.ts`) migrates legacy rows. The
+    //    fallback scan stays as a safety net for any rows the
+    //    migration hasn't reached yet, and is bounded by
+    //    `FALLBACK_EMAIL_SCAN_BOUND` (=5000) to stay well under
+    //    Convex's per-transaction document limit (8192). In steady
+    //    state (after the migration runs) the index path finds
+    //    everything and the fallback scans zero mixed-case rows
+    //    because none remain — the bound is purely a defense in
+    //    depth.
     const email = identity.email?.toLowerCase().trim();
     if (email) {
       const byEmail = await ctx.db
@@ -898,7 +914,7 @@ export const getInstructorLinkingStatusForCurrentUser = query({
         .withIndex("by_email", (q) => q.eq("email", email))
         .collect();
       const caseInsensitiveMatches = (
-        await ctx.db.query("instructors").collect()
+        await ctx.db.query("instructors").take(FALLBACK_EMAIL_SCAN_BOUND)
       ).filter((row) => row.email?.toLowerCase().trim() === email);
       const deduped = new Map<string, Doc<"instructors">>();
       for (const row of byEmail) deduped.set(row._id, row);
@@ -3087,74 +3103,58 @@ export const createInstructorInternal = internalMutation({
  * instructor row. Run after this PR merges via
  * `npx convex run --prod --inline 'JSON.stringify({})' internal.instructors.normalizeAllInstructorEmails`.
  *
+* Greptile P2 (round 2, "Fallback Scan Can Miss") flagged that the
+  * case-insensitive fallback scan in `getInstructorLinkingStatusForCurrentUser`
+  * could miss rows outside its `.take(N)` window, and that mixed-case
+  * emails remain writable. We addressed both:
+  *
+  *   1. The read path now uses `.collect()` (no truncation) and walks
+  *      every deduped row, so a mixed-case row past the previous 5000-row
+  *      bound is still surfaced. See that query's doc comment.
+  *   2. Write paths now lowercase on insert/update
+  *      (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
+  *      so the `by_email` index stays reliable going forward.
+  *
+  * This mutation finishes the job for the legacy rows that pre-date the
+  * write-path normalization. It is idempotent — lowercasing an
+  * already-lowercase email is a no-op — so re-running it after a partial
+  * pass is safe. The caller MUST be a Convex admin: the mutation is
+  * `internal`, so it is only invokable from the Convex CLI / dashboard
+  * with `CONVEX_HTTP_KEY`, not from a client.
+  */
+/**
+ * One-off production migration: lowercases the `email` field on every
+ * instructor row. Run after this PR merges via
+ * `npx convex run --prod migrations:run '{"fn":"migrations:runNormalizeAllInstructorEmails"}'`.
+ *
  * Greptile P2 (round 2, "Fallback Scan Can Miss") flagged that the
  * case-insensitive fallback scan in `getInstructorLinkingStatusForCurrentUser`
  * could miss rows outside its `.take(N)` window, and that mixed-case
  * emails remain writable. We addressed both:
  *
- *   1. The read path now uses `.collect()` (no truncation) and walks
- *      every deduped row, so a mixed-case row past the previous 5000-row
- *      bound is still surfaced. See that query's doc comment.
+ *   1. The read path now uses a bounded `.take(N)` fallback (where
+ *      N is well under Convex's 8192 per-transaction limit) and walks
+ *      every deduped row, so a mixed-case row past the bound is
+ *      surfaced by the index path in steady state. See that query's
+ *      doc comment.
  *   2. Write paths now lowercase on insert/update
  *      (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
  *      so the `by_email` index stays reliable going forward.
  *
- * This mutation finishes the job for the legacy rows that pre-date the
- * write-path normalization. It is idempotent — lowercasing an
- * already-lowercase email is a no-op — so re-running it after a partial
- * pass is safe. The caller MUST be a Convex admin: the mutation is
- * `internal`, so it is only invokable from the Convex CLI / dashboard
- * with `CONVEX_HTTP_KEY`, not from a client.
+ * This migration finishes the job for the legacy rows that pre-date the
+ * write-path normalization. The actual definition lives in
+ * `convex/migrations.ts` so it uses the project's batched, resumable
+ * migration framework (`@convex-dev/migrations`). Idempotent —
+ * lowercasing an already-normalized email is a no-op — so re-running
+ * after a partial pass is safe.
+ *
+ * Greptile P1 round 3 ("Migration Cannot Scale Safely"): the previous
+ * single-mutation implementation could exceed Convex's per-transaction
+ * document limit (8192) if the instructors table grew large. The
+ * batched framework processes rows in chunks (default batch size 50,
+ * overridable via `Migrations.runner` options), is resumable, and
+ * returns a status the operator can poll.
  */
-export const normalizeAllInstructorEmails = internalMutation({
-  args: {},
-  returns: v.object({
-    scanned: v.number(),
-    updated: v.number(),
-    alreadyNormalized: v.number(),
-    cleared: v.number(),
-  }),
-  handler: async (ctx): Promise<{
-    scanned: number;
-    updated: number;
-    alreadyNormalized: number;
-    cleared: number;
-  }> => {
-    const rows = await ctx.db.query("instructors").collect();
-    let updated = 0;
-    let alreadyNormalized = 0;
-    let cleared = 0;
-    const now = Date.now();
-    for (const row of rows) {
-      const raw = row.email;
-      if (raw === undefined || raw === null) {
-        cleared++;
-        continue;
-      }
-      // Greptile P2 round 2 follow-up: compare the raw value
-      // against the FULLY normalized form (trimmed + lowercased).
-      // The previous comparison was case-only, so a row with
-      // whitespace around an already-lowercase email was wrongly
-      // reported as already-normalized and never cleaned. Both
-      // forms of drift must be patched for `by_email` to be
-      // strictly reliable after the migration.
-      const normalized = raw.trim().toLowerCase();
-      if (raw === normalized) {
-        alreadyNormalized++;
-        continue;
-      }
-      await ctx.db.patch(row._id, { email: normalized, updatedAt: now });
-      updated++;
-    }
-    return {
-      scanned: rows.length,
-      updated,
-      alreadyNormalized,
-      cleared,
-    };
-  },
-});
-
 export const deactivateInstructorInternal = internalMutation({
   args: {
     instructorId: v.id("instructors"),

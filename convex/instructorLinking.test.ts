@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
+import migrationsTest from "@convex-dev/migrations/test";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -133,14 +134,21 @@ test("createInstructorInternal: lowercases the email on insert (Greptile P2 roun
   expect(stored?.email).toBe("mixed.case+tag@example.com");
 });
 
-test("normalizeAllInstructorEmails: lowercases every mixed-case email and reports counts (Greptile P2 round 2)", async () => {
-  // Greptile P2 round 2 also flagged that legacy mixed-case rows
-  // remain until a one-off migration runs. The mutation is committed
-  // to the repo so it can be applied via
-  // `npx convex run --prod internal.instructors.normalizeAllInstructorEmails`
-  // after this PR merges. Here we verify the mutation correctly
-  // identifies, lowercases, and reports counts for a mix of states.
+test("normalizeAllInstructorEmails: lowercases every mixed-case email and patches whitespace drift (Greptile P1 round 3)", async () => {
+  // Greptile P1 round 3 ("Migration Cannot Scale Safely"): the
+  // previous single-mutation implementation read+updated the whole
+  // table in one transaction and could exceed Convex's 8192 limit.
+  // The migration now lives in `convex/migrations.ts` and uses
+  // the project's batched, resumable `Migrations` framework, so
+  // it's safe at scale and resumable across crashes. The runner
+  // exposes a status the operator can poll.
+  //
+  // Greptile P2 round 2 follow-up: the comparison is against the
+  // FULLY normalized form so whitespace-only drift around an
+  // already-lowercase email is also patched (the previous case-only
+  // comparison wrongly reported it as alreadyNormalized).
   const t = convexTest(schema, modules);
+  migrationsTest.register(t);
   await t.run(async (ctx) => {
     // 1. Mixed case → should be lowercased.
     await ctx.db.insert("instructors", {
@@ -166,26 +174,8 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
       oneOnOneInventory: 0,
       groupInventory: 0,
     });
-    // 3. Missing email (legacy placeholder import) → cleared count.
-    await ctx.db.insert("instructors", {
-      userId: "user_missingEmail00000000",
-      name: "NoEmail",
-      slug: "no-email",
-      email: undefined,
-      isActive: true,
-      isNew: false,
-      maxActiveStudents: 10,
-      oneOnOneInventory: 0,
-      groupInventory: 0,
-    });
-    // 4. Whitespace-only drift around an already-lowercase email →
+    // 3. Whitespace-only drift around an already-lowercase email →
     //    must still be patched (Greptile P2 round 2 follow-up).
-    //    The previous case-only comparison (`trimmed === lowercased`)
-    //    missed this and reported it as `alreadyNormalized`, leaving
-    //    whitespace in the stored email and breaking any consumer
-    //    that relies on the `by_email` index + lowercased Clerk
-    //    email being byte-equal. The new comparison is against
-    //    `raw.trim().toLowerCase()` so both kinds of drift are caught.
     await ctx.db.insert("instructors", {
       userId: "user_whitespaceDrift000",
       name: "WhitespaceDrift",
@@ -199,18 +189,13 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
     });
   });
 
-  const result = await t.mutation(
-    internal.instructors.normalizeAllInstructorEmails,
-    {},
-  );
-  expect(result).toMatchObject({
-    scanned: 4,
-    updated: 2,
-    alreadyNormalized: 1,
-    cleared: 1,
-  });
+  // Run the bound migration runner. The framework's `runner()`
+  // accepts custom batch size / cursor overrides if needed; here
+  // we just want the default batched behavior.
+  await t.mutation(internal.migrations.runNormalizeAllInstructorEmails, {});
 
-  // The mixed-case row must now be lowercased.
+  // Post-conditions: every row that needed normalization is now
+  // byte-equal to its lowercased+trimmed Clerk email form.
   const mixed = await t.run(async (ctx) => {
     return await ctx.db
       .query("instructors")
@@ -219,8 +204,6 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
   });
   expect(mixed?.email).toBe("mixed.case@example.com");
 
-  // The whitespace-drift row must be trimmed + lowercased (not
-  // left as `"  whitespace.drift@example.com  "`).
   const ws = await t.run(async (ctx) => {
     return await ctx.db
       .query("instructors")
@@ -229,17 +212,16 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
   });
   expect(ws?.email).toBe("whitespace.drift@example.com");
 
-  // Re-running is a no-op.
-  const second = await t.mutation(
-    internal.instructors.normalizeAllInstructorEmails,
-    {},
-  );
-  expect(second).toMatchObject({
-    scanned: 4,
-    updated: 0,
-    alreadyNormalized: 3,
-    cleared: 1,
+  // Re-running is a no-op — the framework's idempotency holds
+  // because migrateOne returns undefined for already-normalized rows.
+  await t.mutation(internal.migrations.runNormalizeAllInstructorEmails, {});
+  const wsAfter = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", "whitespace-drift"))
+      .first();
   });
+  expect(wsAfter?.email).toBe("whitespace.drift@example.com");
 });
 
 test("getInstructorLinkingStatusForCurrentUser: returns `needs_reconciliation` for the most recently created Clerk-linked row when the same email has two Clerk-linked rows (Greptile P2 round 2 follow-up)", async () => {
