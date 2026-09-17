@@ -178,6 +178,25 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
       oneOnOneInventory: 0,
       groupInventory: 0,
     });
+    // 4. Whitespace-only drift around an already-lowercase email →
+    //    must still be patched (Greptile P2 round 2 follow-up).
+    //    The previous case-only comparison (`trimmed === lowercased`)
+    //    missed this and reported it as `alreadyNormalized`, leaving
+    //    whitespace in the stored email and breaking any consumer
+    //    that relies on the `by_email` index + lowercased Clerk
+    //    email being byte-equal. The new comparison is against
+    //    `raw.trim().toLowerCase()` so both kinds of drift are caught.
+    await ctx.db.insert("instructors", {
+      userId: "user_whitespaceDrift000",
+      name: "WhitespaceDrift",
+      slug: "whitespace-drift",
+      email: "  whitespace.drift@example.com  ",
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
   });
 
   const result = await t.mutation(
@@ -185,8 +204,8 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
     {},
   );
   expect(result).toMatchObject({
-    scanned: 3,
-    updated: 1,
+    scanned: 4,
+    updated: 2,
     alreadyNormalized: 1,
     cleared: 1,
   });
@@ -200,16 +219,97 @@ test("normalizeAllInstructorEmails: lowercases every mixed-case email and report
   });
   expect(mixed?.email).toBe("mixed.case@example.com");
 
+  // The whitespace-drift row must be trimmed + lowercased (not
+  // left as `"  whitespace.drift@example.com  "`).
+  const ws = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", "whitespace-drift"))
+      .first();
+  });
+  expect(ws?.email).toBe("whitespace.drift@example.com");
+
   // Re-running is a no-op.
   const second = await t.mutation(
     internal.instructors.normalizeAllInstructorEmails,
     {},
   );
   expect(second).toMatchObject({
-    scanned: 3,
+    scanned: 4,
     updated: 0,
-    alreadyNormalized: 2,
+    alreadyNormalized: 3,
     cleared: 1,
+  });
+});
+
+test("getInstructorLinkingStatusForCurrentUser: returns `needs_reconciliation` for the most recently created Clerk-linked row when the same email has two Clerk-linked rows (Greptile P2 round 2 follow-up)", async () => {
+  // Greptile P2 round 2 follow-up ("non-unique email lookup still
+  // returns the first qualifying real Clerk-linked row without
+  // disambiguating multiple candidates"): when two legitimate
+  // Clerk-linked rows exist for the same email (the second was
+  // created by a re-link), the new behavior is recency-wins — the
+  // most recently-created row is treated as the candidate the
+  // caller wants to relink with. This is the right answer in
+  // the common case where an admin re-linked the record to a
+  // new Clerk account and forgot to clean up the prior row.
+  //
+  // Order matters: insert the OLDER row first so its _creationTime
+  // is earlier, then insert the NEWER row second. The query must
+  // pick the newer one.
+  const t = convexTest(schema, modules);
+  const olderInstructorId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: "user_olderClerk00000000000",
+      name: "Rakasa",
+      slug: "rakasa-older",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  });
+  const newerInstructorId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: "user_newerClerk00000000000",
+      name: "Rakasa",
+      slug: "rakasa-newer",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  });
+
+  // Sanity check the test setup — the two rows must have
+  // distinct _creationTimes so the recency ordering is meaningful.
+  const { olderTime, newerTime } = await t.run(async (ctx) => {
+    const older = await ctx.db.get(olderInstructorId);
+    const newer = await ctx.db.get(newerInstructorId);
+    return {
+      olderTime: older?._creationTime ?? 0,
+      newerTime: newer?._creationTime ?? 0,
+    };
+  });
+  expect(newerTime).toBeGreaterThan(olderTime);
+
+  const client = t.withIdentity({
+    subject: NEW_CLERK_USER,
+    email: EMAIL,
+  });
+
+  const result = await client.query(
+    api.instructors.getInstructorLinkingStatusForCurrentUser,
+    {},
+  );
+  expect(result).toMatchObject({
+    status: "needs_reconciliation",
+    instructorId: newerInstructorId,
+    email: EMAIL.toLowerCase(),
+    existingClerkUserId: "user_newerClerk00000000000",
   });
 });
 

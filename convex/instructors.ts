@@ -845,7 +845,7 @@ export const getInstructorLinkingStatusForCurrentUser = query({
       };
     }
 
-    // 2. Reconciliation path: caller has an instructor record
+// 2. Reconciliation path: caller has an instructor record
     //    bound to a DIFFERENT Clerk userId, but with the same
     //    email. Return the existing Clerk userId so the UI can
     //    tell the instructor "sign in with the email at X" or
@@ -855,46 +855,58 @@ export const getInstructorLinkingStatusForCurrentUser = query({
     //    identity — emails are optional on Clerk sessions, and
     //    we don't want to do an unfiltered scan.
     //
-    //    Greptile P1 (round 2, "First Email Match Wins"):
+    //    Greptile P1 round 2 ("First Email Match Wins" /
+    //    "Duplicate Emails Misidentify Instructors"):
     //    `by_email` is NOT unique — admin tooling can produce
     //    multiple rows for the same address (e.g. a placeholder
-    //    `admin-${slug}` row + a real Clerk-linked row). The
-    //    previous `.first()` returned whichever row sorted first
-    //    by `_id`, and if THAT row carried a placeholder userId
-    //    (so the `isClerkUserId` guard rejected it) we returned
+    //    `admin-${slug}` row + a real Clerk-linked row, or two
+    //    Clerk-linked rows for two legitimately different
+    //    instructors who happen to share an email). The previous
+    //    `.first()` returned whichever row sorted first by `_id`,
+    //    and if THAT row carried a placeholder userId (so the
+    //    `isClerkUserId` guard rejected it) we returned
     //    `no_instructor` even when a valid reconciliation row
-    //    existed. Now we collect ALL matches (from the index AND
-    //    the case-insensitive fallback scan) and walk the deduped
-    //    set looking for the first row whose userId is a real
-    //    Clerk ID and differs from the caller.
+    //    existed.
     //
-    //    Greptile P2 (round 2, "Fallback Scan Can Miss"):
-    //    `createInstructorInternal` and the admin `updateInstructor`
-    //    mutation stored emails verbatim, so a `by_email` exact
-    //    match on a lowercased Clerk email misses legacy mixed-case
-    //    rows. The fallback scan is still required until
-    //    `normalizeAllInstructorEmails` runs in production (see
-    //    that mutation's doc). It now uses `.collect()` rather
-    //    than `.take(N)` so it cannot silently truncate.
-    //    Convex's per-transaction document limit is 8192; for the
-    //    admin-managed `instructors` table this is comfortably
-    //    above the realistic count.
+    //    Now we collect ALL matches from BOTH the `by_email` index
+    //    AND the case-insensitive fallback scan — even when the
+    //    index has hits, because a mixed-case row outside the
+    //    index may still surface a more recent Clerk-linked row
+    //    that the caller actually wants to relink with. The
+    //    deduped set is sorted by `_creationTime` descending so
+    //    the most recently-created row wins, which is the right
+    //    answer in the common case (a stale placeholder shadowed
+    //    by a fresh Clerk link, or two Clerk-linked rows where
+    //    the second was the deliberate re-link). Then we walk the
+    //    sorted list looking for the first row whose userId is a
+    //    real Clerk ID and differs from the caller's subject.
+    //
+    //    Greptile P2 round 2 ("Fallback Scan Can Miss"):
+    //    Write paths now lowercase on insert/update
+    //    (`createInstructorInternal`,
+    //    `internalAtomicFullUpdateInstructor`), and the one-off
+    //    `normalizeAllInstructorEmails` mutation migrates legacy
+    //    rows. The fallback scan stays as a safety net and now
+    //    uses `.collect()` rather than `.take(N)` so it cannot
+    //    silently truncate. Convex's per-transaction document
+    //    limit is 8192; for the admin-managed `instructors`
+    //    table this is comfortably above the realistic count.
     const email = identity.email?.toLowerCase().trim();
     if (email) {
       const byEmail = await ctx.db
         .query("instructors")
         .withIndex("by_email", (q) => q.eq("email", email))
         .collect();
-      const caseInsensitiveMatches =
-        byEmail.length > 0
-          ? []
-          : (await ctx.db.query("instructors").collect()).filter(
-              (row) => row.email?.toLowerCase().trim() === email,
-            );
+      const caseInsensitiveMatches = (
+        await ctx.db.query("instructors").collect()
+      ).filter((row) => row.email?.toLowerCase().trim() === email);
       const deduped = new Map<string, Doc<"instructors">>();
       for (const row of byEmail) deduped.set(row._id, row);
       for (const row of caseInsensitiveMatches) deduped.set(row._id, row);
-      for (const row of deduped.values()) {
+      const sortedByRecency = [...deduped.values()].sort(
+        (a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0),
+      );
+      for (const row of sortedByRecency) {
         if (row.userId && isClerkUserId(row.userId) && row.userId !== userId) {
           return {
             status: "needs_reconciliation" as const,
@@ -3119,13 +3131,19 @@ export const normalizeAllInstructorEmails = internalMutation({
         cleared++;
         continue;
       }
-      const trimmed = raw.trim();
-      const lowercased = trimmed.toLowerCase();
-      if (trimmed === lowercased) {
+      // Greptile P2 round 2 follow-up: compare the raw value
+      // against the FULLY normalized form (trimmed + lowercased).
+      // The previous comparison was case-only, so a row with
+      // whitespace around an already-lowercase email was wrongly
+      // reported as already-normalized and never cleaned. Both
+      // forms of drift must be patched for `by_email` to be
+      // strictly reliable after the migration.
+      const normalized = raw.trim().toLowerCase();
+      if (raw === normalized) {
         alreadyNormalized++;
         continue;
       }
-      await ctx.db.patch(row._id, { email: lowercased, updatedAt: now });
+      await ctx.db.patch(row._id, { email: normalized, updatedAt: now });
       updated++;
     }
     return {
