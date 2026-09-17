@@ -856,11 +856,14 @@ export const getInstructorLinkingStatusForCurrentUser = query({
     //    `needs_reconciliation` state instead of an unhelpful
     //    `no_instructor`. The scan is bounded by
     //    `.take(MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN)` to
-    //    stay well within transaction read limits; in practice
-    //    the `by_email` index covers all freshly created
-    //    instructors (linkClerkUserToInstructor normalizes),
-    //    and the scan is a safety net for legacy data.
-    const MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN = 2000;
+    //    stay within Convex transaction read limits; in
+    //    practice the `by_email` index covers all freshly
+    //    created instructors (linkClerkUserToInstructor
+    //    normalizes), and the scan is a safety net for legacy
+    //    data. The bound is generous enough for realistic
+    //    instructor counts (admin-managed, low-cardinality)
+    //    and documented so reviewers understand the trade-off.
+    const MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN = 5000;
     const email = identity.email?.toLowerCase().trim();
     if (email) {
       const byEmail = await ctx.db
@@ -2880,44 +2883,29 @@ export const linkClerkUserToInstructor = internalAction({
         // without scraping logs.
         //
         // Greptile P2: dedup the audit write per
-        // (targetId, existingClerkUserId, newClerkUserId). Clerk
-        // webhooks retry on transient failure; without dedup, the
-        // `instructor_linking_refused` search results would
-        // accumulate one identical row per retry. The
-        // `console.warn` always fires (still surfaces the live
-        // failure in Convex logs); only the audit write is gated.
+        // (targetId, existingClerkUserId, newClerkUserId) ATOMICALLY
+        // via `internal.auditLog.recordInstructorLinkingRefusedAudit`.
+        // Doing the check-and-write inside a single mutation
+        // eliminates the race that two concurrent webhook
+        // deliveries would otherwise exploit (each one reads
+        // "no audit yet", then both insert). The action still
+        // short-circuits, so retries on the same
+        // (existingClerkUserId, newClerkUserId) pair produce
+        // exactly one audit row.
         console.warn(
           `[linkClerkUserToInstructor] REFUSAL: instructor ${instructor._id} (email=${normalizedEmail}, existingClerkUser=${instructor.userId}) cannot be relinked to new Clerk user ${userId}. Run internal.instructors.linkInstructorToLegacyMentor to fix.`,
         );
-        const alreadyRecorded = await ctx.runQuery(
-          internal.auditLog.hasMatchingAuditLog,
+        await ctx.runMutation(
+          internal.auditLog.recordInstructorLinkingRefusedAudit,
           {
-            targetType: "instructor",
-            targetId: instructor._id,
-            action: "instructor_linking_refused",
-            metadataMatch: {
-              existingClerkUserId: instructor.userId,
-              newClerkUserId: userId,
-            },
-          }
-        );
-        if (!alreadyRecorded) {
-          await ctx.runMutation(internal.auditLog.recordAuditLog, {
-            actorId: "system",
-            actorRole: "system",
-            action: "instructor_linking_refused",
-            targetType: "instructor",
-            targetId: instructor._id,
+            instructorId: instructor._id,
+            existingClerkUserId: instructor.userId,
+            newClerkUserId: userId,
+            email: normalizedEmail,
             details:
               `Instructor ${instructor._id} (${normalizedEmail}) is already linked to Clerk user ${instructor.userId}; refusing to relink to new Clerk user ${userId}.`,
-            metadata: {
-              email: normalizedEmail,
-              existingClerkUserId: instructor.userId,
-              newClerkUserId: userId,
-              fix: "Run internal.instructors.linkInstructorToLegacyMentor to repoint userId.",
-            },
-          });
-        }
+          }
+        );
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
         // Update with the Clerk userId (handles placeholder userIds like "admin-slug")
