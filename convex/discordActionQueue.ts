@@ -10,8 +10,9 @@ const DRAIN_DELAY_MS = 15 * 60 * 1000;
 /**
  * Migrates a Discord action queue entry from legacy system.
  * Updates existing entry if found by subjectUserId, otherwise creates new.
- * When the queue transitions from empty to having a pending action, a
- * processor run is scheduled so the cron is only a catch-up safety net.
+ * When the pre-insert queue has no pending action, schedules a processor
+ * run so the cron is only a catch-up safety net for stale `processing`
+ * rows and any rows the live path misses.
  */
 export const migrateDiscordAction = mutation({
   args: {
@@ -44,14 +45,6 @@ export const migrateDiscordAction = mutation({
         .withIndex("by_status", (q) => q.eq("status", "pending"))
         .first();
       if (pending) return;
-
-      const lockThreshold = Date.now() - LOCK_TTL_MS;
-      const staleProcessing = await ctx.db
-        .query("discordActionQueue")
-        .withIndex("by_status", (q) => q.eq("status", "processing"))
-        .filter((q) => q.lt(q.field("lockedAt"), lockThreshold))
-        .first();
-      if (staleProcessing) return;
 
       await ctx.scheduler.runAfter(
         ENQUEUE_DELAY_MS,
