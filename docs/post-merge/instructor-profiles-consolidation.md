@@ -16,14 +16,17 @@ Structured task list for tracking the remaining post-merge operational work on p
 
 Each task below is a single operator action. Estimated 15–25 minutes total.
 
-#### T1. `npx convex data instructorProfiles --prod` returns "Table not found"
+#### T1. `instructorProfiles` is no longer a live table on prod
 
 - **Type**: Verification
 - **Priority**: Urgent
 - **Estimated time**: < 30s
-- **Command**: `npx convex data instructorProfiles --prod`
-- **Pass criterion**: Command exits non-zero with a "Table not found" error (Convex rejects unknown table names).
-- **Why it matters**: Confirms the schema deletion has actually deployed to prod. If this fails, the deploy workflow may not have run correctly.
+- **Commands** (all three must pass):
+  1. **Code-side**: `grep -rn "instructorProfiles" convex/schema.ts` → no matches.
+  2. **Codegen-side**: `grep -rn "instructorProfiles" convex/_generated/` → no matches.
+  3. **Deployed-side**: `npx convex function-spec --prod | grep -c "instructorProfiles"` → `0`.
+- **Pass criterion**: All three return 0/no output. Convex retains data of dropped tables for a soft-delete grace period; the authoritative signal is whether any deployed function references the table, not whether `npx convex data` errors. (`npx convex data instructorProfiles --prod` still returns the orphaned rows with exit 0 — this is by design.)
+- **Why it matters**: Confirms the schema deletion has actually deployed to prod AND no live code path still touches the dropped table. If any of the three checks fail, the deploy workflow may not have run correctly.
 
 #### T2. `/instructors/nino-vecia` renders all 6 portfolio images
 
@@ -74,13 +77,17 @@ Each task below is a single operator action. Estimated 15–25 minutes total.
 - **Priority**: Medium
 - **Target date**: 2026-09-10 (24h after merge)
 - **Estimated time**: 5 min
+- **CLI runbook**: `NO_COLOR=1 node scripts/check-post-merge.mjs --merge 2026-09-09T13:59:35Z --windows 24h --keyword instructorProfiles` (see PR #843). Automates the two Convex items below; prints the dashboard URLs for the remaining items.
 - **Checklist**:
-  - [ ] Convex runtime logs (dashboard → Logs → filter last 24h, search `instructorProfiles`, or CLI: `npx convex logs --prod --history 1000 --success | grep -iE "instructorProfiles|TypeError|_id"`): no `TypeError` mentioning `instructorProfiles` or `_id` undefined
+  - [ ] **CLI-automated**: Convex runtime logs (script: `failed-log mentions of instructorProfiles: 0 / N`) — no `TypeError` mentioning `instructorProfiles` or `_id` undefined
+  - [ ] **CLI-automated**: Convex prod insights (script: `insights: healthy (0 issues over 72h)`) — no OCC contention or resource limit hits
   - [ ] Convex dashboard → Functions view: error rate on `instructors:*` mutations not above the 7-day pre-merge baseline
-  - [ ] Public `/instructors/<slug>` p95 load time not worse than 7-day pre-merge baseline
+  - [ ] Public `/instructors/<slug>` p95 load time not worse than 7-day pre-merge baseline (Vercel Speed Insights)
   - [ ] Sentry / error tracker: no new error patterns mentioning `instructorProfiles`
 
 > Note: `convex/auditLog` is not a suitable source here — it only records completed admin/support/instructor/student/system audit actions and exposes a paginated `listAuditLogs` query; it has no failed-mutation metric. Use the Convex runtime logs / Functions error-rate view instead.
+
+> Caveat (found 2026-09-17): Vercel error-log retention is ~1-3 days in practice; running this check-in late marks all windows with `(*retention)`. The script reports this honestly — the retention marker means "the data isn't there, not that there were no errors." Convex logs (different retention model) still work for late check-ins.
 
 #### T7. 48h post-merge check-in
 
