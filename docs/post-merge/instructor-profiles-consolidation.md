@@ -21,12 +21,12 @@ Each task below is a single operator action. Estimated 15–25 minutes total.
 - **Type**: Verification
 - **Priority**: Urgent
 - **Estimated time**: < 30s
-- **Commands** (all three must pass):
-  1. **Code-side**: `grep -rn "instructorProfiles" convex/schema.ts` → no matches.
-  2. **Codegen-side**: `grep -rn "instructorProfiles" convex/_generated/` → no matches.
-  3. **Deployed-side**: `npx convex function-spec --prod | grep -c "instructorProfiles"` → `0`.
-- **Pass criterion**: All three return 0/no output. Convex retains data of dropped tables for a soft-delete grace period; the authoritative signal is whether any deployed function references the table, not whether `npx convex data` errors. (`npx convex data instructorProfiles --prod` still returns the orphaned rows with exit 0 — this is by design.)
-- **Why it matters**: Confirms the schema deletion has actually deployed to prod AND no live code path still touches the dropped table. If any of the three checks fail, the deploy workflow may not have run correctly.
+- **Commands** (all three must show "no live references"):
+  1. **Code-side**: `grep -rn "instructorProfiles" convex/schema.ts` → no output (grep exits 1 on no match; that's the expected success state).
+  2. **Codegen-side**: `grep -rn "instructorProfiles" convex/_generated/` → no output (same).
+  3. **Deployed-side**: `npx convex function-spec --prod | grep -c "instructorProfiles"` → `0` (grep -c prints `0` and exits 1 on no match; that's the expected success state).
+- **Pass criterion**: All three show no matches. Convex retains data of dropped tables for a soft-delete grace period; the authoritative signal is whether any deployed function references the table, not whether `npx convex data` errors. (`npx convex data instructorProfiles --prod` still returns the orphaned rows with exit 0 — this is by design.) Note that grep returns exit code 1 when there are zero matches, so an automated check that treats exit-0 as the success signal will get the verdict wrong; use "no output" / "count 0" instead.
+- **Why it matters**: Confirms the schema deletion has actually deployed to prod AND no live code path still touches the dropped table. If any of the three checks find matches, the deploy workflow may not have run correctly.
 
 #### T2. `/instructors/nino-vecia` renders all 6 portfolio images
 
