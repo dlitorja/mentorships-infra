@@ -59,3 +59,55 @@ export const backfillSessionWorkspaceLinks = migrations.define({
 export const runBackfillSessionWorkspaceLinks = migrations.runner(
   internal.migrations.backfillSessionWorkspaceLinks
 );
+
+/**
+ * Lowercase + trim every instructor row's `email` field.
+ *
+ * Greptile P2 round 2 ("Fallback Scan Can Miss") + P1 round 3
+ * ("Migration Cannot Scale Safely"): legacy mixed-case emails
+ * remain until a one-off migration runs. Write paths
+ * (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
+ * now lowercase on insert/update, so this migration is the
+ * backfill for rows written before that change. The previous
+ * single-mutation implementation collected the whole table in one
+ * read and could exceed Convex's 8192 per-transaction document
+ * limit if the table grew large. This version uses the project's
+ * batched, resumable migration framework (`@convex-dev/migrations`)
+ * which processes rows in chunks (default batch size 50, see
+ * `Migrations` config above) and is idempotent — re-running after a
+ * partial pass is safe.
+ *
+ * The comparison is against the FULLY normalized form
+ * (`raw.trim().toLowerCase()`), so both mixed-case AND whitespace-
+ * only drift are patched. The earlier case-only comparison wrongly
+ * reported whitespace-only drift as `alreadyNormalized` and left
+ * such rows unpatched.
+ *
+ * Usage (after PR #846 merges):
+ *   npx convex run --prod migrations:run '{"fn":"migrations:runNormalizeAllInstructorEmails"}'
+ *
+ * Once this completes, the case-insensitive fallback scan in
+ * `getInstructorLinkingStatusForCurrentUser` finds zero mixed-case
+ * rows in steady state — the `by_email` index alone is sufficient.
+ */
+export const normalizeAllInstructorEmails = migrations.define({
+  table: "instructors",
+  migrateOne: async (
+    _ctx,
+    inst: { email?: string; updatedAt?: number },
+  ): Promise<Partial<typeof inst> | undefined> => {
+    const raw = inst.email;
+    if (raw === undefined) {
+      return undefined;
+    }
+    const normalized = raw.trim().toLowerCase();
+    if (raw === normalized) {
+      return undefined;
+    }
+    return { email: normalized, updatedAt: Date.now() };
+  },
+});
+
+export const runNormalizeAllInstructorEmails = migrations.runner(
+  internal.migrations.normalizeAllInstructorEmails
+);

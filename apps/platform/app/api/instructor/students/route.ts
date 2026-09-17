@@ -18,8 +18,38 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
     });
 
     if (!instructor) {
+      // Without `getInstructorByUserId` finding the instructor by userId,
+      // we cannot tell whether the caller has no instructor record at all
+      // or is silently in the "Clerk userId got rotated" reconciliation
+      // gap (`linkClerkUserToInstructor` refuses to overwrite a
+      // Clerk-shaped userId, and `getInstructorByUserId` returns null).
+      //
+      // Call the dedicated status query to disambiguate and return a
+      // actionable 409 instead of a bare 404. The instructor sees a
+      // specific reason + admin contact instead of "Instructor profile
+      // not found", which previously blocked debugging.
+      const status = await convex.query(
+        api.instructors.getInstructorLinkingStatusForCurrentUser,
+        {}
+      );
+      if (status.status === "needs_reconciliation") {
+        console.warn(
+          `[instructor/students] reconciliation needed: clerkUser=${user.id} existingInstructorClerkUser=${status.existingClerkUserId} instructorId=${status.instructorId}`,
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Instructor account is linked to a different sign-in. Contact support to relink.",
+            code: "instructor_linking_needs_reconciliation",
+            instructorId: status.instructorId,
+            email: status.email,
+            existingClerkUserId: status.existingClerkUserId,
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
-        { error: "Instructor profile not found" },
+        { error: "Instructor profile not found", code: "instructor_profile_not_found" },
         { status: 404 }
       );
     }

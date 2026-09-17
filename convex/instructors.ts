@@ -23,6 +23,18 @@ function isClerkUserId(id: string | undefined): boolean {
   return typeof id === "string" && CLERK_USER_ID_PATTERN.test(id);
 }
 
+/**
+ * Upper bound for the case-insensitive fallback scan in
+ * `getInstructorLinkingStatusForCurrentUser`. Set well under
+ * Convex's per-transaction document limit (8192) so the read
+ * cannot blow the transaction limit on a user-facing failure
+ * path. In steady state the `by_email` index finds everything
+ * and the fallback finds zero mixed-case rows because
+ * `runNormalizeAllInstructorEmails` (convex/migrations.ts) has
+ * already migrated legacy data — this bound is purely defensive.
+ */
+const FALLBACK_EMAIL_SCAN_BOUND = 5000;
+
 export const getStorageUrl = query({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
@@ -496,6 +508,14 @@ export const internalAtomicFullUpdateInstructor = internalMutation({
     if (!instructor) throw new Error("Instructor not found");
 
     const allFields = (args.fields ?? {}) as Record<string, unknown>;
+    // Greptile P2 (round 2): normalize the email field on write so the
+    // `by_email` index lookup in `getInstructorByEmailInternal` and
+    // `getInstructorLinkingStatusForCurrentUser` stays reliable. Any
+    // non-string value is left untouched; the admin form already coerces
+    // `null` → undefined before reaching this helper.
+    if (typeof allFields.email === "string") {
+      allFields.email = allFields.email.toLowerCase().trim();
+    }
     const instructorsPatch: Record<string, unknown> = {
       updatedAt: Date.now(),
       ...allFields,
@@ -770,6 +790,151 @@ export const getInstructorByUserId = query({
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
     return { ...instructor, profileImageUrl };
+  },
+});
+
+/**
+ * Linking status of the calling user, derived from
+ * `ctx.auth.getUserIdentity()` server-side (no client-supplied userId).
+ *
+ * Returned discriminator lets the caller distinguish three failure modes
+ * that `getInstructorByUserId` collapses into "no instructor":
+ *
+ *   - `linked`               — happy path; `instructorId` is usable
+ *   - `no_instructor`        — caller has no Clerk identity, or no
+ *                              instructor record matches by userId or
+ *                              by email
+ *   - `needs_reconciliation` — caller has an instructor record whose
+ *                              `userId` is a Clerk ID that does NOT
+ *                              match the caller's current Clerk
+ *                              `subject`, but their email matches
+ *                              the instructor record's email. This
+ *                              is the silent-drop case from
+ *                              `linkClerkUserToInstructor`:
+ *                              the instructor signed in with a new
+ *                              Clerk account (or lost the old one),
+ *                              and the webhook refused to overwrite
+ *                              the existing `userId`. Without this
+ *                              signal, the caller sees an unhelpful
+ *                              404 and has no path forward.
+ *
+ * Why a separate query instead of a richer return shape on
+ * `getInstructorByUserId`:
+ *   - `getInstructorByUserId` is called from ~30 places across
+ *     apps/platform and apps/web. Changing its return type to a
+ *     discriminator object would force every caller to update.
+ *   - `getInstructorLinkingStatusForCurrentUser` is the
+ *     narrow-surface fix: callers that only want the linked
+ *     instructor keep using `getInstructorByUserId`; callers
+ *     that want to surface reconciliation state call this query
+ *     in addition.
+ *
+ * Security:
+ *   - Uses `identity.subject` and `identity.email` server-side;
+ *     no client-supplied user identifiers.
+ *   - `by_email` is a top-level index, so the email lookup is
+ *     bounded to instructors with that exact email. No need to
+ *     gate by Clerk user.
+ */
+export const getInstructorLinkingStatusForCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { status: "no_instructor" as const };
+    }
+    const userId = identity.subject;
+
+    // 1. Normal path: instructor exists for this Clerk user.
+    const byUserId = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first();
+    if (byUserId) {
+      return {
+        status: "linked" as const,
+        instructorId: byUserId._id,
+      };
+    }
+
+// 2. Reconciliation path: caller has an instructor record
+    //    bound to a DIFFERENT Clerk userId, but with the same
+    //    email. Return the existing Clerk userId so the UI can
+    //    tell the instructor "sign in with the email at X" or
+    //    file an admin request to relink.
+    //
+    //    Skipped when the caller has no email on their Clerk
+    //    identity — emails are optional on Clerk sessions, and
+    //    we don't want to do an unfiltered scan.
+    //
+    //    Greptile P1 round 2 ("First Email Match Wins" /
+    //    "Duplicate Emails Misidentify Instructors"):
+    //    `by_email` is NOT unique — admin tooling can produce
+    //    multiple rows for the same address (e.g. a placeholder
+    //    `admin-${slug}` row + a real Clerk-linked row, or two
+    //    Clerk-linked rows for two legitimately different
+    //    instructors who happen to share an email). The previous
+    //    `.first()` returned whichever row sorted first by `_id`,
+    //    and if THAT row carried a placeholder userId (so the
+    //    `isClerkUserId` guard rejected it) we returned
+    //    `no_instructor` even when a valid reconciliation row
+    //    existed.
+    //
+    //    Now we collect ALL matches from BOTH the `by_email` index
+    //    AND the case-insensitive fallback scan — even when the
+    //    index has hits, because a mixed-case row outside the
+    //    index may still surface a more recent Clerk-linked row
+    //    that the caller actually wants to relink with. The
+    //    deduped set is sorted by `_creationTime` descending so
+    //    the most recently-created row wins, which is the right
+    //    answer in the common case (a stale placeholder shadowed
+    //    by a fresh Clerk link, or two Clerk-linked rows where
+    //    the second was the deliberate re-link). Then we walk the
+    //    sorted list looking for the first row whose userId is a
+    //    real Clerk ID and differs from the caller's subject.
+    //
+//    Greptile P2 round 2 ("Fallback Scan Can Miss"):
+    //    Write paths now lowercase on insert/update
+    //    (`createInstructorInternal`,
+    //    `internalAtomicFullUpdateInstructor`), and the one-off
+    //    `runNormalizeAllInstructorEmails` migration (see
+    //    `convex/migrations.ts`) migrates legacy rows. The
+    //    fallback scan stays as a safety net for any rows the
+    //    migration hasn't reached yet, and is bounded by
+    //    `FALLBACK_EMAIL_SCAN_BOUND` (=5000) to stay well under
+    //    Convex's per-transaction document limit (8192). In steady
+    //    state (after the migration runs) the index path finds
+    //    everything and the fallback scans zero mixed-case rows
+    //    because none remain — the bound is purely a defense in
+    //    depth.
+    const email = identity.email?.toLowerCase().trim();
+    if (email) {
+      const byEmail = await ctx.db
+        .query("instructors")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .collect();
+      const caseInsensitiveMatches = (
+        await ctx.db.query("instructors").take(FALLBACK_EMAIL_SCAN_BOUND)
+      ).filter((row) => row.email?.toLowerCase().trim() === email);
+      const deduped = new Map<string, Doc<"instructors">>();
+      for (const row of byEmail) deduped.set(row._id, row);
+      for (const row of caseInsensitiveMatches) deduped.set(row._id, row);
+      const sortedByRecency = [...deduped.values()].sort(
+        (a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0),
+      );
+      for (const row of sortedByRecency) {
+        if (row.userId && isClerkUserId(row.userId) && row.userId !== userId) {
+          return {
+            status: "needs_reconciliation" as const,
+            instructorId: row._id,
+            email,
+            existingClerkUserId: row.userId,
+          };
+        }
+      }
+    }
+
+    return { status: "no_instructor" as const };
   },
 });
 
@@ -2752,6 +2917,41 @@ export const linkClerkUserToInstructor = internalAction({
       // placeholder would block the instructor from ever signing
       // in as themselves.
       if (instructor.userId && instructor.userId !== userId && isClerkUserId(instructor.userId)) {
+        // Surface this refusal instead of silently dropping it at
+        // the webhook call site (`convex/http.ts:httpClerkWebhook`).
+        // Without this, the instructor keeps signing in with the
+        // new Clerk account while `getInstructorByUserId` keeps
+        // returning null, and the only fix is a manual DB write.
+        // A `console.warn` makes the refusal visible in Convex logs;
+        // the audit-log row makes it queryable in
+        // `listAuditLogs({ action: "instructor_linking_refused" })`
+        // so an admin dashboard can surface "needs reconciliation"
+        // without scraping logs.
+        //
+        // Greptile P2: dedup the audit write per
+        // (targetId, existingClerkUserId, newClerkUserId) ATOMICALLY
+        // via `internal.auditLog.recordInstructorLinkingRefusedAudit`.
+        // Doing the check-and-write inside a single mutation
+        // eliminates the race that two concurrent webhook
+        // deliveries would otherwise exploit (each one reads
+        // "no audit yet", then both insert). The action still
+        // short-circuits, so retries on the same
+        // (existingClerkUserId, newClerkUserId) pair produce
+        // exactly one audit row.
+        console.warn(
+          `[linkClerkUserToInstructor] REFUSAL: instructor ${instructor._id} (email=${normalizedEmail}, existingClerkUser=${instructor.userId}) cannot be relinked to new Clerk user ${userId}. Run internal.instructors.linkInstructorToLegacyMentor to fix.`,
+        );
+        await ctx.runMutation(
+          internal.auditLog.recordInstructorLinkingRefusedAudit,
+          {
+            instructorId: instructor._id,
+            existingClerkUserId: instructor.userId,
+            newClerkUserId: userId,
+            email: normalizedEmail,
+            details:
+              `Instructor ${instructor._id} (${normalizedEmail}) is already linked to Clerk user ${instructor.userId}; refusing to relink to new Clerk user ${userId}.`,
+          }
+        );
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
         // Update with the Clerk userId (handles placeholder userIds like "admin-slug")
@@ -2879,10 +3079,16 @@ export const createInstructorInternal = internalMutation({
     if (!args.name && !args.email) {
       throw new Error("At least one of name or email is required");
     }
+    // Greptile P2 (round 2): normalize email on write so the `by_email`
+    // index lookup in `getInstructorByEmailInternal` and
+    // `getInstructorLinkingStatusForCurrentUser` becomes reliable.
+    // Pre-existing mixed-case rows are still tolerated by the
+    // case-insensitive fallback scan in the status query, but
+    // normalizing on write prevents the legacy state from growing.
     return await ctx.db.insert("instructors", {
       userId: args.userId,
       name: args.name ?? undefined,
-      email: args.email ?? undefined,
+      email: args.email?.toLowerCase().trim() ?? undefined,
       isActive: args.isActive,
       isNew: args.isNew,
       maxActiveStudents: 10,
@@ -2892,6 +3098,63 @@ export const createInstructorInternal = internalMutation({
   },
 });
 
+/**
+ * One-off production migration: lowercases the `email` field on every
+ * instructor row. Run after this PR merges via
+ * `npx convex run --prod --inline 'JSON.stringify({})' internal.instructors.normalizeAllInstructorEmails`.
+ *
+* Greptile P2 (round 2, "Fallback Scan Can Miss") flagged that the
+  * case-insensitive fallback scan in `getInstructorLinkingStatusForCurrentUser`
+  * could miss rows outside its `.take(N)` window, and that mixed-case
+  * emails remain writable. We addressed both:
+  *
+  *   1. The read path now uses `.collect()` (no truncation) and walks
+  *      every deduped row, so a mixed-case row past the previous 5000-row
+  *      bound is still surfaced. See that query's doc comment.
+  *   2. Write paths now lowercase on insert/update
+  *      (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
+  *      so the `by_email` index stays reliable going forward.
+  *
+  * This mutation finishes the job for the legacy rows that pre-date the
+  * write-path normalization. It is idempotent — lowercasing an
+  * already-lowercase email is a no-op — so re-running it after a partial
+  * pass is safe. The caller MUST be a Convex admin: the mutation is
+  * `internal`, so it is only invokable from the Convex CLI / dashboard
+  * with `CONVEX_HTTP_KEY`, not from a client.
+  */
+/**
+ * One-off production migration: lowercases the `email` field on every
+ * instructor row. Run after this PR merges via
+ * `npx convex run --prod migrations:run '{"fn":"migrations:runNormalizeAllInstructorEmails"}'`.
+ *
+ * Greptile P2 (round 2, "Fallback Scan Can Miss") flagged that the
+ * case-insensitive fallback scan in `getInstructorLinkingStatusForCurrentUser`
+ * could miss rows outside its `.take(N)` window, and that mixed-case
+ * emails remain writable. We addressed both:
+ *
+ *   1. The read path now uses a bounded `.take(N)` fallback (where
+ *      N is well under Convex's 8192 per-transaction limit) and walks
+ *      every deduped row, so a mixed-case row past the bound is
+ *      surfaced by the index path in steady state. See that query's
+ *      doc comment.
+ *   2. Write paths now lowercase on insert/update
+ *      (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
+ *      so the `by_email` index stays reliable going forward.
+ *
+ * This migration finishes the job for the legacy rows that pre-date the
+ * write-path normalization. The actual definition lives in
+ * `convex/migrations.ts` so it uses the project's batched, resumable
+ * migration framework (`@convex-dev/migrations`). Idempotent —
+ * lowercasing an already-normalized email is a no-op — so re-running
+ * after a partial pass is safe.
+ *
+ * Greptile P1 round 3 ("Migration Cannot Scale Safely"): the previous
+ * single-mutation implementation could exceed Convex's per-transaction
+ * document limit (8192) if the instructors table grew large. The
+ * batched framework processes rows in chunks (default batch size 50,
+ * overridable via `Migrations.runner` options), is resumable, and
+ * returns a status the operator can poll.
+ */
 export const deactivateInstructorInternal = internalMutation({
   args: {
     instructorId: v.id("instructors"),

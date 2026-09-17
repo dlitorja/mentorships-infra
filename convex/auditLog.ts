@@ -1,4 +1,4 @@
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -234,5 +234,136 @@ export const listAuditLogs = query({
       .withIndex("by_timestamp", (q) => q.gt("timestamp", 0))
       .order("desc")
       .paginate(paginationOpts);
+  },
+});
+
+/**
+ * Cross-call internal helper used by webhook handlers and other
+ * repeated-call sites to dedupe audit writes before they hit the
+ * table.
+ *
+ * Returns `true` if an audit row exists for
+ * `(targetType, targetId, action)` with the supplied
+ * `metadataMatch` key/value pairs all equal. Callers can use this
+ * to short-circuit a redundant write — e.g. Clerk webhooks that
+ * retry on failure will re-invoke the same action and would
+ * otherwise append a duplicate row per attempt.
+ *
+ * Read is bounded by the
+ * `by_targetType_targetId_timestamp` index (single
+ * (targetType, targetId) pair, then a small `.take(N)` scan for
+ * the matching action + metadata keys). The action is normally
+ * recorded once per logical event, so the per-instructor audit
+ * row count for `instructor_linking_refused` is at most a few
+ * rows — well below the `MAX_DEDUP_SCAN_ROWS` cap.
+ *
+ * Not exposed as a public query — dedup is a server-side
+ * concern. Invoked as `internal.auditLog.hasMatchingAuditLog` from
+ * actions/mutations.
+ *
+ * NOTE: prefer `recordInstructorLinkingRefusedAudit` for the
+ * refusal-specific path — it does the check + write atomically in
+ * a single mutation, eliminating the check-then-write race that
+ * two concurrent webhook deliveries would otherwise exploit.
+ */
+export const hasMatchingAuditLog = internalQuery({
+  args: {
+    targetType: v.string(),
+    targetId: v.string(),
+    action: v.string(),
+    metadataMatch: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+  },
+  handler: async (ctx, args) => {
+    const MAX_DEDUP_SCAN_ROWS = 200;
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_targetType_targetId_timestamp", (q) =>
+        q.eq("targetType", args.targetType).eq("targetId", args.targetId)
+      )
+      .order("desc")
+      .take(MAX_DEDUP_SCAN_ROWS);
+    for (const row of rows) {
+      if (row.action !== args.action) continue;
+      if (!row.metadata) continue;
+      let allMatch = true;
+      for (const [key, expected] of Object.entries(args.metadataMatch)) {
+        const actual = (row.metadata as Record<string, unknown>)[key];
+        if (actual !== expected) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return true;
+    }
+    return false;
+  },
+});
+
+/**
+ * Atomic check-and-write for the `instructor_linking_refused`
+ * audit path. Performs the dedup check + insert in a single
+ * Convex mutation, so two concurrent Clerk webhook deliveries
+ * cannot both pass the check and then both insert (the second
+ * observes the first's committed row and short-circuits).
+ *
+ * Returns `{ inserted: boolean }` so the caller can log the
+ * dedup short-circuit when desired.
+ *
+ * Why a mutation and not an action: actions are not
+ * transactional with respect to the database; a check-then-write
+ * split across an action boundary has the race Greptile
+ * flagged. Wrapping the whole path in `internalMutation`
+ * eliminates the race.
+ *
+ * Dedup key: (targetType="instructor", targetId=instructor._id,
+ * action="instructor_linking_refused",
+ * metadata.existingClerkUserId, metadata.newClerkUserId). The
+ * instructor's `userId` may legitimately rotate multiple times
+ * across the lifetime of the record; only retries of the SAME
+ * (existingClerkUserId, newClerkUserId) pair are deduped.
+ */
+export const recordInstructorLinkingRefusedAudit = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    existingClerkUserId: v.string(),
+    newClerkUserId: v.string(),
+    email: v.string(),
+    details: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ inserted: boolean }> => {
+    const MAX_DEDUP_SCAN_ROWS = 200;
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_targetType_targetId_timestamp", (q) =>
+        q.eq("targetType", "instructor").eq("targetId", args.instructorId)
+      )
+      .order("desc")
+      .take(MAX_DEDUP_SCAN_ROWS);
+    for (const row of rows) {
+      if (row.action !== "instructor_linking_refused") continue;
+      if (!row.metadata) continue;
+      const meta = row.metadata as Record<string, unknown>;
+      if (meta.existingClerkUserId !== args.existingClerkUserId) continue;
+      if (meta.newClerkUserId !== args.newClerkUserId) continue;
+      // Race-safe dedup hit — another concurrent delivery already
+      // committed this row. Skip the insert.
+      return { inserted: false };
+    }
+    await ctx.db.insert("auditLogs", {
+      actorId: "system",
+      actorRole: "system",
+      action: "instructor_linking_refused",
+      targetType: "instructor",
+      targetId: args.instructorId,
+      details: args.details,
+      metadata: {
+        email: args.email,
+        existingClerkUserId: args.existingClerkUserId,
+        newClerkUserId: args.newClerkUserId,
+        fix: "Run internal.instructors.linkInstructorToLegacyMentor to repoint userId.",
+      },
+      timestamp: Date.now(),
+    });
+    return { inserted: true };
   },
 });

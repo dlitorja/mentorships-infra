@@ -17,9 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Minus, Plus, Calendar, ChevronRight, Search, ArrowUpDown } from "lucide-react";
+import { Loader2, Minus, Plus, Calendar, ChevronRight, Search, ArrowUpDown, AlertTriangle } from "lucide-react";
 import { ApiRoutes } from "@/lib/routes";
-import { apiFetch, updateSessionPack } from "@/lib/queries/api-client";
+import { ApiFetchError, apiFetch, updateSessionPack } from "@/lib/queries/api-client";
 
 type Student = {
   userId: string;
@@ -54,6 +54,35 @@ async function updateSessionCount(
     throw new Error(json.error || "Failed to update session count");
   }
   return json;
+}
+
+/**
+ * Structured response shape that the
+ * `GET /api/instructor/students` route returns when the signed-in
+ * Clerk userId no longer matches the instructor record. See
+ * `apps/platform/app/api/instructor/students/route.ts` for the
+ * server side; this type mirrors the JSON payload so the UI can
+ * render the reconciliation guidance instead of a bare 404.
+ */
+type InstructorLinkingReconciliationError = {
+  error: string;
+  code: "instructor_linking_needs_reconciliation";
+  instructorId: string;
+  email: string;
+  existingClerkUserId: string;
+};
+
+function isInstructorLinkingReconciliationError(
+  data: unknown,
+): data is InstructorLinkingReconciliationError {
+  if (typeof data !== "object" || data === null) return false;
+  const candidate = data as Record<string, unknown>;
+  return (
+    candidate.code === "instructor_linking_needs_reconciliation" &&
+    typeof candidate.existingClerkUserId === "string" &&
+    typeof candidate.email === "string" &&
+    typeof candidate.instructorId === "string"
+  );
 }
 
 /**
@@ -188,6 +217,65 @@ export default function InstructorStudentsPage() {
   }
 
   if (error) {
+    // Greptile P1 (round 2, "Diagnostic Data Is Discarded"): the
+    // server returns a structured 409 with
+    // `code: "instructor_linking_needs_reconciliation"` plus the
+    // existing Clerk userId when the signed-in account no longer
+    // matches the instructor record. Render the actionable guidance
+    // instead of the generic `Failed to load students: <message>` so
+    // the instructor sees which account they need to sign in with
+    // (or which admin to contact) instead of a dead-end error.
+    if (
+      error instanceof ApiFetchError &&
+      error.status === 409 &&
+      isInstructorLinkingReconciliationError(error.data)
+    ) {
+      const reconciliation = error.data;
+      return (
+        <div className="container mx-auto py-8">
+          <Card className="border-amber-500/50">
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                <div className="space-y-1">
+                  <h2 className="font-semibold text-lg">
+                    Sign-in account doesn&apos;t match your instructor record
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {reconciliation.error}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-md bg-muted/50 p-4 space-y-2 text-sm">
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-medium text-muted-foreground">Email</span>
+                  <span className="col-span-2 font-mono">{reconciliation.email}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-medium text-muted-foreground">Existing Clerk user</span>
+                  <span className="col-span-2 font-mono text-xs break-all">
+                    {reconciliation.existingClerkUserId}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-medium text-muted-foreground">Instructor record</span>
+                  <span className="col-span-2 font-mono text-xs break-all">
+                    {reconciliation.instructorId}
+                  </span>
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Sign out and sign back in with the email{" "}
+                <span className="font-mono font-medium">{reconciliation.email}</span>{" "}
+                using the original account, or contact support to relink the
+                accounts to your current sign-in.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="container mx-auto py-8">
         <Card>
