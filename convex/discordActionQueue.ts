@@ -5,7 +5,7 @@ import type { Id } from "./_generated/dataModel";
 
 const LOCK_TTL_MS = 10 * 60 * 1000;
 const ENQUEUE_DELAY_MS = 5 * 1000;
-const DRAIN_DELAY_MS = 5 * 60 * 1000;
+const DRAIN_DELAY_MS = 15 * 60 * 1000;
 
 /**
  * Migrates a Discord action queue entry from legacy system.
@@ -39,17 +39,25 @@ export const migrateDiscordAction = mutation({
       .first();
 
     async function scheduleProcessorIfIdle() {
-      const wasEligible = await ctx.runQuery(
-        internal.discordActionQueue.hasEligibleDiscordActions,
-        { lockTtlMs: LOCK_TTL_MS }
+      const pending = await ctx.db
+        .query("discordActionQueue")
+        .withIndex("by_status", (q) => q.eq("status", "pending"))
+        .first();
+      if (pending) return;
+
+      const lockThreshold = Date.now() - LOCK_TTL_MS;
+      const staleProcessing = await ctx.db
+        .query("discordActionQueue")
+        .withIndex("by_status", (q) => q.eq("status", "processing"))
+        .filter((q) => q.lt(q.field("lockedAt"), lockThreshold))
+        .first();
+      if (staleProcessing) return;
+
+      await ctx.scheduler.runAfter(
+        ENQUEUE_DELAY_MS,
+        internal.discordActionQueue.processDiscordActionQueue,
+        {}
       );
-      if (!wasEligible) {
-        await ctx.scheduler.runAfter(
-          ENQUEUE_DELAY_MS,
-          internal.discordActionQueue.processDiscordActionQueue,
-          {}
-        );
-      }
     }
 
     if (existingBySubjectUserId) {
@@ -296,34 +304,6 @@ export const applyDiscordActionResults = internalMutation({
     return {
       applied: doneIds.length + failedIds.length + requeuedIds.length,
     };
-  },
-});
-
-/**
- * Checks whether there are any Discord actions eligible for processing
- * (pending or stale processing). Used by the cron action to short-circuit
- * when the queue is empty, cutting down on empty log noise in the Convex
- * dashboard.
- * Internal use only.
- */
-export const hasEligibleDiscordActions = internalQuery({
-  args: { lockTtlMs: v.number() },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const lockThreshold = now - args.lockTtlMs;
-
-    const pending = await ctx.db
-      .query("discordActionQueue")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .first();
-    if (pending) return true;
-
-    const staleProcessing = await ctx.db
-      .query("discordActionQueue")
-      .withIndex("by_status", (q) => q.eq("status", "processing"))
-      .filter((q) => q.lt(q.field("lockedAt"), lockThreshold))
-      .first();
-    return staleProcessing !== null;
   },
 });
 
