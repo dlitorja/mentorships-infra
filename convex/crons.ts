@@ -7,7 +7,10 @@ import { internal } from "./_generated/api";
  * Scheduled cron jobs for background processing.
  * - send-grace-period-final-warning: Runs hourly, sends final warning to seats entering grace period
  * - check-seat-expiration: Runs hourly, processes expired seats and transitions to grace or released
- * - process-discord-action-queue: Runs every 2 hours as a catch-up for pending Discord actions
+ * - process-discord-action-queue: Runs every 6 hours as a catch-up safety net for Discord actions.
+ *   Event-driven scheduling in `migrateDiscordAction` is the primary path for `pending` rows;
+ *   the cron recovers stale `processing` rows (lockedAt older than `LOCK_TTL_MS`) that the
+ *   live path does not detect.
  * - process-pending-clerk-deletions: Runs every 5 minutes, processes pending Clerk deletions
  * - retry-pending-deletions: Runs hourly, retries uploads stuck in "deleting" state
  * - audit-video-room-name-drift: Runs every 6 hours, calls the PR #7 audit
@@ -54,7 +57,7 @@ crons.interval(
 
 crons.interval(
   "process-discord-action-queue",
-  { hours: 2 },
+  { hours: 6 },
   internal.discordActionQueue.processDiscordActionQueue,
   {}
 );
