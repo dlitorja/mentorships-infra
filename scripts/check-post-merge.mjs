@@ -172,6 +172,13 @@ function fetchConvexFailedLogs() {
     "--history", String(DEFAULTS.convexLogHistoryLimit),
     "--jsonl",
   ], { timeout: DEFAULTS.convexLogStreamSeconds * 1000 + 30_000 });
+  // `npx convex logs` keeps streaming after `--history N`; `timeout` returns
+  // status 124 when it kills the child. Distinguish that from real failures
+  // (auth/deploy/network) where status is non-zero and stderr has content.
+  const wasTimedOut = res.status === 124;
+  if (res.status !== 0 && res.status !== 124) {
+    return { error: (res.stderr || res.stdout || "convex logs failed").split("\n").find(Boolean) };
+  }
   const entries = [];
   for (const line of (res.stdout || "").split("\n")) {
     const trimmed = line.trim();
@@ -183,7 +190,7 @@ function fetchConvexFailedLogs() {
       // skip
     }
   }
-  return { entries };
+  return { entries, timedOut: wasTimedOut };
 }
 
 function bucketByWindow(entries, getTime, windows) {
@@ -252,11 +259,15 @@ async function main() {
   const baselineStartMs = mergeMs - 24 * 7 * 3600_000;
   const windows = [
     { label: "7d baseline", startMs: baselineStartMs, endMs: mergeMs },
-    ...windowsHours.map((h) => ({
-      label: `${h}h post-merge`,
-      startMs: mergeMs,
-      endMs: mergeMs + h * 3600_000,
-    })),
+    ...windowsHours.map((h) => {
+      const endMs = mergeMs + h * 3600_000;
+      return {
+        label: `${h}h post-merge`,
+        startMs: mergeMs,
+        endMs,
+        partial: endMs > nowMs,
+      };
+    }),
   ];
 
   const oldestWindowStartMs = Math.min(...windows.map((w) => w.startMs));
@@ -280,15 +291,16 @@ async function main() {
   if (keyword) {
     const failed = fetchConvexFailedLogs();
     if (failed.error) {
-      console.log(c("red", `  failed logs: ${failed.error}`));
+      console.log(c("red", `  failed logs: ${failed.error} (result unknown — check Convex auth/deploy)`));
     } else {
       const hits = failed.entries.filter((e) =>
         JSON.stringify(e).toLowerCase().includes(keyword.toLowerCase())
       );
       const label = `failed-log mentions of \`${keyword}\` (last ${DEFAULTS.convexLogStreamSeconds}s of stream)`;
+      const color = failed.timedOut ? "yellow" : (hits.length === 0 ? "green" : "red");
       console.log(
-        c(hits.length === 0 ? "green" : "red",
-          `  ${label}: ${hits.length} / ${failed.entries.length} failed entries`)
+        c(color,
+          `  ${label}: ${hits.length} / ${failed.entries.length} failed entries${failed.timedOut ? " [stream timed out, result partial]" : ""}`)
       );
       for (const s of hits.slice(0, 3)) {
         const id = s.identifier || "unknown";
@@ -325,12 +337,11 @@ async function main() {
       const keywordHits = keyword
         ? inWindow.filter((e) => JSON.stringify(e).toLowerCase().includes(keyword.toLowerCase()))
         : [];
-      let retentionNote = "";
-      if (oldestSeenMs !== null && w.startMs < oldestSeenMs) {
-        retentionNote = "*";
-      }
+      const notes = [];
+      if (oldestSeenMs !== null && w.startMs < oldestSeenMs) notes.push("*retention");
+      if (w.partial) notes.push("partial");
       return {
-        window: w.label + retentionNote,
+        window: w.label + (notes.length ? ` (${notes.join(", ")})` : ""),
         total: inWindow.length,
         keyword: keyword ? keywordHits.length : "-",
       };
