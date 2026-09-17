@@ -496,6 +496,14 @@ export const internalAtomicFullUpdateInstructor = internalMutation({
     if (!instructor) throw new Error("Instructor not found");
 
     const allFields = (args.fields ?? {}) as Record<string, unknown>;
+    // Greptile P2 (round 2): normalize the email field on write so the
+    // `by_email` index lookup in `getInstructorByEmailInternal` and
+    // `getInstructorLinkingStatusForCurrentUser` stays reliable. Any
+    // non-string value is left untouched; the admin form already coerces
+    // `null` → undefined before reaching this helper.
+    if (typeof allFields.email === "string") {
+      allFields.email = allFields.email.toLowerCase().trim();
+    }
     const instructorsPatch: Record<string, unknown> = {
       updatedAt: Date.now(),
       ...allFields,
@@ -847,44 +855,54 @@ export const getInstructorLinkingStatusForCurrentUser = query({
     //    identity — emails are optional on Clerk sessions, and
     //    we don't want to do an unfiltered scan.
     //
-    //    Greptile P1: the indexed lookup is exact-match on the
-    //    lowercased Clerk email, but `createInstructorInternal`
-    //    and the admin `updateInstructor` mutation store
-    //    whatever email the caller passes (no normalization).
-    //    Fall back to a case-insensitive JS scan so legacy
-    //    mixed-case rows still surface the actionable
-    //    `needs_reconciliation` state instead of an unhelpful
-    //    `no_instructor`. The scan is bounded by
-    //    `.take(MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN)` to
-    //    stay within Convex transaction read limits; in
-    //    practice the `by_email` index covers all freshly
-    //    created instructors (linkClerkUserToInstructor
-    //    normalizes), and the scan is a safety net for legacy
-    //    data. The bound is generous enough for realistic
-    //    instructor counts (admin-managed, low-cardinality)
-    //    and documented so reviewers understand the trade-off.
-    const MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN = 5000;
+    //    Greptile P1 (round 2, "First Email Match Wins"):
+    //    `by_email` is NOT unique — admin tooling can produce
+    //    multiple rows for the same address (e.g. a placeholder
+    //    `admin-${slug}` row + a real Clerk-linked row). The
+    //    previous `.first()` returned whichever row sorted first
+    //    by `_id`, and if THAT row carried a placeholder userId
+    //    (so the `isClerkUserId` guard rejected it) we returned
+    //    `no_instructor` even when a valid reconciliation row
+    //    existed. Now we collect ALL matches (from the index AND
+    //    the case-insensitive fallback scan) and walk the deduped
+    //    set looking for the first row whose userId is a real
+    //    Clerk ID and differs from the caller.
+    //
+    //    Greptile P2 (round 2, "Fallback Scan Can Miss"):
+    //    `createInstructorInternal` and the admin `updateInstructor`
+    //    mutation stored emails verbatim, so a `by_email` exact
+    //    match on a lowercased Clerk email misses legacy mixed-case
+    //    rows. The fallback scan is still required until
+    //    `normalizeAllInstructorEmails` runs in production (see
+    //    that mutation's doc). It now uses `.collect()` rather
+    //    than `.take(N)` so it cannot silently truncate.
+    //    Convex's per-transaction document limit is 8192; for the
+    //    admin-managed `instructors` table this is comfortably
+    //    above the realistic count.
     const email = identity.email?.toLowerCase().trim();
     if (email) {
       const byEmail = await ctx.db
         .query("instructors")
         .withIndex("by_email", (q) => q.eq("email", email))
-        .first();
-      const match =
-        byEmail ??
-        (await ctx.db
-          .query("instructors")
-          .take(MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN)
-          .then((rows) =>
-            rows.find((row) => row.email?.toLowerCase().trim() === email)
-          ));
-      if (match && match.userId && isClerkUserId(match.userId) && match.userId !== userId) {
-        return {
-          status: "needs_reconciliation" as const,
-          instructorId: match._id,
-          email,
-          existingClerkUserId: match.userId,
-        };
+        .collect();
+      const caseInsensitiveMatches =
+        byEmail.length > 0
+          ? []
+          : (await ctx.db.query("instructors").collect()).filter(
+              (row) => row.email?.toLowerCase().trim() === email,
+            );
+      const deduped = new Map<string, Doc<"instructors">>();
+      for (const row of byEmail) deduped.set(row._id, row);
+      for (const row of caseInsensitiveMatches) deduped.set(row._id, row);
+      for (const row of deduped.values()) {
+        if (row.userId && isClerkUserId(row.userId) && row.userId !== userId) {
+          return {
+            status: "needs_reconciliation" as const,
+            instructorId: row._id,
+            email,
+            existingClerkUserId: row.userId,
+          };
+        }
       }
     }
 
@@ -3033,16 +3051,89 @@ export const createInstructorInternal = internalMutation({
     if (!args.name && !args.email) {
       throw new Error("At least one of name or email is required");
     }
+    // Greptile P2 (round 2): normalize email on write so the `by_email`
+    // index lookup in `getInstructorByEmailInternal` and
+    // `getInstructorLinkingStatusForCurrentUser` becomes reliable.
+    // Pre-existing mixed-case rows are still tolerated by the
+    // case-insensitive fallback scan in the status query, but
+    // normalizing on write prevents the legacy state from growing.
     return await ctx.db.insert("instructors", {
       userId: args.userId,
       name: args.name ?? undefined,
-      email: args.email ?? undefined,
+      email: args.email?.toLowerCase().trim() ?? undefined,
       isActive: args.isActive,
       isNew: args.isNew,
       maxActiveStudents: 10,
       oneOnOneInventory: 0,
       groupInventory: 0,
     });
+  },
+});
+
+/**
+ * One-off production migration: lowercases the `email` field on every
+ * instructor row. Run after this PR merges via
+ * `npx convex run --prod --inline 'JSON.stringify({})' internal.instructors.normalizeAllInstructorEmails`.
+ *
+ * Greptile P2 (round 2, "Fallback Scan Can Miss") flagged that the
+ * case-insensitive fallback scan in `getInstructorLinkingStatusForCurrentUser`
+ * could miss rows outside its `.take(N)` window, and that mixed-case
+ * emails remain writable. We addressed both:
+ *
+ *   1. The read path now uses `.collect()` (no truncation) and walks
+ *      every deduped row, so a mixed-case row past the previous 5000-row
+ *      bound is still surfaced. See that query's doc comment.
+ *   2. Write paths now lowercase on insert/update
+ *      (`createInstructorInternal`, `internalAtomicFullUpdateInstructor`)
+ *      so the `by_email` index stays reliable going forward.
+ *
+ * This mutation finishes the job for the legacy rows that pre-date the
+ * write-path normalization. It is idempotent — lowercasing an
+ * already-lowercase email is a no-op — so re-running it after a partial
+ * pass is safe. The caller MUST be a Convex admin: the mutation is
+ * `internal`, so it is only invokable from the Convex CLI / dashboard
+ * with `CONVEX_HTTP_KEY`, not from a client.
+ */
+export const normalizeAllInstructorEmails = internalMutation({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    updated: v.number(),
+    alreadyNormalized: v.number(),
+    cleared: v.number(),
+  }),
+  handler: async (ctx): Promise<{
+    scanned: number;
+    updated: number;
+    alreadyNormalized: number;
+    cleared: number;
+  }> => {
+    const rows = await ctx.db.query("instructors").collect();
+    let updated = 0;
+    let alreadyNormalized = 0;
+    let cleared = 0;
+    const now = Date.now();
+    for (const row of rows) {
+      const raw = row.email;
+      if (raw === undefined || raw === null) {
+        cleared++;
+        continue;
+      }
+      const trimmed = raw.trim();
+      const lowercased = trimmed.toLowerCase();
+      if (trimmed === lowercased) {
+        alreadyNormalized++;
+        continue;
+      }
+      await ctx.db.patch(row._id, { email: lowercased, updatedAt: now });
+      updated++;
+    }
+    return {
+      scanned: rows.length,
+      updated,
+      alreadyNormalized,
+      cleared,
+    };
   },
 });
 

@@ -52,6 +52,167 @@ async function seedExistingInstructor(
   });
 }
 
+test("getInstructorLinkingStatusForCurrentUser: returns `needs_reconciliation` when an unrelated placeholder row shadows a valid Clerk-linked row (Greptile P1 round 2)", async () => {
+  // Greptile P1 round 2 ("First Email Match Wins"): the previous
+  // implementation used `by_email.first()` and rejected any row whose
+  // userId was a placeholder (`admin-${slug}`, `seed-${slug}`). When
+  // the `by_email` index returned the placeholder row first, the
+  // query gave up with `no_instructor` even though a separate row
+  // with the same email was correctly Clerk-linked to a different
+  // Clerk user. The new implementation collects ALL matching rows
+  // (index + case-insensitive fallback) and walks them looking for
+  // the first one whose userId is a real Clerk ID and differs from
+  // the caller's subject.
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    // Placeholder row (admin-created, not yet linked). Goes first
+    // because `_id` is monotonically increasing.
+    await ctx.db.insert("instructors", {
+      userId: "admin-rakasa",
+      name: "Rakasa",
+      slug: "rakasa",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: true,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    // Real Clerk-linked row with a DIFFERENT Clerk userId, same email.
+    const linkedInstructorId = await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Rakasa",
+      slug: "rakasa-2",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    // Sanity check the test setup — the linked row must actually
+    // exist so the query can return it.
+    return { linkedInstructorId };
+  });
+
+  const client = t.withIdentity({
+    subject: NEW_CLERK_USER,
+    email: EMAIL,
+  });
+
+  const result = await client.query(
+    api.instructors.getInstructorLinkingStatusForCurrentUser,
+    {},
+  );
+  expect(result).toMatchObject({
+    status: "needs_reconciliation",
+    email: EMAIL.toLowerCase(),
+    existingClerkUserId: OLD_CLERK_USER,
+  });
+});
+
+test("createInstructorInternal: lowercases the email on insert (Greptile P2 round 2)", async () => {
+  // Greptile P2 round 2 ("Fallback Scan Can Miss"): write paths
+  // must normalize the `email` field so the `by_email` index lookup
+  // is reliable. `createInstructorInternal` is the canonical
+  // instructor insert path used by the Clerk webhook + auto-create
+  // flow. This guards against future regressions where a caller
+  // passes a mixed-case email and the row lands unnormalized.
+  const t = convexTest(schema, modules);
+  const instructorId = await t.mutation(
+    internal.instructors.createInstructorInternal,
+    {
+      userId: NEW_CLERK_USER,
+      name: "Rakasa",
+      email: "Mixed.Case+Tag@Example.COM",
+      isActive: true,
+      isNew: true,
+    },
+  );
+  const stored = await t.run(async (ctx) => ctx.db.get(instructorId));
+  expect(stored?.email).toBe("mixed.case+tag@example.com");
+});
+
+test("normalizeAllInstructorEmails: lowercases every mixed-case email and reports counts (Greptile P2 round 2)", async () => {
+  // Greptile P2 round 2 also flagged that legacy mixed-case rows
+  // remain until a one-off migration runs. The mutation is committed
+  // to the repo so it can be applied via
+  // `npx convex run --prod internal.instructors.normalizeAllInstructorEmails`
+  // after this PR merges. Here we verify the mutation correctly
+  // identifies, lowercases, and reports counts for a mix of states.
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    // 1. Mixed case → should be lowercased.
+    await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "MixedCase",
+      slug: "mixed-case",
+      email: "Mixed.Case@Example.com",
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    // 2. Already lowercased → no-op.
+    await ctx.db.insert("instructors", {
+      userId: "user_otherClerk123456789",
+      name: "AlreadyLower",
+      slug: "already-lower",
+      email: "already.lower@example.com",
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    // 3. Missing email (legacy placeholder import) → cleared count.
+    await ctx.db.insert("instructors", {
+      userId: "user_missingEmail00000000",
+      name: "NoEmail",
+      slug: "no-email",
+      email: undefined,
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  });
+
+  const result = await t.mutation(
+    internal.instructors.normalizeAllInstructorEmails,
+    {},
+  );
+  expect(result).toMatchObject({
+    scanned: 3,
+    updated: 1,
+    alreadyNormalized: 1,
+    cleared: 1,
+  });
+
+  // The mixed-case row must now be lowercased.
+  const mixed = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", "mixed-case"))
+      .first();
+  });
+  expect(mixed?.email).toBe("mixed.case@example.com");
+
+  // Re-running is a no-op.
+  const second = await t.mutation(
+    internal.instructors.normalizeAllInstructorEmails,
+    {},
+  );
+  expect(second).toMatchObject({
+    scanned: 3,
+    updated: 0,
+    alreadyNormalized: 2,
+    cleared: 1,
+  });
+});
+
 test("getInstructorLinkingStatusForCurrentUser: returns `linked` when userId matches", async () => {
   const t = convexTest(schema, modules);
   const instructorId = await t.run(async (ctx) => {
