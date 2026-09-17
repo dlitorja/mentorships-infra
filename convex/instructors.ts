@@ -846,18 +846,41 @@ export const getInstructorLinkingStatusForCurrentUser = query({
     //    Skipped when the caller has no email on their Clerk
     //    identity — emails are optional on Clerk sessions, and
     //    we don't want to do an unfiltered scan.
+    //
+    //    Greptile P1: the indexed lookup is exact-match on the
+    //    lowercased Clerk email, but `createInstructorInternal`
+    //    and the admin `updateInstructor` mutation store
+    //    whatever email the caller passes (no normalization).
+    //    Fall back to a case-insensitive JS scan so legacy
+    //    mixed-case rows still surface the actionable
+    //    `needs_reconciliation` state instead of an unhelpful
+    //    `no_instructor`. The scan is bounded by
+    //    `.take(MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN)` to
+    //    stay well within transaction read limits; in practice
+    //    the `by_email` index covers all freshly created
+    //    instructors (linkClerkUserToInstructor normalizes),
+    //    and the scan is a safety net for legacy data.
+    const MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN = 2000;
     const email = identity.email?.toLowerCase().trim();
     if (email) {
       const byEmail = await ctx.db
         .query("instructors")
         .withIndex("by_email", (q) => q.eq("email", email))
         .first();
-      if (byEmail && byEmail.userId && isClerkUserId(byEmail.userId) && byEmail.userId !== userId) {
+      const match =
+        byEmail ??
+        (await ctx.db
+          .query("instructors")
+          .take(MAX_INSTRUCTORS_FOR_RECONCILIATION_SCAN)
+          .then((rows) =>
+            rows.find((row) => row.email?.toLowerCase().trim() === email)
+          ));
+      if (match && match.userId && isClerkUserId(match.userId) && match.userId !== userId) {
         return {
           status: "needs_reconciliation" as const,
-          instructorId: byEmail._id,
+          instructorId: match._id,
           email,
-          existingClerkUserId: byEmail.userId,
+          existingClerkUserId: match.userId,
         };
       }
     }
@@ -2855,24 +2878,46 @@ export const linkClerkUserToInstructor = internalAction({
         // `listAuditLogs({ action: "instructor_linking_refused" })`
         // so an admin dashboard can surface "needs reconciliation"
         // without scraping logs.
+        //
+        // Greptile P2: dedup the audit write per
+        // (targetId, existingClerkUserId, newClerkUserId). Clerk
+        // webhooks retry on transient failure; without dedup, the
+        // `instructor_linking_refused` search results would
+        // accumulate one identical row per retry. The
+        // `console.warn` always fires (still surfaces the live
+        // failure in Convex logs); only the audit write is gated.
         console.warn(
           `[linkClerkUserToInstructor] REFUSAL: instructor ${instructor._id} (email=${normalizedEmail}, existingClerkUser=${instructor.userId}) cannot be relinked to new Clerk user ${userId}. Run internal.instructors.linkInstructorToLegacyMentor to fix.`,
         );
-        await ctx.runMutation(internal.auditLog.recordAuditLog, {
-          actorId: "system",
-          actorRole: "system",
-          action: "instructor_linking_refused",
-          targetType: "instructor",
-          targetId: instructor._id,
-          details:
-            `Instructor ${instructor._id} (${normalizedEmail}) is already linked to Clerk user ${instructor.userId}; refusing to relink to new Clerk user ${userId}.`,
-          metadata: {
-            email: normalizedEmail,
-            existingClerkUserId: instructor.userId,
-            newClerkUserId: userId,
-            fix: "Run internal.instructors.linkInstructorToLegacyMentor to repoint userId.",
-          },
-        });
+        const alreadyRecorded = await ctx.runQuery(
+          internal.auditLog.hasMatchingAuditLog,
+          {
+            targetType: "instructor",
+            targetId: instructor._id,
+            action: "instructor_linking_refused",
+            metadataMatch: {
+              existingClerkUserId: instructor.userId,
+              newClerkUserId: userId,
+            },
+          }
+        );
+        if (!alreadyRecorded) {
+          await ctx.runMutation(internal.auditLog.recordAuditLog, {
+            actorId: "system",
+            actorRole: "system",
+            action: "instructor_linking_refused",
+            targetType: "instructor",
+            targetId: instructor._id,
+            details:
+              `Instructor ${instructor._id} (${normalizedEmail}) is already linked to Clerk user ${instructor.userId}; refusing to relink to new Clerk user ${userId}.`,
+            metadata: {
+              email: normalizedEmail,
+              existingClerkUserId: instructor.userId,
+              newClerkUserId: userId,
+              fix: "Run internal.instructors.linkInstructorToLegacyMentor to repoint userId.",
+            },
+          });
+        }
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
         // Update with the Clerk userId (handles placeholder userIds like "admin-slug")

@@ -1,4 +1,4 @@
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -234,5 +234,62 @@ export const listAuditLogs = query({
       .withIndex("by_timestamp", (q) => q.gt("timestamp", 0))
       .order("desc")
       .paginate(paginationOpts);
+  },
+});
+
+/**
+ * Cross-call internal helper used by webhook handlers and other
+ * repeated-call sites to dedupe audit writes before they hit the
+ * table.
+ *
+ * Returns `true` if an audit row exists for
+ * `(targetType, targetId, action)` with the supplied
+ * `metadataMatch` key/value pairs all equal. Callers can use this
+ * to short-circuit a redundant write — e.g. Clerk webhooks that
+ * retry on failure will re-invoke the same action and would
+ * otherwise append a duplicate row per attempt.
+ *
+ * Read is bounded by the
+ * `by_targetType_targetId_timestamp` index (single
+ * (targetType, targetId) pair, then a small `.take(N)` scan for
+ * the matching action + metadata keys). The action is normally
+ * recorded once per logical event, so the per-instructor audit
+ * row count for `instructor_linking_refused` is at most a few
+ * rows — well below the `MAX_DEDUP_SCAN_ROWS` cap.
+ *
+ * Not exposed as a public query — dedup is a server-side
+ * concern. Invoked as `internal.auditLog.hasMatchingAuditLog` from
+ * actions/mutations.
+ */
+export const hasMatchingAuditLog = internalQuery({
+  args: {
+    targetType: v.string(),
+    targetId: v.string(),
+    action: v.string(),
+    metadataMatch: v.record(v.string(), v.union(v.string(), v.number(), v.boolean())),
+  },
+  handler: async (ctx, args) => {
+    const MAX_DEDUP_SCAN_ROWS = 25;
+    const rows = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_targetType_targetId_timestamp", (q) =>
+        q.eq("targetType", args.targetType).eq("targetId", args.targetId)
+      )
+      .order("desc")
+      .take(MAX_DEDUP_SCAN_ROWS);
+    for (const row of rows) {
+      if (row.action !== args.action) continue;
+      if (!row.metadata) continue;
+      let allMatch = true;
+      for (const [key, expected] of Object.entries(args.metadataMatch)) {
+        const actual = (row.metadata as Record<string, unknown>)[key];
+        if (actual !== expected) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return true;
+    }
+    return false;
   },
 });

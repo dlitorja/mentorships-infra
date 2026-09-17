@@ -169,6 +169,47 @@ test("getInstructorLinkingStatusForCurrentUser: returns `no_instructor` when cal
   expect(result).toMatchObject({ status: "no_instructor" });
 });
 
+test("getInstructorLinkingStatusForCurrentUser: returns `needs_reconciliation` for legacy mixed-case email storage (Greptile P1)", async () => {
+  // `createInstructorInternal` and the admin `updateInstructor`
+  // mutation store emails verbatim, so an instructor row written
+  // through those paths may carry mixed-case email text. The
+  // indexed `by_email` lookup is exact-match on the lowercased
+  // Clerk email, so it would miss such rows. The query has a
+  // case-insensitive JS fallback (`.take(N)` then JS compare) so
+  // legacy rows still surface the actionable
+  // `needs_reconciliation` state.
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Rakasa",
+      slug: "rakasa",
+      email: "Rakasa.Art+Recon@Example.com", // mixed case, no whitespace
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  });
+
+  const client = t.withIdentity({
+    subject: NEW_CLERK_USER,
+    email: "rakasa.art+recon@example.com",
+  });
+
+  const result = await client.query(
+    api.instructors.getInstructorLinkingStatusForCurrentUser,
+    {}
+  );
+  expect(result).toMatchObject({
+    status: "needs_reconciliation",
+    instructorId,
+    email: "rakasa.art+recon@example.com",
+    existingClerkUserId: OLD_CLERK_USER,
+  });
+});
+
 test("linkClerkUserToInstructor: refusal writes an auditLogs row with `instructor_linking_refused` action", async () => {
   // Regression test for the silent-drop bug: the action used to return
   // `{ linked: false, reason: "Instructor already linked to a different Clerk user" }`
@@ -216,4 +257,54 @@ test("linkClerkUserToInstructor: refusal writes an auditLogs row with `instructo
   });
   expect(String(audits[0]?.details)).toContain(OLD_CLERK_USER);
   expect(String(audits[0]?.details)).toContain(NEW_CLERK_USER);
+});
+
+test("linkClerkUserToInstructor: dedup does not add a second audit row on retry with the same Clerk userIds (Greptile P2)", async () => {
+  // Clerk webhooks retry on transient failure. Without dedup, the
+  // `instructor_linking_refused` action would append one identical
+  // row per retry, polluting the admin audit search. The action
+  // checks via `internal.auditLog.hasMatchingAuditLog` before
+  // writing — first call inserts, second call short-circuits.
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    return await seedExistingInstructor(ctx, { userId: OLD_CLERK_USER });
+  });
+
+  // First call: writes the audit row.
+  await t.action(internal.instructors.linkClerkUserToInstructor, {
+    userId: NEW_CLERK_USER,
+    email: EMAIL,
+  });
+  // Second call with the same args: must NOT add a duplicate row.
+  await t.action(internal.instructors.linkClerkUserToInstructor, {
+    userId: NEW_CLERK_USER,
+    email: EMAIL,
+  });
+
+  const audits = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("auditLogs")
+      .withIndex("by_action", (q) => q.eq("action", "instructor_linking_refused"))
+      .collect();
+  });
+  expect(audits).toHaveLength(1);
+
+  // A retry with a DIFFERENT newClerkUserId still writes a row,
+  // because the dedup key is (existingClerkUserId, newClerkUserId).
+  const OTHER_NEW_CLERK_USER = "user_thirdClerk999999999";
+  await t.action(internal.instructors.linkClerkUserToInstructor, {
+    userId: OTHER_NEW_CLERK_USER,
+    email: EMAIL,
+  });
+  const auditsAfter = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("auditLogs")
+      .withIndex("by_action", (q) => q.eq("action", "instructor_linking_refused"))
+      .collect();
+  });
+  expect(auditsAfter).toHaveLength(2);
+  const clerkUserIds = auditsAfter
+    .map((a) => (a.metadata as Record<string, unknown>)?.newClerkUserId)
+    .sort();
+  expect(clerkUserIds).toEqual([NEW_CLERK_USER, OTHER_NEW_CLERK_USER].sort());
 });
