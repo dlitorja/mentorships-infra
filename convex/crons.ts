@@ -9,7 +9,7 @@ import { internal } from "./_generated/api";
  * - check-seat-expiration: Runs hourly, processes expired seats and transitions to grace or released
  * - process-discord-action-queue: Runs every 6 hours as a catch-up for pending Discord actions
  *   (event-driven scheduling in `migrateDiscordAction` is the primary path; the cron
- *   only handles stale `processing` rows that escape the live path)
+ *   catches pending or stale `processing` rows that escape the live path)
  * - process-pending-clerk-deletions: Runs every 5 minutes, processes pending Clerk deletions
  * - retry-pending-deletions: Runs hourly, retries uploads stuck in "deleting" state
  * - audit-video-room-name-drift: Runs every 6 hours, calls the PR #7 audit
