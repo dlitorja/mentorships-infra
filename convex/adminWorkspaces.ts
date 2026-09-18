@@ -120,16 +120,18 @@ export const getAllWorkspaces = query({
     const result = args.type
       ? await ctx.db
           .query("workspaces")
-          .withIndex("by_type", (q) => q.eq("type", args.type))
+          .withIndex("by_type_deletedAt", (q) =>
+            q.eq("type", args.type).eq("deletedAt", undefined)
+          )
           .order("desc")
           .paginate(args.paginationOpts)
       : await ctx.db
           .query("workspaces")
+          .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
           .order("desc")
           .paginate(args.paginationOpts);
 
-    const filteredPage = result.page.filter((w) => !w.deletedAt);
-    const enrichedPage = await enrichWorkspaces(ctx, filteredPage);
+    const enrichedPage = await enrichWorkspaces(ctx, result.page);
 
     return {
       page: enrichedPage,

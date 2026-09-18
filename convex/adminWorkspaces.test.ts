@@ -76,6 +76,12 @@ test("adminWorkspaces.getAllWorkspaces: excludes deleted workspaces without thro
   // time when filtered page was short, which throws
   // "Only a single paginated query (`.paginate()`) is allowed per
   // function execution" on the deployed backend. See PR fix.
+  //
+  // With the DB-level `by_deletedAt` / `by_type_deletedAt` indexes,
+  // deleted workspaces never appear in the page at all — so the
+  // first page is guaranteed to contain only live rows, the cursor
+  // never advances through empty pages, and we drain to completion
+  // in one shot.
   const t = convexTest({ schema, modules });
 
   const adminUserId = "user_admin_test";
@@ -126,25 +132,36 @@ test("adminWorkspaces.getAllWorkspaces: excludes deleted workspaces without thro
 
   // Drain all pages. The point of this test is that we can paginate
   // through a mix of live and deleted workspaces without throwing
-  // the single-paginate error.
+  // the single-paginate error, AND that the first page is guaranteed
+  // to contain live rows (no empty intermediate pages caused by JS-side
+  // filtering of an index that didn't pre-exclude deletedAt).
   const seenNames: string[] = [];
   let cursor: string | null = null;
   let pages = 0;
+  let firstPage: typeof seenNames = [];
   do {
     const next = await t
       .withIdentity({ subject: adminUserId })
       .query(api.adminWorkspaces.getAllWorkspaces, {
         paginationOpts: { numItems: 20, cursor },
       });
-    seenNames.push(...next.page.map((w) => w.name));
+    const pageNames = next.page.map((w) => w.name);
+    if (pages === 0) firstPage = pageNames;
+    seenNames.push(...pageNames);
     cursor = next.continueCursor;
     pages++;
     if (next.isDone) break;
   } while (cursor && pages < 20);
 
-  // The 2 live workspaces should be returned across all pages; deleted
-  // ones are filtered out by the query itself.
+  // The 2 live workspaces should appear across all pages.
   expect(seenNames.sort()).toEqual(["Live 1", "Live 2"]);
+  // AND the first page must contain live rows — the index pre-filters
+  // deletedAt at the DB level so admins never see "No workspaces found"
+  // when live rows exist later in the dataset.
+  expect(firstPage.sort()).toEqual(["Live 1", "Live 2"]);
+  // With 2 live + 25 deleted, numItems=20 fits the 2 live rows on the
+  // first page and the dataset is exhausted — no second page needed.
+  expect(pages).toBe(1);
 });
 
 test("adminWorkspaces.getAllWorkspaces: filters by type", async () => {
