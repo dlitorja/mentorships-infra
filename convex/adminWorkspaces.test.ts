@@ -259,3 +259,100 @@ test("adminWorkspaces.getAllWorkspaces: returns empty for anonymous", async () =
   expect(result.page).toEqual([]);
   expect(result.isDone).toBe(true);
 });
+
+test("getAllWorkspaces: handler has no loop that calls .paginate() (deployed-backend guard)", async () => {
+  // convex-test does NOT enforce Convex's deployed-backend rule that
+  // only one .paginate() call is allowed per query function execution,
+  // so the behavioral regression test above passes even if a second
+  // .paginate() is reintroduced inside a loop (the failure surfaces
+  // only as a 500 on prod). This static guard walks the handler AST
+  // and fails if any while/for/do statement contains a .paginate()
+  // call anywhere in its body — the exact shape of the original bug
+  // (a `while` loop re-paginating to backfill deletedAt-filtered rows).
+  //
+  // If you ever need a loop with .paginate() inside, drop this test
+  // AND open a Linear issue explaining why Convex's single-paginate
+  // rule has to be worked around.
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const ts = await import("typescript");
+  const file = path.join(import.meta.dirname, "adminWorkspaces.ts");
+  const src = await fs.readFile(file, "utf8");
+
+  const sourceFile = ts.default.createSourceFile(
+    "adminWorkspaces.ts",
+    src,
+    ts.default.ScriptTarget.Latest,
+    /*setParentNodes=*/ true,
+    ts.default.ScriptKind.TS
+  );
+
+  // Locate the getAllWorkspaces variable declaration → query() call →
+  // argument object literal → handler property → arrow function body.
+  let handlerBody: ts.default.Node | undefined;
+  function visit(node: ts.default.Node) {
+    if (handlerBody) return;
+    if (
+      ts.default.isVariableDeclaration(node) &&
+      ts.default.isIdentifier(node.name) &&
+      node.name.text === "getAllWorkspaces"
+    ) {
+      const initializer = node.initializer;
+      if (initializer && ts.default.isCallExpression(initializer)) {
+        const arg0 = initializer.arguments[0];
+        if (arg0 && ts.default.isObjectLiteralExpression(arg0)) {
+          const handlerProp = arg0.properties.find(
+            (p): p is ts.default.PropertyAssignment =>
+              ts.default.isPropertyAssignment(p) &&
+              ts.default.isIdentifier(p.name) &&
+              p.name.text === "handler"
+          );
+          const handlerValue = handlerProp?.initializer;
+          if (handlerValue && ts.default.isFunctionLike(handlerValue)) {
+            handlerBody = handlerValue.body;
+            return;
+          }
+        }
+      }
+    }
+    ts.default.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+
+  expect(handlerBody, "could not locate getAllWorkspaces handler body").toBeDefined();
+
+  // Find loops (while/for/do) in the handler and check if their body
+  // contains any .paginate() call.
+  function containsPaginateCall(node: ts.default.Node): boolean {
+    if (
+      ts.default.isCallExpression(node) &&
+      ts.default.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "paginate"
+    ) {
+      return true;
+    }
+    return node.forEachChild((c) => containsPaginateCall(c)) ?? false;
+  }
+
+  const offending: string[] = [];
+  function walk(node: ts.default.Node) {
+    if (
+      ts.default.isWhileStatement(node) ||
+      ts.default.isForStatement(node) ||
+      ts.default.isForInStatement(node) ||
+      ts.default.isForOfStatement(node) ||
+      ts.default.isDoStatement(node)
+    ) {
+      if (containsPaginateCall(node.statement)) {
+        offending.push(ts.default.SyntaxKind[node.kind] ?? String(node.kind));
+      }
+    }
+    ts.default.forEachChild(node, walk);
+  }
+  if (handlerBody) walk(handlerBody);
+
+  expect(
+    offending,
+    `getAllWorkspaces handler contains a loop (${offending.join(", ")}) that calls .paginate(). Convex only allows one .paginate() per query function execution; a second call throws at runtime on the deployed backend.`
+  ).toEqual([]);
+});
