@@ -546,3 +546,263 @@ test("chainNotifyRecordingReady: 4xx is permanent (no retry) and marks row faile
   expect(rows).toHaveLength(1);
   expect(rows[0]?.deliveryStatus).toBe("failed");
 });
+
+/**
+ * Tests for PR #2: `getRecipientInfoForNotification` and the
+ * `recordingReadyEmail` preference default-to-true semantics.
+ *
+ * The Trigger task's email decision tree (`dispatchRecordingReadyEmail`)
+ * lives in `src/trigger/notify-recording-ready.ts` and isn't
+ * directly testable via convex-test (Trigger runtime). Its
+ * decision logic is exercised through the convex query + mutation
+ * surface here, and the Resend path itself is smoke-tested
+ * manually on staging (per the PR #2 verification checklist).
+ */
+
+test("getRecipientInfoForNotification: returns email + firstName + recordingReadyEmail=true by default", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rrn_recipient_default",
+      email: "instructor-recipient-default@example.com",
+      name: "Test Instructor Default",
+      slug: "test-instructor-recipient-default",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    await ctx.db.insert("users", {
+      clerkId: "user_student_rrn_recipient_default",
+      userId: "user_student_rrn_recipient_default",
+      email: "student-recipient-default@example.com",
+      firstName: "Ada",
+      role: "student",
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId: id,
+      studentId: "user_student_rrn_recipient_default",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "ready",
+      recordingUrl: "recordings/test/rec.mp4",
+      hasRecordingArtifact: true,
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace Default",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      ownerId: "user_student_rrn_recipient_default",
+    });
+    await ctx.db.insert("recordingReadyNotifications", {
+      sessionId,
+      workspaceId,
+      recipientUserId: "user_student_rrn_recipient_default",
+      recordingStartedAt: Date.now() - 5_000,
+      deliveryStatus: "ready_to_send",
+    });
+    return id;
+  });
+
+  const notificationId = await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("recordingReadyNotifications")
+      .first();
+    return row!._id;
+  });
+
+  const result = await t.query(
+    internal.recordingReadyNotifications.getRecipientInfoForNotification,
+    { notificationId }
+  );
+
+  expect(result.email).toBe("student-recipient-default@example.com");
+  expect(result.firstName).toBe("Ada");
+  expect(result.recordingReadyEmail).toBe(true);
+  expect(result.instructorName).toBe("Test Instructor Default");
+  expect(result.sessionId).toBeDefined();
+  expect(result.workspaceId).toBeDefined();
+});
+
+test("getRecipientInfoForNotification: respects recordingReadyEmail=false when set", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rrn_recipient_off",
+      email: "instructor-recipient-off@example.com",
+      name: "Test Instructor Off",
+      slug: "test-instructor-recipient-off",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    await ctx.db.insert("users", {
+      clerkId: "user_student_rrn_recipient_off",
+      userId: "user_student_rrn_recipient_off",
+      email: "student-recipient-off@example.com",
+      firstName: "Bea",
+      role: "student",
+      notificationPreferences: { recordingReadyEmail: false },
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId: id,
+      studentId: "user_student_rrn_recipient_off",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "ready",
+      recordingUrl: "recordings/test/rec.mp4",
+      hasRecordingArtifact: true,
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace Off",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      ownerId: "user_student_rrn_recipient_off",
+    });
+    await ctx.db.insert("recordingReadyNotifications", {
+      sessionId,
+      workspaceId,
+      recipientUserId: "user_student_rrn_recipient_off",
+      recordingStartedAt: Date.now() - 5_000,
+      deliveryStatus: "ready_to_send",
+    });
+    return id;
+  });
+
+  const notificationId = await t.run(async (ctx) => {
+    return (await ctx.db.query("recordingReadyNotifications").first())!._id;
+  });
+
+  const result = await t.query(
+    internal.recordingReadyNotifications.getRecipientInfoForNotification,
+    { notificationId }
+  );
+
+  expect(result.recordingReadyEmail).toBe(false);
+  expect(result.email).toBe("student-recipient-off@example.com");
+});
+
+test("getRecipientInfoForNotification: malformed preference falls back to true (opt-out)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rrn_recipient_malformed",
+      email: "instructor-recipient-malformed@example.com",
+      name: "Test Instructor Malformed",
+      slug: "test-instructor-recipient-malformed",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    await ctx.db.insert("users", {
+      clerkId: "user_student_rrn_recipient_malformed",
+      userId: "user_student_rrn_recipient_malformed",
+      email: "student-recipient-malformed@example.com",
+      role: "student",
+      // Malformed: preference is the string "false" instead of a boolean.
+      notificationPreferences: { recordingReadyEmail: "false" as unknown as boolean },
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId: id,
+      studentId: "user_student_rrn_recipient_malformed",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "ready",
+      recordingUrl: "recordings/test/rec.mp4",
+      hasRecordingArtifact: true,
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace Malformed",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      ownerId: "user_student_rrn_recipient_malformed",
+    });
+    await ctx.db.insert("recordingReadyNotifications", {
+      sessionId,
+      workspaceId,
+      recipientUserId: "user_student_rrn_recipient_malformed",
+      recordingStartedAt: Date.now() - 5_000,
+      deliveryStatus: "ready_to_send",
+    });
+    return id;
+  });
+
+  const notificationId = await t.run(async (ctx) => {
+    return (await ctx.db.query("recordingReadyNotifications").first())!._id;
+  });
+
+  const result = await t.query(
+    internal.recordingReadyNotifications.getRecipientInfoForNotification,
+    { notificationId }
+  );
+
+  // "false" is not a boolean; the helper falls back to true.
+  expect(result.recordingReadyEmail).toBe(true);
+});
+
+test("getRecipientInfoForNotification: missing user returns email=null + preference=true (default)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rrn_recipient_no_user",
+      email: "instructor-recipient-no-user@example.com",
+      name: "Test Instructor NoUser",
+      slug: "test-instructor-recipient-no-user",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId: id,
+      studentId: "user_student_rrn_recipient_no_user",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "ready",
+      recordingUrl: "recordings/test/rec.mp4",
+      hasRecordingArtifact: true,
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace NoUser",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      ownerId: "user_student_rrn_recipient_no_user",
+    });
+    await ctx.db.insert("recordingReadyNotifications", {
+      sessionId,
+      workspaceId,
+      recipientUserId: "user_student_rrn_recipient_no_user",
+      recordingStartedAt: Date.now() - 5_000,
+      deliveryStatus: "ready_to_send",
+    });
+    return id;
+  });
+
+  const notificationId = await t.run(async (ctx) => {
+    return (await ctx.db.query("recordingReadyNotifications").first())!._id;
+  });
+
+  const result = await t.query(
+    internal.recordingReadyNotifications.getRecipientInfoForNotification,
+    { notificationId }
+  );
+
+  expect(result.email).toBe(null);
+  expect(result.firstName).toBe(null);
+  // No user → no preference → default opt-out true.
+  expect(result.recordingReadyEmail).toBe(true);
+});

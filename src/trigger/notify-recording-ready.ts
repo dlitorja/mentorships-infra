@@ -1,5 +1,7 @@
 import { task, logger, metadata, wait } from "@trigger.dev/sdk";
 import { api } from "../../convex/_generated/api";
+import { sendEmail } from "../../packages/emails/src/send";
+import { buildRecordingReadyEmail } from "../../packages/emails/src/recording-ready";
 
 const CONVEX_DEPLOYMENT_URL =
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
@@ -53,6 +55,19 @@ type CallbackBody = {
  * row lands in `ready_to_send` and the task exits; PR #2
  * adds the email send between gate-pass and exit.
  *
+ * PR #2 wires the email send between gate-pass and exit:
+ *   1. Fetch recipient info (`POST /recording-ready/get-recipient-info`)
+ *      to read the user's email + first name + the per-student
+ *      `recordingReadyEmail` toggle (defaults to `true`).
+ *   2. If the toggle is off, mark the row `sent` with a sentinel
+ *      `providerEmailId: "opted_out"` and exit. The bell-row
+ *      surface (PR #3) still notifies the student.
+ *   3. If the toggle is on, build the email via
+ *      `buildRecordingReadyEmail`, send through Resend, and mark
+ *      the row `sent` with the Resend message id. On a Resend
+ *      failure, mark the row `failed` with `deliveryError: resend:...`
+ *      so the admin sweep can recover it.
+ *
  * Idempotency: the caller (Convex action) sets an idempotency
  * key of `notify-recording-ready:{sessionId}:{recipientUserId}`.
  * Re-deliveries from the Convex action reuse the same Trigger
@@ -73,8 +88,9 @@ export const notifyRecordingReady = task({
   ): Promise<{
     sessionId: string;
     recipientUserId: string;
-    outcome: "ready_to_send" | "failed";
+    outcome: "sent" | "opted_out" | "no_email" | "ready_to_send" | "failed";
     reason: string;
+    providerEmailId?: string;
   }> => {
     logger.info("Recording-ready visibility gate started", {
       sessionId: payload.sessionId,
@@ -106,11 +122,32 @@ export const notifyRecordingReady = task({
         workspaceId: visibility.workspaceId,
       });
       metadata.set("outcome", "ready_to_send");
+
+      // PR #2: between gate-pass and exit, run the email decision
+      // tree. Mirrors `processRecordingRetentionWarningPage` at
+      // `src/trigger/recording-retention-warnings.ts:90`.
+      const recipient = await convexGetRecipientInfo(payload);
+      const sendResult = await dispatchRecordingReadyEmail({
+        recipient,
+        notificationId: payload.notificationId,
+        sessionId: payload.sessionId,
+        workspaceId: visibility.workspaceId,
+      });
+      metadata.set("emailOutcome", sendResult.outcome);
+      if (sendResult.outcome === "failed") {
+        return {
+          sessionId: payload.sessionId,
+          recipientUserId: payload.recipientUserId,
+          outcome: "failed",
+          reason: `email-send:${sendResult.reason}`,
+        };
+      }
       return {
         sessionId: payload.sessionId,
         recipientUserId: payload.recipientUserId,
-        outcome: "ready_to_send",
+        outcome: sendResult.outcome,
         reason: visibility.reason,
+        providerEmailId: sendResult.providerEmailId,
       };
     }
 
@@ -290,9 +327,13 @@ async function convexCallback(
     | "mark-sent"
     | "mark-failed"
     | "enqueue"
-    | "visibility",
-  body: CallbackBody | { sessionId: string; recipientUserId: string }
-): Promise<void> {
+    | "visibility"
+    | "get-recipient-info",
+  body:
+    | CallbackBody
+    | { sessionId: string; recipientUserId: string }
+    | { notificationId: string }
+): Promise<unknown> {
   if (!CONVEX_DEPLOYMENT_URL) {
     throw new Error("CONVEX_DEPLOYMENT_URL / NEXT_PUBLIC_CONVEX_URL not set");
   }
@@ -325,4 +366,186 @@ async function convexCallback(
       )}`
     );
   }
+  return response.json();
+}
+
+/**
+ * PR #2: fetches the recipient's email + first name + the
+ * per-student `recordingReadyEmail` toggle from Convex via the
+ * `get-recipient-info` HTTP route. Returns `null` for missing
+ * fields rather than throwing — the dispatch layer decides what
+ * to do with each branch.
+ */
+async function convexGetRecipientInfo(payload: Payload): Promise<{
+  email: string | null;
+  firstName: string | null;
+  instructorName: string;
+  recordingReadyEmail: boolean;
+  sessionId: string;
+  workspaceId: string | null;
+}> {
+  const result = (await convexCallback("get-recipient-info", {
+    notificationId: payload.notificationId,
+  })) as {
+    email: string | null;
+    firstName: string | null;
+    instructorName: string;
+    recordingReadyEmail: boolean;
+    sessionId: string;
+    workspaceId: string | null;
+  };
+  return result;
+}
+
+/**
+ * PR #2: runs the email decision tree after the visibility gate
+ * has flipped the row to `ready_to_send`. Returns the outcome so
+ * the caller can log it + decide whether to re-throw.
+ *
+ * Decision tree:
+ *   1. `recordingReadyEmail === false` → mark `sent` with the
+ *      sentinel `providerEmailId: "opted_out"`. The bell surface
+ *      (PR #3) still notifies the student.
+ *   2. `email` is null (user record missing) → mark `sent` with
+ *      `providerEmailId: "no_email"`. Rare; the user has no
+ *      `users` row yet. The bell surface still notifies.
+ *   3. Send through Resend → mark `sent` with the Resend message
+ *      id. Idempotency key prevents re-send on Trigger retry.
+ *   4. Resend returns a hard error → mark `failed` with
+ *      `deliveryError: resend:{error}`. The admin sweep
+ *      (HUC-22) re-processes these.
+ *   5. Resend returns `skipped: true` (provider not configured in
+ *      dev) → mark `sent` with `providerEmailId: "dev_skipped"`
+ *      and exit cleanly. No retry needed.
+ */
+async function dispatchRecordingReadyEmail(args: {
+  recipient: {
+    email: string | null;
+    firstName: string | null;
+    instructorName: string;
+    recordingReadyEmail: boolean;
+    sessionId: string;
+    workspaceId: string | null;
+  };
+  notificationId: string;
+  sessionId: string;
+  workspaceId: string;
+}): Promise<
+  | { outcome: "sent"; reason: string; providerEmailId: string }
+  | { outcome: "opted_out"; reason: string; providerEmailId: string }
+  | { outcome: "no_email"; reason: string; providerEmailId: string }
+  | { outcome: "dev_skipped"; reason: string; providerEmailId: string }
+  | { outcome: "failed"; reason: string }
+> {
+  if (!args.recipient.recordingReadyEmail) {
+    logger.info("Recording-ready email opted out via preference", {
+      sessionId: args.sessionId,
+      notificationId: args.notificationId,
+    });
+    await convexCallback("mark-sent", {
+      notificationId: args.notificationId,
+      providerEmailId: "opted_out",
+    });
+    return {
+      outcome: "opted_out",
+      reason: "preference-disabled",
+      providerEmailId: "opted_out",
+    };
+  }
+
+  if (!args.recipient.email) {
+    logger.warn("Recording-ready recipient has no email; marking sent with sentinel", {
+      sessionId: args.sessionId,
+      notificationId: args.notificationId,
+    });
+    await convexCallback("mark-sent", {
+      notificationId: args.notificationId,
+      providerEmailId: "no_email",
+    });
+    return {
+      outcome: "no_email",
+      reason: "missing-user-email",
+      providerEmailId: "no_email",
+    };
+  }
+
+  if (!args.recipient.workspaceId) {
+    // Should be unreachable: visibility-gate-pass requires a
+    // workspaceId, and we propagate it through to here. Guard
+    // anyway to avoid an unsafe deep-link.
+    logger.warn("Recording-ready recipient info missing workspaceId", {
+      sessionId: args.sessionId,
+      notificationId: args.notificationId,
+    });
+    await convexCallback("mark-failed", {
+      notificationId: args.notificationId,
+      deliveryError: "resend:missing-workspace-id",
+    });
+    return { outcome: "failed", reason: "missing-workspace-id" };
+  }
+
+  const email = buildRecordingReadyEmail({
+    studentEmail: args.recipient.email,
+    studentName: args.recipient.firstName,
+    instructorName: args.recipient.instructorName,
+    workspaceId: args.workspaceId,
+    sessionId: args.sessionId,
+  });
+
+  const sendResult = await sendEmail({
+    to: args.recipient.email,
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
+    headers: email.headers,
+    kind: "transactional",
+    idempotencyKey: `recording-ready:${args.sessionId}:${args.notificationId}`,
+  });
+
+  if (sendResult.ok) {
+    const providerEmailId = sendResult.id ?? "resend_no_id";
+    logger.info("Recording-ready email sent", {
+      sessionId: args.sessionId,
+      notificationId: args.notificationId,
+      providerEmailId,
+    });
+    await convexCallback("mark-sent", {
+      notificationId: args.notificationId,
+      providerEmailId,
+    });
+    return { outcome: "sent", reason: "resend-ok", providerEmailId };
+  }
+
+  if ("skipped" in sendResult && sendResult.skipped) {
+    logger.warn(
+      "Recording-ready email skipped (provider not configured in dev)",
+      {
+        sessionId: args.sessionId,
+        notificationId: args.notificationId,
+        reason: sendResult.reason,
+      }
+    );
+    await convexCallback("mark-sent", {
+      notificationId: args.notificationId,
+      providerEmailId: "dev_skipped",
+    });
+    return {
+      outcome: "dev_skipped",
+      reason: sendResult.reason,
+      providerEmailId: "dev_skipped",
+    };
+  }
+
+  const errorMessage =
+    "error" in sendResult ? sendResult.error : "unknown Resend error";
+  logger.error("Recording-ready email send failed", {
+    sessionId: args.sessionId,
+    notificationId: args.notificationId,
+    error: errorMessage,
+  });
+  await convexCallback("mark-failed", {
+    notificationId: args.notificationId,
+    deliveryError: `resend:${errorMessage}`.slice(0, 500),
+  });
+  return { outcome: "failed", reason: errorMessage };
 }

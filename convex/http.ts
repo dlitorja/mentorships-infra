@@ -2478,6 +2478,50 @@ http.route({
 });
 
 /**
+ * PR recording-ready-notifications (PR #2): called by the
+ * `notify-recording-ready` Trigger task after the visibility
+ * gate flips the row to `ready_to_send`. Returns the recipient
+ * user's email, first name, the per-student
+ * `recordingReadyEmail` preference (default `true` = opt-out),
+ * and the resolved instructor name.
+ *
+ * Two-key auth (matches the rest of the `/recording-ready/*`
+ * callbacks). The Trigger task uses the result to decide whether
+ * to send through Resend and what the email body looks like.
+ */
+const httpGetRecipientInfoForRecordingReady = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const notificationId = (body as { notificationId?: unknown })
+    .notificationId;
+  if (typeof notificationId !== "string") {
+    return new Response(
+      JSON.stringify({ error: "notificationId is required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runQuery(
+    internal.recordingReadyNotifications.getRecipientInfoForNotification,
+    {
+      notificationId: notificationId as Id<"recordingReadyNotifications">,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-ready/get-recipient-info",
+  method: "POST",
+  handler: httpGetRecipientInfoForRecordingReady,
+});
+
+/**
  * R12: recording-retention HTTP endpoints invoked by the
  * Trigger.dev schedules `cleanup-expired-call-recordings` and
  * `send-recording-retention-warnings` (see
