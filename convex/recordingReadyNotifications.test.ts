@@ -1,10 +1,12 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
+
+const originalFetch = globalThis.fetch;
 
 /**
  * Tests for the visibility-gate predicate at
@@ -379,4 +381,168 @@ test("recordingReadyNotifications: full state-machine path", async () => {
   expect(row?.sentAt).toBeDefined();
   expect(row?.providerEmailId).toBe("resend_test_full");
   expect(row?.workspaceId).toBe(workspaceId);
+});
+
+/**
+ * Tests for the Greptile R1 P2 fix on `chainNotifyRecordingReady`:
+ * the Trigger.dev fetch must retry on 5xx, mark the row `failed`
+ * with a `deliveryError` annotation after the retry budget is
+ * exhausted, and re-throw so the call site sees the failure.
+ *
+ * Mirrors the fetch-mock pattern from `dailyEmailMetrics.test.ts`.
+ */
+
+beforeEach(() => {
+  process.env.TRIGGER_SECRET_KEY = "tr_test_secret_key_for_convex_test";
+  process.env.TRIGGER_API_KEY = undefined as unknown as string;
+  globalThis.fetch = vi.fn() as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  delete process.env.TRIGGER_SECRET_KEY;
+  delete process.env.TRIGGER_API_KEY;
+  globalThis.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function seedFixtureForAction(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "user_instructor_rrn_action",
+      email: "instructor-rrn-action@example.com",
+      name: "Test Instructor",
+      slug: "test-instructor-rrn-action",
+      isActive: true,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: "user_student_rrn_action",
+      scheduledAt: Date.now() - 5_000,
+      status: "completed",
+      recordingConsent: true,
+      callStartedAt: Date.now() - 5_000,
+      recordingTransferStatus: "ready",
+      recordingUrl: "recordings/test/rec.mp4",
+      hasRecordingArtifact: true,
+    });
+    return { instructorId, sessionId, studentUserId: "user_student_rrn_action" };
+  });
+}
+
+test("chainNotifyRecordingReady: happy path — single Trigger fetch + row inserted", async () => {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  fetchMock.mockResolvedValueOnce(jsonResponse({ id: "run_abc123" }));
+
+  const t = convexTest(schema, modules);
+  const { sessionId, studentUserId } = await seedFixtureForAction(t);
+
+  const result = await t.action(
+    internal.recordingReadyNotifications.chainNotifyRecordingReady,
+    {
+      sessionId: sessionId as any,
+      recipientUserId: studentUserId,
+    }
+  );
+
+  expect(result.triggerRunId).toBe("run_abc123");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const calledUrl = fetchMock.mock.calls[0]?.[0] as string;
+  expect(calledUrl).toContain("/tasks/notify-recording-ready/trigger");
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db.query("recordingReadyNotifications").collect();
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.deliveryStatus).toBe("pending_visibility");
+});
+
+test("chainNotifyRecordingReady: retries on 5xx then succeeds", async () => {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  fetchMock
+    .mockResolvedValueOnce(new Response("upstream down", { status: 503 }))
+    .mockResolvedValueOnce(new Response("upstream down", { status: 502 }))
+    .mockResolvedValueOnce(jsonResponse({ id: "run_after_retry" }));
+
+  const t = convexTest(schema, modules);
+  const { sessionId, studentUserId } = await seedFixtureForAction(t);
+
+  const result = await t.action(
+    internal.recordingReadyNotifications.chainNotifyRecordingReady,
+    {
+      sessionId: sessionId as any,
+      recipientUserId: studentUserId,
+    }
+  );
+
+  expect(result.triggerRunId).toBe("run_after_retry");
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+}, 30_000);
+
+test("chainNotifyRecordingReady: marks row failed and rethrows after exhausting retries", async () => {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  fetchMock.mockResolvedValue(
+    new Response("upstream down", { status: 503 })
+  );
+
+  const t = convexTest(schema, modules);
+  const { sessionId, studentUserId } = await seedFixtureForAction(t);
+
+  await expect(
+    t.action(
+      internal.recordingReadyNotifications.chainNotifyRecordingReady,
+      {
+        sessionId: sessionId as any,
+        recipientUserId: studentUserId,
+      }
+    )
+  ).rejects.toThrow(/after 4 attempts/);
+
+  // 4 attempts × all 503. The retry budget is MAX_TRIGGER_FETCH_ATTEMPTS.
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db.query("recordingReadyNotifications").collect();
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.deliveryStatus).toBe("failed");
+  expect(rows[0]?.deliveryError).toMatch(/^trigger-fetch-exhausted:/);
+}, 30_000);
+
+test("chainNotifyRecordingReady: 4xx is permanent (no retry) and marks row failed", async () => {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  fetchMock.mockResolvedValueOnce(
+    new Response("bad request: missing payload", { status: 400 })
+  );
+
+  const t = convexTest(schema, modules);
+  const { sessionId, studentUserId } = await seedFixtureForAction(t);
+
+  await expect(
+    t.action(
+      internal.recordingReadyNotifications.chainNotifyRecordingReady,
+      {
+        sessionId: sessionId as any,
+        recipientUserId: studentUserId,
+      }
+    )
+  ).rejects.toThrow(/rejected with 400/);
+
+  // Greptile R1 P2: 4xx is a permanent error — single attempt.
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db.query("recordingReadyNotifications").collect();
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.deliveryStatus).toBe("failed");
 });

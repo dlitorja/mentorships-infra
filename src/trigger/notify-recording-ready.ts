@@ -202,13 +202,33 @@ export const notifyRecordingReady = task({
  * Reasons for which re-checking the visibility gate will never
  * produce a different answer. Marking these terminal saves the
  * task from spending all 10 retries.
+ *
+ * Greptile R1 P1 (PR recording-ready-notifications): `no_workspace`
+ * is intentionally NOT terminal. The `resolveSessionWorkspace`
+ * resolver uses three paths (direct `workspaceId`, `sessionPackId`
+ * seat lookup, pair-workspace lookup), and any of them can return
+ * `null` transiently — e.g. during the brief window before
+ * `backfillSessionWorkspaceLinks` runs, or if a pack's seat row
+ * hasn't been written yet. We treat `no_workspace` as recoverable
+ * for up to `maxAttempts` so a recording that becomes visible
+ * later (after the migration settles) still produces its
+ * notification. The row stays in `pending_visibility` during the
+ * retry window; only the timeout / maxAttempts path flips it to
+ * `failed`.
+ *
+ * `no_recording_artifact` and `recording_not_ready` remain
+ * terminal: `attachRecordingFromB2Upload` patches the session in
+ * the same transaction that schedules this task, so by the time
+ * the visibility query runs the recording should be present and
+ * `ready`. If those reasons fire, the B2 upload genuinely failed
+ * (or the recording was purged by retention cleanup) and retrying
+ * won't help.
  */
 function isTerminalReason(
   reason: string
-): reason is "no_recording_artifact" | "no_workspace" | "recording_not_ready" {
+): reason is "no_recording_artifact" | "recording_not_ready" {
   return (
     reason === "no_recording_artifact" ||
-    reason === "no_workspace" ||
     reason === "recording_not_ready"
   );
 }

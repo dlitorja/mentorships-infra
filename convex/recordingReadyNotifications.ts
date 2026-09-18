@@ -256,9 +256,15 @@ export const getNotificationForRecipient = internalMutation({
  *   2. Trigger the `notify-recording-ready` task with the row id +
  *      session + recipient. The task takes over from there.
  *
- * If the trigger request fails, the row stays in
- * `pending_visibility` and the admin sweep / cron (HUC-22) picks
- * it up — that's preferable to silently swallowing the error.
+ * Greptile R1 P2: the Trigger fetch is wrapped in
+ * `triggerNotifyRecordingReady`, which retries on 5xx / network
+ * errors up to `MAX_TRIGGER_FETCH_ATTEMPTS` times with exponential
+ * backoff. If the retry budget is exhausted, the row is flipped
+ * to `failed` with a `deliveryError` annotation so the planned
+ * admin sweep (`Schema Changes` project, HUC-22) can re-process
+ * it, and the action re-throws so operators see the failure in
+ * the Convex dashboard. Without the mark-failed fallback, a hard
+ * Trigger outage would silently strand every notification row.
  */
 export const chainNotifyRecordingReady = internalAction({
   args: {
@@ -293,30 +299,39 @@ export const chainNotifyRecordingReady = internalAction({
       );
     }
     const idempotencyKey = `notify-recording-ready:${args.sessionId}:${args.recipientUserId}`;
-    const response = await fetch(TRIGGER_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${triggerSecretKey}`,
-      },
-      body: JSON.stringify({
+    let triggerBody: { id?: string } = { id: "" };
+    try {
+      const result = await triggerNotifyRecordingReady({
+        triggerSecretKey,
         payload: {
           sessionId: String(args.sessionId),
           recipientUserId: args.recipientUserId,
           notificationId: String(enqueue.notificationId),
         },
         idempotencyKey,
-      }),
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Trigger.dev trigger failed: ${response.status} ${body.slice(0, 200)}`
+      });
+      triggerBody = result ?? { id: "" };
+    } catch (triggerError) {
+      // Greptile R1 P2: a hard Trigger.dev outage must NOT strand
+      // the row in `pending_visibility`. Flip it to `failed` with
+      // a `deliveryError` annotation so the planned admin sweep
+      // (`Schema Changes` project, HUC-22) can re-process it.
+      // The action then re-throws so the call site (B2 callback
+      // chain) sees the failure and operators can see it in the
+      // Convex dashboard.
+      await ctx.runMutation(
+        internal.recordingReadyNotifications.markFailed,
+        {
+          notificationId: enqueue.notificationId,
+          deliveryError: `trigger-fetch-exhausted:${
+            triggerError instanceof Error
+              ? triggerError.message
+              : String(triggerError)
+          }`,
+        }
       );
+      throw triggerError;
     }
-    const triggerBody = (await response.json()) as {
-      id?: string;
-    };
     return {
       sessionId: args.sessionId,
       recipientUserId: args.recipientUserId,
@@ -325,6 +340,89 @@ export const chainNotifyRecordingReady = internalAction({
     };
   },
 });
+
+/**
+ * Greptile R1 P2 (PR recording-ready-notifications): the Trigger
+ * fetch used to throw immediately on a transient HTTP failure,
+ * stranding the `recordingReadyNotifications` row in
+ * `pending_visibility` forever (Convex actions are not
+ * auto-retried, and the B2-callback chain short-circuits on
+ * `status === "ready"` so a re-fire won't re-schedule).
+ *
+ * This wraps the fetch in a small exponential-backoff retry
+ * loop. After `MAX_TRIGGER_FETCH_ATTEMPTS` attempts, the row is
+ * flipped to `failed` with a `deliveryError` annotation so the
+ * planned admin sweep (`Schema Changes` project, HUC-22) can
+ * surface it for re-processing. Without the mark-failed fallback,
+ * a hard Trigger outage would silently strand every row.
+ *
+ * Retry budget: 3 attempts × ~7s of total backoff (1s + 2s + 4s
+ * before attempt 2/3/4) — cheap enough that a single transient
+ * blip recovers automatically, bounded enough that a hard outage
+ * gives up before blocking the action queue for minutes.
+ */
+const MAX_TRIGGER_FETCH_ATTEMPTS = 4;
+const TRIGGER_FETCH_BACKOFF_BASE_MS = 1_000;
+
+async function triggerNotifyRecordingReady(args: {
+  triggerSecretKey: string;
+  payload: Record<string, unknown>;
+  idempotencyKey: string;
+}): Promise<{ id?: string } | null> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_TRIGGER_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(TRIGGER_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${args.triggerSecretKey}`,
+        },
+        body: JSON.stringify({
+          payload: args.payload,
+          idempotencyKey: args.idempotencyKey,
+        }),
+      });
+      if (response.ok) {
+        return (await response.json()) as { id?: string };
+      }
+      // 5xx → transient (retry). 4xx → persistent (don't retry;
+      // the body tells the operator what's wrong).
+      if (response.status >= 400 && response.status < 500) {
+        const body = await response.text();
+        throw new Error(
+          `Trigger.dev trigger rejected with ${response.status}: ${body.slice(0, 200)}`
+        );
+      }
+      lastError = new Error(
+        `Trigger.dev trigger failed: ${response.status}`
+      );
+    } catch (err) {
+      // Rethrow permanent errors (4xx) immediately.
+      if (
+        err instanceof Error &&
+        err.message.startsWith("Trigger.dev trigger rejected with ")
+      ) {
+        throw err;
+      }
+      lastError = err;
+    }
+    if (attempt < MAX_TRIGGER_FETCH_ATTEMPTS) {
+      await sleep(
+        TRIGGER_FETCH_BACKOFF_BASE_MS * Math.pow(2, attempt - 1)
+      );
+    }
+  }
+  throw new Error(
+    `Trigger.dev trigger failed after ${MAX_TRIGGER_FETCH_ATTEMPTS} attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Re-export for tests + clarity.
 export const _internal = {
