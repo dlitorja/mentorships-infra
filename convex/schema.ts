@@ -19,6 +19,16 @@ export default defineSchema({
     // stays single, but Convex distinguishes the split record so per-pair
     // renewal detection + per-pair session-pack ownership remain correct.
     onboardingAlias: v.optional(v.string()),
+    // PR recording-ready-notifications: cross-device notification
+    // preferences. JSON blob so a new preference key can land
+    // without a schema migration. Currently supported keys:
+    //   - `recordingReadyEmail`: boolean (default true; opt-out)
+    //     Controls whether the student receives a Resend email
+    //     when a call recording finishes transferring to B2 and
+    //     is visible in their workspace Videos tab. PR #1 adds
+    //     the storage and reader; PR #2 wires the email gate;
+    //     PR #4 surfaces the toggle in the Videos tab UI.
+    notificationPreferences: v.optional(v.any()),
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"])
     .index("by_userId", ["userId"])
@@ -552,6 +562,52 @@ export default defineSchema({
     .index("by_recipientUserId", ["recipientUserId"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     .index("by_sessionId_recipientUserId_daysUntilDeletion", ["sessionId", "recipientUserId", "daysUntilDeletion"]),
+
+  // PR recording-ready-notifications (PR #1: schema widen + visibility gate).
+  // One row per (sessionId, recipientUserId) — recipient is always the
+  // workspace owner (student) for the recording-ready event. Instructors
+  // are out of scope for this PR series.
+  //
+  // State machine (PR #1):
+  //   pending_visibility → ready_to_send → sent
+  //                                  ↘ failed (email send error, PR #2)
+  //   pending_visibility → failed (visibility-gate timeout, PR #1)
+  //
+  // The visibility gate lives in
+  // `internal.sessions.getSessionVisibilityForStudentOwner` — it returns
+  // `visible: true` only when the recording actually surfaces in the
+  // student's `getCallRecordingsForWorkspace` result. PR #1 is responsible
+  // for getting rows to `ready_to_send`; PR #2 wires the email send and
+  // flips rows to `sent` (or `failed` on send error).
+  recordingReadyNotifications: defineTable({
+    sessionId: v.id("sessions"),
+    // Workspace is resolved by the visibility gate; we store
+    // it as soon as the gate passes (`markReadyToSend`). Until
+    // then it's optional because the B2-callback chain fires
+    // BEFORE the `backfillSessionWorkspaceLinks` migration has
+    // necessarily run on a brand-new session.
+    workspaceId: v.optional(v.id("workspaces")),
+    recipientUserId: v.string(),
+    recordingStartedAt: v.number(),
+    recordingCallEndedAt: v.optional(v.number()),
+    deliveryStatus: v.union(
+      v.literal("pending_visibility"),
+      v.literal("ready_to_send"),
+      v.literal("sent"),
+      v.literal("failed")
+    ),
+    sentAt: v.optional(v.number()),
+    providerEmailId: v.optional(v.string()),
+    deliveryError: v.optional(v.string()),
+    acknowledgedAt: v.optional(v.number()),
+  }).index("by_sessionId", ["sessionId"])
+    .index("by_recipientUserId", ["recipientUserId"])
+    // One row per (sessionId, recipientUserId). The Trigger task and the
+    // B2-callback chain both use this index to enforce idempotency.
+    .index("by_sessionId_recipientUserId", ["sessionId", "recipientUserId"])
+    // Powers the future admin sweep (PR #1 only writes here; admin
+    // queries come later if needed).
+    .index("by_deliveryStatus", ["deliveryStatus"]),
 
   workspaceAuditLogs: defineTable({
     workspaceId: v.id("workspaces"),

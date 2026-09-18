@@ -2288,6 +2288,196 @@ http.route({
 });
 
 /**
+ * PR recording-ready-notifications (PR #1): HTTP callbacks for the
+ * `notify-recording-ready` Trigger task. Follow the same two-key
+ * auth pattern as the `/recording-transfer/*` routes above
+ * (`verifyAuth` + `verifyCallbackSecret` from
+ * `convex/http.ts:2187`).
+ *
+ * `enqueue` is the canonical ingress — both `attachRecordingFromB2Upload`
+ * (via `chainNotifyRecordingReady` action) and any future
+ * re-trigger from the admin sweep POST here. PR #1 only needs
+ * `mark-ready-to-send` and `mark-failed`; `mark-sent` is wired up
+ * here too so PR #2 lands as a single-module change.
+ */
+const httpEnqueueRecordingReady = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const sessionId = (body as { sessionId?: unknown }).sessionId;
+  const recipientUserId = (body as { recipientUserId?: unknown })
+    .recipientUserId;
+  if (typeof sessionId !== "string" || typeof recipientUserId !== "string") {
+    return new Response(
+      JSON.stringify({ error: "sessionId and recipientUserId are required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runMutation(
+    internal.recordingReadyNotifications.enqueuePendingVisibility,
+    {
+      sessionId: sessionId as Id<"sessions">,
+      recipientUserId,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingReadyToSend = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const notificationId = (body as { notificationId?: unknown }).notificationId;
+  const workspaceId = (body as { workspaceId?: unknown }).workspaceId;
+  if (typeof notificationId !== "string" || typeof workspaceId !== "string") {
+    return new Response(
+      JSON.stringify({ error: "notificationId and workspaceId are required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runMutation(
+    internal.recordingReadyNotifications.markReadyToSend,
+    {
+      notificationId: notificationId as Id<"recordingReadyNotifications">,
+      workspaceId: workspaceId as Id<"workspaces">,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingReadySent = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const notificationId = (body as { notificationId?: unknown }).notificationId;
+  const providerEmailId = (body as { providerEmailId?: unknown })
+    .providerEmailId;
+  if (typeof notificationId !== "string") {
+    return new Response(
+      JSON.stringify({ error: "notificationId is required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runMutation(
+    internal.recordingReadyNotifications.markSent,
+    {
+      notificationId: notificationId as Id<"recordingReadyNotifications">,
+      providerEmailId:
+        typeof providerEmailId === "string" ? providerEmailId : undefined,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingReadyFailed = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const notificationId = (body as { notificationId?: unknown }).notificationId;
+  const deliveryError = (body as { deliveryError?: unknown }).deliveryError;
+  if (typeof notificationId !== "string" || typeof deliveryError !== "string") {
+    return new Response(
+      JSON.stringify({ error: "notificationId and deliveryError are required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runMutation(
+    internal.recordingReadyNotifications.markFailed,
+    {
+      notificationId: notificationId as Id<"recordingReadyNotifications">,
+      deliveryError,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-ready/enqueue",
+  method: "POST",
+  handler: httpEnqueueRecordingReady,
+});
+
+/**
+ * PR #1: visibility-check endpoint called by the
+ * `notify-recording-ready` Trigger task on each retry.
+ * Returns the same shape the Trigger task consumes:
+ * `{ visible, workspaceId?, reason }`.
+ *
+ * Two-key auth (matches the mark-* callbacks). Internal only.
+ */
+const httpCheckRecordingReadyVisibility = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const body = await request.json();
+  const sessionId = (body as { sessionId?: unknown }).sessionId;
+  const recipientUserId = (body as { recipientUserId?: unknown })
+    .recipientUserId;
+  if (typeof sessionId !== "string" || typeof recipientUserId !== "string") {
+    return new Response(
+      JSON.stringify({ error: "sessionId and recipientUserId are required" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runQuery(
+    internal.sessions.getSessionVisibilityForStudentOwner,
+    {
+      sessionId: sessionId as Id<"sessions">,
+      recipientUserId,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-ready/visibility",
+  method: "POST",
+  handler: httpCheckRecordingReadyVisibility,
+});
+
+http.route({
+  path: "/recording-ready/mark-ready-to-send",
+  method: "POST",
+  handler: httpMarkRecordingReadyToSend,
+});
+
+http.route({
+  path: "/recording-ready/mark-sent",
+  method: "POST",
+  handler: httpMarkRecordingReadySent,
+});
+
+http.route({
+  path: "/recording-ready/mark-failed",
+  method: "POST",
+  handler: httpMarkRecordingReadyFailed,
+});
+
+/**
  * R12: recording-retention HTTP endpoints invoked by the
  * Trigger.dev schedules `cleanup-expired-call-recordings` and
  * `send-recording-retention-warnings` (see

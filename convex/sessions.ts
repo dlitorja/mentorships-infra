@@ -1435,6 +1435,32 @@ export const attachRecordingFromB2Upload = internalMutation({
       patch.recordingId = args.recordingId;
     }
     await ctx.db.patch(session._id, patch);
+    // PR recording-ready-notifications (PR #1): chain the visibility
+    // gate. We schedule it via runAfter(0) so the patch above commits
+    // before the action runs — the visibility gate reads the session
+    // row and we want it to see the post-patch `recordingTransferStatus
+    // === "ready"` state.
+    //
+    // recipientUserId is the workspace owner (the student). The
+    // visibility gate rejects rows where the resolved workspace's
+    // `ownerId` doesn't match this user, so passing `session.studentId`
+    // directly is correct.
+    //
+    // Idempotent: the Trigger task uses
+    // `notify-recording-ready:{sessionId}:{recipientUserId}` as its
+    // idempotency key, so a re-delivery from the B2-callback chain
+    // (which `attachRecordingFromB2Upload` is reached from) will reuse
+    // the existing Trigger run id rather than creating a duplicate.
+    if (session.studentId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.recordingReadyNotifications.chainNotifyRecordingReady,
+        {
+          sessionId: session._id,
+          recipientUserId: session.studentId,
+        }
+      );
+    }
     return { sessionId: session._id, updated: true };
   },
 });
@@ -1513,6 +1539,94 @@ export const markRecordingTransferFailed = internalMutation({
       recordingTransferAttempts: args.attempts,
     });
     return { sessionId: session._id };
+  },
+});
+
+/**
+ * PR recording-ready-notifications (PR #1): the visibility-gate predicate.
+ *
+ * Returns whether a given session's recording would actually surface in
+ * the workspace owner's (`recipientUserId`) `getCallRecordingsForWorkspace`
+ * result. This is the gate the `notify-recording-ready` Trigger task uses
+ * to decide whether it's safe to flip a `recordingReadyNotifications` row
+ * to `ready_to_send`.
+ *
+ * Mirrors the predicate at `getCallRecordingsForWorkspace` (this file,
+ * line ~1955):
+ *   1. session is not soft-deleted,
+ *   2. session has a recording URL or transfer status set
+ *      (the legacy pre-PR #video-recording-to-b2 path can leave one but
+ *      not the other; either is enough for the row to be queryable),
+ *   3. `resolveSessionWorkspace` produces a non-null workspace for the
+ *      session (handles pre-backfill rows),
+ *   4. that workspace's `ownerId` is the recipient (the student).
+ *
+ * Additionally rejects rows whose transfer status is one of
+ * `{pending, uploading, failed, purged}` so we never notify the student
+ * about a recording that the UI would render with a "processing" /
+ * "Recording unavailable" / "Deleted" pill. `undefined` (legacy) and
+ * `"ready"` both pass.
+ *
+ * The `reason` enum is the contract with the Trigger task — it lets the
+ * task surface a precise failure mode to the operator (and to the
+ * future admin sweep that picks up `pending_visibility` rows after the
+ * maxAttempts timeout).
+ *
+ * Internal only: not callable from a public client. Trigger.dev tasks
+ * call it via `ctx.runQuery(internal.sessions.getSessionVisibilityForStudentOwner, …)`
+ * inside an action so they get the Node runtime. The HTTP-layer caller
+ * would need a different shape (admin auth) — out of scope here.
+ */
+export type RecordingVisibilityReason =
+  | "ok"
+  | "no_workspace"
+  | "not_owner"
+  | "no_recording_artifact"
+  | "recording_not_ready";
+
+export const getSessionVisibilityForStudentOwner = internalQuery({
+  args: {
+    sessionId: v.id("sessions"),
+    recipientUserId: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    visible: boolean;
+    workspaceId?: Id<"workspaces">;
+    reason: RecordingVisibilityReason;
+  }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { visible: false, reason: "no_recording_artifact" };
+    }
+    if (session.deletedAt !== undefined) {
+      return { visible: false, reason: "no_recording_artifact" };
+    }
+    if (
+      session.recordingUrl === undefined &&
+      session.recordingTransferStatus === undefined
+    ) {
+      return { visible: false, reason: "no_recording_artifact" };
+    }
+    if (
+      session.recordingTransferStatus !== undefined &&
+      session.recordingTransferStatus !== "ready"
+    ) {
+      // pending / uploading / failed / purged. None of these are safe
+      // to notify about — the UI surfaces them with non-"Play" pills.
+      return { visible: false, reason: "recording_not_ready" };
+    }
+
+    const workspace = await resolveSessionWorkspace(ctx, session);
+    if (!workspace) {
+      return { visible: false, reason: "no_workspace" };
+    }
+    if (workspace.ownerId !== args.recipientUserId) {
+      return { visible: false, reason: "not_owner" };
+    }
+    return { visible: true, workspaceId: workspace._id, reason: "ok" };
   },
 });
 

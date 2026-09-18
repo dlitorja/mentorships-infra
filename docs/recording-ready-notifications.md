@@ -1,0 +1,166 @@
+# Recording Ready Notifications — 4-PR Arc
+
+Notify the workspace owner (student) when a call recording finishes transferring to Backblaze B2 and is actually visible in their workspace Videos tab. Two channels: in-app bell row + Resend email, with a per-student email toggle in the Videos tab UI.
+
+**Status**: planning — PR #1 starting now.
+
+## Problem statement
+
+The Daily.co → B2 transfer pipeline (`convex/dailyRecordingActions.ts` → `src/trigger/recording-transfer.ts` → `internal.sessions.attachRecordingFromB2Upload`) flips `sessions.recordingTransferStatus: "ready"` as soon as the MP4 is in B2. Today there is **no notification** to the student:
+
+- The sidebar bell (`apps/platform/components/notifications/notification-bell.tsx`) reads only `inCallNotifications` (ad-hoc call invites, `convex/schema.ts:864`). No `recording_ready` kind exists.
+- `attachRecordingFromB2Upload` (`convex/sessions.ts:1382`) only patches the session row. No `ctx.db.insert(...)` into any notification table, no Resend call.
+- `convex/notifications.ts:277` `NotificationType` literals are `renewal_reminder | final_renewal_reminder | grace_period_final_warning` only (session-pack renewals, not recordings).
+- The only recording-related in-app surface today is `RecordingRetentionWarningBanner` — it surfaces expiry, not availability.
+
+So the moment a recording finishes uploading, the only signal is the student happening to click the Videos tab.
+
+## Scope decisions (locked in with operator)
+
+- **Recipients**: workspace owner (student) only. Instructors excluded.
+- **Channels**: in-app bell row + Resend email. No Discord in this PR (clean follow-up if desired).
+- **Toggle**: per-student checkbox in the Videos tab UI; persists to `users.notificationPreferences`. Default `true` (opt-out).
+- **Visibility gate**: do NOT notify until the recording actually surfaces in the student's `getCallRecordingsForWorkspace` result. The gate handles three failure modes that the existing pipeline doesn't: (a) `sessions.workspaceId` unresolved for an ad-hoc session, (b) the `by_instructor_student_hasRecordingArtifact_callStartedAt` index hasn't seen the row yet, (c) the migration `backfillSessionWorkspaceLinks` hasn't run yet.
+
+## Architecture
+
+### Data model (widen phase — PR #1)
+
+`convex/schema.ts`:
+
+```ts
+recordingReadyNotifications: defineTable({
+  sessionId: v.id("sessions"),
+  workspaceId: v.id("workspaces"),
+  recipientUserId: v.string(),            // bare Clerk userId (student)
+  recordingStartedAt: v.number(),
+  recordingCallEndedAt: v.optional(v.number()),
+  // state machine:
+  //   pending_visibility → ready_to_send → sent
+  //                                  ↘ failed
+  deliveryStatus: v.union(
+    v.literal("pending_visibility"),
+    v.literal("ready_to_send"),
+    v.literal("sent"),
+    v.literal("failed")
+  ),
+  sentAt: v.optional(v.number()),
+  providerEmailId: v.optional(v.string()),
+  deliveryError: v.optional(v.string()),
+  acknowledgedAt: v.optional(v.number()),
+})
+  .index("by_sessionId", ["sessionId"])
+  .index("by_recipientUserId", ["recipientUserId"])
+  .index("by_sessionId_recipientUserId", ["sessionId", "recipientUserId"])
+  .index("by_deliveryStatus", ["deliveryStatus"]);
+
+// users table — JSON blob for cross-device notification preferences.
+notificationPreferences: v.optional(v.any()),
+```
+
+`v.optional(v.any())` mirrors existing patterns (`instructors.workingHours`, `instructors.socials` — `convex/schema.ts:40,65`).
+
+### New Convex query (PR #1)
+
+`convex/sessions.ts`: `getSessionVisibilityForStudentOwner` (internalQuery). Runs the same `by_instructor_student_hasRecordingArtifact_callStartedAt` predicate as `getCallRecordingsForWorkspace`, narrowed to a single sessionId. Returns:
+
+```ts
+{ visible: boolean, workspaceId?: Id<"workspaces">, reason: "ok" | "no_workspace" | "not_owner" | "no_recording_artifact" | "recording_not_ready" }
+```
+
+### New HTTP routes (PR #1)
+
+`convex/http.ts` (two-key auth: `CONVEX_HTTP_KEY` + `X-Trigger-Callback-Secret`):
+
+- `POST /recording-ready/enqueue` — Trigger.dev task writes the initial `pending_visibility` row.
+- `POST /recording-ready/mark-sent` — Trigger.dev task flips `deliveryStatus: "ready_to_send" → "sent"` after a successful email send, with `providerEmailId`.
+
+### New Trigger.dev task (PR #1)
+
+`src/trigger/notify-recording-ready.ts`:
+
+1. Idempotency key: `notify-recording-ready:{sessionId}`.
+2. Retry: `maxAttempts: 5`, `factor: 2`, mirrors `transfer-daily-recording-to-b2`.
+3. **Visibility gate loop**:
+   - Call `internal.sessions.getSessionVisibilityForStudentOwner({sessionId})` via Convex HTTP.
+   - If `visible === false` and attempts < 5: `await wait.for({ minutes: 1 })`, retry.
+   - If `visible === true`: enqueue the row (`pending_visibility → ready_to_send`) and write the `enqueue` callback.
+   - If `visible === false` after 5 attempts: write `deliveryStatus: "failed"`, `deliveryError: "visibility_timeout"`. Skip the email (PR #2 will wire that part).
+4. PR #1 scope: the task does NOT send email. It writes the `pending_visibility` row, runs the visibility gate, and stops. Email is PR #2.
+
+### Chaining from the B2 transfer
+
+`convex/sessions.ts` `attachRecordingFromB2Upload` (line 1382) currently patches the session and returns. In PR #1, after the patch succeeds, fire the Trigger task by HTTP-POSTing to the Trigger REST API, mirroring `triggerTransferTask` (`convex/dailyRecordingActions.ts:116`):
+
+```ts
+await fetch("https://api.trigger.dev/api/v1/tasks/notify-recording-ready/trigger", { ... });
+```
+
+Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the early-return on `status === "ready"` (`sessions.ts:1403`) prevents a second enqueue. The Trigger task's idempotency key on `sessionId` is a second guard.
+
+## PR breakdown
+
+| # | PR | Schema touched? | What ships |
+|---|----|----|----|
+| 1 | **Schema widen + visibility gate** | ✅ yes (`recordingReadyNotifications` table, `users.notificationPreferences` field) | New table, new field, internal query, new HTTP routes, Trigger task that runs the visibility gate (writes `pending_visibility` → `ready_to_send` row; does NOT email yet) |
+| 2 | **Email send** | no | Resend template + email fanout wired into the Trigger task. Respects `users.notificationPreferences.recordingReadyEmail`. |
+| 3 | **Bell wiring** | ✅ widens `inCallNotifications.kind` | Bell renders both call invites + recording-ready rows. New deep-link route param `?videos={sessionId}`. |
+| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch. Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. |
+
+## Files
+
+| File | Change |
+|---|---|
+| `convex/schema.ts` | `recordingReadyNotifications` table, `inCallNotifications.kind` widen (PR #3), `users.notificationPreferences` (PR #1) |
+| `convex/sessions.ts` | `getSessionVisibilityForStudentOwner` internalQuery (PR #1) |
+| `convex/recordingReadyNotifications.ts` | NEW. CRUD + state-machine mutations (PR #1) |
+| `convex/http.ts` | `/recording-ready/enqueue`, `/recording-ready/mark-sent` HTTP routes (PR #1) |
+| `convex/users.ts` | `setNotificationPreference` public mutation (PR #4) |
+| `convex/inCallNotifications.ts` | widen `kind` to include `recording_ready` (PR #3) |
+| `convex/notifications.ts` | add `recording_ready` to `NotificationType` union, build email (PR #2) |
+| `convex/migrations/backfillNotificationPreferences.ts` | NEW. Backfill default `recordingReadyEmail: true` for existing students (PR #4) |
+| `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2) |
+| `apps/platform/components/workspace/calls-tab.tsx` | toggle card (PR #4), deep-link param (PR #3) |
+| `apps/platform/components/notifications/notification-bell.tsx` | render `recording_ready` entries (PR #3) |
+| `apps/platform/components/email/recording-ready.tsx` | NEW. Resend template (PR #2) |
+
+## Verification
+
+### Unit (convex-test)
+
+`convex/sessions.test.ts` (or new file `recordingReadyNotifications.test.ts`):
+
+- `getSessionVisibilityForStudentOwner` covers all 5 reason branches: `ok`, `no_workspace`, `not_owner`, `no_recording_artifact`, `recording_not_ready`.
+- `recordingReadyNotifications` mutation state machine: pending_visibility → ready_to_send → sent; failed terminal state on visibility timeout.
+- `/recording-ready/*` HTTP routes: 401 without auth headers (mirrors `recordingTransferHttp.test.ts`), 200 + actual row write on happy path.
+
+### Smoke (PR #1 specifically)
+
+- Trigger a real ad-hoc call in a test workspace, end the call.
+- Verify the Trigger run for `notify-recording-ready` completes with `deliveryStatus: "ready_to_send"` within ~5 minutes.
+- Verify NO email is sent yet (PR #1 does not wire email).
+- Verify the row exists in `recordingReadyNotifications` and surfaces in admin queries.
+
+### Smoke (PR #2 — after PR #2 lands)
+
+- End-to-end: a real call produces both a bell row + a Resend email with the correct deep-link.
+- Negative: a student with `recordingReadyEmail: false` gets a bell row but no email.
+- Visibility-gate exhaustion: temporarily revert `backfillSessionWorkspaceLinks` → confirm no email is sent, bell row stays `pending_visibility`, admin sweep surfaces it.
+
+## Linear tracking
+
+- Project: **Recording Ready Notifications** (new).
+- PR #1 issue under the project: engineering task.
+- PR #1 verification issue under **Schema Changes** project, labels `schema-change` + `verification` + `prod`. PR body uses `Refs HUC-XX` (not `Fixes`).
+
+## Rollback (per PR)
+
+Each PR is independently revertible. The schema-touching PRs (PR #1, PR #3) follow the widen-migrate-narrow contract: schema widens first, then any narrow follows in a later PR after the schema change is verified on prod. Convex retains dropped tables' data for a soft-delete grace period, so even a PR #1 rollback keeps the new `recordingReadyNotifications` rows readable (just orphaned).
+
+## Reference docs
+
+- `convex/dailyRecordingActions.ts` — Daily → B2 transfer trigger source.
+- `src/trigger/recording-transfer.ts` — existing Trigger task this builds on.
+- `convex/sessions.ts:1955` `getCallRecordingsForWorkspace` — the query whose result is the visibility gate.
+- `convex/http.ts:2272` — existing `/recording-transfer/*` HTTP callback pattern this mirrors.
+- `apps/platform/components/notifications/notification-bell.tsx:39` — the bell surface PR #3 widens.
