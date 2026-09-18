@@ -2,7 +2,7 @@
 
 Notify the workspace owner (student) when a call recording finishes transferring to Backblaze B2 and is actually visible in their workspace Videos tab. Two channels: in-app bell row + Resend email, with a per-student email toggle in the Videos tab UI.
 
-**Status**: planning — PR #1 starting now.
+**Status**: PR #1 merged (commit `4c5a7fd5`, 2026-09-18). PR #2 in progress.
 
 ## Problem statement
 
@@ -73,7 +73,10 @@ notificationPreferences: v.optional(v.any()),
 `convex/http.ts` (two-key auth: `CONVEX_HTTP_KEY` + `X-Trigger-Callback-Secret`):
 
 - `POST /recording-ready/enqueue` — Trigger.dev task writes the initial `pending_visibility` row.
-- `POST /recording-ready/mark-sent` — Trigger.dev task flips `deliveryStatus: "ready_to_send" → "sent"` after a successful email send, with `providerEmailId`.
+- `POST /recording-ready/visibility` — Trigger.dev task reads the visibility-gate predicate (used by the task on each attempt; replaces direct Convex HTTP query since internal queries aren't callable from outside the Convex runtime).
+- `POST /recording-ready/mark-ready-to-send` — Trigger.dev task flips `deliveryStatus: "pending_visibility → ready_to_send"` once the gate passes.
+- `POST /recording-ready/mark-sent` — Trigger.dev task flips `deliveryStatus: "ready_to_send → sent"` after a successful email send, with `providerEmailId`.
+- `POST /recording-ready/mark-failed` — Trigger.dev task (or admin sweep) flips to `failed` from any non-terminal state, with `deliveryError` annotation.
 
 ### New Trigger.dev task (PR #1)
 
@@ -112,14 +115,16 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | File | Change |
 |---|---|
 | `convex/schema.ts` | `recordingReadyNotifications` table, `inCallNotifications.kind` widen (PR #3), `users.notificationPreferences` (PR #1) |
-| `convex/sessions.ts` | `getSessionVisibilityForStudentOwner` internalQuery (PR #1) |
-| `convex/recordingReadyNotifications.ts` | NEW. CRUD + state-machine mutations (PR #1) |
-| `convex/http.ts` | `/recording-ready/enqueue`, `/recording-ready/mark-sent` HTTP routes (PR #1) |
+| `convex/sessions.ts` | `getSessionVisibilityForStudentOwner` internalQuery (PR #1); patched `attachRecordingFromB2Upload` to chain `chainNotifyRecordingReady` after the session patch (PR #1) |
+| `convex/recordingReadyNotifications.ts` | NEW. CRUD + state-machine mutations + `chainNotifyRecordingReady` action + `triggerNotifyRecordingReady` retry helper (PR #1) |
+| `convex/http.ts` | 5 `/recording-ready/*` HTTP routes — `enqueue`, `visibility`, `mark-ready-to-send`, `mark-sent`, `mark-failed` (PR #1) |
+| `convex/recordingReadyNotifications.test.ts` | NEW. 16 convex-test cases: 6 visibility branches + 6 state-machine + 4 action-retry (PR #1) |
+| `convex/recordingReadyHttp.test.ts` | NEW. 7 convex-test cases for the 5 HTTP routes (PR #1) |
 | `convex/users.ts` | `setNotificationPreference` public mutation (PR #4) |
 | `convex/inCallNotifications.ts` | widen `kind` to include `recording_ready` (PR #3) |
 | `convex/notifications.ts` | add `recording_ready` to `NotificationType` union, build email (PR #2) |
 | `convex/migrations/backfillNotificationPreferences.ts` | NEW. Backfill default `recordingReadyEmail: true` for existing students (PR #4) |
-| `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2) |
+| `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2). Terminal reasons = `no_recording_artifact`, `recording_not_ready` (NOT `no_workspace` — fixed in PR #1 Greptile R1). |
 | `apps/platform/components/workspace/calls-tab.tsx` | toggle card (PR #4), deep-link param (PR #3) |
 | `apps/platform/components/notifications/notification-bell.tsx` | render `recording_ready` entries (PR #3) |
 | `apps/platform/components/email/recording-ready.tsx` | NEW. Resend template (PR #2) |

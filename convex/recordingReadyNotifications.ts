@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import {
   internalAction,
   internalMutation,
+  internalQuery,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -235,6 +236,104 @@ export const getNotificationForRecipient = internalMutation({
       .first();
   },
 });
+
+/**
+ * PR recording-ready-notifications (PR #2): looks up the recipient
+ * user behind a `recordingReadyNotifications` row and returns the
+ * fields the email-send flow needs:
+ *   - `email` — for the Resend `to` field. `null` if the user
+ *     can't be resolved (very rare; the row still goes to `sent`
+ *     with no providerEmailId so it isn't stranded).
+ *   - `firstName` — for the greeting line. `null` if not set.
+ *   - `recordingReadyEmail` — the per-student email toggle. Reads
+ *     `users.notificationPreferences.recordingReadyEmail` and
+ *     defaults to `true` when the JSON blob is missing or
+ *     malformed. The `true` default is opt-out by design: PR #4
+ *     adds the Videos tab UI for the user to flip it off, but
+ *     existing students must keep getting notified on first land.
+ *   - `instructorName` — for the email body line. Falls back to
+ *     "your instructor" when the instructor row is missing.
+ *
+ * Called from the `notify-recording-ready` Trigger task via the
+ * HTTP route `POST /recording-ready/get-recipient-info` after the
+ * visibility gate flips the row to `ready_to_send`.
+ *
+ * Internal query — only callable from another Convex function or
+ * via the HTTP route (which checks `verifyCallbackSecret`).
+ */
+export const getRecipientInfoForNotification = internalQuery({
+  args: {
+    notificationId: v.id("recordingReadyNotifications"),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    email: string | null;
+    firstName: string | null;
+    instructorName: string;
+    recordingReadyEmail: boolean;
+    sessionId: Id<"sessions">;
+    workspaceId: Id<"workspaces"> | null;
+  }> => {
+    const row = await ctx.db.get(args.notificationId);
+    if (!row) {
+      throw new ConvexError({
+        code: "NOTIFICATION_NOT_FOUND",
+        message: `recordingReadyNotifications row ${args.notificationId} not found`,
+      });
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", row.recipientUserId))
+      .first();
+
+    const recordingReadyEmail = readRecordingReadyEmailPreference(
+      user?.notificationPreferences
+    );
+
+    const session = await ctx.db.get(row.sessionId);
+    let instructorName = "your instructor";
+    if (session) {
+      const instructor = await ctx.db.get(session.instructorId);
+      if (instructor?.name) instructorName = instructor.name;
+    }
+
+    return {
+      email: user?.email ?? null,
+      firstName: user?.firstName ?? null,
+      instructorName,
+      recordingReadyEmail,
+      sessionId: row.sessionId,
+      workspaceId: row.workspaceId ?? null,
+    };
+  },
+});
+
+/**
+ * Reads `users.notificationPreferences.recordingReadyEmail` from a
+ * loosely-typed JSON blob and defaults to `true` (opt-out) when
+ * missing or malformed. The blob is `v.optional(v.any())` because
+ * we want it to round-trip arbitrary future toggles without
+ * schema migrations; the trade-off is that we have to validate on
+ * read. `boolean` is the only accepted shape — anything else
+ * falls back to the default.
+ */
+function readRecordingReadyEmailPreference(
+  preferences: unknown
+): boolean {
+  if (
+    preferences &&
+    typeof preferences === "object" &&
+    "recordingReadyEmail" in preferences
+  ) {
+    const value = (preferences as { recordingReadyEmail: unknown })
+      .recordingReadyEmail;
+    if (typeof value === "boolean") return value;
+  }
+  return true;
+}
 
 /**
  * Convex action that bridges `attachRecordingFromB2Upload` (a

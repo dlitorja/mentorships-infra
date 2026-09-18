@@ -277,3 +277,83 @@ test("recording-ready visibility: 401 without callback secret", async () => {
   });
   expect(r.status).toBe(401);
 });
+
+test("recording-ready get-recipient-info: 401 without callback secret", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  process.env.CONVEX_TRIGGER_CALLBACK_SECRET = VALID_CALLBACK_SECRET;
+
+  const r = await t.fetch("/recording-ready/get-recipient-info", {
+    method: "POST",
+    headers: bearerAndCallbackHeaders(VALID_KEY, null),
+    body: JSON.stringify({
+      notificationId: "j1abc",
+    }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("recording-ready get-recipient-info: matching secret returns email + preference + instructorName", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  process.env.CONVEX_TRIGGER_CALLBACK_SECRET = VALID_CALLBACK_SECRET;
+
+  const { instructorId, sessionId, studentUserId } = await seedFixture(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      clerkId: studentUserId,
+      userId: studentUserId,
+      email: "student-rrn-recipient-http@example.com",
+      firstName: "Cee",
+      role: "student",
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace Recipient HTTP",
+      ownerId: studentUserId,
+      instructorId: instructorId as any,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    await ctx.db.insert("recordingReadyNotifications", {
+      sessionId,
+      workspaceId,
+      recipientUserId: studentUserId,
+      recordingStartedAt: Date.now() - 5_000,
+      deliveryStatus: "ready_to_send",
+    });
+  });
+
+  const enqueue = await t.run(async (ctx) => {
+    return (await ctx.db.query("recordingReadyNotifications").first())!;
+  });
+
+  const r = await t.fetch("/recording-ready/get-recipient-info", {
+    method: "POST",
+    headers: bearerAndCallbackHeaders(VALID_KEY, VALID_CALLBACK_SECRET),
+    body: JSON.stringify({
+      notificationId: enqueue._id,
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.email).toBe("student-rrn-recipient-http@example.com");
+  expect(body.firstName).toBe("Cee");
+  expect(body.recordingReadyEmail).toBe(true);
+  expect(body.instructorName).toBe("Test Instructor");
+  expect(body.workspaceId).toBeDefined();
+  expect(body.sessionId).toBeDefined();
+});
+
+test("recording-ready get-recipient-info: 400 when notificationId missing", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  process.env.CONVEX_TRIGGER_CALLBACK_SECRET = VALID_CALLBACK_SECRET;
+
+  const r = await t.fetch("/recording-ready/get-recipient-info", {
+    method: "POST",
+    headers: bearerAndCallbackHeaders(VALID_KEY, VALID_CALLBACK_SECRET),
+    body: JSON.stringify({}),
+  });
+  expect(r.status).toBe(400);
+});
