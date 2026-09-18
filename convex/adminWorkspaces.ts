@@ -117,37 +117,21 @@ export const getAllWorkspaces = query({
       throw new Error("Admin access required");
     }
 
-    let result = args.type
+    const result = args.type
       ? await ctx.db
           .query("workspaces")
-          .withIndex("by_type", (q) => q.eq("type", args.type))
+          .withIndex("by_type_deletedAt", (q) =>
+            q.eq("type", args.type).eq("deletedAt", undefined)
+          )
           .order("desc")
           .paginate(args.paginationOpts)
       : await ctx.db
           .query("workspaces")
+          .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
           .order("desc")
           .paginate(args.paginationOpts);
 
-    let filteredPage = result.page.filter((w) => !w.deletedAt);
-    const numRequested = args.paginationOpts.numItems as number;
-
-    while (filteredPage.length < numRequested && !result.isDone) {
-      result = args.type
-        ? await ctx.db
-            .query("workspaces")
-            .withIndex("by_type", (q) => q.eq("type", args.type))
-            .order("desc")
-            .paginate({ numItems: numRequested - filteredPage.length, cursor: result.continueCursor })
-        : await ctx.db
-            .query("workspaces")
-            .order("desc")
-            .paginate({ numItems: numRequested - filteredPage.length, cursor: result.continueCursor });
-
-      const moreFiltered = result.page.filter((w) => !w.deletedAt);
-      filteredPage = [...filteredPage, ...moreFiltered];
-    }
-
-    const enrichedPage = await enrichWorkspaces(ctx, filteredPage);
+    const enrichedPage = await enrichWorkspaces(ctx, result.page);
 
     return {
       page: enrichedPage,

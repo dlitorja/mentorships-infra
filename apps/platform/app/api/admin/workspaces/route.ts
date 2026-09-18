@@ -39,11 +39,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
-    // Temporary cast: some environments still expect legacy alias in codegen
-    // Server supports "admin_student"; remove cast after all codegen refreshes land
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
-      type: type as any,
+      type,
     });
 
     return NextResponse.json({

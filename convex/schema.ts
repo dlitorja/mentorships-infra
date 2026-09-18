@@ -381,7 +381,13 @@ export default defineSchema({
       "type",
       "endedAt",
       "deletedAt",
-    ]),
+    ])
+    // PR #848: lets `getAllWorkspaces` filter soft-deleted rows at the DB
+    // level via `eq("deletedAt", undefined)` so admins never see empty
+    // intermediate pages when recent workspaces are deleted. Additive —
+    // no migration needed, Convex populates the index automatically.
+    .index("by_deletedAt", ["deletedAt"])
+    .index("by_type_deletedAt", ["type", "deletedAt"]),
 
   /**
    * Per-user display alias for a workspace. Each user (instructor or
