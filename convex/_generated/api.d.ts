@@ -52,6 +52,7 @@ import type * as products from "../products.js";
 import type * as queries_emailHealth from "../queries/emailHealth.js";
 import type * as queries_http from "../queries/http.js";
 import type * as queries_suppressionListQueries from "../queries/suppressionListQueries.js";
+import type * as recordingReadyNotifications from "../recordingReadyNotifications.js";
 import type * as recordingRetention from "../recordingRetention.js";
 import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
@@ -119,6 +120,7 @@ declare const fullApi: ApiFromModules<{
   "queries/emailHealth": typeof queries_emailHealth;
   "queries/http": typeof queries_http;
   "queries/suppressionListQueries": typeof queries_suppressionListQueries;
+  recordingReadyNotifications: typeof recordingReadyNotifications;
   recordingRetention: typeof recordingRetention;
   seatReservations: typeof seatReservations;
   seed: typeof seed;
