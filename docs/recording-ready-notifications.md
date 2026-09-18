@@ -2,7 +2,7 @@
 
 Notify the workspace owner (student) when a call recording finishes transferring to Backblaze B2 and is actually visible in their workspace Videos tab. Two channels: in-app bell row + Resend email, with a per-student email toggle in the Videos tab UI.
 
-**Status**: PR #1 merged (commit `4c5a7fd5`, 2026-09-18). PR #2 in progress.
+**Status**: PR #1 merged (commit `4c5a7fd5`, 2026-09-18). PR #2 merged (commit `930ab9ce`, 2026-09-18). PR #3 in progress.
 
 ## Problem statement
 
@@ -117,17 +117,20 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | `convex/schema.ts` | `recordingReadyNotifications` table, `inCallNotifications.kind` widen (PR #3), `users.notificationPreferences` (PR #1) |
 | `convex/sessions.ts` | `getSessionVisibilityForStudentOwner` internalQuery (PR #1); patched `attachRecordingFromB2Upload` to chain `chainNotifyRecordingReady` after the session patch (PR #1) |
 | `convex/recordingReadyNotifications.ts` | NEW. CRUD + state-machine mutations + `chainNotifyRecordingReady` action + `triggerNotifyRecordingReady` retry helper (PR #1) |
-| `convex/http.ts` | 5 `/recording-ready/*` HTTP routes — `enqueue`, `visibility`, `mark-ready-to-send`, `mark-sent`, `mark-failed` (PR #1) |
-| `convex/recordingReadyNotifications.test.ts` | NEW. 16 convex-test cases: 6 visibility branches + 6 state-machine + 4 action-retry (PR #1) |
-| `convex/recordingReadyHttp.test.ts` | NEW. 7 convex-test cases for the 5 HTTP routes (PR #1) |
+| `convex/http.ts` | 5 `/recording-ready/*` HTTP routes — `enqueue`, `visibility`, `mark-ready-to-send`, `mark-sent`, `mark-failed` (PR #1) + `get-recipient-info` (PR #2). 6 total. |
+| `convex/recordingReadyNotifications.test.ts` | NEW. 20 convex-test cases: 6 visibility branches + 6 state-machine + 4 action-retry (PR #1) + 4 query tests (PR #2). |
+| `convex/recordingReadyHttp.test.ts` | NEW. 10 convex-test cases for the 6 HTTP routes (PR #1 + PR #2). |
+| `packages/emails/src/recording-ready.ts` | NEW. Resend template (PR #2). |
+| `packages/emails/src/recording-ready-decision.ts` | NEW. Pure `decideRecordingReadyEmailOutcome` function — the 5-branch email decision tree (PR #2). |
+| `packages/emails/src/recording-ready-decision.test.ts` | NEW. 15 vitest cases covering all 6 branches + branch-ordering edge cases (PR #2). |
 | `convex/users.ts` | `setNotificationPreference` public mutation (PR #4) |
 | `convex/inCallNotifications.ts` | widen `kind` to include `recording_ready` (PR #3) |
 | `convex/notifications.ts` | add `recording_ready` to `NotificationType` union, build email (PR #2) |
 | `convex/migrations/backfillNotificationPreferences.ts` | NEW. Backfill default `recordingReadyEmail: true` for existing students (PR #4) |
-| `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2). Terminal reasons = `no_recording_artifact`, `recording_not_ready` (NOT `no_workspace` — fixed in PR #1 Greptile R1). |
+| `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2 — thin wrapper around `decideRecordingReadyEmailOutcome`). Terminal reasons = `no_recording_artifact`, `recording_not_ready` (NOT `no_workspace` — fixed in PR #1 Greptile R1). Outer `outcome` union = `sent`/`opted_out`/`no_email`/`dev_skipped`/`ready_to_send`/`failed` (PR #2 Greptile R1 fix). |
 | `apps/platform/components/workspace/calls-tab.tsx` | toggle card (PR #4), deep-link param (PR #3) |
 | `apps/platform/components/notifications/notification-bell.tsx` | render `recording_ready` entries (PR #3) |
-| `apps/platform/components/email/recording-ready.tsx` | NEW. Resend template (PR #2) |
+| `apps/platform/components/email/recording-ready.tsx` | NEW. Resend template (PR #2) — note: actually landed in `packages/emails/src/recording-ready.ts` per the workspace package convention |
 
 ## Verification
 
@@ -155,8 +158,18 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 ## Linear tracking
 
 - Project: **Recording Ready Notifications** (new).
-- PR #1 issue under the project: engineering task.
-- PR #1 verification issue under **Schema Changes** project, labels `schema-change` + `verification` + `prod`. PR body uses `Refs HUC-XX` (not `Fixes`).
+- PR #1 issue under the project: engineering task. Verification issue in **Schema Changes** project (PR #1 widens `recordingReadyNotifications` table + `users.notificationPreferences` field).
+- PR #2 issue under the project: engineering task. Verification issue in **Recording Ready Notifications** project (PR #2 does NOT touch schema — reads only `users.notificationPreferences` via the new `getRecipientInfoForNotification` query).
+- PR bodies use `Refs HUC-XX` (not `Fixes`).
+
+## PR #2 Greptile R1 fix notes (2026-09-18)
+
+PR #2 (`930ab9ce`) shipped on first merge round with Greptile confidence 5/5 ("appears safe to merge") on commit `907bf846`. Two findings from the initial review were resolved before merge:
+
+* **P1 (missing `dev_skipped` outcome type)**: the outer `outcome` union in the Trigger task return type was missing `"dev_skipped"`. Added explicitly in commit `907bf846`.
+* **P2 (email branches lack tests)**: extracted the 5-branch decision into a pure `decideRecordingReadyEmailOutcome` function in `packages/emails/src/recording-ready-decision.ts` (no `@trigger.dev/sdk`, `sendEmail`, or `fetch` deps). 15 vitest cases in `packages/emails/src/recording-ready-decision.test.ts` cover all 6 outcome paths plus branch-ordering edge cases — no mocks needed.
+
+The pure-function extraction is the durable pattern: the `dispatchRecordingReadyEmail` wrapper is now thin (build `sendResult` → call decision → apply `sideEffect` callback → shape for Trigger log). Future email branches can be unit-tested by extending the decision function's branches, not by mocking `@trigger.dev/sdk`.
 
 ## Rollback (per PR)
 
