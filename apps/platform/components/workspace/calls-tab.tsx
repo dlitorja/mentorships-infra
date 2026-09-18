@@ -33,6 +33,21 @@ const RECORDINGS_PAGE_SIZE = 25;
 
 interface CallsTabProps {
   workspaceId: Id<"workspaces">;
+  /**
+   * PR #3 deep-link: when the workspace page is reached via
+   * `/workspace/{id}?videos={sessionId}`, scroll the matching
+   * recording card into view. The bell row surfaces
+   * `recording_ready` notifications with a link of that shape;
+   * landing on the videos tab without a focus target would be
+   * confusing — users would see their bell badge clear but
+   * no visible context for what changed.
+   *
+   * We do NOT auto-open the recording modal here — that would
+   * add unsolicited audio/video to the page without an explicit
+   * user gesture. Scrolling the card into view is the minimum
+   * signal that "this is the new recording."
+   */
+  initialSessionId?: Id<"sessions">;
 }
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
@@ -121,6 +136,7 @@ function groupRecordingsByDate(
  */
 export default function CallsTab({
   workspaceId,
+  initialSessionId,
 }: CallsTabProps): React.ReactElement {
   const queryClient = useQueryClient();
   const recordingsQuery = useInfiniteQuery({
@@ -355,12 +371,30 @@ export default function CallsTab({
                   key={recording.sessionId}
                   recording={recording}
                   onPlay={() => setOpenSessionId(recording.sessionId)}
+                  deepLinkId={
+                    initialSessionId &&
+                    String(recording.sessionId) === String(initialSessionId)
+                      ? "video-card-deep-link-target"
+                      : undefined
+                  }
                 />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {/*
+       * PR #3 deep-link: scroll the matching recording card into
+       * view once `initialSessionId` is set AND the recordings have
+       * loaded. We do this in an effect (not on every render) so
+       * the DOM node actually exists when we try to scroll. Without
+       * the recordings-loaded guard, the very first render (where
+       * the card hasn't been mounted yet) would scroll a stale ref.
+       */}
+      {initialSessionId && !recordingsQuery.isLoading ? (
+        <DeepLinkScroller targetId="video-card-deep-link-target" />
+      ) : null}
 
       {openRecording ? (
         <RecordingPlayerModal
@@ -381,9 +415,19 @@ export default function CallsTab({
 interface VideoCardProps {
   recording: CallRecording;
   onPlay: () => void;
+  /**
+   * PR #3 deep-link: when this card matches the `initialSessionId`
+   * from `/workspace/{id}?videos={sessionId}`, render with this DOM
+   * id so `<DeepLinkScroller />` can scroll it into view.
+   */
+  deepLinkId?: string;
 }
 
-function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
+function VideoCard({
+  recording,
+  onPlay,
+  deepLinkId,
+}: VideoCardProps): React.ReactElement {
   const dateLabel = recording.callStartedAt
     ? new Date(recording.callStartedAt).toLocaleString(undefined, {
         dateStyle: "medium",
@@ -407,7 +451,7 @@ function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
   const retryErrorMessage = retryError ? retryError.message : null;
 
   return (
-    <Card className="overflow-hidden">
+    <Card id={deepLinkId} className="overflow-hidden">
       <div className="relative aspect-video bg-muted flex items-center justify-center">
         <Video
           className="h-12 w-12 text-muted-foreground/60"
@@ -620,4 +664,31 @@ function formatDuration(totalSeconds: number): string {
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+/**
+ * PR #3 deep-link: scroll the recording card matching the bell's
+ * `?videos={sessionId}` deep-link into view. Mounted only when
+ * `initialSessionId` is present AND the recordings have loaded —
+ * the no-op render while loading is fine; the active effect runs
+ * once after mount, so the DOM node must exist.
+ *
+ * We use `scrollIntoView` rather than `window.scrollTo` because
+ * `scrollIntoView` is robust against layout shifts (grouped
+ * sections collapse/expand as the recordings page paginates). The
+ * `{ block: "center" }` option centers the card rather than
+ * aligning it to the top edge, which feels less jarring on a
+ * page where users have scrolled to read other tabs.
+ */
+function DeepLinkScroller({
+  targetId,
+}: {
+  targetId: string;
+}): React.ReactElement | null {
+  useEffect(() => {
+    const node = document.getElementById(targetId);
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [targetId]);
+  return null;
 }

@@ -4,6 +4,7 @@ import { getConvexAuthToken, getServerUserRole } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import WorkspaceClientPage from "@/components/workspace/workspace-client-page";
 import { IncomingCallMarker } from "@/components/notifications/incoming-call-marker";
+import { RecordingAcknowledgedMarker } from "@/components/notifications/recording-acknowledged-marker";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -15,15 +16,23 @@ export const dynamic = "force-dynamic";
 
 interface WorkspaceIdPageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ join?: string }>;
+  searchParams: Promise<{ join?: string; videos?: string }>;
 }
 
 /**
  * PR #4c-2: deep-link route for ad-hoc call notifications.
+ * PR #3: also handles `?videos={sessionId}` deep-links from the
+ * bell's `recording_ready` rows. The two query params are
+ * independent — one is for call invites, the other for recordings.
  *
- * URL shape: `/workspace/{workspaceId}?join={sessionId}`. The
- * `?join={sessionId}` query param drives `WorkspaceClientPage` to
- * attempt an auto-join once the page mounts.
+ * URL shape:
+ *   - `/workspace/{workspaceId}?join={sessionId}` — auto-join
+ *     an ad-hoc call (existing PR #4c-2 behavior).
+ *   - `/workspace/{workspaceId}?videos={sessionId}` — open the
+ *     videos tab and scroll the matching recording card into
+ *     view. Fires `markAcknowledged` once on mount via
+ *     `<RecordingAcknowledgedMarker>` so the bell badge clears
+ *     without requiring the user to hit "Mark all read".
  *
  * Auth gate (server-side): `getWorkspaceByIdForUser` returns `null`
  * if the caller is not a participant on the workspace OR the
@@ -51,7 +60,7 @@ export default async function WorkspaceIdPage({
   }
 
   const { id } = await params;
-  const { join } = await searchParams;
+  const { join, videos } = await searchParams;
 
   if (!convexIdSchema.safeParse(id).success) {
     redirect("/workspace");
@@ -78,6 +87,16 @@ export default async function WorkspaceIdPage({
       ? (join as Id<"sessions">)
       : undefined;
 
+  // PR #3: validate `videos` against the same Convex id schema.
+  // We deliberately do NOT require it to also resolve to a session
+  // row here — `WorkspaceCalls` renders gracefully even when the
+  // deep-link target sessionId has no recording yet (the
+  // `<DeepLinkScroller />` simply finds no DOM node and no-ops).
+  const videoSessionId =
+    typeof videos === "string" && convexIdSchema.safeParse(videos).success
+      ? (videos as Id<"sessions">)
+      : undefined;
+
   return (
     <ProtectedLayout currentPath="/workspace">
       <WorkspaceClientPage
@@ -86,9 +105,13 @@ export default async function WorkspaceIdPage({
         userRole={userRole}
         initialWorkspaceId={workspaceId}
         initialJoinSessionId={joinSessionId}
+        initialVideoSessionId={videoSessionId}
       />
       {joinSessionId && (
         <IncomingCallMarker initialJoinSessionId={joinSessionId} />
+      )}
+      {videoSessionId && (
+        <RecordingAcknowledgedMarker initialVideoSessionId={videoSessionId} />
       )}
     </ProtectedLayout>
   );

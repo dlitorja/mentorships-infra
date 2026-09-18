@@ -917,7 +917,17 @@ export default defineSchema({
     userId: v.string(),
     sessionId: v.id("sessions"),
     workspaceId: v.id("workspaces"),
-    kind: v.literal("ad_hoc_call_invite"),
+    // PR #3: widened from `v.literal("ad_hoc_call_invite")` to a union
+    // so the same bell reader (`getUnreadForUser` in
+    // `convex/inCallNotifications.ts`) can render both ad-hoc-call
+    // invites AND `recording_ready` entries from the
+    // `recordingReadyNotifications` table. The existing rows keep
+    // working — they match the first union literal — so this is a
+    // non-destructive widen (no data backfill required).
+    kind: v.union(
+      v.literal("ad_hoc_call_invite"),
+      v.literal("recording_ready")
+    ),
     callerRole: v.optional(
       v.union(v.literal("instructor"), v.literal("student"))
     ),

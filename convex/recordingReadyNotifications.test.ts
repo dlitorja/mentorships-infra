@@ -806,3 +806,329 @@ test("getRecipientInfoForNotification: missing user returns email=null + prefere
   // No user → no preference → default opt-out true.
   expect(result.recordingReadyEmail).toBe(true);
 });
+
+// ===========================================================================
+// PR #3: bell reader + markAcknowledged
+// ===========================================================================
+
+async function seedBellRow(args: {
+  t: ReturnType<typeof convexTest>;
+  recipientUserId: string;
+  deliveryStatus:
+    | "pending_visibility"
+    | "ready_to_send"
+    | "sent"
+    | "failed";
+  providerEmailId?: string;
+  acknowledgedAt?: number;
+  recordingStartedAt?: number;
+  workspaceId?: string;
+}) {
+  const { sessionId } = await seedInstructorAndSession(args.t);
+  return await args.t.run(async (ctx) => {
+    return await ctx.db.insert("recordingReadyNotifications", {
+      sessionId: sessionId as any,
+      recipientUserId: args.recipientUserId,
+      recordingStartedAt: args.recordingStartedAt ?? Date.now() - 5_000,
+      deliveryStatus: args.deliveryStatus,
+      ...(args.providerEmailId !== undefined
+        ? { providerEmailId: args.providerEmailId }
+        : {}),
+      ...(args.acknowledgedAt !== undefined
+        ? { acknowledgedAt: args.acknowledgedAt }
+        : {}),
+      ...(args.workspaceId !== undefined
+        ? { workspaceId: args.workspaceId as any }
+        : {}),
+    });
+  });
+}
+
+test("listUnreadForUser: returns empty array when no identity (no crash on first render)", async () => {
+  const t = convexTest(schema, modules);
+  const result = await t.query(
+    (require("./_generated/api") as typeof import("./_generated/api"))
+      .api.recordingReadyNotifications.listUnreadForUser,
+    {}
+  );
+  expect(result).toEqual([]);
+});
+
+test("listUnreadForUser: returns sent rows for the current user", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell";
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(1);
+  expect(result[0]?._id).toBe(id);
+  expect(result[0]?.deliveryStatus).toBe("sent");
+});
+
+test("listUnreadForUser: returns ready_to_send rows (transient but visible)", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_rts";
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "ready_to_send",
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(1);
+  expect(result[0]?._id).toBe(id);
+  expect(result[0]?.deliveryStatus).toBe("ready_to_send");
+});
+
+test("listUnreadForUser: excludes pending_visibility rows", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_pending";
+  await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "pending_visibility",
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toEqual([]);
+});
+
+test("listUnreadForUser: excludes failed rows (terminal noise)", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_failed";
+  await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "failed",
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toEqual([]);
+});
+
+test("listUnreadForUser: excludes rows already acknowledged", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_acked";
+  await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+    acknowledgedAt: Date.now() - 60_000,
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toEqual([]);
+});
+
+test("listUnreadForUser: includes sent rows regardless of providerEmailId sentinel (opted_out, no_email, dev_skipped all stamp 'sent' with a sentinel)", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_skipped";
+  // PR #2 stores opted_out / no_email / dev_skipped as `deliveryStatus: "sent"` with
+  // a sentinel `providerEmailId`. The bell must surface all of them.
+  const sentinels = ["opted_out", "no_email", "dev_skipped"];
+  for (const sentinel of sentinels) {
+    await seedBellRow({
+      t,
+      recipientUserId: studentUserId,
+      deliveryStatus: "sent",
+      providerEmailId: sentinel,
+    });
+  }
+  await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+    providerEmailId: "re_real_resend_id",
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(4);
+  expect(result.map((r) => r.deliveryStatus)).toEqual([
+    "sent",
+    "sent",
+    "sent",
+    "sent",
+  ]);
+});
+
+test("listUnreadForUser: only returns rows for the authenticated subject", async () => {
+  const t = convexTest(schema, modules);
+  await seedBellRow({
+    t,
+    recipientUserId: "user_student_other",
+    deliveryStatus: "sent",
+  });
+  const myId = await seedBellRow({
+    t,
+    recipientUserId: "user_student_me",
+    deliveryStatus: "sent",
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_student_me" })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(1);
+  expect(result[0]?._id).toBe(myId);
+});
+
+test("listUnreadForUser: sorts newest first by recordingStartedAt", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_sort";
+  const old = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+    recordingStartedAt: Date.now() - 60_000,
+  });
+  const recent = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+    recordingStartedAt: Date.now() - 1_000,
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(2);
+  expect(result[0]?._id).toBe(recent);
+  expect(result[1]?._id).toBe(old);
+});
+
+test("markAcknowledged: patches acknowledgedAt for the row's owner", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_ack_ok";
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+  });
+
+  await t
+    .withIdentity({ subject: studentUserId })
+    .mutation(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.markAcknowledged,
+      { notificationId: id }
+    );
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.acknowledgedAt).toBeDefined();
+  expect(typeof row?.acknowledgedAt).toBe("number");
+});
+
+test("markAcknowledged: rejects when caller is not the recipient", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_ack_owner";
+  const otherUserId = "user_student_rrn_ack_other";
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+  });
+
+  await expect(
+    t.withIdentity({ subject: otherUserId }).mutation(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.markAcknowledged,
+      { notificationId: id }
+    )
+  ).rejects.toThrow(/Forbidden/);
+});
+
+test("markAcknowledged: rejects when unauthenticated", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_ack_unauth";
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+  });
+
+  await expect(
+    t.mutation(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.markAcknowledged,
+      { notificationId: id }
+    )
+  ).rejects.toThrow(/Unauthorized/);
+});
+
+test("markAcknowledged: idempotent — does not overwrite existing acknowledgedAt", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_ack_idemp";
+  const originalAck = Date.now() - 60_000;
+  const id = await seedBellRow({
+    t,
+    recipientUserId: studentUserId,
+    deliveryStatus: "sent",
+    acknowledgedAt: originalAck,
+  });
+
+  await t
+    .withIdentity({ subject: studentUserId })
+    .mutation(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.markAcknowledged,
+      { notificationId: id }
+    );
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.acknowledgedAt).toBe(originalAck);
+});
