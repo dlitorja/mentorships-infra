@@ -540,6 +540,128 @@ test("backfillNotificationPreferences: skips legacy user with undefined role who
   expect(stored?.notificationPreferences).toBeUndefined();
 });
 
+test("backfillNotificationPreferences: legacy user with undefined role who owns a student-classifying AND an instructor-classifying workspace is NOT promoted (instructor wins)", async () => {
+  // Greptile R7 P1: when a legacy user owns multiple qualifying
+  // workspaces, the previous `.first()` query picked whichever
+  // workspace the index returned first — non-deterministic and
+  // unsafe. The migration must aggregate across ALL qualifying
+  // workspaces: if ANY qualifies as an instructor (linked-
+  // instructor match), the user is treated as an instructor
+  // (the more specific signal wins over "owner-as-student").
+  //
+  // Shape: two qualifying `mentorship` workspaces owned by the
+  // same user. Workspace A has NO `instructorId` (classifies
+  // owner as student). Workspace B has an `instructorId` that
+  // matches the same user (classifies them as instructor).
+  // Aggregated: instructor wins → NOT promoted.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "user_owner_and_instructor",
+      email: "owner-and-instructor@example.com",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_owner_and_instructor",
+      email: "owner-and-instructor@example.com",
+      clerkId: "clerk_owner_and_instructor",
+      // role intentionally undefined
+    });
+    // Workspace A: student-classifying (no instructorId).
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Without Linked Instructor",
+      ownerId: "user_owner_and_instructor",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+    // Workspace B: instructor-classifying (same user is
+    // linked instructor).
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Where Same User Is Linked Instructor",
+      ownerId: "user_owner_and_instructor",
+      instructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_owner_and_instructor")
+      )
+      .first();
+  });
+  expect(stored?.role).toBeUndefined();
+  expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("backfillNotificationPreferences: legacy user with undefined role who owns TWO student-classifying workspaces IS promoted (aggregation does not over-restrict)", async () => {
+  // Companion to the R7 P1 test: when ALL qualifying workspaces
+  // classify the user as a student (none links them as an
+  // instructor), the migration must still promote them. This
+  // guards against an over-restrictive aggregation rule that
+  // would skip legitimately-student legacy users.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    // A separate instructor whose `_id` we use to set
+    // `instructorId` on both workspaces. Neither points at
+    // our user's instructor record (which doesn't exist),
+    // so both workspaces classify the owner as student.
+    const otherInstructorId = await ctx.db.insert("instructors", {
+      userId: "user_some_other_instructor_v2",
+      email: "other-instructor-v2@example.com",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_two_student_workspaces",
+      email: "two-student-workspaces@example.com",
+      clerkId: "clerk_two_student_workspaces",
+      // role intentionally undefined
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Workspace A",
+      ownerId: "user_two_student_workspaces",
+      instructorId: otherInstructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Untyped Workspace B",
+      ownerId: "user_two_student_workspaces",
+      instructorId: otherInstructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      // type undefined
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_two_student_workspaces")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
+});
+
 test("backfillNotificationPreferences: legacy user with undefined role who owns a mentorship workspace AND is its linked instructor is NOT promoted", async () => {
   // Greptile R6 P1: the role resolver at
   // `convex/workspaces.ts:56-64` checks whether the user is the

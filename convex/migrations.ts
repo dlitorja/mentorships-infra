@@ -122,7 +122,7 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  *   - `role === undefined` AND the user owns at least one
  *     workspace whose `type` is anything other than
  *     `"admin_instructor"` (i.e. `mentorship`, `admin_student`,
- *     or untyped) AND is NOT the linked instructor of any such
+ *     or untyped) AND is NOT the linked instructor of ANY such
  *     workspace — "implicit" students. The UI surfaces the
  *     toggle to them (Clerk-derived workspace role says student),
  *     but `syncUser` can preserve an undefined Convex role on
@@ -149,14 +149,22 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  *     NOT the linked instructor → "student" (lines 65-67).
  *
  * So the migration must mirror that: exclude ONLY
- * `admin_instructor` ownership (R4 P1), AND exclude legacy
+ * `admin_instructor` ownership (R4 P1), exclude legacy
  * workspace owners who are also the linked instructor of any
- * such workspace (R6 P1). Filtering by `mentorship` +
- * `admin_student` alone misses untyped workspaces (R5 P1),
- * while not filtering at all over-promotes admins (R4 P1).
- * The right shape is "type !== 'admin_instructor'" with the
- * type-`undefined` case treated as a student-classifying
- * workspace, AND a final linked-instructor check.
+ * such workspace (R6 P1), AND aggregate the classification
+ * across ALL qualifying workspaces (R7 P1) — not just the
+ * first one returned by the index. A user who owns both a
+ * student-classifying workspace AND an instructor-classifying
+ * one is an instructor (the linked-instructor relationship
+ * is a stronger signal than mere ownership), so they must
+ * not be promoted to `"student"`.
+ *
+ * Aggregation rule: a user is treated as an implicit student
+ * only if at least one qualifying workspace classifies them
+ * as a student AND NONE classifies them as an instructor.
+ * If any qualifying workspace links them as the
+ * instructor, they're treated as an instructor (the more
+ * specific signal wins over the broader "owner" signal).
  *
  * A student whose preference blob already contains
  * `recordingReadyEmail` (whether true OR false — the student may
@@ -211,9 +219,15 @@ export const backfillNotificationPreferences = migrations.define({
     if (user.role === undefined) {
       const ownerId = user.userId;
       if (typeof ownerId !== "string") return undefined;
-      // Mirror `getWorkspaceRole` in `convex/workspaces.ts:39-67`.
-      // Step 1: type filter (excludes only `admin_instructor`).
-      const ws = await ctx.db
+
+      // Mirror `getWorkspaceRole` in `convex/workspaces.ts:39-67`
+      // across ALL qualifying workspaces, not just the first
+      // one (R7 P1). `.first()` was wrong: a user who owns both
+      // a student-classifying workspace AND an
+      // instructor-classifying one would have their role
+      // decided by the order of the index, which is
+      // non-deterministic and unsafe.
+      const qualifyingWorkspaces = await ctx.db
         .query("workspaces")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .filter((q) =>
@@ -223,31 +237,38 @@ export const backfillNotificationPreferences = migrations.define({
             q.eq(q.field("type"), undefined)
           )
         )
-        .first();
-      if (ws !== null) {
-        // Step 2: linked-instructor check (resolver lines
-        // 56-64). If the user is the linked instructor of this
-        // workspace, the resolver classifies them as
-        // "instructor", NOT "student" — so they must be
-        // skipped to avoid promoting them to "student"
-        // (R6 P1). Without this check, a user who owns a
-        // workspace but is also its instructor (a common
-        // admin-bootstrap data shape) would have their role
-        // silently flipped.
-        if (ws.instructorId !== undefined) {
-          const instructor = await ctx.db
-            .query("instructors")
-            .withIndex("by_userId", (q) => q.eq("userId", ownerId))
-            .first();
-          isImplicitStudent = !(
-            instructor !== null &&
-            instructor._id === ws.instructorId
-          );
-        } else {
-          isImplicitStudent = true;
-        }
-      } else {
+        .collect();
+
+      if (qualifyingWorkspaces.length === 0) {
         isImplicitStudent = false;
+      } else {
+        // Look up the user's instructor record ONCE (linked-
+        // instructor check uses `_id` comparison, R6 P1). Same
+        // record applies to all their workspaces — fetching
+        // per-workspace would be redundant.
+        const instructor = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", ownerId))
+          .first();
+
+        let anyClassifiesAsInstructor = false;
+        let anyClassifiesAsStudent = false;
+        for (const ws of qualifyingWorkspaces) {
+          if (
+            instructor !== null &&
+            ws.instructorId !== undefined &&
+            instructor._id === ws.instructorId
+          ) {
+            anyClassifiesAsInstructor = true;
+          } else {
+            anyClassifiesAsStudent = true;
+          }
+        }
+        // Instructor signal wins: if ANY qualifying workspace
+        // classifies them as an instructor, treat them as an
+        // instructor (don't promote).
+        isImplicitStudent =
+          anyClassifiesAsStudent && !anyClassifiesAsInstructor;
       }
     }
 
