@@ -207,24 +207,32 @@ export const updateUser = mutation({
 /**
  * PR #4: set a single key on `notificationPreferences`.
  *
- * Authorization: the caller can only update their own user record
- * (matches `updateUser`). Admin override paths can be added later
- * (e.g., support agents clearing stale prefs) but currently only
- * the user themselves may write.
+ * Authorization: the caller must (a) be authenticated, (b) own
+ * the user record being updated, and (c) have role "student".
+ * The student-only gate mirrors the email pipeline's audience:
+ * `recordingReadyEmail` is meaningful only for students (who own
+ * the workspace where recordings live), so writing it for any
+ * other role would be dead data. Future keys with broader
+ * audiences will need either a per-key role whitelist or a
+ * dedicated mutation — see `ALLOWED_KEYS_BY_ROLE` below.
  *
  * The `key` argument is a free-form string but validated against
  * a server-side whitelist so a client cannot pollute the
- * preference blob. Adding a new key = append to `ALLOWED_KEYS`
- * here. The value is type-checked by Convex's `v.boolean()`.
+ * preference blob. Adding a new key = append to
+ * `ALLOWED_KEYS_BY_ROLE` here. The value is type-checked by
+ * Convex's `v.boolean()`.
  *
  * Existing keys are preserved: the new value is shallow-merged
  * into the existing blob, so future toggles (e.g.,
  * `inAppBannerDismissed`) won't be wiped when the user changes
  * the recording-ready toggle.
  */
-const ALLOWED_NOTIFICATION_PREFERENCE_KEYS = ["recordingReadyEmail"] as const;
-type AllowedNotificationPreferenceKey =
-  (typeof ALLOWED_NOTIFICATION_PREFERENCE_KEYS)[number];
+const ALLOWED_KEYS_BY_ROLE: Record<
+  "student",
+  ReadonlyArray<string>
+> = {
+  student: ["recordingReadyEmail"],
+};
 
 export const setNotificationPreference = mutation({
   args: {
@@ -235,21 +243,24 @@ export const setNotificationPreference = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    if (
-      !ALLOWED_NOTIFICATION_PREFERENCE_KEYS.includes(
-        args.key as AllowedNotificationPreferenceKey
-      )
-    ) {
-      throw new Error(
-        `Unsupported notification preference key: ${args.key}. Allowed: ${ALLOWED_NOTIFICATION_PREFERENCE_KEYS.join(", ")}`
-      );
-    }
-
     const currentUser = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (!currentUser) throw new Error("Unauthorized");
+
+    if (currentUser.role !== "student") {
+      throw new Error(
+        "Only students can save notification preferences"
+      );
+    }
+
+    const allowedKeys = ALLOWED_KEYS_BY_ROLE[currentUser.role];
+    if (!allowedKeys.includes(args.key)) {
+      throw new Error(
+        `Unsupported notification preference key: ${args.key}. Allowed: ${allowedKeys.join(", ")}`
+      );
+    }
 
     const existing = currentUser.notificationPreferences;
     const merged: Record<string, unknown> =

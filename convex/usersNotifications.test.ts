@@ -315,16 +315,15 @@ test("backfillNotificationPreferences: is idempotent on re-run", async () => {
   });
 });
 
-test("setNotificationPreference: instructor authenticated as themselves can save their own row", async () => {
-  // The mutation is self-authenticating: it writes only to the
-  // caller's own row. Instructors don't receive recording-ready
-  // emails (the email pipeline targets students), but the
-  // backend is intentionally permissive — the frontend gates
-  // the toggle visibility by `viewerRole`, and tests confirm the
-  // backend doesn't reject valid self-writes from non-students.
+test("setNotificationPreference: instructor authenticated as themselves is rejected", async () => {
+  // Greptile R2 P2: gate both the UI AND the backend mutation
+  // to students. Recording-ready emails only flow to students
+  // (the email pipeline targets workspace owners), so writing
+  // the preference for any other role would be dead data — a
+  // working-looking switch with no downstream effect. Even an
+  // instructor's own self-write is rejected.
   const t = convexTest(schema, modules);
   migrationsTest.register(t);
-  await seedStudentUser(t, { notificationPreferences: undefined });
   await t.run(async (ctx) => {
     await ctx.db.insert("users", {
       userId: "user_instructor_pr4",
@@ -334,23 +333,47 @@ test("setNotificationPreference: instructor authenticated as themselves can save
     });
   });
 
-  const result = await t
-    .withIdentity({ subject: "user_instructor_pr4" })
-    .mutation(api.users.setNotificationPreference, {
-      key: "recordingReadyEmail",
-      value: false,
-    });
+  await expect(
+    t
+      .withIdentity({ subject: "user_instructor_pr4" })
+      .mutation(api.users.setNotificationPreference, {
+        key: "recordingReadyEmail",
+        value: false,
+      })
+  ).rejects.toThrow(/Only students can save notification preferences/);
 
-  expect(result.ok).toBe(true);
   const stored = await t.run(async (ctx) => {
     return await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", "user_instructor_pr4"))
       .first();
   });
-  expect(stored?.notificationPreferences).toMatchObject({
-    recordingReadyEmail: false,
+  expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("setNotificationPreference: admin authenticated as themselves is rejected", async () => {
+  // Same gate, different role. The mutation's role check runs
+  // BEFORE the key whitelist, so the error message names the
+  // role constraint rather than the key constraint.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_admin_pr4_self",
+      email: "admin-pr4-self@example.com",
+      clerkId: "clerk_admin_pr4_self",
+      role: "admin",
+    });
   });
+
+  await expect(
+    t
+      .withIdentity({ subject: "user_admin_pr4_self" })
+      .mutation(api.users.setNotificationPreference, {
+        key: "recordingReadyEmail",
+        value: false,
+      })
+  ).rejects.toThrow(/Only students can save notification preferences/);
 });
 
 test("setNotificationPreference: attacker who supplies a fabricated subject is rejected", async () => {

@@ -858,14 +858,29 @@ function RecordingDeepLinkHandler({
  * baseline AND a transient banner is shown so the user gets
  * visible feedback (a console-only error log was insufficient).
  *
+ * Concurrency: rapid clicks are guarded two ways.
+ *
+ *   1. The switch is `disabled` while a mutation is in flight,
+ *      so the user cannot start a second request until the
+ *      first one resolves. This is the primary defense against
+ *      overlapping toggles.
+ *
+ *   2. A monotonically-increasing `requestSeq` ref tags each
+ *      in-flight request. Only the most recent request is
+ *      allowed to clear `optimisticValue` and `errorMessage` —
+ *      older completions observe their stale seq and bail. This
+ *      is defense in depth in case the disabled-while-pending
+ *      guard ever leaks (e.g., a future code path that triggers
+ *      the mutation outside the switch's disabled state).
+ *
  * The `getCurrentUser` query is public and auth-gated
  * server-side (returns `null` for unauthenticated callers), so
  * we don't need a separate `useUser` check — a `null` result
  * renders nothing.
  *
  * Visibility is gated by the parent (`viewerRole === "student"`
- * check in `<CallsTab>`); this component itself trusts its
- * caller.
+ * check in `<CallsTab>`) AND by the mutation's server-side
+ * role check (defense in depth).
  */
 function NotificationPreferencesCard(): React.ReactElement | null {
   const currentUserQuery = useQuery(convexQuery(api.users.getCurrentUser, {}));
@@ -886,17 +901,18 @@ function NotificationPreferencesCard(): React.ReactElement | null {
     return true;
   }, [currentUserQuery.data]);
 
-  // Local optimistic override. When `null`, render the server
-  // value. When set, render the optimistic value (the most
-  // recent in-flight click). Cleared on success and reverted on
-  // error.
   const [optimisticValue, setOptimisticValue] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const requestSeq = useRef(0);
 
   const handleChange = useCallback(
     async (next: boolean) => {
+      if (isPending) return;
+      const seq = ++requestSeq.current;
       setErrorMessage(null);
       setOptimisticValue(next);
+      setIsPending(true);
       try {
         await setPreference({
           key: "recordingReadyEmail",
@@ -904,17 +920,26 @@ function NotificationPreferencesCard(): React.ReactElement | null {
         });
         // Reconcile with the server once the mutation commits.
         await currentUserQuery.refetch?.();
-        setOptimisticValue(null);
+        // Only the latest request gets to clear optimistic
+        // state. If a newer click landed while we were waiting,
+        // its `optimisticValue` is what the user wants to see.
+        if (seq === requestSeq.current) {
+          setOptimisticValue(null);
+        }
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Could not save preference";
-        setErrorMessage(message);
-        // Revert the optimistic flip so the switch matches the
-        // server's truth.
-        setOptimisticValue(null);
+        if (seq === requestSeq.current) {
+          const message =
+            err instanceof Error ? err.message : "Could not save preference";
+          setErrorMessage(message);
+          setOptimisticValue(null);
+        }
+      } finally {
+        if (seq === requestSeq.current) {
+          setIsPending(false);
+        }
       }
     },
-    [setPreference, currentUserQuery]
+    [setPreference, currentUserQuery, isPending]
   );
 
   if (currentUserQuery.isLoading) return null;
@@ -950,6 +975,7 @@ function NotificationPreferencesCard(): React.ReactElement | null {
           </div>
           <Switch
             checked={displayValue}
+            disabled={isPending}
             onCheckedChange={handleChange}
             aria-label="Toggle recording-ready email notifications"
           />
