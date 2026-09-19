@@ -2,7 +2,7 @@
 
 Notify the workspace owner (student) when a call recording finishes transferring to Backblaze B2 and is actually visible in their workspace Videos tab. Two channels: in-app bell row + Resend email, with a per-student email toggle in the Videos tab UI.
 
-**Status**: PR #1 merged (commit `4c5a7fd5`, 2026-09-18). PR #2 merged (commit `930ab9ce`, 2026-09-18). PR #3 in progress.
+**Status**: PR #1 merged (commit `4c5a7fd5`, 2026-09-18). PR #2 merged (commit `930ab9ce`, 2026-09-18). PR #3 merged (commit `945850f1`, 2026-09-19). PR #4 merged (commit `e0874520`, 2026-09-19). Arc complete.
 
 ## Problem statement
 
@@ -108,7 +108,7 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | 1 | **Schema widen + visibility gate** | ✅ yes (`recordingReadyNotifications` table, `users.notificationPreferences` field) | New table, new field, internal query, new HTTP routes, Trigger task that runs the visibility gate (writes `pending_visibility` → `ready_to_send` row; does NOT email yet) |
 | 2 | **Email send** | no | Resend template + email fanout wired into the Trigger task. Respects `users.notificationPreferences.recordingReadyEmail`. |
 | 3 | **Bell wiring** | ✅ widens `inCallNotifications.kind` | Bell renders both call invites + recording-ready rows. New deep-link route param `?videos={sessionId}`. **Merged** as PR #852 (`945850f1`). |
-| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch (role-gated, optimistic UI). Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. **Open** as PR #853 (`058c22e1`). |
+| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch (role-gated, optimistic UI). Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. **Merged** as PR #853 (`e0874520`). |
 
 ## Files
 
@@ -127,8 +127,10 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | `convex/inCallNotifications.ts` | widen `kind` to include `recording_ready` (PR #3) |
 | `convex/notifications.ts` | add `recording_ready` to `NotificationType` union, build email (PR #2) |
 | `convex/migrations/backfillNotificationPreferences.ts` | NEW. Backfill default `recordingReadyEmail: true` for existing students (PR #4) |
+| `convex/usersNotifications.test.ts` | NEW. 28 convex-test cases: mutation auth/key/preference-merging + migration eligibility for explicit students, undefined-role legacy students with `mentorship`/`admin_student`/untyped ownership, `admin_instructor` rejection, mixed-workspace aggregation, linked-instructor skip, malformed-blob normalization, prior opt-out preservation. |
 | `src/trigger/notify-recording-ready.ts` | NEW. Visibility gate (PR #1), email send (PR #2 — thin wrapper around `decideRecordingReadyEmailOutcome`). Terminal reasons = `no_recording_artifact`, `recording_not_ready` (NOT `no_workspace` — fixed in PR #1 Greptile R1). Outer `outcome` union = `sent`/`opted_out`/`no_email`/`dev_skipped`/`ready_to_send`/`failed` (PR #2 Greptile R1 fix). |
-| `apps/platform/components/workspace/calls-tab.tsx` | toggle card (PR #4), deep-link param (PR #3) |
+| `apps/platform/components/workspace/calls-tab.tsx` | toggle card (PR #4 — `<NotificationPreferencesCard>` with optimistic UI, `requestSeq` ref guard, role-gated to students via `viewerRole === "student"`), deep-link param (PR #3 — `<RecordingDeepLinkHandler>` with `MAX_DEEP_LINK_PAGES=8`, workspace-scoped ack) |
+| `apps/platform/components/workspace/workspace-client-page.tsx` | threads `role` → `viewerRole` to `<WorkspaceCalls>` (PR #4) |
 | `apps/platform/components/notifications/notification-bell.tsx` | render `recording_ready` entries (PR #3) |
 | `apps/platform/components/email/recording-ready.tsx` | NEW. Resend template (PR #2) — note: actually landed in `packages/emails/src/recording-ready.ts` per the workspace package convention |
 
@@ -178,6 +180,33 @@ PR #3 (`945850f1`) shipped after Greptile R1 (Confidence 2/5) → R2 (Confidence
 * **P1 #1 (Unread rows are omitted from the bell)**: `listUnreadForUser` previously did `.take(50)` on the single-field `by_recipientUserId` index and post-filtered for `acknowledgedAt === undefined`. A user with >50 historical rows (mostly acknowledged) would have newer un-acked rows fall outside the take window and never appear in the bell. Added a `by_recipientUserId_acknowledgedAt` compound index; `listUnreadForUser` now queries `.eq("acknowledgedAt", undefined)` so the take cap applies only to the un-acked set (which is the right defense). Regression test (`listUnreadForUser: returns un-acked rows even when user has >50 historical rows`) seeds 60 acknowledged + 5 un-acknowledged rows and asserts the 5 un-acked entries come back.
 * **P1 #2 (Deep links miss later pages)**: the previous `<DeepLinkScroller />` ran once on mount and no-op'd if the target card wasn't in the first 25 loaded recordings, while `<RecordingAcknowledgedMarker>` silently acked the notification regardless. Consolidated pagination + scroll + ack into a single `<RecordingDeepLinkHandler>` inside `<WorkspaceCalls>` so all three share the same data scope. The handler iterates `fetchNextPage()` until the target is found (capped at `MAX_DEEP_LINK_PAGES = 8` to defend against bad URLs) and only fires `markAcknowledged` AFTER the card is rendered. A `useRef` guard prevents double-fire across React strict-mode double-mount; the underlying mutation is itself idempotent for defense in depth.
 * **P1 #3 (Cross-workspace ack)**: `<RecordingAcknowledgedMarker>` matched unread notifications by `sessionId` alone, so a user with access to workspaces A and B could land on A with `?videos={sessionId-from-B}` and silently ack B's notification. Removed the standalone marker from the route page; the handler now requires BOTH `sessionId === initialSessionId` AND `workspaceId === workspaceId` before firing the mutation.
+
+## PR #4 Greptile review notes (2026-09-19)
+
+PR #4 (`e0874520`) shipped after Greptile R1 (Confidence 4/5) → R7 (Confidence 5/5, "appears safe to merge"). One P2 thread remained open across all rounds — Greptile's summary text in R8 explicitly acknowledged the gate as resolved in source. Five P1 findings on the migration's classifier logic (plus one P2 on test-typing) were resolved across seven commit rounds:
+
+* **R1 P1 (backfill command doc)**: `convex/migrations.ts` documented `npx convex run --prod migrations:run '{"fn":"migrations:backfillNotificationPreferences"}'` — using the migration name (returned by `migrations.define(...)`), NOT the bound runner. The generic `migrations:run` runner dispatches to it. PR body updated to match.
+* **R1 P2 #1 (Student toggle shown globally — UI gate)**: `apps/platform/components/workspace/calls-tab.tsx:344` now reads `{viewerRole === "student" ? <NotificationPreferencesCard /> : null}`. Threaded from `<WorkspaceInner>` → `<TabContent>` → `<WorkspaceCalls viewerRole={role}>` in `workspace-client-page.tsx:579-587` → `537-551` → `645-657`. Backend mutation in `convex/users.ts` rejects every non-student/non-undefined role with "Only students can save notification preferences" (R2 — see below).
+* **R1 P2 #2 (Toggle not optimistic)**: replaced the always-render-on-server-truth version with proper optimistic UI: local `optimisticValue` state, `await setPreference` → `await currentUserQuery.refetch()` → clear; on error, revert + render `<p role="alert">` with the error message.
+* **R1 P2 #3 (Roadmap status stale)**: this doc's PR #4 row now reads "Merged as PR #853 (`e0874520`)" (was previously "Open").
+* **R2 P2 #1 (mutation not role-gated)**: `setNotificationPreference` now reads `currentUser.role` and throws "Only students can save notification preferences" for `instructor` / `admin` / `video_editor` / `support`. The whitelist moved from per-call `ALLOWED_KEYS_BY_ROLE` to a flat `ALLOWED_KEYS: ["recordingReadyEmail"]` array with the role gate as a separate, broader check. `disabled={isPending}` added to the Radix Switch; `requestSeq` `useRef<number>` counter added as defense-in-depth against overlapping toggles.
+* **R3 P1 (Legacy students cannot save)**: `users.role` is `v.optional(...)` in the schema and `syncUser` can preserve `undefined` on legacy records. The UI shows them the toggle (Clerk-derived workspace role says student); R2's backend gate rejected their saves. Two complementary fixes: (a) `backfillNotificationPreferences` migration handles `role === undefined` AND workspace-owner (now `role !== "admin_instructor"`), classifying them as implicit students AND stamping `role: "student"` so the mutation's safety net isn't needed indefinitely. (b) `setNotificationPreference` accepts `role === "student" || role === undefined` as a backfill-window safety net.
+* **R4 P1 (Workspace ownership misclassifies users — admin instructors)**: `admin_instructor` workspaces store an administrator (not a student) in `ownerId`. The filter migrated to "exclude only `admin_instructor` ownership" to match the role resolver at `convex/workspaces.ts:39-67` exactly.
+* **R5 P1 (Untyped workspaces also classify owners as students)**: untyped workspaces fall through the resolver's type branches to the ownership check at `convex/workspaces.ts:65-67`. Filter widened to `type === "mentorship" || type === "admin_student" || type === undefined` to match.
+* **R6 P1 (Linked-instructor check missing)**: the resolver checks linked-instructor BEFORE owner-as-student for `mentorship`/untyped workspaces (lines 56-64). Migration now mirrors this: queries `instructors` by `userId` and excludes the user if any qualifying workspace's `instructorId` matches their instructor `_id`. The instructor record is fetched ONCE per user (cached across the qualifying-workspace loop).
+* **R6 P2 (Tests bypass strict typing)**: removed 3 `as any` casts in `convex/usersNotifications.test.ts`. (a) Role fixture typed as the schema union `UserRole = "student" | "instructor" | "admin" | "video_editor" | "support"`. (b) Two malformed-pref cases (array literal, string-value object) no longer need casts since `notificationPreferences` is `unknown`. `grep "as any" convex/usersNotifications.test.ts` returns zero matches.
+* **R7 P1 (First workspace controls global role)**: `.first()` returned whichever qualifying workspace the index listed first — non-deterministic for users owning multiple qualifying workspaces with conflicting classifications. Switched to `.collect()` and aggregated: `anyClassifiesAsStudent && !anyClassifiesAsInstructor`. The instructor signal wins over the broader "owner" signal.
+
+### Six-iteration classifier history
+
+The `backfillNotificationPreferences` migration's "implicit student" classifier went through six iterations, each fixing a different over/under-inclusion problem:
+1. R3 (no filter) → too broad (promoted admins).
+2. R4 (`mentorship + admin_student` only) → too narrow (missed untyped).
+3. R5 (exclude only `admin_instructor`) → matches resolver type branches.
+4. R6 (+ linked-instructor check) → matches resolver instructor branch.
+5. R7 (+ aggregate across all qualifying workspaces) → handles multi-workspace users.
+
+Final classifier rule: a user is treated as an implicit student iff at least one qualifying workspace (mentorship, admin_student, or untyped) classifies them as a student AND NONE classifies them as an instructor (linked-instructor match). Mirrors `getWorkspaceRole` at `convex/workspaces.ts:39-67` exactly.
 
 ## Rollback (per PR)
 
