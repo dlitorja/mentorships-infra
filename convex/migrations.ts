@@ -120,26 +120,36 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  * Eligibility:
  *   - `role === "student"` — explicit students.
  *   - `role === undefined` AND the user owns at least one
- *     workspace whose `type` is `"mentorship"` or `"admin_student"`
- *     — "implicit" students. The UI surfaces the toggle to them
- *     (Clerk-derived workspace role says student), but `syncUser`
- *     can preserve an undefined Convex role on legacy records
- *     (Greptile R3 P1). Without this branch, those users would
- *     see the switch and have every save rejected by
- *     `setNotificationPreference`.
+ *     workspace whose `type` is anything other than
+ *     `"admin_instructor"` (i.e. `mentorship`, `admin_student`,
+ *     or untyped) — "implicit" students. The UI surfaces the
+ *     toggle to them (Clerk-derived workspace role says student),
+ *     but `syncUser` can preserve an undefined Convex role on
+ *     legacy records (Greptile R3 P1). Without this branch,
+ *     those users would see the switch and have every save
+ *     rejected by `setNotificationPreference`.
  *   - Anything else (instructor / admin / video_editor / support /
  *     undefined-without-workspace / undefined-owner-of-an-
- *     `admin_instructor`-type-workspace) — skipped. They don't
- *     have a per-user inbox on the recordings surface.
+ *     `admin_instructor`-workspace) — skipped. They don't have
+ *     a per-user inbox on the recordings surface.
  *
- * The `type` filter matters: `admin_instructor` workspaces store
- * an administrator (not a student) in `ownerId`, so treating
- * any-ownership as proof of student-hood would silently promote
- * admins to `"student"` and shift their role-based authorization
- * (Greptile R4 P1). The filter matches the existing workspace
- * role resolver in `convex/workspaces.ts:39-67`, which only
- * resolves a user as `"student"` for `mentorship` /
- * `admin_student` workspaces where they own the row.
+ * The "exclude only `admin_instructor`" filter matches the
+ * existing workspace role resolver in
+ * `convex/workspaces.ts:39-67`:
+ *   - `admin_student` + owner → "student" (line 40).
+ *   - `admin_instructor` + owner → not a student (lines 43-54,
+ *     ownership is admin, not student).
+ *   - Everything else (`mentorship` or untyped — both fall
+ *     through the type branches) + owner → "student"
+ *     (lines 65-67).
+ *
+ * So the migration must mirror that: exclude ONLY
+ * `admin_instructor` ownership. Filtering by `mentorship` +
+ * `admin_student` alone misses untyped workspaces (R5 P1),
+ * while not filtering at all over-promotes admins (R4 P1).
+ * The right shape is "type !== 'admin_instructor'" with the
+ * type-`undefined` case treated as a student-classifying
+ * workspace.
  *
  * A student whose preference blob already contains
  * `recordingReadyEmail` (whether true OR false — the student may
@@ -194,18 +204,20 @@ export const backfillNotificationPreferences = migrations.define({
     if (user.role === undefined) {
       const ownerId = user.userId;
       if (typeof ownerId !== "string") return undefined;
-      // Match the existing role resolver: only `mentorship` and
-      // `admin_student` workspaces grant their owner the student
-      // role. `admin_instructor` workspaces have an administrator
-      // in `ownerId`, so treating any-ownership as proof of
-      // student-hood would promote admins to `"student"`.
+      // Mirror `getWorkspaceRole` in `convex/workspaces.ts:39-67`:
+      // exclude only `admin_instructor` ownership, since that
+      // type stores an administrator (not a student) in
+      // `ownerId`. Every other case (`mentorship`,
+      // `admin_student`, untyped) classifies the owner as a
+      // student when they own the row.
       const ws = await ctx.db
         .query("workspaces")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
         .filter((q) =>
           q.or(
             q.eq(q.field("type"), "mentorship"),
-            q.eq(q.field("type"), "admin_student")
+            q.eq(q.field("type"), "admin_student"),
+            q.eq(q.field("type"), undefined)
           )
         )
         .first();

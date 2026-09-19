@@ -533,6 +533,100 @@ test("backfillNotificationPreferences: skips legacy user with undefined role who
   expect(stored?.notificationPreferences).toBeUndefined();
 });
 
+test("backfillNotificationPreferences: legacy user with undefined role who owns an UNTYPED workspace is promoted", async () => {
+  // Greptile R5 P1: the R4 "mentorship + admin_student only"
+  // filter was too narrow. The resolver at
+  // `convex/workspaces.ts:39-67` falls through to
+  // "ownerId === userId → student" for any workspace that
+  // isn't `admin_instructor`, including untyped ones (legacy
+  // data shape, before the `type` field was added). The
+  // migration must mirror the resolver: exclude ONLY
+  // `admin_instructor` ownership.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_untyped_workspace_owner",
+      email: "untyped-owner@example.com",
+      clerkId: "clerk_untyped_owner",
+      // role intentionally undefined
+    });
+    // No `type` field set — legacy workspace shape. The
+    // resolver still classifies this owner as "student".
+    await ctx.db.insert("workspaces", {
+      name: "Untyped Legacy Workspace",
+      ownerId: "user_untyped_workspace_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      // type intentionally undefined
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_untyped_workspace_owner")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
+});
+
+test("backfillNotificationPreferences: legacy user with one admin_instructor AND one untyped workspace is promoted via the untyped one", async () => {
+  // Mixed case: user owns both an `admin_instructor` workspace
+  // (which does NOT classify them as student) AND an untyped
+  // workspace (which DOES). The filter must pick the student-
+  // classifying one.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_mixed_untyped_owner",
+      email: "mixed-untyped@example.com",
+      clerkId: "clerk_mixed_untyped",
+      // role undefined
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Admin Instructor Side",
+      ownerId: "user_mixed_untyped_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "admin_instructor",
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Untyped Student Workspace",
+      ownerId: "user_mixed_untyped_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      // type undefined
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_mixed_untyped_owner")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
+});
+
 test("backfillNotificationPreferences: legacy user with one admin_instructor AND one mentorship workspace gets promoted (filter picks the student one)", async () => {
   // Mixed-workspace-owner case: a user who happens to own an
   // `admin_instructor` workspace AND a `mentorship` workspace
