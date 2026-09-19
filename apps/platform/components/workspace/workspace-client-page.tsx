@@ -581,6 +581,7 @@ export function TabContent({
       <WorkspaceCalls
         workspaceId={workspaceId}
         initialSessionId={initialVideoSessionId}
+        viewerRole={role}
       />
     );
   }

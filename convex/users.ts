@@ -204,6 +204,89 @@ export const updateUser = mutation({
   },
 });
 
+/**
+ * PR #4: set a single key on `notificationPreferences`.
+ *
+ * Authorization: the caller must (a) be authenticated, (b) own
+ * the user record being updated, and (c) be eligible to write
+ * notification preferences. Eligibility is:
+ *
+ *   - `role === "student"` — explicit student.
+ *   - `role === undefined` — legacy record, NOT YET classified.
+ *     `syncUser` can preserve an undefined role on records
+ *     created before role assignment was enforced (Greptile
+ *     R3 P1). The UI surfaces the toggle to these users via
+ *     Clerk-derived workspace role, so blocking them at the
+ *     backend would create a UX dead-end. The migration
+ *     `backfillNotificationPreferences` stamps their `role`
+ *     after classifying via workspace ownership; once it runs,
+ *     no undefined roles remain and this branch is never hit.
+ *
+ * Anything else (`instructor` / `admin` / `video_editor` /
+ * `support`) — rejected with "Only students can save
+ * notification preferences". Recording-ready email is meaningful
+ * only for students, so writing the preference for any other
+ * role would be dead data.
+ *
+ * Future keys with broader audiences will need either a per-key
+ * role whitelist or a dedicated mutation — see `ALLOWED_KEYS`
+ * below.
+ *
+ * The `key` argument is a free-form string but validated against
+ * a server-side whitelist so a client cannot pollute the
+ * preference blob. Adding a new key = append to `ALLOWED_KEYS`
+ * here. The value is type-checked by Convex's `v.boolean()`.
+ *
+ * Existing keys are preserved: the new value is shallow-merged
+ * into the existing blob, so future toggles (e.g.,
+ * `inAppBannerDismissed`) won't be wiped when the user changes
+ * the recording-ready toggle.
+ */
+const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
+
+export const setNotificationPreference = mutation({
+  args: {
+    key: v.string(),
+    value: v.boolean(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; notificationPreferences: unknown }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!currentUser) throw new Error("Unauthorized");
+
+    const isExplicitStudent = currentUser.role === "student";
+    const isLegacyUnclassified = currentUser.role === undefined;
+    if (!isExplicitStudent && !isLegacyUnclassified) {
+      throw new Error(
+        "Only students can save notification preferences"
+      );
+    }
+
+    if (!ALLOWED_KEYS.includes(args.key)) {
+      throw new Error(
+        `Unsupported notification preference key: ${args.key}. Allowed: ${ALLOWED_KEYS.join(", ")}`
+      );
+    }
+
+    const existing = currentUser.notificationPreferences;
+    const merged: Record<string, unknown> =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    merged[args.key] = args.value;
+
+    await ctx.db.patch(currentUser._id, {
+      notificationPreferences: merged,
+    });
+    return { ok: true, notificationPreferences: merged };
+  },
+});
+
 /** Deletes a user by their document ID. Requires admin auth. */
 export const deleteUser = mutation({
   args: { id: v.id("users") },

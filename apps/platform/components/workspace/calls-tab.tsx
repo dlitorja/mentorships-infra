@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
-import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
+import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload, Bell, BellOff } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,6 +14,7 @@ import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
 import { z } from "zod";
 import { convexQueryClient } from "@/lib/providers/query-provider";
+import { Switch } from "@/components/ui/switch";
 import RecordingPlayerModal from "./recording-player-modal";
 
 const syncErrorResponseSchema = z.object({ error: z.string() }).partial();
@@ -48,6 +49,19 @@ interface CallsTabProps {
    * signal that "this is the new recording."
    */
   initialSessionId?: Id<"sessions">;
+  /**
+   * PR #4: gate the recording-ready email toggle to students only.
+   * Instructors/admins/etc. don't have a per-user inbox on the
+   * recordings surface, so showing them a switch that writes to
+   * their own preference row but has no downstream effect would
+   * be misleading. Pass `viewerRole` from the workspace page; when
+   * omitted, the toggle is hidden (safe default for unknown roles).
+   * The narrower type matches `UserRole` in `lib/auth-helpers.ts`
+   * (the workspace page's authoritative role shape) and excludes
+   * `video_editor` since that role is not part of the workspace
+   * surface.
+   */
+  viewerRole?: "admin" | "instructor" | "student" | "support";
 }
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
@@ -137,6 +151,7 @@ function groupRecordingsByDate(
 export default function CallsTab({
   workspaceId,
   initialSessionId,
+  viewerRole,
 }: CallsTabProps): React.ReactElement {
   const queryClient = useQueryClient();
   const recordingsQuery = useInfiniteQuery({
@@ -317,6 +332,18 @@ export default function CallsTab({
 
   return (
     <section aria-label="Call recordings" className="space-y-4">
+      {/*
+       * PR #4: per-student recording-ready email toggle. Gated
+       * to students only — instructors/admins/etc. don't have a
+       * per-user inbox on the recordings surface, so showing them
+       * a switch that has no downstream effect would be
+       * misleading. The component self-gates via the `viewerRole`
+       * prop threaded from the workspace page; when omitted or
+       * non-student, the card simply does not render.
+       */}
+      {viewerRole === "student" ? (
+        <NotificationPreferencesCard />
+      ) : null}
       <div className="flex items-center gap-2">
         <Video
           className="h-5 w-5 text-muted-foreground"
@@ -807,4 +834,161 @@ function RecordingDeepLinkHandler({
   ]);
 
   return null;
+}
+
+/**
+ * PR #4: per-student toggle for the recording-ready email
+ * pipeline (PR #2). Reads the user's current preference from
+ * `notificationPreferences.recordingReadyEmail` via
+ * `getCurrentUser` and writes back through
+ * `setNotificationPreference`.
+ *
+ * Defaults to `true` (opt-out semantics) on the read side to
+ * match the migration backfill default AND the server-side
+ * fallback in `readRecordingReadyEmailPreference`. This way a
+ * student who hasn't been migrated yet still sees the toggle in
+ * its expected default position.
+ *
+ * Optimistic UI: a local `optimisticValue` state flips
+ * immediately on click so the switch responds with no perceived
+ * latency. The mutation runs in parallel; on success the
+ * `getCurrentUser` query is invalidated so the next server
+ * fetch reconciles, and the optimistic value is cleared. On
+ * error, the optimistic value reverts to the server-derived
+ * baseline AND a transient banner is shown so the user gets
+ * visible feedback (a console-only error log was insufficient).
+ *
+ * Concurrency: rapid clicks are guarded two ways.
+ *
+ *   1. The switch is `disabled` while a mutation is in flight,
+ *      so the user cannot start a second request until the
+ *      first one resolves. This is the primary defense against
+ *      overlapping toggles.
+ *
+ *   2. A monotonically-increasing `requestSeq` ref tags each
+ *      in-flight request. Only the most recent request is
+ *      allowed to clear `optimisticValue` and `errorMessage` —
+ *      older completions observe their stale seq and bail. This
+ *      is defense in depth in case the disabled-while-pending
+ *      guard ever leaks (e.g., a future code path that triggers
+ *      the mutation outside the switch's disabled state).
+ *
+ * The `getCurrentUser` query is public and auth-gated
+ * server-side (returns `null` for unauthenticated callers), so
+ * we don't need a separate `useUser` check — a `null` result
+ * renders nothing.
+ *
+ * Visibility is gated by the parent (`viewerRole === "student"`
+ * check in `<CallsTab>`) AND by the mutation's server-side
+ * role check (defense in depth).
+ */
+function NotificationPreferencesCard(): React.ReactElement | null {
+  const currentUserQuery = useQuery(convexQuery(api.users.getCurrentUser, {}));
+  const setPreference = useConvexMutation(api.users.setNotificationPreference);
+
+  const serverValue = useMemo<boolean | null>(() => {
+    if (!currentUserQuery.data) return null;
+    const prefs = currentUserQuery.data.notificationPreferences;
+    if (
+      prefs &&
+      typeof prefs === "object" &&
+      !Array.isArray(prefs) &&
+      "recordingReadyEmail" in prefs
+    ) {
+      const v = (prefs as { recordingReadyEmail: unknown }).recordingReadyEmail;
+      if (typeof v === "boolean") return v;
+    }
+    return true;
+  }, [currentUserQuery.data]);
+
+  const [optimisticValue, setOptimisticValue] = useState<boolean | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const requestSeq = useRef(0);
+
+  const handleChange = useCallback(
+    async (next: boolean) => {
+      if (isPending) return;
+      const seq = ++requestSeq.current;
+      setErrorMessage(null);
+      setOptimisticValue(next);
+      setIsPending(true);
+      try {
+        await setPreference({
+          key: "recordingReadyEmail",
+          value: next,
+        });
+        // Reconcile with the server once the mutation commits.
+        await currentUserQuery.refetch?.();
+        // Only the latest request gets to clear optimistic
+        // state. If a newer click landed while we were waiting,
+        // its `optimisticValue` is what the user wants to see.
+        if (seq === requestSeq.current) {
+          setOptimisticValue(null);
+        }
+      } catch (err) {
+        if (seq === requestSeq.current) {
+          const message =
+            err instanceof Error ? err.message : "Could not save preference";
+          setErrorMessage(message);
+          setOptimisticValue(null);
+        }
+      } finally {
+        if (seq === requestSeq.current) {
+          setIsPending(false);
+        }
+      }
+    },
+    [setPreference, currentUserQuery, isPending]
+  );
+
+  if (currentUserQuery.isLoading) return null;
+  if (!currentUserQuery.data) return null;
+  if (serverValue === null) return null;
+
+  const displayValue = optimisticValue ?? serverValue;
+  const Icon = displayValue ? Bell : BellOff;
+  const label = displayValue
+    ? "Email me when a recording is ready"
+    : "Recording-ready emails are off";
+
+  return (
+    <Card
+      className="border-dashed bg-muted/30"
+      role="group"
+      aria-label="Recording notification preferences"
+    >
+      <CardContent className="flex flex-col gap-3 p-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Icon
+              className="mt-0.5 h-4 w-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium leading-none">{label}</p>
+              <p className="text-xs text-muted-foreground">
+                You&apos;ll always see new recordings in this Videos tab.
+                Turn this off to skip the email notification.
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={displayValue}
+            disabled={isPending}
+            onCheckedChange={handleChange}
+            aria-label="Toggle recording-ready email notifications"
+          />
+        </div>
+        {errorMessage ? (
+          <p
+            role="alert"
+            className="text-xs text-destructive"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
 }
