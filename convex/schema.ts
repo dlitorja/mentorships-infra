@@ -605,6 +605,16 @@ export default defineSchema({
     // One row per (sessionId, recipientUserId). The Trigger task and the
     // B2-callback chain both use this index to enforce idempotency.
     .index("by_sessionId_recipientUserId", ["sessionId", "recipientUserId"])
+    // PR #3 R1 fix: the bell reader (`listUnreadForUser`) must
+    // return ONLY un-acknowledged rows. Without this index the
+    // previous implementation did `.take(50)` on the un-filtered
+    // `by_recipientUserId` index and then filtered post-hoc — a
+    // user with >50 historical rows (most of them acknowledged)
+    // could have newer un-acked rows fall outside the take
+    // window. The compound index lets us query
+    // `eq(recipientUserId, X).eq(acknowledgedAt, undefined)`
+    // directly so the index does the filtering for us.
+    .index("by_recipientUserId_acknowledgedAt", ["recipientUserId", "acknowledgedAt"])
     // Powers the future admin sweep (PR #1 only writes here; admin
     // queries come later if needed).
     .index("by_deliveryStatus", ["deliveryStatus"]),
@@ -917,7 +927,17 @@ export default defineSchema({
     userId: v.string(),
     sessionId: v.id("sessions"),
     workspaceId: v.id("workspaces"),
-    kind: v.literal("ad_hoc_call_invite"),
+    // PR #3: widened from `v.literal("ad_hoc_call_invite")` to a union
+    // so the same bell reader (`getUnreadForUser` in
+    // `convex/inCallNotifications.ts`) can render both ad-hoc-call
+    // invites AND `recording_ready` entries from the
+    // `recordingReadyNotifications` table. The existing rows keep
+    // working — they match the first union literal — so this is a
+    // non-destructive widen (no data backfill required).
+    kind: v.union(
+      v.literal("ad_hoc_call_invite"),
+      v.literal("recording_ready")
+    ),
     callerRole: v.optional(
       v.union(v.literal("instructor"), v.literal("student"))
     ),

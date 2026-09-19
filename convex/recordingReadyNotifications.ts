@@ -3,6 +3,8 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
+  mutation,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -334,6 +336,130 @@ function readRecordingReadyEmailPreference(
   }
   return true;
 }
+
+/**
+ * PR #3: bell reader for `recording_ready` entries. Public
+ * counterpart of `inCallNotifications.getUnreadForUser` — drives
+ * the unified bell dropdown that merges both tables.
+ *
+ * Returns rows where:
+ *   - `recipientUserId === identity.subject`
+ *   - `deliveryStatus` is one of `ready_to_send` / `sent` /
+ *     `opted_out` / `no_email` / `dev_skipped`. We deliberately
+ *     EXCLUDE `pending_visibility` (the visibility gate hasn't
+ *     passed yet — nothing to show) and `failed` (the email
+ *     couldn't go out, but more importantly the row is
+ *     terminal — surfacing it again would be noise).
+ *   - `acknowledgedAt === undefined` (the student hasn't seen the
+ *     bell entry yet).
+ *
+ * Sorted newest-first. Capped at 50 to mirror the existing
+ * `inCallNotifications.getUnreadForUser` safety bound.
+ *
+ * Returns `[]` for unauthenticated viewers so the bell component
+ * can render empty without crashing on first render before Clerk
+ * has populated `useConvexAuth()`'s auth token.
+ */
+export const listUnreadForUser = query({
+  args: {},
+  handler: async (ctx): Promise<
+    Array<{
+      _id: Id<"recordingReadyNotifications">;
+      _creationTime: number;
+      sessionId: Id<"sessions">;
+      // `workspaceId` is `v.optional(v.id("workspaces"))` in the
+      // schema. The bell renders only rows with a workspaceId (so
+      // the deep-link URL has somewhere to land); rows without one
+      // are filtered out client-side in `notification-bell.tsx`.
+      workspaceId?: Id<"workspaces">;
+      // PR #2 stamps opted_out / no_email / dev_skipped as `providerEmailId`
+      // sentinels while leaving `deliveryStatus: "sent"`. The bell only
+      // cares about `sent` / `ready_to_send` (visible, un-acked) — exclude
+      // the other two from the return type for clarity.
+      deliveryStatus: "ready_to_send" | "sent";
+      providerEmailId?: string;
+      sentAt?: number;
+      recordingStartedAt: number;
+    }>
+  > => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    // PR #3 R1 fix: query the `by_recipientUserId_acknowledgedAt`
+    // compound index so the index does the acknowledgedAt === undefined
+    // filtering for us. The previous implementation took the first
+    // 50 rows on `by_recipientUserId` and then post-filtered — a
+    // user with >50 historical rows (mostly acknowledged) could
+    // have newer un-acked rows fall outside the take window and
+    // never appear in the bell. The index query returns ONLY
+    // un-acknowledged rows, so a `.take` cap on the un-acked set
+    // is the right defense (and is generous — a typical user
+    // rarely has more than 5 un-acked entries at once).
+    const candidates = await ctx.db
+      .query("recordingReadyNotifications")
+      .withIndex(
+        "by_recipientUserId_acknowledgedAt",
+        (q) =>
+          q
+            .eq("recipientUserId", identity.subject)
+            .eq("acknowledgedAt", undefined)
+      )
+      .take(50);
+
+    return candidates
+      .filter(
+        (
+          row
+        ): row is typeof row & {
+          acknowledgedAt: undefined;
+          deliveryStatus: "ready_to_send" | "sent";
+        } =>
+          row.deliveryStatus === "ready_to_send" ||
+          row.deliveryStatus === "sent"
+      )
+      .sort((a, b) => b.recordingStartedAt - a.recordingStartedAt);
+  },
+});
+
+/**
+ * PR #3: marks a `recording_ready` bell entry as acknowledged.
+ * Idempotent — if `acknowledgedAt` is already set, the existing
+ * value is preserved.
+ *
+ * Authorization: only the row's own `recipientUserId` may mark it
+ * acknowledged. The mutation takes only `notificationId` and
+ * derives the recipient via `ctx.db.get`.
+ *
+ * Returns the post-patch row so the bell component can update its
+ * local cache without a refetch.
+ */
+export const markAcknowledged = mutation({
+  args: {
+    notificationId: v.id("recordingReadyNotifications"),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<Doc<"recordingReadyNotifications">> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const row = await ctx.db.get(args.notificationId);
+    if (!row) {
+      throw new Error("Notification not found");
+    }
+    if (row.recipientUserId !== identity.subject) {
+      throw new Error("Forbidden");
+    }
+    if (row.acknowledgedAt === undefined) {
+      await ctx.db.patch(args.notificationId, {
+        acknowledgedAt: Date.now(),
+      });
+    }
+    return (await ctx.db.get(args.notificationId))!;
+  },
+});
 
 /**
  * Convex action that bridges `attachRecordingFromB2Upload` (a

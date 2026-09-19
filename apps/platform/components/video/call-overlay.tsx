@@ -191,6 +191,7 @@ export function CallOverlay({
                       role={role}
                       activeSessionId={activeSessionId}
                       activeTab={activeTab}
+                      initialVideoSessionId={undefined}
                     />
                   </TabsContent>
                 </Tabs>

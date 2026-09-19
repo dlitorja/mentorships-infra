@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { convexQuery } from "@convex-dev/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
@@ -33,6 +33,21 @@ const RECORDINGS_PAGE_SIZE = 25;
 
 interface CallsTabProps {
   workspaceId: Id<"workspaces">;
+  /**
+   * PR #3 deep-link: when the workspace page is reached via
+   * `/workspace/{id}?videos={sessionId}`, scroll the matching
+   * recording card into view. The bell row surfaces
+   * `recording_ready` notifications with a link of that shape;
+   * landing on the videos tab without a focus target would be
+   * confusing — users would see their bell badge clear but
+   * no visible context for what changed.
+   *
+   * We do NOT auto-open the recording modal here — that would
+   * add unsolicited audio/video to the page without an explicit
+   * user gesture. Scrolling the card into view is the minimum
+   * signal that "this is the new recording."
+   */
+  initialSessionId?: Id<"sessions">;
 }
 
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000;
@@ -121,6 +136,7 @@ function groupRecordingsByDate(
  */
 export default function CallsTab({
   workspaceId,
+  initialSessionId,
 }: CallsTabProps): React.ReactElement {
   const queryClient = useQueryClient();
   const recordingsQuery = useInfiniteQuery({
@@ -355,12 +371,41 @@ export default function CallsTab({
                   key={recording.sessionId}
                   recording={recording}
                   onPlay={() => setOpenSessionId(recording.sessionId)}
+                  deepLinkId={
+                    initialSessionId &&
+                    String(recording.sessionId) === String(initialSessionId)
+                      ? "video-card-deep-link-target"
+                      : undefined
+                  }
                 />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {/*
+       * PR #3 R1 fix: the deep-link handler now paginates through
+       * recordings until the matching card is found (Fix #2:
+       * previously a deep-link to a recording on page 2+ would
+       * no-op the scroller) AND fires `markAcknowledged` only
+       * AFTER the card is visible AND the row's `workspaceId`
+       * matches the current workspace (Fix #3: previously the
+       * marker could ack a different workspace's notification).
+       *
+       * See `<RecordingDeepLinkHandler>` below for the full
+       * pagination + ack flow.
+       */}
+      {initialSessionId && !recordingsQuery.isLoading ? (
+        <RecordingDeepLinkHandler
+          workspaceId={workspaceId}
+          initialSessionId={initialSessionId}
+          recordingsQuery={recordingsQuery}
+          hasFoundTarget={recordings.some(
+            (r) => String(r.sessionId) === String(initialSessionId)
+          )}
+        />
+      ) : null}
 
       {openRecording ? (
         <RecordingPlayerModal
@@ -381,9 +426,19 @@ export default function CallsTab({
 interface VideoCardProps {
   recording: CallRecording;
   onPlay: () => void;
+  /**
+   * PR #3 deep-link: when this card matches the `initialSessionId`
+   * from `/workspace/{id}?videos={sessionId}`, render with this DOM
+   * id so `<DeepLinkScroller />` can scroll it into view.
+   */
+  deepLinkId?: string;
 }
 
-function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
+function VideoCard({
+  recording,
+  onPlay,
+  deepLinkId,
+}: VideoCardProps): React.ReactElement {
   const dateLabel = recording.callStartedAt
     ? new Date(recording.callStartedAt).toLocaleString(undefined, {
         dateStyle: "medium",
@@ -407,7 +462,7 @@ function VideoCard({ recording, onPlay }: VideoCardProps): React.ReactElement {
   const retryErrorMessage = retryError ? retryError.message : null;
 
   return (
-    <Card className="overflow-hidden">
+    <Card id={deepLinkId} className="overflow-hidden">
       <div className="relative aspect-video bg-muted flex items-center justify-center">
         <Video
           className="h-12 w-12 text-muted-foreground/60"
@@ -620,4 +675,136 @@ function formatDuration(totalSeconds: number): string {
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+/**
+ * PR #3 deep-link: scroll the recording card matching the bell's
+ * `?videos={sessionId}` deep-link into view. Mounted only when
+ * `initialSessionId` is present AND the recordings have loaded —
+ * the no-op render while loading is fine; the active effect runs
+ * once after mount, so the DOM node must exist.
+ *
+ * We use `scrollIntoView` rather than `window.scrollTo` because
+ * `scrollIntoView` is robust against layout shifts (grouped
+ * sections collapse/expand as the recordings page paginates). The
+ * `{ block: "center" }` option centers the card rather than
+ * aligning it to the top edge, which feels less jarring on a
+ * page where users have scrolled to read other tabs.
+ */
+/**
+ * PR #3 R1 fix (Greptile P1 #2 + P1 #3): combine the deep-link
+ * pagination, scroll, and acknowledge-fire into one component
+ * so all three happen together with consistent scoping.
+ *
+ * Pagination (Fix #2): if the target `initialSessionId` is not
+ * yet in the loaded pages, keep calling `fetchNextPage()` until
+ * either:
+ *   - the target is found (then scroll + ack), or
+ *   - there are no more pages (then no-op; the user can scroll
+ *     themselves or hit "Load more").
+ *
+ * The cap (`MAX_DEEP_LINK_PAGES`) protects against runaway
+ * pagination if the deep-link points at a sessionId that no
+ * recording exists for — we don't want to page through every
+ * historical recording to satisfy a bad URL.
+ *
+ * Workspace scope (Fix #3): when acking, the handler looks up
+ * the notification via `listUnreadForUser` (scoped to the
+ * current user) and requires BOTH `sessionId === initialSessionId`
+ * AND `workspaceId === workspaceId`. Without the workspace
+ * filter, a user with access to two workspaces could land on
+ * workspace A with `?videos={sessionId-from-B}` and silently
+ * ack B's notification — Greptile R1 P1 #3.
+ *
+ * Idempotency: a `useRef` guard prevents double-firing across
+ * React's strict-mode double-mount in dev. The Convex
+ * `markAcknowledged` mutation is itself idempotent (preserves
+ * existing `acknowledgedAt`), so even if the guard failed it
+ * would be safe — the ref is belt-and-suspenders.
+ */
+const MAX_DEEP_LINK_PAGES = 8;
+
+type InfiniteQueryLike = {
+  hasNextPage: boolean | undefined;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => Promise<unknown>;
+};
+
+function RecordingDeepLinkHandler({
+  workspaceId,
+  initialSessionId,
+  recordingsQuery,
+  hasFoundTarget,
+}: {
+  workspaceId: Id<"workspaces">;
+  initialSessionId: Id<"sessions">;
+  recordingsQuery: InfiniteQueryLike;
+  hasFoundTarget: boolean;
+}): React.ReactElement | null {
+  const { data: notifications } = useQuery(
+    convexQuery(api.recordingReadyNotifications.listUnreadForUser, {})
+  );
+  const markAcknowledged = useMutation({
+    mutationFn: useConvexMutation(
+      api.recordingReadyNotifications.markAcknowledged
+    ),
+  });
+
+  const ackedRef = useRef(false);
+  const pagesFetchedRef = useRef(0);
+
+  // Effect 1: keep paginating until the target is found OR we run
+  // out of pages. We deliberately do NOT scroll/ack here — that
+  // happens in effect 2 once `hasFoundTarget` becomes true.
+  useEffect(() => {
+    if (hasFoundTarget) return;
+    if (pagesFetchedRef.current >= MAX_DEEP_LINK_PAGES) return;
+    if (!recordingsQuery.hasNextPage) return;
+    if (recordingsQuery.isFetchingNextPage) return;
+    pagesFetchedRef.current += 1;
+    void recordingsQuery.fetchNextPage();
+  }, [
+    hasFoundTarget,
+    recordingsQuery.hasNextPage,
+    recordingsQuery.isFetchingNextPage,
+    recordingsQuery,
+  ]);
+
+  // Effect 2: once the target card is rendered, scroll to it AND
+  // fire `markAcknowledged` exactly once — only if a matching
+  // notification row exists for the current workspace. The
+  // `ackedRef` guard makes the fire idempotent across React
+  // strict-mode double-mount in dev.
+  useEffect(() => {
+    if (!hasFoundTarget) return;
+    if (ackedRef.current) return;
+    if (!notifications) return;
+    const target = notifications.find(
+      (n) =>
+        String(n.sessionId) === String(initialSessionId) &&
+        n.workspaceId !== undefined &&
+        String(n.workspaceId) === String(workspaceId)
+    );
+    if (!target) return;
+
+    // Scroll first; ack after. The scroll is synchronous (the
+    // browser starts the scroll immediately on the next frame),
+    // so the order doesn't matter visually, but logging the ack
+    // AFTER the scroll matches the user-intent model: "we found
+    // the recording, now we've seen it."
+    const node = document.getElementById("video-card-deep-link-target");
+    if (node) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    ackedRef.current = true;
+    markAcknowledged.mutate({ notificationId: target._id });
+  }, [
+    hasFoundTarget,
+    notifications,
+    initialSessionId,
+    workspaceId,
+    markAcknowledged,
+  ]);
+
+  return null;
 }

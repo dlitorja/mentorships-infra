@@ -65,17 +65,27 @@ function WorkspaceContent({
   userRole,
   initialWorkspaceId,
   initialJoinSessionId,
+  initialVideoSessionId,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
   userRole: UserRole;
   initialWorkspaceId?: Id<"workspaces">;
   initialJoinSessionId?: Id<"sessions">;
+  initialVideoSessionId?: Id<"sessions">;
 }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(
     initialWorkspaceId ?? null
   );
-  const [activeTab, setActiveTab] = useState("chat");
+  // PR #3: when the bell deep-links to `?videos={sessionId}`,
+  // open on the videos tab so the user lands directly on the
+  // recording card that triggered the notification. Falls through
+  // to "chat" (the historical default) when no deep-link is
+  // present, so this is a non-breaking change for existing entry
+  // points.
+  const [activeTab, setActiveTab] = useState(
+    initialVideoSessionId ? "videos" : "chat"
+  );
   // sessionId from the active call, passed down to Notes/Images/Links/Chat
   // composers for auto-tagging during the call. Read from
   // VideoCallContext inside `<WorkspaceInner>` so it tracks the active
@@ -198,6 +208,7 @@ function WorkspaceContent({
           activeTab={activeTab}
           onChangeTab={setActiveTab}
           selectedWorkspace={selectedWorkspace}
+          initialVideoSessionId={initialVideoSessionId}
           activeSessionsByWorkspaceId={activeSessionsByWorkspaceId}
         />
         {/*
@@ -233,6 +244,7 @@ function WorkspaceInner({
   onChangeTab,
   selectedWorkspace,
   activeSessionsByWorkspaceId,
+  initialVideoSessionId,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
@@ -246,6 +258,7 @@ function WorkspaceInner({
     Id<"workspaces">,
     { sessionId: Id<"sessions">; status: "active" | "joinable" }
   >;
+  initialVideoSessionId?: Id<"sessions">;
 }) {
   const { session } = useVideoCallContext();
   // PR #4b: pass `sessionId` down to composers so posts during the
@@ -475,6 +488,7 @@ function WorkspaceInner({
                     activeTab={activeTab}
                     onChangeTab={onChangeTab}
                     useFullHeight={useFullHeight}
+                    initialVideoSessionId={initialVideoSessionId}
                   />
                 )}
               </CardContent>
@@ -526,12 +540,14 @@ export function TabContent({
   role,
   activeSessionId,
   activeTab,
+  initialVideoSessionId,
 }: {
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
   role: UserRole;
   activeSessionId: Id<"sessions"> | null;
   activeTab: string;
+  initialVideoSessionId?: Id<"sessions">;
 }): React.ReactElement {
   if (activeTab === "notes") {
     return (
@@ -564,6 +580,7 @@ export function TabContent({
     return (
       <WorkspaceCalls
         workspaceId={workspaceId}
+        initialSessionId={initialVideoSessionId}
       />
     );
   }
@@ -607,6 +624,7 @@ function WorkspaceTabs({
   activeTab,
   onChangeTab,
   useFullHeight,
+  initialVideoSessionId,
 }: {
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
@@ -615,6 +633,7 @@ function WorkspaceTabs({
   activeTab: string;
   onChangeTab: (tab: string) => void;
   useFullHeight: boolean;
+  initialVideoSessionId?: Id<"sessions">;
 }): React.ReactElement {
   return (
     <Tabs
@@ -633,6 +652,7 @@ function WorkspaceTabs({
           role={role}
           activeSessionId={activeSessionId}
           activeTab={activeTab}
+          initialVideoSessionId={initialVideoSessionId}
         />
       </TabsContent>
     </Tabs>
@@ -681,6 +701,15 @@ interface WorkspaceClientPageProps {
    * lands the user directly in the join flow.
    */
   initialJoinSessionId?: Id<"sessions">;
+  /**
+   * PR #3: when the bell deep-links to
+   * `/workspace/{id}?videos={sessionId}`, open on the videos tab
+   * AND scroll the matching recording card into view. Set by
+   * the `/workspace/[id]` route alongside `initialJoinSessionId`;
+   * the two are independent (one is for ad-hoc call invites, the
+   * other for recording-ready notifications).
+   */
+  initialVideoSessionId?: Id<"sessions">;
 }
 
 /**
@@ -692,6 +721,7 @@ export default function WorkspaceClientPage({
   userRole,
   initialWorkspaceId,
   initialJoinSessionId,
+  initialVideoSessionId,
 }: WorkspaceClientPageProps) {
   return (
     <WorkspaceContent
@@ -700,6 +730,7 @@ export default function WorkspaceClientPage({
       userRole={userRole}
       initialWorkspaceId={initialWorkspaceId}
       initialJoinSessionId={initialJoinSessionId}
+      initialVideoSessionId={initialVideoSessionId}
     />
   );
 }
