@@ -4,7 +4,6 @@ import { getConvexAuthToken, getServerUserRole } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import WorkspaceClientPage from "@/components/workspace/workspace-client-page";
 import { IncomingCallMarker } from "@/components/notifications/incoming-call-marker";
-import { RecordingAcknowledgedMarker } from "@/components/notifications/recording-acknowledged-marker";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -110,9 +109,17 @@ export default async function WorkspaceIdPage({
       {joinSessionId && (
         <IncomingCallMarker initialJoinSessionId={joinSessionId} />
       )}
-      {videoSessionId && (
-        <RecordingAcknowledgedMarker initialVideoSessionId={videoSessionId} />
-      )}
+      {/*
+       * PR #3 R1 fix: removed the standalone
+       * `<RecordingAcknowledgedMarker>` previously mounted here.
+       * Ack is now owned by
+       * `<RecordingDeepLinkHandler>` inside `<WorkspaceCalls>`
+       * (calls-tab.tsx) so the ack fires only after the recording
+       * card has actually been located across paginated pages AND
+       * the notification row's `workspaceId` matches the current
+       * workspace — Greptile R1 P1 #2 (deep-link missed later
+       * pages) and P1 #3 (cross-workspace ack).
+       */}
     </ProtectedLayout>
   );
 }

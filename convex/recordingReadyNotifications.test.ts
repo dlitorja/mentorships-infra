@@ -1132,3 +1132,61 @@ test("markAcknowledged: idempotent — does not overwrite existing acknowledgedA
   const row = await t.run(async (ctx) => await ctx.db.get(id));
   expect(row?.acknowledgedAt).toBe(originalAck);
 });
+
+/**
+ * PR #3 R1 fix (Greptile P1 #1): with >50 historical rows on
+ * `by_recipientUserId`, the original implementation's `.take(50)`
+ * could drop newer un-acked rows because the index didn't filter on
+ * `acknowledgedAt`. The new `by_recipientUserId_acknowledgedAt`
+ * compound index queries only un-acked rows directly, so the take
+ * cap applies to the right set. This test exercises the boundary:
+ * seed 60 acknowledged rows + 5 un-acknowledged rows, then assert
+ * the un-acked rows are returned even though they are the youngest
+ * entries (i.e., they would have been dropped by an index that
+ * returned the oldest 50).
+ */
+test("listUnreadForUser: returns un-acked rows even when user has >50 historical rows (R1 fix)", async () => {
+  const t = convexTest(schema, modules);
+  const studentUserId = "user_student_rrn_bell_50ack";
+  const { sessionId } = await seedInstructorAndSession(t);
+
+  await t.run(async (ctx) => {
+    // 60 acknowledged rows: oldest -> newest
+    for (let i = 0; i < 60; i++) {
+      await ctx.db.insert("recordingReadyNotifications", {
+        sessionId: sessionId as any,
+        recipientUserId: studentUserId,
+        recordingStartedAt: Date.now() - (60 - i) * 60_000,
+        deliveryStatus: "sent",
+        acknowledgedAt: Date.now() - (60 - i) * 60_000,
+      });
+    }
+    // 5 un-acknowledged rows: inserted AFTER the 60 acknowledged
+    // ones, so the un-acked set is the "newest" entries. Without the
+    // compound index these would be the rows a naive `.take(50)`
+    // drops on the floor.
+    for (let i = 0; i < 5; i++) {
+      await ctx.db.insert("recordingReadyNotifications", {
+        sessionId: sessionId as any,
+        recipientUserId: studentUserId,
+        recordingStartedAt: Date.now() + i * 1_000,
+        deliveryStatus: "sent",
+      });
+    }
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentUserId })
+    .query(
+      (require("./_generated/api") as typeof import("./_generated/api")).api
+        .recordingReadyNotifications.listUnreadForUser,
+      {}
+    );
+
+  expect(result).toHaveLength(5);
+  // Sort order is newest first by `recordingStartedAt`, so the last
+  // inserted (highest timestamp) row is at index 0.
+  expect(
+    result.every((r) => r.recordingStartedAt > Date.now() - 60_000)
+  ).toBe(true);
+});

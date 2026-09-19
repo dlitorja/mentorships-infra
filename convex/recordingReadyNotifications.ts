@@ -385,10 +385,24 @@ export const listUnreadForUser = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
 
+    // PR #3 R1 fix: query the `by_recipientUserId_acknowledgedAt`
+    // compound index so the index does the acknowledgedAt === undefined
+    // filtering for us. The previous implementation took the first
+    // 50 rows on `by_recipientUserId` and then post-filtered — a
+    // user with >50 historical rows (mostly acknowledged) could
+    // have newer un-acked rows fall outside the take window and
+    // never appear in the bell. The index query returns ONLY
+    // un-acknowledged rows, so a `.take` cap on the un-acked set
+    // is the right defense (and is generous — a typical user
+    // rarely has more than 5 un-acked entries at once).
     const candidates = await ctx.db
       .query("recordingReadyNotifications")
-      .withIndex("by_recipientUserId", (q) =>
-        q.eq("recipientUserId", identity.subject)
+      .withIndex(
+        "by_recipientUserId_acknowledgedAt",
+        (q) =>
+          q
+            .eq("recipientUserId", identity.subject)
+            .eq("acknowledgedAt", undefined)
       )
       .take(50);
 
@@ -400,9 +414,8 @@ export const listUnreadForUser = query({
           acknowledgedAt: undefined;
           deliveryStatus: "ready_to_send" | "sent";
         } =>
-          row.acknowledgedAt === undefined &&
-          (row.deliveryStatus === "ready_to_send" ||
-            row.deliveryStatus === "sent")
+          row.deliveryStatus === "ready_to_send" ||
+          row.deliveryStatus === "sent"
       )
       .sort((a, b) => b.recordingStartedAt - a.recordingStartedAt);
   },
