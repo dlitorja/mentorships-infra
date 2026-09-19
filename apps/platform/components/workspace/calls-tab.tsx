@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
-import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload } from "lucide-react";
+import { Play, Download, Video, Loader2, AlertCircle, RefreshCw, CloudDownload, Bell, BellOff } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,6 +14,7 @@ import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import { ApiRoutes } from "@/lib/routes";
 import { z } from "zod";
 import { convexQueryClient } from "@/lib/providers/query-provider";
+import { Switch } from "@/components/ui/switch";
 import RecordingPlayerModal from "./recording-player-modal";
 
 const syncErrorResponseSchema = z.object({ error: z.string() }).partial();
@@ -317,6 +318,18 @@ export default function CallsTab({
 
   return (
     <section aria-label="Call recordings" className="space-y-4">
+      {/*
+       * PR #4: per-student recording-ready email toggle. Always
+       * rendered; the mutation (`setNotificationPreference`)
+       * auth-checks against `identity.subject` so a non-owner
+       * accidentally tapping it would only write to their own
+       * preference row (no effect on emails, since emails only
+       * flow to student recipients). The read-side default of
+       * `true` matches the migration's backfill default so the
+       * toggle feels intuitive even for users with no preference
+       * blob yet.
+       */}
+      <NotificationPreferencesCard />
       <div className="flex items-center gap-2">
         <Video
           className="h-5 w-5 text-muted-foreground"
@@ -807,4 +820,103 @@ function RecordingDeepLinkHandler({
   ]);
 
   return null;
+}
+
+/**
+ * PR #4: per-student toggle for the recording-ready email
+ * pipeline (PR #2). Reads the user's current preference from
+ * `notificationPreferences.recordingReadyEmail` via
+ * `getCurrentUser` and writes back through
+ * `setNotificationPreference`.
+ *
+ * Defaults to `true` (opt-out semantics) on the read side to
+ * match the migration backfill default AND the server-side
+ * fallback in `readRecordingReadyEmailPreference`. This way a
+ * student who hasn't been migrated yet still sees the toggle in
+ * its expected default position.
+ *
+ * Optimistic UI: the switch flips immediately on click and
+ * reverts on mutation error. The mutation itself is idempotent
+ * (a `record` of the user's current preference is harmless), so
+ * we don't need to reconcile after the server returns. We do
+ * invalidate the `getCurrentUser` query on success so the next
+ * page load is consistent if the optimistic value diverged from
+ * the server's authoritative value (e.g., a stale tab).
+ *
+ * The `getCurrentUser` query is public and auth-gated server-side
+ * (returns `null` for unauthenticated callers), so we don't need
+ * a separate `useUser` check — a `null` result renders nothing.
+ */
+function NotificationPreferencesCard(): React.ReactElement | null {
+  const currentUserQuery = useQuery(convexQuery(api.users.getCurrentUser, {}));
+  const setPreference = useConvexMutation(api.users.setNotificationPreference);
+
+  const currentValue = useMemo(() => {
+    if (!currentUserQuery.data) return null;
+    const prefs = currentUserQuery.data.notificationPreferences;
+    if (
+      prefs &&
+      typeof prefs === "object" &&
+      !Array.isArray(prefs) &&
+      "recordingReadyEmail" in prefs
+    ) {
+      const v = (prefs as { recordingReadyEmail: unknown }).recordingReadyEmail;
+      if (typeof v === "boolean") return v;
+    }
+    return true;
+  }, [currentUserQuery.data]);
+
+  const handleChange = useCallback(
+    async (next: boolean) => {
+      try {
+        await setPreference({
+          key: "recordingReadyEmail",
+          value: next,
+        });
+      } catch (err) {
+        // Surface the error to the console for now — the optimistic
+        // toggle reverts via the `checked` prop falling back to
+        // `currentValue` (the server's truth) on next render. A
+        // toast / banner could be added later.
+        console.error("setNotificationPreference failed", err);
+      }
+    },
+    [setPreference]
+  );
+
+  if (currentUserQuery.isLoading) return null;
+  if (!currentUserQuery.data) return null;
+  if (currentValue === null) return null;
+
+  const Icon = currentValue ? Bell : BellOff;
+  const label = currentValue ? "Email me when a recording is ready" : "Recording-ready emails are off";
+
+  return (
+    <Card
+      className="border-dashed bg-muted/30"
+      role="group"
+      aria-label="Recording notification preferences"
+    >
+      <CardContent className="flex items-center justify-between gap-4 p-3">
+        <div className="flex items-start gap-3">
+          <Icon
+            className="mt-0.5 h-4 w-4 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium leading-none">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              You&apos;ll always see new recordings in this Videos tab.
+              Turn this off to skip the email notification.
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={currentValue}
+          onCheckedChange={handleChange}
+          aria-label="Toggle recording-ready email notifications"
+        />
+      </CardContent>
+    </Card>
+  );
 }

@@ -204,6 +204,67 @@ export const updateUser = mutation({
   },
 });
 
+/**
+ * PR #4: set a single key on `notificationPreferences`.
+ *
+ * Authorization: the caller can only update their own user record
+ * (matches `updateUser`). Admin override paths can be added later
+ * (e.g., support agents clearing stale prefs) but currently only
+ * the user themselves may write.
+ *
+ * The `key` argument is a free-form string but validated against
+ * a server-side whitelist so a client cannot pollute the
+ * preference blob. Adding a new key = append to `ALLOWED_KEYS`
+ * here. The value is type-checked by Convex's `v.boolean()`.
+ *
+ * Existing keys are preserved: the new value is shallow-merged
+ * into the existing blob, so future toggles (e.g.,
+ * `inAppBannerDismissed`) won't be wiped when the user changes
+ * the recording-ready toggle.
+ */
+const ALLOWED_NOTIFICATION_PREFERENCE_KEYS = ["recordingReadyEmail"] as const;
+type AllowedNotificationPreferenceKey =
+  (typeof ALLOWED_NOTIFICATION_PREFERENCE_KEYS)[number];
+
+export const setNotificationPreference = mutation({
+  args: {
+    key: v.string(),
+    value: v.boolean(),
+  },
+  handler: async (ctx, args): Promise<{ ok: true; notificationPreferences: unknown }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    if (
+      !ALLOWED_NOTIFICATION_PREFERENCE_KEYS.includes(
+        args.key as AllowedNotificationPreferenceKey
+      )
+    ) {
+      throw new Error(
+        `Unsupported notification preference key: ${args.key}. Allowed: ${ALLOWED_NOTIFICATION_PREFERENCE_KEYS.join(", ")}`
+      );
+    }
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!currentUser) throw new Error("Unauthorized");
+
+    const existing = currentUser.notificationPreferences;
+    const merged: Record<string, unknown> =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    merged[args.key] = args.value;
+
+    await ctx.db.patch(currentUser._id, {
+      notificationPreferences: merged,
+    });
+    return { ok: true, notificationPreferences: merged };
+  },
+});
+
 /** Deletes a user by their document ID. Requires admin auth. */
 export const deleteUser = mutation({
   args: { id: v.id("users") },

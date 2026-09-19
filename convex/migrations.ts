@@ -111,3 +111,74 @@ export const normalizeAllInstructorEmails = migrations.define({
 export const runNormalizeAllInstructorEmails = migrations.runner(
   internal.migrations.normalizeAllInstructorEmails
 );
+
+/**
+ * PR #4: backfill `notificationPreferences.recordingReadyEmail = true`
+ * on existing student users so the recording-ready email pipeline
+ * (PR #2) sends to them by default.
+ *
+ * Only touches students: instructors/admins/etc. don't have a
+ * per-user inbox on the recordings surface, so opting them in or
+ * out has no meaning. A student whose preference blob already
+ * contains `recordingReadyEmail` (whether true OR false — the
+ * student may have already opted out via a future UI) is left
+ * alone, so this migration is safe to re-run and respects prior
+ * choice.
+ *
+ * Students whose preference blob is missing OR malformed (not a
+ * plain object, or `recordingReadyEmail` is set to a non-boolean
+ * value) get a fresh blob with `recordingReadyEmail: true` and
+ * any other well-known keys preserved.
+ *
+ * Why `@convex-dev/migrations` instead of a hand-rolled cursor
+ * batch (`backfillRecordingExpiry` style): this table is small
+ * (a few thousand students at most) but we still want resumable
+ * + idempotent behavior for free, and the framework's
+ * `migrateOne` shape is easier to reason about than the cursor
+ * loop. The other migrations on this file use the same framework,
+ * so this is the precedent.
+ *
+ * Usage (after PR #4 merges):
+ *   npx convex run --prod migrations:run '{"fn":"migrations:runBackfillNotificationPreferences"}'
+ */
+export const backfillNotificationPreferences = migrations.define({
+  table: "users",
+  migrateOne: async (
+    _ctx,
+    user: {
+      role?:
+        | "student"
+        | "instructor"
+        | "admin"
+        | "video_editor"
+        | "support";
+      notificationPreferences?: unknown;
+    }
+  ): Promise<Partial<typeof user> | undefined> => {
+    if (user.role !== "student") return undefined;
+
+    const existing = user.notificationPreferences;
+    const existingIsObject =
+      existing !== null &&
+      typeof existing === "object" &&
+      !Array.isArray(existing);
+
+    if (existingIsObject) {
+      const obj = existing as Record<string, unknown>;
+      if (typeof obj.recordingReadyEmail === "boolean") {
+        return undefined;
+      }
+    }
+
+    const merged: Record<string, unknown> = existingIsObject
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+    merged.recordingReadyEmail = true;
+
+    return { notificationPreferences: merged };
+  },
+});
+
+export const runBackfillNotificationPreferences = migrations.runner(
+  internal.migrations.backfillNotificationPreferences
+);

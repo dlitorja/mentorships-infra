@@ -107,8 +107,8 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 |---|----|----|----|
 | 1 | **Schema widen + visibility gate** | ✅ yes (`recordingReadyNotifications` table, `users.notificationPreferences` field) | New table, new field, internal query, new HTTP routes, Trigger task that runs the visibility gate (writes `pending_visibility` → `ready_to_send` row; does NOT email yet) |
 | 2 | **Email send** | no | Resend template + email fanout wired into the Trigger task. Respects `users.notificationPreferences.recordingReadyEmail`. |
-| 3 | **Bell wiring** | ✅ widens `inCallNotifications.kind` | Bell renders both call invites + recording-ready rows. New deep-link route param `?videos={sessionId}`. |
-| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch. Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. |
+| 3 | **Bell wiring** | ✅ widens `inCallNotifications.kind` | Bell renders both call invites + recording-ready rows. New deep-link route param `?videos={sessionId}`. **Merged** as PR #852 (`945850f1`). |
+| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch. Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. **Not started.** |
 
 ## Files
 
@@ -118,7 +118,7 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | `convex/sessions.ts` | `getSessionVisibilityForStudentOwner` internalQuery (PR #1); patched `attachRecordingFromB2Upload` to chain `chainNotifyRecordingReady` after the session patch (PR #1) |
 | `convex/recordingReadyNotifications.ts` | NEW. CRUD + state-machine mutations + `chainNotifyRecordingReady` action + `triggerNotifyRecordingReady` retry helper (PR #1) |
 | `convex/http.ts` | 5 `/recording-ready/*` HTTP routes — `enqueue`, `visibility`, `mark-ready-to-send`, `mark-sent`, `mark-failed` (PR #1) + `get-recipient-info` (PR #2). 6 total. |
-| `convex/recordingReadyNotifications.test.ts` | NEW. 20 convex-test cases: 6 visibility branches + 6 state-machine + 4 action-retry (PR #1) + 4 query tests (PR #2). |
+| `convex/recordingReadyNotifications.test.ts` | NEW. 34 convex-test cases: 6 visibility branches + 6 state-machine + 4 action-retry (PR #1) + 4 query tests (PR #2) + 14 PR #3 bell tests (12 listUnreadForUser + markAcknowledged + 1 R1 regression for the >50 historical rows case). |
 | `convex/recordingReadyHttp.test.ts` | NEW. 10 convex-test cases for the 6 HTTP routes (PR #1 + PR #2). |
 | `packages/emails/src/recording-ready.ts` | NEW. Resend template (PR #2). |
 | `packages/emails/src/recording-ready-decision.ts` | NEW. Pure `decideRecordingReadyEmailOutcome` function — the 5-branch email decision tree (PR #2). |
@@ -170,6 +170,14 @@ PR #2 (`930ab9ce`) shipped on first merge round with Greptile confidence 5/5 ("a
 * **P2 (email branches lack tests)**: extracted the 5-branch decision into a pure `decideRecordingReadyEmailOutcome` function in `packages/emails/src/recording-ready-decision.ts` (no `@trigger.dev/sdk`, `sendEmail`, or `fetch` deps). 15 vitest cases in `packages/emails/src/recording-ready-decision.test.ts` cover all 6 outcome paths plus branch-ordering edge cases — no mocks needed.
 
 The pure-function extraction is the durable pattern: the `dispatchRecordingReadyEmail` wrapper is now thin (build `sendResult` → call decision → apply `sideEffect` callback → shape for Trigger log). Future email branches can be unit-tested by extending the decision function's branches, not by mocking `@trigger.dev/sdk`.
+
+## PR #3 Greptile R1 fix notes (2026-09-19)
+
+PR #3 (`945850f1`) shipped after Greptile R1 (Confidence 2/5) → R2 (Confidence 5/5, "appears safe to merge"). Three P1 findings from the initial review were resolved in commit `328b1cb5` before merge:
+
+* **P1 #1 (Unread rows are omitted from the bell)**: `listUnreadForUser` previously did `.take(50)` on the single-field `by_recipientUserId` index and post-filtered for `acknowledgedAt === undefined`. A user with >50 historical rows (mostly acknowledged) would have newer un-acked rows fall outside the take window and never appear in the bell. Added a `by_recipientUserId_acknowledgedAt` compound index; `listUnreadForUser` now queries `.eq("acknowledgedAt", undefined)` so the take cap applies only to the un-acked set (which is the right defense). Regression test (`listUnreadForUser: returns un-acked rows even when user has >50 historical rows`) seeds 60 acknowledged + 5 un-acknowledged rows and asserts the 5 un-acked entries come back.
+* **P1 #2 (Deep links miss later pages)**: the previous `<DeepLinkScroller />` ran once on mount and no-op'd if the target card wasn't in the first 25 loaded recordings, while `<RecordingAcknowledgedMarker>` silently acked the notification regardless. Consolidated pagination + scroll + ack into a single `<RecordingDeepLinkHandler>` inside `<WorkspaceCalls>` so all three share the same data scope. The handler iterates `fetchNextPage()` until the target is found (capped at `MAX_DEEP_LINK_PAGES = 8` to defend against bad URLs) and only fires `markAcknowledged` AFTER the card is rendered. A `useRef` guard prevents double-fire across React strict-mode double-mount; the underlying mutation is itself idempotent for defense in depth.
+* **P1 #3 (Cross-workspace ack)**: `<RecordingAcknowledgedMarker>` matched unread notifications by `sessionId` alone, so a user with access to workspaces A and B could land on A with `?videos={sessionId-from-B}` and silently ack B's notification. Removed the standalone marker from the route page; the handler now requires BOTH `sessionId === initialSessionId` AND `workspaceId === workspaceId` before firing the mutation.
 
 ## Rollback (per PR)
 
