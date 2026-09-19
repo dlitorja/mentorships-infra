@@ -122,7 +122,8 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  *   - `role === undefined` AND the user owns at least one
  *     workspace whose `type` is anything other than
  *     `"admin_instructor"` (i.e. `mentorship`, `admin_student`,
- *     or untyped) — "implicit" students. The UI surfaces the
+ *     or untyped) AND is NOT the linked instructor of any such
+ *     workspace — "implicit" students. The UI surfaces the
  *     toggle to them (Clerk-derived workspace role says student),
  *     but `syncUser` can preserve an undefined Convex role on
  *     legacy records (Greptile R3 P1). Without this branch,
@@ -130,8 +131,10 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  *     rejected by `setNotificationPreference`.
  *   - Anything else (instructor / admin / video_editor / support /
  *     undefined-without-workspace / undefined-owner-of-an-
- *     `admin_instructor`-workspace) — skipped. They don't have
- *     a per-user inbox on the recordings surface.
+ *     `admin_instructor`-workspace / undefined-owner-and-
+ *     linked-instructor-of-a-`mentorship`/untyped-workspace) —
+ *     skipped. They don't have a per-user inbox on the
+ *     recordings surface.
  *
  * The "exclude only `admin_instructor`" filter matches the
  * existing workspace role resolver in
@@ -140,16 +143,20 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  *   - `admin_instructor` + owner → not a student (lines 43-54,
  *     ownership is admin, not student).
  *   - Everything else (`mentorship` or untyped — both fall
- *     through the type branches) + owner → "student"
- *     (lines 65-67).
+ *     through the type branches) AND the user is the linked
+ *     instructor (lines 56-64) → "instructor".
+ *   - Everything else (`mentorship` or untyped) + owner who is
+ *     NOT the linked instructor → "student" (lines 65-67).
  *
  * So the migration must mirror that: exclude ONLY
- * `admin_instructor` ownership. Filtering by `mentorship` +
+ * `admin_instructor` ownership (R4 P1), AND exclude legacy
+ * workspace owners who are also the linked instructor of any
+ * such workspace (R6 P1). Filtering by `mentorship` +
  * `admin_student` alone misses untyped workspaces (R5 P1),
  * while not filtering at all over-promotes admins (R4 P1).
  * The right shape is "type !== 'admin_instructor'" with the
  * type-`undefined` case treated as a student-classifying
- * workspace.
+ * workspace, AND a final linked-instructor check.
  *
  * A student whose preference blob already contains
  * `recordingReadyEmail` (whether true OR false — the student may
@@ -204,12 +211,8 @@ export const backfillNotificationPreferences = migrations.define({
     if (user.role === undefined) {
       const ownerId = user.userId;
       if (typeof ownerId !== "string") return undefined;
-      // Mirror `getWorkspaceRole` in `convex/workspaces.ts:39-67`:
-      // exclude only `admin_instructor` ownership, since that
-      // type stores an administrator (not a student) in
-      // `ownerId`. Every other case (`mentorship`,
-      // `admin_student`, untyped) classifies the owner as a
-      // student when they own the row.
+      // Mirror `getWorkspaceRole` in `convex/workspaces.ts:39-67`.
+      // Step 1: type filter (excludes only `admin_instructor`).
       const ws = await ctx.db
         .query("workspaces")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -221,7 +224,31 @@ export const backfillNotificationPreferences = migrations.define({
           )
         )
         .first();
-      isImplicitStudent = ws !== null;
+      if (ws !== null) {
+        // Step 2: linked-instructor check (resolver lines
+        // 56-64). If the user is the linked instructor of this
+        // workspace, the resolver classifies them as
+        // "instructor", NOT "student" — so they must be
+        // skipped to avoid promoting them to "student"
+        // (R6 P1). Without this check, a user who owns a
+        // workspace but is also its instructor (a common
+        // admin-bootstrap data shape) would have their role
+        // silently flipped.
+        if (ws.instructorId !== undefined) {
+          const instructor = await ctx.db
+            .query("instructors")
+            .withIndex("by_userId", (q) => q.eq("userId", ownerId))
+            .first();
+          isImplicitStudent = !(
+            instructor !== null &&
+            instructor._id === ws.instructorId
+          );
+        } else {
+          isImplicitStudent = true;
+        }
+      } else {
+        isImplicitStudent = false;
+      }
     }
 
     const isEligibleStudent = user.role === "student" || isImplicitStudent;

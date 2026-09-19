@@ -17,11 +17,18 @@ const modules = import.meta.glob("./**/*.ts");
  * one.
  */
 
+type UserRole =
+  | "student"
+  | "instructor"
+  | "admin"
+  | "video_editor"
+  | "support";
+
 async function seedStudentUser(
   t: ReturnType<typeof convexTest>,
   overrides: {
     userId?: string;
-    role?: string;
+    role?: UserRole;
     notificationPreferences?: unknown;
   } = {}
 ): Promise<string> {
@@ -30,10 +37,10 @@ async function seedStudentUser(
       userId: overrides.userId ?? "user_student_pr4",
       email: "student-pr4@example.com",
       clerkId: "clerk_student_pr4",
-      role: (overrides.role as any) ?? "student",
+      role: overrides.role ?? "student",
       notificationPreferences: overrides.notificationPreferences,
     });
-  });
+  }).then((id) => id as string);
 }
 
 test("setNotificationPreference: unauthorized without identity", async () => {
@@ -134,7 +141,7 @@ test("setNotificationPreference: tolerates malformed existing blob", async () =>
   // Arrays are technically typeof "object" — the merge logic must
   // not propagate an array. Expected: replace with { recordingReadyEmail: true }.
   await seedStudentUser(t, {
-    notificationPreferences: ["nonsense", "array"] as any,
+    notificationPreferences: ["nonsense", "array"],
   });
 
   const result = await t
@@ -264,7 +271,7 @@ test("backfillNotificationPreferences: overwrites malformed preference blob", as
   // true for non-boolean values, so the migration should also
   // normalize this — leaving it as a string would be inconsistent.
   await seedStudentUser(t, {
-    notificationPreferences: { recordingReadyEmail: "yes" as any },
+    notificationPreferences: { recordingReadyEmail: "yes" },
   });
 
   await t.mutation(internal.migrations.backfillNotificationPreferences, {});
@@ -531,6 +538,106 @@ test("backfillNotificationPreferences: skips legacy user with undefined role who
   });
   expect(stored?.role).toBeUndefined();
   expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("backfillNotificationPreferences: legacy user with undefined role who owns a mentorship workspace AND is its linked instructor is NOT promoted", async () => {
+  // Greptile R6 P1: the role resolver at
+  // `convex/workspaces.ts:56-64` checks whether the user is the
+  // linked instructor BEFORE treating them as the student owner
+  // (for `mentorship` / untyped workspaces). A user who owns a
+  // workspace AND is its linked instructor resolves as
+  // "instructor", not "student". Without this check, the
+  // migration would silently flip their role from "instructor"
+  // to "student", changing their authorization.
+  //
+  // This is a real admin-bootstrap data shape: admins sometimes
+  // create a workspace on their own account while bootstrapping
+  // a session, leaving them both owner and instructor. Such
+  // users MUST NOT be promoted.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    // Create the linked instructor record FIRST so we can wire
+    // the workspace's `instructorId` to its `_id`.
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "user_owner_instructor",
+      email: "owner-instructor@example.com",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_owner_instructor",
+      email: "owner-instructor@example.com",
+      clerkId: "clerk_owner_instructor",
+      // role intentionally undefined
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Where User Is Also Linked Instructor",
+      ownerId: "user_owner_instructor",
+      instructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_owner_instructor")
+      )
+      .first();
+  });
+  expect(stored?.role).toBeUndefined();
+  expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("backfillNotificationPreferences: legacy user with undefined role who owns a mentorship workspace but is NOT its linked instructor IS promoted", async () => {
+  // Companion to the linked-instructor test: same shape but the
+  // workspace has an `instructorId` that points at a DIFFERENT
+  // user's instructor record. The owner is NOT that instructor,
+  // so they're a plain student owner and the migration must
+  // promote them.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    const otherInstructorId = await ctx.db.insert("instructors", {
+      userId: "user_some_other_instructor",
+      email: "other-instructor@example.com",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_owner_not_instructor",
+      email: "owner-not-instructor@example.com",
+      clerkId: "clerk_owner_not_instructor",
+      // role intentionally undefined
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Where Owner Is Not Linked Instructor",
+      ownerId: "user_owner_not_instructor",
+      instructorId: otherInstructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_owner_not_instructor")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
 });
 
 test("backfillNotificationPreferences: legacy user with undefined role who owns an UNTYPED workspace is promoted", async () => {
