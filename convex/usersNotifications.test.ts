@@ -463,13 +463,16 @@ test("backfillNotificationPreferences: stamps role=student AND preference for le
       clerkId: "clerk_legacy_owner",
       // role intentionally undefined
     });
-    // Seed a workspace for this user.
+    // Seed a student-classifying workspace for this user. The
+    // type filter (R4 P1) requires `mentorship` or `admin_student`
+    // for ownership to count as proof of student-hood.
     await ctx.db.insert("workspaces", {
       name: "Legacy Workspace",
       ownerId: "user_legacy_workspace_owner",
       isPublic: false,
       studentImageCount: 0,
       instructorImageCount: 0,
+      type: "mentorship",
     });
   });
 
@@ -480,6 +483,96 @@ test("backfillNotificationPreferences: stamps role=student AND preference for le
       .query("users")
       .withIndex("by_userId", (q) =>
         q.eq("userId", "user_legacy_workspace_owner")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
+});
+
+test("backfillNotificationPreferences: skips legacy user with undefined role who owns an admin_instructor workspace", async () => {
+  // Greptile R4 P1: `admin_instructor` workspaces store an
+  // administrator in `ownerId`, not a student. Treating any
+  // ownership as proof of student-hood would silently promote
+  // admins to `"student"` and shift their role-based
+  // authorization and navigation. The migration must filter on
+  // workspace type.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_admin_instructor_owner",
+      email: "admin-instructor-owner@example.com",
+      clerkId: "clerk_admin_instructor_owner",
+      // role intentionally undefined — these are legacy records
+      // too, just not the ones we want to promote.
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Admin Instructor Workspace",
+      ownerId: "user_admin_instructor_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "admin_instructor",
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_admin_instructor_owner")
+      )
+      .first();
+  });
+  expect(stored?.role).toBeUndefined();
+  expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("backfillNotificationPreferences: legacy user with one admin_instructor AND one mentorship workspace gets promoted (filter picks the student one)", async () => {
+  // Mixed-workspace-owner case: a user who happens to own an
+  // `admin_instructor` workspace AND a `mentorship` workspace
+  // (e.g., they transitioned roles). The migration must
+  // recognize the student workspace, not blindly reject all
+  // because of the admin one.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_mixed_owner",
+      email: "mixed-owner@example.com",
+      clerkId: "clerk_mixed_owner",
+      // role undefined
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Admin Instructor Side Workspace",
+      ownerId: "user_mixed_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "admin_instructor",
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Mentorship Workspace",
+      ownerId: "user_mixed_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      type: "mentorship",
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_mixed_owner")
       )
       .first();
   });
@@ -538,6 +631,7 @@ test("backfillNotificationPreferences: legacy workspace-owner with existing opt-
       isPublic: false,
       studentImageCount: 0,
       instructorImageCount: 0,
+      type: "mentorship",
     });
   });
 
