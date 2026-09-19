@@ -208,31 +208,41 @@ export const updateUser = mutation({
  * PR #4: set a single key on `notificationPreferences`.
  *
  * Authorization: the caller must (a) be authenticated, (b) own
- * the user record being updated, and (c) have role "student".
- * The student-only gate mirrors the email pipeline's audience:
- * `recordingReadyEmail` is meaningful only for students (who own
- * the workspace where recordings live), so writing it for any
- * other role would be dead data. Future keys with broader
- * audiences will need either a per-key role whitelist or a
- * dedicated mutation — see `ALLOWED_KEYS_BY_ROLE` below.
+ * the user record being updated, and (c) be eligible to write
+ * notification preferences. Eligibility is:
+ *
+ *   - `role === "student"` — explicit student.
+ *   - `role === undefined` — legacy record, NOT YET classified.
+ *     `syncUser` can preserve an undefined role on records
+ *     created before role assignment was enforced (Greptile
+ *     R3 P1). The UI surfaces the toggle to these users via
+ *     Clerk-derived workspace role, so blocking them at the
+ *     backend would create a UX dead-end. The migration
+ *     `backfillNotificationPreferences` stamps their `role`
+ *     after classifying via workspace ownership; once it runs,
+ *     no undefined roles remain and this branch is never hit.
+ *
+ * Anything else (`instructor` / `admin` / `video_editor` /
+ * `support`) — rejected with "Only students can save
+ * notification preferences". Recording-ready email is meaningful
+ * only for students, so writing the preference for any other
+ * role would be dead data.
+ *
+ * Future keys with broader audiences will need either a per-key
+ * role whitelist or a dedicated mutation — see `ALLOWED_KEYS`
+ * below.
  *
  * The `key` argument is a free-form string but validated against
  * a server-side whitelist so a client cannot pollute the
- * preference blob. Adding a new key = append to
- * `ALLOWED_KEYS_BY_ROLE` here. The value is type-checked by
- * Convex's `v.boolean()`.
+ * preference blob. Adding a new key = append to `ALLOWED_KEYS`
+ * here. The value is type-checked by Convex's `v.boolean()`.
  *
  * Existing keys are preserved: the new value is shallow-merged
  * into the existing blob, so future toggles (e.g.,
  * `inAppBannerDismissed`) won't be wiped when the user changes
  * the recording-ready toggle.
  */
-const ALLOWED_KEYS_BY_ROLE: Record<
-  "student",
-  ReadonlyArray<string>
-> = {
-  student: ["recordingReadyEmail"],
-};
+const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
 
 export const setNotificationPreference = mutation({
   args: {
@@ -249,16 +259,17 @@ export const setNotificationPreference = mutation({
       .first();
     if (!currentUser) throw new Error("Unauthorized");
 
-    if (currentUser.role !== "student") {
+    const isExplicitStudent = currentUser.role === "student";
+    const isLegacyUnclassified = currentUser.role === undefined;
+    if (!isExplicitStudent && !isLegacyUnclassified) {
       throw new Error(
         "Only students can save notification preferences"
       );
     }
 
-    const allowedKeys = ALLOWED_KEYS_BY_ROLE[currentUser.role];
-    if (!allowedKeys.includes(args.key)) {
+    if (!ALLOWED_KEYS.includes(args.key)) {
       throw new Error(
-        `Unsupported notification preference key: ${args.key}. Allowed: ${allowedKeys.join(", ")}`
+        `Unsupported notification preference key: ${args.key}. Allowed: ${ALLOWED_KEYS.join(", ")}`
       );
     }
 

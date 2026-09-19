@@ -409,3 +409,152 @@ test("setNotificationPreference: attacker who supplies a fabricated subject is r
       })
   ).rejects.toThrow(/Unauthorized/);
 });
+
+test("setNotificationPreference: legacy user with undefined role is accepted (backfill-window safety net)", async () => {
+  // Greptile R3 P1: `syncUser` can preserve an undefined Convex
+  // role on legacy records, while the UI surfaces the toggle to
+  // those users via Clerk-derived workspace role. Without a
+  // safety net the mutation would block them from opting out.
+  // This test proves the mutation accepts undefined-role users
+  // (the migration will eventually stamp their role).
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_legacy_undefined",
+      email: "legacy-undefined@example.com",
+      clerkId: "clerk_legacy_undefined",
+      // role intentionally undefined
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_legacy_undefined" })
+    .mutation(api.users.setNotificationPreference, {
+      key: "recordingReadyEmail",
+      value: false,
+    });
+
+  expect(result.ok).toBe(true);
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_legacy_undefined")
+      )
+      .first();
+  });
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: false,
+  });
+});
+
+test("backfillNotificationPreferences: stamps role=student AND preference for legacy workspace-owner with undefined role", async () => {
+  // Greptile R3 P1: legacy records can have `role === undefined`
+  // AND own a workspace. Without this branch, the migration
+  // skips them and the mutation would still be blocking them.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_legacy_workspace_owner",
+      email: "legacy-owner@example.com",
+      clerkId: "clerk_legacy_owner",
+      // role intentionally undefined
+    });
+    // Seed a workspace for this user.
+    await ctx.db.insert("workspaces", {
+      name: "Legacy Workspace",
+      ownerId: "user_legacy_workspace_owner",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_legacy_workspace_owner")
+      )
+      .first();
+  });
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: true,
+  });
+});
+
+test("backfillNotificationPreferences: skips legacy user with undefined role AND no workspace", async () => {
+  // A user with undefined role who doesn't own a workspace is
+  // not a student by any signal — skip them. Defense against
+  // accidentally promoting an unknown role to "student".
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_orphan_undefined",
+      email: "orphan-undefined@example.com",
+      clerkId: "clerk_orphan_undefined",
+      // role undefined, no workspace
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_orphan_undefined")
+      )
+      .first();
+  });
+  expect(stored?.role).toBeUndefined();
+  expect(stored?.notificationPreferences).toBeUndefined();
+});
+
+test("backfillNotificationPreferences: legacy workspace-owner with existing opt-out is left alone", async () => {
+  // A legacy student who already opted out (via a previous
+  // future-UI run, or some other path) should NOT have their
+  // preference rewritten. The migration must respect prior
+  // choice even for implicit students.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_legacy_with_optout",
+      email: "legacy-optout@example.com",
+      clerkId: "clerk_legacy_optout",
+      notificationPreferences: { recordingReadyEmail: false },
+    });
+    await ctx.db.insert("workspaces", {
+      name: "Legacy Optout Workspace",
+      ownerId: "user_legacy_with_optout",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+  });
+
+  await t.mutation(internal.migrations.backfillNotificationPreferences, {});
+
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_legacy_with_optout")
+      )
+      .first();
+  });
+  // role still gets stamped (the migration is responsible for
+  // role classification), but the opt-out preference is preserved.
+  expect(stored?.role).toBe("student");
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: false,
+  });
+});

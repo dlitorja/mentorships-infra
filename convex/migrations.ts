@@ -117,18 +117,33 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  * on existing student users so the recording-ready email pipeline
  * (PR #2) sends to them by default.
  *
- * Only touches students: instructors/admins/etc. don't have a
- * per-user inbox on the recordings surface, so opting them in or
- * out has no meaning. A student whose preference blob already
- * contains `recordingReadyEmail` (whether true OR false — the
- * student may have already opted out via a future UI) is left
- * alone, so this migration is safe to re-run and respects prior
- * choice.
+ * Eligibility:
+ *   - `role === "student"` — explicit students.
+ *   - `role === undefined` AND the user owns at least one workspace —
+ *     "implicit" students. The UI surfaces the toggle to them
+ *     (Clerk-derived workspace role says student), but
+ *     `syncUser` can preserve an undefined Convex role on legacy
+ *     records (Greptile R3 P1). Without this branch, those users
+ *     would see the switch and have every save rejected by
+ *     `setNotificationPreference`.
+ *   - Anything else (instructor / admin / video_editor / support /
+ *     undefined-without-workspace) — skipped. They don't have a
+ *     per-user inbox on the recordings surface.
+ *
+ * A student whose preference blob already contains
+ * `recordingReadyEmail` (whether true OR false — the student may
+ * have already opted out via the UI) is left alone, so this
+ * migration is safe to re-run and respects prior choice.
  *
  * Students whose preference blob is missing OR malformed (not a
  * plain object, or `recordingReadyEmail` is set to a non-boolean
  * value) get a fresh blob with `recordingReadyEmail: true` and
  * any other well-known keys preserved.
+ *
+ * Implicit students also get `role` stamped to `"student"` so
+ * the row converges with the rest of the table — without that
+ * stamp, the mutation's role gate would still be lenient for
+ * them indefinitely.
  *
  * Why `@convex-dev/migrations` instead of a hand-rolled cursor
  * batch (`backfillRecordingExpiry` style): this table is small
@@ -152,8 +167,9 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
 export const backfillNotificationPreferences = migrations.define({
   table: "users",
   migrateOne: async (
-    _ctx,
+    ctx,
     user: {
+      userId?: string;
       role?:
         | "student"
         | "instructor"
@@ -163,7 +179,19 @@ export const backfillNotificationPreferences = migrations.define({
       notificationPreferences?: unknown;
     }
   ): Promise<Partial<typeof user> | undefined> => {
-    if (user.role !== "student") return undefined;
+    let isImplicitStudent = false;
+    if (user.role === undefined) {
+      const ownerId = user.userId;
+      if (typeof ownerId !== "string") return undefined;
+      const ws = await ctx.db
+        .query("workspaces")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .first();
+      isImplicitStudent = ws !== null;
+    }
+
+    const isEligibleStudent = user.role === "student" || isImplicitStudent;
+    if (!isEligibleStudent) return undefined;
 
     const existing = user.notificationPreferences;
     const existingIsObject =
@@ -171,19 +199,26 @@ export const backfillNotificationPreferences = migrations.define({
       typeof existing === "object" &&
       !Array.isArray(existing);
 
+    let shouldStampPreference = true;
     if (existingIsObject) {
       const obj = existing as Record<string, unknown>;
       if (typeof obj.recordingReadyEmail === "boolean") {
-        return undefined;
+        shouldStampPreference = false;
       }
     }
 
-    const merged: Record<string, unknown> = existingIsObject
-      ? { ...(existing as Record<string, unknown>) }
-      : {};
-    merged.recordingReadyEmail = true;
-
-    return { notificationPreferences: merged };
+    const patch: Partial<typeof user> = {};
+    if (isImplicitStudent) {
+      patch.role = "student";
+    }
+    if (shouldStampPreference) {
+      const merged: Record<string, unknown> = existingIsObject
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+      merged.recordingReadyEmail = true;
+      patch.notificationPreferences = merged;
+    }
+    return Object.keys(patch).length > 0 ? patch : undefined;
   },
 });
 
