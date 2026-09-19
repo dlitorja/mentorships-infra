@@ -139,7 +139,15 @@ export const runNormalizeAllInstructorEmails = migrations.runner(
  * so this is the precedent.
  *
  * Usage (after PR #4 merges):
- *   npx convex run --prod migrations:run '{"fn":"migrations:runBackfillNotificationPreferences"}'
+ *   npx convex run --prod migrations:run '{"fn":"migrations:backfillNotificationPreferences"}'
+ *
+ * The `fn` argument names the migration returned by
+ * `migrations.define(...)` — the generic `migrations:run` runner
+ * then dispatches to it. The bound runner
+ * (`migrations:runBackfillNotificationPreferences`) is for code
+ * that wants to invoke the migration without going through the
+ * generic runner; the CLI prefers the migration-name form so
+ * the call site matches the schema source-of-truth.
  */
 export const backfillNotificationPreferences = migrations.define({
   table: "users",

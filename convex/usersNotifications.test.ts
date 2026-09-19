@@ -314,3 +314,75 @@ test("backfillNotificationPreferences: is idempotent on re-run", async () => {
     recordingReadyEmail: true,
   });
 });
+
+test("setNotificationPreference: instructor authenticated as themselves can save their own row", async () => {
+  // The mutation is self-authenticating: it writes only to the
+  // caller's own row. Instructors don't receive recording-ready
+  // emails (the email pipeline targets students), but the
+  // backend is intentionally permissive — the frontend gates
+  // the toggle visibility by `viewerRole`, and tests confirm the
+  // backend doesn't reject valid self-writes from non-students.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await seedStudentUser(t, { notificationPreferences: undefined });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_instructor_pr4",
+      email: "instructor-pr4-self@example.com",
+      clerkId: "clerk_instructor_pr4_self",
+      role: "instructor",
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_instructor_pr4" })
+    .mutation(api.users.setNotificationPreference, {
+      key: "recordingReadyEmail",
+      value: false,
+    });
+
+  expect(result.ok).toBe(true);
+  const stored = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", "user_instructor_pr4"))
+      .first();
+  });
+  expect(stored?.notificationPreferences).toMatchObject({
+    recordingReadyEmail: false,
+  });
+});
+
+test("setNotificationPreference: attacker who supplies a fabricated subject is rejected", async () => {
+  // Defense in depth: even if a future caller tries to forge an
+  // identity, the server-side `ctx.auth.getUserIdentity()` is the
+  // source of truth. The test below proves that an identity
+  // pointing at a non-existent userId fails closed.
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  await seedStudentUser(t, {
+    userId: "user_real_target",
+    notificationPreferences: { recordingReadyEmail: true },
+  });
+
+  await expect(
+    t
+      .withIdentity({ subject: "user_real_target" })
+      .mutation(api.users.setNotificationPreference, {
+        key: "recordingReadyEmail",
+        value: false,
+      })
+  ).resolves.toMatchObject({ ok: true });
+
+  // Now switch identity — even if it matched the real user's
+  // userId at the call site, the next call is for a different
+  // subject and should not find a matching row.
+  await expect(
+    t
+      .withIdentity({ subject: "user_no_such_user" })
+      .mutation(api.users.setNotificationPreference, {
+        key: "recordingReadyEmail",
+        value: false,
+      })
+  ).rejects.toThrow(/Unauthorized/);
+});

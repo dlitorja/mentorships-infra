@@ -108,7 +108,7 @@ Idempotent: if the B2 callback fires twice (Trigger retry + Convex success), the
 | 1 | **Schema widen + visibility gate** | ✅ yes (`recordingReadyNotifications` table, `users.notificationPreferences` field) | New table, new field, internal query, new HTTP routes, Trigger task that runs the visibility gate (writes `pending_visibility` → `ready_to_send` row; does NOT email yet) |
 | 2 | **Email send** | no | Resend template + email fanout wired into the Trigger task. Respects `users.notificationPreferences.recordingReadyEmail`. |
 | 3 | **Bell wiring** | ✅ widens `inCallNotifications.kind` | Bell renders both call invites + recording-ready rows. New deep-link route param `?videos={sessionId}`. **Merged** as PR #852 (`945850f1`). |
-| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch. Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. **Not started.** |
+| 4 | **Videos tab UI toggle** | no | Inline card in `calls-tab.tsx`, per-student switch (role-gated, optimistic UI). Backfill: `migrations:backfillNotificationPreferences` sets default `true` for all existing students. **Open** as PR #853 (`058c22e1`). |
 
 ## Files
 
