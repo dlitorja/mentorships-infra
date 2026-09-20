@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PRs 3–7 planned.  
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 in review (#856, latest push `da6c1f75`, CI green, awaiting Greptile re-review after P1/P2 fixes); PRs 4–7 planned.  
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -30,7 +30,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | - | --- | --- | --- | --- |
 | 1 | `feat/marketing-convex-foundation` | feat(marketing): add Convex provider stack to mirror apps/platform (#854) | ✅ Merged | Add `ConvexClientProvider` + `QueryProvider` + deps (`convex`, `@convex-dev/react-query`, `@tanstack/react-query`, `@tanstack/react-query-devtools`). Update root layout to wrap with both. |
 | 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | ✅ Merged (#855, commit `dfd02516`) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
-| 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | Pending | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). |
+| 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | 🔄 In review (#856, commit `da6c1f75`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple to handle role downgrades / account switches. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | Pending | Mirror apps/platform `app/admin/instructors/page.tsx` (`useAllInstructors` + `deleteAdminInstructor` + `BackfillImagesPanel`). This is the page that fixes the original 500. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Pending | Marketing-only page. Move inventory data to Convex (`api.adminInventory.*`) so the data layer is single-source. |
@@ -73,6 +73,29 @@ Risks:
 - The Clerk-claims OR email-allowlist decision is a *deliberate* widening, not a tightening. Anyone with `publicMetadata.role === 'admin'` in Clerk can access marketing admin, regardless of the marketing-specific `ADMIN_EMAILS` list. This matches the apps/platform model (where platform admin = Clerk admin, with no separate allowlist). If a separate "marketing-only admin" concept is ever introduced, this branch needs to become `Clerk role === 'admin' && email in ADMIN_EMAILS`.
 - The user `admin@huckleberry.art` has `publicMetadata.role = "admin"` in Clerk (verified via `clerk users list --instance prod`), so they retain admin access under both checks.
 - Apps/platform's `requireRole` (`getDbUser()` → Supabase) is *not* mirrored 1:1 — apps/marketing's `getDbUser()` already reads Supabase and is left untouched for non-admin call sites (e.g. instructor portal pages). The new `resolveUserRole()` is Clerk-only and used only for the admin gate.
+
+---
+
+## 4a. PR 3 spec (admin dashboard + role sync)
+
+**Status:** 🔄 In review as PR #856. Latest push commit `da6c1f75` on `feat/marketing-admin-dashboard`. All CI checks green (typecheck, lint, build, unit, e2e, convex). Vercel preview deployed; new `/api/auth/sync` route returns 302→sign-in when called unauthenticated (expected). Awaiting Greptile re-review after P1/P2 fixes.
+
+**Why a server-side `/api/auth/sync` route:** the client-side `api.users.syncUser` mutation in `convex/users.ts:308` runs as the *user* identity and intentionally refuses to set `role` to anything more privileged than what the caller already is. Without the trusted path, first-time admin sign-in leaves `users.role` empty and `convex/admin.ts:isAdminUser` gates `/admin`. Apps/platform avoids this with a Clerk webhook → Inngest → `internal.users.setUserRoleTrusted` chain (`apps/platform/app/api/webhooks/clerk/route.ts`); apps/marketing has no webhook, so the `/api/auth/sync` route is the equivalent. It uses `CONVEX_HTTP_KEY` bearer against the existing `convex/http.ts` httpAction `/users/set-role`, which calls `internal.users.setUserRoleTrusted`.
+
+**Files in PR 3 (so far):**
+- `apps/marketing/app/admin/page.tsx` — replaced `getAdminStats()` Supabase call with `useQuery(api.admin.getStats)`. Quick actions use `<Button asChild><Link>` (no nested interactive controls). No `requireAdmin()` call (layout handles).
+- `apps/marketing/app/admin/admin-stats.tsx` (new) — 4 stats cards via `useQuery(api.admin.getStats)`.
+- `apps/marketing/app/admin/admin-instructors-section.tsx` (new) — preview via `useQuery(api.admin.getInstructorsForAdmin, { pageSize: 5 })`. Server-side `deletedAt + isActive` filter is the source of truth; client-side `i.isActive` filter is a defensive double-check.
+- `apps/marketing/tsconfig.json` — added `"@/convex/_generated/*": ["../../convex/_generated/*"]` so `api.users.*` etc. resolve.
+- `apps/marketing/lib/providers/query-provider.tsx` — `AuthDrivenInvalidator` now calls `fetch('/api/auth/sync')` instead of `useMutation(api.users.syncUser)` directly. Tracks `(userId, role)` tuple so role downgrades / account switches re-sync. Added `convexAuthLoading` + `clerkLoaded` guards and `inFlightRef` to avoid double-fire; error path leaves tuple unset so next run retries.
+- `apps/marketing/app/api/auth/sync/route.ts` (new) — GET, no body. Reads Clerk `auth()`, calls `resolveUserRole()` (claims → Backend API fallback), POSTs to Convex `/users/set-role`. Returns `{success, user, clerkIsAdmin}` on hit, `{noop}` when Clerk has no role, `{error}` on Convex failure. Bearer value (`CONVEX_HTTP_KEY`) never logged.
+- `apps/marketing/lib/convex-server-call.ts` (new) — verbatim mirror of `apps/platform/lib/convex-server-call.ts`. `CONVEX_HTTP_KEY` bearer, `.convex.cloud → .convex.site` rewrite, no retry.
+- `convex/admin.ts:getInstructorsForAdmin` — server-side filter `i.deletedAt == null && i.isActive !== false`. Comment notes Convex indexes do not support "not-equal" filtering; collect+filter is fine for the admin list size; if it grows, add a `by_deletedAt` partial index or denormalized `isListed`.
+
+**Risks:**
+- The trusted endpoint at `convex/http.ts` `httpServerVerifiedSetUserRole` already exists and was hardened in PRs #669–#675 (shared-secret path removed). Apps/marketing just consumes it; no new auth surface.
+- Apps/platform's `requireRole` is unaffected by the `convex/admin.ts:getInstructorsForAdmin` filter change — the platform admin listing already returned non-deleted rows because `apps/platform/app/admin/instructors/page.tsx` uses `useSuspenseQuery(api.admin.getAllInstructors)` which has its own (unchanged) filter path. If a regression appears, narrow the filter to a new arg rather than removing it.
+- The `AuthDrivenInvalidator` only calls `/api/auth/sync` when the user is signed in AND Clerk has loaded AND Convex auth has resolved. Edge case: if Clerk signs the user out mid-session, the next effect run triggers a re-sync only if `sessionClaims` changes. A complete role deactivation in Clerk Dashboard does not auto-propagate until the user's JWT expires; this is acceptable for marketing's scale (≤5 admins).
 
 ---
 
