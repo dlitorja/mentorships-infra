@@ -66,7 +66,7 @@ export default async function DashboardPage() {
               Welcome back, {user.email}
             </p>
           </div>
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </div>
 
         {lowSessionPacks.length > 0 && (

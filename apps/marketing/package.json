@@ -13,7 +13,7 @@
     "node": "^24.0.0"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.35.5",
+    "@clerk/nextjs": "^7.9.4",
     "@mentorships/schemas": "workspace:*",
     "@mentorships/ui": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
