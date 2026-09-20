@@ -687,7 +687,14 @@ export const getFullAdminCsvData = query({
     await requireAdmin(ctx);
 
     const sessionPacks = await ctx.db.query("sessionPacks").collect();
-    const seats = await ctx.db.query("seatReservations").collect();
+    // Greptile P1: only export packs that have an enrollment seat.
+    // Orphaned packs (no reservation) shouldn't appear as students.
+    const seatPackIds = new Set(
+      (await ctx.db.query("seatReservations").collect()).map((sr) => sr.sessionPackId)
+    );
+    const seatsByPackId = new Map(
+      (await ctx.db.query("seatReservations").collect()).map((sr) => [sr.sessionPackId, sr])
+    );
     const allCompleted = await ctx.db
       .query("sessions")
       .withIndex("by_status", (q) => q.eq("status", "completed"))
@@ -715,23 +722,25 @@ export const getFullAdminCsvData = query({
       completedByPack.set(s.sessionPackId, cur);
     }
 
-    const rows: FullAdminReportRow[] = sessionPacks.map((p) => {
-      const seat = seats.find((sr) => sr.sessionPackId === p._id);
-      const instructor = instructorById.get(p.instructorId);
-      const instructorUserId = instructor?.userId ?? "";
-      const completed = completedByPack.get(p._id);
-      return {
-        instructorEmail: (instructorUserId && emailByUserId.get(instructorUserId)) ?? instructor?.email ?? null,
-        studentEmail: emailByUserId.get(p.userId) ?? null,
-        totalSessions: p.totalSessions,
-        remainingSessions: p.remainingSessions,
-        packStatus: p.status,
-        packExpiresAt: p.expiresAt ?? null,
-        lastSessionDate: completed?.lastAt ?? null,
-        completedSessionsCount: completed?.count ?? 0,
-        seatStatus: seat?.status ?? "released",
-      };
-    });
+    const rows: FullAdminReportRow[] = sessionPacks
+      .filter((p) => seatPackIds.has(p._id))
+      .map((p) => {
+        const seat = seatsByPackId.get(p._id)!;
+        const instructor = instructorById.get(p.instructorId);
+        const instructorUserId = instructor?.userId ?? "";
+        const completed = completedByPack.get(p._id);
+        return {
+          instructorEmail: (instructorUserId && emailByUserId.get(instructorUserId)) ?? instructor?.email ?? null,
+          studentEmail: emailByUserId.get(p.userId) ?? null,
+          totalSessions: p.totalSessions,
+          remainingSessions: p.remainingSessions,
+          packStatus: p.status,
+          packExpiresAt: p.expiresAt ?? null,
+          lastSessionDate: completed?.lastAt ?? null,
+          completedSessionsCount: completed?.count ?? 0,
+          seatStatus: seat.status,
+        };
+      });
 
     return rows.sort((a, b) => (b.lastSessionDate ?? 0) - (a.lastSessionDate ?? 0));
   },

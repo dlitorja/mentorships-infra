@@ -385,17 +385,16 @@ export function InstructorsTable() {
     setSearchInput(urlSearch);
   }, [urlSearch]);
 
-  const { results, status, loadMore, isLoading } = useInstructorsWithStatsForAdmin({
-    search: search || undefined,
-    // Greptile P2: when searching, fetch a larger initial window so
-    // email matches beyond the first 50 aren't silently omitted —
-    // the Convex paginate() runs on the raw unfiltered list, and we
-    // filter after. Once the search term changes back, fall back to
-    // the standard page size.
-    initialNumItems: search ? 500 : PAGE_SIZE,
-  });
-  const instructors: InstructorWithStats[] = results ?? [];
-  const canLoadMore = status === "CanLoadMore";
+  const { data: instructors, error, isLoading, canLoadMore, loadMore, isFetchingMore } =
+    useInstructorsWithStatsForAdmin({
+      search: search || undefined,
+      // Greptile P2: when searching, fetch a larger initial window so
+      // email matches beyond the first 50 aren't silently omitted —
+      // the Convex paginate() runs on the raw unfiltered list, and we
+      // filter after. Once the search term changes back, fall back to
+      // the standard page size.
+      pageSize: search ? 500 : PAGE_SIZE,
+    });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -447,7 +446,13 @@ export function InstructorsTable() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && instructors.length === 0 ? (
+            {error ? (
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-destructive">
+                  Failed to load instructors. Please try again.
+                </td>
+              </tr>
+            ) : isLoading ? (
               <tr>
                 <td colSpan={6} className="p-8 text-center">
                   <div className="flex items-center justify-center">
@@ -473,7 +478,7 @@ export function InstructorsTable() {
             )}
           </tbody>
         </table>
-        {status === "LoadingMore" && instructors.length > 0 && (
+        {isFetchingMore && instructors.length > 0 && (
           <div className="text-xs text-muted-foreground p-2 border-t bg-muted/20">
             Loading more…
           </div>
@@ -483,7 +488,7 @@ export function InstructorsTable() {
       <div className="flex items-center justify-between mt-4">
         <p className="text-sm text-muted-foreground">
           Showing {instructors.length} instructor{instructors.length === 1 ? "" : "s"}
-          {status === "Exhausted" ? "" : canLoadMore ? " (more available)" : ""}
+          {canLoadMore ? " (more available)" : ""}
         </p>
         <div className="flex gap-2">
           <Button
