@@ -1,7 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import {
+  convexQuery,
+  useConvexMutation,
+  useConvexPaginatedQuery,
+} from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -62,24 +66,27 @@ export type FullAdminReportRow = {
 };
 
 /**
- * Fetches the paginated instructor list for the admin table.
- * Replaces `getAllInstructorsWithStats(search, page, pageSize)` from
+ * Cursor-paginated instructor list for the admin table. Replaces
+ * `getAllInstructorsWithStats(search, page, pageSize)` from
  * `packages/db/src/lib/queries/admin.ts` (the source of the
  * `operator does not exist: text = uuid` 500 in marketing's
  * `/admin/instructors` page).
+ *
+ * The Convex query uses `paginate()` for bounded, non-repeating
+ * pages. `useConvexPaginatedQuery` returns `{results, status,
+ * loadMore}` where `status === "Exhausted"` indicates no more
+ * pages remain.
  */
 export function useInstructorsWithStatsForAdmin(args: {
   search?: string;
-  page?: number;
-  pageSize?: number;
+  initialNumItems?: number;
 }) {
-  return useQuery({
-    ...convexQuery(api.admin.getInstructorsWithStatsForAdmin, {
-      search: args.search,
-      page: args.page,
-      pageSize: args.pageSize,
-    }),
-  });
+  const numItems = args.initialNumItems ?? 50;
+  return useConvexPaginatedQuery(
+    api.admin.getInstructorsWithStatsForAdmin,
+    { search: args.search },
+    { initialNumItems: numItems },
+  );
 }
 
 /**

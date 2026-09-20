@@ -8,7 +8,6 @@ import {
   Download,
   Search,
   Users,
-  ChevronLeft,
   ChevronRight as ChevronRightIcon,
   Plus,
   Minus,
@@ -366,36 +365,25 @@ export function InstructorsTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Greptile P1: initialize from URL so direct visits, bookmarks, and
-  // browser back/forward restore the same view. `searchParams` is
-  // stable across renders (Next.js caches the readonly params), so
-  // this is effectively a lazy initializer.
+  // Greptile P1: initialize search from URL so direct visits,
+  // bookmarks, and back/forward restore the same view. Pagination
+  // is cursor-based via `useConvexPaginatedQuery`, so we don't
+  // mirror page numbers in the URL anymore.
   const initialSearch = searchParams?.get("search") ?? "";
-  const initialPageRaw = searchParams?.get("page");
-  const initialPage = initialPageRaw ? Math.max(1, parseInt(initialPageRaw, 10) || 1) : 1;
 
-  const [page, setPage] = useState(initialPage);
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [search, setSearch] = useState(initialSearch);
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
 
-  const { data, isLoading, isFetching, error } = useInstructorsWithStatsForAdmin({
+  const { results, status, loadMore, isLoading } = useInstructorsWithStatsForAdmin({
     search: search || undefined,
-    page,
-    pageSize: PAGE_SIZE,
+    initialNumItems: PAGE_SIZE,
   });
-  const instructors: InstructorWithStats[] = data?.instructors ?? [];
-  // `total` is the length of the current page (bounded `.take(N)` read
-  // in the Convex query). For pagination we treat it as a hint: if
-  // the page came back full, there may be more rows to discover, so
-  // we always show the "Next" button when full or any prior page.
-  const total: number = data?.total ?? 0;
-  const isFullPage = instructors.length >= PAGE_SIZE;
-  const totalPages = Math.max(page, isFullPage ? page + 1 : page);
+  const instructors: InstructorWithStats[] = results ?? [];
+  const canLoadMore = status === "CanLoadMore";
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
     setSearch(searchInput);
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     if (searchInput) {
@@ -403,15 +391,6 @@ export function InstructorsTable() {
     } else {
       params.delete("search");
     }
-    params.delete("page");
-    router.push(`/admin/instructors?${params.toString()}`);
-  };
-
-  const handlePageChange = (newPage: number) => {
-    if (newPage < 1) return;
-    setPage(newPage);
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
-    params.set("page", newPage.toString());
     router.push(`/admin/instructors?${params.toString()}`);
   };
 
@@ -453,13 +432,7 @@ export function InstructorsTable() {
             </tr>
           </thead>
           <tbody>
-            {error ? (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-destructive">
-                  Failed to load instructors. Please try again.
-                </td>
-              </tr>
-            ) : isLoading && instructors.length === 0 ? (
+            {isLoading && instructors.length === 0 ? (
               <tr>
                 <td colSpan={6} className="p-8 text-center">
                   <div className="flex items-center justify-center">
@@ -485,36 +458,27 @@ export function InstructorsTable() {
             )}
           </tbody>
         </table>
-        {isFetching && !isLoading && instructors.length > 0 && (
+        {status === "LoadingMore" && instructors.length > 0 && (
           <div className="text-xs text-muted-foreground p-2 border-t bg-muted/20">
-            Refreshing…
+            Loading more…
           </div>
         )}
       </div>
 
       <div className="flex items-center justify-between mt-4">
         <p className="text-sm text-muted-foreground">
-          Showing {instructors.length} instructor{instructors.length === 1 ? "" : "s"} on page {page}
+          Showing {instructors.length} instructor{instructors.length === 1 ? "" : "s"}
+          {status === "Exhausted" ? "" : canLoadMore ? " (more available)" : ""}
         </p>
         <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => handlePageChange(page - 1)}
-            disabled={page === 1}
+            onClick={() => loadMore(PAGE_SIZE)}
+            disabled={!canLoadMore}
           >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="flex items-center px-3 text-sm">
-            Page {page}{isFullPage ? "+" : ""}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handlePageChange(page + 1)}
-            disabled={!isFullPage}
-          >
-            <ChevronRightIcon className="h-4 w-4" />
+            <ChevronRightIcon className="h-4 w-4 mr-1" />
+            Load more
           </Button>
         </div>
       </div>

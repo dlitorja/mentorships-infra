@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
@@ -497,25 +498,33 @@ async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
 export const getInstructorsWithStatsForAdmin = query({
   args: {
     search: v.optional(v.string()),
-    page: v.optional(v.number()),
-    pageSize: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
-  handler: async (ctx, args): Promise<{ instructors: InstructorWithStats[]; total: number }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    page: InstructorWithStats[];
+    isDone: boolean;
+    continueCursor: string;
+  }> => {
     await requireAdmin(ctx);
 
-    const pageSize = Math.min(args.pageSize ?? 50, 100);
+    // Greptile P1: cursor-based pagination via `paginate()` so
+    // subsequent pages don't repeat the first window. The
+    // `by_deletedAt` partial index covers the active-instructor
+    // filter; `paginate()` handles cursor + ordering.
+    const numItems = Math.min(args.paginationOpts.numItems ?? 50, 100);
 
-    // `.take(pageSize)` bounds the instructor scan to a single page.
-    // For a global `total` count we still have to walk the index, but
-    // the per-page work is now O(pageSize) instead of O(active
-    // instructors × global seats × global completed sessions).
-    const page = await ctx.db
+    const result = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .take(pageSize);
+      .paginate({ ...args.paginationOpts, numItems });
+
+    const rows = result.page;
 
     const userIds = Array.from(
-      new Set(page.map((i) => i.userId).filter((u): u is string => !!u))
+      new Set(rows.map((i) => i.userId).filter((u): u is string => !!u))
     );
     const users = userIds.length
       ? await Promise.all(
@@ -533,7 +542,7 @@ export const getInstructorsWithStatsForAdmin = query({
     // `by_instructorId_status` index (bounded to this page's IDs).
     const seatsByInstructor = new Map<string, number>();
     await Promise.all(
-      page.map(async (i) => {
+      rows.map(async (i) => {
         const seats = await ctx.db
           .query("seatReservations")
           .withIndex("by_instructorId_status", (q) =>
@@ -544,7 +553,7 @@ export const getInstructorsWithStatsForAdmin = query({
       })
     );
 
-    const enriched: InstructorWithStats[] = page
+    const enriched: InstructorWithStats[] = rows
       .map((i) => {
         const userId = i.userId ?? "";
         return {
@@ -561,20 +570,15 @@ export const getInstructorsWithStatsForAdmin = query({
       })
       .filter((row) => !!row.userId && !!row.email);
 
-    // `total` is approximated from the page size. The UI uses this
-    // only to decide whether to render the pagination footer; a
-    // follow-up query (`getInstructorsWithStatsForAdmin({search})` with
-    // an empty pageSize) can return an exact count when needed. For
-    // search-filtered results we report the page length so the user
-    // knows whether more matches exist.
     const search = args.search?.trim().toLowerCase();
     const filtered = search
       ? enriched.filter((r) => r.email.toLowerCase().includes(search))
       : enriched;
 
     return {
-      instructors: filtered,
-      total: filtered.length,
+      page: filtered,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
     };
   },
 });
@@ -758,7 +762,14 @@ export const decrementRemainingSessions = mutation({
     if (!pack) throw new Error("Session pack not found");
 
     const newRemaining = Math.max(pack.remainingSessions - 1, 0);
-    const newStatus = newRemaining <= 0 ? "depleted" : pack.status;
+    // Greptile P1: only flip to `depleted` when the pack was active.
+    // Packs already in a terminal state (`refunded`, `expired`)
+    // must NOT be moved to `depleted` — that erases the terminal
+    // status an admin sees in the expanded view.
+    const newStatus =
+      newRemaining <= 0 && (pack.status === "active" || pack.status === "depleted")
+        ? "depleted"
+        : pack.status;
     await ctx.db.patch(pack._id, {
       remainingSessions: newRemaining,
       status: newStatus,
