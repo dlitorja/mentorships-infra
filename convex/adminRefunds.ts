@@ -378,11 +378,13 @@ export const processRefundForAdmin = action({
     const refundAmountStr = refundAmount.toFixed(2);
     const currency = payment.currency || "usd";
 
-    // Idempotency: include the client-supplied nonce so retries from the
-    // same modal share a provider key (dedupe = no double refund) while
-    // legitimate concurrent partial refunds of the same dollar amount
-    // from different modals each get a distinct key.
-    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${args.nonce}`;
+    // Idempotency: combine the client-supplied nonce with the acting
+    // admin's subject. Retries from the same modal reopen share a key
+    // (same nonce + same admin → dedupe at the provider → no double
+    // refund). Different admins issuing concurrent partial refunds of
+    // the same dollar amount get distinct keys (different subjects) and
+    // each proceed as a separate provider operation.
+    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${identity.subject}:${args.nonce}`;
 
     // Durable audit trail BEFORE the provider call so that, if the
     // post-call mutation fails (network drop, Convex outage, etc), an
