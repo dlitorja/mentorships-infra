@@ -33,7 +33,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | ✅ Merged (#856, commit `643327a1`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple with serialized drain loop to handle role downgrades / account switches / concurrent write races. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | ✅ Merged (#857, commit `c4ea241c`) | Five admin-gated Convex queries/mutations in `convex/admin.ts`: `getInstructorsWithStatsForAdmin` (cursor-paginated, `by_deletedAt` index, per-page `by_instructorId_status` seat counts), `getInstructorWithStudents` (per-instructor reads, seatless-pack filter, per-pack `by_sessionPackId` session aggregation), `getFullAdminCsvData` (orphan-pack filter, nonce cache-bust), `incrementRemainingSessions` (depleted→active flip), `decrementRemainingSessions` (preserves `refunded`/`expired` terminal statuses). New `apps/marketing/lib/queries/convex/use-instructors.ts` uses `useQueries` so all loaded pages stay reactively subscribed. URL-backed search, lazy CSV export, explicit error states. Verification tracked as HUC-35. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
-| 6a | `feat/marketing-port-addtowaitlist` | feat(marketing): port addToWaitlist to Convex (PR 6a) | Pending (next) | First prerequisite for PR 6. Replace Supabase-backed `addToWaitlist` (`lib/supabase-inventory.ts:169`, called from `components/instructors/offer-button.tsx:32`) with the existing Convex mutation `api.waitlist.addToWaitlist` (`convex/waitlist.ts:102`). Establishes Convex as the single source of truth for new student waitlist signups. Does **not** rewrite the Inngest worker (separate PR) — new Convex signups will not trigger email notifications until then. Tracking: HUC-38. Spec in §4e. |
+| 6a | `feat/marketing-port-addtowaitlist` | feat(marketing): port addToWaitlist to Convex (PR 6a) | **Paused (2026-09-20)** — needs expanded scope | First prerequisite for PR 6. Replace Supabase-backed `addToWaitlist` (`lib/supabase-inventory.ts:169`, called from `components/instructors/offer-button.tsx:32`) with a Convex **action** (not a direct mutation) so rate limiting + static-gen work correctly. First implementation reached 0/5 Greptile on commit `ae4e1001`; four P1 comments called out (a) static-gen crash because `useConvexMutation` runs at build time without a Convex provider, (b) mutation silently overwrites 1-on-1 vs group waitlist rows for the same `(email, instructorSlug)` pair, (c) Inngest worker still reads Supabase so new Convex signups miss notification emails, (d) `/api/waitlist`'s server-side Zod validation + per-IP rate limit are bypassed by going direct. Branch was reset to `main`, force-pushed, deleted from origin. Spec expansion tracked in §4e. Linear: HUC-38. |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Paused (blocked on PR 6a + Inngest worker rewrite) | Marketing-only page. Replaces the Supabase-backed `getAllInstructorsWithInventory` + `getWaitlistCounts` join with Convex (`api.instructors.getInstructorsForAdmin` + `api.waitlist.*` mutations). UX mirror of `apps/web/app/admin/inventory/page.tsx` (card grid, +/- buttons, View Waitlist modal with checkboxes). Static `lib/instructors.ts` retained for `has_pricing_*` display only. **Paused 2026-09-20**: live public waitlist signups went to Supabase `marketing_waitlist` via `components/instructors/offer-button.tsx:32`, while the new admin read/wrote Convex `marketingWaitlist`. Greptile flagged this as a structural source-of-truth divergence in PR 6 rounds 3 & 7 (1/5 confidence). **Resume order**: PR 6a (this row above) ports the write path → PR 6b (separate) rewrites the Inngest worker → then PR 6 against the §4d spec. Tracking: HUC-37. Spec in §4d. |
 | 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. |
 
@@ -245,33 +245,66 @@ Future PRs in this arc (5–7) must follow the same pattern. Greptile/CI will pa
 
 ## 4e. PR 6a spec (port marketing addToWaitlist to Convex)
 
-**Goal:** replace the Supabase-backed student-facing waitlist write path (`apps/marketing/components/instructors/offer-button.tsx:32` → `lib/supabase-inventory.ts:169` → `app/api/waitlist/route.ts` → Supabase `marketing_waitlist`) with a direct Convex mutation call. Establishes Convex as the single source of truth for new signups so PR 6's admin port can ship at ≥4/5 Greptile.
+**Goal:** replace the Supabase-backed student-facing waitlist write path (`apps/marketing/components/instructors/offer-button.tsx:32` → `lib/supabase-inventory.ts:169` → `app/api/waitlist/route.ts` → Supabase `marketing_waitlist`) with a **rate-limited, dedup-by-type, Convex action** invoked from the marketing app. Establishes Convex as the single source of truth for new signups so PR 6's admin port can ship at ≥4/5 Greptile.
 
-### Why this is a separate PR
+### Status: paused (2026-09-20) — scope expansion required
 
-PR 6 attempts at 7 commits settled at 1/5 Greptile confidence because the admin read/wrote Convex `marketingWaitlist` while student signups still landed in Supabase `marketing_waitlist`. The two tables diverge, so the admin cannot manage current demand. PR 6a closes the divergence on the write path without touching the admin page (PR 6) or the Inngest worker (a third PR after PR 6a).
+First implementation landed one commit (`ae4e1001`) on `feat/marketing-port-addtowaitlist`. Greptile held at **0/5** with four P1 comments that expose structural gaps the original spec did not anticipate. Branch reset to `main`, force-pushed, deleted from origin. Spec below expands to address all four.
 
-### Reused Convex functions (no new code in `convex/`)
+### Greptile 0/5 — what the original spec missed
 
-PR 6a uses the **existing** `api.waitlist.addToWaitlist` mutation (`convex/waitlist.ts:102`). The mutation already:
-- Inserts into `marketingWaitlist` with `by_email_instructorSlug` index dedup.
-- Returns `{ success, message, existingId? }` for the "already on waitlist" case.
-- Translates `mentorshipType` as a literal `"oneOnOne" | "group"` union.
+| P | Issue | Why the original spec was wrong |
+| --- | --- | --- |
+| 1 | `offer-button.tsx:39-41` — joining 1-on-1 then group for the same instructor overwrites the first waitlist entry | `convex/waitlist.ts:addToWaitlist` dedupes by `(email, instructorSlug)` and **patches `mentorshipType`**. The Supabase schema allowed separate rows per `(email, instructorSlug, mentorshipType)` triple. Same defect exists in apps/web today; PR 6a amplifies it. |
+| 2 | `use-waitlist.ts:53-54` — static generation crash | `useConvexMutation` evaluates during render. Marketing's `skipClerk` build-time branch renders without a Convex provider. Instructor slug pages are statically generated, so prerendering throws. PR 6a's original spec called for `useConvexMutation`, which assumes the provider is always present. |
+| 3 | `use-waitlist.ts:54` — new signups miss notification emails | Documented as a known limitation but Greptile escalates to P1: visitors get "You're on the waitlist!" then never hear back when capacity opens. PR 6b is required before PR 6a can ship. |
+| 4 | `use-waitlist.ts:54` — rate-limit + Zod validation bypass | `/api/waitlist` did server-side Zod validation and proxied through Supabase, which applies per-IP rate limits. A direct public Convex mutation has neither. |
 
-apps/platform already uses this mutation through `apps/platform/app/api/waitlist/route.ts:30` and `apps/platform/lib/queries/convex/use-waitlist.ts:13`. PR 6a mirrors apps/platform's pattern in marketing.
+### Why a Convex action (not a mutation)
+
+The original spec reused the existing `api.waitlist.addToWaitlist` mutation directly from the client. To clear P1 #2 and P1 #4, PR 6a must:
+
+1. Call a **Convex action** (`api.waitlist.addToWaitlistAction`) instead of a mutation. The action runs server-side, so it always has a Convex context, even when the marketing app's provider tree is absent at build time. The client invokes it through the same `useAddToWaitlist` hook shape, but the hook now wraps `useConvexAction` and the action does the validation + rate-limit + dedup check before calling the internal mutation.
+2. Keep the existing `addToWaitlist` mutation as an **internal** function (`api.waitlist.internal.addToWaitlist`) callable only from the action. Public callers go through the action.
+3. The action implements per-IP rate limiting via `@convex-dev/rate-limiter` (already available in `convex/_components/` per PR 5 — see `convex/components.config.ts`). 5 writes per IP per hour is the initial limit (matches what Supabase's proxy effectively enforced for unauthenticated traffic).
+4. The action runs the existing dedup logic against `(email, instructorSlug, mentorshipType)` triple (fix P1 #1). Add a new compound index `by_email_instructorSlug_mentorshipType` to `marketingWaitlist` in `convex/schema.ts`. This is a **schema change** — requires manual Convex prod deploy after merge (matches the §4f convention from the instructorProfiles arc).
+
+### Reused Convex functions
+
+| Function | Source | Used for |
+| --- | --- | --- |
+| `waitlist.addToWaitlist` *(existing — to become `internal.addToWaitlist`)* | `convex/waitlist.ts:102` | Server-side insert from the new action. |
+| `waitlist.getWaitlistForInstructor` *(unchanged)* | `convex/waitlist.ts:14` | Admin modal reads (PR 6 will use this). |
+| `waitlist.removeMultipleFromWaitlist` *(unchanged)* | `convex/waitlist.ts:144` | Admin modal deletes (PR 6 will use this). |
+| `waitlist.markNotifiedByInstructor` *(unchanged)* | `convex/waitlist.ts:200` | Admin modal notifies (PR 6 will use this). |
+
+### New Convex code (one action + one schema index)
+
+| Change | Source | Notes |
+| --- | --- | --- |
+| New action `api.waitlist.addToWaitlistAction(args: { email, instructorSlug, mentorshipType })` | `convex/waitlist.ts` (new export) | Validates args with a `v.*` schema, rate-limits by IP via `@convex-dev/rate-limiter`, then calls `internal.waitlist.addToWaitlist` with `(email, instructorSlug, mentorshipType)` triple dedup. Returns `{ success, message, existingId? }`. |
+| New index `by_email_instructorSlug_mentorshipType` | `convex/schema.ts` (`marketingWaitlist` table) | Compound index on `(email, instructorSlug, mentorshipType)`. Enables the triple-key dedup that fixes P1 #1. **Schema change** → manual Convex prod deploy. |
+| Renamed export `addToWaitlist` → `internal.addToWaitlist` | `convex/waitlist.ts` | Public mutation becomes internal. Caller surface shrinks. apps/platform already calls through the mutation — apps/platform keeps working because the action is the only public entry point and apps/platform uses its own `/api/waitlist` route which calls the public mutation (a separate small change in apps/platform is required, tracked in PR 6c). |
+
+### apps/platform parallel change (PR 6c, follow-up)
+
+apps/platform currently calls `api.waitlist.addToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. After PR 6a renames the mutation to `internal.addToWaitlist`, apps/platform's call breaks. Two options:
+- (A) Update apps/platform's `/api/waitlist` route to call the new `api.waitlist.addToWaitlistAction` instead.
+- (B) Have apps/platform keep calling a public `api.waitlist.addToWaitlist` **public** mutation that the action delegates to.
+
+PR 6a ships with option (B) — public mutation stays, just renamed `publicAddToWaitlist`, and the action calls into it after rate-limiting + triple dedup. apps/platform does not need to change in PR 6a; PR 6c later moves apps/platform to the action for symmetry.
 
 ### New / changed marketing files
 
 | File | Change |
 | --- | --- |
-| `apps/marketing/lib/queries/convex/use-inventory.ts` | Add `useAddToWaitlist()` hook wrapping `api.waitlist.addToWaitlist`. Mirror `apps/platform/lib/queries/convex/use-waitlist.ts:10` shape. Invalidate `["waitlist"]` on success. |
-| `apps/marketing/components/instructors/offer-button.tsx` *(modify)* | Replace `import { addToWaitlist } from "@/lib/supabase-inventory"` with `import { useAddToWaitlist } from "@/lib/queries/convex"`. Use the hook mutation instead of the async Supabase helper. Translate `kind === "oneOnOne"` → Convex literal `"oneOnOne"`. Map the return shape: existing `addToWaitlist` returns `{ alreadyOnWaitlist, success }` — the Convex mutation returns `{ success, message, existingId }`. Show the existing "Already on waitlist" toast when the mutation succeeds with `existingId` set, since that means a row already existed for the same `(email, instructorSlug)` pair. |
-| `apps/marketing/lib/supabase-inventory.ts` | Remove the `addToWaitlist` export only. Keep `getInstructorInventory`, `getWaitlistStatus`, `removeFromWaitlist`, `logInventoryChange`, and the type unions (still used by `app/api/instructor/inventory/route.ts`, `app/api/webhooks/kajabi/route.ts`, and the Kajabi webhook). |
-| `apps/marketing/app/api/waitlist/route.ts` | **Leave as-is.** The route still posts to Supabase `marketing_waitlist` and is reachable via `POST /api/waitlist`. Any code path that still POSTs to it (none in the marketing app after PR 6a, but possible in third-party integrations) continues to work. Cleanup PR after PR 6 + 6b + 7 can delete it. |
+| `apps/marketing/lib/queries/convex/use-waitlist.ts` *(new)* | Exports `useAddToWaitlist()` wrapping `useConvexAction(api.waitlist.addToWaitlistAction)` with TanStack `useMutation`. Invalidate `["waitlist"]` on success. |
+| `apps/marketing/lib/queries/convex/index.ts` | Add `export * from "./use-waitlist"`. |
+| `apps/marketing/components/instructors/offer-button.tsx` *(modify)* | Replace `import { addToWaitlist } from "@/lib/supabase-inventory"` with `import { useAddToWaitlist } from "@/lib/queries/convex"`. The hook is called inside the component body (not at module top level) and the mutation result is awaited via `mutateAsync` from React Query so error toasts surface. Translate `kind === "oneOnOne"` → Convex literal `"oneOnOne"`. Map the return shape: `existingId` present → "Already on waitlist" toast; `success: true` and no `existingId` → "You've been added!" toast + `setJoined(true)`; rate-limit error → show server-supplied message. |
+| `apps/marketing/lib/supabase-inventory.ts` | Remove the `addToWaitlist` export only. Keep `getInstructorInventory`, `getWaitlistStatus`, `removeFromWaitlist`, `logInventoryChange`. |
+| `apps/marketing/app/api/waitlist/route.ts` | **Leave as-is** for now (still reachable from any third-party). Cleanup PR after PR 6 + 6b + 7 deletes it. |
 
-### Type translation table
-
-The marketing app currently uses Supabase-style type values (`"one-on-one"`, `"group"`). Convex uses camelCase literals (`"oneOnOne"`, `"group"`). PR 6a translates at the call site only — the database strings remain Supabase-style for backfill rows.
+### Type translation table (unchanged from original spec)
 
 | Marketing component prop | Supabase value (legacy) | Convex literal |
 | --- | --- | --- |
@@ -280,38 +313,44 @@ The marketing app currently uses Supabase-style type values (`"one-on-one"`, `"g
 
 ### Schema impact
 
-**None.** PR 6a reuses existing `convex/waitlist.ts:addToWaitlist`. No `convex/schema.ts` changes, no manual prod deploy (CI's `convex-codegen` will regenerate `convex/_generated/` after merge). Greptile verification is sufficient.
+**Yes — schema change.** Adds `by_email_instructorSlug_mentorshipType` compound index to `marketingWaitlist` in `convex/schema.ts`. Requires **manual Convex prod deploy** after merge: `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy`. Linear issue HUC-38 already tagged with the `schema-change` label per AGENTS.md convention.
 
 ### Compatibility with existing callers
 
 | Caller | After PR 6a |
 | --- | --- |
-| `apps/marketing/components/instructors/offer-button.tsx` | Uses Convex mutation. |
+| `apps/marketing/components/instructors/offer-button.tsx` | Uses Convex action via `useAddToWaitlist` hook. |
+| `apps/platform/app/api/waitlist/route.ts` | Unchanged. Still calls the now-renamed public mutation `api.waitlist.publicAddToWaitlist` (which is the action's delegate). |
 | `apps/web/app/waitlist/[slug]/page.tsx` | Unchanged. Already uses apps/web's own Convex hook (`apps/web/lib/queries/convex/use-waitlist.ts`). |
-| `apps/marketing/app/api/waitlist/route.ts` | Still receives POSTs and writes to Supabase. Unused by the marketing app after PR 6a, but reachable from any third-party. |
-| `apps/marketing/inngest/functions/waitlist-notifications.ts` | Unchanged. Still reads Supabase `marketing_waitlist`. **Will miss new Convex signups** until PR 6b rewrites the worker. |
+| `apps/marketing/app/api/waitlist/route.ts` | Still reachable, still writes to Supabase. Unused by the marketing app after PR 6a. Cleanup PR after PR 6 + 6b + 7. |
+| `apps/marketing/inngest/functions/waitlist-notifications.ts` | Unchanged. Still reads Supabase. **Will miss new Convex signups** until PR 6b rewrites the worker. PR 6a does **not** unblock availability emails — that's PR 6b's job. |
 | `apps/marketing/inngest/functions/inventory-available.ts` | Unchanged. Same caveat. |
 
 ### Known limitations
 
-1. **Inngest waitlist worker still reads Supabase.** After PR 6a, new student signups land in Convex and the worker no longer finds them. This means `waitlist-notifications.ts` and `inventory-available.ts` will silently skip Convex-backed entries. PR 6b (separate) rewrites the worker as a Convex action reading from `marketingWaitlist`.
-2. **`/api/waitlist` route still hits Supabase.** Any third-party POSTing to it continues to write to Supabase. The route is no longer called from the marketing app after PR 6a. A cleanup PR can delete it after PR 6 ships.
-3. **Existing Supabase waitlist rows remain in Supabase.** No backfill. PR 6's admin UI (Convex reads) will not show pre-PR-6a entries. This is acceptable for the inventory admin use case (which only cares about the active waitlist going forward) but should be called out in the marketing release notes.
+1. **Inngest worker still reads Supabase (PR 6b dependency).** PR 6a does not fix notification emails — that's PR 6b's job. Until PR 6b ships, visitors joining via Convex will see "You're on the waitlist!" but no email when capacity opens. **PR 6 cannot ship until PR 6b also lands.**
+2. **`/api/waitlist` route still hits Supabase.** Any third-party POSTing to it continues to write to Supabase. Cleanup PR after PR 6 + 6b + 7 deletes it.
+3. **Existing Supabase waitlist rows remain in Supabase.** No backfill. PR 6's admin UI will not show pre-PR-6a entries. Acceptable for the inventory admin use case.
+4. **apps/platform still uses the public mutation, not the action.** PR 6c moves apps/platform onto the action for symmetry. Until then, apps/platform bypasses the rate limiter. Document in HUC-38.
 
 ### Verification (Linear)
 
 Tracking issue: **HUC-38** (state `Backlog` → `In Progress` after merge). Smoke tests:
-1. `mentorships.huckleberry.art` — open an instructor profile with `oneOnOneInventory = 0` (or set one to 0 from the admin /admin/inventory page). Click "Join Waitlist" on the 1-on-1 offer button.
-2. Submit a valid email → success toast appears within 2 seconds. No POST to `/api/waitlist` in the Network tab; the mutation is visible in the Convex WebSocket traffic.
-3. Convex dashboard → `marketingWaitlist` table has the new row with `email`, `instructorSlug`, `mentorshipType="oneOnOne"`, `createdAt` populated, `notifiedAt=null`.
-4. Duplicate email submission → success toast says "You're already on the waitlist!" (the mutation returns `{ success: false, message: "Already on waitlist for this type", existingId: ... }`, which the component maps to the existing toast).
-5. apps/web parallel flow at `dev.mentorships.huckleberry.art/waitlist/[slug]` still works (independent Convex path).
-6. Marketing /admin/inventory page (still on Supabase pre-PR-6) still shows historical entries that were in Supabase pre-migration.
+1. `mentorships.huckleberry.art/instructors/<slug>` opens without a build error in the marketing CI build log (`pnpm build`). The original P1 #2 surfaced as a static prerender crash — confirming it builds clean is the first smoke test.
+2. Set `oneOnOneInventory = 0` for any instructor from the admin `/admin/inventory` page (still on Supabase pre-PR-6). Click "Join Waitlist" on the 1-on-1 offer button.
+3. Submit a valid email → success toast within 2 seconds. The mutation is visible in the Convex WebSocket traffic; no POST to `/api/waitlist` in the Network tab.
+4. Convex dashboard → `marketingWaitlist` table has the new row with `email`, `instructorSlug`, `mentorshipType="oneOnOne"`, `createdAt` populated, `notifiedAt=null`.
+5. Duplicate email submission for the same instructor + same type → toast says "You're already on the waitlist!" (action returns `{ success: false, message: "Already on waitlist for this type", existingId: ... }`).
+6. Same email + different type (group) → second row inserted (NOT an overwrite — fixes P1 #1). Both rows exist for the same `(email, instructorSlug)` with different `mentorshipType`.
+7. Rate-limit smoke: submit 6 distinct emails from the same IP within an hour → 6th submission returns the action's rate-limit error, surfaced in the toast as a server-supplied message.
+8. apps/web parallel flow at `dev.mentorships.huckleberry.art/waitlist/[slug]` still works (independent Convex path).
+9. `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` succeeds — schema change verified deployed to prod.
 
-### What unlocks after this PR
+### What unlocks after this PR + PR 6b
 
 - **PR 6 (admin inventory port)** — the source-of-truth divergence goes away; Greptile should approve at ≥4/5.
-- **PR 6b (Inngest worker rewrite)** — separate PR. Read from `marketingWaitlist` instead of `marketing_waitlist`.
+- **PR 6b (Inngest worker rewrite)** — separate PR. Read from `marketingWaitlist` (Convex) instead of `marketing_waitlist` (Supabase). Becomes a Convex action invoked from a Convex cron or webhook.
+- **PR 6c (apps/platform parity)** — moves apps/platform onto the action for symmetry.
 
 ---
 
@@ -325,12 +364,13 @@ First implementation attempt landed 7 commits on `feat/marketing-admin-inventory
 
 ### Prerequisite (separate PRs before resuming PR 6)
 
-Single source of truth for the waitlist. Both must be done before PR 6 can ship at ≥4/5 Greptile:
+Single source of truth for the waitlist. All three must be done before PR 6 can ship at ≥4/5 Greptile:
 
-1. **Port `addToWaitlist` to Convex — PR 6a (spec in §4e, tracking HUC-38).** Replace the Supabase insert in `apps/marketing/components/instructors/offer-button.tsx:32` with a Convex `api.waitlist.addToWaitlist` mutation call (apps/platform already has this — `apps/platform/app/api/waitlist/route.ts:30`).
+1. **Port `addToWaitlist` to Convex — PR 6a (spec in §4e, tracking HUC-38).** Replace the Supabase insert in `apps/marketing/components/instructors/offer-button.tsx:32` with a Convex **action** (not a direct mutation) so rate limiting + static-gen work correctly. The first implementation attempt (`ae4e1001`) reached 0/5 Greptile — see §4e "Why a Convex action (not a mutation)" for the four P1s and the structural fix design. Touches `convex/schema.ts` (adds `by_email_instructorSlug_mentorshipType` index) — manual Convex prod deploy required.
 2. **Rewrite `apps/marketing/inngest/functions/waitlist-notifications.ts` as a Convex action — PR 6b (no spec yet, no tracking).** Read from `marketingWaitlist` (the Convex table) instead of `marketing_waitlist` (the Supabase table). Move the email send to a Convex action that calls `inngest.send({ name: 'waitlist/notify-users', data: ... })` internally, so the page can `await ctx.runAction(api.waitlist.notifyInstructor, {...})` instead of `fetch('/api/admin/waitlist-notify', ...)`.
+3. **Move apps/platform onto the new action — PR 6c (no spec yet, no tracking).** apps/platform currently calls `api.waitlist.publicAddToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. PR 6a renames the public mutation to be an action delegate, but apps/platform stays on the delegate until PR 6c for symmetry (so apps/platform also benefits from the rate limiter).
 
-After both land, resume PR 6 against the same spec.
+After all three land, resume PR 6 against the same spec.
 
 ### Reused Convex functions (no new code in `convex/`)
 
