@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   convexQuery,
@@ -74,10 +74,10 @@ export type FullAdminReportRow = {
  *
  * We use `useQuery` (instead of `useConvexPaginatedQuery`) so the
  * table can read the `error` field — Greptile flagged that errors
- * were rendering as "No instructors found". Pagination state is
- * managed manually on the client: pages are accumulated, the
- * `cursor` advances on each `loadMore(n)`, and the result is
- * reset when `search` changes.
+ * were rendering as "No instructors found". Pages are accumulated
+ * by cursor so each `loadMore(n)` advances through the result set,
+ * and reactive updates to a previously-fetched cursor update the
+ * corresponding entries in place rather than appending duplicates.
  */
 type InstructorListPage = {
   page: InstructorWithStats[];
@@ -92,21 +92,18 @@ export function useInstructorsWithStatsForAdmin(args: {
   pageSize?: number;
 }) {
   const numItems = args.pageSize ?? 50;
-  const [accumulated, setAccumulated] = useState<InstructorWithStats[]>([]);
+  const [pagesByCursor, setPagesByCursor] = useState<
+    Record<string, InstructorListPage | undefined>
+  >({});
   const [cursor, setCursor] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const lastSeenCursor = useRef<string | null>(null);
-  const lastSeenSearch = useRef<string | undefined>(args.search);
+  const [lastSeenSearch, setLastSeenSearch] = useState<string | undefined>(args.search);
 
-  // Reset accumulator when the search term changes.
-  useEffect(() => {
-    if (lastSeenSearch.current === args.search) return;
-    lastSeenSearch.current = args.search;
-    setAccumulated([]);
+  // Reset when the search term changes.
+  if (lastSeenSearch !== args.search) {
+    setLastSeenSearch(args.search);
+    setPagesByCursor({});
     setCursor(null);
-    setDone(false);
-    lastSeenCursor.current = null;
-  }, [args.search]);
+  }
 
   const query = useQuery({
     ...convexQuery(api.admin.getInstructorsWithStatsForAdmin, {
@@ -115,18 +112,22 @@ export function useInstructorsWithStatsForAdmin(args: {
     }),
   });
 
-  // Accumulate fetched pages. The Convex query is keyed by cursor;
-  // each fetch returns a fresh `{page, isDone, continueCursor}`.
-  useEffect(() => {
-    if (!query.data) return;
-    if (lastSeenCursor.current === cursor && accumulated.length > 0) {
-      // We've already absorbed this cursor's page.
-      return;
-    }
-    lastSeenCursor.current = cursor;
-    setAccumulated((prev) => [...prev, ...query.data.page]);
-    setDone(query.data.isDone);
-  }, [query.data, cursor, accumulated.length]);
+  // Update the entry for the current cursor whenever query data
+  // arrives. This handles BOTH initial fetch AND reactive updates
+  // to previously-fetched rows.
+  if (query.data && pagesByCursor[cursor ?? "_first"] !== query.data) {
+    setPagesByCursor((prev) => ({
+      ...prev,
+      [cursor ?? "_first"]: query.data,
+    }));
+  }
+
+  const accumulated = Object.values(pagesByCursor)
+    .filter((p): p is InstructorListPage => !!p)
+    .flatMap((p) => p.page);
+
+  const lastPage = Object.values(pagesByCursor).filter((p): p is InstructorListPage => !!p).pop();
+  const done = lastPage?.isDone ?? false;
 
   const loadMore = useCallback(
     (n: number) => {
