@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PR 4 merged (#857, Greptile 5/5 on commit `c4ea241c`); PR 5 in progress on branch `feat/marketing-admin-orders`; PRs 6–7 planned.
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PR 4 merged (#857, Greptile 5/5 on commit `c4ea241c`); PR 5 merged (#858, Greptile 3/5 on commit `7484e55d`, prod deploy 643 → 649 functions, no schema changes); PRs 6–7 planned.
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -182,12 +182,12 @@ Marketing's `/admin/orders` page was the **only** broken admin view going into t
 
 | File | Symbol | Kind | Notes |
 | --- | --- | --- | --- |
-| `convex/admin.ts` | `getOrdersForAdminCursor` | query | Cursor-paginated orders list (`paginationOpts`, optional `search`/`statusFilter`). Admin-gated. Uses `by_status` index when `statusFilter` is set, otherwise the `_creationTime` primary index with `.order("desc")`. Joins payments via `by_orderId` per page. |
+| `convex/admin.ts` | `getOrdersForAdminCursor` | query | Cursor-paginated orders list (`paginationOpts`, optional `search`/`statusFilter`). Admin-gated. Server-side `numItems` clamped to `[1, 500]`. Uses `by_status` index when `statusFilter` is set, otherwise the `_creationTime` primary index with `.order("desc")`. Joins payments via `by_orderId` per page. |
 | `convex/admin.ts` | `isAdmin` | internalQuery | Admin check for actions (which can't read `ctx.db` directly). |
 | `convex/orders.ts` | `getOrderByIdInternal` | internalQuery | Lookup used by the refund action to find the order for the email. |
 | `convex/payments.ts` | `getPaymentByIdInternal` | internalQuery | Lookup used by the refund action. |
-| `convex/payments.ts` | `adminProcessRefundInternal` | internalMutation | Admin-gated DB update (status flips + audit log). The existing public `adminProcessRefund` is kept because platform + web admin API routes still call it. |
-| `convex/adminRefunds.ts` *(new)* | `processRefundForAdmin` | action (`"use node"`) | Public action: admin-gate → load payment → compute refund amount → call Stripe/PayPal with idempotency key → call internal mutation → best-effort send refund email via Resend. |
+| `convex/payments.ts` | `adminProcessRefundInternal` | internalMutation | Admin-gated DB update (status flips + audit log). Defensive bound check rejects over-refunds (`prior + delta > original`). The existing public `adminProcessRefund` is kept because platform + web admin API routes still call it. |
+| `convex/adminRefunds.ts` *(new)* | `processRefundForAdmin` | action (`"use node"`) | Public action: admin-gate → load payment → compute refund amount → record `admin_refund_attempted` audit row → call Stripe/PayPal with idempotency key (`paymentId:refundType:amount:priorRefunded:adminSubject:clientNonce`) → call internal mutation (writes `admin_refund_completed` audit row) → best-effort send refund email via Resend. HTML-escaped reason + instructor name in email. |
 
 **Reuses existing functions** (no changes needed): `convex/orders.ts:getOrdersForAdmin` (offset-based, still used by `apps/platform` + `apps/web` admin API routes), `convex/payments.ts:adminProcessRefund` (public version, same callers), `convex/users.ts:getUserByUserId` (admin-gated public query, used to look up the recipient's email).
 
@@ -214,7 +214,15 @@ The action is invoked from the marketing client (a "use client" component via `u
 
 ### Manual prod deploy required (per §5.3)
 
-5 new functions need a manual `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` after merge. Tracking issue: **HUC-36** (state `Backlog` → `In Progress` after merge).
+6 new functions need a manual `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` after merge. Tracking issue: **HUC-36** (state `Backlog` → `In Progress` after merge).
+
+### Known limitations (mirrors existing platform behaviour)
+
+The following concerns surfaced during Greptile review. PR 5 does NOT regress any of these — the new action calls the same `adminProcessRefund` mutation that the platform admin route already calls, so the limitations are pre-existing platform-level behaviours.
+
+1. **Partial refund → full session-pack entitlement reversal**. The current `adminProcessRefund` mutation does NOT touch `sessionPacks` or instructor inventory. If a partial refund is followed by a separate logic path that revokes the full pack (e.g., the platform's manual `payouts.ts` reconciliation), the student's remaining sessions vanish. This is consistent with the existing platform behaviour. A future PR could introduce a `payment_refunds` table that records each partial refund and a proportional session reduction.
+2. **Provider refund → DB ordering**. The action calls Stripe/PayPal BEFORE the local mutation. If the mutation fails (network drop, Convex outage) after the provider accepted the refund, the user can retry from the same modal — the idempotency key binds `(paymentId, refundType, amount, priorRefunded, adminSubject, clientNonce)`, so the provider dedupes and the local DB update commits the recorded amount. A different admin opening the modal gets a fresh `clientNonce` and proceeds as a separate operation. The audit log records `admin_refund_attempted` BEFORE the provider call and `admin_refund_completed` AFTER the DB mutation, so an operator has a recoverable trail even if both writes fail.
+3. **Concurrent same-amount refunds from different admins**. Two admins clicking "refund $10" at the same time on the same payment each get distinct idempotency keys (different `adminSubject` and `clientNonce`) so both Stripe refunds succeed and both DB updates commit. Total refunded = $20, which is the intended behaviour for legitimate concurrent partial refunds.
 
 ### 5.3 Convex prod deploy — manual step (operational note)
 
@@ -227,6 +235,8 @@ CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy
 (or the equivalent for a different prod deployment). Use the dev deployment (`acoustic-kiwi-522`) for development; CI's codegen job uses `CONVEX_DEPLOYMENT=production`.
 
 **PR 4 deploy (2026-09-20 13:50 UTC):** +24 functions (619 → 643). Verified `admin.js:getInstructorsWithStatsForAdmin`, `getInstructorWithStudents`, `getFullAdminCsvData`, `incrementRemainingSessions` reachable in prod function spec.
+
+**PR 5 deploy (2026-09-20 16:35 UTC):** +6 functions (643 → 649). Verified `admin.js:getOrdersForAdminCursor`, `admin.js:isAdmin`, `orders.js:getOrderByIdInternal`, `payments.js:getPaymentByIdInternal`, `payments.js:adminProcessRefundInternal`, `adminRefunds.js:processRefundForAdmin` reachable in prod function spec.
 
 Future PRs in this arc (5–7) must follow the same pattern. Greptile/CI will pass on the PR even if the prod deploy was missed — verification only happens via the production function spec, not the CI build.
 
