@@ -22,8 +22,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): React.JSX.Element {
+  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
+
   return (
     <ClerkProvider
+      publishableKey={clerkPublishableKey}
+      {...(domainUrl && { domainUrl })}
     >
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>

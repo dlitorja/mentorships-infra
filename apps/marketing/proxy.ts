@@ -7,8 +7,9 @@ import { getPortalByDomain } from "@/config/instructor-portals";
 
 const isPublicRoute = createRouteMatcher([
   "/",
-  "/admin/signin(.*)",
-  "/admin/signup(.*)",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/auth-redirect(.*)",
   "/api/webhooks(.*)",
   "/api/contacts(.*)",
   "/api/waitlist(.*)",

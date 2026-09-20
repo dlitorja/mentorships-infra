@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@mentorships/ui", "@mentorships/web"],
   redirects: async () => {
     return [
-      { source: "/sign-in", destination: "/", permanent: true },
-      { source: "/sign-up", destination: "/", permanent: true },
-
       { source: "/dashboard/:path*", destination: "/", permanent: true },
       { source: "/calendar/:path*", destination: "/", permanent: true },
       { source: "/sessions/:path*", destination: "/", permanent: true },
