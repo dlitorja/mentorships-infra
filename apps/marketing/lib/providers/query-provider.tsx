@@ -1,12 +1,12 @@
 "use client";
 
-import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient, useConvex } from "convex/react";
 import { ConvexQueryClient } from "@convex-dev/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useConvexAuth } from "convex/react";
-import { useConvex } from "convex/react";
-import { useEffect, useState } from "react";
+import { useAuth as useClerkAuth } from "@clerk/nextjs";
+import { useEffect, useRef, useState } from "react";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -41,18 +41,118 @@ export { convexClient, convexQueryClient };
  * `<ConvexClientProvider>` returns a bare fragment, so
  * `useConvex()` is `undefined` and we skip mounting this child.
  */
+const SYNCABLE_ROLES = ["student", "instructor", "admin", "video_editor"] as const;
+type SyncableRole = (typeof SYNCABLE_ROLES)[number];
+
+function isSyncableRole(value: unknown): value is SyncableRole {
+  return typeof value === "string" && (SYNCABLE_ROLES as readonly string[]).includes(value);
+}
+
+/**
+ * Once Clerk populates the auth token:
+ *   1. Sync the Clerk `publicMetadata.role` claim to the Convex
+ *      `users.role` field. Convex admin queries check `users.role`,
+ *      not Clerk claims directly, so an out-of-sync record returns
+ *      empty/Forbidden even for legitimate admins.
+ *   2. Re-run any convex-backed queries (the auth-token change only
+ *      refreshes subscriptions that were already wired; queries
+ *      mounted while `isAuthenticated` was false need an explicit
+ *      kick).
+ *
+ * Lives in its own component so `useConvexAuth()` + `useMutation()`
+ * are only called when a `ConvexProvider` (typically
+ * `ConvexProviderWithClerk`) is installed above us. In the
+ * `skipClerk` build-time branch `<ConvexClientProvider>` returns
+ * a bare fragment, so `useConvex()` is `undefined` and we skip
+ * mounting this child.
+ */
 function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading: convexAuthLoading } = useConvexAuth();
+  const { userId, sessionClaims, isLoaded: clerkLoaded } = useClerkAuth();
+
+  // Track the last `(userId, role)` tuple we successfully synced so we
+  // re-sync when EITHER changes (e.g., Clerk flips admin → student, or
+  // a different account signs in without a full page reload). A simple
+  // boolean `syncedRef` would miss role downgrades and stale accounts.
+  const lastSyncedRef = useRef<{ userId: string; role: SyncableRole | null } | null>(null);
+  // Serialize role-sync writes. Concurrent fetches can race on the
+  // Convex side because the network may reorder responses: the older
+  // write can land AFTER the newer one, regressing a role downgrade.
+  // The drain loop ensures at most one fetch is in flight, and the
+  // pending tuple (always the latest Clerk state) is drained after the
+  // previous fetch settles.
+  const inFlightRef = useRef(false);
+  const pendingTupleRef = useRef<{ userId: string; role: SyncableRole | null } | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (convexAuthLoading || !clerkLoaded) return;
+    if (!isAuthenticated || !userId) return;
+
+    const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+    const role: SyncableRole | null = isSyncableRole(claimsRole) ? claimsRole : null;
+    const tuple = { userId, role };
+
+    const last = lastSyncedRef.current;
+    if (last && last.userId === tuple.userId && last.role === tuple.role) {
+      return;
+    }
+    // Always record the latest tuple. The drain loop below reads this
+    // when it next becomes free.
+    pendingTupleRef.current = tuple;
+    drainPending();
+
+    // Kick any convex-backed queries that mounted before auth was ready.
     queryClient.invalidateQueries({
       predicate: (query) => {
         const first = query.queryKey[0];
         return first === "convexQuery" || first === "convexAction";
       },
     });
-  }, [isAuthenticated, queryClient]);
+  }, [
+    convexAuthLoading,
+    isAuthenticated,
+    clerkLoaded,
+    userId,
+    queryClient,
+    sessionClaims,
+  ]);
+
+  function drainPending() {
+    if (inFlightRef.current) return;
+    const tuple = pendingTupleRef.current;
+    if (!tuple) return;
+    pendingTupleRef.current = null;
+    inFlightRef.current = true;
+
+    fetch("/api/auth/sync", { method: "GET", credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`auth sync ${res.status}: ${text.slice(0, 200)}`);
+        }
+        // Commit lastSynced only if no newer tuple arrived while we
+        // were fetching. If pendingTupleRef got a new value during the
+        // fetch, that tuple will be drained after we clear inFlightRef,
+        // and its response will overwrite lastSynced.
+        if (
+          pendingTupleRef.current === null ||
+          (pendingTupleRef.current.userId === tuple.userId &&
+            pendingTupleRef.current.role === tuple.role)
+        ) {
+          lastSyncedRef.current = tuple;
+        }
+      })
+      .catch((err) => {
+        console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
+        // Do NOT mark lastSyncedRef — leave the role unsynced so a
+        // subsequent effect run (e.g. after sign-in completes) retries.
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        // If a newer tuple arrived while we were fetching, drain it now.
+        if (pendingTupleRef.current) drainPending();
+      });
+  }
 
   return null;
 }

@@ -16,6 +16,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
+      "@/convex/_generated/*": ["../../convex/_generated/*"],
       "@mentorships/db": ["../../packages/db/src"],
       "@mentorships/ui": ["../../packages/ui/src"],
       "@mentorships/web": ["../web"],
