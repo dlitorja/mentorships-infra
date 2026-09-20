@@ -1,5 +1,5 @@
-import { query } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -412,5 +412,347 @@ export const getStudentsForAdmin = query({
       .slice(offset, offset + pageSize);
 
     return { items, total, page, pageSize };
+  },
+});
+
+/**
+ * PR admin-mirror #4 (port /admin/instructors to Convex):
+ *
+ * Admin-gated queries + mutations that mirror the Drizzle
+ * `packages/db/src/lib/queries/admin.ts` shapes consumed by
+ * `apps/marketing/app/admin/instructors/page.tsx` and the
+ * `InstructorsTable` client component. These replace the previous
+ * Supabase `getAllInstructorsWithStats` (the source of the
+ * `operator does not exist: text = uuid` 500) and the related
+ * `/api/admin/instructors/*` and `/api/admin/session-counts` routes.
+ *
+ * Reads still go through the `by_deletedAt` partial index where
+ * possible; mutation writes happen transactionally inside a single
+ * Convex function so increment/decrement cannot interleave with the
+ * status flip from "depleted" → "active" or vice versa.
+ */
+
+type InstructorStudentRow = {
+  userId: string;
+  email: string | null;
+  sessionPackId: Id<"sessionPacks">;
+  totalSessions: number;
+  remainingSessions: number;
+  status: "active" | "depleted" | "expired" | "refunded";
+  expiresAt: number | null;
+  lastSessionCompletedAt: number | null;
+  completedSessionCount: number;
+  seatStatus: "active" | "grace" | "released";
+  seatExpiresAt: number | null;
+};
+
+type InstructorWithStats = {
+  instructorId: string;
+  userId: string;
+  email: string;
+  bio: string | null;
+  oneOnOneInventory: number;
+  groupInventory: number;
+  maxActiveStudents: number;
+  activeStudentCount: number;
+  totalCompletedSessions: number;
+  createdAt: number;
+};
+
+type InstructorWithStudents = InstructorWithStats & {
+  students: InstructorStudentRow[];
+};
+
+type FullAdminReportRow = {
+  instructorEmail: string | null;
+  studentEmail: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  packStatus: "active" | "depleted" | "expired" | "refunded";
+  packExpiresAt: number | null;
+  lastSessionDate: number | null;
+  completedSessionsCount: number;
+  seatStatus: "active" | "grace" | "released";
+};
+
+async function requireAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Unauthorized");
+  if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
+  return identity.subject;
+}
+
+export const getInstructorsWithStatsForAdmin = query({
+  args: {
+    search: v.optional(v.string()),
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<{ instructors: InstructorWithStats[]; total: number }> => {
+    await requireAdmin(ctx);
+
+    const page = args.page ?? 1;
+    const pageSize = Math.min(args.pageSize ?? 50, 100);
+    const offset = (page - 1) * pageSize;
+
+    // Use the partial `by_deletedAt` index to skip soft-deleted rows.
+    // `q.eq("deletedAt", undefined)` matches active rows; soft-deleted
+    // rows have `deletedAt = <number>` and won't match.
+    const all = await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .collect();
+
+    // Resolve user emails in one batch so we don't N+1 the users table.
+    const userIds = Array.from(
+      new Set(all.map((i) => i.userId).filter((u): u is string => !!u))
+    );
+    const users = userIds.length
+      ? await Promise.all(
+          userIds.map(async (uid) =>
+            ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", uid)).first()
+          )
+        )
+      : [];
+    const emailByUserId = new Map<string, string>();
+    for (const u of users) {
+      if (u?.email && u.userId) emailByUserId.set(u.userId, u.email);
+    }
+
+    // Active students = number of distinct session packs that hold an
+    // active seat reservation with this instructor.
+    const activeSeats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+    const seatsByInstructor = new Map<string, Set<string>>();
+    for (const sr of activeSeats) {
+      const set = seatsByInstructor.get(sr.instructorId) ?? new Set<string>();
+      set.add(sr.sessionPackId);
+      seatsByInstructor.set(sr.instructorId, set);
+    }
+
+    // Completed-session counts: query per instructor. This is O(N)
+    // but N is small (≤ ~100 active instructors). For larger sets we
+    // could batch via a `by_instructorId` filter, but sessions don't
+    // currently have a by-instructor index — keep simple.
+    const completedByInstructor = new Map<string, number>();
+    const allCompleted = await ctx.db
+      .query("sessions")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .collect();
+    for (const s of allCompleted) {
+      completedByInstructor.set(s.instructorId, (completedByInstructor.get(s.instructorId) ?? 0) + 1);
+    }
+
+    const enriched: InstructorWithStats[] = all
+      .map((i) => {
+        const userId = i.userId ?? "";
+        return {
+          instructorId: i._id,
+          userId,
+          email: (userId && emailByUserId.get(userId)) ?? i.email ?? "",
+          bio: i.bio ?? null,
+          oneOnOneInventory: (i as any).oneOnOneInventory ?? 0,
+          groupInventory: (i as any).groupInventory ?? 0,
+          maxActiveStudents: (i as any).maxActiveStudents ?? 0,
+          activeStudentCount: seatsByInstructor.get(i._id)?.size ?? 0,
+          totalCompletedSessions: completedByInstructor.get(i._id) ?? 0,
+          createdAt: i._creationTime,
+        };
+      })
+      .filter((row) => !!row.userId && !!row.email);
+
+    const search = args.search?.trim().toLowerCase();
+    const filtered = search
+      ? enriched.filter((r) => r.email.toLowerCase().includes(search))
+      : enriched;
+
+    const total = filtered.length;
+    const instructors = filtered.slice(offset, offset + pageSize);
+    return { instructors, total };
+  },
+});
+
+export const getInstructorWithStudents = query({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args): Promise<InstructorWithStudents | null> => {
+    await requireAdmin(ctx);
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.deletedAt != null) return null;
+
+    const userId = instructor.userId ?? "";
+    const user = userId
+      ? await ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", userId)).first()
+      : null;
+
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const sessionPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    // Index session packs by id for fast lookup + completed-session
+    // aggregation per pack.
+    const packById = new Map(sessionPacks.map((p) => [p._id, p]));
+    const allCompleted = await ctx.db
+      .query("sessions")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .collect();
+    const completedByPack = new Map<Id<"sessionPacks">, { count: number; lastAt: number | null }>();
+    for (const s of allCompleted) {
+      if (!s.sessionPackId) continue;
+      const cur = completedByPack.get(s.sessionPackId) ?? { count: 0, lastAt: null };
+      cur.count += 1;
+      cur.lastAt = cur.lastAt == null ? (s.completedAt ?? null) : Math.max(cur.lastAt, s.completedAt ?? 0);
+      completedByPack.set(s.sessionPackId, cur);
+    }
+
+    // Resolve student emails in batch.
+    const studentUserIds = Array.from(new Set(sessionPacks.map((p) => p.userId)));
+    const studentUsers = await Promise.all(
+      studentUserIds.map((uid) =>
+        ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", uid)).first()
+      )
+    );
+    const emailByUserId = new Map<string, string>();
+    for (const u of studentUsers) {
+      if (u?.email && u.userId) emailByUserId.set(u.userId, u.email);
+    }
+
+    const students: InstructorStudentRow[] = sessionPacks.map((p) => {
+      const completed = completedByPack.get(p._id);
+      const seat = seats.find((sr) => sr.sessionPackId === p._id);
+      return {
+        userId: p.userId,
+        email: emailByUserId.get(p.userId) ?? null,
+        sessionPackId: p._id,
+        totalSessions: p.totalSessions,
+        remainingSessions: p.remainingSessions,
+        status: p.status,
+        expiresAt: p.expiresAt ?? null,
+        lastSessionCompletedAt: completed?.lastAt ?? null,
+        completedSessionCount: completed?.count ?? 0,
+        seatStatus: seat?.status ?? "released",
+        seatExpiresAt: seat?.seatExpiresAt ?? null,
+      };
+    });
+
+    const seatsByInstructor = seats.filter((sr) => sr.status === "active").length;
+    const completedByInstructor = allCompleted.filter((s) => s.instructorId === args.instructorId).length;
+
+    return {
+      instructorId: instructor._id,
+      userId,
+      email: user?.email ?? instructor.email ?? "",
+      bio: instructor.bio ?? null,
+      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
+      groupInventory: (instructor as any).groupInventory ?? 0,
+      maxActiveStudents: (instructor as any).maxActiveStudents ?? 0,
+      activeStudentCount: seatsByInstructor,
+      totalCompletedSessions: completedByInstructor,
+      createdAt: instructor._creationTime,
+      students: students.sort((a, b) => b.sessionPackId.localeCompare(a.sessionPackId)),
+    };
+  },
+});
+
+export const getFullAdminCsvData = query({
+  args: {},
+  handler: async (ctx): Promise<FullAdminReportRow[]> => {
+    await requireAdmin(ctx);
+
+    const sessionPacks = await ctx.db.query("sessionPacks").collect();
+    const seats = await ctx.db.query("seatReservations").collect();
+    const allCompleted = await ctx.db
+      .query("sessions")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .collect();
+
+    const instructors = await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .collect();
+    const instructorById = new Map(instructors.map((i) => [i._id, i]));
+
+    // Index users + emails.
+    const allUsers = await ctx.db.query("users").collect();
+    const emailByUserId = new Map<string, string>();
+    for (const u of allUsers) {
+      if (u.email && u.userId) emailByUserId.set(u.userId, u.email);
+    }
+
+    const completedByPack = new Map<Id<"sessionPacks">, { count: number; lastAt: number | null }>();
+    for (const s of allCompleted) {
+      if (!s.sessionPackId) continue;
+      const cur = completedByPack.get(s.sessionPackId) ?? { count: 0, lastAt: null };
+      cur.count += 1;
+      cur.lastAt = cur.lastAt == null ? (s.completedAt ?? null) : Math.max(cur.lastAt, s.completedAt ?? 0);
+      completedByPack.set(s.sessionPackId, cur);
+    }
+
+    const rows: FullAdminReportRow[] = sessionPacks.map((p) => {
+      const seat = seats.find((sr) => sr.sessionPackId === p._id);
+      const instructor = instructorById.get(p.instructorId);
+      const instructorUserId = instructor?.userId ?? "";
+      const completed = completedByPack.get(p._id);
+      return {
+        instructorEmail: (instructorUserId && emailByUserId.get(instructorUserId)) ?? instructor?.email ?? null,
+        studentEmail: emailByUserId.get(p.userId) ?? null,
+        totalSessions: p.totalSessions,
+        remainingSessions: p.remainingSessions,
+        packStatus: p.status,
+        packExpiresAt: p.expiresAt ?? null,
+        lastSessionDate: completed?.lastAt ?? null,
+        completedSessionsCount: completed?.count ?? 0,
+        seatStatus: seat?.status ?? "released",
+      };
+    });
+
+    return rows.sort((a, b) => (b.lastSessionDate ?? 0) - (a.lastSessionDate ?? 0));
+  },
+});
+
+export const incrementRemainingSessions = mutation({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) throw new Error("Session pack not found");
+
+    const newRemaining = pack.remainingSessions + 1;
+    // Atomic flip from "depleted" → "active" when recharging a depleted
+    // pack back to a positive balance. Mirrors the Drizzle
+    // `incrementRemainingSessions` behavior.
+    const newStatus = pack.status === "depleted" && newRemaining > 0 ? "active" : pack.status;
+    await ctx.db.patch(pack._id, {
+      remainingSessions: newRemaining,
+      status: newStatus,
+    });
+    return { remainingSessions: newRemaining, status: newStatus };
+  },
+});
+
+export const decrementRemainingSessions = mutation({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) throw new Error("Session pack not found");
+
+    const newRemaining = Math.max(pack.remainingSessions - 1, 0);
+    const newStatus = newRemaining <= 0 ? "depleted" : pack.status;
+    await ctx.db.patch(pack._id, {
+      remainingSessions: newRemaining,
+      status: newStatus,
+    });
+    return { remainingSessions: newRemaining, status: newStatus };
   },
 });

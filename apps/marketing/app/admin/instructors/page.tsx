@@ -1,39 +1,22 @@
-import { requireAdmin } from "@/lib/auth";
-import { getAllInstructorsWithStats } from "@mentorships/db";
+"use client";
+
 import { InstructorsTable } from "@/components/admin/instructors-table";
 
-interface PageProps {
-  searchParams: Promise<{
-    search?: string;
-    page?: string;
-  }>;
-}
-
-export default async function AdminInstructorsPage({ searchParams }: PageProps): Promise<React.ReactElement> {
-  await requireAdmin();
-
-  const resolvedSearchParams = await searchParams;
-  const search = resolvedSearchParams?.search;
-  const rawPage = resolvedSearchParams?.page;
-  const parsedPage = rawPage ? parseInt(rawPage, 10) : 1;
-  const page = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
-
-  const result = await getAllInstructorsWithStats(search, page, 50);
-
-  // Map DB result to UI shape, handling legacy field names if present
-  const instructors = result.instructors.map((i: any) => ({
-    instructorId: i.instructorId ?? i.mentorId,
-    userId: i.userId,
-    email: i.email,
-    bio: i.bio ?? null,
-    oneOnOneInventory: i.oneOnOneInventory,
-    groupInventory: i.groupInventory,
-    maxActiveStudents: i.maxActiveStudents,
-    activeStudentCount: i.activeStudentCount ?? i.activeMenteeCount ?? 0,
-    totalCompletedSessions: i.totalCompletedSessions ?? 0,
-    createdAt: (i.createdAt instanceof Date ? i.createdAt : new Date(i.createdAt)).toISOString(),
-  }));
-
+/**
+ * PR admin-mirror #4: the /admin/instructors page is now a thin
+ * client-only wrapper around `<InstructorsTable />`. Authorization
+ * is enforced server-side by Convex `getInstructorsWithStatsForAdmin`
+ * (and the supporting queries/mutations) — the query throws
+ * `Unauthorized`/`Forbidden` when the caller is not an admin, and
+ * React Query surfaces that as `error`, which the table renders.
+ *
+ * This replaces the previous SSR pattern that called Drizzle
+ * `getAllInstructorsWithStats` (the source of the
+ * `operator does not exist: text = uuid` 500). The Clerk
+ * `requireAdmin()` gate moved to `app/admin/layout.tsx`, so any
+ * unauthenticated request is redirected before reaching this page.
+ */
+export default function AdminInstructorsPage(): React.ReactElement {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-2">Instructors</h1>
@@ -41,12 +24,7 @@ export default async function AdminInstructorsPage({ searchParams }: PageProps):
         View all instructors, their active students, and session details.
       </p>
 
-      <InstructorsTable
-        initialInstructors={instructors}
-        initialTotal={result.total}
-        initialPage={page}
-        initialSearch={search || ""}
-      />
+      <InstructorsTable />
     </div>
   );
 }
