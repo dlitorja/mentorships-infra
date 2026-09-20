@@ -146,6 +146,15 @@ async function paypalRefund(args: {
   return data.id ?? "";
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendRefundEmail(args: {
   to: string;
   studentName: string | null;
@@ -183,7 +192,7 @@ async function sendRefundEmail(args: {
   const providerReferenceText = args.providerReference ? ` (Reference: ${args.providerReference})` : "";
   const greetingName = args.studentName?.trim() ? args.studentName.trim() : "there";
 
-  const subject = `Refund processed — ${args.instructorName} mentorship`;
+  const subject = `Refund processed — ${escapeHtml(args.instructorName)} mentorship`;
   const text = [
     `Hi ${greetingName},`,
     "",
@@ -202,11 +211,11 @@ async function sendRefundEmail(args: {
     <div style="font-size:18px;font-weight:700;margin-bottom:12px">Huckleberry Mentorships</div>
     <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
       <div style="font-weight:700;margin-bottom:6px">Refund Processed</div>
-      <p style="color:#374151;line-height:1.6">Your payment of <strong>${formattedAmount}</strong> for mentorship with <strong>${args.instructorName}</strong> has been refunded.</p>
+      <p style="color:#374151;line-height:1.6">Your payment of <strong>${formattedAmount}</strong> for mentorship with <strong>${escapeHtml(args.instructorName)}</strong> has been refunded.</p>
       <ul style="margin:0;padding-left:18px;line-height:1.7">
         <li><strong>Amount:</strong> ${formattedAmount}</li>
-        <li><strong>Reason:</strong> ${reasonText}</li>
-        <li><strong>Payment Method:</strong> ${providerName}${providerReferenceText}</li>
+        <li><strong>Reason:</strong> ${escapeHtml(reasonText)}</li>
+        <li><strong>Payment Method:</strong> ${escapeHtml(providerName)}${providerReferenceText ? ` (Reference: ${escapeHtml(providerReferenceText)})` : ""}</li>
       </ul>
       <div style="padding:12px;border:1px solid #FEF3C7;border-radius:10px;background:#FFFBEB;margin-top:12px">
         <strong>Refund Timeline</strong>
@@ -357,10 +366,15 @@ export const processRefundForAdmin = action({
     const refundAmountStr = refundAmount.toFixed(2);
     const currency = payment.currency || "usd";
 
-    // Idempotency: include priorRefunded so distinct partial refunds
-    // of the same amount proceed as separate operations while true
-    // retries still deduplicate. Same shape as the platform admin route.
-    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}`;
+    // Idempotency: include a per-call nonce (randomUUID) so two concurrent
+    // partial refunds of the same dollar amount each get a distinct key
+    // and proceed as separate provider operations. Without the nonce, both
+    // calls would hash to the same key and Stripe/PayPal would dedupe to a
+    // single refund — but the internal mutation below would still record
+    // both, producing a double-increment in `refundedAmount`. Same shape
+    // as the platform admin route plus the nonce.
+    const refundNonce = crypto.randomUUID();
+    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${refundNonce}`;
 
     let providerRefundId: string | null = null;
 

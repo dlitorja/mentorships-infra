@@ -185,9 +185,16 @@ export const adminProcessRefundInternal = internalMutation({
     }
 
     const originalAmount = parseFloat(payment.amount);
-    const newRefundedAmount = (
-      parseFloat(payment.refundedAmount || "0") + parseFloat(args.refundAmount)
-    ).toFixed(2);
+    const priorRefunded = parseFloat(payment.refundedAmount || "0");
+    const delta = parseFloat(args.refundAmount);
+    const newRefundedAmount = (priorRefunded + delta).toFixed(2);
+
+    if (parseFloat(newRefundedAmount) > originalAmount) {
+      throw new Error(
+        `Refund would exceed original amount (prior=${priorRefunded.toFixed(2)}, ` +
+        `requested=${delta.toFixed(2)}, original=${originalAmount.toFixed(2)})`
+      );
+    }
 
     const isFullyRefunded = parseFloat(newRefundedAmount) >= originalAmount;
 

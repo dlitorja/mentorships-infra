@@ -229,7 +229,7 @@ export function OrdersTable() {
   const { data, isLoading, error, canLoadMore, loadMore } = useOrdersForAdmin({
     search: appliedSearch || undefined,
     statusFilter: statusFilter || undefined,
-    pageSize: 50,
+    pageSize: appliedSearch ? 500 : 50,
   });
 
   const handleSearch = useCallback((e: React.FormEvent) => {
