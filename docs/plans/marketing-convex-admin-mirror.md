@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged; PRs 2–7 planned.  
+**Status:** PR 1 merged (#854); PR 2 awaiting merge (#855, Greptile 5/5 on commit `30dd9df8`); PRs 3–7 planned.  
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -29,7 +29,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | # | Branch | Title | Status | What it does |
 | - | --- | --- | --- | --- |
 | 1 | `feat/marketing-convex-foundation` | feat(marketing): add Convex provider stack to mirror apps/platform (#854) | ✅ Merged | Add `ConvexClientProvider` + `QueryProvider` + deps (`convex`, `@convex-dev/react-query`, `@tanstack/react-query`, `@tanstack/react-query-devtools`). Update root layout to wrap with both. |
-| 2 | `feat/marketing-admin-layout` | feat(marketing): replace admin layout + sidebar with apps/platform's pattern | ⏳ Next | Replace `app/admin/layout.tsx` `requireRole("admin")` + email allowlist with `getDbUser()` + role check. Copy `client-admin-layout.tsx` sidebar from apps/platform. |
+| 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | 🔄 Awaiting merge (Greptile 5/5) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
 | 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | Pending | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | Pending | Mirror apps/platform `app/admin/instructors/page.tsx` (`useAllInstructors` + `deleteAdminInstructor` + `BackfillImagesPanel`). This is the page that fixes the original 500. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
@@ -62,19 +62,17 @@ Greptile GitHub review on commit `af0db787`: **Confidence 5/5 — safe to merge*
 
 ## 4. PR 2 spec (admin layout + sidebar)
 
-This is the next PR to land. Files:
+**Status:** Implemented in branch `feat/marketing-admin-layout` (PR #855). Awaiting user merge after Greptile 5/5. Files actually shipped:
 
-- `apps/marketing/app/admin/layout.tsx` — replace `requireRole("admin")` + email allowlist with apps/platform's pattern:
-  ```ts
-  const user = await getDbUser();
-  if (user.role !== "admin") redirect("/dashboard?error=unauthorized");
-  ```
-- `apps/marketing/app/admin/client-admin-layout.tsx` (new) — copy of apps/platform's client layout. Sidebar nav items: Dashboard, Instructors, Students, Products, Orders, Onboardings, Workspaces, Email Health, Audit Logs. (Students / Products / Onboardings / Workspaces / Email Health / Audit Logs will 404 until later PRs land — that's acceptable, the routes are reachable via sidebar as soon as their PRs merge.)
-- `apps/marketing/lib/auth.ts` — keep `requireAdmin()` (used in marketing-only server-component pages), but add a `requireRoleFromClerk()` mirror of apps/platform's `requireRole` for use in the admin layout.
+- `apps/marketing/app/admin/layout.tsx` — replaced `requireRole("admin")` with a shared `isAdminUser()` helper (defined in `lib/auth.ts`) that reads `sessionClaims.publicMetadata.role` from Clerk `auth()` as a fast path, then falls back to `clerkClient().users.getUser()` for the canonical `publicMetadata.role` when JWT claims haven't propagated yet. Unauthorized → `/` (apps/marketing's `next.config.ts` already redirects `/dashboard/*` to `/`, so we don't redirect to a missing route).
+- `apps/marketing/app/admin/client-admin-layout.tsx` (new) — client-side sidebar using the **actual** marketing admin routes: Dashboard, Instructors, Inventory, Orders, Digest. *Not* a copy of apps/platform's 9-item list — apps/marketing has no `/admin/students`, `/admin/products`, `/admin/onboardings`, `/admin/workspaces`, `/admin/email-health`, or `/admin/audit-logs` routes yet, and copying them produces 404s (Greptile P1).
+- `apps/marketing/app/admin/error.tsx` (new) — segment-level error boundary mirroring `apps/platform/app/admin/error.tsx`. Replaces the previously-removed `ErrorBoundary` wrapper around children so an instructor data-load failure no longer escapes the entire admin route (Greptile P2).
+- `apps/marketing/lib/auth.ts` — added shared helpers `resolveUserRole()` and `isAdminUser()`; both the layout and the existing `requireAdmin()` helper now use the same Clerk-claims + Backend API path. `requireAdmin()` keeps the email-allowlist fallback for safety: `(Clerk role === 'admin') || (email in ADMIN_EMAILS)` — preserves access for users without a Clerk role claim yet. New helper `isAdminUser()` is the canonical "is this request admin?" check for use in server components and the layout.
 
 Risks:
-- Marketing users in `DEFAULT_ADMIN_EMAILS` (currently `admin@huckleberry.art`) without a Clerk `publicMetadata.role === "admin"` claim will lose admin access. Verify the user's Clerk role claim before merging.
-- The redirect target `/dashboard?error=unauthorized` doesn't exist in apps/marketing; apps/marketing's `next.config.ts` redirects `/dashboard` → `/`. Update redirect target to `/` for the marketing context, or restore `/dashboard` as a marketing stub.
+- The Clerk-claims OR email-allowlist decision is a *deliberate* widening, not a tightening. Anyone with `publicMetadata.role === 'admin'` in Clerk can access marketing admin, regardless of the marketing-specific `ADMIN_EMAILS` list. This matches the apps/platform model (where platform admin = Clerk admin, with no separate allowlist). If a separate "marketing-only admin" concept is ever introduced, this branch needs to become `Clerk role === 'admin' && email in ADMIN_EMAILS`.
+- The user `admin@huckleberry.art` has `publicMetadata.role = "admin"` in Clerk (verified via `clerk users list --instance prod`), so they retain admin access under both checks.
+- Apps/platform's `requireRole` (`getDbUser()` → Supabase) is *not* mirrored 1:1 — apps/marketing's `getDbUser()` already reads Supabase and is left untouched for non-admin call sites (e.g. instructor portal pages). The new `resolveUserRole()` is Clerk-only and used only for the admin gate.
 
 ---
 
@@ -101,7 +99,7 @@ Per AGENTS.md "Schema-changing PR convention": if PR 2+ touches `convex/schema.t
 - AGENTS.md → "Naming Conventions: NEVER use mentor/mentee" — `instructor`/`student` everywhere.
 - AGENTS.md → "Pull Request Merge Policy" — Greptile + CodeRabbit (skip if `<10` stars); squash merge.
 - AGENTS.md → "Schema-changing PR convention" — Linear verification issue.
-- AGENTS.md → "Clerk Changes Policy (Do Not Touch)" — no Clerk code changes without explicit user approval; PRs 2–7 do not change Clerk.
+- AGENTS.md → "Clerk Changes Policy (Do Not Touch)" — PR 2 *did* change Clerk-related code (introduced `clerkClient()` calls and shifted admin auth from email allowlist to Clerk claims). The user explicitly approved this exception at the start of the arc, with the understanding that the marketing admin role model should mirror apps/platform. PRs 3–7 should not introduce additional Clerk changes.
 - AGENTS.md → "Convex is the source of truth for instructor data" — drives the migration.
-- Existing apps/platform admin patterns: `apps/platform/app/admin/{layout.tsx, client-admin-layout.tsx, page.tsx, instructors/page.tsx, orders/page.tsx}`.
+- Existing apps/platform admin patterns: `apps/platform/app/admin/{layout.tsx, client-admin-layout.tsx, error.tsx, page.tsx, instructors/page.tsx, orders/page.tsx}`.
 - Existing apps/platform providers: `apps/platform/lib/providers/query-provider.tsx`, `apps/platform/components/convex-client-provider.tsx`.
