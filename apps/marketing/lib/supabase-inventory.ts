@@ -166,42 +166,6 @@ export async function decrementInventory(
   return data;
 }
 
-export async function addToWaitlist(
-  email: string,
-  instructorSlug: string,
-  type: "one-on-one" | "group"
-) {
-  try {
-    const response = await fetch("/api/waitlist", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        instructorSlug,
-        type,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (result.success === true && result.alreadyOnWaitlist === true) {
-      return { alreadyOnWaitlist: true };
-    }
-
-    if (!response.ok) {
-      console.error("Error adding to waitlist:", result);
-      return null;
-    }
-
-    return result;
-  } catch (error) {
-    console.error("Error adding to waitlist:", error);
-    return null;
-  }
-}
-
 export async function getWaitlistStatus(
   email: string,
   instructorSlug: string,

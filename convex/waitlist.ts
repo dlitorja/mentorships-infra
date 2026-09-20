@@ -1,6 +1,17 @@
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
+import { RateLimiter, HOUR } from "@convex-dev/rate-limiter";
+import { components } from "./_generated/api";
+
+const rateLimiter = new RateLimiter(components.rateLimiter, {
+  marketingWaitlistJoin: {
+    kind: "fixed window",
+    rate: 10,
+    period: HOUR,
+  },
+});
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -98,7 +109,7 @@ export const getWaitlistStatus = query({
   },
 });
 
-/** Creates a new waitlist entry or updates the mentorship type if already registered. */
+/** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple. */
 export const addToWaitlist = mutation({
   args: {
     email: v.string(),
@@ -106,24 +117,39 @@ export const addToWaitlist = mutation({
     mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
   },
   handler: async (ctx, args) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(args.email)) {
+      throw new ConvexError("Invalid email address");
+    }
+    const instructorSlug = args.instructorSlug?.trim() || "general";
+
+    const status = await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
+      key: args.email.toLowerCase(),
+      throws: true,
+    });
+    void status;
+
     const existing = await ctx.db
       .query("marketingWaitlist")
-      .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+      .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+        q
+          .eq("email", args.email.toLowerCase())
+          .eq("instructorSlug", instructorSlug)
+          .eq("mentorshipType", args.mentorshipType)
       )
       .first();
 
     if (existing) {
-      if (existing.mentorshipType === args.mentorshipType) {
-        return { success: false, message: "Already on waitlist for this type", existingId: existing._id };
-      }
-      await ctx.db.patch(existing._id, { mentorshipType: args.mentorshipType });
-      return { success: true, message: "Updated waitlist type", existingId: existing._id };
+      return {
+        success: false,
+        message: "Already on waitlist for this type",
+        existingId: existing._id,
+      };
     }
 
     const id = await ctx.db.insert("marketingWaitlist", {
-      email: args.email,
-      instructorSlug: args.instructorSlug,
+      email: args.email.toLowerCase(),
+      instructorSlug,
       mentorshipType: args.mentorshipType,
       createdAt: Date.now(),
     });
