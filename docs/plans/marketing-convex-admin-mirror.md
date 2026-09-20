@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PRs 4–7 planned.
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PR 4 merged (#857, Greptile 5/5 on commit `c4ea241c`); PRs 5–7 planned.
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -31,7 +31,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | 1 | `feat/marketing-convex-foundation` | feat(marketing): add Convex provider stack to mirror apps/platform (#854) | ✅ Merged | Add `ConvexClientProvider` + `QueryProvider` + deps (`convex`, `@convex-dev/react-query`, `@tanstack/react-query`, `@tanstack/react-query-devtools`). Update root layout to wrap with both. |
 | 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | ✅ Merged (#855, commit `dfd02516`) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
 | 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | ✅ Merged (#856, commit `643327a1`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple with serialized drain loop to handle role downgrades / account switches / concurrent write races. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
-| 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | Pending | Mirror apps/platform `app/admin/instructors/page.tsx` (`useAllInstructors` + `deleteAdminInstructor` + `BackfillImagesPanel`). This is the page that fixes the original 500. |
+| 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | ✅ Merged (#857, commit `c4ea241c`) | Five admin-gated Convex queries/mutations in `convex/admin.ts`: `getInstructorsWithStatsForAdmin` (cursor-paginated, `by_deletedAt` index, per-page `by_instructorId_status` seat counts), `getInstructorWithStudents` (per-instructor reads, seatless-pack filter, per-pack `by_sessionPackId` session aggregation), `getFullAdminCsvData` (orphan-pack filter, nonce cache-bust), `incrementRemainingSessions` (depleted→active flip), `decrementRemainingSessions` (preserves `refunded`/`expired` terminal statuses). New `apps/marketing/lib/queries/convex/use-instructors.ts` uses `useQueries` so all loaded pages stay reactively subscribed. URL-backed search, lazy CSV export, explicit error states. Verification tracked as HUC-35. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Pending | Marketing-only page. Move inventory data to Convex (`api.adminInventory.*`) so the data layer is single-source. |
 | 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. |
@@ -96,6 +96,61 @@ Risks:
 - The trusted endpoint at `convex/http.ts` `httpServerVerifiedSetUserRole` already exists and was hardened in PRs #669–#675 (shared-secret path removed). Apps/marketing just consumes it; no new auth surface.
 - Apps/platform's `requireRole` is unaffected by the `convex/admin.ts:getInstructorsForAdmin` filter change — the platform admin listing already returned non-deleted rows because `apps/platform/app/admin/instructors/page.tsx` uses `useSuspenseQuery(api.admin.getAllInstructors)` which has its own (unchanged) filter path. If a regression appears, narrow the filter to a new arg rather than removing it.
 - The `AuthDrivenInvalidator` only calls `/api/auth/sync` when the user is signed in AND Clerk has loaded AND Convex auth has resolved. Edge case: if Clerk signs the user out mid-session, the next effect run triggers a re-sync only if `sessionClaims` changes. A complete role deactivation in Clerk Dashboard does not auto-propagate until the user's JWT expires; this is acceptable for marketing's scale (≤5 admins).
+
+---
+
+## 4b. PR 4 spec (admin instructors — Convex port)
+
+**Status:** ✅ Merged as PR #857 (squash → commit `c4ea241c`). Greptile 5/5, all CI green. Tracking issue HUC-35.
+
+**Why this PR was the priority:** The marketing `/admin/instructors` page was throwing `500 operator does not exist: text = uuid` due to a Drizzle/Postgres column-type mismatch (see §1). The fix required migrating the entire page to read from Convex.
+
+**Convex queries / mutations added to `convex/admin.ts`** (all admin-gated via `requireAdmin`):
+
+| Function | Args | Behavior |
+| --- | --- | --- |
+| `getInstructorsWithStatsForAdmin` | `{search?, paginationOpts}` | Cursor-paginated via `paginate()` over the `by_deletedAt` partial index. Per-page seat counts via `by_instructorId_status` index. |
+| `getInstructorWithStudents` | `{instructorId}` | Per-instructor `by_instructorId` reads for seats + `sessionPacks`; filters orphaned packs (no seat reservation); per-pack completed-session aggregation via `by_sessionPackId` index. |
+| `getFullAdminCsvData` | `{nonce?}` | Full admin report rows; filters `sessionPacks` to those with a real seat reservation (orphaned packs excluded). `nonce` arg forces fresh query key on repeat exports. |
+| `incrementRemainingSessions` | `{sessionPackId}` | Atomic; flips `depleted → active` when new balance > 0. |
+| `decrementRemainingSessions` | `{sessionPackId}` | Atomic; flips `active`/`depleted → depleted`. Preserves `refunded`/`expired` terminal statuses. |
+
+**Hook (`apps/marketing/lib/queries/convex/use-instructors.ts`):**
+
+- `useInstructorsWithStatsForAdmin({search, pageSize})` — uses `useQueries` so every loaded cursor stays reactively subscribed. Tracks a `cursorChain` so `loadMore(n)` appends new subscriptions without re-issuing prior fetches.
+- `useInstructorWithStudents(id)` — single-instructor detail with `enabled` gate.
+- `useFullAdminCsvData(enabled)` — lazy CSV query with `bumpNonce()` for cache-busting.
+- `useIncrementRemainingSessions` / `useDecrementRemainingSessions` — Convex mutation hooks.
+
+**Page rewrite:**
+
+- `apps/marketing/app/admin/instructors/page.tsx` — thin `"use client"` wrapper around `<InstructorsTable />`.
+- `apps/marketing/components/admin/instructors-table.tsx` — fully Convex-driven. URL-backed search via `useSearchParams` + `useEffect` sync. `ExportCsvButton` is lazy and click-triggered. Explicit error rows (no more "No instructors found" masking errors).
+
+**API routes deleted** (no longer needed):
+
+- `apps/marketing/app/api/admin/instructors/route.ts`
+- `apps/marketing/app/api/admin/instructors/[id]/mentees/route.ts`
+- `apps/marketing/app/api/admin/instructors/csv/route.ts`
+- `apps/marketing/app/api/admin/session-counts/route.ts`
+
+**Greptile review history:** 5 rounds; final confidence 5/5. Key fixes across rounds:
+1. URL state init from `searchParams` + `useEffect` resync for back/forward navigation.
+2. Cursor-based pagination via `paginate()` + `paginationOptsValidator` (replaced numbered `.take(pageSize)`).
+3. Seatless-pack filter in detail view AND in CSV export (orphaned packs were mislabelled).
+4. Expanded-row error state + listing-query error state (was rendering "No instructors found").
+5. Lazy `ExportCsvButton` with `enabled` gate + `bumpNonce` cache-bust (TanStack Query has `staleTime: Infinity`).
+6. `decrementRemainingSessions` preserves `refunded`/`expired` terminal statuses (was overwriting them with `depleted`).
+7. Per-cursor reactive subscriptions via `useQueries` so all loaded pages stay live.
+
+**Known limitations (non-blocking):**
+
+- Search filter is applied client-side after a 500-row window is fetched. To cover all matches without paginating manually, the proper fix is a text-friendly index in `convex/schema.ts` (e.g., a `by_emailPrefix` index using `search`-compatible Convex `searchIndex`). Tracked as future work; current solution is pragmatic for marketing's ≤50 instructor scale.
+- The old `?page=N` URL parameter is ignored under cursor pagination. Search is the only URL state.
+
+**Risks:**
+- Each loaded cursor becomes its own Convex subscription; very deep pagination (10+ pages) could exceed the user's concurrent query limit. For marketing's admin scale (≤5 admins, ≤50 instructors) this is not a concern.
+- The seatless-pack filter in CSV export means a pack without an active seat reservation is invisible in the admin report. This matches the intent (a pack with no one using it is dead inventory) but admins should be aware.
 
 ---
 
