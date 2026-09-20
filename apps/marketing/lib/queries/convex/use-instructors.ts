@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   convexQuery,
@@ -109,12 +110,21 @@ export function useInstructorWithStudents(instructorId: Id<"instructors"> | null
  *
  * `enabled` defaults to `false` — the full scan is expensive and
  * should only run when the admin actually clicks "Export CSV".
+ *
+ * Returns `{ data, refetch, bumpNonce }`. The caller must `bumpNonce()`
+ * on every click so the query key changes; otherwise TanStack Query
+ * reuses the cached result from the previous export.
  */
 export function useFullAdminCsvData(enabled: boolean = false) {
-  return useQuery({
-    ...convexQuery(api.admin.getFullAdminCsvData, {}),
+  const [nonce, setNonce] = useState(0);
+  const result = useQuery({
+    ...convexQuery(api.admin.getFullAdminCsvData, { nonce }),
     enabled,
   });
+  return {
+    ...result,
+    bumpNonce: () => setNonce((n) => n + 1),
+  };
 }
 
 /**

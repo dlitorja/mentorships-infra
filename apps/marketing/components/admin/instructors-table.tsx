@@ -208,13 +208,16 @@ function StudentsTable({ students }: { students: InstructorStudentRow[] }) {
 function ExportCsvButton() {
   // Greptile P2: lazy fetch — the full report scans every session
   // pack, seat reservation, instructor, and user. We only trigger
-  // it after the admin clicks the button.
+  // it after the admin clicks the button. `bumpNonce()` ensures each
+  // click produces a fresh fetch — otherwise TanStack Query reuses
+  // the cached result from the previous export.
   const [enabled, setEnabled] = useState(false);
-  const { data: csvRows, isFetching, error } = useFullAdminCsvData(enabled);
+  const { data: csvRows, isFetching, error, bumpNonce } = useFullAdminCsvData(enabled);
 
   const handleClick = useCallback(() => {
+    bumpNonce();
     setEnabled(true);
-  }, []);
+  }, [bumpNonce]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -365,19 +368,31 @@ export function InstructorsTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Greptile P1: initialize search from URL so direct visits,
-  // bookmarks, and back/forward restore the same view. Pagination
-  // is cursor-based via `useConvexPaginatedQuery`, so we don't
-  // mirror page numbers in the URL anymore.
-  const initialSearch = searchParams?.get("search") ?? "";
+  // Greptile P2: keep both `search` (committed) and `searchInput`
+  // (input box) in sync with the URL on every render — back/forward
+  // navigation now updates the table.
+  const urlSearch = searchParams?.get("search") ?? "";
 
-  const [searchInput, setSearchInput] = useState(initialSearch);
-  const [search, setSearch] = useState(initialSearch);
+  const [searchInput, setSearchInput] = useState(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
+
+  // Sync from URL whenever the URL's `search` param changes (mount,
+  // back/forward, or any other navigation that updates it). This
+  // ensures direct visits AND browser navigation agree with the URL.
+  useEffect(() => {
+    setSearch(urlSearch);
+    setSearchInput(urlSearch);
+  }, [urlSearch]);
 
   const { results, status, loadMore, isLoading } = useInstructorsWithStatsForAdmin({
     search: search || undefined,
-    initialNumItems: PAGE_SIZE,
+    // Greptile P2: when searching, fetch a larger initial window so
+    // email matches beyond the first 50 aren't silently omitted —
+    // the Convex paginate() runs on the raw unfiltered list, and we
+    // filter after. Once the search term changes back, fall back to
+    // the standard page size.
+    initialNumItems: search ? 500 : PAGE_SIZE,
   });
   const instructors: InstructorWithStats[] = results ?? [];
   const canLoadMore = status === "CanLoadMore";

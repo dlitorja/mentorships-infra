@@ -677,8 +677,13 @@ export const getInstructorWithStudents = query({
 });
 
 export const getFullAdminCsvData = query({
-  args: {},
-  handler: async (ctx): Promise<FullAdminReportRow[]> => {
+  args: {
+    // Cache-busting nonce — the client passes a fresh value on each
+    // export click so TanStack Query doesn't reuse the previous
+    // result (the Convex adapter sets `staleTime: Infinity`).
+    nonce: v.optional(v.number()),
+  },
+  handler: async (ctx, _args): Promise<FullAdminReportRow[]> => {
     await requireAdmin(ctx);
 
     const sessionPacks = await ctx.db.query("sessionPacks").collect();
