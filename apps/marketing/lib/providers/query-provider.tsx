@@ -6,8 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useConvexAuth } from "convex/react";
 import { useAuth as useClerkAuth } from "@clerk/nextjs";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import { useEffect, useRef, useState } from "react";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -69,30 +67,63 @@ function isSyncableRole(value: unknown): value is SyncableRole {
  * mounting this child.
  */
 function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
-  const { isAuthenticated } = useConvexAuth();
-  const { sessionClaims, isLoaded: clerkLoaded } = useClerkAuth();
-  const syncUser = useMutation(api.users.syncUser);
-  const syncedRef = useRef(false);
+  const { isAuthenticated, isLoading: convexAuthLoading } = useConvexAuth();
+  const { userId, sessionClaims, isLoaded: clerkLoaded } = useClerkAuth();
+
+  // Track the last `(userId, role)` tuple we successfully synced so we
+  // re-sync when EITHER changes (e.g., Clerk flips admin → student, or
+  // a different account signs in without a full page reload). A simple
+  // boolean `syncedRef` would miss role downgrades and stale accounts.
+  const lastSyncedRef = useRef<{ userId: string; role: SyncableRole | null } | null>(null);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated || !clerkLoaded) return;
+    if (convexAuthLoading || !clerkLoaded) return;
+    if (!isAuthenticated || !userId) return;
 
     const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-    if (isSyncableRole(claimsRole) && !syncedRef.current) {
-      syncedRef.current = true;
-      syncUser({ role: claimsRole }).catch((err) => {
-        syncedRef.current = false;
-        console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
-      });
-    }
+    const role: SyncableRole | null = isSyncableRole(claimsRole) ? claimsRole : null;
 
+    const last = lastSyncedRef.current;
+    if (last && last.userId === userId && last.role === role) {
+      // Nothing changed since the last successful sync.
+      return;
+    }
+    if (inFlightRef.current) return;
+
+    inFlightRef.current = true;
+    fetch("/api/auth/sync", { method: "GET", credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`auth sync ${res.status}: ${text.slice(0, 200)}`);
+        }
+        lastSyncedRef.current = { userId, role };
+      })
+      .catch((err) => {
+        console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
+        // Do NOT mark lastSyncedRef — leave the role unsynced so a
+        // subsequent effect run (e.g. after sign-in completes) retries.
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+      });
+
+    // Kick any convex-backed queries that mounted before auth was ready.
     queryClient.invalidateQueries({
       predicate: (query) => {
         const first = query.queryKey[0];
         return first === "convexQuery" || first === "convexAction";
       },
     });
-  }, [isAuthenticated, clerkLoaded, queryClient, sessionClaims, syncUser]);
+  }, [
+    convexAuthLoading,
+    isAuthenticated,
+    clerkLoaded,
+    userId,
+    queryClient,
+    sessionClaims,
+  ]);
 
   return null;
 }

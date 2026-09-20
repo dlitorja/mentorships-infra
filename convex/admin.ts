@@ -100,6 +100,14 @@ export const getInstructorsForAdmin = query({
 
     let instructors = await ctx.db.query("instructors").collect();
 
+    // Exclude soft-deleted (deletedAt != null) and explicitly inactive
+    // (isActive === false) instructors. Convex indexes do not support
+    // "not-equal" filtering, so we collect then filter. The admin
+    // listing is small enough that the post-filter is fine; if it ever
+    // grows, add a `by_deletedAt` partial index or a denormalized
+    // `isListed` boolean.
+    instructors = instructors.filter((i) => !i.deletedAt && i.isActive !== false);
+
     if (args.search) {
       const searchLower = args.search.toLowerCase();
       instructors = instructors.filter(i => {

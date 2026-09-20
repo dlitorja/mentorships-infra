@@ -9,6 +9,8 @@ import { Users } from "lucide-react";
 
 export function AdminInstructorsSection(): React.JSX.Element {
   const result = useQuery(api.admin.getInstructorsForAdmin, { pageSize: 5 });
+  // Server-side filter already excludes `deletedAt != null` and
+  // `isActive === false`. Defensive double-check for any stale rows.
   const items = (result?.items ?? []).filter((i) => i.isActive);
 
   return (
@@ -18,11 +20,9 @@ export function AdminInstructorsSection(): React.JSX.Element {
           <Users className="h-5 w-5" />
           Recent Instructors
         </CardTitle>
-        <Link href="/admin/instructors">
-          <Button variant="outline" size="sm">
-            View All
-          </Button>
-        </Link>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/admin/instructors">View All</Link>
+        </Button>
       </CardHeader>
       <CardContent>
         {!result ? (
