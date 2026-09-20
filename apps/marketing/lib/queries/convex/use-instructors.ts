@@ -28,7 +28,6 @@ export type InstructorWithStats = {
   groupInventory: number;
   maxActiveStudents: number;
   activeStudentCount: number;
-  totalCompletedSessions: number;
   createdAt: number;
 };
 
@@ -100,10 +99,14 @@ export function useInstructorWithStudents(instructorId: Id<"instructors"> | null
  * Fetches the full admin CSV report (every session pack joined with
  * instructor + student email). Replaces `getFullAdminCsvData()`.
  * Used by the "Export CSV" button.
+ *
+ * `enabled` defaults to `false` — the full scan is expensive and
+ * should only run when the admin actually clicks "Export CSV".
  */
-export function useFullAdminCsvData() {
+export function useFullAdminCsvData(enabled: boolean = false) {
   return useQuery({
     ...convexQuery(api.admin.getFullAdminCsvData, {}),
+    enabled,
   });
 }
 

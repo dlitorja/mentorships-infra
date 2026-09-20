@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronDown,
@@ -206,129 +206,28 @@ function StudentsTable({ students }: { students: InstructorStudentRow[] }) {
   );
 }
 
-function InstructorRow({
-  instructor,
-  isExpanded,
-  onToggle,
-}: {
-  instructor: InstructorWithStats;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const instructorId = instructor.instructorId as Id<"instructors">;
-  const { data: expandedData, isLoading } = useInstructorWithStudents(
-    isExpanded ? instructorId : null,
-  );
+function ExportCsvButton() {
+  // Greptile P2: lazy fetch — the full report scans every session
+  // pack, seat reservation, instructor, and user. We only trigger
+  // it after the admin clicks the button.
+  const [enabled, setEnabled] = useState(false);
+  const { data: csvRows, isFetching, error } = useFullAdminCsvData(enabled);
 
-  return (
-    <>
-      <tr
-        className={`border-b hover:bg-muted/50 cursor-pointer transition-colors ${
-          isExpanded ? "bg-muted/75" : ""
-        }`}
-        onClick={onToggle}
-      >
-        <td className="p-4 w-10">
-          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </td>
-        <td className="p-4">
-          <div>
-            <p className="font-medium">{instructor.email}</p>
-          </div>
-        </td>
-        <td className="p-4">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <span>{instructor.activeStudentCount}</span>
-          </div>
-        </td>
-        <td className="p-4">
-          <span className="font-medium">{instructor.totalCompletedSessions}</span>
-        </td>
-        <td className="p-4">
-          <div className="flex gap-2">
-            <Badge variant="outline">1-on-1: {instructor.oneOnOneInventory}</Badge>
-            <Badge variant="outline">Group: {instructor.groupInventory}</Badge>
-          </div>
-        </td>
-        <td className="p-4">{formatDate(instructor.createdAt)}</td>
-        <td className="p-4">
-          <Button variant="ghost" size="sm">
-            Manage
-          </Button>
-        </td>
-      </tr>
-      {isExpanded && (
-        <tr className="bg-muted/30">
-          <td colSpan={7} className="p-0">
-            <div className="p-4">
-              <h4 className="font-medium mb-3">
-                Students ({expandedData?.students.length ?? 0})
-              </h4>
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
-              ) : (
-                <StudentsTable students={expandedData?.students ?? []} />
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-export function InstructorsTable() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
-
-  const { data, isLoading, isFetching, error } = useInstructorsWithStatsForAdmin({
-    search: search || undefined,
-    page,
-    pageSize: PAGE_SIZE,
-  });
-  const instructors: InstructorWithStats[] = data?.instructors ?? [];
-  const total: number = data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  const { data: csvRows } = useFullAdminCsvData();
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    setSearch(searchInput);
-    const params = new URLSearchParams(searchParams);
-    if (searchInput) {
-      params.set("search", searchInput);
-    } else {
-      params.delete("search");
-    }
-    params.delete("page");
-    router.push(`/admin/instructors?${params.toString()}`);
-  };
-
-  const handlePageChange = (newPage: number) => {
-    if (newPage < 1 || newPage > totalPages) return;
-    setPage(newPage);
-    const params = new URLSearchParams(searchParams);
-    params.set("page", newPage.toString());
-    router.push(`/admin/instructors?${params.toString()}`);
-  };
-
-  const handleToggleExpand = useCallback((instructorId: string) => {
-    setExpandedInstructorId((current) => (current === instructorId ? null : instructorId));
+  const handleClick = useCallback(() => {
+    setEnabled(true);
   }, []);
 
-  const handleExportCsv = useCallback(() => {
+  useEffect(() => {
+    if (!enabled) return;
+    if (isFetching) return;
+    if (error) {
+      alert("Failed to load CSV data");
+      setEnabled(false);
+      return;
+    }
     if (!csvRows || csvRows.length === 0) {
       alert("No data to export");
+      setEnabled(false);
       return;
     }
     const header = [
@@ -377,7 +276,148 @@ export function InstructorsTable() {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-  }, [csvRows]);
+    setEnabled(false);
+  }, [enabled, csvRows, isFetching, error]);
+
+  return (
+    <Button onClick={handleClick} variant="outline" disabled={isFetching}>
+      <Download className="h-4 w-4 mr-2" />
+      {isFetching ? "Preparing…" : "Export CSV"}
+    </Button>
+  );
+}
+
+function InstructorRow({
+  instructor,
+  isExpanded,
+  onToggle,
+}: {
+  instructor: InstructorWithStats;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const instructorId = instructor.instructorId as Id<"instructors">;
+  const { data: expandedData, isLoading, error: expandedError } = useInstructorWithStudents(
+    isExpanded ? instructorId : null,
+  );
+
+  return (
+    <>
+      <tr
+        className={`border-b hover:bg-muted/50 cursor-pointer transition-colors ${
+          isExpanded ? "bg-muted/75" : ""
+        }`}
+        onClick={onToggle}
+      >
+        <td className="p-4 w-10">
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </td>
+        <td className="p-4">
+          <div>
+            <p className="font-medium">{instructor.email}</p>
+          </div>
+        </td>
+        <td className="p-4">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span>{instructor.activeStudentCount}</span>
+          </div>
+        </td>
+        <td className="p-4">
+          <div className="flex gap-2">
+            <Badge variant="outline">1-on-1: {instructor.oneOnOneInventory}</Badge>
+            <Badge variant="outline">Group: {instructor.groupInventory}</Badge>
+          </div>
+        </td>
+        <td className="p-4">{formatDate(instructor.createdAt)}</td>
+        <td className="p-4">
+          <Button variant="ghost" size="sm">
+            Manage
+          </Button>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr className="bg-muted/30">
+          <td colSpan={6} className="p-0">
+            <div className="p-4">
+              <h4 className="font-medium mb-3">
+                Students ({expandedData?.students.length ?? 0})
+              </h4>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : expandedError ? (
+                <div className="p-4 text-center text-destructive">
+                  Failed to load students. Please try again.
+                </div>
+              ) : (
+                <StudentsTable students={expandedData?.students ?? []} />
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+export function InstructorsTable() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Greptile P1: initialize from URL so direct visits, bookmarks, and
+  // browser back/forward restore the same view. `searchParams` is
+  // stable across renders (Next.js caches the readonly params), so
+  // this is effectively a lazy initializer.
+  const initialSearch = searchParams?.get("search") ?? "";
+  const initialPageRaw = searchParams?.get("page");
+  const initialPage = initialPageRaw ? Math.max(1, parseInt(initialPageRaw, 10) || 1) : 1;
+
+  const [page, setPage] = useState(initialPage);
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
+  const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
+
+  const { data, isLoading, isFetching, error } = useInstructorsWithStatsForAdmin({
+    search: search || undefined,
+    page,
+    pageSize: PAGE_SIZE,
+  });
+  const instructors: InstructorWithStats[] = data?.instructors ?? [];
+  // `total` is the length of the current page (bounded `.take(N)` read
+  // in the Convex query). For pagination we treat it as a hint: if
+  // the page came back full, there may be more rows to discover, so
+  // we always show the "Next" button when full or any prior page.
+  const total: number = data?.total ?? 0;
+  const isFullPage = instructors.length >= PAGE_SIZE;
+  const totalPages = Math.max(page, isFullPage ? page + 1 : page);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    setSearch(searchInput);
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (searchInput) {
+      params.set("search", searchInput);
+    } else {
+      params.delete("search");
+    }
+    params.delete("page");
+    router.push(`/admin/instructors?${params.toString()}`);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1) return;
+    setPage(newPage);
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("page", newPage.toString());
+    router.push(`/admin/instructors?${params.toString()}`);
+  };
+
+  const handleToggleExpand = useCallback((instructorId: string) => {
+    setExpandedInstructorId((current) => (current === instructorId ? null : instructorId));
+  }, []);
 
   return (
     <div>
@@ -397,10 +437,7 @@ export function InstructorsTable() {
             Search
           </Button>
         </form>
-        <Button onClick={handleExportCsv} variant="outline" disabled={!csvRows || csvRows.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
+        <ExportCsvButton />
       </div>
 
       <div className="border rounded-lg overflow-hidden">
@@ -410,7 +447,6 @@ export function InstructorsTable() {
               <th className="text-left p-4 w-10"></th>
               <th className="text-left p-4 font-medium">Instructor</th>
               <th className="text-left p-4 font-medium">Active Students</th>
-              <th className="text-left p-4 font-medium">Sessions Completed</th>
               <th className="text-left p-4 font-medium">Inventory</th>
               <th className="text-left p-4 font-medium">Joined</th>
               <th className="text-left p-4 font-medium">Actions</th>
@@ -419,13 +455,13 @@ export function InstructorsTable() {
           <tbody>
             {error ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-destructive">
+                <td colSpan={6} className="p-8 text-center text-destructive">
                   Failed to load instructors. Please try again.
                 </td>
               </tr>
             ) : isLoading && instructors.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center">
+                <td colSpan={6} className="p-8 text-center">
                   <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                   </div>
@@ -456,34 +492,32 @@ export function InstructorsTable() {
         )}
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-muted-foreground">
-            Showing {instructors.length} of {total} instructors
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page - 1)}
-              disabled={page === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="flex items-center px-3 text-sm">
-              Page {page} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={page === totalPages}
-            >
-              <ChevronRightIcon className="h-4 w-4" />
-            </Button>
-          </div>
+      <div className="flex items-center justify-between mt-4">
+        <p className="text-sm text-muted-foreground">
+          Showing {instructors.length} instructor{instructors.length === 1 ? "" : "s"} on page {page}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange(page - 1)}
+            disabled={page === 1}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="flex items-center px-3 text-sm">
+            Page {page}{isFullPage ? "+" : ""}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handlePageChange(page + 1)}
+            disabled={!isFullPage}
+          >
+            <ChevronRightIcon className="h-4 w-4" />
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

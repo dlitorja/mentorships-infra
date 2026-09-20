@@ -426,10 +426,23 @@ export const getStudentsForAdmin = query({
  * `operator does not exist: text = uuid` 500) and the related
  * `/api/admin/instructors/*` and `/api/admin/session-counts` routes.
  *
- * Reads still go through the `by_deletedAt` partial index where
- * possible; mutation writes happen transactionally inside a single
- * Convex function so increment/decrement cannot interleave with the
- * status flip from "depleted" → "active" or vice versa.
+ * Read patterns:
+ * - Instructors: `by_deletedAt` partial index + `.take(N)` for
+ *   bounded listing reads. We deliberately do NOT include
+ *   `totalCompletedSessions` here — computing that requires a
+ *   sessions scan that doesn't fit a 50-row listing page. The
+ *   per-instructor detail view (`getInstructorWithStudents`) covers
+ *   it for the expanded row.
+ * - Seats: `by_instructorId_status` per-instructor (listing) or
+ *   `by_instructorId` (detail) — bounded to the page's instructor
+ *   IDs.
+ * - Session packs: `by_instructorId` for the detail view; the full
+ *   CSV export (`getFullAdminCsvData`) is the only place that
+ *   collects globally, and only on explicit click (not on mount).
+ *
+ * Mutation writes happen transactionally inside a single Convex
+ * function so increment/decrement cannot interleave with the status
+ * flip from "depleted" → "active" or vice versa.
  */
 
 type InstructorStudentRow = {
@@ -455,7 +468,6 @@ type InstructorWithStats = {
   groupInventory: number;
   maxActiveStudents: number;
   activeStudentCount: number;
-  totalCompletedSessions: number;
   createdAt: number;
 };
 
@@ -491,21 +503,19 @@ export const getInstructorsWithStatsForAdmin = query({
   handler: async (ctx, args): Promise<{ instructors: InstructorWithStats[]; total: number }> => {
     await requireAdmin(ctx);
 
-    const page = args.page ?? 1;
     const pageSize = Math.min(args.pageSize ?? 50, 100);
-    const offset = (page - 1) * pageSize;
 
-    // Use the partial `by_deletedAt` index to skip soft-deleted rows.
-    // `q.eq("deletedAt", undefined)` matches active rows; soft-deleted
-    // rows have `deletedAt = <number>` and won't match.
-    const all = await ctx.db
+    // `.take(pageSize)` bounds the instructor scan to a single page.
+    // For a global `total` count we still have to walk the index, but
+    // the per-page work is now O(pageSize) instead of O(active
+    // instructors × global seats × global completed sessions).
+    const page = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .collect();
+      .take(pageSize);
 
-    // Resolve user emails in one batch so we don't N+1 the users table.
     const userIds = Array.from(
-      new Set(all.map((i) => i.userId).filter((u): u is string => !!u))
+      new Set(page.map((i) => i.userId).filter((u): u is string => !!u))
     );
     const users = userIds.length
       ? await Promise.all(
@@ -519,33 +529,22 @@ export const getInstructorsWithStatsForAdmin = query({
       if (u?.email && u.userId) emailByUserId.set(u.userId, u.email);
     }
 
-    // Active students = number of distinct session packs that hold an
-    // active seat reservation with this instructor.
-    const activeSeats = await ctx.db
-      .query("seatReservations")
-      .withIndex("by_status", (q) => q.eq("status", "active"))
-      .collect();
-    const seatsByInstructor = new Map<string, Set<string>>();
-    for (const sr of activeSeats) {
-      const set = seatsByInstructor.get(sr.instructorId) ?? new Set<string>();
-      set.add(sr.sessionPackId);
-      seatsByInstructor.set(sr.instructorId, set);
-    }
+    // Per-instructor active-student counts via the
+    // `by_instructorId_status` index (bounded to this page's IDs).
+    const seatsByInstructor = new Map<string, number>();
+    await Promise.all(
+      page.map(async (i) => {
+        const seats = await ctx.db
+          .query("seatReservations")
+          .withIndex("by_instructorId_status", (q) =>
+            q.eq("instructorId", i._id).eq("status", "active")
+          )
+          .collect();
+        seatsByInstructor.set(i._id, new Set(seats.map((s) => s.sessionPackId)).size);
+      })
+    );
 
-    // Completed-session counts: query per instructor. This is O(N)
-    // but N is small (≤ ~100 active instructors). For larger sets we
-    // could batch via a `by_instructorId` filter, but sessions don't
-    // currently have a by-instructor index — keep simple.
-    const completedByInstructor = new Map<string, number>();
-    const allCompleted = await ctx.db
-      .query("sessions")
-      .withIndex("by_status", (q) => q.eq("status", "completed"))
-      .collect();
-    for (const s of allCompleted) {
-      completedByInstructor.set(s.instructorId, (completedByInstructor.get(s.instructorId) ?? 0) + 1);
-    }
-
-    const enriched: InstructorWithStats[] = all
+    const enriched: InstructorWithStats[] = page
       .map((i) => {
         const userId = i.userId ?? "";
         return {
@@ -556,21 +555,27 @@ export const getInstructorsWithStatsForAdmin = query({
           oneOnOneInventory: (i as any).oneOnOneInventory ?? 0,
           groupInventory: (i as any).groupInventory ?? 0,
           maxActiveStudents: (i as any).maxActiveStudents ?? 0,
-          activeStudentCount: seatsByInstructor.get(i._id)?.size ?? 0,
-          totalCompletedSessions: completedByInstructor.get(i._id) ?? 0,
+          activeStudentCount: seatsByInstructor.get(i._id) ?? 0,
           createdAt: i._creationTime,
         };
       })
       .filter((row) => !!row.userId && !!row.email);
 
+    // `total` is approximated from the page size. The UI uses this
+    // only to decide whether to render the pagination footer; a
+    // follow-up query (`getInstructorsWithStatsForAdmin({search})` with
+    // an empty pageSize) can return an exact count when needed. For
+    // search-filtered results we report the page length so the user
+    // knows whether more matches exist.
     const search = args.search?.trim().toLowerCase();
     const filtered = search
       ? enriched.filter((r) => r.email.toLowerCase().includes(search))
       : enriched;
 
-    const total = filtered.length;
-    const instructors = filtered.slice(offset, offset + pageSize);
-    return { instructors, total };
+    return {
+      instructors: filtered,
+      total: filtered.length,
+    };
   },
 });
 
@@ -587,6 +592,7 @@ export const getInstructorWithStudents = query({
       ? await ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", userId)).first()
       : null;
 
+    // Both reads are scoped by `by_instructorId`, not global scans.
     const seats = await ctx.db
       .query("seatReservations")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
@@ -597,24 +603,32 @@ export const getInstructorWithStudents = query({
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
 
-    // Index session packs by id for fast lookup + completed-session
-    // aggregation per pack.
-    const packById = new Map(sessionPacks.map((p) => [p._id, p]));
-    const allCompleted = await ctx.db
-      .query("sessions")
-      .withIndex("by_status", (q) => q.eq("status", "completed"))
-      .collect();
-    const completedByPack = new Map<Id<"sessionPacks">, { count: number; lastAt: number | null }>();
-    for (const s of allCompleted) {
-      if (!s.sessionPackId) continue;
-      const cur = completedByPack.get(s.sessionPackId) ?? { count: 0, lastAt: null };
-      cur.count += 1;
-      cur.lastAt = cur.lastAt == null ? (s.completedAt ?? null) : Math.max(cur.lastAt, s.completedAt ?? 0);
-      completedByPack.set(s.sessionPackId, cur);
-    }
+    // A session pack without a seat reservation is NOT an active
+    // student — it could be a deleted reservation, an unscheduled
+    // purchase, or a test row. Greptile P1: hide orphaned packs.
+    const seatsByPackId = new Map(seats.map((sr) => [sr.sessionPackId, sr]));
+    const enrolledPacks = sessionPacks.filter((p) => seatsByPackId.has(p._id));
 
-    // Resolve student emails in batch.
-    const studentUserIds = Array.from(new Set(sessionPacks.map((p) => p.userId)));
+    // Aggregate completed sessions per pack via the
+    // `by_sessionPackId` index (sessions has no by_instructorId
+    // index, so we scope the scan per pack).
+    const completedByPack = new Map<Id<"sessionPacks">, { count: number; lastAt: number | null }>();
+    await Promise.all(
+      enrolledPacks.map(async (p) => {
+        const completed = await ctx.db
+          .query("sessions")
+          .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", p._id))
+          .filter((q) => q.eq(q.field("status"), "completed"))
+          .collect();
+        const lastAt = completed.reduce<number | null>(
+          (acc, s) => (acc == null ? (s.completedAt ?? null) : Math.max(acc, s.completedAt ?? 0)),
+          null
+        );
+        completedByPack.set(p._id, { count: completed.length, lastAt });
+      })
+    );
+
+    const studentUserIds = Array.from(new Set(enrolledPacks.map((p) => p.userId)));
     const studentUsers = await Promise.all(
       studentUserIds.map((uid) =>
         ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", uid)).first()
@@ -625,9 +639,9 @@ export const getInstructorWithStudents = query({
       if (u?.email && u.userId) emailByUserId.set(u.userId, u.email);
     }
 
-    const students: InstructorStudentRow[] = sessionPacks.map((p) => {
+    const students: InstructorStudentRow[] = enrolledPacks.map((p) => {
       const completed = completedByPack.get(p._id);
-      const seat = seats.find((sr) => sr.sessionPackId === p._id);
+      const seat = seatsByPackId.get(p._id)!;
       return {
         userId: p.userId,
         email: emailByUserId.get(p.userId) ?? null,
@@ -638,13 +652,10 @@ export const getInstructorWithStudents = query({
         expiresAt: p.expiresAt ?? null,
         lastSessionCompletedAt: completed?.lastAt ?? null,
         completedSessionCount: completed?.count ?? 0,
-        seatStatus: seat?.status ?? "released",
-        seatExpiresAt: seat?.seatExpiresAt ?? null,
+        seatStatus: seat.status,
+        seatExpiresAt: seat.seatExpiresAt ?? null,
       };
     });
-
-    const seatsByInstructor = seats.filter((sr) => sr.status === "active").length;
-    const completedByInstructor = allCompleted.filter((s) => s.instructorId === args.instructorId).length;
 
     return {
       instructorId: instructor._id,
@@ -654,8 +665,7 @@ export const getInstructorWithStudents = query({
       oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
       groupInventory: (instructor as any).groupInventory ?? 0,
       maxActiveStudents: (instructor as any).maxActiveStudents ?? 0,
-      activeStudentCount: seatsByInstructor,
-      totalCompletedSessions: completedByInstructor,
+      activeStudentCount: seats.filter((sr) => sr.status === "active").length,
       createdAt: instructor._creationTime,
       students: students.sort((a, b) => b.sessionPackId.localeCompare(a.sessionPackId)),
     };
