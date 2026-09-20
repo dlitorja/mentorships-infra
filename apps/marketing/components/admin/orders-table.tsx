@@ -293,78 +293,86 @@ export function OrdersTable() {
 
       {isLoading ? (
         <div className="text-center py-8">Loading orders...</div>
-      ) : visibleOrders.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">No orders found</div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-medium">Order ID</th>
-                  <th className="text-left py-3 px-4 font-medium">Customer</th>
-                  <th className="text-left py-3 px-4 font-medium">Amount</th>
-                  <th className="text-left py-3 px-4 font-medium">Provider</th>
-                  <th className="text-left py-3 px-4 font-medium">Status</th>
-                  <th className="text-left py-3 px-4 font-medium">Date</th>
-                  <th className="text-left py-3 px-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOrders.map((order) => {
-                  const payment = order.payments[0];
-                  return (
-                    <tr key={order.id} className="border-b hover:bg-muted/30">
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-xs">
-                          {order.id.slice(0, 8)}...
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="text-sm">{order.userEmail || "—"}</div>
-                        {order.userFirstName && (
-                          <div className="text-xs text-muted-foreground">
-                            {order.userFirstName}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        {formatMoney(order.totalAmount, order.currency)}
-                        {payment &&
-                          payment.refundedAmount &&
-                          parseFloat(payment.refundedAmount) > 0 && (
+          {visibleOrders.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {appliedSearch
+                ? `No orders matching "${appliedSearch}" in the loaded window.`
+                : "No orders found"}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-3 px-4 font-medium">Order ID</th>
+                    <th className="text-left py-3 px-4 font-medium">Customer</th>
+                    <th className="text-left py-3 px-4 font-medium">Amount</th>
+                    <th className="text-left py-3 px-4 font-medium">Provider</th>
+                    <th className="text-left py-3 px-4 font-medium">Status</th>
+                    <th className="text-left py-3 px-4 font-medium">Date</th>
+                    <th className="text-left py-3 px-4 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleOrders.map((order) => {
+                    const payment = order.payments[0];
+                    return (
+                      <tr key={order.id} className="border-b hover:bg-muted/30">
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs">
+                            {order.id.slice(0, 8)}...
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="text-sm">{order.userEmail || "—"}</div>
+                          {order.userFirstName && (
                             <div className="text-xs text-muted-foreground">
-                              refunded {formatMoney(payment.refundedAmount, payment.currency)}
+                              {order.userFirstName}
                             </div>
                           )}
-                      </td>
-                      <td className="py-3 px-4 capitalize">{order.provider}</td>
-                      <td className="py-3 px-4">{statusBadge(order.status)}</td>
-                      <td className="py-3 px-4 text-sm">{formatDate(order.createdAt)}</td>
-                      <td className="py-3 px-4">
-                        {order.status === "paid" && payment && (
-                          <button
-                            onClick={() => setSelectedOrder(order)}
-                            className="text-sm text-red-600 hover:text-red-800 hover:underline"
-                          >
-                            Refund
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {formatMoney(order.totalAmount, order.currency)}
+                          {payment &&
+                            payment.refundedAmount &&
+                            parseFloat(payment.refundedAmount) > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                refunded {formatMoney(payment.refundedAmount, payment.currency)}
+                              </div>
+                            )}
+                        </td>
+                        <td className="py-3 px-4 capitalize">{order.provider}</td>
+                        <td className="py-3 px-4">{statusBadge(order.status)}</td>
+                        <td className="py-3 px-4 text-sm">{formatDate(order.createdAt)}</td>
+                        <td className="py-3 px-4">
+                          {order.status === "paid" && payment && (
+                            <button
+                              onClick={() => setSelectedOrder(order)}
+                              className="text-sm text-red-600 hover:text-red-800 hover:underline"
+                            >
+                              Refund
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {canLoadMore && (
             <div className="flex items-center justify-center mt-4">
               <button
-                onClick={() => loadMore(50)}
+                onClick={() => loadMore(appliedSearch ? 500 : 50)}
                 className="px-4 py-2 border rounded hover:bg-muted"
               >
-                Load more
+                {appliedSearch
+                  ? "Scan older orders"
+                  : "Load more"}
               </button>
             </div>
           )}
