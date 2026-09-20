@@ -52,30 +52,30 @@ export default function AdminDashboard(): React.JSX.Element {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-4">
-            <Link href="/admin/inventory">
-              <Button variant="outline">
+            <Button asChild variant="outline">
+              <Link href="/admin/inventory">
                 <Package className="mr-2 h-4 w-4" />
                 Manage Inventory
-              </Button>
-            </Link>
-            <Link href="/admin/instructors">
-              <Button variant="outline">
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/instructors">
                 <Users className="mr-2 h-4 w-4" />
                 View Instructors
-              </Button>
-            </Link>
-            <Link href="/admin/orders">
-              <Button variant="outline">
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/orders">
                 <ShoppingCart className="mr-2 h-4 w-4" />
                 View Orders
-              </Button>
-            </Link>
-            <Link href="/admin/digest">
-              <Button variant="outline">
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/digest">
                 <Bell className="mr-2 h-4 w-4" />
                 Digest Settings
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </CardContent>
       </Card>

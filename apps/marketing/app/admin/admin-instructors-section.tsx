@@ -9,7 +9,7 @@ import { Users } from "lucide-react";
 
 export function AdminInstructorsSection(): React.JSX.Element {
   const result = useQuery(api.admin.getInstructorsForAdmin, { pageSize: 5 });
-  const items = result?.items ?? [];
+  const items = (result?.items ?? []).filter((i) => i.isActive);
 
   return (
     <Card>
