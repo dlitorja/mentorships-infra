@@ -210,7 +210,7 @@ export const adminProcessRefundInternal = internalMutation({
     await writeAuditLog(ctx, {
       actorId: identity.subject,
       actorRole: "admin",
-      action: "admin_process_refund",
+      action: "admin_refund_completed",
       targetType: "payment",
       targetId: args.paymentId,
       details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
@@ -263,7 +263,7 @@ export const adminProcessRefund = mutation({
     await writeAuditLog(ctx, {
       actorId: identity.subject,
       actorRole: "admin",
-      action: "admin_process_refund",
+      action: "admin_refund_completed",
       targetType: "payment",
       targetId: args.paymentId,
       details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,

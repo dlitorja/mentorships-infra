@@ -376,6 +376,30 @@ export const processRefundForAdmin = action({
     const refundNonce = crypto.randomUUID();
     const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${refundNonce}`;
 
+    // Durable audit trail BEFORE the provider call so that, if the
+    // post-call mutation fails (network drop, Convex outage, etc), an
+    // operator has a recoverable record of the attempt and can reconcile
+    // the payment/order status manually. The complementary `completed`
+    // entry is written by `adminProcessRefundInternal` after the DB
+    // mutation succeeds.
+    await ctx.runMutation(internal.auditLog.recordAuditLog, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "admin_refund_attempted",
+      targetType: "payment",
+      targetId: args.paymentId,
+      details: `Attempting ${args.refundType} refund of ${refundAmountStr} ${currency.toUpperCase()} via ${payment.provider}`,
+      metadata: {
+        orderId: payment.orderId,
+        refundType: args.refundType,
+        refundAmount: refundAmountStr,
+        currency: currency.toUpperCase(),
+        provider: payment.provider,
+        priorRefunded: priorRefunded.toFixed(2),
+        idempotencyKey,
+      },
+    });
+
     let providerRefundId: string | null = null;
 
     if (payment.provider === "stripe") {
