@@ -14,6 +14,7 @@ import type * as actions_resendSuppressionList from "../actions/resendSuppressio
 import type * as adhocVideoActions from "../adhocVideoActions.js";
 import type * as admin from "../admin.js";
 import type * as adminOnboarding from "../adminOnboarding.js";
+import type * as adminRefunds from "../adminRefunds.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as audit_recordingRetentionAudit from "../audit/recordingRetentionAudit.js";
 import type * as audit_recordingTransferAudit from "../audit/recordingTransferAudit.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   adhocVideoActions: typeof adhocVideoActions;
   admin: typeof admin;
   adminOnboarding: typeof adminOnboarding;
+  adminRefunds: typeof adminRefunds;
   adminWorkspaces: typeof adminWorkspaces;
   "audit/recordingRetentionAudit": typeof audit_recordingRetentionAudit;
   "audit/recordingTransferAudit": typeof audit_recordingTransferAudit;

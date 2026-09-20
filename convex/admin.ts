@@ -1,10 +1,10 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 
-async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
+export async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   const userByUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
@@ -16,6 +16,20 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
     .first();
   return userByClerkId?.role === "admin";
 }
+
+/**
+ * Internal admin check for use by actions (which can't read `ctx.db`
+ * directly and have to round-trip through a query). Returns true
+ * iff the caller is an admin per `isAdminUser`. Used by
+ * `convex/adminRefunds.ts:processRefundForAdmin` to gate the
+ * refund flow before calling the Stripe / PayPal API.
+ */
+export const isAdmin = internalQuery({
+  args: { subject: v.string() },
+  handler: async (ctx, args) => {
+    return await isAdminUser(ctx, args.subject);
+  },
+});
 
 type InstructorWithEmail = {
   id: Id<"instructors">;
@@ -795,5 +809,149 @@ export const decrementRemainingSessions = mutation({
       status: newStatus,
     });
     return { remainingSessions: newRemaining, status: newStatus };
+  },
+});
+
+/**
+ * Admin-gated cursor-paginated orders list. Replaces the offset-based
+ * `getOrdersForAdmin` for new consumers; the offset version in
+ * `convex/orders.ts` is preserved because apps/platform and apps/web
+ * admin API routes still call it and PR 5 only migrates marketing.
+ *
+ * Ordering: `_creationTime desc` (newest first) so the admin sees
+ * recent activity at the top. `paginate()` advances along the
+ * `_creationTime` primary index — the `by_status` index is used when
+ * a status filter narrows the window.
+ *
+ * Soft-deleted orders are NOT filtered out here, matching the
+ * existing offset query's behavior. The orders table has no
+ * `by_deletedAt` index, so a server-side filter would force a full
+ * table scan. Add the index in a follow-up if soft-deletes become
+ * noisy.
+ */
+export type AdminOrderRow = {
+  id: Id<"orders">;
+  userId: string;
+  userEmail: string | null;
+  userFirstName: string | null;
+  status: "pending" | "paid" | "refunded" | "failed" | "canceled";
+  provider: "stripe" | "paypal";
+  totalAmount: string;
+  currency: string;
+  createdAt: number;
+  payments: {
+    id: Id<"payments">;
+    provider: "stripe" | "paypal";
+    providerPaymentId: string;
+    amount: string;
+    currency: string;
+    status: "pending" | "completed" | "refunded" | "failed";
+    refundedAmount: string | null;
+  }[];
+};
+
+export const getOrdersForAdminCursor = query({
+  args: {
+    search: v.optional(v.string()),
+    statusFilter: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("paid"),
+        v.literal("refunded"),
+        v.literal("failed"),
+        v.literal("canceled")
+      )
+    ),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    page: AdminOrderRow[];
+    isDone: boolean;
+    continueCursor: string;
+  }> => {
+    await requireAdmin(ctx);
+
+    // Client-controlled `numItems` (no server-side clamp). Search
+    // requests use a 500-row window so the client can apply the
+    // email/ID filter locally; browse requests use 50.
+    const numItems = args.paginationOpts.numItems ?? 50;
+
+    const baseQuery = args.statusFilter
+      ? ctx.db
+          .query("orders")
+          .withIndex("by_status", (q) => q.eq("status", args.statusFilter!))
+      : ctx.db.query("orders");
+
+    const result = await baseQuery.order("desc").paginate({
+      ...args.paginationOpts,
+      numItems,
+    });
+
+    const rows = result.page;
+
+    const userIds = Array.from(
+      new Set(rows.map((o) => o.userId).filter((u): u is string => !!u))
+    );
+    const users = userIds.length
+      ? await Promise.all(
+          userIds.map(async (uid) =>
+            ctx.db
+              .query("users")
+              .withIndex("by_userId", (q) => q.eq("userId", uid))
+              .first()
+          )
+        )
+      : [];
+    const userById = new Map<string, { email: string | null; firstName: string | null }>();
+    for (const u of users) {
+      if (u?.userId)
+        userById.set(u.userId, {
+          email: u.email ?? null,
+          firstName: (u as any).firstName ?? null,
+        });
+    }
+
+    // Per-order payments via the `by_orderId` index. Bounded to
+    // this page's order IDs to keep the per-call row read small.
+    const paymentsByOrder = new Map<string, AdminOrderRow["payments"]>();
+    await Promise.all(
+      rows.map(async (order) => {
+        const payments = await ctx.db
+          .query("payments")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .collect();
+        paymentsByOrder.set(order._id, payments.map((p) => ({
+          id: p._id,
+          provider: p.provider,
+          providerPaymentId: p.providerPaymentId,
+          amount: p.amount,
+          currency: p.currency,
+          status: p.status,
+          refundedAmount: p.refundedAmount ?? null,
+        })));
+      })
+    );
+
+    const page: AdminOrderRow[] = rows.map((order) => ({
+      id: order._id,
+      userId: order.userId,
+      userEmail: userById.get(order.userId)?.email ?? null,
+      userFirstName: userById.get(order.userId)?.firstName ?? null,
+      status: order.status,
+      provider: order.provider,
+      totalAmount: order.totalAmount,
+      currency: order.currency,
+      createdAt: order._creationTime,
+      payments: paymentsByOrder.get(order._id) ?? [],
+    }));
+
+    return {
+      page,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });

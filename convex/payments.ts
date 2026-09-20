@@ -1,6 +1,7 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { writeAuditLog } from "./auditLog";
+import { isAdminUser } from "./admin";
 
 /** Fetches a payment by its ID, returning null if unauthenticated. */
 export const getPaymentById = query({
@@ -135,6 +136,87 @@ export const failPayment = mutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "failed" });
     return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal lookup for a single payment by ID. Same shape as the
+ * public `getPaymentById`, but only callable from other Convex
+ * functions. The refund action (`processRefundForAdmin`) reads
+ * the payment via this internal query so the caller is forced to
+ * be a Convex function (and the admin gate happens in the caller).
+ */
+export const getPaymentByIdInternal = internalQuery({
+  args: { id: v.id("payments") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal, admin-gated version of `adminProcessRefund`. The public
+ * mutation checks identity but not role, so we expose this internal
+ * mutation for the refund action to call after it has already
+ * verified admin via `ctx.runQuery(internal.admin.isAdmin, ...)`.
+ *
+ * Behavior matches `adminProcessRefund` exactly: bumps
+ * `refundedAmount`, flips payment status `completed → refunded` when
+ * fully refunded, flips order status `paid → refunded` when fully
+ * refunded, and writes an audit log entry with the actor's Clerk
+ * subject.
+ */
+export const adminProcessRefundInternal = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    refundAmount: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
+
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) throw new Error("Payment not found");
+
+    if (payment.status === "refunded") {
+      throw new Error("Payment has already been refunded");
+    }
+
+    const originalAmount = parseFloat(payment.amount);
+    const newRefundedAmount = (
+      parseFloat(payment.refundedAmount || "0") + parseFloat(args.refundAmount)
+    ).toFixed(2);
+
+    const isFullyRefunded = parseFloat(newRefundedAmount) >= originalAmount;
+
+    await ctx.db.patch(args.paymentId, {
+      status: isFullyRefunded ? "refunded" : "completed",
+      refundedAmount: newRefundedAmount,
+    });
+
+    await ctx.db.patch(payment.orderId, {
+      status: isFullyRefunded ? "refunded" : "paid",
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "admin_process_refund",
+      targetType: "payment",
+      targetId: args.paymentId,
+      details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
+      metadata: {
+        orderId: payment.orderId,
+        originalAmount: payment.amount,
+        refundAmount: args.refundAmount,
+        newRefundedAmount,
+        fullyRefunded: isFullyRefunded,
+      },
+    });
+
+    return await ctx.db.get(args.paymentId);
   },
 });
 

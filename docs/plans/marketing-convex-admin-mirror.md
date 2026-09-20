@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PR 4 merged (#857, Greptile 5/5 on commit `c4ea241c`); PRs 5–7 planned.
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PR 4 merged (#857, Greptile 5/5 on commit `c4ea241c`); PR 5 in progress on branch `feat/marketing-admin-orders`; PRs 6–7 planned.
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -171,6 +171,50 @@ Verify by re-running the failed query from §1 once it has been re-pointed at th
 Per AGENTS.md "Schema-changing PR convention": if PR 2+ touches `convex/schema.ts`, create a verification issue titled `Verify "<change>" on prod` in the `Post-Merge Verification` project with labels `schema-change`, `verification`, `prod`. The Convex migration PRs likely will NOT touch the schema (only consumers of `api.*`); if so, no issue is required.
 
 PR 4 added 5 new functions to `convex/admin.ts` (no schema changes). Tracking issue: **HUC-35** (state `In Progress`).
+
+## 4c. PR 5 spec (admin orders — Convex port, refund action)
+
+Marketing's `/admin/orders` page was the **only** broken admin view going into this arc. The 349-line page called `fetch('/api/admin/orders')` and `fetch('/api/admin/refunds')`, neither of which exists in `apps/marketing/app/api/admin/` — so the table returned `Failed to fetch orders` and the refund modal never opened in prod.
+
+**Refactor**: replace the broken fetch calls with a cursor-paginated Convex query + a public action that gates on admin, calls Stripe/PayPal, updates the payment+order, and emails the student.
+
+### New Convex functions
+
+| File | Symbol | Kind | Notes |
+| --- | --- | --- | --- |
+| `convex/admin.ts` | `getOrdersForAdminCursor` | query | Cursor-paginated orders list (`paginationOpts`, optional `search`/`statusFilter`). Admin-gated. Uses `by_status` index when `statusFilter` is set, otherwise the `_creationTime` primary index with `.order("desc")`. Joins payments via `by_orderId` per page. |
+| `convex/admin.ts` | `isAdmin` | internalQuery | Admin check for actions (which can't read `ctx.db` directly). |
+| `convex/orders.ts` | `getOrderByIdInternal` | internalQuery | Lookup used by the refund action to find the order for the email. |
+| `convex/payments.ts` | `getPaymentByIdInternal` | internalQuery | Lookup used by the refund action. |
+| `convex/payments.ts` | `adminProcessRefundInternal` | internalMutation | Admin-gated DB update (status flips + audit log). The existing public `adminProcessRefund` is kept because platform + web admin API routes still call it. |
+| `convex/adminRefunds.ts` *(new)* | `processRefundForAdmin` | action (`"use node"`) | Public action: admin-gate → load payment → compute refund amount → call Stripe/PayPal with idempotency key → call internal mutation → best-effort send refund email via Resend. |
+
+**Reuses existing functions** (no changes needed): `convex/orders.ts:getOrdersForAdmin` (offset-based, still used by `apps/platform` + `apps/web` admin API routes), `convex/payments.ts:adminProcessRefund` (public version, same callers), `convex/users.ts:getUserByUserId` (admin-gated public query, used to look up the recipient's email).
+
+### Marketing hook + component
+
+| File | Purpose |
+| --- | --- |
+| `apps/marketing/lib/queries/convex/use-orders.ts` *(new)* | `useOrdersForAdmin({search?, statusFilter?, pageSize?})` — per-cursor `useQueries` pattern (same as `use-instructors.ts`). `useProcessRefundForAdmin()` — `useConvexAction` wrapper. Helpers: `formatMoney`, `remainingRefundable`. |
+| `apps/marketing/lib/queries/convex/index.ts` | Add `export * from "./use-orders"`. |
+| `apps/marketing/components/admin/orders-table.tsx` *(new)* | `<OrdersTable />` extracted component. Search input + status filter + refund modal. Refund modal calls `useProcessRefundForAdmin` directly. |
+| `apps/marketing/app/admin/orders/page.tsx` | Rewrite as a 9-line wrapper around `<OrdersTable />`. |
+
+### Schema impact
+
+**None.** PR 5 only adds functions and a component. The existing `orders` table has no `by_deletedAt` index, so PR 5 mirrors the existing offset query and does NOT filter on `deletedAt` (soft-deleted orders would be visible — same as apps/platform today). Add the index in a future PR if soft-deletes become noisy.
+
+### Why a new file (`convex/adminRefunds.ts`)?
+
+`convex/admin.ts` only imports `query` and `mutation`. Adding `action` + `internalAction` would mix Node-only Stripe SDK code with the existing query/mutation handlers. Per Convex guidelines, a single file should not mix `"use node"` with query/mutation exports. The split keeps the action's transitive dependencies (Stripe + PayPal fetch helpers + Resend fetch helper) isolated.
+
+### Why a public action (not internal)?
+
+The action is invoked from the marketing client (a "use client" component via `useConvexAction`). It cannot be internal. It admin-gates itself via `ctx.runQuery(internal.admin.isAdmin, {subject})` because actions can't directly read `ctx.db`.
+
+### Manual prod deploy required (per §5.3)
+
+5 new functions need a manual `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` after merge. Tracking issue: **HUC-36** (state `Backlog` → `In Progress` after merge).
 
 ### 5.3 Convex prod deploy — manual step (operational note)
 
