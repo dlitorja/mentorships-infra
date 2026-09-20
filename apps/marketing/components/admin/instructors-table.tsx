@@ -1,46 +1,53 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight, Download, Search, Users, ChevronLeft, ChevronRight as ChevronRightIcon, Plus, Minus, Loader2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Search,
+  Users,
+  ChevronRight as ChevronRightIcon,
+  Plus,
+  Minus,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  useInstructorsWithStatsForAdmin,
+  useInstructorWithStudents,
+  useFullAdminCsvData,
+  useIncrementRemainingSessions,
+  useDecrementRemainingSessions,
+  type InstructorWithStats,
+  type InstructorStudentRow,
+} from "@/lib/queries/convex/use-instructors";
+import type { Id } from "@/convex/_generated/dataModel";
 
-type UIInstructorStats = {
-  instructorId: string;
-  userId: string;
-  email: string;
-  bio: string | null;
-  oneOnOneInventory: number;
-  groupInventory: number;
-  maxActiveStudents: number;
-  activeStudentCount: number;
-  totalCompletedSessions: number;
-  createdAt: string;
-};
+/**
+ * PR admin-mirror #4: the marketing admin instructors table is now
+ * fully Convex-driven. SSR data and the three legacy API routes
+ * (`/api/admin/instructors`, `/api/admin/instructors/[id]/mentees`,
+ * `/api/admin/instructors/csv`, `/api/admin/session-counts`) are all
+ * gone — replaced by the corresponding queries/mutations in
+ * `convex/admin.ts` and the matching hooks in
+ * `lib/queries/convex/use-instructors.ts`.
+ *
+ * The mutation hooks (`useIncrementRemainingSessions` /
+ * `useDecrementRemainingSessions`) write back to Convex directly;
+ * TanStack Query refetches the affected rows through the
+ * `useInstructorWithStudents` subscription so the UI updates
+ * immediately without an explicit reload.
+ */
 
-type StudentWithSessionInfo = {
-  userId: string;
-  email: string;
-  sessionPackId: string;
-  totalSessions: number;
-  remainingSessions: number;
-  status: string;
-  expiresAt: string | null;
-  lastSessionCompletedAt: string | null;
-  completedSessionCount: number;
-  seatStatus: "active" | "grace" | "released";
-  seatExpiresAt: string | null;
-};
+const PAGE_SIZE = 50;
 
-type InstructorWithStudents = UIInstructorStats & {
-  students: StudentWithSessionInfo[];
-};
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
+function formatDate(epoch: number | null | undefined): string {
+  if (!epoch) return "N/A";
+  const date = new Date(epoch);
   return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -48,19 +55,9 @@ function formatDate(dateString: string | null): string {
   });
 }
 
-function formatDateTime(dateString: string | null): string {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+function getStatusBadgeVariant(
+  status: string,
+): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
     case "active":
       return "default";
@@ -74,7 +71,9 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
-function getSeatStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+function getSeatStatusBadgeVariant(
+  status: string,
+): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
     case "active":
       return "default";
@@ -87,33 +86,29 @@ function getSeatStatusBadgeVariant(status: string): "default" | "secondary" | "d
   }
 }
 
-function StudentSessionControls({ sessionPackId, currentRemaining }: { sessionPackId: string; currentRemaining: number }) {
-  const [remaining, setRemaining] = useState(currentRemaining);
-  const [isLoading, setIsLoading] = useState(false);
+function StudentSessionControls({
+  sessionPackId,
+  currentRemaining,
+}: {
+  sessionPackId: Id<"sessionPacks">;
+  currentRemaining: number;
+}) {
+  const increment = useIncrementRemainingSessions();
+  const decrement = useDecrementRemainingSessions();
+  const [pending, setPending] = useState<"inc" | "dec" | null>(null);
 
   const handleUpdate = async (action: "increment" | "decrement") => {
-    if (action === "decrement" && remaining <= 0) return;
-
-    setIsLoading(true);
+    if (action === "decrement" && currentRemaining <= 0) return;
+    setPending(action === "increment" ? "inc" : "dec");
     try {
-      const response = await fetch("/api/admin/session-counts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionPackId, action }),
+      await (action === "increment" ? increment : decrement)({
+        sessionPackId,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRemaining(data.remainingSessions);
-      } else {
-        const error = await response.json();
-        alert(error.error || "Failed to update sessions");
-      }
     } catch (err) {
       console.error("Error updating sessions:", err);
       alert("Failed to update sessions");
     } finally {
-      setIsLoading(false);
+      setPending(null);
     }
   };
 
@@ -123,26 +118,26 @@ function StudentSessionControls({ sessionPackId, currentRemaining }: { sessionPa
         variant="outline"
         size="sm"
         onClick={() => handleUpdate("decrement")}
-        disabled={isLoading || remaining <= 0}
+        disabled={!!pending || currentRemaining <= 0}
         className="h-7 px-2"
       >
-        {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Minus className="h-3 w-3" />}
+        {pending === "dec" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Minus className="h-3 w-3" />}
       </Button>
-      <span className="w-6 text-center text-sm font-medium">{remaining}</span>
+      <span className="w-6 text-center text-sm font-medium">{currentRemaining}</span>
       <Button
         variant="outline"
         size="sm"
         onClick={() => handleUpdate("increment")}
-        disabled={isLoading}
+        disabled={!!pending}
         className="h-7 px-2"
       >
-        {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+        {pending === "inc" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
       </Button>
     </div>
   );
 }
 
-function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
+function StudentsTable({ students }: { students: InstructorStudentRow[] }) {
   if (students.length === 0) {
     return (
       <div className="p-4 text-center text-muted-foreground">
@@ -181,13 +176,9 @@ function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
                 </span>
               </td>
               <td className="p-3">
-                <Badge variant={getStatusBadgeVariant(student.status)}>
-                  {student.status}
-                </Badge>
+                <Badge variant={getStatusBadgeVariant(student.status)}>{student.status}</Badge>
               </td>
-              <td className="p-3">
-                {formatDate(student.lastSessionCompletedAt)}
-              </td>
+              <td className="p-3">{formatDate(student.lastSessionCompletedAt)}</td>
               <td className="p-3">
                 <div className="flex flex-col gap-1">
                   <Badge variant={getSeatStatusBadgeVariant(student.seatStatus)}>
@@ -214,42 +205,103 @@ function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
   );
 }
 
+function ExportCsvButton() {
+  // Greptile P2: lazy fetch — the full report scans every session
+  // pack, seat reservation, instructor, and user. We only trigger
+  // it after the admin clicks the button. `bumpNonce()` ensures each
+  // click produces a fresh fetch — otherwise TanStack Query reuses
+  // the cached result from the previous export.
+  const [enabled, setEnabled] = useState(false);
+  const { data: csvRows, isFetching, error, bumpNonce } = useFullAdminCsvData(enabled);
+
+  const handleClick = useCallback(() => {
+    bumpNonce();
+    setEnabled(true);
+  }, [bumpNonce]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (isFetching) return;
+    if (error) {
+      alert("Failed to load CSV data");
+      setEnabled(false);
+      return;
+    }
+    if (!csvRows || csvRows.length === 0) {
+      alert("No data to export");
+      setEnabled(false);
+      return;
+    }
+    const header = [
+      "instructorEmail",
+      "studentEmail",
+      "totalSessions",
+      "remainingSessions",
+      "packStatus",
+      "packExpiresAt",
+      "lastSessionDate",
+      "completedSessionsCount",
+      "seatStatus",
+    ];
+    const escape = (v: unknown): string => {
+      if (v == null) return "";
+      const s = String(v);
+      if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+    const lines = [header.join(",")];
+    for (const row of csvRows) {
+      lines.push(
+        [
+          row.instructorEmail,
+          row.studentEmail,
+          row.totalSessions,
+          row.remainingSessions,
+          row.packStatus,
+          row.packExpiresAt ? new Date(row.packExpiresAt).toISOString() : "",
+          row.lastSessionDate ? new Date(row.lastSessionDate).toISOString() : "",
+          row.completedSessionsCount,
+          row.seatStatus,
+        ]
+          .map(escape)
+          .join(","),
+      );
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `instructors-report-${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setEnabled(false);
+  }, [enabled, csvRows, isFetching, error]);
+
+  return (
+    <Button onClick={handleClick} variant="outline" disabled={isFetching}>
+      <Download className="h-4 w-4 mr-2" />
+      {isFetching ? "Preparing…" : "Export CSV"}
+    </Button>
+  );
+}
+
 function InstructorRow({
   instructor,
   isExpanded,
   onToggle,
-  expandedStudents,
 }: {
-  instructor: UIInstructorStats;
+  instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
-  expandedStudents: InstructorWithStudents | null;
 }) {
-  const [students, setStudents] = useState<StudentWithSessionInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (isExpanded && !expandedStudents && !loading) {
-      setLoading(true);
-      fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.students) {
-            setStudents(data.students);
-          }
-        })
-        .catch((err) => {
-          console.error("Error loading students:", err);
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    } else if (expandedStudents) {
-      setStudents(expandedStudents.students);
-    }
-  }, [isExpanded, instructor.instructorId, loading, expandedStudents]);
-
-  const displayStudents = expandedStudents?.students || students;
+  const instructorId = instructor.instructorId as Id<"instructors">;
+  const { data: expandedData, isLoading, error: expandedError } = useInstructorWithStudents(
+    isExpanded ? instructorId : null,
+  );
 
   return (
     <>
@@ -260,11 +312,7 @@ function InstructorRow({
         onClick={onToggle}
       >
         <td className="p-4 w-10">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </td>
         <td className="p-4">
           <div>
@@ -278,21 +326,12 @@ function InstructorRow({
           </div>
         </td>
         <td className="p-4">
-          <span className="font-medium">{instructor.totalCompletedSessions}</span>
-        </td>
-        <td className="p-4">
           <div className="flex gap-2">
-            <Badge variant="outline">
-              1-on-1: {instructor.oneOnOneInventory}
-            </Badge>
-            <Badge variant="outline">
-              Group: {instructor.groupInventory}
-            </Badge>
+            <Badge variant="outline">1-on-1: {instructor.oneOnOneInventory}</Badge>
+            <Badge variant="outline">Group: {instructor.groupInventory}</Badge>
           </div>
         </td>
-        <td className="p-4">
-          {formatDate(instructor.createdAt)}
-        </td>
+        <td className="p-4">{formatDate(instructor.createdAt)}</td>
         <td className="p-4">
           <Button variant="ghost" size="sm">
             Manage
@@ -301,15 +340,21 @@ function InstructorRow({
       </tr>
       {isExpanded && (
         <tr className="bg-muted/30">
-          <td colSpan={7} className="p-0">
+          <td colSpan={6} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">Students ({displayStudents.length})</h4>
-              {loading ? (
+              <h4 className="font-medium mb-3">
+                Students ({expandedData?.students.length ?? 0})
+              </h4>
+              {isLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
+              ) : expandedError ? (
+                <div className="p-4 text-center text-destructive">
+                  Failed to load students. Please try again.
+                </div>
               ) : (
-                <StudentsTable students={displayStudents} />
+                <StudentsTable students={expandedData?.students ?? []} />
               )}
             </div>
           </td>
@@ -319,118 +364,53 @@ function InstructorRow({
   );
 }
 
-export function InstructorsTable({
-  initialInstructors,
-  initialTotal,
-  initialPage,
-  initialSearch,
-}: {
-  initialInstructors: UIInstructorStats[];
-  initialTotal: number;
-  initialPage: number;
-  initialSearch: string;
-}) {
+export function InstructorsTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [instructors, setInstructors] = useState(initialInstructors);
-  const [total, setTotal] = useState(initialTotal);
-  const [page, setPage] = useState(initialPage);
-  const [search, setSearch] = useState(initialSearch);
-  const [searchInput, setSearchInput] = useState(initialSearch);
+  // Greptile P2: keep both `search` (committed) and `searchInput`
+  // (input box) in sync with the URL on every render — back/forward
+  // navigation now updates the table.
+  const urlSearch = searchParams?.get("search") ?? "";
+
+  const [searchInput, setSearchInput] = useState(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
-  const [expandedStudents, setExpandedStudents] = useState<InstructorWithStudents | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const pageSize = 50;
-  const totalPages = Math.ceil(total / pageSize);
+  // Sync from URL whenever the URL's `search` param changes (mount,
+  // back/forward, or any other navigation that updates it). This
+  // ensures direct visits AND browser navigation agree with the URL.
+  useEffect(() => {
+    setSearch(urlSearch);
+    setSearchInput(urlSearch);
+  }, [urlSearch]);
 
-  const loadInstructors = useCallback(async (searchTerm: string, pageNum: number) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (searchTerm) params.set("search", searchTerm);
-      params.set("page", pageNum.toString());
-      params.set("pageSize", pageSize.toString());
-
-      const res = await fetch(`/api/admin/instructors?${params}`);
-      const data = await res.json();
-
-      if (data.instructors) {
-        setInstructors(data.instructors);
-        setTotal(data.total);
-      }
-    } catch (error) {
-      console.error("Error loading instructors:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: instructors, error, isLoading, canLoadMore, loadMore, isFetchingMore } =
+    useInstructorsWithStatsForAdmin({
+      search: search || undefined,
+      // Greptile P2: when searching, fetch a larger initial window so
+      // email matches beyond the first 50 aren't silently omitted —
+      // the Convex paginate() runs on the raw unfiltered list, and we
+      // filter after. Once the search term changes back, fall back to
+      // the standard page size.
+      pageSize: search ? 500 : PAGE_SIZE,
+    });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    loadInstructors(searchInput, 1);
-
-    const params = new URLSearchParams(searchParams);
+    setSearch(searchInput);
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
     if (searchInput) {
       params.set("search", searchInput);
     } else {
       params.delete("search");
     }
-    params.delete("page");
     router.push(`/admin/instructors?${params.toString()}`);
   };
 
-  const handlePageChange = (newPage: number) => {
-    if (newPage < 1 || newPage > totalPages) return;
-    setPage(newPage);
-    loadInstructors(search, newPage);
-
-    const params = new URLSearchParams(searchParams);
-    params.set("page", newPage.toString());
-    router.push(`/admin/instructors?${params.toString()}`);
-  };
-
-  const handleToggleExpand = async (instructorId: string) => {
-    if (expandedInstructorId === instructorId) {
-      setExpandedInstructorId(null);
-      setExpandedStudents(null);
-      return;
-    }
-
-    setExpandedInstructorId(instructorId);
-    setExpandedStudents(null);
-
-    try {
-      const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
-      const data = await res.json();
-      if (data.students) {
-        setExpandedStudents(data);
-      }
-    } catch (error) {
-      console.error("Error loading students:", error);
-    }
-  };
-
-  const handleExportCsv = async () => {
-    try {
-      const res = await fetch("/api/admin/instructors/csv");
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `instructors-report-${new Date().toISOString().split("T")[0]}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-      }
-    } catch (error) {
-      console.error("Error exporting CSV:", error);
-    }
-  };
+  const handleToggleExpand = useCallback((instructorId: string) => {
+    setExpandedInstructorId((current) => (current === instructorId ? null : instructorId));
+  }, []);
 
   return (
     <div>
@@ -440,7 +420,7 @@ export function InstructorsTable({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search by name or email..."
+              placeholder="Search by email..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="pl-9"
@@ -450,10 +430,7 @@ export function InstructorsTable({
             Search
           </Button>
         </form>
-        <Button onClick={handleExportCsv} variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
+        <ExportCsvButton />
       </div>
 
       <div className="border rounded-lg overflow-hidden">
@@ -463,16 +440,21 @@ export function InstructorsTable({
               <th className="text-left p-4 w-10"></th>
               <th className="text-left p-4 font-medium">Instructor</th>
               <th className="text-left p-4 font-medium">Active Students</th>
-              <th className="text-left p-4 font-medium">Sessions Completed</th>
               <th className="text-left p-4 font-medium">Inventory</th>
               <th className="text-left p-4 font-medium">Joined</th>
               <th className="text-left p-4 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && instructors.length === 0 ? (
+            {error ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center">
+                <td colSpan={6} className="p-8 text-center text-destructive">
+                  Failed to load instructors. Please try again.
+                </td>
+              </tr>
+            ) : isLoading ? (
+              <tr>
+                <td colSpan={6} className="p-8 text-center">
                   <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                   </div>
@@ -491,42 +473,35 @@ export function InstructorsTable({
                   instructor={instructor}
                   isExpanded={expandedInstructorId === instructor.instructorId}
                   onToggle={() => handleToggleExpand(instructor.instructorId)}
-                  expandedStudents={expandedStudents?.instructorId === instructor.instructorId ? expandedStudents : null}
                 />
               ))
             )}
           </tbody>
         </table>
+        {isFetchingMore && instructors.length > 0 && (
+          <div className="text-xs text-muted-foreground p-2 border-t bg-muted/20">
+            Loading more…
+          </div>
+        )}
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-muted-foreground">
-            Showing {instructors.length} of {total} instructors
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page - 1)}
-              disabled={page === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="flex items-center px-3 text-sm">
-              Page {page} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={page === totalPages}
-            >
-              <ChevronRightIcon className="h-4 w-4" />
-            </Button>
-          </div>
+      <div className="flex items-center justify-between mt-4">
+        <p className="text-sm text-muted-foreground">
+          Showing {instructors.length} instructor{instructors.length === 1 ? "" : "s"}
+          {canLoadMore ? " (more available)" : ""}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadMore(PAGE_SIZE)}
+            disabled={!canLoadMore}
+          >
+            <ChevronRightIcon className="h-4 w-4 mr-1" />
+            Load more
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
