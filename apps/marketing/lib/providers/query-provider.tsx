@@ -1,12 +1,14 @@
 "use client";
 
-import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient, useConvex } from "convex/react";
 import { ConvexQueryClient } from "@convex-dev/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useConvexAuth } from "convex/react";
-import { useConvex } from "convex/react";
-import { useEffect, useState } from "react";
+import { useAuth as useClerkAuth } from "@clerk/nextjs";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useEffect, useRef, useState } from "react";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -41,18 +43,56 @@ export { convexClient, convexQueryClient };
  * `<ConvexClientProvider>` returns a bare fragment, so
  * `useConvex()` is `undefined` and we skip mounting this child.
  */
+const SYNCABLE_ROLES = ["student", "instructor", "admin", "video_editor"] as const;
+type SyncableRole = (typeof SYNCABLE_ROLES)[number];
+
+function isSyncableRole(value: unknown): value is SyncableRole {
+  return typeof value === "string" && (SYNCABLE_ROLES as readonly string[]).includes(value);
+}
+
+/**
+ * Once Clerk populates the auth token:
+ *   1. Sync the Clerk `publicMetadata.role` claim to the Convex
+ *      `users.role` field. Convex admin queries check `users.role`,
+ *      not Clerk claims directly, so an out-of-sync record returns
+ *      empty/Forbidden even for legitimate admins.
+ *   2. Re-run any convex-backed queries (the auth-token change only
+ *      refreshes subscriptions that were already wired; queries
+ *      mounted while `isAuthenticated` was false need an explicit
+ *      kick).
+ *
+ * Lives in its own component so `useConvexAuth()` + `useMutation()`
+ * are only called when a `ConvexProvider` (typically
+ * `ConvexProviderWithClerk`) is installed above us. In the
+ * `skipClerk` build-time branch `<ConvexClientProvider>` returns
+ * a bare fragment, so `useConvex()` is `undefined` and we skip
+ * mounting this child.
+ */
 function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
   const { isAuthenticated } = useConvexAuth();
+  const { sessionClaims, isLoaded: clerkLoaded } = useClerkAuth();
+  const syncUser = useMutation(api.users.syncUser);
+  const syncedRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !clerkLoaded) return;
+
+    const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+    if (isSyncableRole(claimsRole) && !syncedRef.current) {
+      syncedRef.current = true;
+      syncUser({ role: claimsRole }).catch((err) => {
+        syncedRef.current = false;
+        console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
+      });
+    }
+
     queryClient.invalidateQueries({
       predicate: (query) => {
         const first = query.queryKey[0];
         return first === "convexQuery" || first === "convexAction";
       },
     });
-  }, [isAuthenticated, queryClient]);
+  }, [isAuthenticated, clerkLoaded, queryClient, sessionClaims, syncUser]);
 
   return null;
 }
