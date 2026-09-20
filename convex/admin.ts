@@ -510,11 +510,17 @@ export const getInstructorsWithStatsForAdmin = query({
   }> => {
     await requireAdmin(ctx);
 
-    // Greptile P1: cursor-based pagination via `paginate()` so
+    // Greptile: cursor-based pagination via `paginate()` so
     // subsequent pages don't repeat the first window. The
     // `by_deletedAt` partial index covers the active-instructor
     // filter; `paginate()` handles cursor + ordering.
-    const numItems = Math.min(args.paginationOpts.numItems ?? 50, 100);
+    //
+    // We allow the client to specify up to `numItems` directly (no
+    // server-side clamp) so a search request can fetch a 500-row
+    // window in one round-trip and apply the email filter locally,
+    // instead of paginating the raw unfiltered list. The Convex
+    // `paginate` per-call row read is bounded by `numItems`.
+    const numItems = args.paginationOpts.numItems ?? 50;
 
     const result = await ctx.db
       .query("instructors")

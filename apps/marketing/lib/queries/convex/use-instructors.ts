@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   convexQuery,
   useConvexMutation,
@@ -72,12 +72,12 @@ export type FullAdminReportRow = {
  * `operator does not exist: text = uuid` 500 in marketing's
  * `/admin/instructors` page).
  *
- * We use `useQuery` (instead of `useConvexPaginatedQuery`) so the
- * table can read the `error` field — Greptile flagged that errors
- * were rendering as "No instructors found". Pages are accumulated
- * by cursor so each `loadMore(n)` advances through the result set,
- * and reactive updates to a previously-fetched cursor update the
- * corresponding entries in place rather than appending duplicates.
+ * Each fetched cursor becomes its own Convex subscription via
+ * `useQueries` so that reactive updates to ANY previously-loaded
+ * page propagate to the rendered list (not just the most-recently
+ * fetched cursor). Pages are accumulated in a stable order by
+ * insertion sequence; the displayed list is derived from the
+ * accumulated pages.
  */
 type InstructorListPage = {
   page: InstructorWithStats[];
@@ -92,59 +92,62 @@ export function useInstructorsWithStatsForAdmin(args: {
   pageSize?: number;
 }) {
   const numItems = args.pageSize ?? 50;
-  const [pagesByCursor, setPagesByCursor] = useState<
-    Record<string, InstructorListPage | undefined>
-  >({});
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorChain, setCursorChain] = useState<Array<string | null>>([null]);
   const [lastSeenSearch, setLastSeenSearch] = useState<string | undefined>(args.search);
 
   // Reset when the search term changes.
   if (lastSeenSearch !== args.search) {
     setLastSeenSearch(args.search);
-    setPagesByCursor({});
-    setCursor(null);
+    setCursorChain([null]);
   }
 
-  const query = useQuery({
-    ...convexQuery(api.admin.getInstructorsWithStatsForAdmin, {
-      search: args.search,
-      paginationOpts: { numItems, cursor },
-    }),
+  // One Convex subscription per loaded cursor — `useQueries` returns
+  // an array of results in the same order as the input array, so
+  // `cursorChain[i]` corresponds to `results[i]`.
+  const results = useQueries({
+    queries: cursorChain.map((cursor) =>
+      convexQuery(api.admin.getInstructorsWithStatsForAdmin, {
+        search: args.search,
+        paginationOpts: { numItems, cursor },
+      })
+    ),
   });
 
-  // Update the entry for the current cursor whenever query data
-  // arrives. This handles BOTH initial fetch AND reactive updates
-  // to previously-fetched rows.
-  if (query.data && pagesByCursor[cursor ?? "_first"] !== query.data) {
-    setPagesByCursor((prev) => ({
-      ...prev,
-      [cursor ?? "_first"]: query.data,
-    }));
+  const accumulated: InstructorWithStats[] = [];
+  let firstError: unknown = null;
+  let isFirstPageLoading = false;
+  let lastIsDone = true;
+  let lastContinueCursor: string | null = null;
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.error) firstError = firstError ?? r.error;
+    if (i === 0 && r.isLoading) isFirstPageLoading = true;
+    if (r.data) {
+      accumulated.push(...r.data.page);
+      lastIsDone = r.data.isDone;
+      lastContinueCursor = r.data.continueCursor;
+    }
   }
 
-  const accumulated = Object.values(pagesByCursor)
-    .filter((p): p is InstructorListPage => !!p)
-    .flatMap((p) => p.page);
-
-  const lastPage = Object.values(pagesByCursor).filter((p): p is InstructorListPage => !!p).pop();
-  const done = lastPage?.isDone ?? false;
-
   const loadMore = useCallback(
-    (n: number) => {
-      if (!query.data) return;
-      if (query.data.isDone) return;
-      void n;
-      setCursor(query.data.continueCursor);
+    (_n: number) => {
+      if (!lastIsDone && lastContinueCursor != null) {
+        // Only advance if the new cursor isn't already loaded.
+        if (!cursorChain.includes(lastContinueCursor)) {
+          setCursorChain((prev) => [...prev, lastContinueCursor]);
+        }
+      }
     },
-    [query.data]
+    [lastIsDone, lastContinueCursor, cursorChain]
   );
 
   return {
     data: accumulated,
-    isLoading: query.isLoading && accumulated.length === 0,
-    isFetchingMore: query.isLoading && accumulated.length > 0,
-    error: query.error,
-    canLoadMore: !done && !query.isLoading,
+    isLoading: isFirstPageLoading && accumulated.length === 0,
+    isFetchingMore: isFirstPageLoading && accumulated.length > 0,
+    error: firstError,
+    canLoadMore: !lastIsDone && !isFirstPageLoading,
     loadMore,
   };
 }
