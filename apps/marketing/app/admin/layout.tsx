@@ -1,17 +1,27 @@
 import { redirect } from "next/navigation";
-import { requireRole, UnauthorizedError } from "@/lib/auth";
-import { AdminSidebar } from "@/components/admin/admin-sidebar";
-import { ErrorBoundary } from "@/components/admin/error-boundary";
+import { auth } from "@clerk/nextjs/server";
+import { UnauthorizedError, isAdminUser } from "@/lib/auth";
+import { ClientAdminLayout } from "./client-admin-layout";
 
 export const dynamic = "force-dynamic";
+
+async function checkAdminAccess(): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new UnauthorizedError("Unauthorized");
+  }
+  if (!(await isAdminUser())) {
+    redirect("/?error=unauthorized");
+  }
+}
 
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
-}): Promise<React.ReactElement> {
+}): Promise<React.JSX.Element> {
   try {
-    await requireRole("admin");
+    await checkAdminAccess();
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       redirect("/sign-in");
@@ -19,14 +29,5 @@ export default async function AdminLayout({
     throw error;
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="flex">
-        <AdminSidebar />
-        <main className="flex-1 p-8">
-          <ErrorBoundary>{children}</ErrorBoundary>
-        </main>
-      </div>
-    </div>
-  );
+  return <ClientAdminLayout>{children}</ClientAdminLayout>;
 }

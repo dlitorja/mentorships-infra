@@ -1,4 +1,4 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth, currentUser, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getOrCreateUser, UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 import type { users } from "@mentorships/db";
@@ -19,17 +19,60 @@ export function getAdminEmails(): string[] {
 
 function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string | null {
   if (!user?.emailAddresses?.length) return null;
-  
+
   const primary = user.emailAddresses.find(e => e.id === user.primaryEmailAddressId);
   if (primary) return primary.emailAddress;
-  
+
   return user.emailAddresses[0]?.emailAddress ?? null;
+}
+
+const KNOWN_ROLES = ["admin", "instructor", "student", "support"] as const;
+type KnownRole = (typeof KNOWN_ROLES)[number];
+
+function isKnownRole(value: unknown): value is KnownRole {
+  return typeof value === "string" && (KNOWN_ROLES as readonly string[]).includes(value);
+}
+
+/**
+ * Resolves the current user's effective role. Uses Clerk session claims as a
+ * fast path, then falls back to the Clerk Backend API for the canonical
+ * `publicMetadata.role` if the JWT has not yet picked up a recent role
+ * change. Always use this — never read role from Supabase `users.role`
+ * because the production column type mismatch (`text` vs `uuid`) makes
+ * instructor lookups fail.
+ */
+export async function resolveUserRole(): Promise<KnownRole | null> {
+  const { userId, sessionClaims } = await auth();
+  if (!userId) return null;
+  const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  if (isKnownRole(claimsRole)) {
+    return claimsRole;
+  }
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const metadataRole = user.publicMetadata?.role;
+    if (isKnownRole(metadataRole)) {
+      return metadataRole;
+    }
+  } catch {
+    // Fall through; default deny.
+  }
+  return null;
+}
+
+export async function isAdminUser(): Promise<boolean> {
+  return (await resolveUserRole()) === "admin";
 }
 
 export async function requireAdmin() {
   const { userId } = await auth();
   if (!userId) {
     redirect("/admin/signin");
+  }
+
+  if (await isAdminUser()) {
+    return userId;
   }
 
   const user = await currentUser();
