@@ -121,19 +121,14 @@ export const addToWaitlist = mutation({
     if (!emailRegex.test(args.email)) {
       throw new ConvexError("Invalid email address");
     }
+    const emailLower = args.email.toLowerCase();
     const instructorSlug = args.instructorSlug?.trim() || "general";
-
-    const status = await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
-      key: args.email.toLowerCase(),
-      throws: true,
-    });
-    void status;
 
     const existing = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
         q
-          .eq("email", args.email.toLowerCase())
+          .eq("email", emailLower)
           .eq("instructorSlug", instructorSlug)
           .eq("mentorshipType", args.mentorshipType)
       )
@@ -147,8 +142,13 @@ export const addToWaitlist = mutation({
       };
     }
 
+    await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
+      key: emailLower,
+      throws: true,
+    });
+
     const id = await ctx.db.insert("marketingWaitlist", {
-      email: args.email.toLowerCase(),
+      email: emailLower,
       instructorSlug,
       mentorshipType: args.mentorshipType,
       createdAt: Date.now(),
