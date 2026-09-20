@@ -27,9 +27,14 @@ function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string 
 }
 
 export async function requireAdmin() {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
   if (!userId) {
     redirect("/admin/signin");
+  }
+
+  const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  if (claimsRole === "admin") {
+    return userId;
   }
 
   const user = await currentUser();
