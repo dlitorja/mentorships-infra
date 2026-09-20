@@ -1,6 +1,20 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Internal lookup for a single order by ID. Same shape as the public
+ * `getOrderById`, but only callable from other Convex functions. The
+ * refund action (`processRefundForAdmin`) reads the order via this
+ * internal query so it can build the student-facing email after a
+ * successful refund.
+ */
+export const getOrderByIdInternal = internalQuery({
+  args: { id: v.id("orders") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** Fetches a single order by ID, returning null if unauthenticated. */
 export const getOrderById = query({
   args: { id: v.id("orders") },
