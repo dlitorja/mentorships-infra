@@ -170,6 +170,22 @@ Verify by re-running the failed query from §1 once it has been re-pointed at th
 
 Per AGENTS.md "Schema-changing PR convention": if PR 2+ touches `convex/schema.ts`, create a verification issue titled `Verify "<change>" on prod` in the `Post-Merge Verification` project with labels `schema-change`, `verification`, `prod`. The Convex migration PRs likely will NOT touch the schema (only consumers of `api.*`); if so, no issue is required.
 
+PR 4 added 5 new functions to `convex/admin.ts` (no schema changes). Tracking issue: **HUC-35** (state `In Progress`).
+
+### 5.3 Convex prod deploy — manual step (operational note)
+
+CI's `convex-codegen` job only generates `_generated/` artifacts; it does NOT push new functions to prod. Each PR that adds/updates `convex/*.ts` functions requires a manual prod deploy:
+
+```bash
+CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy
+```
+
+(or the equivalent for a different prod deployment). Use the dev deployment (`acoustic-kiwi-522`) for development; CI's codegen job uses `CONVEX_DEPLOYMENT=production`.
+
+**PR 4 deploy (2026-09-20 13:50 UTC):** +24 functions (619 → 643). Verified `admin.js:getInstructorsWithStatsForAdmin`, `getInstructorWithStudents`, `getFullAdminCsvData`, `incrementRemainingSessions` reachable in prod function spec.
+
+Future PRs in this arc (5–7) must follow the same pattern. Greptile/CI will pass on the PR even if the prod deploy was missed — verification only happens via the production function spec, not the CI build.
+
 ---
 
 ## 6. References
