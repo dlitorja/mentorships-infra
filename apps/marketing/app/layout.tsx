@@ -24,20 +24,10 @@ export default function RootLayout({
 }>): React.JSX.Element {
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
-  const signInUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || "/sign-in";
-  const signUpUrl = process.env.NEXT_PUBLIC_CLERK_SIGN_UP_URL || "/sign-up";
-  const signInFallbackRedirectUrl =
-    process.env.NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL || "/auth-redirect";
-  const signUpFallbackRedirectUrl =
-    process.env.NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL || "/sign-up-redirect";
 
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      signInUrl={signInUrl}
-      signUpUrl={signUpUrl}
-      signInFallbackRedirectUrl={signInFallbackRedirectUrl}
-      signUpFallbackRedirectUrl={signUpFallbackRedirectUrl}
       {...(domainUrl && { domainUrl })}
     >
       <html lang="en" className="bg-background dark">
