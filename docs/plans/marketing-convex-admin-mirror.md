@@ -33,7 +33,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | ✅ Merged (#856, commit `643327a1`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple with serialized drain loop to handle role downgrades / account switches / concurrent write races. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | ✅ Merged (#857, commit `c4ea241c`) | Five admin-gated Convex queries/mutations in `convex/admin.ts`: `getInstructorsWithStatsForAdmin` (cursor-paginated, `by_deletedAt` index, per-page `by_instructorId_status` seat counts), `getInstructorWithStudents` (per-instructor reads, seatless-pack filter, per-pack `by_sessionPackId` session aggregation), `getFullAdminCsvData` (orphan-pack filter, nonce cache-bust), `incrementRemainingSessions` (depleted→active flip), `decrementRemainingSessions` (preserves `refunded`/`expired` terminal statuses). New `apps/marketing/lib/queries/convex/use-instructors.ts` uses `useQueries` so all loaded pages stay reactively subscribed. URL-backed search, lazy CSV export, explicit error states. Verification tracked as HUC-35. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
-| 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Pending | Marketing-only page. Move inventory data to Convex (`api.adminInventory.*`) so the data layer is single-source. |
+| 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Paused (blocked on waitlist source-of-truth) | Marketing-only page. Replaces the Supabase-backed `getAllInstructorsWithInventory` + `getWaitlistCounts` join with Convex (`api.instructors.getInstructorsForAdmin` + `api.waitlist.*` mutations). UX mirror of `apps/web/app/admin/inventory/page.tsx` (card grid, +/- buttons, View Waitlist modal with checkboxes). Static `lib/instructors.ts` retained for `has_pricing_*` display only. **Paused 2026-09-20**: live public waitlist signups still go to Supabase `marketing_waitlist` via `components/instructors/offer-button.tsx:32`, while the new admin reads/writes Convex `marketingWaitlist`. Greptile flagged this as a structural source-of-truth divergence in PR 6 rounds 3 & 7 (1/5 confidence). Resumed after a separate prerequisite PR ports `addToWaitlist` to Convex AND rewrites the Inngest `waitlist-notifications.ts` worker as a Convex action. Spec preserved in §4d below. |
 | 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. |
 
 Each PR:
@@ -239,6 +239,85 @@ CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy
 **PR 5 deploy (2026-09-20 16:35 UTC):** +6 functions (643 → 649). Verified `admin.js:getOrdersForAdminCursor`, `admin.js:isAdmin`, `orders.js:getOrderByIdInternal`, `payments.js:getPaymentByIdInternal`, `payments.js:adminProcessRefundInternal`, `adminRefunds.js:processRefundForAdmin` reachable in prod function spec.
 
 Future PRs in this arc (5–7) must follow the same pattern. Greptile/CI will pass on the PR even if the prod deploy was missed — verification only happens via the production function spec, not the CI build.
+
+---
+
+## 4d. PR 6 spec (admin inventory — Convex port)
+
+**Goal:** replace the Supabase-backed `apps/marketing/app/admin/inventory/page.tsx` and `apps/marketing/components/admin/inventory-table.tsx` with Convex reads + mutations, mirroring the UX of `apps/web/app/admin/inventory/page.tsx`. The page is admin-only (the parent `app/admin/layout.tsx` already gates access via `isAdminUser()`), so the wrapper page can drop the redundant `requireAdmin()` server check.
+
+### Status: paused (2026-09-20)
+
+First implementation attempt landed 7 commits on `feat/marketing-admin-inventory` but Greptile reviews held confidence at **1/5** due to a structural issue: live public waitlist signups continue to flow through the Supabase `marketing_waitlist` table via `apps/marketing/components/instructors/offer-button.tsx:32` (`addToWaitlist`), while the new admin UI reads and writes the Convex `marketingWaitlist` table. The two sources can diverge, so the admin cannot manage current demand from the new page. The branch was reset to `main` and the implementation reverted; the spec below is preserved for the next attempt once the structural prerequisite lands.
+
+### Prerequisite (separate PRs before resuming PR 6)
+
+Single source of truth for the waitlist. Both must be done before PR 6 can ship at ≥4/5 Greptile:
+
+1. **Port `addToWaitlist` to Convex.** Replace the Supabase insert in `apps/marketing/components/instructors/offer-button.tsx:32` with a Convex `api.waitlist.addToWaitlist` mutation call (apps/platform already has this — `apps/platform/app/api/waitlist/route.ts:30`). Keep `apps/marketing/app/api/waitlist/route.ts` if it still needs to expose a server-side proxy for non-Convex callers.
+2. **Rewrite `apps/marketing/inngest/functions/waitlist-notifications.ts` as a Convex action** that reads from `marketingWaitlist` (the Convex table) instead of `marketing_waitlist` (the Supabase table). Move the email send to a Convex action that calls `inngest.send({ name: 'waitlist/notify-users', data: ... })` internally, so the page can `await ctx.runAction(api.waitlist.notifyInstructor, {...})` instead of `fetch('/api/admin/waitlist-notify', ...)`.
+
+After both land, resume PR 6 against the same spec.
+
+### Reused Convex functions (no new code in `convex/`)
+
+PR 6 does **not** add any Convex functions. Every read/write is satisfied by existing, already-deployed functions from the instructor and waitlist modules:
+
+| Function | Source | Used for |
+| --- | --- | --- |
+| `instructors.getInstructorsForAdmin` | `convex/instructors.ts:1232` | List page. Returns `_id`, `name`, `slug`, `email`, `oneOnOneInventory`, `groupInventory`, `maxActiveStudents`, `activeStudentCount`. |
+| `instructors.updateInstructor` | `convex/instructors.ts:1556` | Per-card +/- inventory buttons. Callers pass `{ id, oneOnOneInventory }` or `{ id, groupInventory }`; the mutation's admin branch atomically writes both via `internalAtomicFullUpdateInstructor`. |
+| `waitlist.getWaitlistForInstructor` | `convex/waitlist.ts:14` | Modal entries. Optional `mentorshipType` filter (`"oneOnOne"` \| `"group"`). |
+| `waitlist.markNotifiedByInstructor` | `convex/waitlist.ts:200` | "Mark All Notified" + per-card "Mark as Notified" hover actions. |
+| `waitlist.removeMultipleFromWaitlist` | `convex/waitlist.ts:144` | "Delete Selected" in the modal. |
+
+All five are admin-gated server-side (`requireAdmin` / `isAdminUser`); the marketing hooks add no client-side gating beyond `enabled: !!instructorSlug`.
+
+### New marketing files
+
+| File | Purpose |
+| --- | --- |
+| `apps/marketing/lib/queries/convex/use-inventory.ts` *(new)* | `useInventoryInstructors()` wraps `api.instructors.getInstructorsForAdmin({ limit: 200 })` (well under `DEFAULT_INSTRUCTOR_LIST_LIMIT=100` + headroom for future growth). `useUpdateInventory()` wraps `api.instructors.updateInstructor` with a React Query optimistic `onMutate` against the convexQuery cache key (`["convexQuery", api.instructors.getInstructorsForAdmin, { limit: 200 }]`) so rapid consecutive +/- clicks compose correctly. `useWaitlistForInstructor(slug, type?)`, `useMarkNotifiedByInstructor()`, `useRemoveMultipleFromWaitlist()` mirror `apps/web/lib/queries/convex/use-waitlist.ts`. |
+| `apps/marketing/lib/queries/convex/index.ts` | Add `export * from "./use-inventory"`. |
+| `apps/marketing/components/admin/inventory-table.tsx` *(rewrite, 989 → ~450 lines)* | Client component. Card grid: one card per instructor, +/- buttons per inventory type, "View Waitlist" + "Mark as Notified" hover menu (button renamed from "Notify Waitlist" since the new flow records state only), modal with checkbox selection. Drops the TanStack `useForm` (replaced by direct `updateInstructor` mutations with optimistic local state) and the `lib/supabase-inventory.ts` calls. |
+| `apps/marketing/app/admin/inventory/page.tsx` *(rewrite, 60 → ~30 lines)* | Client wrapper. Imports the static `instructors` config for `has_pricing_*` flags, renders `<InventoryTable />`. Layout-level `isAdminUser()` already gates access. |
+
+### Static config role (intentionally preserved)
+
+`apps/marketing/lib/instructors.ts` keeps its role as the source of marketing copy (slug → name → offer labels → `has_pricing_*`). It is **not** the source of inventory data any more — that's Convex. The page iterates over the Convex list (the source of truth) and looks up static config by slug to render offer pills and the "1-on-1" / "Group" toggles.
+
+### Schema impact
+
+**None.** PR 6 reuses existing queries/mutations. No `convex/schema.ts` changes, so no manual prod deploy (the `syncEnvVars` step from PR 5 is unnecessary). Greptile verification is sufficient.
+
+### Compatibility with the existing Supabase API routes
+
+`apps/marketing/app/api/admin/{waitlist,waitlist-notify,waitlist-delete,waitlist-csv}/route.ts` and `apps/marketing/lib/supabase-inventory.ts` are **not** deleted in PR 6. They are still used by:
+
+- `apps/marketing/components/instructors/offer-button.tsx` (student-facing waitlist join — `addToWaitlist`; will be ported in the prerequisite PR)
+- `apps/marketing/app/api/instructor/inventory/route.ts` (instructor-facing inventory view — `getInstructorInventory`)
+- `apps/marketing/app/api/webhooks/kajabi/route.ts` (Kajabi webhook — `logInventoryChange`)
+- `apps/marketing/lib/supabase-csv-sync.ts` and other automation not surfaced in the admin UI
+
+A follow-up cleanup PR can migrate these after the prerequisite + PR 7 land; for now PR 6 only changes the admin page.
+
+### Known limitations
+
+1. **200-instructor hard cap.** `useInventoryInstructors` requests `limit: 200`. This is fine for the current ~28-instructor corpus but means a future `>200` instructor set would silently truncate. If/when the corpus grows, mirror PR 5's cursor-paginated `getInstructorsWithStatsForAdmin` pattern.
+2. **"Mark as Notified" only flips `notifiedAt` in Convex — no emails are sent from this surface.** Even after the prerequisite PRs land (Convex `addToWaitlist` + Convex action for the Inngest worker), the per-card and modal "Mark as Notified" buttons will only update state. Restoring transactional waitlist emails from this UI surface is a separate follow-up that the prerequisite PRs set up but do not complete (the worker is now a Convex action, but the admin page still calls it through `fetch('/api/admin/waitlist-notify', ...)` until PR 6 wires up the action directly).
+3. **CSV export is not yet wired.** `apps/web/app/admin/inventory/page.tsx` has no CSV button either, so PR 6 matches the closest reference impl. The old marketing route (`/api/admin/waitlist-csv`) remains available but is no longer linked from the UI.
+4. **`updateInstructor` race window.** If two admins +/- the same instructor concurrently, the last write wins (Convex writes the full instructor doc). This matches the existing platform behaviour; a future "session-pinned" update could be added if reconciliation becomes a problem. The optimistic `onMutate` in `useUpdateInventory` reduces but does not eliminate this — it composes correctly against the cache but still races against a concurrent admin on another machine.
+
+### Verification (Linear)
+
+Tracking issue: **HUC-37** (state `Backlog` → `In Progress` after prerequisite PR merges + PR 6 merge). Smoke tests:
+1. `mentorships.huckleberry.art/admin/inventory` returns a 200 (was 500 + Supabase 502 before PR 1–5, broken since Supabase `text`/`uuid` join).
+2. The page lists every non-deleted instructor from Convex (verified against `instructor.listInstructors`).
+3. +/- oneOnOne and group buttons persist via `api.instructors.updateInstructor`. Reload page → values unchanged.
+4. View Waitlist modal opens for a slug that has waitlist entries; shows `email`, `createdAt`, `notifiedAt` per entry; checkboxes + "Delete Selected" removes selected rows via `removeMultipleFromWaitlist`.
+5. "Mark All Notified" sets `notifiedAt = Date.now()` on every unnotified entry for the active tab.
+6. Static config (`apps/marketing/lib/instructors.ts`) still drives the offer pill labels and the `has_pricing_*` gating — admin sees the same UX shape as before the migration.
+7. **Live waitlist parity check.** Create a new waitlist entry via the public student-facing flow (click "Join Waitlist" on a 1-on-1 instructor). It appears in the modal within 2 seconds without a manual refresh — proves `addToWaitlist` writes to Convex (prerequisite PR).
 
 ---
 
