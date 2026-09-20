@@ -64,19 +64,14 @@ export async function GET() {
     }
 
     const result = await convexServerCall<{
-      ok: boolean;
-      userId?: string;
-      role?: string;
-      audit?: { actorId: string };
+      _id: string;
+      role: string;
     }>("/users/set-role", { userId, role });
 
-    if (!result.ok) {
-      return NextResponse.json(
-        { error: "Convex refused to set role" },
-        { status: 502 }
-      );
-    }
-
+    // `setUserRoleTrusted` returns the patched user document; HTTP 2xx
+    // is the success signal. The endpoint validates auth + role in the
+    // handler itself; any error comes back as 4xx/5xx, which
+    // `convexServerCall` already turns into a `ConvexServerCallError`.
     return NextResponse.json({
       success: true,
       user: {

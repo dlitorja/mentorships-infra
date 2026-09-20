@@ -75,7 +75,11 @@ function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
   // a different account signs in without a full page reload). A simple
   // boolean `syncedRef` would miss role downgrades and stale accounts.
   const lastSyncedRef = useRef<{ userId: string; role: SyncableRole | null } | null>(null);
-  const inFlightRef = useRef(false);
+  // If the role tuple changes while a sync is in-flight, queue the new
+  // tuple so the next available microtask re-syncs. Without this, a
+  // role downgrade during in-flight would be silently dropped until
+  // another Clerk change arrived.
+  const pendingTupleRef = useRef<{ userId: string; role: SyncableRole | null } | null>(null);
 
   useEffect(() => {
     if (convexAuthLoading || !clerkLoaded) return;
@@ -83,31 +87,47 @@ function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
 
     const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
     const role: SyncableRole | null = isSyncableRole(claimsRole) ? claimsRole : null;
+    const tuple = { userId, role };
 
     const last = lastSyncedRef.current;
-    if (last && last.userId === userId && last.role === role) {
-      // Nothing changed since the last successful sync.
+    if (last && last.userId === tuple.userId && last.role === tuple.role) {
       return;
     }
-    if (inFlightRef.current) return;
+    // Already queued — wait for the in-flight sync to drain.
+    pendingTupleRef.current = tuple;
 
-    inFlightRef.current = true;
-    fetch("/api/auth/sync", { method: "GET", credentials: "same-origin" })
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`auth sync ${res.status}: ${text.slice(0, 200)}`);
-        }
-        lastSyncedRef.current = { userId, role };
-      })
-      .catch((err) => {
-        console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
-        // Do NOT mark lastSyncedRef — leave the role unsynced so a
-        // subsequent effect run (e.g. after sign-in completes) retries.
-      })
-      .finally(() => {
-        inFlightRef.current = false;
-      });
+    const fire = (t: { userId: string; role: SyncableRole | null }) => {
+      fetch("/api/auth/sync", { method: "GET", credentials: "same-origin" })
+        .then(async (res) => {
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`auth sync ${res.status}: ${text.slice(0, 200)}`);
+          }
+          // Only commit the lastSyncedRef if the tuple we just synced
+          // is still the latest pending tuple — otherwise a stale
+          // response would mask a more-recent role change.
+          if (
+            pendingTupleRef.current &&
+            pendingTupleRef.current.userId === t.userId &&
+            pendingTupleRef.current.role === t.role
+          ) {
+            lastSyncedRef.current = t;
+            pendingTupleRef.current = null;
+          }
+        })
+        .catch((err) => {
+          console.error("[AuthDrivenInvalidator] Failed to sync Clerk role to Convex:", err);
+          // Do NOT mark lastSyncedRef — leave the role unsynced so a
+          // subsequent effect run (e.g. after sign-in completes) retries.
+        });
+    };
+
+    // Fire-and-forget. Multiple concurrent fetches are harmless: the
+    // endpoint is idempotent (writes the current Clerk role), and
+    // `lastSyncedRef` only commits when the response matches the
+    // latest pending tuple. If a newer tuple arrives while this one is
+    // in flight, a follow-up fire below picks it up.
+    fire(tuple);
 
     // Kick any convex-backed queries that mounted before auth was ready.
     queryClient.invalidateQueries({
