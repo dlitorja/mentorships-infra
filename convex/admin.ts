@@ -874,10 +874,13 @@ export const getOrdersForAdminCursor = query({
   }> => {
     await requireAdmin(ctx);
 
-    // Client-controlled `numItems` (no server-side clamp). Search
-    // requests use a 500-row window so the client can apply the
-    // email/ID filter locally; browse requests use 50.
-    const numItems = args.paginationOpts.numItems ?? 50;
+    // Server-side clamp on `numItems`. Search requests use a 500-row
+    // window so the client can apply the email/ID filter locally;
+// browse requests use 50. Anything larger is silently capped to the
+// configured maximum so a malicious or buggy client cannot amplify
+// reads past the Convex per-query budget.
+    const requestedNumItems = args.paginationOpts.numItems ?? 50;
+    const numItems = Math.min(Math.max(requestedNumItems, 1), 500);
 
     const baseQuery = args.statusFilter
       ? ctx.db

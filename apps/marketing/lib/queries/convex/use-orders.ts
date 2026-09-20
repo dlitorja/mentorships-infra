@@ -134,6 +134,12 @@ export function useOrdersForAdmin(args: {
  * that calls Stripe / PayPal, updates the payment + order, and
  * sends the student a refund email). The action self-gates on
  * admin via `internal.admin.isAdmin`.
+ *
+ * The caller MUST supply a stable `nonce` per "refund attempt session"
+ * (typically generated when the modal opens). If the action throws
+ * after the provider accepted the refund, retrying with the same
+ * nonce dedupes at the provider and the local DB update commits the
+ * recorded amount. A new nonce would issue a second provider refund.
  */
 export function useProcessRefundForAdmin() {
   return useConvexAction(api.adminRefunds.processRefundForAdmin);

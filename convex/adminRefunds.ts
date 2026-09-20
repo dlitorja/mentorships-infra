@@ -285,6 +285,18 @@ export const processRefundForAdmin = action({
       v.literal("Other")
     ),
     customReason: v.optional(v.string()),
+    /**
+     * Client-supplied idempotency nonce. The refund modal generates a
+     * UUID when it opens and reuses it across retries, so if the action
+     * throws after the provider accepted the refund but before the local
+     * DB update committed, a retry from the same modal dedupes at the
+     * provider and doesn't double-refund the customer. Different modals
+     * (different admins, or the same admin reopening the refund dialog)
+     * generate different nonces, so legitimate concurrent partial
+     * refunds of the same dollar amount still proceed as separate
+     * provider operations.
+     */
+    nonce: v.string(),
   },
   handler: async (
     ctx,
@@ -366,15 +378,11 @@ export const processRefundForAdmin = action({
     const refundAmountStr = refundAmount.toFixed(2);
     const currency = payment.currency || "usd";
 
-    // Idempotency: include a per-call nonce (randomUUID) so two concurrent
-    // partial refunds of the same dollar amount each get a distinct key
-    // and proceed as separate provider operations. Without the nonce, both
-    // calls would hash to the same key and Stripe/PayPal would dedupe to a
-    // single refund — but the internal mutation below would still record
-    // both, producing a double-increment in `refundedAmount`. Same shape
-    // as the platform admin route plus the nonce.
-    const refundNonce = crypto.randomUUID();
-    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${refundNonce}`;
+    // Idempotency: include the client-supplied nonce so retries from the
+    // same modal share a provider key (dedupe = no double refund) while
+    // legitimate concurrent partial refunds of the same dollar amount
+    // from different modals each get a distinct key.
+    const idempotencyKey = `refund:${args.paymentId}:${args.refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}:${args.nonce}`;
 
     // Durable audit trail BEFORE the provider call so that, if the
     // post-call mutation fails (network drop, Convex outage, etc), an

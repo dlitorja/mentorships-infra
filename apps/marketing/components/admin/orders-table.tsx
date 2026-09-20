@@ -71,6 +71,14 @@ function RefundModal({
   const [customReason, setCustomReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Stable per-modal nonce so retries from this dialog dedupe at the
+  // provider, while a fresh modal (admin reopens or different admin)
+  // gets a fresh nonce and proceeds as a separate operation.
+  const [nonce] = useState(() =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   const max = payment ? remainingRefundable(payment) : 0;
 
@@ -89,6 +97,7 @@ function RefundModal({
         amount: refundType === "partial" ? amount : undefined,
         reason,
         customReason: reason === "Other" ? customReason : undefined,
+        nonce,
       });
       onSuccess();
     } catch (err) {
