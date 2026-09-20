@@ -12,24 +12,16 @@ import {
   Package,
   ShoppingCart,
   Users,
-  GraduationCap,
-  ListChecks,
-  Folder,
-  ScrollText,
+  Bell,
   LogOut,
-  Mail,
 } from "lucide-react";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/instructors", label: "Instructors", icon: Users },
-  { href: "/admin/students", label: "Students", icon: GraduationCap },
-  { href: "/admin/products", label: "Products", icon: Package },
+  { href: "/admin/inventory", label: "Inventory", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
-  { href: "/admin/onboardings", label: "Onboardings", icon: ListChecks },
-  { href: "/admin/workspaces", label: "Workspaces", icon: Folder },
-  { href: "/admin/email-health", label: "Email Health", icon: Mail },
-  { href: "/admin/audit-logs", label: "Audit Logs", icon: ScrollText },
+  { href: "/admin/digest", label: "Digest", icon: Bell },
 ];
 
 export function ClientAdminLayout({
