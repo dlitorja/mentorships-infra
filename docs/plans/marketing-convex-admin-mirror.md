@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 awaiting merge (#855, Greptile 5/5 on commit `30dd9df8`); PRs 3–7 planned.  
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PRs 3–7 planned.  
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -29,7 +29,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | # | Branch | Title | Status | What it does |
 | - | --- | --- | --- | --- |
 | 1 | `feat/marketing-convex-foundation` | feat(marketing): add Convex provider stack to mirror apps/platform (#854) | ✅ Merged | Add `ConvexClientProvider` + `QueryProvider` + deps (`convex`, `@convex-dev/react-query`, `@tanstack/react-query`, `@tanstack/react-query-devtools`). Update root layout to wrap with both. |
-| 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | 🔄 Awaiting merge (Greptile 5/5) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
+| 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | ✅ Merged (#855, commit `dfd02516`) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
 | 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | Pending | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | Pending | Mirror apps/platform `app/admin/instructors/page.tsx` (`useAllInstructors` + `deleteAdminInstructor` + `BackfillImagesPanel`). This is the page that fixes the original 500. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
@@ -62,7 +62,7 @@ Greptile GitHub review on commit `af0db787`: **Confidence 5/5 — safe to merge*
 
 ## 4. PR 2 spec (admin layout + sidebar)
 
-**Status:** Implemented in branch `feat/marketing-admin-layout` (PR #855). Awaiting user merge after Greptile 5/5. Files actually shipped:
+**Status:** ✅ Merged as PR #855 (squash → commit `dfd02516`). Greptile 5/5, all CI green. Files actually shipped:
 
 - `apps/marketing/app/admin/layout.tsx` — replaced `requireRole("admin")` with a shared `isAdminUser()` helper (defined in `lib/auth.ts`) that reads `sessionClaims.publicMetadata.role` from Clerk `auth()` as a fast path, then falls back to `clerkClient().users.getUser()` for the canonical `publicMetadata.role` when JWT claims haven't propagated yet. Unauthorized → `/` (apps/marketing's `next.config.ts` already redirects `/dashboard/*` to `/`, so we don't redirect to a missing route).
 - `apps/marketing/app/admin/client-admin-layout.tsx` (new) — client-side sidebar using the **actual** marketing admin routes: Dashboard, Instructors, Inventory, Orders, Digest. *Not* a copy of apps/platform's 9-item list — apps/marketing has no `/admin/students`, `/admin/products`, `/admin/onboardings`, `/admin/workspaces`, `/admin/email-health`, or `/admin/audit-logs` routes yet, and copying them produces 404s (Greptile P1).
