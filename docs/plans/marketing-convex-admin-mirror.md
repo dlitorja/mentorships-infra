@@ -1,6 +1,6 @@
 # Plan: Mirror apps/platform admin UI in apps/marketing (Convex migration)
 
-**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 in review (#856, latest push `da6c1f75`, CI green, awaiting Greptile re-review after P1/P2 fixes); PRs 4–7 planned.  
+**Status:** PR 1 merged (#854); PR 2 merged (#855, Greptile 5/5 on commit `dfd02516`); PR 3 merged (#856, Greptile 5/5 on commit `643327a1`); PRs 4–7 planned.
 **Target base:** `main`  
 **Apps affected:** `apps/marketing` (the only consumer of the broken `/admin/instructors` query). `packages/db` may need follow-up if the Supabase `text`/`uuid` mismatch is patched in Drizzle as well.  
 **Naming rule:** `instructor` / `student` only. The words `mentor` / `mentee` are forbidden in code. Use `Convex` as source of truth for instructor data; do NOT add Supabase/Postgres tables for instructor data in `apps/platform` or `apps/web`.
@@ -30,7 +30,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | - | --- | --- | --- | --- |
 | 1 | `feat/marketing-convex-foundation` | feat(marketing): add Convex provider stack to mirror apps/platform (#854) | ✅ Merged | Add `ConvexClientProvider` + `QueryProvider` + deps (`convex`, `@convex-dev/react-query`, `@tanstack/react-query`, `@tanstack/react-query-devtools`). Update root layout to wrap with both. |
 | 2 | `feat/marketing-admin-layout` | feat(marketing): mirror apps/platform admin layout (Clerk role + sidebar) | ✅ Merged (#855, commit `dfd02516`) | Replace `app/admin/layout.tsx` Supabase-backed `requireRole("admin")` with shared `isAdminUser()` Clerk check (claims fast path + Backend API fallback). Add `client-admin-layout.tsx` sidebar using **marketing's** actual routes (Dashboard, Instructors, Inventory, Orders, Digest). Add `app/admin/error.tsx` boundary. |
-| 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | 🔄 In review (#856, commit `da6c1f75`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple to handle role downgrades / account switches. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
+| 3 | `feat/marketing-admin-dashboard` | feat(marketing): port /admin dashboard to Convex | ✅ Merged (#856, commit `643327a1`) | Mirror apps/platform `app/admin/page.tsx` (admin stats, quick links, sign-out). Server-side Clerk→Convex role sync via `/api/auth/sync` (uses existing `/users/set-role` httpAction with `CONVEX_HTTP_KEY` bearer, since marketing has no Clerk webhook). Track `(userId, role)` tuple with serialized drain loop to handle role downgrades / account switches / concurrent write races. Server-side `deletedAt` + `isActive` filter in `convex/admin.ts:getInstructorsForAdmin`. |
 | 4 | `feat/marketing-admin-instructors` | feat(marketing): port /admin/instructors to Convex | Pending | Mirror apps/platform `app/admin/instructors/page.tsx` (`useAllInstructors` + `deleteAdminInstructor` + `BackfillImagesPanel`). This is the page that fixes the original 500. |
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | Pending | Marketing-only page. Move inventory data to Convex (`api.adminInventory.*`) so the data layer is single-source. |
@@ -78,7 +78,7 @@ Risks:
 
 ## 4a. PR 3 spec (admin dashboard + role sync)
 
-**Status:** 🔄 In review as PR #856. Latest push commit `da6c1f75` on `feat/marketing-admin-dashboard`. All CI checks green (typecheck, lint, build, unit, e2e, convex). Vercel preview deployed; new `/api/auth/sync` route returns 302→sign-in when called unauthenticated (expected). Awaiting Greptile re-review after P1/P2 fixes.
+**Status:** ✅ Merged as PR #856 (squash → commit `643327a1`). Greptile 5/5, all CI green. Final commits on branch (squashed):
 
 **Why a server-side `/api/auth/sync` route:** the client-side `api.users.syncUser` mutation in `convex/users.ts:308` runs as the *user* identity and intentionally refuses to set `role` to anything more privileged than what the caller already is. Without the trusted path, first-time admin sign-in leaves `users.role` empty and `convex/admin.ts:isAdminUser` gates `/admin`. Apps/platform avoids this with a Clerk webhook → Inngest → `internal.users.setUserRoleTrusted` chain (`apps/platform/app/api/webhooks/clerk/route.ts`); apps/marketing has no webhook, so the `/api/auth/sync` route is the equivalent. It uses `CONVEX_HTTP_KEY` bearer against the existing `convex/http.ts` httpAction `/users/set-role`, which calls `internal.users.setUserRoleTrusted`.
 
