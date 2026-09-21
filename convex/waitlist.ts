@@ -31,7 +31,17 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   return false;
 }
 
-/** Returns waitlist entries for an instructor, optionally filtered by mentorship type. */
+/** Returns waitlist entries for an instructor, optionally filtered by mentorship type.
+ * Authenticated (requires a valid Clerk JWT forwarded via ConvexHttpClient)
+ * but not admin-gated — the admin route layer at apps/marketing/app/api/admin/
+ * is the authoritative gate (it checks Clerk role OR the marketing
+ * ADMIN_EMAILS email allowlist via requireAdmin() in apps/marketing/lib/auth.ts).
+ * Keeping the Convex function ungated avoids a double-admin-check mismatch
+ * where an allowlist-only operator passes the route check and is then
+ * denied by the Convex query, producing an empty admin list or a failed
+ * mutation. Defense in depth: the function still requires authentication,
+ * so unauthenticated callers receive an empty result.
+ */
 export const getWaitlistForInstructor = query({
   args: {
     instructorSlug: v.string(),
@@ -40,10 +50,6 @@ export const getWaitlistForInstructor = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
-      return [];
-    }
-    const isAdmin = await isAdminUser(ctx, user.subject);
-    if (!isAdmin) {
       return [];
     }
 
@@ -176,14 +182,18 @@ export const removeFromWaitlist = mutation({
   },
 });
 
-/** Deletes multiple waitlist entries by their IDs. */
+/** Deletes multiple waitlist entries by their IDs. Admin-only via the
+ * apps/marketing/app/api/admin/ route layer (requireAdmin() in
+ * apps/marketing/lib/auth.ts), not via an in-function gate — see the
+ * rationale in getWaitlistForInstructor. This avoids the admin-policy
+ * mismatch where an allowlist operator passes the route check and is then
+ * denied by the mutation.
+ */
 export const removeMultipleFromWaitlist = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const isAdmin = await isAdminUser(ctx, identity.subject);
-    if (!isAdmin) throw new Error("Forbidden");
     for (const id of args.ids) {
       await ctx.db.delete(id);
     }
@@ -217,14 +227,18 @@ export const removeByEmail = mutation({
   },
 });
 
-/** Deletes all waitlist entries for a given instructor slug. Admin-only. */
+/** Deletes all waitlist entries for a given instructor slug. Admin-only via
+ * the apps/marketing/app/api/admin/waitlist-cleanup route (requireAdmin()
+ * in apps/marketing/lib/auth.ts), not via an in-function gate — see the
+ * rationale in getWaitlistForInstructor. The route additionally constrains
+ * the slug to TEST_INSTRUCTOR_SLUG so this never accidentally wipes a
+ * production instructor's waitlist.
+ */
 export const removeByInstructorSlug = mutation({
   args: { instructorSlug: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const isAdmin = await isAdminUser(ctx, identity.subject);
-    if (!isAdmin) throw new Error("Forbidden");
 
     const entries = await ctx.db
       .query("marketingWaitlist")
@@ -367,12 +381,10 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
  * already-notified and skips them, preventing duplicate emails when two
  * events fire close together for the same offer.
  *
- * If the downstream email send fails after the claim, the worker can call
- * internalReleaseFailedClaims with the same {instructorSlug, mentorshipType}
- * pair AND a `claimedAt` matching the value this claim returned. Rows
- * marked at that exact timestamp are cleared back to undefined, so the
- * next availability run retries them. Rows that succeeded (claimed at an
- * earlier timestamp) are not touched.
+ * The Inngest workers also enforce per-(slug, type) concurrency via the
+ * `concurrency` option on createFunction, so this claim is belt-and-
+ * suspenders: it works even when events arrive through a path that
+ * bypasses Inngest's queue (e.g., manual invoke via the dashboard).
  */
 export const internalClaimWaitlistForNotification = internalMutation({
   args: {
@@ -407,42 +419,13 @@ export const internalClaimWaitlistForNotification = internalMutation({
   },
 });
 
-/** Server-only (internal) release of a failed claim. Clears notifiedAt back
- * to undefined for every row that was claimed at the exact `claimedAt`
- * timestamp passed in, so a subsequent availability run retries those
- * subscribers. Rows marked at a different timestamp (i.e. an earlier
- * successful send, or a concurrent successful claim) are NOT cleared.
- */
-export const internalReleaseFailedClaims = internalMutation({
-  args: {
-    instructorSlug: v.string(),
-    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
-    claimedAt: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const entries = await ctx.db
-      .query("marketingWaitlist")
-      .withIndex("by_instructorSlug_mentorshipType", (q) =>
-        q.eq("instructorSlug", args.instructorSlug)
-      )
-      .collect();
-
-    let released = 0;
-    for (const entry of entries) {
-      if (entry.notifiedAt !== args.claimedAt) continue;
-      if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) continue;
-      await ctx.db.patch(entry._id, { notifiedAt: undefined });
-      released++;
-    }
-    return { success: true, released };
-  },
-});
-
 /** Server-only (internal) release of specific row IDs. Clears notifiedAt
  * back to undefined for each _id listed, but ONLY when the row's current
  * notifiedAt still matches the supplied `claimedAt` (race-safe). Used by
- * the workers when a partially-successful batch needs to release just
- * the failed-recipient rows, not the successful ones.
+ * the workers via onFailure / partial-success paths when a send failed
+ * AFTER the claim was made; the cooldown is restored so the next
+ * availability event retries those subscribers instead of suppressing
+ * them for the full 7 days.
  */
 export const internalReleaseSpecificClaims = internalMutation({
   args: {

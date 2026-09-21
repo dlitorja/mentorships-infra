@@ -470,42 +470,18 @@ export const httpClaimWaitlistForNotification = httpAction(async (ctx, request) 
   });
 });
 
-/** Releases a failed claim: clears notifiedAt back to undefined for every
- * row claimed at the exact `claimedAt` timestamp passed in. The workers
- * call this when the Resend call throws or returns errors for every
- * attempted subscriber, so the next availability run can retry them
- * instead of suppressing them for the full seven-day cooldown.
- */
-export const httpReleaseFailedClaims = httpAction(async (ctx, request) => {
-  if (!verifyAuth(request)) return unauthorizedResponse();
-
-  const { instructorSlug, mentorshipType, claimedAt } = await request.json();
-  if (!instructorSlug || typeof claimedAt !== "number") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Missing instructorSlug or claimedAt" }),
-      {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  }
-  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
-
-  const result = await ctx.runMutation(internal.waitlist.internalReleaseFailedClaims as any, {
-    instructorSlug,
-    mentorshipType: normalizedType,
-    claimedAt,
-  });
-
-  return new Response(JSON.stringify(result), {
-    headers: { "Content-Type": "application/json" },
-  });
-});
-
-/** Releases specific row IDs from a partially-successful batch. Used when
- * one Resend call succeeds while another fails: we keep notifiedAt on
- * the successful subscribers and clear it only on the failed ones, but
- * only if their notifiedAt still matches the caller's claimedAt (race-safe).
+/** Releases specific row IDs from a partially-successful or fully-failed
+ * claim batch. Used by the workers via two paths:
+ *  - On partial send failures (one Resend call rejects, another delivers):
+ *    release only the failed-recipient rows; keep notifiedAt on the
+ *    successful ones.
+ *  - On a hard failure (unhandled exception, Resend 5xx on every send):
+ *    the worker's onFailure hook releases every claimed row.
+ *
+ * The internal mutation clears notifiedAt back to undefined ONLY when the
+ * row's current notifiedAt still matches the supplied `claimedAt`, so
+ * concurrent successful claims (different timestamp) and any future
+ * state mutations are not disturbed.
  */
 export const httpReleaseSpecificClaims = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -798,12 +774,6 @@ http.route({
   path: "/waitlist/claim",
   method: "POST",
   handler: httpClaimWaitlistForNotification,
-});
-
-http.route({
-  path: "/waitlist/release-failed-claims",
-  method: "POST",
-  handler: httpReleaseFailedClaims,
 });
 
 http.route({
