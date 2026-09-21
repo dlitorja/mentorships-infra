@@ -143,7 +143,7 @@ export const addToWaitlist = mutation({
     }
 
     await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
-      key: emailLower,
+      key: `${emailLower}|${instructorSlug}`,
       throws: true,
     });
 
