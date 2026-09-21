@@ -2,7 +2,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { isAdmin } from "@/lib/auth";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { z } from "zod";
 
 const WaitlistQuerySchema = z.object({
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid mentorship type" }, { status: 400 });
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const entries = (await convex.query(api.waitlist.getWaitlistForInstructor, {
       instructorSlug,
       mentorshipType,

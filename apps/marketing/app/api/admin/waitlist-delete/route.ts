@@ -2,7 +2,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { isAdmin } from "@/lib/auth";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { z } from "zod";
 
 const WaitlistDeleteSchema = z.object({
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const { ids } = parsed.data;
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const result = await convex.mutation(api.waitlist.removeMultipleFromWaitlist, {
       ids: ids as never,
     });
