@@ -203,6 +203,11 @@ export const processWaitlistNotifications = inngest.createFunction(
   {
     id: "process-waitlist-notifications",
     retries: 3,
+    // Account-scoped concurrency matches handleInventoryAvailable in
+    // inventory-available.ts so the two workers serialize per
+    // (instructorSlug, mentorshipType). See the comment on that file
+    // for why `scope: "account"` (not the default `"fn"`) is what
+    // prevents concurrent eligibility reads + duplicate Resend sends.
     concurrency: {
       limit: 1,
       key: "event.data.instructorSlug + ':' + event.data.type",

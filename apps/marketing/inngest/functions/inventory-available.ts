@@ -184,6 +184,16 @@ export const handleInventoryAvailable = inngest.createFunction(
   {
     id: "handle-inventory-available",
     retries: 3,
+    // Account-scoped concurrency: Inngest v3 evaluates this limit across
+    // ALL functions in the same account that resolve the same key value.
+    // Because waitlist-notifications.ts mirrors these exact options, the
+    // two functions share one queue per (instructorSlug, mentorshipType)
+    // and cannot both be RUNNING the eligibility read + Resend send at
+    // the same time for the same instructor/type. Without `scope:
+    // "account"`, the default `"fn"` scope would give each function its
+    // own per-key queue and the two could read + send concurrently before
+    // either marks notifiedAt — a real risk of duplicate availability
+    // emails. Limit=1 makes the guarantee strict.
     concurrency: {
       limit: 1,
       key: "event.data.instructorSlug + ':' + event.data.type",
