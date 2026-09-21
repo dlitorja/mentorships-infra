@@ -456,6 +456,30 @@ export const httpMarkWaitlistNotified = httpAction(async (ctx, request) => {
   });
 });
 
+/** Bulk-imports waitlist entries from Supabase. Server-only: called by the
+ * one-time migration script `scripts/migrate-marketing-waitlist.ts`. Gated by
+ * CONVEX_HTTP_KEY. Idempotent: skips triples that already exist.
+ */
+export const httpBulkImportWaitlist = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = await request.json();
+  const entries = body?.entries;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return new Response(JSON.stringify({ success: true, inserted: 0, skipped: 0 }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(internal.waitlist.internalBulkImportWaitlist as any, {
+    entries,
+  });
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 /** HTTP action wrappers for Inngest payment processing.
  *
  * These expose the minimal set of internal/public Convex functions needed by
@@ -662,6 +686,12 @@ http.route({
   path: "/waitlist/mark-notified",
   method: "POST",
   handler: httpMarkWaitlistNotified,
+});
+
+http.route({
+  path: "/waitlist/import-bulk",
+  method: "POST",
+  handler: httpBulkImportWaitlist,
 });
 
 http.route({

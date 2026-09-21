@@ -308,6 +308,11 @@ export const getUnnotifiedWaitlist = query({
 /** Server-only (internal) variant of getUnnotifiedWaitlist. Called from the
  * HTTP action in convex/http.ts gated by CONVEX_HTTP_KEY. Not callable from
  * client code because it's an internalQuery.
+ *
+ * Returns ALL entries for the instructor/type (matching the original Supabase
+ * behavior) so a user already notified once still gets a follow-up when a new
+ * availability window opens. The HTTP caller is responsible for de-duplication
+ * by email before sending.
  */
 export const internalGetUnnotifiedWaitlist = internalQuery({
   args: {
@@ -325,7 +330,7 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
     return entries
       .filter((entry) => {
         if (!args.mentorshipType || entry.mentorshipType === args.mentorshipType) {
-          return entry.notifiedAt === undefined;
+          return true;
         }
         return false;
       })
@@ -349,5 +354,54 @@ export const internalMarkWaitlistNotified = internalMutation({
       count++;
     }
     return { success: true, count };
+  },
+});
+
+/** Server-only (internal) bulk import. Called from the HTTP action in
+ * convex/http.ts gated by CONVEX_HTTP_KEY, used by the one-time
+ * Supabase → Convex migration script in scripts/migrate-marketing-waitlist.ts.
+ *
+ * Each entry inserts a new marketingWaitlist row. Existing rows with the
+ * same (email, instructorSlug, mentorshipType) triple are silently skipped
+ * because the underlying index `by_email_and_instructorSlug_and_mentorshipType`
+ * will reject duplicates. Returns the count actually inserted.
+ */
+export const internalBulkImportWaitlist = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        email: v.string(),
+        instructorSlug: v.string(),
+        mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
+        createdAt: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    let inserted = 0;
+    let skipped = 0;
+    for (const entry of args.entries) {
+      const existing = await ctx.db
+        .query("marketingWaitlist")
+        .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+          q
+            .eq("email", entry.email)
+            .eq("instructorSlug", entry.instructorSlug)
+            .eq("mentorshipType", entry.mentorshipType)
+        )
+        .first();
+      if (existing) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.insert("marketingWaitlist", {
+        email: entry.email,
+        instructorSlug: entry.instructorSlug,
+        mentorshipType: entry.mentorshipType,
+        createdAt: entry.createdAt ?? Date.now(),
+      });
+      inserted++;
+    }
+    return { success: true, inserted, skipped };
   },
 });
