@@ -14,11 +14,21 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
 });
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const dbUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin";
+  if (dbUser?.role === "admin") {
+    return true;
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  const metadata = identity?.metadata as { role?: string } | undefined;
+  if (metadata?.role === "admin") {
+    return true;
+  }
+
+  return false;
 }
 
 /** Returns waitlist entries for an instructor, optionally filtered by mentorship type. */
@@ -403,5 +413,28 @@ export const internalBulkImportWaitlist = internalMutation({
       inserted++;
     }
     return { success: true, inserted, skipped };
+  },
+});
+
+/** Server-only (internal) email normalization. Walks every existing
+ * marketingWaitlist row and patches the email field to lowercase. Called by
+ * scripts/migrate-marketing-waitlist.ts after the bulk Supabase import to
+ * close Greptile Prior-2: the `by_email_and_instructorSlug_and_mentorshipType`
+ * index does exact-lowercase lookups, so any mixed-case row already in
+ * Convex would otherwise create a phantom duplicate on the next signup.
+ */
+export const internalNormalizeEmailsToLowercase = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    let patched = 0;
+    const seen = 0;
+    const cursor = await ctx.db.query("marketingWaitlist").collect();
+    for (const row of cursor) {
+      if (row.email !== row.email.toLowerCase()) {
+        await ctx.db.patch(row._id, { email: row.email.toLowerCase() });
+        patched++;
+      }
+    }
+    return { success: true, scanned: cursor.length, patched };
   },
 });

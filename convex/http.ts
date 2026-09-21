@@ -480,6 +480,20 @@ export const httpBulkImportWaitlist = httpAction(async (ctx, request) => {
   });
 });
 
+/** Normalizes every marketingWaitlist row's email field to lowercase.
+ * Server-only: called by scripts/migrate-marketing-waitlist.ts after the
+ * Supabase import to close the mixed-case legacy-row gap.
+ */
+export const httpNormalizeWaitlistEmails = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const result = await ctx.runMutation(internal.waitlist.internalNormalizeEmailsToLowercase as any, {});
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 /** HTTP action wrappers for Inngest payment processing.
  *
  * These expose the minimal set of internal/public Convex functions needed by
@@ -692,6 +706,12 @@ http.route({
   path: "/waitlist/import-bulk",
   method: "POST",
   handler: httpBulkImportWaitlist,
+});
+
+http.route({
+  path: "/waitlist/normalize-emails",
+  method: "POST",
+  handler: httpNormalizeWaitlistEmails,
 });
 
 http.route({

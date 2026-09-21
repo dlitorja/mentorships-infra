@@ -137,6 +137,31 @@ async function postBatch(entries: ConvexImportEntry[]): Promise<ImportResponse> 
   return JSON.parse(text) as ImportResponse;
 }
 
+async function postNormalizeEmails(): Promise<{ success: boolean; scanned: number; patched: number }> {
+  const rawConvexUrl = CONVEX_URL_ENV_KEYS.map((k) => process.env[k]).find(Boolean);
+  const convexHttpKey = process.env.CONVEX_HTTP_KEY;
+  if (!rawConvexUrl) {
+    throw new Error(`Missing ${CONVEX_URL_ENV_KEYS.join(" or ")}.`);
+  }
+  if (!convexHttpKey) {
+    throw new Error("Missing CONVEX_HTTP_KEY.");
+  }
+
+  const url = `${convexSiteUrl(rawConvexUrl)}/waitlist/normalize-emails`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${convexHttpKey}`,
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Convex normalize failed (${response.status}): ${text}`);
+  }
+  return JSON.parse(text);
+}
+
 async function main(): Promise<void> {
   console.log("[migrate-marketing-waitlist] reading Supabase marketing_waitlist...");
   const supabaseRows = await fetchSupabaseRows();
@@ -158,8 +183,16 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[migrate-marketing-waitlist] done. totalInserted=${totalInserted} totalSkipped=${totalSkipped} unmappedRows=${supabaseRows.length - entries.length}`
+    `[migrate-marketing-waitlist] supabase import done. totalInserted=${totalInserted} totalSkipped=${totalSkipped} unmappedRows=${supabaseRows.length - entries.length}`
   );
+
+  console.log("[migrate-marketing-waitlist] normalizing existing Convex emails to lowercase...");
+  const normalizeResult = await postNormalizeEmails();
+  console.log(
+    `[migrate-marketing-waitlist] normalize done. scanned=${normalizeResult.scanned} patched=${normalizeResult.patched}`
+  );
+
+  console.log("[migrate-marketing-waitlist] all steps complete.");
 }
 
 main().catch((error) => {
