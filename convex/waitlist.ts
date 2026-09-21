@@ -360,6 +360,50 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
   },
 });
 
+/** Server-only (internal) atomic claim for the notification workers. Picks
+ * every eligible row for the instructor/type (same cooldown filter as the
+ * read-only query above) and patches notifiedAt = Date.now() in the same
+ * mutation. The atomic patch means a concurrent run sees the rows as
+ * already-notified and skips them, preventing duplicate emails when two
+ * events fire close together for the same offer.
+ *
+ * If the downstream email send fails after the claim, the cooldown will
+ * still prevent an immediate retry — re-notification waits the full seven
+ * days. This is the safer tradeoff vs. duplicate customer emails.
+ */
+export const internalClaimWaitlistForNotification = internalMutation({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
+  },
+  handler: async (ctx, args) => {
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - sevenDaysMs;
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    const eligible = entries.filter((entry) => {
+      if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) {
+        return false;
+      }
+      if (entry.notifiedAt === undefined) return true;
+      return entry.notifiedAt < cutoff;
+    });
+
+    const claimedAt = Date.now();
+    const claimed: Array<{ _id: string; email: string }> = [];
+    for (const entry of eligible) {
+      await ctx.db.patch(entry._id, { notifiedAt: claimedAt });
+      claimed.push({ _id: entry._id, email: entry.email });
+    }
+    return { success: true, claimed };
+  },
+});
+
 /** Server-only (internal) variant of markNotified. Called from the HTTP
  * action in convex/http.ts gated by CONVEX_HTTP_KEY.
  */
@@ -379,10 +423,10 @@ export const internalMarkWaitlistNotified = internalMutation({
  * convex/http.ts gated by CONVEX_HTTP_KEY, used by the one-time
  * Supabase → Convex migration script in scripts/migrate-marketing-waitlist.ts.
  *
- * Each entry inserts a new marketingWaitlist row. Existing rows with the
- * same (email, instructorSlug, mentorshipType) triple are silently skipped
- * because the underlying index `by_email_and_instructorSlug_and_mentorshipType`
- * will reject duplicates. Returns the count actually inserted.
+ * Each entry inserts a new marketingWaitlist row. If an exact existing row
+ * is found and the import carries a notifiedAt timestamp while the existing
+ * row has none, merge the legacy notification timestamp into the existing
+ * row so the seven-day cooldown survives the migration.
  */
 export const internalBulkImportWaitlist = internalMutation({
   args: {
@@ -399,6 +443,7 @@ export const internalBulkImportWaitlist = internalMutation({
   handler: async (ctx, args) => {
     let inserted = 0;
     let skipped = 0;
+    let merged = 0;
     for (const entry of args.entries) {
       const existing = await ctx.db
         .query("marketingWaitlist")
@@ -410,7 +455,12 @@ export const internalBulkImportWaitlist = internalMutation({
         )
         .first();
       if (existing) {
-        skipped++;
+        if (entry.notifiedAt !== undefined && existing.notifiedAt === undefined) {
+          await ctx.db.patch(existing._id, { notifiedAt: entry.notifiedAt });
+          merged++;
+        } else {
+          skipped++;
+        }
         continue;
       }
       await ctx.db.insert("marketingWaitlist", {
@@ -422,7 +472,7 @@ export const internalBulkImportWaitlist = internalMutation({
       });
       inserted++;
     }
-    return { success: true, inserted, skipped };
+    return { success: true, inserted, skipped, merged };
   },
 });
 

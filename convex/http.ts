@@ -404,9 +404,8 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
 });
 
 /** Returns unnotified waitlist entries (id, email, createdAt) for an instructor + type.
- * Server-only: used by apps/marketing Inngest functions to drive availability
- * notification emails after PR 6a consolidated writes to the Convex
- * `marketingWaitlist` table.
+ * Server-only: read-only. Prefer /waitlist/claim for notification workers so
+ * concurrent runs cannot double-notify the same subscriber.
  */
 export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -429,6 +428,41 @@ export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
     id: e._id,
     email: e.email,
     createdAt: e.createdAt,
+  }));
+
+  return new Response(JSON.stringify({ success: true, items }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Atomically claims every eligible waitlist row for an instructor/type and
+ * patches notifiedAt = Date.now() in the same mutation. The workers call
+ * this instead of /waitlist/unnotified + /waitlist/mark-notified so
+ * overlapping runs cannot double-notify the same subscriber.
+ */
+export const httpClaimWaitlistForNotification = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType } = await request.json();
+  if (!instructorSlug) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorSlug" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  const result = await ctx.runMutation(
+    internal.waitlist.internalClaimWaitlistForNotification as any,
+    {
+      instructorSlug,
+      mentorshipType: normalizedType,
+    }
+  );
+
+  const items = result.claimed.map((c: any) => ({
+    id: c._id,
+    email: c.email,
   }));
 
   return new Response(JSON.stringify({ success: true, items }), {
@@ -694,6 +728,12 @@ http.route({
   path: "/waitlist/unnotified",
   method: "POST",
   handler: httpGetUnnotifiedWaitlist,
+});
+
+http.route({
+  path: "/waitlist/claim",
+  method: "POST",
+  handler: httpClaimWaitlistForNotification,
 });
 
 http.route({

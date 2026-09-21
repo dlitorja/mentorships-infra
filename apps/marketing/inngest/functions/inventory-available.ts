@@ -10,12 +10,10 @@ const inventoryEventSchema = z.object({
   type: z.enum(["one-on-one", "group"]),
 });
 
-type UnnotifiedWaitlistResponse = {
+type ClaimedWaitlistResponse = {
   success: boolean;
-  items: { id: string; email: string; createdAt: number }[];
+  items: { id: string; email: string }[];
 };
-
-type MarkNotifiedResponse = { success: boolean; count: number };
 
 export const handleInventoryAvailable = inngest.createFunction(
   {
@@ -78,8 +76,8 @@ export const handleInventoryAvailable = inngest.createFunction(
       };
     }
 
-    const waitlistResult = await step.run("fetch-unnotified-entries", async () => {
-      return convexServerCall<UnnotifiedWaitlistResponse>("/waitlist/unnotified", {
+    const waitlistResult = await step.run("claim-entries", async () => {
+      return convexServerCall<ClaimedWaitlistResponse>("/waitlist/claim", {
         instructorSlug,
         mentorshipType: type,
       });
@@ -108,12 +106,11 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
 
-    const sendResultsSettled = await step.run("send-emails", async (): Promise<{sendResults: EmailSendResult[]; failedCount: number; resendErrorEmails: string[]}> => {
+    const sendResultsSettled = await step.run("send-emails", async (): Promise<{sendResults: EmailSendResult[]; failedCount: number}> => {
       const sendResults: EmailSendResult[] = [];
       const REQUESTS_PER_SECOND = 2;
       const delayMs = 1000 / REQUESTS_PER_SECOND;
       let failedCount = 0;
-      const resendErrorEmails: string[] = [];
 
       for (let i = 0; i < uniqueEmails.length; i++) {
         const email = uniqueEmails[i];
@@ -130,7 +127,6 @@ export const handleInventoryAvailable = inngest.createFunction(
             console.error(`API error sending email to ${email}:`, result.error);
             sendResults.push({ status: "rejected", reason: String(result.error) || "Unknown error" });
             failedCount++;
-            resendErrorEmails.push(email);
           } else {
             sendResults.push({ status: "fulfilled", value: result.data });
           }
@@ -145,41 +141,16 @@ export const handleInventoryAvailable = inngest.createFunction(
         }
       }
 
-      return { sendResults, failedCount, resendErrorEmails };
+      return { sendResults, failedCount };
     });
 
-    const { sendResults, failedCount, resendErrorEmails } = sendResultsSettled;
+    const { sendResults, failedCount } = sendResultsSettled;
 
-    const emailToIdMap = new Map<string, string[]>();
-    entries.forEach((row) => {
-      if (!emailToIdMap.has(row.email)) {
-        emailToIdMap.set(row.email, []);
-      }
-      emailToIdMap.get(row.email)!.push(row.id);
-    });
-
-    const successfulIds: string[] = [];
-    sendResults.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        const sentEmail = uniqueEmails[index];
-        const ids = emailToIdMap.get(sentEmail);
-        if (ids) {
-          successfulIds.push(...ids);
-        }
-      }
-    });
-
-    if (successfulIds.length > 0) {
-      await step.run("mark-notified", async () => {
-        return convexServerCall<MarkNotifiedResponse>("/waitlist/mark-notified", {
-          ids: successfulIds,
-        });
-      });
-    }
+    const successfulSends = sendResults.filter((r) => r.status === "fulfilled").length;
 
     return {
-      message: `Marked ${successfulIds.length} emails as sent (attempted ${uniqueEmails.length})`,
-      count: successfulIds.length,
+      message: `Sent ${successfulSends} emails to waitlist (attempted ${uniqueEmails.length})`,
+      count: successfulSends,
       failed: failedCount,
       instructorSlug,
       type,

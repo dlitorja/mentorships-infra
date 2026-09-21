@@ -28,12 +28,10 @@ function getFromAddress(): string | null {
   return from;
 }
 
-type UnnotifiedWaitlistResponse = {
+type ClaimedWaitlistResponse = {
   success: boolean;
-  items: { id: string; email: string; createdAt: number }[];
+  items: { id: string; email: string }[];
 };
-
-type MarkNotifiedResponse = { success: boolean; count: number };
 
 export const processWaitlistNotifications = inngest.createFunction(
   {
@@ -89,8 +87,8 @@ export const processWaitlistNotifications = inngest.createFunction(
       };
     }
 
-    const waitlistResult = await step.run("fetch-unnotified-entries", async () => {
-      return convexServerCall<UnnotifiedWaitlistResponse>("/waitlist/unnotified", {
+    const waitlistResult = await step.run("claim-entries", async () => {
+      return convexServerCall<ClaimedWaitlistResponse>("/waitlist/claim", {
         instructorSlug,
         mentorshipType: type,
       });
@@ -157,33 +155,6 @@ export const processWaitlistNotifications = inngest.createFunction(
 
     const successful = sendResults.filter((r) => r.status === "fulfilled").length;
     const failed = sendResults.filter((r) => r.status === "rejected").length;
-
-    const emailToIdMap = new Map<string, string[]>();
-    entries.forEach((row) => {
-      if (!emailToIdMap.has(row.email)) {
-        emailToIdMap.set(row.email, []);
-      }
-      emailToIdMap.get(row.email)!.push(row.id);
-    });
-
-    const successfulIds: string[] = [];
-    sendResults.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        const sentEmail = uniqueEmails[index];
-        const ids = emailToIdMap.get(sentEmail);
-        if (ids) {
-          successfulIds.push(...ids);
-        }
-      }
-    });
-
-    if (successfulIds.length > 0) {
-      await step.run("mark-notified", async () => {
-        return convexServerCall<MarkNotifiedResponse>("/waitlist/mark-notified", {
-          ids: successfulIds,
-        });
-      });
-    }
 
     return {
       message: `Sent ${successful} emails to waitlist`,
