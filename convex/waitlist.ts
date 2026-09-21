@@ -416,25 +416,62 @@ export const internalBulkImportWaitlist = internalMutation({
   },
 });
 
-/** Server-only (internal) email normalization. Walks every existing
- * marketingWaitlist row and patches the email field to lowercase. Called by
- * scripts/migrate-marketing-waitlist.ts after the bulk Supabase import to
- * close Greptile Prior-2: the `by_email_and_instructorSlug_and_mentorshipType`
- * index does exact-lowercase lookups, so any mixed-case row already in
- * Convex would otherwise create a phantom duplicate on the next signup.
+/** Server-only (internal) email normalization + duplicate consolidation.
+ * Walks every existing marketingWaitlist row, lowercases the email, and
+ * deletes any duplicate rows for the resulting (email, instructorSlug,
+ * mentorshipType) triple. Called by scripts/migrate-marketing-waitlist.ts
+ * after the bulk Supabase import to close Greptile Prior-2: the
+ * `by_email_and_instructorSlug_and_mentorshipType` index does exact-
+ * lowercase lookups, and any pre-existing mixed-case row would otherwise
+ * leave a duplicate durable subscription after normalization.
+ *
+ * Keep policy: when consolidating duplicates, retain the row with the
+ * earliest createdAt so the original signup intent is preserved.
  */
 export const internalNormalizeEmailsToLowercase = internalMutation({
   args: {},
   handler: async (ctx) => {
+    const all = await ctx.db.query("marketingWaitlist").collect();
     let patched = 0;
-    const seen = 0;
-    const cursor = await ctx.db.query("marketingWaitlist").collect();
-    for (const row of cursor) {
+    let deletedDuplicates = 0;
+
+    const groupedByTriple = new Map<string, Array<{ _id: string; createdAt: number; notifiedAt: number | undefined }>>();
+    for (const row of all) {
       if (row.email !== row.email.toLowerCase()) {
         await ctx.db.patch(row._id, { email: row.email.toLowerCase() });
         patched++;
       }
+      const key = `${row.email.toLowerCase()}|${row.instructorSlug}|${row.mentorshipType}`;
+      const entry = { _id: row._id, createdAt: row.createdAt, notifiedAt: row.notifiedAt };
+      const group = groupedByTriple.get(key);
+      if (group) {
+        group.push(entry);
+      } else {
+        groupedByTriple.set(key, [entry]);
+      }
     }
-    return { success: true, scanned: cursor.length, patched };
+
+    for (const [, group] of groupedByTriple) {
+      if (group.length <= 1) continue;
+      group.sort((a, b) => a.createdAt - b.createdAt);
+      const [keeper, ...duplicates] = group;
+      if (keeper.notifiedAt === undefined) {
+        let earliestNotified: number | undefined;
+        for (const dup of duplicates) {
+          if (dup.notifiedAt !== undefined && (earliestNotified === undefined || dup.notifiedAt < earliestNotified)) {
+            earliestNotified = dup.notifiedAt;
+          }
+        }
+        if (earliestNotified !== undefined) {
+          await ctx.db.patch(keeper._id as Id<"marketingWaitlist">, { notifiedAt: earliestNotified });
+        }
+      }
+      for (const dup of duplicates) {
+        await ctx.db.delete(dup._id as Id<"marketingWaitlist">);
+        deletedDuplicates++;
+      }
+    }
+
+    return { success: true, scanned: all.length, patched, deletedDuplicates };
   },
 });

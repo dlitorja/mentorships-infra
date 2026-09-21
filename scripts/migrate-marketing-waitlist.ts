@@ -47,6 +47,13 @@ type ImportResponse = {
   skipped: number;
 };
 
+type NormalizeResponse = {
+  success: boolean;
+  scanned: number;
+  patched: number;
+  deletedDuplicates: number;
+};
+
 function convexSiteUrl(rawUrl: string): string {
   return rawUrl.replace(/\.convex\.cloud$/, ".convex.site");
 }
@@ -137,7 +144,7 @@ async function postBatch(entries: ConvexImportEntry[]): Promise<ImportResponse> 
   return JSON.parse(text) as ImportResponse;
 }
 
-async function postNormalizeEmails(): Promise<{ success: boolean; scanned: number; patched: number }> {
+async function postNormalizeEmails(): Promise<NormalizeResponse> {
   const rawConvexUrl = CONVEX_URL_ENV_KEYS.map((k) => process.env[k]).find(Boolean);
   const convexHttpKey = process.env.CONVEX_HTTP_KEY;
   if (!rawConvexUrl) {
@@ -189,7 +196,7 @@ async function main(): Promise<void> {
   console.log("[migrate-marketing-waitlist] normalizing existing Convex emails to lowercase...");
   const normalizeResult = await postNormalizeEmails();
   console.log(
-    `[migrate-marketing-waitlist] normalize done. scanned=${normalizeResult.scanned} patched=${normalizeResult.patched}`
+    `[migrate-marketing-waitlist] normalize done. scanned=${normalizeResult.scanned} patched=${normalizeResult.patched} deletedDuplicates=${normalizeResult.deletedDuplicates}`
   );
 
   console.log("[migrate-marketing-waitlist] all steps complete.");
