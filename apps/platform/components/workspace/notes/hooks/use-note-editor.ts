@@ -128,7 +128,7 @@ export function useNoteEditor({
     if (!noteIdForUpload || !currentEditor) return;
 
     if (file.size > MAX_IMAGE_BYTES) {
-      toast.error('Image is too large. Maximum size is 5MB.');
+      toast.error('Image is too large. Maximum size is 8MB.');
       return;
     }
     if (file.size > LARGE_CHAT_FILE_BYTES) {

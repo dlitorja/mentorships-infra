@@ -16,10 +16,10 @@ export const WORKSPACE_FILE_CAPS = {
   instructor: 50,
 } as const;
 
-export const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_WORKSPACE_FILE_BYTES = 500 * 1024 * 1024;
 
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const PER_UPLOAD_CAP = 5;
 
-export const MAX_CHAT_FILE_BYTES = 50 * 1024 * 1024;
-export const LARGE_CHAT_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_CHAT_FILE_BYTES = 500 * 1024 * 1024;
+export const LARGE_CHAT_FILE_BYTES = 100 * 1024 * 1024;

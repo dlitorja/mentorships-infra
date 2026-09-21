@@ -64,7 +64,7 @@ export function useChatAttachments({
 
       for (const file of imageFiles) {
         if (file.size > MAX_IMAGE_BYTES) {
-          toast.error(`${file.name}: Image is too large. Maximum size is 5MB.`);
+          toast.error(`${file.name}: Image is too large. Maximum size is 8MB.`);
           continue;
         }
 
@@ -97,7 +97,7 @@ export function useChatAttachments({
     let availableFileSlots = remainingFileSlots;
     for (const file of otherFiles) {
       if (file.size > MAX_CHAT_FILE_BYTES) {
-        toast.error(`${file.name}: File is too large. Maximum size is 50MB.`);
+        toast.error(`${file.name}: File is too large. Maximum size is 500MB.`);
         continue;
       }
 

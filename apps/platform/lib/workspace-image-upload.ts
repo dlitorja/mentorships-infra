@@ -41,7 +41,7 @@ export function validateImageFiles(
       continue;
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      invalid.push({ file, error: 'Image is too large. Maximum size is 5MB.' });
+      invalid.push({ file, error: 'Image is too large. Maximum size is 8MB.' });
       continue;
     }
     valid.push(file);

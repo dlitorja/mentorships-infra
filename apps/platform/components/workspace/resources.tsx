@@ -64,11 +64,11 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
   const onDrop = async (acceptedFiles: File[]) => {
     for (const file of acceptedFiles) {
       if (file.size > MAX_CHAT_FILE_BYTES) {
-        toast.error(`${file.name}: exceeds 50MB limit`);
+        toast.error(`${file.name}: exceeds 500MB limit`);
         continue;
       }
       if (file.size > LARGE_CHAT_FILE_BYTES) {
-        toast.warning(`${file.name}: large file (${formatBytes(file.size)}) will count toward your image limit`);
+        toast.warning(`${file.name}: large file (${formatBytes(file.size)}) — upload may take longer`);
       }
 
       setUploadingCount(c => c + 1);
@@ -235,7 +235,7 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
             <p className="text-sm text-muted-foreground">
               {isDragActive
                 ? 'Drop files here'
-                : 'Drag & drop files here, or click to select. Images >10MB show a warning; >50MB are rejected.'}
+                : 'Drag & drop files here, or click to select. Images >8MB show a warning; >500MB files are rejected.'}
             </p>
           </>
         )}

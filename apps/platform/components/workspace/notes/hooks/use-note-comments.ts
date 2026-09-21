@@ -72,7 +72,7 @@ export function useNoteComments({
     if (!file) return;
 
     if (file.size > MAX_CHAT_FILE_BYTES) {
-      toast.error('File is too large. Maximum size is 50MB.');
+      toast.error('File is too large. Maximum size is 500MB.');
       return;
     }
 
