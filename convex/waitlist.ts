@@ -12,13 +12,19 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
     rate: 10,
     period: HOUR,
   },
-  // Global write-side cap. addToWaitlist is unauthenticated, so the
-  // per-(email, slug) bucket is bypassable by rotating either value; the
-  // global bucket caps total joins across all callers to keep a single
-  // attacker from filling durable Convex storage.
+  // Global write-side cap sized to be well above legitimate peak
+  // traffic for the marketing site (across all instructor pages).
+  // addToWaitlist is unauthenticated, so the per-(email, slug) bucket
+  // is bypassable by rotating either value; the global bucket caps
+  // total joins across all callers to keep a single attacker from
+  // filling durable Convex storage. The 5,000/hour figure is chosen
+  // high enough that a single attacker submitting ~5,000 distinct
+  // valid subscriptions in one hour is impractical from a browser
+  // (form-submit rate-limited client-side too), while still bounding
+  // the unbounded durable-write surface.
   marketingWaitlistJoinGlobal: {
     kind: "fixed window",
-    rate: 200,
+    rate: 5000,
     period: HOUR,
   },
 });
