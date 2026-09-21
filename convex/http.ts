@@ -482,14 +482,23 @@ export const httpBulkImportWaitlist = httpAction(async (ctx, request) => {
   });
 });
 
-/** Normalizes every marketingWaitlist row's email field to lowercase.
- * Server-only: called by scripts/migrate-marketing-waitlist.ts after the
- * Supabase import to close the mixed-case legacy-row gap.
+/** Normalizes one page of marketingWaitlist rows: lowercases mixed-case
+ * emails and consolidates duplicates by (email, slug, type). The caller
+ * (scripts/migrate-marketing-waitlist.ts) loops with the returned
+ * nextCursor until isDone=true so each transaction stays under Convex's
+ * per-call document limit. Server-only; CONVEX_HTTP_KEY-gated.
  */
 export const httpNormalizeWaitlistEmails = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const result = await ctx.runMutation(internal.waitlist.internalNormalizeEmailsToLowercase as any, {});
+  const body = await request.json().catch(() => ({}));
+  const cursor = typeof body?.cursor === "string" ? body.cursor : null;
+  const limit = typeof body?.limit === "number" && body.limit > 0 ? Math.min(body.limit, 200) : 50;
+
+  const result = await ctx.runMutation(
+    internal.waitlist.internalNormalizeEmailsToLowercase as any,
+    { cursor, limit }
+  );
 
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },

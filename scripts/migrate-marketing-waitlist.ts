@@ -53,6 +53,8 @@ type NormalizeResponse = {
   scanned: number;
   patched: number;
   deletedDuplicates: number;
+  nextCursor: string | null;
+  isDone: boolean;
 };
 
 function convexSiteUrl(rawUrl: string): string {
@@ -148,7 +150,7 @@ async function postBatch(entries: ConvexImportEntry[]): Promise<ImportResponse> 
   return JSON.parse(text) as ImportResponse;
 }
 
-async function postNormalizeEmails(): Promise<NormalizeResponse> {
+async function postNormalizeEmails(cursor: string | null, limit: number): Promise<NormalizeResponse> {
   const rawConvexUrl = CONVEX_URL_ENV_KEYS.map((k) => process.env[k]).find(Boolean);
   const convexHttpKey = process.env.CONVEX_HTTP_KEY;
   if (!rawConvexUrl) {
@@ -165,12 +167,13 @@ async function postNormalizeEmails(): Promise<NormalizeResponse> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${convexHttpKey}`,
     },
+    body: JSON.stringify({ cursor, limit }),
   });
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`Convex normalize failed (${response.status}): ${text}`);
   }
-  return JSON.parse(text);
+  return JSON.parse(text) as NormalizeResponse;
 }
 
 async function main(): Promise<void> {
@@ -198,9 +201,24 @@ async function main(): Promise<void> {
   );
 
   console.log("[migrate-marketing-waitlist] normalizing existing Convex emails to lowercase...");
-  const normalizeResult = await postNormalizeEmails();
+  const NORMALIZE_PAGE_SIZE = 50;
+  let cursor: string | null = null;
+  let totalScanned = 0;
+  let totalPatched = 0;
+  let totalDeletedDuplicates = 0;
+  for (let page = 0; ; page++) {
+    const result = await postNormalizeEmails(cursor, NORMALIZE_PAGE_SIZE);
+    totalScanned += result.scanned;
+    totalPatched += result.patched;
+    totalDeletedDuplicates += result.deletedDuplicates;
+    console.log(
+      `[migrate-marketing-waitlist] normalize page ${page + 1}: scanned=${result.scanned} patched=${result.patched} deletedDuplicates=${result.deletedDuplicates} isDone=${result.isDone}`
+    );
+    if (result.isDone || !result.nextCursor) break;
+    cursor = result.nextCursor;
+  }
   console.log(
-    `[migrate-marketing-waitlist] normalize done. scanned=${normalizeResult.scanned} patched=${normalizeResult.patched} deletedDuplicates=${normalizeResult.deletedDuplicates}`
+    `[migrate-marketing-waitlist] normalize done. scanned=${totalScanned} patched=${totalPatched} deletedDuplicates=${totalDeletedDuplicates}`
   );
 
   console.log("[migrate-marketing-waitlist] all steps complete.");

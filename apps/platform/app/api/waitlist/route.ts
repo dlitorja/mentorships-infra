@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getConvexClient, getAuthenticatedConvexClient } from "@/lib/convex";
 import { auth } from "@clerk/nextjs/server";
 import { getClerkUserEmail } from "@/lib/auth-helpers";
 import { isUnauthorizedError } from "@/lib/errors";
@@ -41,7 +41,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 
 // Check waitlist status for the authenticated user's email + instructorSlug.
-// Requires authentication to prevent arbitrary email lookup.
+// Requires authentication to prevent arbitrary email lookup. Uses an
+// authenticated Convex client so the server-side identity check in
+// getWaitlistStatus (admin OR matching own email) succeeds; a bare
+// ConvexHttpClient would always read identity=null and return false.
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -60,7 +63,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ onWaitlist: false, entries: [] });
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const status = await convex.query(api.waitlist.getWaitlistStatus, {
       email,
       instructorSlug,

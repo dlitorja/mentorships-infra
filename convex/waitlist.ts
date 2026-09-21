@@ -418,16 +418,30 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
 
 /** Server-only (internal) variant of markNotified. Called from the HTTP
  * action in convex/http.ts gated by CONVEX_HTTP_KEY.
+ *
+ * Tolerates rows that were concurrently deleted between the worker's
+ * unnotified-read and the mark step: a missing row is skipped instead
+ * of aborting the whole transaction, because the seven-day cooldown
+ * depends on notifiedAt being set for every surviving row that
+ * received an email. A throw inside a Convex transaction rolls back
+ * every patch, so the alternative (let db.patch throw) would re-email
+ * the surviving delivered rows on the next event.
  */
 export const internalMarkWaitlistNotified = internalMutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
-    let count = 0;
+    let marked = 0;
+    let skipped = 0;
     for (const id of args.ids) {
+      const row = await ctx.db.get(id);
+      if (!row) {
+        skipped++;
+        continue;
+      }
       await ctx.db.patch(id, { notifiedAt: Date.now() });
-      count++;
+      marked++;
     }
-    return { success: true, count };
+    return { success: true, marked, skipped };
   },
 });
 
@@ -491,64 +505,74 @@ export const internalBulkImportWaitlist = internalMutation({
   },
 });
 
-/** Server-only (internal) email normalization + duplicate consolidation.
- * Walks every existing marketingWaitlist row, lowercases the email, and
- * deletes any duplicate rows for the resulting (email, instructorSlug,
- * mentorshipType) triple. Called by scripts/migrate-marketing-waitlist.ts
- * after the bulk Supabase import to close Greptile Prior-2: the
- * `by_email_and_instructorSlug_and_mentorshipType` index does exact-
- * lowercase lookups, and any pre-existing mixed-case row would otherwise
- * leave a duplicate durable subscription after normalization.
+/** Server-only (internal) email normalization + duplicate consolidation,
+ * paginated so the mutation stays under Convex's per-transaction document
+ * limit. Each call processes one page of rows: lowercases mixed-case
+ * emails, then queries the (email, slug, type) index to determine whether
+ * the current row is the earliest-createdAt keeper for its triple or a
+ * duplicate to be deleted. Deleting a duplicate may also patch the
+ * keeper's notifiedAt to the LATEST value across the group, so the
+ * seven-day cooldown reflects the most recent delivery to the subscriber.
  *
- * Keep policy: when consolidating duplicates, retain the row with the
- * earliest createdAt so the original signup intent is preserved. When
- * merging notifiedAt across the group, keep the LATEST timestamp so the
- * seven-day cooldown reflects the most recent delivery to the subscriber
- * — preserving the earliest instead would mark a recently-notified
- * duplicate as eligible for another email immediately.
+ * Idempotent: re-running with the same cursor chain converges to the
+ * canonical (lowercase email, slug, type, earliest createdAt, latest
+ * notifiedAt) form. Resume after a transaction failure by passing the
+ * last returned cursor. The HTTP caller in scripts/migrate-marketing-waitlist.ts
+ * loops until nextCursor is null.
  */
 export const internalNormalizeEmailsToLowercase = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const all = await ctx.db.query("marketingWaitlist").collect();
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("marketingWaitlist")
+      .paginate({ cursor: args.cursor ?? null, numItems: args.limit });
+
     let patched = 0;
     let deletedDuplicates = 0;
 
-    const groupedByTriple = new Map<string, Array<{ _id: Id<"marketingWaitlist">; createdAt: number; notifiedAt: number | undefined }>>();
-    for (const row of all) {
+    for (const row of page.page) {
       if (row.email !== row.email.toLowerCase()) {
         await ctx.db.patch(row._id, { email: row.email.toLowerCase() });
         patched++;
       }
-      const key = `${row.email.toLowerCase()}|${row.instructorSlug}|${row.mentorshipType}`;
-      const entry = { _id: row._id, createdAt: row.createdAt, notifiedAt: row.notifiedAt };
-      const group = groupedByTriple.get(key);
-      if (group) {
-        group.push(entry);
-      } else {
-        groupedByTriple.set(key, [entry]);
-      }
-    }
 
-    for (const [, group] of groupedByTriple) {
-      if (group.length <= 1) continue;
-      group.sort((a, b) => a.createdAt - b.createdAt);
-      const [keeper, ...duplicates] = group;
-      let latestNotified: number | undefined = keeper.notifiedAt;
-      for (const dup of duplicates) {
-        if (dup.notifiedAt !== undefined && (latestNotified === undefined || dup.notifiedAt > latestNotified)) {
-          latestNotified = dup.notifiedAt;
+      const sameKey = await ctx.db
+        .query("marketingWaitlist")
+        .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+          q
+            .eq("email", row.email.toLowerCase())
+            .eq("instructorSlug", row.instructorSlug)
+            .eq("mentorshipType", row.mentorshipType)
+        )
+        .collect();
+
+      if (sameKey.length <= 1) continue;
+
+      const sorted = sameKey.slice().sort((a, b) => a.createdAt - b.createdAt);
+      const keeper = sorted[0];
+      const isKeeper = row._id === keeper._id;
+      if (!isKeeper) {
+        if (
+          row.notifiedAt !== undefined &&
+          (keeper.notifiedAt === undefined || row.notifiedAt > keeper.notifiedAt)
+        ) {
+          await ctx.db.patch(keeper._id, { notifiedAt: row.notifiedAt });
         }
-      }
-      if (latestNotified !== keeper.notifiedAt) {
-        await ctx.db.patch(keeper._id, { notifiedAt: latestNotified });
-      }
-      for (const dup of duplicates) {
-        await ctx.db.delete(dup._id);
+        await ctx.db.delete(row._id);
         deletedDuplicates++;
       }
     }
 
-    return { success: true, scanned: all.length, patched, deletedDuplicates };
+    return {
+      success: true,
+      scanned: page.page.length,
+      patched,
+      deletedDuplicates,
+      nextCursor: page.continueCursor ?? null,
+      isDone: page.isDone,
+    };
   },
 });
