@@ -221,20 +221,36 @@ async function main(): Promise<void> {
 
   console.log("[migrate-marketing-waitlist] normalizing existing Convex emails to lowercase...");
   const NORMALIZE_PAGE_SIZE = 50;
-  let cursor: string | null = null;
+  // Loop full passes until a pass deletes zero new duplicates. A single
+  // pass is not enough when case variants of the same canonical key span
+  // pages: the first-pass page keeps a row it cannot yet match to its
+  // mixed-case sibling, and only a subsequent pass can reconcile them.
+  // Re-running until a pass converges is idempotent and bounded — the
+  // total number of rows only decreases — so this terminates.
+  const MAX_NORMALIZE_PASSES = 10;
   let totalScanned = 0;
   let totalPatched = 0;
   let totalDeletedDuplicates = 0;
-  for (let page = 0; ; page++) {
-    const result = await postNormalizeEmails(cursor, NORMALIZE_PAGE_SIZE);
-    totalScanned += result.scanned;
-    totalPatched += result.patched;
-    totalDeletedDuplicates += result.deletedDuplicates;
+  for (let pass = 0; pass < MAX_NORMALIZE_PASSES; pass++) {
+    let cursor: string | null = null;
+    let passDeletedDuplicates = 0;
+    let passScanned = 0;
+    let passPatched = 0;
+    for (let page = 0; ; page++) {
+      const result = await postNormalizeEmails(cursor, NORMALIZE_PAGE_SIZE);
+      passScanned += result.scanned;
+      passPatched += result.patched;
+      passDeletedDuplicates += result.deletedDuplicates;
+      if (result.isDone || !result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    totalScanned += passScanned;
+    totalPatched += passPatched;
+    totalDeletedDuplicates += passDeletedDuplicates;
     console.log(
-      `[migrate-marketing-waitlist] normalize page ${page + 1}: scanned=${result.scanned} patched=${result.patched} deletedDuplicates=${result.deletedDuplicates} isDone=${result.isDone}`
+      `[migrate-marketing-waitlist] normalize pass ${pass + 1}: scanned=${passScanned} patched=${passPatched} deletedDuplicates=${passDeletedDuplicates}`
     );
-    if (result.isDone || !result.nextCursor) break;
-    cursor = result.nextCursor;
+    if (passDeletedDuplicates === 0) break;
   }
   console.log(
     `[migrate-marketing-waitlist] normalize done. scanned=${totalScanned} patched=${totalPatched} deletedDuplicates=${totalDeletedDuplicates}`
