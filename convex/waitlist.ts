@@ -1,5 +1,6 @@
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { RateLimiter, HOUR } from "@convex-dev/rate-limiter";
@@ -391,118 +392,6 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
   },
 });
 
-/** Server-only (internal) atomic claim for the notification workers. Picks
- * every eligible row for the instructor/type (same cooldown filter as the
- * read-only query above) and patches notifiedAt = Date.now() in the same
- * mutation. The atomic patch means a concurrent run sees the rows as
- * already-notified and skips them, preventing duplicate emails when two
- * events fire close together for the same offer.
- *
- * The Inngest workers also enforce per-(slug, type) concurrency via the
- * `concurrency` option on createFunction, so this claim is belt-and-
- * suspenders: it works even when events arrive through a path that
- * bypasses Inngest's queue (e.g., manual invoke via the dashboard).
- */
-export const internalClaimWaitlistForNotification = internalMutation({
-  args: {
-    instructorSlug: v.string(),
-    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
-  },
-  handler: async (ctx, args) => {
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    const cutoff = Date.now() - sevenDaysMs;
-    const entries = await ctx.db
-      .query("marketingWaitlist")
-      .withIndex("by_instructorSlug_mentorshipType", (q) =>
-        q.eq("instructorSlug", args.instructorSlug)
-      )
-      .collect();
-
-    const eligible = entries.filter((entry) => {
-      if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) {
-        return false;
-      }
-      if (entry.notifiedAt === undefined) return true;
-      return entry.notifiedAt < cutoff;
-    });
-
-    const claimedAt = Date.now();
-    const claimed: Array<{ _id: string; email: string }> = [];
-    for (const entry of eligible) {
-      await ctx.db.patch(entry._id, { notifiedAt: claimedAt });
-      claimed.push({ _id: entry._id, email: entry.email });
-    }
-    return { success: true, claimedAt, claimed };
-  },
-});
-
-/** Server-only (internal) release of specific row IDs. Clears notifiedAt
- * back to undefined for each _id listed, but ONLY when the row's current
- * notifiedAt still matches the supplied `claimedAt` (race-safe). Used by
- * the workers via onFailure / partial-success paths when a send failed
- * AFTER the claim was made; the cooldown is restored so the next
- * availability event retries those subscribers instead of suppressing
- * them for the full 7 days.
- */
-export const internalReleaseSpecificClaims = internalMutation({
-  args: {
-    ids: v.array(v.id("marketingWaitlist")),
-    claimedAt: v.number(),
-  },
-  handler: async (ctx, args) => {
-    let released = 0;
-    let untouched = 0;
-    for (const id of args.ids) {
-      const row = await ctx.db.get(id);
-      if (!row) continue;
-      if (row.notifiedAt !== args.claimedAt) {
-        untouched++;
-        continue;
-      }
-      await ctx.db.patch(id, { notifiedAt: undefined });
-      released++;
-    }
-    return { success: true, released, untouched };
-  },
-});
-
-/** Server-only (internal) bulk release of recent claims for a (slug, type).
- * Clears notifiedAt back to undefined for every row whose notifiedAt falls
- * in the supplied [since, until] window. Used by the workers' onFailure
- * hooks when a run fails BEFORE the partial-success path has had a chance
- * to record its claimed ids — at that point the worker has no in-memory
- * list of what it claimed, but it does know the claim happened within the
- * last few minutes. Safe because per-key Inngest concurrency guarantees
- * only one run per (slug, type) at a time, so the window matches exactly
- * that run's claim.
- */
-export const internalReleaseRecentClaims = internalMutation({
-  args: {
-    instructorSlug: v.string(),
-    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
-    since: v.number(),
-    until: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const entries = await ctx.db
-      .query("marketingWaitlist")
-      .withIndex("by_instructorSlug_mentorshipType", (q) =>
-        q.eq("instructorSlug", args.instructorSlug)
-      )
-      .collect();
-
-    let released = 0;
-    for (const entry of entries) {
-      if (entry.notifiedAt === undefined) continue;
-      if (entry.notifiedAt < args.since || entry.notifiedAt > args.until) continue;
-      if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) continue;
-      await ctx.db.patch(entry._id, { notifiedAt: undefined });
-      released++;
-    }
-    return { success: true, released };
-  },
-});
-
 /** Server-only (internal) variant of markNotified. Called from the HTTP
  * action in convex/http.ts gated by CONVEX_HTTP_KEY.
  */
@@ -585,7 +474,11 @@ export const internalBulkImportWaitlist = internalMutation({
  * leave a duplicate durable subscription after normalization.
  *
  * Keep policy: when consolidating duplicates, retain the row with the
- * earliest createdAt so the original signup intent is preserved.
+ * earliest createdAt so the original signup intent is preserved. When
+ * merging notifiedAt across the group, keep the LATEST timestamp so the
+ * seven-day cooldown reflects the most recent delivery to the subscriber
+ * — preserving the earliest instead would mark a recently-notified
+ * duplicate as eligible for another email immediately.
  */
 export const internalNormalizeEmailsToLowercase = internalMutation({
   args: {},
@@ -594,7 +487,7 @@ export const internalNormalizeEmailsToLowercase = internalMutation({
     let patched = 0;
     let deletedDuplicates = 0;
 
-    const groupedByTriple = new Map<string, Array<{ _id: string; createdAt: number; notifiedAt: number | undefined }>>();
+    const groupedByTriple = new Map<string, Array<{ _id: Id<"marketingWaitlist">; createdAt: number; notifiedAt: number | undefined }>>();
     for (const row of all) {
       if (row.email !== row.email.toLowerCase()) {
         await ctx.db.patch(row._id, { email: row.email.toLowerCase() });
@@ -614,16 +507,14 @@ export const internalNormalizeEmailsToLowercase = internalMutation({
       if (group.length <= 1) continue;
       group.sort((a, b) => a.createdAt - b.createdAt);
       const [keeper, ...duplicates] = group;
-      if (keeper.notifiedAt === undefined) {
-        let earliestNotified: number | undefined;
-        for (const dup of duplicates) {
-          if (dup.notifiedAt !== undefined && (earliestNotified === undefined || dup.notifiedAt < earliestNotified)) {
-            earliestNotified = dup.notifiedAt;
-          }
+      let latestNotified: number | undefined = keeper.notifiedAt;
+      for (const dup of duplicates) {
+        if (dup.notifiedAt !== undefined && (latestNotified === undefined || dup.notifiedAt > latestNotified)) {
+          latestNotified = dup.notifiedAt;
         }
-        if (earliestNotified !== undefined) {
-          await ctx.db.patch(keeper._id, { notifiedAt: earliestNotified });
-        }
+      }
+      if (latestNotified !== keeper.notifiedAt) {
+        await ctx.db.patch(keeper._id, { notifiedAt: latestNotified });
       }
       for (const dup of duplicates) {
         await ctx.db.delete(dup._id);

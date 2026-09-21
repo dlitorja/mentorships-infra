@@ -28,54 +28,20 @@ function getFromAddress(): string | null {
   return from;
 }
 
-type ClaimedWaitlistResponse = {
+type UnnotifiedResponse = {
   success: boolean;
-  items: { id: string; email: string }[];
-  claimedAt: number;
+  items: { id: string; email: string; createdAt: number }[];
 };
 
-type ReleaseClaimsResponse = { success: boolean; released: number; untouched?: number };
-
-type ClaimAndReleaseEvent = {
-  data: {
+type NotifyEvent = {
+  data?: {
     instructorSlug: string;
     type: string;
-    claimedIds?: string[];
-    claimedAt?: number;
   };
-};
-
-async function releaseClaimedIds(
-  ids: string[],
-  claimedAt: number,
-  instructorSlug: string,
-  type: string
-): Promise<ReleaseClaimsResponse | null> {
-  if (ids.length === 0) return null;
-  return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-specific-claims", {
-    ids,
-    claimedAt,
-    instructorSlug,
-    mentorshipType: type,
-  });
-}
-
-async function releaseRecentClaims(
-  instructorSlug: string,
-  type: string,
-  since: number,
-  until: number
-): Promise<ReleaseClaimsResponse | null> {
-  return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-recent-claims", {
-    instructorSlug,
-    mentorshipType: type,
-    since,
-    until,
-  });
-}
+} & Record<string, unknown>;
 
 async function runProcessWaitlistNotifications(
-  event: ClaimAndReleaseEvent,
+  event: NotifyEvent,
   step: any
 ): Promise<{
   message: string;
@@ -86,8 +52,6 @@ async function runProcessWaitlistNotifications(
   skipped?: boolean;
   notifiedEmails?: string[];
   totalEmails?: number;
-  claimedIds?: string[];
-  claimedAt?: number;
 }> {
   const resend = getResendClient();
   const from = getFromAddress();
@@ -96,13 +60,13 @@ async function runProcessWaitlistNotifications(
     return {
       message: "Email provider not configured, skipping send",
       count: 0,
-      instructorSlug: event.data.instructorSlug,
-      type: event.data.type,
+      instructorSlug: event.data?.instructorSlug ?? "",
+      type: event.data?.type ?? "",
       skipped: true,
     };
   }
 
-  const { instructorSlug, type } = event.data;
+  const { instructorSlug, type } = event.data ?? { instructorSlug: "", type: "" };
 
   const validTypes = ["one-on-one", "group"] as const;
   if (!validTypes.includes(type as typeof validTypes[number])) {
@@ -120,7 +84,7 @@ async function runProcessWaitlistNotifications(
     throw new Error(`Instructor not found: ${instructorSlug}`);
   }
 
-  const offer = instructor.offers.find((o) => {
+  const offer = instructor.offers.find((o: any) => {
     const offerKind = type === "one-on-one" ? "oneOnOne" : "group";
     return o.kind === offerKind && o.active !== false;
   });
@@ -136,15 +100,14 @@ async function runProcessWaitlistNotifications(
     };
   }
 
-  const waitlistResult = await step.run("claim-entries", async () => {
-    return convexServerCall<ClaimedWaitlistResponse>("/waitlist/claim", {
+  const waitlistResult = (await step.run("read-eligible-entries", async () => {
+    return convexServerCall<UnnotifiedResponse>("/waitlist/unnotified", {
       instructorSlug,
       mentorshipType: type,
     });
-  });
+  })) as UnnotifiedResponse;
 
   const entries = waitlistResult.items || [];
-  const claimedAt = waitlistResult.claimedAt;
 
   if (entries.length === 0) {
     return {
@@ -155,19 +118,19 @@ async function runProcessWaitlistNotifications(
     };
   }
 
-  const uniqueEmails = [...new Set(entries.map((entry) => entry.email))];
+  const uniqueEmails: string[] = [...new Set(entries.map((entry: any) => entry.email as string))];
 
-  const emailContent = await step.run("build-email-content", async () => {
+  const emailContent = (await step.run("build-email-content", async () => {
     return buildWaitlistNotificationEmail({
       instructorName: instructor.name,
       mentorshipType,
       purchaseUrl: offer.url,
     });
-  });
+  })) as ReturnType<typeof buildWaitlistNotificationEmail>;
 
   type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
 
-  const sendResults = await step.run("send-emails", async (): Promise<EmailSendResult[]> => {
+  const sendResults = (await step.run("send-emails", async (): Promise<EmailSendResult[]> => {
     const results: EmailSendResult[] = [];
     const REQUESTS_PER_SECOND = 2;
     const delayMs = 1000 / REQUESTS_PER_SECOND;
@@ -201,36 +164,28 @@ async function runProcessWaitlistNotifications(
     }
 
     return results;
-  });
+  })) as EmailSendResult[];
 
-  const successful = sendResults.filter((r) => r.status === "fulfilled").length;
-  const failed = sendResults.filter((r) => r.status === "rejected").length;
+  const successful = sendResults.filter((r: EmailSendResult) => r.status === "fulfilled").length;
+  const failed = sendResults.filter((r: EmailSendResult) => r.status === "rejected").length;
 
-  if (failed > 0 && claimedAt) {
-    const failedEmails = new Set<string>();
-    sendResults.forEach((result, index) => {
-      if (result.status === "rejected") {
-        failedEmails.add(uniqueEmails[index]);
+  const successfulIds: string[] = [];
+  if (successful > 0) {
+    const successfulEmails = new Set<string>();
+    sendResults.forEach((result: EmailSendResult, index: number) => {
+      if (result.status === "fulfilled") {
+        successfulEmails.add(uniqueEmails[index]);
       }
     });
-
-    const emailToIds = new Map<string, string[]>();
-    entries.forEach((row) => {
-      if (!failedEmails.has(row.email)) return;
-      const list = emailToIds.get(row.email);
-      if (list) {
-        list.push(row.id);
-      } else {
-        emailToIds.set(row.email, [row.id]);
-      }
+    entries.forEach((row: any) => {
+      if (successfulEmails.has(row.email)) successfulIds.push(row.id as string);
     });
 
-    const failedIds: string[] = [];
-    for (const ids of emailToIds.values()) {
-      failedIds.push(...ids);
+    if (successfulIds.length > 0) {
+      await step.run("mark-notified", async () => {
+        return convexServerCall("/waitlist/mark-notified", { ids: successfulIds });
+      });
     }
-
-    await releaseClaimedIds(failedIds, claimedAt, instructorSlug, type);
   }
 
   return {
@@ -241,17 +196,7 @@ async function runProcessWaitlistNotifications(
     type,
     notifiedEmails: uniqueEmails.slice(0, 5),
     totalEmails: uniqueEmails.length,
-    claimedIds: entries.map((e) => e.id),
-    claimedAt,
   };
-}
-
-async function releaseAllClaimsOnFailure(
-  event: ClaimAndReleaseEvent
-): Promise<void> {
-  const since = Date.now() - 5 * 60 * 1000;
-  const until = Date.now();
-  await releaseRecentClaims(event.data.instructorSlug, event.data.type, since, until);
 }
 
 export const processWaitlistNotifications = inngest.createFunction(
@@ -266,6 +211,5 @@ export const processWaitlistNotifications = inngest.createFunction(
   { event: "waitlist/notify-users" },
   async ({ event, step }) => {
     return runProcessWaitlistNotifications(event, step);
-  },
-  { onFailure: releaseAllClaimsOnFailure as any }
+  }
 );

@@ -404,8 +404,11 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
 });
 
 /** Returns unnotified waitlist entries (id, email, createdAt) for an instructor + type.
- * Server-only: read-only. Prefer /waitlist/claim for notification workers so
- * concurrent runs cannot double-notify the same subscriber.
+ * Server-only: read-only. The notification workers pair this with
+ * /waitlist/mark-notified; per-(slug, type) Inngest concurrency prevents
+ * two events for the same offer from running simultaneously, so the
+ * read-then-write window is small and the seven-day cooldown handles any
+ * edge case that slips through.
  */
 export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -431,112 +434,6 @@ export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
   }));
 
   return new Response(JSON.stringify({ success: true, items }), {
-    headers: { "Content-Type": "application/json" },
-  });
-});
-
-/** Atomically claims every eligible waitlist row for an instructor/type and
- * patches notifiedAt = Date.now() in the same mutation. The workers call
- * this instead of /waitlist/unnotified + /waitlist/mark-notified so
- * overlapping runs cannot double-notify the same subscriber.
- */
-export const httpClaimWaitlistForNotification = httpAction(async (ctx, request) => {
-  if (!verifyAuth(request)) return unauthorizedResponse();
-
-  const { instructorSlug, mentorshipType } = await request.json();
-  if (!instructorSlug) {
-    return new Response(JSON.stringify({ success: false, error: "Missing instructorSlug" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
-
-  const result = await ctx.runMutation(
-    internal.waitlist.internalClaimWaitlistForNotification as any,
-    {
-      instructorSlug,
-      mentorshipType: normalizedType,
-    }
-  );
-
-  const items = result.claimed.map((c: any) => ({
-    id: c._id,
-    email: c.email,
-  }));
-
-  return new Response(JSON.stringify({ success: true, items, claimedAt: result.claimedAt }), {
-    headers: { "Content-Type": "application/json" },
-  });
-});
-
-/** Releases specific row IDs from a partially-successful or fully-failed
- * claim batch. Used by the workers via two paths:
- *  - On partial send failures (one Resend call rejects, another delivers):
- *    release only the failed-recipient rows; keep notifiedAt on the
- *    successful ones.
- *  - On a hard failure (unhandled exception, Resend 5xx on every send):
- *    the worker's onFailure hook falls back to /waitlist/release-recent-claims
- *    with a [since, until] window covering this run's claim timestamp.
- *
- * The internal mutation clears notifiedAt back to undefined ONLY when the
- * row's current notifiedAt still matches the supplied `claimedAt`, so
- * concurrent successful claims (different timestamp) and any future
- * state mutations are not disturbed.
- */
-export const httpReleaseSpecificClaims = httpAction(async (ctx, request) => {
-  if (!verifyAuth(request)) return unauthorizedResponse();
-
-  const { ids, claimedAt } = await request.json();
-  if (!Array.isArray(ids) || typeof claimedAt !== "number") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Missing ids[] or claimedAt" }),
-      {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-  }
-
-  const result = await ctx.runMutation(
-    internal.waitlist.internalReleaseSpecificClaims as any,
-    {
-      ids,
-      claimedAt,
-    }
-  );
-
-  return new Response(JSON.stringify(result), {
-    headers: { "Content-Type": "application/json" },
-  });
-});
-
-/** Bulk release of recent claims in a [since, until] window for a
- * (slug, type) pair. Used by the workers' onFailure hooks when a run
- * fails before its in-memory claimedIds list is recorded (e.g. uncaught
- * exception, Resend 5xx on every send, hard timeout). With per-key
- * Inngest concurrency, the window matches exactly that run's claim.
- */
-export const httpReleaseRecentClaims = httpAction(async (ctx, request) => {
-  if (!verifyAuth(request)) return unauthorizedResponse();
-
-  const { instructorSlug, mentorshipType, since, until } = await request.json();
-  if (!instructorSlug || typeof since !== "number" || typeof until !== "number") {
-    return new Response(
-      JSON.stringify({ success: false, error: "Missing instructorSlug / since / until" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
-
-  const result = await ctx.runMutation(internal.waitlist.internalReleaseRecentClaims as any, {
-    instructorSlug,
-    mentorshipType: normalizedType,
-    since,
-    until,
-  });
-
-  return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });
 });
@@ -799,24 +696,6 @@ http.route({
   path: "/waitlist/unnotified",
   method: "POST",
   handler: httpGetUnnotifiedWaitlist,
-});
-
-http.route({
-  path: "/waitlist/claim",
-  method: "POST",
-  handler: httpClaimWaitlistForNotification,
-});
-
-http.route({
-  path: "/waitlist/release-specific-claims",
-  method: "POST",
-  handler: httpReleaseSpecificClaims,
-});
-
-http.route({
-  path: "/waitlist/release-recent-claims",
-  method: "POST",
-  handler: httpReleaseRecentClaims,
 });
 
 http.route({
