@@ -23,8 +23,19 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   }
 
   const identity = await ctx.auth.getUserIdentity();
-  const metadata = identity?.metadata as { role?: string } | undefined;
+  const metadata = identity?.metadata as { role?: string; email?: string } | undefined;
   if (metadata?.role === "admin") {
+    return true;
+  }
+
+  const allowlistRaw =
+    process.env.MARKETING_ADMIN_EMAILS ?? process.env.ADMIN_EMAILS ?? "admin@huckleberry.art";
+  const allowlist = allowlistRaw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const callerEmail = (metadata?.email ?? identity?.email ?? "").toLowerCase();
+  if (callerEmail && allowlist.includes(callerEmail)) {
     return true;
   }
 
@@ -32,15 +43,15 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
 }
 
 /** Returns waitlist entries for an instructor, optionally filtered by mentorship type.
- * Authenticated (requires a valid Clerk JWT forwarded via ConvexHttpClient)
- * but not admin-gated — the admin route layer at apps/marketing/app/api/admin/
- * is the authoritative gate (it checks Clerk role OR the marketing
- * ADMIN_EMAILS email allowlist via requireAdmin() in apps/marketing/lib/auth.ts).
- * Keeping the Convex function ungated avoids a double-admin-check mismatch
- * where an allowlist-only operator passes the route check and is then
- * denied by the Convex query, producing an empty admin list or a failed
- * mutation. Defense in depth: the function still requires authentication,
- * so unauthenticated callers receive an empty result.
+ * Admin-gated via isAdminUser, which accepts three sources of admin:
+ *  - Convex `users.role === "admin"` (synced via Clerk webhook)
+ *  - Clerk JWT `publicMetadata.role === "admin"`
+ *  - Caller email in the MARKETING_ADMIN_EMAILS env var (or ADMIN_EMAILS
+ *    fallback, default "admin@huckleberry.art"), matching the marketing
+ *    route layer's allowlist in apps/marketing/lib/auth.ts.
+ * The three sources together guarantee the same admin definition at the
+ * Convex boundary as at the route boundary, so an allowlist-only operator
+ * is not denied by an inconsistent role check.
  */
 export const getWaitlistForInstructor = query({
   args: {
@@ -50,6 +61,10 @@ export const getWaitlistForInstructor = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
+      return [];
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
       return [];
     }
 
@@ -182,18 +197,19 @@ export const removeFromWaitlist = mutation({
   },
 });
 
-/** Deletes multiple waitlist entries by their IDs. Admin-only via the
- * apps/marketing/app/api/admin/ route layer (requireAdmin() in
- * apps/marketing/lib/auth.ts), not via an in-function gate — see the
- * rationale in getWaitlistForInstructor. This avoids the admin-policy
- * mismatch where an allowlist operator passes the route check and is then
- * denied by the mutation.
+/** Deletes multiple waitlist entries by their IDs. Admin-gated via
+ * isAdminUser (see the rationale in getWaitlistForInstructor). The
+ * mutation throws Forbidden for non-admin callers so the admin route's
+ * success path is preserved while the Convex boundary still enforces
+ * the same admin policy.
  */
 export const removeMultipleFromWaitlist = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     for (const id of args.ids) {
       await ctx.db.delete(id);
     }
@@ -227,18 +243,19 @@ export const removeByEmail = mutation({
   },
 });
 
-/** Deletes all waitlist entries for a given instructor slug. Admin-only via
- * the apps/marketing/app/api/admin/waitlist-cleanup route (requireAdmin()
- * in apps/marketing/lib/auth.ts), not via an in-function gate — see the
- * rationale in getWaitlistForInstructor. The route additionally constrains
- * the slug to TEST_INSTRUCTOR_SLUG so this never accidentally wipes a
- * production instructor's waitlist.
+/** Deletes all waitlist entries for a given instructor slug. Admin-gated
+ * via isAdminUser (see the rationale in getWaitlistForInstructor). The
+ * apps/marketing route additionally constrains the slug to
+ * TEST_INSTRUCTOR_SLUG, but defense in depth at the Convex boundary
+ * prevents a non-admin from invoking the mutation directly.
  */
 export const removeByInstructorSlug = mutation({
   args: { instructorSlug: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
 
     const entries = await ctx.db
       .query("marketingWaitlist")
@@ -446,6 +463,43 @@ export const internalReleaseSpecificClaims = internalMutation({
       released++;
     }
     return { success: true, released, untouched };
+  },
+});
+
+/** Server-only (internal) bulk release of recent claims for a (slug, type).
+ * Clears notifiedAt back to undefined for every row whose notifiedAt falls
+ * in the supplied [since, until] window. Used by the workers' onFailure
+ * hooks when a run fails BEFORE the partial-success path has had a chance
+ * to record its claimed ids — at that point the worker has no in-memory
+ * list of what it claimed, but it does know the claim happened within the
+ * last few minutes. Safe because per-key Inngest concurrency guarantees
+ * only one run per (slug, type) at a time, so the window matches exactly
+ * that run's claim.
+ */
+export const internalReleaseRecentClaims = internalMutation({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
+    since: v.number(),
+    until: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    let released = 0;
+    for (const entry of entries) {
+      if (entry.notifiedAt === undefined) continue;
+      if (entry.notifiedAt < args.since || entry.notifiedAt > args.until) continue;
+      if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) continue;
+      await ctx.db.patch(entry._id, { notifiedAt: undefined });
+      released++;
+    }
+    return { success: true, released };
   },
 });
 

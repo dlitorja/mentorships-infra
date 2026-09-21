@@ -476,7 +476,8 @@ export const httpClaimWaitlistForNotification = httpAction(async (ctx, request) 
  *    release only the failed-recipient rows; keep notifiedAt on the
  *    successful ones.
  *  - On a hard failure (unhandled exception, Resend 5xx on every send):
- *    the worker's onFailure hook releases every claimed row.
+ *    the worker's onFailure hook falls back to /waitlist/release-recent-claims
+ *    with a [since, until] window covering this run's claim timestamp.
  *
  * The internal mutation clears notifiedAt back to undefined ONLY when the
  * row's current notifiedAt still matches the supplied `claimedAt`, so
@@ -504,6 +505,36 @@ export const httpReleaseSpecificClaims = httpAction(async (ctx, request) => {
       claimedAt,
     }
   );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Bulk release of recent claims in a [since, until] window for a
+ * (slug, type) pair. Used by the workers' onFailure hooks when a run
+ * fails before its in-memory claimedIds list is recorded (e.g. uncaught
+ * exception, Resend 5xx on every send, hard timeout). With per-key
+ * Inngest concurrency, the window matches exactly that run's claim.
+ */
+export const httpReleaseRecentClaims = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType, since, until } = await request.json();
+  if (!instructorSlug || typeof since !== "number" || typeof until !== "number") {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing instructorSlug / since / until" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  const result = await ctx.runMutation(internal.waitlist.internalReleaseRecentClaims as any, {
+    instructorSlug,
+    mentorshipType: normalizedType,
+    since,
+    until,
+  });
 
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
@@ -780,6 +811,12 @@ http.route({
   path: "/waitlist/release-specific-claims",
   method: "POST",
   handler: httpReleaseSpecificClaims,
+});
+
+http.route({
+  path: "/waitlist/release-recent-claims",
+  method: "POST",
+  handler: httpReleaseRecentClaims,
 });
 
 http.route({

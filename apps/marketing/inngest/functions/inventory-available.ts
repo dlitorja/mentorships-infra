@@ -42,6 +42,20 @@ async function releaseClaimedIds(
   });
 }
 
+async function releaseRecentClaims(
+  instructorSlug: string,
+  type: string,
+  since: number,
+  until: number
+): Promise<ReleaseClaimsResponse | null> {
+  return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-recent-claims", {
+    instructorSlug,
+    mentorshipType: type,
+    since,
+    until,
+  });
+}
+
 async function runHandleInventoryAvailable(
   event: ClaimAndReleaseEvent,
   step: any
@@ -216,11 +230,11 @@ async function runHandleInventoryAvailable(
 }
 
 async function releaseAllClaimsOnFailure(
-  event: ClaimAndReleaseEvent,
-  result: any
+  event: ClaimAndReleaseEvent
 ): Promise<void> {
-  if (!result || !result.claimedIds || !result.claimedAt) return;
-  await releaseClaimedIds(result.claimedIds, result.claimedAt, event.data.instructorSlug, event.data.type);
+  const since = Date.now() - 5 * 60 * 1000;
+  const until = Date.now();
+  await releaseRecentClaims(event.data.instructorSlug, event.data.type, since, until);
 }
 
 export const handleInventoryAvailable = inngest.createFunction(
@@ -236,5 +250,5 @@ export const handleInventoryAvailable = inngest.createFunction(
   async ({ event, step }) => {
     return runHandleInventoryAvailable(event, step);
   },
-  { onFailure: releaseAllClaimsOnFailure }
+  { onFailure: releaseAllClaimsOnFailure as any }
 );
