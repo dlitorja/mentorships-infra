@@ -319,10 +319,15 @@ export const getUnnotifiedWaitlist = query({
  * HTTP action in convex/http.ts gated by CONVEX_HTTP_KEY. Not callable from
  * client code because it's an internalQuery.
  *
- * Returns ALL entries for the instructor/type (matching the original Supabase
- * behavior) so a user already notified once still gets a follow-up when a new
- * availability window opens. The HTTP caller is responsible for de-duplication
- * by email before sending.
+ * Returns entries for the instructor/type that either (a) have never been
+ * notified, or (b) were notified more than 7 days ago. Mirrors the original
+ * Supabase filter at apps/marketing/inngest/functions/inventory-changed.ts:56
+ * which used `notified.is.false,last_notification_at.lt.${oneWeekAgo}`.
+ * The 7-day cooldown prevents duplicate inventory events or closely-spaced
+ * availability transitions from re-emailing the same subscribers.
+ *
+ * The HTTP caller is responsible for de-duplication by email within a single
+ * run; the cooldown handles cross-run re-notification.
  */
 export const internalGetUnnotifiedWaitlist = internalQuery({
   args: {
@@ -330,6 +335,8 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
     mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   },
   handler: async (ctx, args) => {
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - sevenDaysMs;
     const entries = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_instructorSlug_mentorshipType", (q) =>
@@ -339,10 +346,11 @@ export const internalGetUnnotifiedWaitlist = internalQuery({
 
     return entries
       .filter((entry) => {
-        if (!args.mentorshipType || entry.mentorshipType === args.mentorshipType) {
-          return true;
+        if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) {
+          return false;
         }
-        return false;
+        if (entry.notifiedAt === undefined) return true;
+        return entry.notifiedAt < cutoff;
       })
       .map((entry) => ({
         _id: entry._id,
