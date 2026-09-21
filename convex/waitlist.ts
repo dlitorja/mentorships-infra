@@ -126,15 +126,16 @@ export const getWaitlistStatus = query({
       return { onWaitlist: false, mentorshipType: null };
     }
     const isAdmin = await isAdminUser(ctx, identity.subject);
+    const emailLower = args.email.toLowerCase();
     const identityEmail = (identity.email ?? "").toLowerCase();
-    if (!isAdmin && identityEmail !== args.email.toLowerCase()) {
+    if (!isAdmin && identityEmail !== emailLower) {
       return { onWaitlist: false, mentorshipType: null };
     }
 
     const entry = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+        q.eq("email", emailLower).eq("instructorSlug", args.instructorSlug)
       )
       .first();
 
@@ -237,6 +238,11 @@ export const removeMultipleFromWaitlist = mutation({
 /** Deletes waitlist entries matching an email and instructor, optionally
  * filtered by mentorship type. Admin-gated via isAdminUser (see the
  * rationale in getWaitlistForInstructor).
+ *
+ * The email is lowercased before the indexed lookup because marketingWaitlist
+ * rows are stored in lowercase (see internalNormalizeEmailsToLowercase) and
+ * callers may pass mixed-case input — a mixed-case query would return zero
+ * rows and the deletion would silently no-op.
  */
 export const removeByEmail = mutation({
   args: {
@@ -250,10 +256,11 @@ export const removeByEmail = mutation({
     const isAdmin = await isAdminUser(ctx, identity.subject);
     if (!isAdmin) throw new Error("Forbidden");
 
+    const emailLower = args.email.toLowerCase();
     const entries = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+        q.eq("email", emailLower).eq("instructorSlug", args.instructorSlug)
       )
       .collect();
 

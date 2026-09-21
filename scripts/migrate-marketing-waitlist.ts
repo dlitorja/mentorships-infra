@@ -73,12 +73,25 @@ async function fetchSupabaseRows(): Promise<SupabaseRow[]> {
   }
 
   const all: SupabaseRow[] = [];
-  let offset = 0;
+  let lastCreatedAt: string | null = null;
+  let lastId: string | null = null;
   while (true) {
     const url = new URL("/rest/v1/marketing_waitlist", supabaseUrl);
     url.searchParams.set("select", "id,email,instructor_slug,mentorship_type,notified,last_notification_at,created_at");
     url.searchParams.set("limit", String(BATCH_SIZE));
-    url.searchParams.set("offset", String(offset));
+    // Stable keyset pagination: order by (created_at, id) and pass the
+    // greatest values seen so far. Using `&` instead of `offset` means a
+    // concurrent insert into marketing_waitlist during the migration
+    // cannot shift the page boundaries and skip or duplicate rows.
+    // Supabase (PostgREST) supports `or` filters combined with `order` for
+    // this pattern.
+    url.searchParams.set("order", "created_at.asc,id.asc");
+    if (lastCreatedAt !== null && lastId !== null) {
+      url.searchParams.set(
+        "or",
+        `(created_at.gt.${encodeURIComponent(lastCreatedAt)},and(created_at.eq.${encodeURIComponent(lastCreatedAt)},id.gt.${encodeURIComponent(lastId)}))`
+      );
+    }
 
     const response = await fetch(url, {
       headers: {
@@ -93,8 +106,10 @@ async function fetchSupabaseRows(): Promise<SupabaseRow[]> {
     const batch = (await response.json()) as SupabaseRow[];
     if (batch.length === 0) break;
     all.push(...batch);
+    const last = batch[batch.length - 1];
+    lastCreatedAt = last.created_at;
+    lastId = last.id;
     if (batch.length < BATCH_SIZE) break;
-    offset += batch.length;
   }
   return all;
 }
