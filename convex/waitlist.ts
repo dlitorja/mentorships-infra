@@ -121,6 +121,16 @@ export const getWaitlistStatus = query({
     instructorSlug: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { onWaitlist: false, mentorshipType: null };
+    }
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    const identityEmail = (identity.email ?? "").toLowerCase();
+    if (!isAdmin && identityEmail !== args.email.toLowerCase()) {
+      return { onWaitlist: false, mentorshipType: null };
+    }
+
     const entry = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
@@ -189,10 +199,16 @@ export const addToWaitlist = mutation({
   },
 });
 
-/** Deletes a single waitlist entry by ID. */
+/** Deletes a single waitlist entry by ID. Admin-gated via isAdminUser
+ * (see the rationale in getWaitlistForInstructor).
+ */
 export const removeFromWaitlist = mutation({
   args: { id: v.id("marketingWaitlist") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     await ctx.db.delete(args.id);
     return { success: true };
   },
@@ -218,7 +234,10 @@ export const removeMultipleFromWaitlist = mutation({
   },
 });
 
-/** Deletes waitlist entries matching an email and instructor, optionally filtered by mentorship type. */
+/** Deletes waitlist entries matching an email and instructor, optionally
+ * filtered by mentorship type. Admin-gated via isAdminUser (see the
+ * rationale in getWaitlistForInstructor).
+ */
 export const removeByEmail = mutation({
   args: {
     email: v.string(),
@@ -226,6 +245,11 @@ export const removeByEmail = mutation({
     mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
+
     const entries = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
@@ -443,7 +467,10 @@ export const internalBulkImportWaitlist = internalMutation({
         )
         .first();
       if (existing) {
-        if (entry.notifiedAt !== undefined && existing.notifiedAt === undefined) {
+        if (
+          entry.notifiedAt !== undefined &&
+          (existing.notifiedAt === undefined || entry.notifiedAt > existing.notifiedAt)
+        ) {
           await ctx.db.patch(existing._id, { notifiedAt: entry.notifiedAt });
           merged++;
         } else {

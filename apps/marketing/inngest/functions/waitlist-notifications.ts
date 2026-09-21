@@ -206,6 +206,7 @@ export const processWaitlistNotifications = inngest.createFunction(
     concurrency: {
       limit: 1,
       key: "event.data.instructorSlug + ':' + event.data.type",
+      scope: "account",
     },
   },
   { event: "waitlist/notify-users" },

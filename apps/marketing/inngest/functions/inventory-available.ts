@@ -187,6 +187,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     concurrency: {
       limit: 1,
       key: "event.data.instructorSlug + ':' + event.data.type",
+      scope: "account",
     },
   },
   { event: "inventory/available" },
