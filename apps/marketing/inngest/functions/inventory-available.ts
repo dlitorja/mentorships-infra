@@ -1,19 +1,21 @@
 import { inngest } from "../client";
-import { createClient } from "@supabase/supabase-js";
 import { getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
 import { getResendClient, getFromAddress } from "@/lib/email/client";
 import { z } from "zod";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 const inventoryEventSchema = z.object({
   instructorSlug: z.string(),
   type: z.enum(["one-on-one", "group"]),
 });
 
-const waitlistEntrySchema = z.object({
-  id: z.string(),
-  email: z.string().email(),
-});
+type UnnotifiedWaitlistResponse = {
+  success: boolean;
+  items: { id: string; email: string; createdAt: number }[];
+};
+
+type MarkNotifiedResponse = { success: boolean; count: number };
 
 export const handleInventoryAvailable = inngest.createFunction(
   {
@@ -31,13 +33,6 @@ export const handleInventoryAvailable = inngest.createFunction(
     notifiedEmails?: string[];
     totalEmails?: number;
   }> => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error("Supabase not configured");
-    }
-
     const resend = getResendClient();
     const from = getFromAddress();
 
@@ -57,8 +52,6 @@ export const handleInventoryAvailable = inngest.createFunction(
         skipped: true,
       };
     }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
@@ -85,24 +78,16 @@ export const handleInventoryAvailable = inngest.createFunction(
       };
     }
 
-    const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
-      const { data, error } = await supabase
-        .from("marketing_waitlist")
-        .select("id, email")
-        .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type);
-
-      if (error) {
-        console.error("Error fetching waitlist:", error);
-        throw error;
-      }
-
-      return z.array(waitlistEntrySchema).parse(data || []);
+    const waitlistResult = await step.run("fetch-unnotified-entries", async () => {
+      return convexServerCall<UnnotifiedWaitlistResponse>("/waitlist/unnotified", {
+        instructorSlug,
+        mentorshipType: type,
+      });
     });
 
-    const uniqueEmails = [...new Set(waitlistEntries.map((entry) => entry.email))];
+    const entries = waitlistResult.items || [];
 
-    if (uniqueEmails.length === 0) {
+    if (entries.length === 0) {
       return {
         message: "No waitlist entries to notify",
         count: 0,
@@ -110,6 +95,8 @@ export const handleInventoryAvailable = inngest.createFunction(
         type,
       };
     }
+
+    const uniqueEmails = [...new Set(entries.map((entry) => entry.email))];
 
     const emailContent = await step.run("build-email-content", async (): Promise<ReturnType<typeof buildWaitlistNotificationEmail>> => {
       return buildWaitlistNotificationEmail({
@@ -150,7 +137,6 @@ export const handleInventoryAvailable = inngest.createFunction(
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error) || "Unknown error";
           sendResults.push({ status: "rejected", reason });
-          console.error(`Failed to send email to ${email}:`, reason);
           failedCount++;
         }
 
@@ -164,24 +150,8 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const { sendResults, failedCount, resendErrorEmails } = sendResultsSettled;
 
-    const matchingRows = await step.run("fetch-matching-rows", async () => {
-      const { data, error: selectError } = await supabase
-        .from("marketing_waitlist")
-        .select("id, email")
-        .in("email", uniqueEmails)
-        .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type);
-
-      if (selectError) {
-        console.error("Error fetching matching rows:", selectError);
-        throw selectError;
-      }
-
-      return z.array(waitlistEntrySchema).parse(data || []);
-    });
-
     const emailToIdMap = new Map<string, string[]>();
-    matchingRows.forEach((row) => {
+    entries.forEach((row) => {
       if (!emailToIdMap.has(row.email)) {
         emailToIdMap.set(row.email, []);
       }
@@ -200,20 +170,10 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     if (successfulIds.length > 0) {
-      await step.run("mark-notified", async (): Promise<void> => {
-        const { error: updateError } = await supabase
-          .from("marketing_waitlist")
-          .update({
-            notified: true,
-            last_notification_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .in("id", successfulIds);
-
-        if (updateError) {
-          console.error("Error updating waitlist entries:", updateError);
-          throw updateError;
-        }
+      await step.run("mark-notified", async () => {
+        return convexServerCall<MarkNotifiedResponse>("/waitlist/mark-notified", {
+          ids: successfulIds,
+        });
       });
     }
 

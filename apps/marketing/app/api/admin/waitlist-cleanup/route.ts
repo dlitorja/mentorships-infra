@@ -1,27 +1,16 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { api } from "@/convex/_generated/api";
 import { requireAdmin } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
 import { z } from "zod";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const TEST_INSTRUCTOR_SLUG = process.env.NEXT_PUBLIC_TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
 
 const instructorSlugSchema = z.string().trim().nonempty();
 
 export async function DELETE(request: Request) {
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return NextResponse.json(
-      { error: "Supabase configuration missing" },
-      { status: 500 }
-    );
-  }
-
   try {
     await requireAdmin();
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     const { searchParams } = new URL(request.url);
     const rawInstructorSlug = searchParams.get("instructor");
@@ -44,22 +33,15 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const { error } = await supabaseAdmin
-      .from("marketing_waitlist")
-      .delete()
-      .eq("instructor_slug", instructorSlug);
-
-    if (error) {
-      console.error("Error cleaning up waitlist:", error);
-      return NextResponse.json(
-        { error: "Failed to clean up waitlist" },
-        { status: 500 }
-      );
-    }
+    const convex = getConvexClient();
+    const result = await convex.mutation(api.waitlist.removeByInstructorSlug, {
+      instructorSlug,
+    });
 
     return NextResponse.json({
       success: true,
       message: `Cleaned up waitlist entries for ${instructorSlug}`,
+      deletedCount: result.count,
     });
   } catch (error) {
     console.error("Waitlist cleanup error:", error);

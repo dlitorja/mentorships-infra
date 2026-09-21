@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -207,6 +207,29 @@ export const removeByEmail = mutation({
   },
 });
 
+/** Deletes all waitlist entries for a given instructor slug. Admin-only. */
+export const removeByInstructorSlug = mutation({
+  args: { instructorSlug: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
+
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    for (const entry of entries) {
+      await ctx.db.delete(entry._id);
+    }
+    return { success: true, count: entries.length };
+  },
+});
+
 /** Marks multiple waitlist entries as notified by their IDs. */
 export const markNotified = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
@@ -280,5 +303,51 @@ export const getUnnotifiedWaitlist = query({
       }
       return false;
     });
+  },
+});
+/** Server-only (internal) variant of getUnnotifiedWaitlist. Called from the
+ * HTTP action in convex/http.ts gated by CONVEX_HTTP_KEY. Not callable from
+ * client code because it's an internalQuery.
+ */
+export const internalGetUnnotifiedWaitlist = internalQuery({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
+  },
+  handler: async (ctx, args) => {
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    return entries
+      .filter((entry) => {
+        if (!args.mentorshipType || entry.mentorshipType === args.mentorshipType) {
+          return entry.notifiedAt === undefined;
+        }
+        return false;
+      })
+      .map((entry) => ({
+        _id: entry._id,
+        email: entry.email,
+        createdAt: entry.createdAt,
+      }));
+  },
+});
+
+/** Server-only (internal) variant of markNotified. Called from the HTTP
+ * action in convex/http.ts gated by CONVEX_HTTP_KEY.
+ */
+export const internalMarkWaitlistNotified = internalMutation({
+  args: { ids: v.array(v.id("marketingWaitlist")) },
+  handler: async (ctx, args) => {
+    let count = 0;
+    for (const id of args.ids) {
+      await ctx.db.patch(id, { notifiedAt: Date.now() });
+      count++;
+    }
+    return { success: true, count };
   },
 });

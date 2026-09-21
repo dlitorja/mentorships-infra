@@ -403,6 +403,59 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   }
 });
 
+/** Returns unnotified waitlist entries (id, email, createdAt) for an instructor + type.
+ * Server-only: used by apps/marketing Inngest functions to drive availability
+ * notification emails after PR 6a consolidated writes to the Convex
+ * `marketingWaitlist` table.
+ */
+export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType } = await request.json();
+  if (!instructorSlug) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorSlug" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  const entries = await ctx.runQuery(internal.waitlist.internalGetUnnotifiedWaitlist as any, {
+    instructorSlug,
+    mentorshipType: normalizedType,
+  });
+
+  const items = entries.map((e: any) => ({
+    id: e._id,
+    email: e.email,
+    createdAt: e.createdAt,
+  }));
+
+  return new Response(JSON.stringify({ success: true, items }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Marks specific waitlist entries as notified by their Convex IDs. Server-only. */
+export const httpMarkWaitlistNotified = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { ids } = await request.json();
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return new Response(JSON.stringify({ success: true, count: 0 }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(internal.waitlist.internalMarkWaitlistNotified as any, {
+    ids,
+  });
+
+  return new Response(JSON.stringify({ success: true, count: result.count }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 /** HTTP action wrappers for Inngest payment processing.
  *
  * These expose the minimal set of internal/public Convex functions needed by
@@ -597,6 +650,18 @@ http.route({
   path: "/waitlist/notify",
   method: "POST",
   handler: httpNotifyWaitlist,
+});
+
+http.route({
+  path: "/waitlist/unnotified",
+  method: "POST",
+  handler: httpGetUnnotifiedWaitlist,
+});
+
+http.route({
+  path: "/waitlist/mark-notified",
+  method: "POST",
+  handler: httpMarkWaitlistNotified,
 });
 
 http.route({

@@ -1,17 +1,26 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { api } from "@/convex/_generated/api";
 import { isAdmin } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
 import { z } from "zod";
 import { rateLimit } from "@/lib/utils";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const WaitlistQuerySchema = z.object({
   instructor: z.string().min(1),
   type: z.string().min(1),
 });
+
+const TYPE_MAP = {
+  oneOnOne: "one-on-one",
+  group: "group",
+} as const;
+
+function mapMentorshipType(input: string): "oneOnOne" | "group" | null {
+  if (input === "one-on-one" || input === "oneOnOne") return "oneOnOne";
+  if (input === "group") return "group";
+  return null;
+}
 
 function sanitizeCell(value: string): string {
   const trimmed = value.trim();
@@ -38,13 +47,6 @@ function sanitizeFilename(value: string): string {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.json(
-      { error: "Server configuration error: Supabase not configured" },
-      { status: 500 }
-    );
-  }
-
   const rateLimitResult = await rateLimit("waitlist-csv", 10, 60000);
   if (!rateLimitResult.success) {
     return NextResponse.json(
@@ -86,33 +88,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const { instructor: instructorSlug, type } = parsed.data;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    const { data: entries, error } = await supabase
-      .from("marketing_waitlist")
-      .select("email, instructor_slug, mentorship_type, notified, created_at")
-      .eq("instructor_slug", instructorSlug)
-      .eq("mentorship_type", type)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching waitlist for CSV:", error);
-      return NextResponse.json(
-        { error: "Failed to fetch waitlist" },
-        { status: 500 }
-      );
+    const mentorshipType = mapMentorshipType(type);
+    if (!mentorshipType) {
+      return NextResponse.json({ error: "Invalid mentorship type" }, { status: 400 });
     }
 
+    const convex = getConvexClient();
+    const entries = (await convex.query(api.waitlist.getWaitlistForInstructor, {
+      instructorSlug,
+      mentorshipType,
+    })) as Array<{
+      _id: string;
+      email: string;
+      mentorshipType: "oneOnOne" | "group";
+      notifiedAt: number | undefined;
+      createdAt: number;
+    }>;
+
     const csvHeader = "email,instructor_slug,mentorship_type,notified,created_at\n";
-    const csvRows = (entries || []).map((entry) =>
-      [
-        `"${sanitizeCell(entry.email)}"`,
-        `"${sanitizeCell(entry.instructor_slug)}"`,
-        `"${sanitizeCell(entry.mentorship_type)}"`,
-        entry.notified ? "true" : "false",
-        sanitizeCell(entry.created_at),
-      ].join(",")
-    ).join("\n");
+    const csvRows = entries
+      .map((entry) =>
+        [
+          `"${sanitizeCell(entry.email)}"`,
+          `"${sanitizeCell(instructorSlug)}"`,
+          `"${sanitizeCell(TYPE_MAP[entry.mentorshipType] ?? entry.mentorshipType)}"`,
+          entry.notifiedAt ? "true" : "false",
+          sanitizeCell(new Date(entry.createdAt).toISOString()),
+        ].join(",")
+      )
+      .join("\n");
 
     const csvContent = csvHeader + csvRows;
 
