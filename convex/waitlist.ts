@@ -463,11 +463,11 @@ export const internalNormalizeEmailsToLowercase = internalMutation({
           }
         }
         if (earliestNotified !== undefined) {
-          await ctx.db.patch(keeper._id as Id<"marketingWaitlist">, { notifiedAt: earliestNotified });
+          await ctx.db.patch(keeper._id, { notifiedAt: earliestNotified });
         }
       }
       for (const dup of duplicates) {
-        await ctx.db.delete(dup._id as Id<"marketingWaitlist">);
+        await ctx.db.delete(dup._id);
         deletedDuplicates++;
       }
     }
