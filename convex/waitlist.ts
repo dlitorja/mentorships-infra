@@ -392,6 +392,7 @@ export const internalBulkImportWaitlist = internalMutation({
         instructorSlug: v.string(),
         mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
         createdAt: v.optional(v.number()),
+        notifiedAt: v.optional(v.number()),
       })
     ),
   },
@@ -417,6 +418,7 @@ export const internalBulkImportWaitlist = internalMutation({
         instructorSlug: entry.instructorSlug,
         mentorshipType: entry.mentorshipType,
         createdAt: entry.createdAt ?? Date.now(),
+        notifiedAt: entry.notifiedAt,
       });
       inserted++;
     }

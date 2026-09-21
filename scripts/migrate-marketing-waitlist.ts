@@ -39,6 +39,7 @@ type ConvexImportEntry = {
   instructorSlug: string;
   mentorshipType: "oneOnOne" | "group";
   createdAt?: number;
+  notifiedAt?: number;
 };
 
 type ImportResponse = {
@@ -110,11 +111,14 @@ function mapRow(row: SupabaseRow): ConvexImportEntry | null {
   if (!mentorshipType) return null;
 
   const createdAtMs = row.created_at ? Date.parse(row.created_at) : NaN;
+  const notifiedAtMs =
+    row.notified && row.last_notification_at ? Date.parse(row.last_notification_at) : NaN;
   return {
     email,
     instructorSlug,
     mentorshipType,
     createdAt: Number.isFinite(createdAtMs) ? createdAtMs : undefined,
+    notifiedAt: Number.isFinite(notifiedAtMs) ? notifiedAtMs : undefined,
   };
 }
 
