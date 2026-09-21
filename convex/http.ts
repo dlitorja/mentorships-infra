@@ -465,7 +465,39 @@ export const httpClaimWaitlistForNotification = httpAction(async (ctx, request) 
     email: c.email,
   }));
 
-  return new Response(JSON.stringify({ success: true, items }), {
+  return new Response(JSON.stringify({ success: true, items, claimedAt: result.claimedAt }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Releases a failed claim: clears notifiedAt back to undefined for every
+ * row claimed at the exact `claimedAt` timestamp passed in. The workers
+ * call this when the Resend call throws or returns errors for every
+ * attempted subscriber, so the next availability run can retry them
+ * instead of suppressing them for the full seven-day cooldown.
+ */
+export const httpReleaseFailedClaims = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType, claimedAt } = await request.json();
+  if (!instructorSlug || typeof claimedAt !== "number") {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing instructorSlug or claimedAt" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  const result = await ctx.runMutation(internal.waitlist.internalReleaseFailedClaims as any, {
+    instructorSlug,
+    mentorshipType: normalizedType,
+    claimedAt,
+  });
+
+  return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });
 });
@@ -734,6 +766,12 @@ http.route({
   path: "/waitlist/claim",
   method: "POST",
   handler: httpClaimWaitlistForNotification,
+});
+
+http.route({
+  path: "/waitlist/release-failed-claims",
+  method: "POST",
+  handler: httpReleaseFailedClaims,
 });
 
 http.route({

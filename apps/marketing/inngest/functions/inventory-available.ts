@@ -13,7 +13,10 @@ const inventoryEventSchema = z.object({
 type ClaimedWaitlistResponse = {
   success: boolean;
   items: { id: string; email: string }[];
+  claimedAt: number;
 };
+
+type ReleaseClaimsResponse = { success: boolean; released: number };
 
 export const handleInventoryAvailable = inngest.createFunction(
   {
@@ -84,6 +87,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     const entries = waitlistResult.items || [];
+    const claimedAt = waitlistResult.claimedAt;
 
     if (entries.length === 0) {
       return {
@@ -148,8 +152,21 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const successfulSends = sendResults.filter((r) => r.status === "fulfilled").length;
 
+    if (successfulSends === 0 && claimedAt) {
+      await step.run("release-failed-claims", async () => {
+        return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-failed-claims", {
+          instructorSlug,
+          mentorshipType: type,
+          claimedAt,
+        });
+      });
+    }
+
     return {
-      message: `Sent ${successfulSends} emails to waitlist (attempted ${uniqueEmails.length})`,
+      message:
+        successfulSends === 0
+          ? `All sends failed; released ${uniqueEmails.length} claims for retry`
+          : `Sent ${successfulSends} emails to waitlist (attempted ${uniqueEmails.length})`,
       count: successfulSends,
       failed: failedCount,
       instructorSlug,

@@ -31,7 +31,10 @@ function getFromAddress(): string | null {
 type ClaimedWaitlistResponse = {
   success: boolean;
   items: { id: string; email: string }[];
+  claimedAt: number;
 };
+
+type ReleaseClaimsResponse = { success: boolean; released: number };
 
 export const processWaitlistNotifications = inngest.createFunction(
   {
@@ -95,6 +98,7 @@ export const processWaitlistNotifications = inngest.createFunction(
     });
 
     const entries = waitlistResult.items || [];
+    const claimedAt = waitlistResult.claimedAt;
 
     if (entries.length === 0) {
       return {
@@ -156,8 +160,21 @@ export const processWaitlistNotifications = inngest.createFunction(
     const successful = sendResults.filter((r) => r.status === "fulfilled").length;
     const failed = sendResults.filter((r) => r.status === "rejected").length;
 
+    if (successful === 0 && claimedAt) {
+      await step.run("release-failed-claims", async () => {
+        return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-failed-claims", {
+          instructorSlug,
+          mentorshipType: type,
+          claimedAt,
+        });
+      });
+    }
+
     return {
-      message: `Sent ${successful} emails to waitlist`,
+      message:
+        successful === 0
+          ? `All sends failed; released ${uniqueEmails.length} claims for retry`
+          : `Sent ${successful} emails to waitlist`,
       count: successful,
       failed,
       instructorSlug,
