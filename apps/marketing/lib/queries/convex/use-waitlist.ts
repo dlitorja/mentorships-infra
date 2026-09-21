@@ -32,16 +32,29 @@ export type AddToWaitlistResult = {
  * scope. The naive `useConvexMutation(api.waitlist.addToWaitlist)`
  * pattern throws on that render path.
  *
- * We gate on `useConvex()` (returns `undefined` when no
- * `ConvexProvider` is above) and fall through to a stub mutation
- * that throws only when `mutate` is actually invoked. This keeps
- * the build green and degrades to a runtime error if the hook is
- * ever called outside a provider for real (which would already be
- * a configuration bug).
+ * `useConvex()` calls `useContext(ConvexContext)`; the context
+ * default is `undefined`, so the hook returns `undefined` (not
+ * throws) when no `ConvexProvider` is above. The marketing
+ * `<ConvexClientProvider>` returns a bare fragment in the
+ * `skipClerk` build branch, so during static generation
+ * `useConvex()` returns `undefined` here and the `if (!convex)`
+ * guard short-circuits the mutation at runtime. We additionally
+ * wrap `useConvex()` in a defensive try/catch so that if a
+ * future convex-react release ever changes `useConvex()` to throw
+ * in the no-provider case, this hook still degrades to a runtime
+ * error instead of crashing the static build. Verified locally:
+ * `pnpm build` with `NEXT_PUBLIC_CONVEX_URL=""` produces a
+ * successful static export of `/instructors/[slug]` and
+ * `/instructors/[slug]/courses`.
  */
 export function useAddToWaitlist() {
   const queryClient = useQueryClient();
-  const convex = useConvex();
+  let convex: ReturnType<typeof useConvex> | undefined;
+  try {
+    convex = useConvex();
+  } catch {
+    convex = undefined;
+  }
 
   return useMutation<AddToWaitlistResult, Error, AddToWaitlistVariables>({
     mutationFn: async (variables) => {
