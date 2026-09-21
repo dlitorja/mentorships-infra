@@ -438,6 +438,34 @@ export const internalReleaseFailedClaims = internalMutation({
   },
 });
 
+/** Server-only (internal) release of specific row IDs. Clears notifiedAt
+ * back to undefined for each _id listed, but ONLY when the row's current
+ * notifiedAt still matches the supplied `claimedAt` (race-safe). Used by
+ * the workers when a partially-successful batch needs to release just
+ * the failed-recipient rows, not the successful ones.
+ */
+export const internalReleaseSpecificClaims = internalMutation({
+  args: {
+    ids: v.array(v.id("marketingWaitlist")),
+    claimedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    let released = 0;
+    let untouched = 0;
+    for (const id of args.ids) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      if (row.notifiedAt !== args.claimedAt) {
+        untouched++;
+        continue;
+      }
+      await ctx.db.patch(id, { notifiedAt: undefined });
+      released++;
+    }
+    return { success: true, released, untouched };
+  },
+});
+
 /** Server-only (internal) variant of markNotified. Called from the HTTP
  * action in convex/http.ts gated by CONVEX_HTTP_KEY.
  */

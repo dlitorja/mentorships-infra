@@ -502,6 +502,38 @@ export const httpReleaseFailedClaims = httpAction(async (ctx, request) => {
   });
 });
 
+/** Releases specific row IDs from a partially-successful batch. Used when
+ * one Resend call succeeds while another fails: we keep notifiedAt on
+ * the successful subscribers and clear it only on the failed ones, but
+ * only if their notifiedAt still matches the caller's claimedAt (race-safe).
+ */
+export const httpReleaseSpecificClaims = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { ids, claimedAt } = await request.json();
+  if (!Array.isArray(ids) || typeof claimedAt !== "number") {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing ids[] or claimedAt" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const result = await ctx.runMutation(
+    internal.waitlist.internalReleaseSpecificClaims as any,
+    {
+      ids,
+      claimedAt,
+    }
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 /** Marks specific waitlist entries as notified by their Convex IDs. Server-only. */
 export const httpMarkWaitlistNotified = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -772,6 +804,12 @@ http.route({
   path: "/waitlist/release-failed-claims",
   method: "POST",
   handler: httpReleaseFailedClaims,
+});
+
+http.route({
+  path: "/waitlist/release-specific-claims",
+  method: "POST",
+  handler: httpReleaseSpecificClaims,
 });
 
 http.route({

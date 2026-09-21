@@ -16,7 +16,7 @@ type ClaimedWaitlistResponse = {
   claimedAt: number;
 };
 
-type ReleaseClaimsResponse = { success: boolean; released: number };
+type ReleaseClaimsResponse = { success: boolean; released: number; untouched?: number };
 
 export const handleInventoryAvailable = inngest.createFunction(
   {
@@ -152,21 +152,45 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const successfulSends = sendResults.filter((r) => r.status === "fulfilled").length;
 
-    if (successfulSends === 0 && claimedAt) {
-      await step.run("release-failed-claims", async () => {
-        return convexServerCall<ReleaseClaimsResponse>("/waitlist/release-failed-claims", {
-          instructorSlug,
-          mentorshipType: type,
-          claimedAt,
-        });
+    if (failedCount > 0 && claimedAt) {
+      const failedEmails = new Set<string>();
+      sendResults.forEach((result, index) => {
+        if (result.status === "rejected") {
+          failedEmails.add(uniqueEmails[index]);
+        }
       });
+
+      const emailToIds = new Map<string, string[]>();
+      entries.forEach((row) => {
+        if (!failedEmails.has(row.email)) return;
+        const list = emailToIds.get(row.email);
+        if (list) {
+          list.push(row.id);
+        } else {
+          emailToIds.set(row.email, [row.id]);
+        }
+      });
+
+      const failedIds: string[] = [];
+      for (const ids of emailToIds.values()) {
+        failedIds.push(...ids);
+      }
+
+      if (failedIds.length > 0) {
+        await step.run("release-failed-claims", async () => {
+          return convexServerCall<ReleaseClaimsResponse>(
+            "/waitlist/release-specific-claims",
+            {
+              ids: failedIds,
+              claimedAt,
+            }
+          );
+        });
+      }
     }
 
     return {
-      message:
-        successfulSends === 0
-          ? `All sends failed; released ${uniqueEmails.length} claims for retry`
-          : `Sent ${successfulSends} emails to waitlist (attempted ${uniqueEmails.length})`,
+      message: `Sent ${successfulSends} emails to waitlist (${failedCount} failed)`,
       count: successfulSends,
       failed: failedCount,
       instructorSlug,
