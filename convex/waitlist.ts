@@ -12,6 +12,15 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
     rate: 10,
     period: HOUR,
   },
+  // Global write-side cap. addToWaitlist is unauthenticated, so the
+  // per-(email, slug) bucket is bypassable by rotating either value; the
+  // global bucket caps total joins across all callers to keep a single
+  // attacker from filling durable Convex storage.
+  marketingWaitlistJoinGlobal: {
+    kind: "fixed window",
+    rate: 200,
+    period: HOUR,
+  },
 });
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
@@ -185,6 +194,10 @@ export const addToWaitlist = mutation({
       };
     }
 
+    await rateLimiter.limit(ctx, "marketingWaitlistJoinGlobal", {
+      key: "global",
+      throws: true,
+    });
     await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
       key: `${emailLower}|${instructorSlug}`,
       throws: true,

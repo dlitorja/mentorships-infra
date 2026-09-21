@@ -87,9 +87,13 @@ async function fetchSupabaseRows(): Promise<SupabaseRow[]> {
     // this pattern.
     url.searchParams.set("order", "created_at.asc,id.asc");
     if (lastCreatedAt !== null && lastId !== null) {
+      // Don't pre-encode: URLSearchParams.set applies its own percent
+      // encoding. Pre-encoded values get double-encoded and the filter
+      // is rejected by PostgREST, which silently returns zero rows and
+      // makes later migration pages fail.
       url.searchParams.set(
         "or",
-        `(created_at.gt.${encodeURIComponent(lastCreatedAt)},and(created_at.eq.${encodeURIComponent(lastCreatedAt)},id.gt.${encodeURIComponent(lastId)}))`
+        `(created_at.gt.${lastCreatedAt},and(created_at.eq.${lastCreatedAt},id.gt.${lastId}))`
       );
     }
 
