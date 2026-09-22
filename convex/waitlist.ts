@@ -340,7 +340,8 @@ export const actionAddToWaitlist = action({
       }
 
       const allowedHostnames = (
-        env.TURNSTILE_ALLOWED_HOSTNAMES ?? "localhost,127.0.0.1,*.huckleberry.art"
+        env.TURNSTILE_ALLOWED_HOSTNAMES ??
+        "localhost,127.0.0.1,*.huckleberry.art,artwithneil.com,*.artwithneil.com"
       )
         .split(",")
         .map((s: string) => s.trim())
