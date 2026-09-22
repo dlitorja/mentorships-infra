@@ -1,14 +1,19 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
+import { useConvex } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@mentorships/ui";
 import Link from "next/link";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
 import { useAddToWaitlist } from "@/lib/queries/convex/use-waitlist";
+import { api } from "../../../../convex/_generated/api";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -31,6 +36,26 @@ function WaitlistContent(): React.JSX.Element {
   const mentorshipType = normalizeMentorshipType(typeParam);
 
   const addToWaitlistMutation = useAddToWaitlist();
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const widgetRef = useRef<TurnstileWidgetHandle>(null);
+
+  let convex: ReturnType<typeof useConvex> | undefined;
+  try {
+    convex = useConvex();
+  } catch {
+    convex = undefined;
+  }
+  const turnstileEnforcedQuery = useQuery({
+    ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
+    enabled: !!convex,
+  });
+  const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;
+  const turnstileEnforced = turnstileEnforcedQuery.data === true;
+  const turnstileConfigError = turnstileEnforcedQuery.isError;
+  const turnstileUnavailable =
+    turnstileConfigError ||
+    (turnstileConfigKnown && turnstileEnforced && !turnstileSitekey);
 
   const form = useForm({
     defaultValues: {
@@ -40,18 +65,24 @@ function WaitlistContent(): React.JSX.Element {
       onChange: waitlistFormSchema,
     },
     onSubmit: async ({ value }) => {
-      addToWaitlistMutation.mutate(
-        {
-          email: value.email,
-          instructorSlug,
-          mentorshipType,
-        },
-        {
-          onSuccess: () => {
-            form.reset();
-          },
-        }
-      );
+      if (turnstileEnforced && !turnstileToken) {
+        return;
+      }
+      try {
+        await addToWaitlistMutation.mutateAsync(
+          {
+            email: value.email,
+            instructorSlug,
+            mentorshipType,
+            ...(turnstileEnforced && turnstileToken
+              ? { turnstileToken }
+              : {}),
+          }
+        );
+        form.reset();
+      } finally {
+        widgetRef.current?.reset();
+      }
     },
   });
 
@@ -147,6 +178,31 @@ function WaitlistContent(): React.JSX.Element {
               )}
             </form.Field>
 
+            {turnstileEnforced && turnstileSitekey ? (
+              <TurnstileWidget
+                ref={widgetRef}
+                sitekey={turnstileSitekey}
+                action="waitlist_signup"
+                onTokenChange={setTurnstileToken}
+              />
+            ) : turnstileConfigError ? (
+              <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400 rounded-md" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: could not reach
+                the verification server.)
+              </div>
+            ) : !turnstileConfigKnown ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                Verifying CAPTCHA requirements…
+              </p>
+            ) : turnstileEnforced && !turnstileSitekey ? (
+              <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400 rounded-md" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: server enforces
+                Turnstile but NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set in this deployment.)
+              </div>
+            ) : null}
+
             {error && (
               <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400 rounded-md">
                 {error}
@@ -158,7 +214,13 @@ function WaitlistContent(): React.JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full vibrant-gradient-button transition-all"
-                disabled={form.state.isSubmitting || addToWaitlistMutation.isPending}
+                disabled={
+                  form.state.isSubmitting ||
+                  addToWaitlistMutation.isPending ||
+                  turnstileUnavailable ||
+                  !turnstileConfigKnown ||
+                  (turnstileEnforced && !turnstileToken)
+                }
               >
                 {form.state.isSubmitting || addToWaitlistMutation.isPending
                   ? "Joining Waitlist..."

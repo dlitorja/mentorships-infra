@@ -1,17 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { convexQuery, useConvexAction, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 
 /**
- * Mutation hook for adding a user to a waitlist.
+ * PR 6c (Turnstile rollout): routes public waitlist submissions through
+ * the `actionAddToWaitlist` action so the server-side Turnstile
+ * siteverify gate applies when `TURNSTILE_SECRET_KEY` is configured
+ * (the widget on `apps/web/app/waitlist/page.tsx` supplies the token).
  * Invalidates waitlist queries on success.
  */
 export function useAddToWaitlist() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.waitlist.addToWaitlist),
+    mutationFn: useConvexAction(api.waitlist.actionAddToWaitlist),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["waitlist"] });
     },

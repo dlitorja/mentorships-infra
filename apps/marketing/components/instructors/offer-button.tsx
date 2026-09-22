@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
-import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/instructors/turnstile-widget";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@mentorships/ui";
 import { api } from "@/convex/_generated/api";
 
 interface InventoryStatus {
