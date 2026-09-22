@@ -12,7 +12,7 @@ const ALLOWED_TYPES = [
 ] as const;
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 const MIME_TO_EXTENSION: Record<(typeof ALLOWED_TYPES)[number], string> = {
   "image/jpeg": ".jpg",
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 10MB" },
+        { error: "File too large. Maximum size is 20MB" },
         { status: 400 }
       );
     }

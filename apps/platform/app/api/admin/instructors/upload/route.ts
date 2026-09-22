@@ -16,7 +16,7 @@ const ALLOWED_TYPES = [
 ] as const;
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 type UploadType = "profile" | "portfolio" | "result";
 
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 10MB" },
+        { error: "File too large. Maximum size is 20MB" },
         { status: 400 }
       );
     }

@@ -12,7 +12,7 @@ const ALLOWED_TYPES = [
 ] as const;
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 const MIME_TO_EXTENSION: Record<(typeof ALLOWED_TYPES)[number], string> = {
   "image/jpeg": ".jpg",
@@ -45,7 +45,7 @@ const storageIdSchema = z.object({
 /**
  * POST /api/admin/upload
  * Handles image file uploads to Convex storage.
- * Requires admin role. Accepts JPEG, PNG, WebP, GIF up to 10MB.
+ * Requires admin role. Accepts JPEG, PNG, WebP, GIF up to 20MB.
  * Validates file type, size, and extension before upload.
  * Returns { success, storageId, url, path } on success.
  */
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 10MB" },
+        { error: "File too large. Maximum size is 20MB" },
         { status: 400 }
       );
     }
