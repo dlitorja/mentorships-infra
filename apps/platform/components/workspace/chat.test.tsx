@@ -34,6 +34,10 @@ vi.mock("@/lib/queries/convex/use-workspaces", () => ({
     mutateAsync: mockCreateFileMessage,
     isPending: false,
   }),
+  useRecordFileUpload: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
   useCreateWorkspaceLink: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
