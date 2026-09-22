@@ -167,6 +167,12 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                 action="waitlist_signup"
                 onTokenChange={setTurnstileToken}
               />
+            ) : turnstileEnforced && !turnstileSitekey ? (
+              <p className="text-xs text-destructive" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: server enforces
+                Turnstile but NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set in this deployment.)
+              </p>
             ) : null}
             <p className="text-xs text-muted-foreground">
               We&apos;ll notify you when this mentorship becomes available.
