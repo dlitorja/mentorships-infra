@@ -30,7 +30,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
 
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
-  const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITEKEY;
+  const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
     if (turnstileSitekey && !turnstileToken) {
