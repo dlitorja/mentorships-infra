@@ -23,7 +23,7 @@ import { useConvexAction } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { useQuickCaptureShortcut } from "@/lib/hooks/use-quick-capture-shortcut";
 import { uploadImageForChat, type UploadError } from "@/lib/workspace-image-upload";
-import { MAX_CHAT_FILE_BYTES } from "@/lib/workspace-constants";
+import { MAX_IMAGE_BYTES } from "@/lib/workspace-constants";
 import { clsx } from "clsx";
 import { toast } from "sonner";
 
@@ -444,8 +444,8 @@ function ImageCaptureForm({
       toast.error("Only image files are supported");
       return;
     }
-    if (file.size > MAX_CHAT_FILE_BYTES) {
-      toast.error("Image is too large. Maximum size is 50MB.");
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error("Image is too large. Maximum size is 8MB.");
       return;
     }
     setSubmitting(true);

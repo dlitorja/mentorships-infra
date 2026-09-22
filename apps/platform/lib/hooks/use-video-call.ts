@@ -306,7 +306,13 @@ export function useVideoCall(
 
       const domain = process.env.NEXT_PUBLIC_DAILY_DOMAIN ?? DEFAULT_DAILY_DOMAIN;
       const roomUrl = `https://${domain}/${roomName}`;
-      await daily.join({ url: roomUrl, token });
+      // Camera off by default — users opt in via the webcam button.
+      // `startVideoOff` tells Daily not to auto-start the camera on
+      // this join, so there's no flash of video before we can call
+      // setLocalVideo. Audio stays on so participants can join the
+      // conversation hands-free without an extra click.
+      await daily.join({ url: roomUrl, token, startVideoOff: true });
+      setIsCameraOff(true);
       setJoinedSessionId(sessionId);
       didJoinRef.current = true;
     } catch (err) {

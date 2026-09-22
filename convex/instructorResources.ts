@@ -13,6 +13,7 @@ import {
   WORKSPACE_FILE_CAPS,
   WORKSPACE_IMAGE_CAPS,
   MAX_WORKSPACE_FILE_BYTES,
+  MAX_WORKSPACE_FILE_MB,
 } from "./workspaceConstants";
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
@@ -195,7 +196,7 @@ export const uploadInstructorResource = mutation({
     await assertSessionBelongsToWorkspace(ctx, args);
 
     if (args.size > MAX_WORKSPACE_FILE_BYTES) {
-      throw new Error("File exceeds 50MB size limit");
+      throw new Error(`File exceeds ${MAX_WORKSPACE_FILE_MB}MB size limit`);
     }
 
     if (args.type === "image") {

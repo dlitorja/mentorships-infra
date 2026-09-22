@@ -637,7 +637,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           {isDragActive ? "Drop images here" : "Drag and drop images here"}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          PNG, JPG, GIF, or WebP up to 5MB. You can add up to {PER_UPLOAD_CAP} images at a time.
+          PNG, JPG, GIF, or WebP up to 8MB. You can add up to {PER_UPLOAD_CAP} images at a time.
         </p>
         <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
           <Button
