@@ -254,7 +254,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
 /**
  * Adds a student result (before/after image) to an instructor.
  */
-async function addStudentResult(instructorId: string, data: { imageUrl: string; imageUploadPath?: string | null; studentName: string }) {
+async function addStudentResult(instructorId: string, data: { imageUrl: string; imageUploadPath?: string; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -436,7 +436,7 @@ export default function EditInstructorPage() {
   });
 
   const addStudentResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; imageUploadPath: string; studentName: string }) => addStudentResult(instructorId, data),
+    mutationFn: (data: { imageUrl: string; imageUploadPath?: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
       setShowStudentResultDialog(false);
       setStudentResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
