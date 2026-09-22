@@ -11,6 +11,7 @@ import {
   WORKSPACE_FILE_CAPS,
   MAX_WORKSPACE_FILE_BYTES,
   MAX_WORKSPACE_FILE_MB,
+  MAX_BINDING_AGE_MS,
 } from "./workspaceConstants";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
@@ -185,11 +186,19 @@ export async function countWorkspaceFilesByRole(
 ): Promise<number> {
   // PR #convex-egress-1: use the narrow index so we only scan file
   // messages for the requested role instead of the entire chat history.
+  // PR #B: filter out soft-deleted messages so a delete frees a slot
+  // immediately. `deletedAt` is not in the index (would require
+  // `by_workspaceId_type_senderRole_deletedAt`); per the Convex index
+  // guidance, an additional `.filter()` after the indexed range scan
+  // is acceptable for predicates that cannot be expressed by the
+  // existing index. The bounded index scan keeps the post-filter cost
+  // proportional to that role's message count, not the whole table.
   const messages = await ctx.db
     .query("workspaceMessages")
     .withIndex("by_workspaceId_type_senderRole", (q: any) =>
       q.eq("workspaceId", workspaceId).eq("type", "file").eq("senderRole", role)
     )
+    .filter((q: any) => q.eq(q.field("deletedAt"), undefined))
     .collect();
 
   return messages.length;
@@ -251,6 +260,48 @@ export async function assertSessionBelongsToWorkspace(
   }
   if (session.studentId !== workspace.ownerId) {
     throw new Error("Session does not belong to this workspace");
+  }
+}
+
+/**
+ * Verifies that the given `storageId` was bound to the caller by
+ * {@link recordFileUpload} for the given workspace. Refuses to
+ * proceed otherwise.
+ *
+ * This is the gate that prevents a workspace participant from
+ * passing an unrelated storage id (e.g. one they discovered in a
+ * chat URL they have access to) to the create mutations and
+ * causing the retention cron to delete that blob after the 30-day
+ * window (Greptile Security P1). Convex storage does not track
+ * uploader metadata, so the `fileUploads` ledger is the source
+ * of truth.
+ */
+export async function assertFileUploadOwnedByCaller(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    storageId: Id<"_storage">;
+    callerId: string;
+  }
+): Promise<void> {
+  const row = await ctx.db
+    .query("fileUploads")
+    .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+    .first();
+  if (!row) {
+    throw new Error(
+      "Storage id is not bound to a known upload. Re-upload and try again."
+    );
+  }
+  if (row.workspaceId !== args.workspaceId) {
+    throw new Error(
+      "Storage id is not bound to this workspace. Re-upload and try again."
+    );
+  }
+  if (row.uploaderId !== args.callerId) {
+    throw new Error(
+      "Storage id is not owned by the caller. Re-upload and try again."
+    );
   }
 }
 
@@ -1861,6 +1912,88 @@ export const createWorkspaceImage = mutation({
   },
 });
 
+/**
+ * Records the binding between a freshly uploaded storage blob and
+ * the caller + workspace. The client calls this immediately after
+ * the upload completes and before passing the storage id to
+ * {@link createWorkspaceImageAndMessage} / {@link createWorkspaceFileMessage}.
+ *
+ * The binding is what prevents a workspace participant from passing
+ * an unrelated blob's storage id to the create mutations (Greptile
+ * Security P1). Convex storage does not track the uploader itself,
+ * so we maintain a `fileUploads` ledger row per upload that ties
+ * the storage id to the authenticated user + workspace. The create
+ * mutations refuse to write a chat row whose storage id has no
+ * matching ledger row.
+ *
+ * Auth required. Caller must be a member of the workspace. The
+ * storage id must exist in Convex storage and must not already be
+ * bound (one blob cannot be claimed twice).
+ */
+export const recordFileUpload = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to upload files to this workspace");
+    }
+
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (!metadata) {
+      throw new Error("Uploaded file not found in storage");
+    }
+
+    // PR #B Greptile Security P1 (round 7): reject bindings to
+    // blobs that were not uploaded very recently. The ledger
+    // alone cannot prove ownership (the caller could pass an
+    // unrelated, previously-unbound storage id they discovered
+    // through a chat URL). We bound the attack window by
+    // requiring the blob's storage `_creationTime` to be within
+    // `MAX_BINDING_AGE_MS` of now. The client calls
+    // recordFileUpload immediately after the upload returns, so
+    // a legitimate binding is well under this threshold. Note:
+    // Convex storage metadata exposes `_creationTime`, not
+    // `uploadedAt` — see `ctx.db.system.get("_storage", ...)`.
+    const ageMs = Date.now() - metadata._creationTime;
+    if (ageMs < 0 || ageMs > MAX_BINDING_AGE_MS) {
+      throw new Error(
+        "Storage id cannot be bound: the upload is too old. Re-upload the file and try again."
+      );
+    }
+
+    const existing = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .first();
+    if (existing) {
+      // A second uploader trying to claim the same blob is treated as
+      // a binding conflict: the first claim wins, and the second is
+      // rejected. This is what makes the binding non-replayable.
+      throw new Error("Storage id is already bound to an upload");
+    }
+
+    await ctx.db.insert("fileUploads", {
+      storageId: args.storageId,
+      uploaderId: user.subject,
+      workspaceId: args.workspaceId,
+      uploadedAt: Date.now(),
+    });
+  },
+});
+
 /** Creates an image in a workspace AND a chat message with the image URL. Enforces role-based upload caps. Requires auth. */
 export const createWorkspaceImageAndMessage = mutation({
   args: {
@@ -1921,6 +2054,14 @@ export const createWorkspaceImageAndMessage = mutation({
       throw new Error(`Image is too large. Maximum size is ${MAX_WORKSPACE_FILE_MB}MB.`);
     }
 
+    // PR #B: gate on the upload-binding ledger so a participant
+    // cannot pass an unrelated storage id (Greptile Security P1).
+    await assertFileUploadOwnedByCaller(ctx, {
+      workspaceId: args.workspaceId,
+      storageId: args.storageId as Id<"_storage">,
+      callerId: user.subject,
+    });
+
     const imageId = await ctx.db.insert("workspaceImages", {
       workspaceId: args.workspaceId,
       imageUrl: "",
@@ -1958,6 +2099,10 @@ export const createWorkspaceImageAndMessage = mutation({
       type: "image",
       senderRole,
       sessionId: args.sessionId,
+      // PR #B: trusted source of the storage id used by the
+      // retention cron — see the field comment on
+      // `workspaceMessages.storageId`.
+      storageId: args.storageId as Id<"_storage">,
     });
 
     return imageId;
@@ -2055,6 +2200,88 @@ export const deleteWorkspaceImage = mutation({
 });
 
 /**
+ * Soft-deletes a chat file or image message uploaded via the workspace
+ * chat input. Sets `deletedAt`; the storage blob and row are hard-deleted
+ * by `hardDeleteExpiredChatFiles` after
+ * `CHAT_FILE_RETENTION_DAYS`. The cap check
+ * (`createWorkspaceFileMessage` / `createWorkspaceImageAndMessage`) is
+ * re-evaluated against `countWorkspaceFilesByRole`, which now filters
+ * out soft-deleted messages, so freeing a slot takes effect immediately.
+ *
+ * Auth: admin, the workspace instructor, or the original uploader.
+ * Idempotent: a no-op if the message is already soft-deleted or is not
+ * a `type: "file"` / `"image"` message (we deliberately don't allow
+ * text messages to be "deleted" — those are part of the audit trail
+ * for the mentorship record).
+ */
+export const deleteWorkspaceFileMessage = mutation({
+  args: { id: v.id("workspaceMessages") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const message = await ctx.db.get(args.id);
+    if (!message) return;
+    if (message.type !== "file" && message.type !== "image") {
+      throw new Error("Only file or image messages can be deleted via this mutation.");
+    }
+    if (message.deletedAt !== undefined) return;
+
+    const { role } = await requireCallerWorkspaceRole(ctx, message.workspaceId);
+    const canDelete =
+      role === "admin" ||
+      role === "instructor" ||
+      message.userId === user.subject;
+    if (!canDelete) {
+      throw new Error("Only the uploader, the instructor, or an admin can delete this file.");
+    }
+
+    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+  },
+});
+
+/**
+ * Restores a soft-deleted file/image message within the
+ * {@link CHAT_FILE_RETENTION_MS} grace window. Used by the admin
+ * recovery flow promised by {@link DeleteChatFileDialog}: an admin
+ * can re-open a deleted file before the daily retention cron
+ * hard-deletes the blob.
+ *
+ * Auth: admin only. Backed by the same soft-delete index
+ * (`by_deletedAt`) so the lookup is cheap.
+ *
+ * Idempotent: a no-op when `deletedAt` is already undefined.
+ */
+export const restoreWorkspaceFileMessage = mutation({
+  args: { id: v.id("workspaceMessages") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const existing = await ctx.db.get(args.id);
+    if (!existing) return;
+
+    const { role } = await requireCallerWorkspaceRole(ctx, existing.workspaceId);
+    if (role !== "admin") {
+      throw new Error("Only admins can restore deleted chat files.");
+    }
+
+    if (existing.deletedAt === undefined) return;
+    // PR #B: refuse to clear `deletedAt = -1`, which is the
+    // retention cron's in-flight claim sentinel
+    // (`convex/cleanup/chatFileRetention.ts:CLAIM_SENTINEL`).
+    // Clearing the sentinel would let a restored message outlive
+    // its deleted blob once the action runs `ctx.storage.delete`.
+    if ((existing.deletedAt as number) < 0) return;
+    await ctx.db.patch(args.id, { deletedAt: undefined });
+  },
+});
+
+/**
  * Returns all messages for a workspace in chronological order.
  * Returns an empty array for callers who are not active participants.
  *
@@ -2072,6 +2299,7 @@ export const getWorkspaceMessages = query({
       .query("workspaceMessages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .order("asc")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .collect();
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
@@ -2094,6 +2322,11 @@ export const getWorkspaceMessages = query({
  * Data Egress. The query orders by `_creationTime` descending so the
  * first page is the most recent messages; the UI reverses the
  * concatenated results for chronological display.
+ *
+ * PR #B: filters out soft-deleted messages (`deletedAt !== undefined`)
+ * after pagination. The filter may cause a page to have slightly fewer
+ * rows than `paginationOpts.numItems` requested when the page boundary
+ * crosses a soft-deleted message; the next page is unaffected.
  */
 export const getWorkspaceMessagesPaginated = query({
   args: {
@@ -2105,19 +2338,29 @@ export const getWorkspaceMessagesPaginated = query({
     if (!result) {
       return { page: [], continueCursor: "", isDone: true };
     }
-    const messages = await ctx.db
+    // PR #B: filter out soft-deleted messages in the index lookup
+    // itself (Greptile P2: "Filtering creates empty history pages").
+    // The new `by_workspaceId_deletedAt` index lets us scope to
+    // `deletedAt = undefined` so a page of all-deleted rows
+    // does not appear empty to the caller. Convex indexes missing
+    // fields as a sentinel value; the `q.eq("deletedAt", undefined)`
+    // here intentionally targets only rows whose `deletedAt` field
+    // is absent (i.e. live, undeleted messages).
+    const paginated = await ctx.db
       .query("workspaceMessages")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspaceId_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
       .order("desc")
       .paginate(args.paginationOpts);
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       result.workspace,
-      messages.page.map((message) => ({ userId: message.userId, role: message.senderRole }))
+      paginated.page.map((message) => ({ userId: message.userId, role: message.senderRole }))
     );
     return {
-      ...messages,
-      page: messages.page.map((message) => ({
+      ...paginated,
+      page: paginated.page.map((message) => ({
         ...message,
         authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
       })),
@@ -2260,6 +2503,14 @@ export const createWorkspaceFileMessage = mutation({
       throw new Error(`File is too large. Maximum size is ${MAX_WORKSPACE_FILE_MB}MB.`);
     }
 
+    // PR #B: gate on the upload-binding ledger so a participant
+    // cannot pass an unrelated storage id (Greptile Security P1).
+    await assertFileUploadOwnedByCaller(ctx, {
+      workspaceId: args.workspaceId,
+      storageId: args.storageId,
+      callerId: user.subject,
+    });
+
     if (role !== "admin") {
       const currentCount = await countWorkspaceFilesByRole(ctx, args.workspaceId, role);
       const cap = WORKSPACE_FILE_CAPS[role];
@@ -2280,6 +2531,10 @@ export const createWorkspaceFileMessage = mutation({
       type: "file",
       senderRole: role,
       sessionId: args.sessionId,
+      // PR #B: trusted source of the storage id used by the
+      // retention cron — see the field comment on
+      // `workspaceMessages.storageId`.
+      storageId: args.storageId,
     });
 
     if (role === "admin") {

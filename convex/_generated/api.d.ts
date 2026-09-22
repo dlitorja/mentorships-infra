@@ -23,6 +23,7 @@ import type * as audit_videoRoomNameAudit from "../audit/videoRoomNameAudit.js";
 import type * as auditLog from "../auditLog.js";
 import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
+import type * as cleanup_chatFileRetention from "../cleanup/chatFileRetention.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
@@ -92,6 +93,7 @@ declare const fullApi: ApiFromModules<{
   auditLog: typeof auditLog;
   bookings: typeof bookings;
   cleanup: typeof cleanup;
+  "cleanup/chatFileRetention": typeof cleanup_chatFileRetention;
   clerkDeletion: typeof clerkDeletion;
   contacts: typeof contacts;
   crons: typeof crons;

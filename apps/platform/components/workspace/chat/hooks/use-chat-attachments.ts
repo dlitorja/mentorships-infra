@@ -27,6 +27,14 @@ interface UseChatAttachmentsOptions {
   createImageAndMessage: ReturnType<typeof import('@/lib/queries/convex/use-workspaces').useCreateWorkspaceImageAndMessage>;
   createFileMessage: ReturnType<typeof import('@/lib/queries/convex/use-workspaces').useCreateWorkspaceFileMessage>;
   generateUploadUrl: (...args: any[]) => Promise<string>;
+  // PR #B: binds the freshly uploaded storage id to the caller in
+  // the `fileUploads` ledger so the create mutations can verify the
+  // caller actually uploaded the blob (Greptile Security P1).
+  // Required here because the chat retention cron will delete the
+  // blob; non-chat upload paths pass `undefined`.
+  recordFileUpload?: (
+    args: { workspaceId: Id<'workspaces'>; storageId: Id<'_storage'> }
+  ) => Promise<unknown>;
 }
 
 export function useChatAttachments({
@@ -40,6 +48,7 @@ export function useChatAttachments({
   createImageAndMessage,
   createFileMessage,
   generateUploadUrl,
+  recordFileUpload,
 }: UseChatAttachmentsOptions) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -141,8 +150,8 @@ export function useChatAttachments({
 
   const uploadAttachment = async (attachment: PendingAttachment): Promise<PendingAttachment | null> => {
     const uploadResult = attachment.isImage
-      ? await uploadImageForChat(workspaceId, attachment.file, generateUploadUrl)
-      : await uploadFileForChat(workspaceId, attachment.file, generateUploadUrl);
+      ? await uploadImageForChat(workspaceId, attachment.file, generateUploadUrl, recordFileUpload)
+      : await uploadFileForChat(workspaceId, attachment.file, generateUploadUrl, recordFileUpload);
 
     if (!uploadResult.success) {
       return {

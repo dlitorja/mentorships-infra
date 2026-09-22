@@ -105,7 +105,15 @@ export async function uploadSingleImage(
 export async function uploadImageForChat(
   workspaceId: Id<'workspaces'>,
   file: File,
-  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>
+  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>,
+  // PR #B: binds the storage id to the caller + workspace in the
+  // `fileUploads` ledger so the chat create mutations
+  // (`createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`)
+  // can verify the caller actually uploaded the blob (Greptile
+  // Security P1). Required only on the chat path because the chat
+  // retention cron will delete the blob; non-chat callers (gallery
+  // images, note attachments, resources) don't need the binding.
+  recordFileUpload?: (args: { workspaceId: Id<'workspaces'>; storageId: Id<'_storage'> }) => Promise<unknown>
 ): Promise<UploadResponse> {
   try {
     const uploadUrl = await generateUploadUrl({ workspaceId });
@@ -119,7 +127,20 @@ export async function uploadImageForChat(
       return { success: false, error: 'Upload failed' };
     }
 
-    const { storageId } = await response.json();
+    const { storageId } = (await response.json()) as { storageId: Id<'_storage'> };
+    if (recordFileUpload) {
+      try {
+        await recordFileUpload({ workspaceId, storageId });
+      } catch (bindErr) {
+        return {
+          success: false,
+          error:
+            bindErr instanceof Error
+              ? bindErr.message
+              : 'Failed to record upload binding',
+        };
+      }
+    }
     return { success: true, storageId };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
@@ -133,7 +154,9 @@ export async function uploadImageForChat(
 export async function uploadFileForChat(
   workspaceId: Id<'workspaces'>,
   file: File,
-  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>
+  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>,
+  // PR #B: see `uploadImageForChat` for rationale.
+  recordFileUpload?: (args: { workspaceId: Id<'workspaces'>; storageId: Id<'_storage'> }) => Promise<unknown>
 ): Promise<UploadResponse> {
   try {
     const uploadUrl = await generateUploadUrl({ workspaceId });
@@ -147,7 +170,20 @@ export async function uploadFileForChat(
       return { success: false, error: 'Upload failed' };
     }
 
-    const { storageId } = await response.json();
+    const { storageId } = (await response.json()) as { storageId: Id<'_storage'> };
+    if (recordFileUpload) {
+      try {
+        await recordFileUpload({ workspaceId, storageId });
+      } catch (bindErr) {
+        return {
+          success: false,
+          error:
+            bindErr instanceof Error
+              ? bindErr.message
+              : 'Failed to record upload binding',
+        };
+      }
+    }
     return { success: true, storageId };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };

@@ -59,6 +59,14 @@ export interface DownloadError extends Error {
 export interface ChatMessageListProps {
   messages: MessageList;
   currentUserId: string;
+  /**
+   * Caller's role in the workspace. Required (PR #B round 7
+   * Greptile P1: make the prop required so the privileged
+   * delete affordance cannot silently fall back to the uploader
+   * comparison alone). Admin and instructor can delete any chat
+   * file/image message; students can delete only their own.
+   */
+  role: UserRole;
   activeSessionId: Id<'sessions'> | null;
   workspaceId: Id<'workspaces'>;
   paginationStatus: import('@/components/workspace/chat-data-context').ChatPaginationStatus | undefined;
@@ -70,7 +78,13 @@ export interface ChatMessageListProps {
   failedInlineImages: Set<Id<'workspaceMessages'>>;
   setFailedInlineImages: React.Dispatch<React.SetStateAction<Set<Id<'workspaceMessages'>>>>;
   onOpenLightbox: (messageId: Id<'workspaceMessages'>) => void;
-  onDownloadFile: (url: string, fileName: string) => void;
+  // PR #B: returns `Promise<void>` so `DeleteChatFileDialog`'s
+  // "Download then delete" branch can detect hard failure
+  // (network error, non-200, timeout, abort, fallback to
+  // "open in new tab") and skip the deletion. `ChatMessageList`'s
+  // inline download button swallows the rejection because
+  // `downloadFile` already surfaces the failure via toast.
+  onDownloadFile: (url: string, fileName: string) => Promise<void>;
 }
 
 export interface ChatInputBarProps {

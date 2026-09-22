@@ -467,7 +467,11 @@ export default defineSchema({
     sessionId: v.optional(v.id("sessions")),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
-    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
+    // PR #B: lets the chat-file retention cron detect when the blob is
+    // still referenced by the gallery row that was inserted alongside
+    // the chat message in `createWorkspaceImageAndMessage`.
+    .index("by_storageId", ["storageId"]),
 
   instructorResources: defineTable({
     instructorId: v.id("instructors"),
@@ -489,7 +493,10 @@ export default defineSchema({
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"])
-    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
+    // PR #B: lets the chat-file retention cron detect when the blob is
+    // still referenced by a non-deleted resource row.
+    .index("by_storageId", ["storageId"]),
 
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),
@@ -502,13 +509,62 @@ export default defineSchema({
     // this replaces Daily's in-call chat. The Conversations subpanel
     // for the live call can be filtered through `by_workspaceId_sessionId`.
     sessionId: v.optional(v.id("sessions")),
+    // PR #B: explicit storage id written by trusted
+    // `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
+    // mutations. The retention cron reads this field directly
+    // instead of parsing the storage URL out of `content` so a
+    // workspace participant who calls the public
+    // `createWorkspaceMessage` mutation with arbitrary
+    // `content` + `type: "file"|"image"` cannot trick the cron
+    // into deleting an unrelated storage blob (Greptile Security
+    // P1). Optional so pre-#B rows remain valid; the cron falls
+    // back to parsing `content` only when this field is undefined,
+    // which is the pre-#B invariant.
+    storageId: v.optional(v.id("_storage")),
+    // Soft-delete timestamp. When set, the message (and its underlying
+    // Convex storage blob for `type: "file"` / `"image"`) is hidden from
+    // queries. A daily cron (`hardDeleteExpiredChatFiles` in
+    // `convex/cleanup/chatFileRetention.ts`) hard-deletes the storage
+    // blob and the row once `deletedAt` is older than
+    // `CHAT_FILE_RETENTION_DAYS` (30 days).
+    deletedAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     // PR #convex-egress-1: bounded index for counting file messages by role
     // without scanning the entire chat history.
-    .index("by_workspaceId_type_senderRole", ["workspaceId", "type", "senderRole"]),
+    .index("by_workspaceId_type_senderRole", ["workspaceId", "type", "senderRole"])
+    // PR #B: filter out soft-deleted messages directly in the
+    // paginated chat-history query so a page of all-deleted rows
+    // does not return an empty visible page to the client
+    // (Greptile P2: "Filtering creates empty history pages").
+    // `q.eq("deletedAt", undefined)` matches rows whose field is
+    // absent (Convex treats `undefined` as "field not present" and
+    // indexes it as null in this index).
+    .index("by_workspaceId_deletedAt", ["workspaceId", "deletedAt"])
+    // PR #B chat-file retention: locate soft-deleted messages past their
+    // retention window without scanning the entire table.
+    .index("by_deletedAt", ["deletedAt"]),
+
+  // PR #B upload-binding ledger: every storage blob that is referenced
+  // by `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
+  // must have a row here that ties it to the caller and the workspace.
+  // The client records the binding via `recordFileUpload` immediately
+  // after the upload completes; the create mutations verify the row
+  // before writing the chat message (Greptile Security P1 — without
+  // this, a workspace participant could pass someone else's storage
+  // id and cause the retention cron to delete that unrelated blob
+  // after the 30-day window). One row per upload (rejected on a
+  // duplicate `storageId` so a single blob cannot be claimed twice).
+  fileUploads: defineTable({
+    storageId: v.id("_storage"),
+    uploaderId: v.string(),
+    workspaceId: v.id("workspaces"),
+    uploadedAt: v.number(),
+  })
+    .index("by_storageId", ["storageId"])
+    .index("by_workspaceId", ["workspaceId"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

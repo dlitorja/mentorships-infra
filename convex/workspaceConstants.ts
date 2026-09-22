@@ -24,3 +24,28 @@ export const PER_UPLOAD_CAP = 5;
 
 export const MAX_CHAT_FILE_BYTES = 500 * 1024 * 1024;
 export const LARGE_CHAT_FILE_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Days to retain soft-deleted chat file/image messages before the
+ * retention cron (`hardDeleteExpiredChatFiles` in
+ * `convex/cleanup/chatFileRetention.ts`) hard-deletes the underlying
+ * Convex storage blob and the message row. Matches the workspace
+ * retention-warning banner cadence (PR #convex-egress-2).
+ */
+export const CHAT_FILE_RETENTION_DAYS = 30;
+export const CHAT_FILE_RETENTION_MS = CHAT_FILE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+/**
+ * PR #B upload-binding freshness window. `recordFileUpload` rejects
+ * storage ids whose underlying blob was uploaded more than this many
+ * milliseconds ago. Convex does not track the uploader in storage
+ * metadata, so without this window a participant could pass an
+ * unrelated storage id they discovered through a chat URL and bind
+ * it to themselves via `recordFileUpload`, then have the retention
+ * cron delete the unrelated blob (Greptile Security P1).
+ *
+ * 5 minutes is a generous window for the legitimate client flow
+ * (upload -> response -> recordFileUpload); anything longer means
+ * the storage id was created in a previous session and the binding
+ * is suspicious.
+ */
+export const MAX_BINDING_AGE_MS = 5 * 60 * 1000;
