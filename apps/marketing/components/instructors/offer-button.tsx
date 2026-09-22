@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@mentorships/ui";
+import { api } from "@/convex/_generated/api";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -24,16 +28,36 @@ interface OfferButtonProps {
 export function OfferButton({ kind, label, url, inventory, instructorSlug }: OfferButtonProps) {
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const widgetRef = useRef<TurnstileWidgetHandle>(null);
 
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
 
+  const turnstileEnforcedQuery = useQuery({
+    ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
+  });
+  const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;
+  const turnstileEnforced = turnstileEnforcedQuery.data === true;
+  const turnstileConfigError = turnstileEnforcedQuery.isError;
+  const turnstileUnavailable =
+    turnstileConfigError ||
+    (turnstileConfigKnown && turnstileEnforced && !turnstileSitekey);
+
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
+    if (turnstileEnforced && !turnstileToken) {
+      toast.error("Please complete the CAPTCHA before submitting.");
+      return;
+    }
     try {
       const result = await addToWaitlistMutation.mutateAsync({
         email: data.email,
         instructorSlug,
         mentorshipType: kind === "oneOnOne" ? "oneOnOne" : "group",
+        ...(turnstileEnforced && turnstileToken
+          ? { turnstileToken }
+          : {}),
       });
 
       if (result.existingId) {
@@ -50,6 +74,8 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
           ? "You've submitted too many requests. Please try again later."
           : "Failed to join waitlist. Please try again.";
       toast.error(message);
+    } finally {
+      widgetRef.current?.reset();
     }
   }
 
@@ -121,7 +147,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                     className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-white"
                     disabled={form.state.isSubmitting}
                   />
-                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || turnstileUnavailable || !turnstileConfigKnown || (turnstileEnforced && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {(form.state.isSubmitting || addToWaitlistMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -131,6 +157,30 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                 </div>
               )}
             </FormField>
+            {turnstileEnforced && turnstileSitekey ? (
+              <TurnstileWidget
+                ref={widgetRef}
+                sitekey={turnstileSitekey}
+                action="waitlist_signup"
+                onTokenChange={setTurnstileToken}
+              />
+            ) : turnstileConfigError ? (
+              <p className="text-xs text-destructive" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: could not reach
+                the verification server.)
+              </p>
+            ) : !turnstileConfigKnown ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Verifying CAPTCHA requirements…
+              </p>
+            ) : turnstileEnforced && !turnstileSitekey ? (
+              <p className="text-xs text-destructive" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: server enforces
+                Turnstile but NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set in this deployment.)
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               We&apos;ll notify you when this mentorship becomes available.
             </p>

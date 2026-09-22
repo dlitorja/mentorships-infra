@@ -1,50 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient, getAuthenticatedConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { auth } from "@clerk/nextjs/server";
 import { getClerkUserEmail } from "@/lib/auth-helpers";
 import { isUnauthorizedError } from "@/lib/errors";
-
-const postSchema = z.object({
-  email: z.string().email().transform((e) => e.trim().toLowerCase()),
-  instructorSlug: z.string().optional(),
-  type: z.enum(["one-on-one", "group"]).optional(),
-});
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  try {
-    const body = await req.json();
-    const parsed = postSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
-    }
-
-    const { email, instructorSlug, type } = parsed.data;
-    const convex = getConvexClient();
-
-    const mentorshipType = type === "one-on-one" ? "oneOnOne" : type === "group" ? "group" : "oneOnOne";
-    const slug = instructorSlug && instructorSlug.trim() ? instructorSlug.trim() : "general";
-
-    // Use Convex waitlist mutation
-    await convex.mutation(api.waitlist.addToWaitlist as any, {
-      email,
-      instructorSlug: slug,
-      mentorshipType,
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Waitlist POST error:", error);
-    return NextResponse.json({ error: "Failed to join waitlist" }, { status: 500 });
-  }
-}
 
 // Check waitlist status for the authenticated user's email + instructorSlug.
 // Requires authentication to prevent arbitrary email lookup. Uses an
 // authenticated Convex client so the server-side identity check in
 // getWaitlistStatus (admin OR matching own email) succeeds; a bare
 // ConvexHttpClient would always read identity=null and return false.
+//
+// Note: there is no POST handler on this route. PR #861 made
+// `waitlist.addToWaitlist` an internal Convex mutation, so the only public
+// write path is `waitlist.actionAddToWaitlist` (which runs Turnstile
+// siteverify before the internal mutation). The platform /waitlist page
+// calls the action directly via the `useAddToWaitlist` hook; the legacy
+// Supabase-backed POST handler at apps/web/app/api/waitlist/route.ts is the
+// historical dual-write and is separate from this route.
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { userId } = await auth();

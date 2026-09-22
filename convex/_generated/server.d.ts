@@ -35,6 +35,8 @@ type Env = {
   readonly EMAIL_FROM_TRANSACTIONAL: string | undefined;
   readonly RESEND_API_KEY: string | undefined;
   readonly RESEND_WEBHOOK_SECRET: string | undefined;
+  readonly TURNSTILE_ALLOWED_HOSTNAMES: string | undefined;
+  readonly TURNSTILE_SECRET_KEY: string | undefined;
 };
 
 /**

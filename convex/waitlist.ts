@@ -1,10 +1,18 @@
-import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import {
+  query,
+  mutation,
+  action,
+  internalMutation,
+  internalQuery,
+  env,
+} from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { RateLimiter, HOUR } from "@convex-dev/rate-limiter";
 import { components } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const rateLimiter = new RateLimiter(components.rateLimiter, {
   marketingWaitlistJoin: {
@@ -167,8 +175,38 @@ export const getWaitlistStatus = query({
   },
 });
 
-/** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple. */
-export const addToWaitlist = mutation({
+/** Public query: returns `true` if `TURNSTILE_SECRET_KEY` is configured on the
+ * server, indicating that `actionAddToWaitlist` will require a verified
+ * Cloudflare Turnstile token. Clients call this to decide whether to render
+ * the Turnstile widget in the waitlist form. Returning the server-side
+ * config avoids the client/server deployment desync where the Convex
+ * secret is set but the marketing sitekey is not (or vice versa), which
+ * would otherwise silently fail every legitimate submission.
+ */
+export const isTurnstileEnforced = query({
+  args: {},
+  handler: async () => {
+    return Boolean(env.TURNSTILE_SECRET_KEY);
+  },
+});
+
+/** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple.
+ *
+ * Internal mutation. The only legitimate caller is `actionAddToWaitlist`, which
+ * runs this after a successful Cloudflare Turnstile siteverify (or after
+ * confirming the caller is an authenticated Clerk identity). Marketing client
+ * callers MUST go through `actionAddToWaitlist` — the public mutation is gone
+ * to close the unauthenticated-bypass concern flagged by Greptile on PR #861.
+ *
+ * Internalising this mutation means:
+ *   - The Convex HTTP / WebSocket client can no longer call it directly. A bare
+ *     `convex.mutation(api.waitlist.addToWaitlist, ...)` from a browser or curl
+ *     will fail at the protocol layer, not just at the rate-limit layer.
+ *   - Server-side actions / crons / HTTP endpoints that need to insert waitlist
+ *     rows from trusted contexts (admin tooling, migrations) call it via
+ *     `ctx.runMutation(internal.waitlist.addToWaitlist, ...)`.
+ */
+export const addToWaitlist = internalMutation({
   args: {
     email: v.string(),
     instructorSlug: v.string(),
@@ -216,6 +254,151 @@ export const addToWaitlist = mutation({
       createdAt: Date.now(),
     });
     return { success: true, message: "Added to waitlist", id };
+  },
+});
+
+const TURNSTILE_ACTION = "waitlist_signup";
+
+function hostnameMatches(hostname: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1);
+      if (hostname.endsWith(suffix) && hostname.length > suffix.length) {
+        return true;
+      }
+    } else if (hostname === pattern) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Public action: siteverify a Turnstile token, then run `addToWaitlist`.
+ *
+ * Unauthenticated callers (e.g. the marketing app's student-facing waitlist
+ * form) MUST go through this action rather than calling `addToWaitlist`
+ * directly: a bare mutation has no caller-bound CAPTCHA proof, so a single
+ * attacker could rotate `email` to flood `marketingWaitlist`. The Turnstile
+ * token proves a real browser solved a CAPTCHA, which bounds writes to
+ * solvable CAPTCHAs per attacker.
+ *
+ * Action verification checks (any failure throws ConvexError):
+ *   1. If `TURNSTILE_SECRET_KEY` is configured and the caller is unauthenticated,
+ *      `turnstileToken` is present and siteverify returns `success: true`.
+ *      Authenticated callers are exempt from siteverify (no CAPTCHA in the
+ *      admin dashboard) but MUST submit `args.email === identity.email` —
+ *      see the in-handler comment for the rationale.
+ *      If the secret is unset (dev mode), the check is skipped so local
+ *      development without a widget sitekey still works.
+ *   2. siteverify `action` equals `waitlist_signup` (defends against
+ *      cross-action token reuse — a token minted for a different action
+ *      can't pass).
+ *   3. siteverify `hostname` matches `TURNSTILE_ALLOWED_HOSTNAMES`
+ *      (default: localhost,127.0.0.1,*.huckleberry.art). Cloudflare's
+ *      siteverify returns the host the visitor solved the CAPTCHA from,
+ *      so an attacker minting a token on `attacker.example` can't replay
+ *      it against our endpoints.
+ *
+ * The per-(email, slug) and global rate-limiter buckets in `addToWaitlist`
+ * stay as defense in depth — Turnstile tokens are one-time but a single
+ * CAPTCHA can still be solved and replayed across many distinct emails
+ * before the bucket expires.
+ */
+export const actionAddToWaitlist = action({
+  args: {
+    email: v.string(),
+    instructorSlug: v.string(),
+    mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
+    turnstileToken: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const secret = env.TURNSTILE_SECRET_KEY;
+    const identity = await ctx.auth.getUserIdentity();
+    const isAuthenticated = !!identity;
+
+    // When authenticated, require the submitted email to match the
+    // authenticated Clerk identity's email. This closes the
+    // CAPTCHA-bypass-via-account-creation attack that PR #861
+    // commit `bc8bc556` introduced: previously any logged-in user
+    // could submit an arbitrary email to the waitlist without
+    // solving a Turnstile CAPTCHA. By binding the submitted email
+    // to the caller's verified Clerk identity, the only way to
+    // submit waitlist rows without a CAPTCHA is to submit rows
+    // for one's own email — which is what the action was
+    // designed to support (logged-in students using the same
+    // email they registered with).
+    if (isAuthenticated) {
+      const identityEmail = (identity.email ?? "").toLowerCase();
+      if (!identityEmail || identityEmail !== args.email.toLowerCase()) {
+        throw new ConvexError(
+          "Authenticated callers must submit waitlist rows under their own verified email."
+        );
+      }
+    }
+
+    if (secret && !isAuthenticated) {
+      if (!args.turnstileToken) {
+        throw new ConvexError("Turnstile token required");
+      }
+
+      const formData = new FormData();
+      formData.append("secret", secret);
+      formData.append("response", args.turnstileToken);
+
+      const verifyRes = await fetch(
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!verifyRes.ok) {
+        throw new ConvexError("Turnstile verification request failed");
+      }
+
+      const result = (await verifyRes.json()) as {
+        success: boolean;
+        action?: string;
+        hostname?: string;
+        "error-codes"?: string[];
+      };
+
+      if (!result.success) {
+        throw new ConvexError(
+          `Turnstile rejected: ${result["error-codes"]?.join(",") ?? "unknown"}`
+        );
+      }
+
+      if (result.action !== TURNSTILE_ACTION) {
+        throw new ConvexError("Turnstile action mismatch");
+      }
+
+      const allowedHostnames = (
+        env.TURNSTILE_ALLOWED_HOSTNAMES ??
+        "localhost,127.0.0.1,*.huckleberry.art,artwithneil.com,*.artwithneil.com"
+      )
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+
+      if (!result.hostname || !hostnameMatches(result.hostname, allowedHostnames)) {
+        throw new ConvexError("Turnstile hostname not allowed");
+      }
+    }
+
+    const result_add: {
+      success: boolean;
+      message: string;
+      existingId?: Id<"marketingWaitlist">;
+      id?: Id<"marketingWaitlist">;
+    } = await ctx.runMutation(internal.waitlist.addToWaitlist, {
+      email: args.email,
+      instructorSlug: args.instructorSlug,
+      mentorshipType: args.mentorshipType,
+    });
+
+    return result_add;
   },
 });
 

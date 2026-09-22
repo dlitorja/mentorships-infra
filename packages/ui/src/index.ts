@@ -16,6 +16,10 @@ export {
 } from "./components/ui/dialog";
 export { ImageUploadField, type ImageUploadFieldProps } from "./components/image-upload-field";
 export { CropDialog } from "./components/crop-dialog";
+export {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "./components/turnstile-widget";
 export { shuffle } from "./lib/utils/shuffle";
 export { cn } from "./lib/utils";
 export {
