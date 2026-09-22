@@ -283,10 +283,13 @@ function hostnameMatches(hostname: string, patterns: string[]): boolean {
  * solvable CAPTCHAs per attacker.
  *
  * Action verification checks (any failure throws ConvexError):
- *   1. If `TURNSTILE_SECRET_KEY` is configured, `turnstileToken` is present
- *      and siteverify returns `success: true`. If the secret is unset (dev
- *      mode), the check is skipped so local development without a widget
- *      sitekey still works.
+ *   1. If `TURNSTILE_SECRET_KEY` is configured and the caller is unauthenticated,
+ *      `turnstileToken` is present and siteverify returns `success: true`.
+ *      Authenticated callers are exempt from siteverify (no CAPTCHA in the
+ *      admin dashboard) but MUST submit `args.email === identity.email` —
+ *      see the in-handler comment for the rationale.
+ *      If the secret is unset (dev mode), the check is skipped so local
+ *      development without a widget sitekey still works.
  *   2. siteverify `action` equals `waitlist_signup` (defends against
  *      cross-action token reuse — a token minted for a different action
  *      can't pass).
@@ -312,6 +315,27 @@ export const actionAddToWaitlist = action({
     const secret = env.TURNSTILE_SECRET_KEY;
     const identity = await ctx.auth.getUserIdentity();
     const isAuthenticated = !!identity;
+
+    // When authenticated, require the submitted email to match the
+    // authenticated Clerk identity's email. This closes the
+    // CAPTCHA-bypass-via-account-creation attack that PR #861
+    // commit `bc8bc556` introduced: previously any logged-in user
+    // could submit an arbitrary email to the waitlist without
+    // solving a Turnstile CAPTCHA. By binding the submitted email
+    // to the caller's verified Clerk identity, the only way to
+    // submit waitlist rows without a CAPTCHA is to submit rows
+    // for one's own email — which is what the action was
+    // designed to support (logged-in students using the same
+    // email they registered with).
+    if (isAuthenticated) {
+      const identityEmail = (identity.email ?? "").toLowerCase();
+      if (!identityEmail || identityEmail !== args.email.toLowerCase()) {
+        throw new ConvexError(
+          "Authenticated callers must submit waitlist rows under their own verified email."
+        );
+      }
+    }
+
     if (secret && !isAuthenticated) {
       if (!args.turnstileToken) {
         throw new ConvexError("Turnstile token required");
