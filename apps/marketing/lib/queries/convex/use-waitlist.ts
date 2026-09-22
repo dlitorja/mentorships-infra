@@ -39,23 +39,14 @@ export type AddToWaitlistResult = {
  * `<ConvexClientProvider>` returns a bare fragment in the
  * `skipClerk` build branch, so during static generation
  * `useConvex()` returns `undefined` here and the `if (!convex)`
- * guard short-circuits the mutation at runtime. We additionally
- * wrap `useConvex()` in a defensive try/catch so that if a
- * future convex-react release ever changes `useConvex()` to throw
- * in the no-provider case, this hook still degrades to a runtime
- * error instead of crashing the static build. Verified locally:
+ * guard short-circuits the mutation at runtime. Verified locally:
  * `pnpm build` with `NEXT_PUBLIC_CONVEX_URL=""` produces a
  * successful static export of `/instructors/[slug]` and
  * `/instructors/[slug]/courses`.
  */
 export function useAddToWaitlist() {
   const queryClient = useQueryClient();
-  let convex: ReturnType<typeof useConvex> | undefined;
-  try {
-    convex = useConvex();
-  } catch {
-    convex = undefined;
-  }
+  const convex = useConvex();
 
   return useMutation<AddToWaitlistResult, Error, AddToWaitlistVariables>({
     mutationFn: async (variables) => {

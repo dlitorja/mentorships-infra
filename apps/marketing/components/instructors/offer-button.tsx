@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useConvex } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Button } from "@/components/ui/button";
@@ -35,15 +34,8 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
 
-  let convex: ReturnType<typeof useConvex> | undefined;
-  try {
-    convex = useConvex();
-  } catch {
-    convex = undefined;
-  }
   const turnstileEnforcedQuery = useQuery({
     ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
-    enabled: !!convex,
   });
   const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;

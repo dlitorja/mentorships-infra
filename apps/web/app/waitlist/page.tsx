@@ -4,7 +4,6 @@ import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { useConvex } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,15 +38,8 @@ function WaitlistContent(): React.JSX.Element {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const widgetRef = useRef<TurnstileWidgetHandle>(null);
 
-  let convex: ReturnType<typeof useConvex> | undefined;
-  try {
-    convex = useConvex();
-  } catch {
-    convex = undefined;
-  }
   const turnstileEnforcedQuery = useQuery({
     ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
-    enabled: !!convex,
   });
   const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;

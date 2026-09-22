@@ -4,7 +4,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { useConvex } from "convex/react";
 import { z } from "zod";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "@mentorships/ui";
@@ -39,15 +38,8 @@ function WaitlistContent() {
 
   const addToWaitlistMutation = useAddToWaitlist();
 
-  let convex: ReturnType<typeof useConvex> | undefined;
-  try {
-    convex = useConvex();
-  } catch {
-    convex = undefined;
-  }
   const turnstileEnforcedQuery = useQuery({
     ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
-    enabled: !!convex,
   });
   const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
   const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;
