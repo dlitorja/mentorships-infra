@@ -46,7 +46,12 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
     enabled: !!convex,
   });
   const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileConfigKnown = turnstileEnforcedQuery.isSuccess;
   const turnstileEnforced = turnstileEnforcedQuery.data === true;
+  const turnstileConfigError = turnstileEnforcedQuery.isError;
+  const turnstileUnavailable =
+    turnstileConfigError ||
+    (turnstileConfigKnown && turnstileEnforced && !turnstileSitekey);
 
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
     if (turnstileEnforced && !turnstileToken) {
@@ -150,7 +155,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                     className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-white"
                     disabled={form.state.isSubmitting}
                   />
-                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || (turnstileEnforced && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || turnstileUnavailable || !turnstileConfigKnown || (turnstileEnforced && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {(form.state.isSubmitting || addToWaitlistMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -167,6 +172,16 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                 action="waitlist_signup"
                 onTokenChange={setTurnstileToken}
               />
+            ) : turnstileConfigError ? (
+              <p className="text-xs text-destructive" role="alert">
+                CAPTCHA service unavailable. The waitlist form is temporarily disabled —
+                please try again in a few minutes. (Configuration error: could not reach
+                the verification server.)
+              </p>
+            ) : !turnstileConfigKnown ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Verifying CAPTCHA requirements…
+              </p>
             ) : turnstileEnforced && !turnstileSitekey ? (
               <p className="text-xs text-destructive" role="alert">
                 CAPTCHA service unavailable. The waitlist form is temporarily disabled —
