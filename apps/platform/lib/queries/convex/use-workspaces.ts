@@ -459,6 +459,23 @@ export function useDeleteWorkspaceImage() {
 }
 
 /**
+ * Mutation hook for soft-deleting a chat file/image message in a
+ * workspace. The chat subscription is reactive, so the message
+ * disappears immediately. The Convex storage blob is hard-deleted
+ * 30 days later by `hardDeleteExpiredChatFiles` in
+ * `convex/cleanup/chatFileRetention.ts` (PR #B).
+ *
+ * Auth: admin, instructor, or the original uploader — enforced
+ * server-side; the UI hides the button for callers who don't have
+ * permission.
+ */
+export function useDeleteWorkspaceFileMessage() {
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceFileMessage),
+  });
+}
+
+/**
  * Mutation hook for creating an image AND a chat message in one call.
  * Used for uploading images directly to chat.
  *
@@ -486,6 +503,22 @@ export function useCreateWorkspaceImageAndMessage() {
 export function useCreateWorkspaceFileMessage() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceFileMessage),
+  });
+}
+
+/**
+ * PR #B: records the binding between a freshly uploaded storage
+ * blob and the caller + workspace in the `fileUploads` ledger.
+ * The chat upload flow calls this after the upload completes and
+ * before `createWorkspaceImageAndMessage` /
+ * `createWorkspaceFileMessage`, which verify the binding exists
+ * (Greptile Security P1 — without the ledger, a participant
+ * could pass someone else's storage id to the create mutations
+ * and cause the retention cron to delete that unrelated blob).
+ */
+export function useRecordFileUpload() {
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.recordFileUpload),
   });
 }
 

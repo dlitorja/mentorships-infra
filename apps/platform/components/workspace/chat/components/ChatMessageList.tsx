@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, Download } from 'lucide-react';
+import { Loader2, FileText, Download, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Id } from '@/convex/_generated/dataModel';
 import { ShareLinkButton } from './ShareLinkButton';
+import { DeleteChatFileDialog } from './DeleteChatFileDialog';
 import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls } from '../utils';
 import type { ChatMessageListProps, MessageList } from '../types';
 
@@ -32,6 +33,7 @@ function useFailedImageCleanup(
 export function ChatMessageList({
   messages,
   currentUserId,
+  role,
   activeSessionId,
   paginationStatus,
   onLoadMore,
@@ -49,6 +51,21 @@ export function ChatMessageList({
   setFailedInlineImages: React.Dispatch<React.SetStateAction<Set<Id<'workspaceMessages'>>>>;
 }) {
   useFailedImageCleanup(messages, setFailedInlineImages);
+
+  // PR #B: per-message delete state for chat file/image messages.
+  // Single dialog instance; the parent message bubble sets the
+  // pending target via setPendingDelete before opening.
+  const [pendingDelete, setPendingDelete] = useState<{
+    messageId: Id<'workspaceMessages'>;
+    fileName: string;
+    fileUrl: string;
+  } | null>(null);
+
+  const canDeleteMessage = (msg: MessageList[number]): boolean => {
+    if (msg.type !== 'file' && msg.type !== 'image') return false;
+    if (role === 'admin' || role === 'instructor') return true;
+    return msg.userId === currentUserId;
+  };
 
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
@@ -127,21 +144,52 @@ export function ChatMessageList({
                       <div className="flex items-center gap-2">
                         <p className="min-w-0 flex-1 truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
                         {fileImageMessage && (
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
-                            className="h-6 w-6 shrink-0"
-                            onClick={() => void onDownloadFile(fileImageMessage.url, fileImageMessage.fileName)}
-                            disabled={isFileImageDownloading}
-                            aria-label={`Download ${fileImageMessage.fileName}`}
-                          >
-                            {isFileImageDownloading ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Download className="h-3 w-3" />
+                          <>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                              className="h-6 w-6 shrink-0"
+                              onClick={() => {
+                                // `downloadFile` now throws on hard
+                                // failure (network error, non-200,
+                                // timeout, abort, fallback) and
+                                // surfaces the failure via toast
+                                // before throwing. The dialog needs
+                                // the rejection so it can skip the
+                                // delete; the inline download button
+                                // only needs the toast, so swallow
+                                // the rejection here to avoid an
+                                // unhandled promise rejection in the
+                                // console.
+                                onDownloadFile(fileImageMessage.url, fileImageMessage.fileName).catch(() => {});
+                              }}
+                              disabled={isFileImageDownloading}
+                              aria-label={`Download ${fileImageMessage.fileName}`}
+                            >
+                              {isFileImageDownloading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Download className="h-3 w-3" />
+                              )}
+                            </Button>
+                            {canDeleteMessage(msg) && (
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => setPendingDelete({
+                                  messageId: msg._id,
+                                  fileName: fileImageMessage.fileName,
+                                  fileUrl: fileImageMessage.url,
+                                })}
+                                aria-label={`Delete ${fileImageMessage.fileName}`}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
                             )}
-                          </Button>
+                          </>
                         )}
                       </div>
                     )}
@@ -173,6 +221,22 @@ export function ChatMessageList({
                         <Download className="h-4 w-4" />
                       </a>
                     </Button>
+                    {canDeleteMessage(msg) && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => setPendingDelete({
+                          messageId: msg._id,
+                          fileName: fileMessage.fileName,
+                          fileUrl: fileMessage.url,
+                        })}
+                        aria-label={`Delete ${fileMessage.fileName}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -207,6 +271,18 @@ export function ChatMessageList({
         </div>
       )}
       <div ref={endRef} />
+      {pendingDelete && (
+        <DeleteChatFileDialog
+          open={!!pendingDelete}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null);
+          }}
+          messageId={pendingDelete.messageId}
+          fileName={pendingDelete.fileName}
+          fileUrl={pendingDelete.fileUrl}
+          onDownloadFile={onDownloadFile}
+        />
+      )}
     </div>
   );
 }

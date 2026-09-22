@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { useWorkspace, useWorkspaceFileCounts, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspace, useWorkspaceFileCounts, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useRecordFileUpload } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { ChatImageLightbox } from '../chat-lightbox';
@@ -39,6 +39,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
   const createFileMessage = useCreateWorkspaceFileMessage();
+  const recordFileUpload = useRecordFileUpload();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
@@ -83,6 +84,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     createImageAndMessage,
     createFileMessage,
     generateUploadUrl,
+    recordFileUpload: recordFileUpload.mutateAsync,
   });
 
   const handleSendMessage = async () => {
@@ -143,6 +145,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         setFailedInlineImages={setFailedInlineImages}
         onOpenLightbox={openImageLightbox}
         onDownloadFile={handleDownloadFile}
+        role={role}
       />
 
       {isUploading && uploadProgress && (

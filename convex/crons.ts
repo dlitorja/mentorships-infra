@@ -38,6 +38,11 @@ import { internal } from "./_generated/api";
  *   upserts them into `dailyEmailMetrics`. Provides the volume baseline
  *   that PR Metrics 3b uses for rate-based thresholds on the email
  *   health dashboard. See `convex/actions/resendMetrics.ts`.
+ * - hard-delete-expired-chat-files: Runs every 24 hours, hard-deletes
+ *   the Convex storage blob and the `workspaceMessages` row for chat
+ *   file/image messages that were soft-deleted more than
+ *   `CHAT_FILE_RETENTION_DAYS` (30) ago. See
+ *   `convex/cleanup/chatFileRetention.ts`. PR #B.
  */
 const crons = cronJobs();
 
@@ -115,6 +120,13 @@ crons.interval(
   "fetch-resend-metrics",
   { hours: 6 },
   internal.actions.resendMetrics.fetchAndStore,
+  {}
+);
+
+crons.interval(
+  "hard-delete-expired-chat-files",
+  { hours: 24 },
+  internal.cleanup.chatFileRetention.hardDeleteExpiredChatFiles,
   {}
 );
 

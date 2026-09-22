@@ -71,21 +71,27 @@ export async function downloadFile(url: string, fileName: string): Promise<void>
     const isAbort = error instanceof DOMException && error.name === 'AbortError';
     if (isAbort) {
       toast.error('Download timed out. Please try again.');
-      return;
+      throw error;
     }
 
     if (shouldSkipDownloadFallback(error)) {
       toast.error('Download failed. Please try again.');
-      return;
+      throw error;
     }
 
     if (responseStarted) {
       toast.error('Download was interrupted. Please try again.');
-      return;
+      throw error;
     }
 
     window.open(url, '_blank', 'noopener,noreferrer');
     toast.info('File opened in a new tab if your browser allowed it');
+    // Even the "open in new tab" fallback is a failure for
+    // programmatic download paths like
+    // `DeleteChatFileDialog`'s "Download then delete" branch —
+    // we must not delete the message when the bytes were never
+    // streamed to disk. Throw so the caller can react.
+    throw error instanceof Error ? error : new Error('Download fallback used; bytes not saved.');
   } finally {
     clearTimeout(timeout);
   }
