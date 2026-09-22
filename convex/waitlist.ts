@@ -301,7 +301,9 @@ export const actionAddToWaitlist = action({
   },
   handler: async (ctx, args) => {
     const secret = env.TURNSTILE_SECRET_KEY;
-    if (secret) {
+    const identity = await ctx.auth.getUserIdentity();
+    const isAuthenticated = !!identity;
+    if (secret && !isAuthenticated) {
       if (!args.turnstileToken) {
         throw new ConvexError("Turnstile token required");
       }
