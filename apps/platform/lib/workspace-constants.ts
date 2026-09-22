@@ -5,14 +5,14 @@
  */
 
 export const WORKSPACE_IMAGE_CAPS = {
-  student: 75,
-  instructor: 150,
+  student: 100,
+  instructor: 250,
   admin: 9999,
 } as const;
 
 export const WORKSPACE_FILE_CAPS = {
-  student: 25,
-  instructor: 50,
+  student: 40,
+  instructor: 75,
 } as const;
 
 export const MAX_WORKSPACE_FILE_BYTES = 500 * 1024 * 1024;
