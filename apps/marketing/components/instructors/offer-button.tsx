@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
+import { TurnstileWidget } from "@/components/instructors/turnstile-widget";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -24,16 +25,25 @@ interface OfferButtonProps {
 export function OfferButton({ kind, label, url, inventory, instructorSlug }: OfferButtonProps) {
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
+  const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITEKEY;
 
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
+    if (turnstileSitekey && !turnstileToken) {
+      toast.error("Please complete the CAPTCHA before submitting.");
+      return;
+    }
     try {
       const result = await addToWaitlistMutation.mutateAsync({
         email: data.email,
         instructorSlug,
         mentorshipType: kind === "oneOnOne" ? "oneOnOne" : "group",
+        ...(turnstileSitekey && turnstileToken
+          ? { turnstileToken }
+          : {}),
       });
 
       if (result.existingId) {
@@ -121,7 +131,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                     className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-white"
                     disabled={form.state.isSubmitting}
                   />
-                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || (!!turnstileSitekey && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {(form.state.isSubmitting || addToWaitlistMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -131,6 +141,13 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                 </div>
               )}
             </FormField>
+            {turnstileSitekey ? (
+              <TurnstileWidget
+                sitekey={turnstileSitekey}
+                action="waitlist_signup"
+                onTokenChange={setTurnstileToken}
+              />
+            ) : null}
             <p className="text-xs text-muted-foreground">
               We&apos;ll notify you when this mentorship becomes available.
             </p>

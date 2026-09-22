@@ -8,6 +8,7 @@ export type AddToWaitlistVariables = {
   email: string;
   instructorSlug: string;
   mentorshipType: "oneOnOne" | "group";
+  turnstileToken?: string;
 };
 
 export type AddToWaitlistResult = {
@@ -63,7 +64,14 @@ export function useAddToWaitlist() {
           "useAddToWaitlist invoked without a Convex client. The provider tree should mount <ConvexClientProvider> at the marketing app root."
         );
       }
-      return await convex.mutation(api.waitlist.addToWaitlist, variables);
+      if (variables.turnstileToken) {
+        return await convex.action(api.waitlist.actionAddToWaitlist, variables);
+      }
+      return await convex.mutation(api.waitlist.addToWaitlist, {
+        email: variables.email,
+        instructorSlug: variables.instructorSlug,
+        mentorshipType: variables.mentorshipType,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["waitlist"] });
