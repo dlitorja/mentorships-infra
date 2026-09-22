@@ -17,6 +17,7 @@ export const WORKSPACE_FILE_CAPS = {
 } as const;
 
 export const MAX_WORKSPACE_FILE_BYTES = 500 * 1024 * 1024;
+export const MAX_WORKSPACE_FILE_MB = MAX_WORKSPACE_FILE_BYTES / (1024 * 1024);
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 export const PER_UPLOAD_CAP = 5;

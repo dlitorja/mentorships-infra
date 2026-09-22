@@ -10,6 +10,7 @@ import {
   WORKSPACE_IMAGE_CAPS,
   WORKSPACE_FILE_CAPS,
   MAX_WORKSPACE_FILE_BYTES,
+  MAX_WORKSPACE_FILE_MB,
 } from "./workspaceConstants";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
@@ -1366,7 +1367,7 @@ export const embedImageInNote = mutation({
       throw new Error("Only image files can be embedded in notes");
     }
     if (storageMeta.size > MAX_WORKSPACE_FILE_BYTES) {
-      throw new Error("Image exceeds 50MB size limit");
+      throw new Error(`Image exceeds ${MAX_WORKSPACE_FILE_MB}MB size limit`);
     }
 
     const isAdmin = role === "admin";
@@ -1917,7 +1918,7 @@ export const createWorkspaceImageAndMessage = mutation({
       throw new Error("Uploaded image not found");
     }
     if (metadata.size > MAX_WORKSPACE_FILE_BYTES) {
-      throw new Error("Image is too large. Maximum size is 50MB.");
+      throw new Error(`Image is too large. Maximum size is ${MAX_WORKSPACE_FILE_MB}MB.`);
     }
 
     const imageId = await ctx.db.insert("workspaceImages", {
@@ -2256,7 +2257,7 @@ export const createWorkspaceFileMessage = mutation({
       throw new Error("Uploaded file not found");
     }
     if (metadata.size > MAX_WORKSPACE_FILE_BYTES) {
-      throw new Error("File is too large. Maximum size is 50MB.");
+      throw new Error(`File is too large. Maximum size is ${MAX_WORKSPACE_FILE_MB}MB.`);
     }
 
     if (role !== "admin") {

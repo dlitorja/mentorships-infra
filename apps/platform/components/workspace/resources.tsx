@@ -235,7 +235,7 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
             <p className="text-sm text-muted-foreground">
               {isDragActive
                 ? 'Drop files here'
-                : 'Drag & drop files here, or click to select. Images >8MB show a warning; >500MB files are rejected.'}
+                : 'Drag & drop files here, or click to select. Files >100MB show a warning; >500MB files are rejected.'}
             </p>
           </>
         )}
