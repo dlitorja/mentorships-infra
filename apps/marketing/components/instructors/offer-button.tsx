@@ -1,6 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useConvex } from "convex/react";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +11,7 @@ import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
 import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/instructors/turnstile-widget";
+import { api } from "@/convex/_generated/api";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -30,10 +34,22 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
 
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
+
+  let convex: ReturnType<typeof useConvex> | undefined;
+  try {
+    convex = useConvex();
+  } catch {
+    convex = undefined;
+  }
+  const turnstileEnforcedQuery = useQuery({
+    ...convexQuery(api.waitlist.isTurnstileEnforced, {}),
+    enabled: !!convex,
+  });
   const turnstileSitekey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+  const turnstileEnforced = turnstileEnforcedQuery.data === true;
 
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
-    if (turnstileSitekey && !turnstileToken) {
+    if (turnstileEnforced && !turnstileToken) {
       toast.error("Please complete the CAPTCHA before submitting.");
       return;
     }
@@ -42,7 +58,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
         email: data.email,
         instructorSlug,
         mentorshipType: kind === "oneOnOne" ? "oneOnOne" : "group",
-        ...(turnstileSitekey && turnstileToken
+        ...(turnstileEnforced && turnstileToken
           ? { turnstileToken }
           : {}),
       });
@@ -134,7 +150,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                     className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-white"
                     disabled={form.state.isSubmitting}
                   />
-                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || (!!turnstileSitekey && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending || (turnstileEnforced && !turnstileToken)} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                     {(form.state.isSubmitting || addToWaitlistMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -144,7 +160,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                 </div>
               )}
             </FormField>
-            {turnstileSitekey ? (
+            {turnstileEnforced && turnstileSitekey ? (
               <TurnstileWidget
                 ref={widgetRef}
                 sitekey={turnstileSitekey}

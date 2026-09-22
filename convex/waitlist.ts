@@ -175,6 +175,21 @@ export const getWaitlistStatus = query({
   },
 });
 
+/** Public query: returns `true` if `TURNSTILE_SECRET_KEY` is configured on the
+ * server, indicating that `actionAddToWaitlist` will require a verified
+ * Cloudflare Turnstile token. Clients call this to decide whether to render
+ * the Turnstile widget in the waitlist form. Returning the server-side
+ * config avoids the client/server deployment desync where the Convex
+ * secret is set but the marketing sitekey is not (or vice versa), which
+ * would otherwise silently fail every legitimate submission.
+ */
+export const isTurnstileEnforced = query({
+  args: {},
+  handler: async () => {
+    return Boolean(env.TURNSTILE_SECRET_KEY);
+  },
+});
+
 /** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple.
  *
  * Public mutation so server-side callers (apps/platform/app/api/waitlist/route.ts,
