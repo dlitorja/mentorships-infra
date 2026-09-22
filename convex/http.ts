@@ -403,6 +403,108 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   }
 });
 
+/** Returns unnotified waitlist entries (id, email, createdAt) for an instructor + type.
+ * Server-only: read-only. The notification workers pair this with
+ * /waitlist/mark-notified; per-(slug, type) Inngest concurrency prevents
+ * two events for the same offer from running simultaneously, so the
+ * read-then-write window is small and the seven-day cooldown handles any
+ * edge case that slips through.
+ */
+export const httpGetUnnotifiedWaitlist = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType } = await request.json();
+  if (!instructorSlug) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorSlug" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  const entries = await ctx.runQuery(internal.waitlist.internalGetUnnotifiedWaitlist as any, {
+    instructorSlug,
+    mentorshipType: normalizedType,
+  });
+
+  const items = entries.map((e: any) => ({
+    id: e._id,
+    email: e.email,
+    createdAt: e.createdAt,
+  }));
+
+  return new Response(JSON.stringify({ success: true, items }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Marks specific waitlist entries as notified by their Convex IDs. Server-only. */
+export const httpMarkWaitlistNotified = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { ids } = await request.json();
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return new Response(JSON.stringify({ success: true, count: 0 }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(internal.waitlist.internalMarkWaitlistNotified as any, {
+    ids,
+  });
+
+  return new Response(JSON.stringify({ success: true, count: result.count }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Bulk-imports waitlist entries from Supabase. Server-only: called by the
+ * one-time migration script `scripts/migrate-marketing-waitlist.ts`. Gated by
+ * CONVEX_HTTP_KEY. Idempotent: skips triples that already exist.
+ */
+export const httpBulkImportWaitlist = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = await request.json();
+  const entries = body?.entries;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return new Response(JSON.stringify({ success: true, inserted: 0, skipped: 0 }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(internal.waitlist.internalBulkImportWaitlist as any, {
+    entries,
+  });
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+/** Normalizes one page of marketingWaitlist rows: lowercases mixed-case
+ * emails and consolidates duplicates by (email, slug, type). The caller
+ * (scripts/migrate-marketing-waitlist.ts) loops with the returned
+ * nextCursor until isDone=true so each transaction stays under Convex's
+ * per-call document limit. Server-only; CONVEX_HTTP_KEY-gated.
+ */
+export const httpNormalizeWaitlistEmails = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = await request.json().catch(() => ({}));
+  const cursor = typeof body?.cursor === "string" ? body.cursor : null;
+  const limit = typeof body?.limit === "number" && body.limit > 0 ? Math.min(body.limit, 200) : 50;
+
+  const result = await ctx.runMutation(
+    internal.waitlist.internalNormalizeEmailsToLowercase as any,
+    { cursor, limit }
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 /** HTTP action wrappers for Inngest payment processing.
  *
  * These expose the minimal set of internal/public Convex functions needed by
@@ -597,6 +699,30 @@ http.route({
   path: "/waitlist/notify",
   method: "POST",
   handler: httpNotifyWaitlist,
+});
+
+http.route({
+  path: "/waitlist/unnotified",
+  method: "POST",
+  handler: httpGetUnnotifiedWaitlist,
+});
+
+http.route({
+  path: "/waitlist/mark-notified",
+  method: "POST",
+  handler: httpMarkWaitlistNotified,
+});
+
+http.route({
+  path: "/waitlist/import-bulk",
+  method: "POST",
+  handler: httpBulkImportWaitlist,
+});
+
+http.route({
+  path: "/waitlist/normalize-emails",
+  method: "POST",
+  handler: httpNormalizeWaitlistEmails,
 });
 
 http.route({

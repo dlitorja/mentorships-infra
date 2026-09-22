@@ -1,11 +1,9 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { api } from "@/convex/_generated/api";
 import { isAdmin } from "@/lib/auth";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { z } from "zod";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const WaitlistDeleteSchema = z.object({
   ids: z.preprocess((val) => {
@@ -14,25 +12,7 @@ const WaitlistDeleteSchema = z.object({
   }, z.array(z.string()).nonempty()),
 });
 
-const WaitlistItemSchema = z.object({
-  id: z.string(),
-  email: z.string(),
-  instructor_slug: z.string(),
-  mentorship_type: z.string(),
-});
-
-const DeleteResponseSchema = z.object({
-  data: z.array(WaitlistItemSchema),
-}).passthrough();
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return NextResponse.json(
-      { error: "Server configuration error: Supabase not configured" },
-      { status: 500 }
-    );
-  }
-
   let user = null;
   try {
     user = await currentUser();
@@ -61,24 +41,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const { ids } = parsed.data;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const deleteResult = await supabase
-      .from("marketing_waitlist")
-      .delete()
-      .in("id", ids)
-      .select()
-      .throwOnError();
-
-    const deleteValidated = DeleteResponseSchema.safeParse(deleteResult);
-    if (!deleteValidated.success) {
-      console.error("Invalid delete response:", deleteValidated.error);
-      return NextResponse.json({ success: false, deletedCount: 0 }, { status: 500 });
-    }
+    const convex = await getAuthenticatedConvexClient();
+    const result = await convex.mutation(api.waitlist.removeMultipleFromWaitlist, {
+      ids: ids as never,
+    });
 
     return NextResponse.json({
       success: true,
-      deletedCount: deleteValidated.data.data.length,
+      deletedCount: result.count,
     });
   } catch (error) {
     console.error("Error:", error);

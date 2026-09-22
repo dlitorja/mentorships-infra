@@ -1,16 +1,74 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { ConvexError } from "convex/values";
+import { RateLimiter, HOUR } from "@convex-dev/rate-limiter";
+import { components } from "./_generated/api";
+
+const rateLimiter = new RateLimiter(components.rateLimiter, {
+  marketingWaitlistJoin: {
+    kind: "fixed window",
+    rate: 10,
+    period: HOUR,
+  },
+  // Global write-side cap sized to be well above legitimate peak
+  // traffic for the marketing site (across all instructor pages).
+  // addToWaitlist is unauthenticated, so the per-(email, slug) bucket
+  // is bypassable by rotating either value; the global bucket caps
+  // total joins across all callers to keep a single attacker from
+  // filling durable Convex storage. The 5,000/hour figure is chosen
+  // high enough that a single attacker submitting ~5,000 distinct
+  // valid subscriptions in one hour is impractical from a browser
+  // (form-submit rate-limited client-side too), while still bounding
+  // the unbounded durable-write surface.
+  marketingWaitlistJoinGlobal: {
+    kind: "fixed window",
+    rate: 5000,
+    period: HOUR,
+  },
+});
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const dbUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin";
+  if (dbUser?.role === "admin") {
+    return true;
+  }
+
+  const identity = await ctx.auth.getUserIdentity();
+  const metadata = identity?.metadata as { role?: string; email?: string } | undefined;
+  if (metadata?.role === "admin") {
+    return true;
+  }
+
+  const allowlistRaw =
+    process.env.MARKETING_ADMIN_EMAILS ?? process.env.ADMIN_EMAILS ?? "admin@huckleberry.art";
+  const allowlist = allowlistRaw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const callerEmail = (metadata?.email ?? identity?.email ?? "").toLowerCase();
+  if (callerEmail && allowlist.includes(callerEmail)) {
+    return true;
+  }
+
+  return false;
 }
 
-/** Returns waitlist entries for an instructor, optionally filtered by mentorship type. */
+/** Returns waitlist entries for an instructor, optionally filtered by mentorship type.
+ * Admin-gated via isAdminUser, which accepts three sources of admin:
+ *  - Convex `users.role === "admin"` (synced via Clerk webhook)
+ *  - Clerk JWT `publicMetadata.role === "admin"`
+ *  - Caller email in the MARKETING_ADMIN_EMAILS env var (or ADMIN_EMAILS
+ *    fallback, default "admin@huckleberry.art"), matching the marketing
+ *    route layer's allowlist in apps/marketing/lib/auth.ts.
+ * The three sources together guarantee the same admin definition at the
+ * Convex boundary as at the route boundary, so an allowlist-only operator
+ * is not denied by an inconsistent role check.
+ */
 export const getWaitlistForInstructor = query({
   args: {
     instructorSlug: v.string(),
@@ -78,10 +136,21 @@ export const getWaitlistStatus = query({
     instructorSlug: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { onWaitlist: false, mentorshipType: null };
+    }
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    const emailLower = args.email.toLowerCase();
+    const identityEmail = (identity.email ?? "").toLowerCase();
+    if (!isAdmin && identityEmail !== emailLower) {
+      return { onWaitlist: false, mentorshipType: null };
+    }
+
     const entry = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+        q.eq("email", emailLower).eq("instructorSlug", args.instructorSlug)
       )
       .first();
 
@@ -98,7 +167,7 @@ export const getWaitlistStatus = query({
   },
 });
 
-/** Creates a new waitlist entry or updates the mentorship type if already registered. */
+/** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple. */
 export const addToWaitlist = mutation({
   args: {
     email: v.string(),
@@ -106,24 +175,43 @@ export const addToWaitlist = mutation({
     mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
   },
   handler: async (ctx, args) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(args.email)) {
+      throw new ConvexError("Invalid email address");
+    }
+    const emailLower = args.email.toLowerCase();
+    const instructorSlug = args.instructorSlug?.trim() || "general";
+
     const existing = await ctx.db
       .query("marketingWaitlist")
-      .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+      .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+        q
+          .eq("email", emailLower)
+          .eq("instructorSlug", instructorSlug)
+          .eq("mentorshipType", args.mentorshipType)
       )
       .first();
 
     if (existing) {
-      if (existing.mentorshipType === args.mentorshipType) {
-        return { success: false, message: "Already on waitlist for this type", existingId: existing._id };
-      }
-      await ctx.db.patch(existing._id, { mentorshipType: args.mentorshipType });
-      return { success: true, message: "Updated waitlist type", existingId: existing._id };
+      return {
+        success: false,
+        message: "Already on waitlist for this type",
+        existingId: existing._id,
+      };
     }
 
+    await rateLimiter.limit(ctx, "marketingWaitlistJoinGlobal", {
+      key: "global",
+      throws: true,
+    });
+    await rateLimiter.limit(ctx, "marketingWaitlistJoin", {
+      key: `${emailLower}|${instructorSlug}`,
+      throws: true,
+    });
+
     const id = await ctx.db.insert("marketingWaitlist", {
-      email: args.email,
-      instructorSlug: args.instructorSlug,
+      email: emailLower,
+      instructorSlug,
       mentorshipType: args.mentorshipType,
       createdAt: Date.now(),
     });
@@ -131,16 +219,27 @@ export const addToWaitlist = mutation({
   },
 });
 
-/** Deletes a single waitlist entry by ID. */
+/** Deletes a single waitlist entry by ID. Admin-gated via isAdminUser
+ * (see the rationale in getWaitlistForInstructor).
+ */
 export const removeFromWaitlist = mutation({
   args: { id: v.id("marketingWaitlist") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     await ctx.db.delete(args.id);
     return { success: true };
   },
 });
 
-/** Deletes multiple waitlist entries by their IDs. */
+/** Deletes multiple waitlist entries by their IDs. Admin-gated via
+ * isAdminUser (see the rationale in getWaitlistForInstructor). The
+ * mutation throws Forbidden for non-admin callers so the admin route's
+ * success path is preserved while the Convex boundary still enforces
+ * the same admin policy.
+ */
 export const removeMultipleFromWaitlist = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
@@ -155,7 +254,15 @@ export const removeMultipleFromWaitlist = mutation({
   },
 });
 
-/** Deletes waitlist entries matching an email and instructor, optionally filtered by mentorship type. */
+/** Deletes waitlist entries matching an email and instructor, optionally
+ * filtered by mentorship type. Admin-gated via isAdminUser (see the
+ * rationale in getWaitlistForInstructor).
+ *
+ * The email is lowercased before the indexed lookup because marketingWaitlist
+ * rows are stored in lowercase (see internalNormalizeEmailsToLowercase) and
+ * callers may pass mixed-case input — a mixed-case query would return zero
+ * rows and the deletion would silently no-op.
+ */
 export const removeByEmail = mutation({
   args: {
     email: v.string(),
@@ -163,10 +270,16 @@ export const removeByEmail = mutation({
     mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
+
+    const emailLower = args.email.toLowerCase();
     const entries = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_email_instructorSlug", (q) =>
-        q.eq("email", args.email).eq("instructorSlug", args.instructorSlug)
+        q.eq("email", emailLower).eq("instructorSlug", args.instructorSlug)
       )
       .collect();
 
@@ -178,6 +291,34 @@ export const removeByEmail = mutation({
       }
     }
     return { success: true, count: deleted };
+  },
+});
+
+/** Deletes all waitlist entries for a given instructor slug. Admin-gated
+ * via isAdminUser (see the rationale in getWaitlistForInstructor). The
+ * apps/marketing route additionally constrains the slug to
+ * TEST_INSTRUCTOR_SLUG, but defense in depth at the Convex boundary
+ * prevents a non-admin from invoking the mutation directly.
+ */
+export const removeByInstructorSlug = mutation({
+  args: { instructorSlug: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
+
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    for (const entry of entries) {
+      await ctx.db.delete(entry._id);
+    }
+    return { success: true, count: entries.length };
   },
 });
 
@@ -254,5 +395,210 @@ export const getUnnotifiedWaitlist = query({
       }
       return false;
     });
+  },
+});
+/** Server-only (internal) variant of getUnnotifiedWaitlist. Called from the
+ * HTTP action in convex/http.ts gated by CONVEX_HTTP_KEY. Not callable from
+ * client code because it's an internalQuery.
+ *
+ * Returns entries for the instructor/type that either (a) have never been
+ * notified, or (b) were notified more than 7 days ago. Mirrors the original
+ * Supabase filter at apps/marketing/inngest/functions/inventory-changed.ts:56
+ * which used `notified.is.false,last_notification_at.lt.${oneWeekAgo}`.
+ * The 7-day cooldown prevents duplicate inventory events or closely-spaced
+ * availability transitions from re-emailing the same subscribers.
+ *
+ * The HTTP caller is responsible for de-duplication by email within a single
+ * run; the cooldown handles cross-run re-notification.
+ */
+export const internalGetUnnotifiedWaitlist = internalQuery({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
+  },
+  handler: async (ctx, args) => {
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - sevenDaysMs;
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_instructorSlug_mentorshipType", (q) =>
+        q.eq("instructorSlug", args.instructorSlug)
+      )
+      .collect();
+
+    return entries
+      .filter((entry) => {
+        if (args.mentorshipType && entry.mentorshipType !== args.mentorshipType) {
+          return false;
+        }
+        if (entry.notifiedAt === undefined) return true;
+        return entry.notifiedAt < cutoff;
+      })
+      .map((entry) => ({
+        _id: entry._id,
+        email: entry.email,
+        createdAt: entry.createdAt,
+      }));
+  },
+});
+
+/** Server-only (internal) variant of markNotified. Called from the HTTP
+ * action in convex/http.ts gated by CONVEX_HTTP_KEY.
+ *
+ * Tolerates rows that were concurrently deleted between the worker's
+ * unnotified-read and the mark step: a missing row is skipped instead
+ * of aborting the whole transaction, because the seven-day cooldown
+ * depends on notifiedAt being set for every surviving row that
+ * received an email. A throw inside a Convex transaction rolls back
+ * every patch, so the alternative (let db.patch throw) would re-email
+ * the surviving delivered rows on the next event.
+ */
+export const internalMarkWaitlistNotified = internalMutation({
+  args: { ids: v.array(v.id("marketingWaitlist")) },
+  handler: async (ctx, args) => {
+    let marked = 0;
+    let skipped = 0;
+    for (const id of args.ids) {
+      const row = await ctx.db.get(id);
+      if (!row) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.patch(id, { notifiedAt: Date.now() });
+      marked++;
+    }
+    return { success: true, marked, skipped };
+  },
+});
+
+/** Server-only (internal) bulk import. Called from the HTTP action in
+ * convex/http.ts gated by CONVEX_HTTP_KEY, used by the one-time
+ * Supabase → Convex migration script in scripts/migrate-marketing-waitlist.ts.
+ *
+ * Each entry inserts a new marketingWaitlist row. If an exact existing row
+ * is found and the import carries a notifiedAt timestamp while the existing
+ * row has none, merge the legacy notification timestamp into the existing
+ * row so the seven-day cooldown survives the migration.
+ */
+export const internalBulkImportWaitlist = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        email: v.string(),
+        instructorSlug: v.string(),
+        mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
+        createdAt: v.optional(v.number()),
+        notifiedAt: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    let inserted = 0;
+    let skipped = 0;
+    let merged = 0;
+    for (const entry of args.entries) {
+      const existing = await ctx.db
+        .query("marketingWaitlist")
+        .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+          q
+            .eq("email", entry.email)
+            .eq("instructorSlug", entry.instructorSlug)
+            .eq("mentorshipType", entry.mentorshipType)
+        )
+        .first();
+      if (existing) {
+        if (
+          entry.notifiedAt !== undefined &&
+          (existing.notifiedAt === undefined || entry.notifiedAt > existing.notifiedAt)
+        ) {
+          await ctx.db.patch(existing._id, { notifiedAt: entry.notifiedAt });
+          merged++;
+        } else {
+          skipped++;
+        }
+        continue;
+      }
+      await ctx.db.insert("marketingWaitlist", {
+        email: entry.email,
+        instructorSlug: entry.instructorSlug,
+        mentorshipType: entry.mentorshipType,
+        createdAt: entry.createdAt ?? Date.now(),
+        notifiedAt: entry.notifiedAt,
+      });
+      inserted++;
+    }
+    return { success: true, inserted, skipped, merged };
+  },
+});
+
+/** Server-only (internal) email normalization + duplicate consolidation,
+ * paginated so the mutation stays under Convex's per-transaction document
+ * limit. Each call processes one page of rows: lowercases mixed-case
+ * emails, then queries the (email, slug, type) index to determine whether
+ * the current row is the earliest-createdAt keeper for its triple or a
+ * duplicate to be deleted. Deleting a duplicate may also patch the
+ * keeper's notifiedAt to the LATEST value across the group, so the
+ * seven-day cooldown reflects the most recent delivery to the subscriber.
+ *
+ * Idempotent: re-running with the same cursor chain converges to the
+ * canonical (lowercase email, slug, type, earliest createdAt, latest
+ * notifiedAt) form. Resume after a transaction failure by passing the
+ * last returned cursor. The HTTP caller in scripts/migrate-marketing-waitlist.ts
+ * loops until nextCursor is null.
+ */
+export const internalNormalizeEmailsToLowercase = internalMutation({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("marketingWaitlist")
+      .paginate({ cursor: args.cursor ?? null, numItems: args.limit });
+
+    let patched = 0;
+    let deletedDuplicates = 0;
+
+    for (const row of page.page) {
+      if (row.email !== row.email.toLowerCase()) {
+        await ctx.db.patch(row._id, { email: row.email.toLowerCase() });
+        patched++;
+      }
+
+      const sameKey = await ctx.db
+        .query("marketingWaitlist")
+        .withIndex("by_email_and_instructorSlug_and_mentorshipType", (q) =>
+          q
+            .eq("email", row.email.toLowerCase())
+            .eq("instructorSlug", row.instructorSlug)
+            .eq("mentorshipType", row.mentorshipType)
+        )
+        .collect();
+
+      if (sameKey.length <= 1) continue;
+
+      const sorted = sameKey.slice().sort((a, b) => a.createdAt - b.createdAt);
+      const keeper = sorted[0];
+      const isKeeper = row._id === keeper._id;
+      if (!isKeeper) {
+        if (
+          row.notifiedAt !== undefined &&
+          (keeper.notifiedAt === undefined || row.notifiedAt > keeper.notifiedAt)
+        ) {
+          await ctx.db.patch(keeper._id, { notifiedAt: row.notifiedAt });
+        }
+        await ctx.db.delete(row._id);
+        deletedDuplicates++;
+      }
+    }
+
+    return {
+      success: true,
+      scanned: page.page.length,
+      patched,
+      deletedDuplicates,
+      nextCursor: page.continueCursor ?? null,
+      isDone: page.isDone,
+    };
   },
 });

@@ -1,12 +1,9 @@
 import { inngest } from "../client";
-import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
-import { instructors, getInstructorBySlug } from "@/lib/instructors";
+import { getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
 import { resolveFrom } from "../../../../packages/emails/src/envelope";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
@@ -31,201 +28,194 @@ function getFromAddress(): string | null {
   return from;
 }
 
-export const processWaitlistNotifications = inngest.createFunction(
-  {
-    id: "process-waitlist-notifications",
-    retries: 3,
-  },
-  { event: "waitlist/notify-users" },
-  async ({ event, step }) => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error("Supabase not configured");
-    }
+type UnnotifiedResponse = {
+  success: boolean;
+  items: { id: string; email: string; createdAt: number }[];
+};
 
-    const resend = getResendClient();
-    const from = getFromAddress();
+type NotifyEvent = {
+  data?: {
+    instructorSlug: string;
+    type: string;
+  };
+} & Record<string, unknown>;
 
-    if (!resend || !from) {
-      return {
-        message: "Email provider not configured, skipping send",
-        count: 0,
-        instructorSlug: event.data.instructorSlug,
-        type: event.data.type,
-        skipped: true,
-      };
-    }
+async function runProcessWaitlistNotifications(
+  event: NotifyEvent,
+  step: any
+): Promise<{
+  message: string;
+  count: number;
+  failed?: number;
+  instructorSlug?: string;
+  type?: string;
+  skipped?: boolean;
+  notifiedEmails?: string[];
+  totalEmails?: number;
+}> {
+  const resend = getResendClient();
+  const from = getFromAddress();
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const { instructorSlug, type } = event.data;
+  if (!resend || !from) {
+    return {
+      message: "Email provider not configured, skipping send",
+      count: 0,
+      instructorSlug: event.data?.instructorSlug ?? "",
+      type: event.data?.type ?? "",
+      skipped: true,
+    };
+  }
 
-    const validTypes = ["one-on-one", "group"] as const;
-    if (!validTypes.includes(type as typeof validTypes[number])) {
-      throw new Error(`Invalid mentorship type: ${type}`);
-    }
+  const { instructorSlug, type } = event.data ?? { instructorSlug: "", type: "" };
 
-    const mentorshipType = type as "one-on-one" | "group";
+  const validTypes = ["one-on-one", "group"] as const;
+  if (!validTypes.includes(type as typeof validTypes[number])) {
+    throw new Error(`Invalid mentorship type: ${type}`);
+  }
 
-    const instructor = await step.run("get-instructor-details", async () => {
-      return getInstructorBySlug(instructorSlug);
+  const mentorshipType = type as "one-on-one" | "group";
+
+  const instructor = await step.run("get-instructor-details", async () => {
+    return getInstructorBySlug(instructorSlug);
+  });
+
+  if (!instructor) {
+    console.error(`Instructor not found: ${instructorSlug}`);
+    throw new Error(`Instructor not found: ${instructorSlug}`);
+  }
+
+  const offer = instructor.offers.find((o: any) => {
+    const offerKind = type === "one-on-one" ? "oneOnOne" : "group";
+    return o.kind === offerKind && o.active !== false;
+  });
+
+  if (!offer) {
+    console.error(`No active offer found for ${instructorSlug}/${type}`);
+    return {
+      message: "No active offer found for instructor/type",
+      count: 0,
+      instructorSlug,
+      type,
+      skipped: true,
+    };
+  }
+
+  const waitlistResult = (await step.run("read-eligible-entries", async () => {
+    return convexServerCall<UnnotifiedResponse>("/waitlist/unnotified", {
+      instructorSlug,
+      mentorshipType: type,
     });
+  })) as UnnotifiedResponse;
 
-    if (!instructor) {
-      console.error(`Instructor not found: ${instructorSlug}`);
-      throw new Error(`Instructor not found: ${instructorSlug}`);
-    }
+  const entries = waitlistResult.items || [];
 
-    const offer = instructor.offers.find((o) => {
-      const offerKind = type === "one-on-one" ? "oneOnOne" : "group";
-      return o.kind === offerKind && o.active !== false;
+  if (entries.length === 0) {
+    return {
+      message: "No waitlist entries to notify",
+      count: 0,
+      instructorSlug,
+      type,
+    };
+  }
+
+  const uniqueEmails: string[] = [...new Set(entries.map((entry: any) => entry.email as string))];
+
+  const emailContent = (await step.run("build-email-content", async () => {
+    return buildWaitlistNotificationEmail({
+      instructorName: instructor.name,
+      mentorshipType,
+      purchaseUrl: offer.url,
     });
+  })) as ReturnType<typeof buildWaitlistNotificationEmail>;
 
-    if (!offer) {
-      console.error(`No active offer found for ${instructorSlug}/${type}`);
-      return {
-        message: "No active offer found for instructor/type",
-        count: 0,
-        instructorSlug,
-        type,
-        skipped: true,
-      };
-    }
+  type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
 
-    const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
-      const { data, error } = await supabase
-        .from("marketing_waitlist")
-        .select("id, email")
-        .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type);
+  const sendResults = (await step.run("send-emails", async (): Promise<EmailSendResult[]> => {
+    const results: EmailSendResult[] = [];
+    const REQUESTS_PER_SECOND = 2;
+    const delayMs = 1000 / REQUESTS_PER_SECOND;
 
-      if (error) {
-        console.error("Error fetching waitlist:", error);
-        throw error;
-      }
-
-      return data || [];
-    });
-
-    const uniqueEmails = [...new Set(waitlistEntries.map((entry) => entry.email) || [])];
-
-    if (uniqueEmails.length === 0) {
-      return {
-        message: "No waitlist entries to notify",
-        count: 0,
-        instructorSlug,
-        type,
-      };
-    }
-
-    const emailContent = await step.run("build-email-content", async () => {
-      return buildWaitlistNotificationEmail({
-        instructorName: instructor.name,
-        mentorshipType,
-        purchaseUrl: offer.url,
-      });
-    });
-
-    type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
-
-    const sendResults = await step.run("send-emails", async (): Promise<EmailSendResult[]> => {
-      const results: EmailSendResult[] = [];
-      const REQUESTS_PER_SECOND = 2;
-      const delayMs = 1000 / REQUESTS_PER_SECOND;
-
-      for (let i = 0; i < uniqueEmails.length; i++) {
-        const email = uniqueEmails[i];
-        try {
-          const result = await resend.emails.send({
-            from,
-            to: email,
-            subject: emailContent.subject,
-            html: emailContent.html,
-            text: emailContent.text,
-            headers: emailContent.headers,
-          });
-          if (result.error || result.data === null) {
-            console.error(`API error sending email to ${email}:`, result.error);
-            results.push({ status: "rejected", reason: String(result.error) || "Unknown error" });
-          } else {
-            results.push({ status: "fulfilled", value: result.data });
-          }
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error) || "Unknown error";
-          results.push({ status: "rejected", reason });
-          console.error(`Failed to send email to ${email}:`, reason);
+    for (let i = 0; i < uniqueEmails.length; i++) {
+      const email = uniqueEmails[i];
+      try {
+        const result = await resend.emails.send({
+          from,
+          to: email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text,
+          headers: emailContent.headers,
+        });
+        if (result.error || result.data === null) {
+          console.error(`API error sending email to ${email}:`, result.error);
+          results.push({ status: "rejected", reason: String(result.error) || "Unknown error" });
+        } else {
+          results.push({ status: "fulfilled", value: result.data });
         }
-
-        if (i < uniqueEmails.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error) || "Unknown error";
+        results.push({ status: "rejected", reason });
+        console.error(`Failed to send email to ${email}:`, reason);
       }
 
-      return results;
-    });
-
-    const successful = sendResults.filter((r) => r.status === "fulfilled").length;
-    const failed = sendResults.filter((r) => r.status === "rejected").length;
-
-    const matchingRows = await step.run("fetch-matching-rows", async () => {
-      const { data, error: selectError } = await supabase
-        .from("marketing_waitlist")
-        .select("id, email")
-        .in("email", uniqueEmails)
-        .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type);
-
-      if (selectError) {
-        console.error("Error fetching matching rows:", selectError);
-        throw selectError;
+      if (i < uniqueEmails.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
+    }
 
-      return data || [];
-    });
+    return results;
+  })) as EmailSendResult[];
 
-    const emailToIdMap = new Map<string, string[]>();
-    matchingRows.forEach((row) => {
-      if (!emailToIdMap.has(row.email)) {
-        emailToIdMap.set(row.email, []);
-      }
-      emailToIdMap.get(row.email)!.push(row.id);
-    });
+  const successful = sendResults.filter((r: EmailSendResult) => r.status === "fulfilled").length;
+  const failed = sendResults.filter((r: EmailSendResult) => r.status === "rejected").length;
 
-    const successfulIds: string[] = [];
-    sendResults.forEach((result, index) => {
+  const successfulIds: string[] = [];
+  if (successful > 0) {
+    const successfulEmails = new Set<string>();
+    sendResults.forEach((result: EmailSendResult, index: number) => {
       if (result.status === "fulfilled") {
-        const sentEmail = uniqueEmails[index];
-        const ids = emailToIdMap.get(sentEmail);
-        if (ids) {
-          successfulIds.push(...ids);
-        }
+        successfulEmails.add(uniqueEmails[index]);
       }
+    });
+    entries.forEach((row: any) => {
+      if (successfulEmails.has(row.email)) successfulIds.push(row.id as string);
     });
 
     if (successfulIds.length > 0) {
       await step.run("mark-notified", async () => {
-        const { error: updateError } = await supabase
-          .from("marketing_waitlist")
-          .update({
-            notified: true,
-            last_notification_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .in("id", successfulIds);
-
-        if (updateError) {
-          console.error("Error updating waitlist entries:", updateError);
-          throw updateError;
-        }
+        return convexServerCall("/waitlist/mark-notified", { ids: successfulIds });
       });
     }
+  }
 
-    return {
-      message: `Sent ${successful} emails to waitlist`,
-      count: successful,
-      failed,
-      instructorSlug,
-      type,
-      notifiedEmails: uniqueEmails.slice(0, 5),
-      totalEmails: uniqueEmails.length,
-    };
+  return {
+    message: `Sent ${successful} emails to waitlist (${failed} failed)`,
+    count: successful,
+    failed,
+    instructorSlug,
+    type,
+    notifiedEmails: uniqueEmails.slice(0, 5),
+    totalEmails: uniqueEmails.length,
+  };
+}
+
+export const processWaitlistNotifications = inngest.createFunction(
+  {
+    id: "process-waitlist-notifications",
+    retries: 3,
+    // Account-scoped concurrency matches handleInventoryAvailable in
+    // inventory-available.ts so the two workers serialize per
+    // (instructorSlug, mentorshipType). See the comment on that file
+    // for why `scope: "account"` (not the default `"fn"`) is what
+    // prevents concurrent eligibility reads + duplicate Resend sends.
+    concurrency: {
+      limit: 1,
+      key: "event.data.instructorSlug + ':' + event.data.type",
+      scope: "account",
+    },
+  },
+  { event: "waitlist/notify-users" },
+  async ({ event, step }) => {
+    return runProcessWaitlistNotifications(event, step);
   }
 );

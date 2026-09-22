@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
-import { addToWaitlist } from "@/lib/supabase-inventory";
+import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
 
@@ -26,25 +26,30 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
   const [joined, setJoined] = useState(false);
 
   const available = inventory[kind] > 0;
+  const addToWaitlistMutation = useAddToWaitlist();
 
   async function handleWaitlistSubmit(data: WaitlistFormInput) {
     try {
-      const result = await addToWaitlist(
-        data.email,
+      const result = await addToWaitlistMutation.mutateAsync({
+        email: data.email,
         instructorSlug,
-        kind === "oneOnOne" ? "one-on-one" : "group"
-      );
+        mentorshipType: kind === "oneOnOne" ? "oneOnOne" : "group",
+      });
 
-      if (result?.alreadyOnWaitlist) {
+      if (result.existingId) {
         toast.info("You're already on the waitlist!");
-      } else if (result) {
+      } else if (result.success) {
         setJoined(true);
         toast.success("You've been added to the waitlist!");
       } else {
-        toast.error("Failed to join waitlist. Please try again.");
+        toast.error(result.message || "Failed to join waitlist. Please try again.");
       }
     } catch (error) {
-      toast.error("Failed to join waitlist. Please try again.");
+      const message =
+        error instanceof Error && /rate.?limit/i.test(error.message)
+          ? "You've submitted too many requests. Please try again later."
+          : "Failed to join waitlist. Please try again.";
+      toast.error(message);
     }
   }
 
@@ -116,8 +121,8 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
                     className="flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-white"
                     disabled={form.state.isSubmitting}
                   />
-                  <Button type="submit" disabled={form.state.isSubmitting} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
-                    {form.state.isSubmitting ? (
+                  <Button type="submit" disabled={form.state.isSubmitting || addToWaitlistMutation.isPending} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                    {(form.state.isSubmitting || addToWaitlistMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       "Join"

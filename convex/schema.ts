@@ -672,7 +672,12 @@ export default defineSchema({
     notifiedAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_instructorSlug_mentorshipType", ["instructorSlug", "mentorshipType"])
-    .index("by_email_instructorSlug", ["email", "instructorSlug"]),
+    .index("by_email_instructorSlug", ["email", "instructorSlug"])
+    .index("by_email_and_instructorSlug_and_mentorshipType", [
+      "email",
+      "instructorSlug",
+      "mentorshipType",
+    ]),
 
   studentSessionCounts: defineTable({
     userId: v.string(),

@@ -10,7 +10,13 @@ export type DbUser = typeof users.$inferSelect;
 const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
 
 export function getAdminEmails(): string[] {
-  const envValue = process.env.ADMIN_EMAILS;
+  // MARKETING_ADMIN_EMAILS (preferred) and ADMIN_EMAILS (legacy) must stay
+  // in sync with convex/waitlist.ts:isAdminUser, which reads the same two
+  // vars so the marketing route and the Convex boundary agree on the
+  // allowlist precedence. MARKETING_ADMIN_EMAILS takes precedence; this
+  // matches the Convex-side resolver.
+  const envValue =
+    process.env.MARKETING_ADMIN_EMAILS ?? process.env.ADMIN_EMAILS;
   if (!envValue || envValue.trim() === "") {
     return DEFAULT_ADMIN_EMAILS;
   }
