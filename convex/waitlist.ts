@@ -12,7 +12,7 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { RateLimiter, HOUR } from "@convex-dev/rate-limiter";
 import { components } from "./_generated/api";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const rateLimiter = new RateLimiter(components.rateLimiter, {
   marketingWaitlistJoin: {
@@ -192,12 +192,21 @@ export const isTurnstileEnforced = query({
 
 /** Creates a new waitlist entry. Idempotent per (email, instructorSlug, mentorshipType) triple.
  *
- * Public mutation so server-side callers (apps/platform/app/api/waitlist/route.ts,
- * the web app's hook, and the platform app's hook) can still call it directly.
- * Marketing client callers MUST go through `actionAddToWaitlist` instead, which
- * runs this mutation after a successful Cloudflare Turnstile siteverify.
+ * Internal mutation. The only legitimate caller is `actionAddToWaitlist`, which
+ * runs this after a successful Cloudflare Turnstile siteverify (or after
+ * confirming the caller is an authenticated Clerk identity). Marketing client
+ * callers MUST go through `actionAddToWaitlist` — the public mutation is gone
+ * to close the unauthenticated-bypass concern flagged by Greptile on PR #861.
+ *
+ * Internalising this mutation means:
+ *   - The Convex HTTP / WebSocket client can no longer call it directly. A bare
+ *     `convex.mutation(api.waitlist.addToWaitlist, ...)` from a browser or curl
+ *     will fail at the protocol layer, not just at the rate-limit layer.
+ *   - Server-side actions / crons / HTTP endpoints that need to insert waitlist
+ *     rows from trusted contexts (admin tooling, migrations) call it via
+ *     `ctx.runMutation(internal.waitlist.addToWaitlist, ...)`.
  */
-export const addToWaitlist = mutation({
+export const addToWaitlist = internalMutation({
   args: {
     email: v.string(),
     instructorSlug: v.string(),
@@ -359,7 +368,7 @@ export const actionAddToWaitlist = action({
       message: string;
       existingId?: Id<"marketingWaitlist">;
       id?: Id<"marketingWaitlist">;
-    } = await ctx.runMutation(api.waitlist.addToWaitlist, {
+    } = await ctx.runMutation(internal.waitlist.addToWaitlist, {
       email: args.email,
       instructorSlug: args.instructorSlug,
       mentorshipType: args.mentorshipType,
