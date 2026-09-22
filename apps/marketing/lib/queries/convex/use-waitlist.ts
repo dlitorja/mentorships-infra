@@ -67,7 +67,7 @@ export function useAddToWaitlist() {
       if (variables.turnstileToken) {
         return await convex.action(api.waitlist.actionAddToWaitlist, variables);
       }
-      return await convex.mutation(api.waitlist.addToWaitlist, {
+      return await convex.action(api.waitlist.actionAddToWaitlist, {
         email: variables.email,
         instructorSlug: variables.instructorSlug,
         mentorshipType: variables.mentorshipType,

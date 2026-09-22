@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAddToWaitlist } from "@/lib/queries/convex";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
-import { TurnstileWidget } from "@/components/instructors/turnstile-widget";
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/instructors/turnstile-widget";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -26,6 +26,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [joined, setJoined] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const widgetRef = useRef<TurnstileWidgetHandle>(null);
 
   const available = inventory[kind] > 0;
   const addToWaitlistMutation = useAddToWaitlist();
@@ -60,6 +61,8 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
           ? "You've submitted too many requests. Please try again later."
           : "Failed to join waitlist. Please try again.";
       toast.error(message);
+    } finally {
+      widgetRef.current?.reset();
     }
   }
 
@@ -143,6 +146,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
             </FormField>
             {turnstileSitekey ? (
               <TurnstileWidget
+                ref={widgetRef}
                 sitekey={turnstileSitekey}
                 action="waitlist_signup"
                 onTokenChange={setTurnstileToken}

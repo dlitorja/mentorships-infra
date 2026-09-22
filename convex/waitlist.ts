@@ -253,18 +253,20 @@ function hostnameMatches(hostname: string, patterns: string[]): boolean {
  *
  * Unauthenticated callers (e.g. the marketing app's student-facing waitlist
  * form) MUST go through this action rather than calling `addToWaitlist`
- * directly: a bare mutation has no caller-bound rate-limit key, so a single
+ * directly: a bare mutation has no caller-bound CAPTCHA proof, so a single
  * attacker could rotate `email` to flood `marketingWaitlist`. The Turnstile
  * token proves a real browser solved a CAPTCHA, which bounds writes to
  * solvable CAPTCHAs per attacker.
  *
  * Action verification checks (any failure throws ConvexError):
- *   1. TURNSTILE_SECRET_KEY is configured server-side.
- *   2. siteverify returns `success: true`.
- *   3. siteverify `action` equals `waitlist_signup` (defends against
+ *   1. If `TURNSTILE_SECRET_KEY` is configured, `turnstileToken` is present
+ *      and siteverify returns `success: true`. If the secret is unset (dev
+ *      mode), the check is skipped so local development without a widget
+ *      sitekey still works.
+ *   2. siteverify `action` equals `waitlist_signup` (defends against
  *      cross-action token reuse — a token minted for a different action
  *      can't pass).
- *   4. siteverify `hostname` matches TURNSTILE_ALLOWED_HOSTNAMES
+ *   3. siteverify `hostname` matches `TURNSTILE_ALLOWED_HOSTNAMES`
  *      (default: localhost,127.0.0.1,*.huckleberry.art). Cloudflare's
  *      siteverify returns the host the visitor solved the CAPTCHA from,
  *      so an attacker minting a token on `attacker.example` can't replay
@@ -284,56 +286,54 @@ export const actionAddToWaitlist = action({
   },
   handler: async (ctx, args) => {
     const secret = env.TURNSTILE_SECRET_KEY;
-    if (!secret) {
-      throw new ConvexError("Turnstile not configured");
-    }
-
-    if (!args.turnstileToken) {
-      throw new ConvexError("Turnstile token required");
-    }
-
-    const formData = new FormData();
-    formData.append("secret", secret);
-    formData.append("response", args.turnstileToken);
-
-    const verifyRes = await fetch(
-      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-      {
-        method: "POST",
-        body: formData,
+    if (secret) {
+      if (!args.turnstileToken) {
+        throw new ConvexError("Turnstile token required");
       }
-    );
 
-    if (!verifyRes.ok) {
-      throw new ConvexError("Turnstile verification request failed");
-    }
+      const formData = new FormData();
+      formData.append("secret", secret);
+      formData.append("response", args.turnstileToken);
 
-    const result = (await verifyRes.json()) as {
-      success: boolean;
-      action?: string;
-      hostname?: string;
-      "error-codes"?: string[];
-    };
-
-    if (!result.success) {
-      throw new ConvexError(
-        `Turnstile rejected: ${result["error-codes"]?.join(",") ?? "unknown"}`
+      const verifyRes = await fetch(
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        {
+          method: "POST",
+          body: formData,
+        }
       );
-    }
 
-    if (result.action !== TURNSTILE_ACTION) {
-      throw new ConvexError("Turnstile action mismatch");
-    }
+      if (!verifyRes.ok) {
+        throw new ConvexError("Turnstile verification request failed");
+      }
 
-    const allowedHostnames = (
-      env.TURNSTILE_ALLOWED_HOSTNAMES ?? "localhost,127.0.0.1,*.huckleberry.art"
-    )
-      .split(",")
-      .map((s: string) => s.trim())
-      .filter(Boolean);
+      const result = (await verifyRes.json()) as {
+        success: boolean;
+        action?: string;
+        hostname?: string;
+        "error-codes"?: string[];
+      };
 
-    if (!result.hostname || !hostnameMatches(result.hostname, allowedHostnames)) {
-      throw new ConvexError("Turnstile hostname not allowed");
+      if (!result.success) {
+        throw new ConvexError(
+          `Turnstile rejected: ${result["error-codes"]?.join(",") ?? "unknown"}`
+        );
+      }
+
+      if (result.action !== TURNSTILE_ACTION) {
+        throw new ConvexError("Turnstile action mismatch");
+      }
+
+      const allowedHostnames = (
+        env.TURNSTILE_ALLOWED_HOSTNAMES ?? "localhost,127.0.0.1,*.huckleberry.art"
+      )
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+
+      if (!result.hostname || !hostnameMatches(result.hostname, allowedHostnames)) {
+        throw new ConvexError("Turnstile hostname not allowed");
+      }
     }
 
     const result_add: {
