@@ -733,7 +733,36 @@ export default defineSchema({
       "email",
       "instructorSlug",
       "mentorshipType",
-    ]),
+    ])
+    // PR 7: digest period queries (`getWaitlistSignupsForPeriod`,
+    // `getNotificationsSentForPeriod` in `convex/digest.ts`).
+    .index("by_createdAt", ["createdAt"])
+    .index("by_notifiedAt", ["notifiedAt"]),
+
+  // PR 7: append-only audit of instructor inventory changes.
+  // Source of truth for `getInventoryChangesForPeriod` and the
+  // historical "Kajabi purchase" attribution in the weekly digest.
+  // Backfilled from Supabase `inventory_change_log` via
+  // `scripts/migrate-inventory-change-log.ts` (one-time).
+  inventoryChangeLog: defineTable({
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(
+      v.union(v.literal("oneOnOne"), v.literal("group"))
+    ),
+    changeType: v.union(
+      v.literal("manual_update"),
+      v.literal("kajabi_purchase")
+    ),
+    oldValue: v.number(),
+    newValue: v.number(),
+    changedAt: v.number(),
+    // Migration source row id (Supabase PK). Preserves idempotency
+    // for the backfill script; null on rows created post-migration.
+    legacyId: v.optional(v.string()),
+  })
+    .index("by_changedAt", ["changedAt"])
+    .index("by_instructorSlug", ["instructorSlug"])
+    .index("by_legacyId", ["legacyId"]),
 
   studentSessionCounts: defineTable({
     userId: v.string(),
