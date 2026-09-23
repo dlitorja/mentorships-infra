@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import {
   useInventoryInstructors,
   useUpdateInventory,
+  useMarkNotifiedByInstructor,
   useWaitlistForInstructor,
   useRemoveMultipleFromWaitlist,
   type InventoryInstructor,
@@ -56,8 +57,15 @@ import { instructors as instructorConfig } from "@/lib/instructors";
  *     `apps/web` pattern would require adding `Tabs` + `Checkbox` UI
  *     components to marketing's local `components/ui/` and is not in
  *     this PR's scope.
- *   - Hover-menu "Notify Waitlist" -> "One-on-One / Group" split,
- *     since the markNotifiedByInstructor mutation is type-scoped.
+ *   - Per-type buttons (Notify / View) rendered conditionally
+ *     against `has_pricing_*` so a group-only instructor still
+ *     surfaces the Group controls. Notify buttons are GUARDED
+ *     against zero inventory — sending "A spot has opened up"
+ *     emails while the corresponding inventory is zero is a
+ *     Greptile P1. Modal "Mark All Notified" is STATE-ONLY
+ *     (calls `markNotifiedByInstructor`) so admins can record that
+ *     subscribers were already contacted out-of-band; the per-card
+ *     Notify buttons are the email-send action.
  */
 
 type MentorshipType = "oneOnOne" | "group";
@@ -92,9 +100,11 @@ export function InventoryTable() {
       // the wire format the worker expects. The worker reads
       // unnotified entries, sends Resend emails, then marks
       // notified — we deliberately do NOT call
-      // `markNotifiedByInstructor` from the UI because doing so
-      // would race the worker's eligibility read (prior-0/1 on
-      // PR #866).
+      // `markNotifiedByInstructor` from the per-card notify button
+      // because doing so would race the worker's eligibility read
+      // (prior-0/1 on PR #866). The modal "Mark All Notified"
+      // button, in contrast, IS the state-only mutation — see the
+      // `handleMarkAllNotified` handler below.
       const wireType = vars.type === "oneOnOne" ? "one-on-one" : "group";
       const res = await fetch("/api/admin/waitlist-notify", {
         method: "POST",
@@ -107,6 +117,7 @@ export function InventoryTable() {
       return res.json().catch(() => ({}));
     },
   });
+  const markNotifiedMutation = useMarkNotifiedByInstructor();
   const notifyPending = notifyQueueMutation.isPending;
   const removeMultipleMutation = useRemoveMultipleFromWaitlist();
 
@@ -232,7 +243,33 @@ export function InventoryTable() {
 
   const handleMarkAllNotified = () => {
     if (!selectedInstructor?.slug) return;
-    handleMarkNotified(selectedInstructor.slug, modalType);
+    // State-only: sets `notifiedAt` on every entry for this
+    // (instructor, type). Use this when an admin has already
+    // contacted subscribers out-of-band (e.g. personal email) and
+    // wants to mark the rows as resolved without triggering the
+    // Inngest notify job. The per-card "Notify X Waitlist" buttons
+    // are the email-send action — that path is the one that queues
+    // /api/admin/waitlist-notify. Greptile P1 on PR #866: keeping
+    // the modal action state-only avoids surprising admins with
+    // duplicate availability emails.
+    markNotifiedMutation.mutate(
+      { instructorSlug: selectedInstructor.slug, mentorshipType: modalType },
+      {
+        onError: (err) => {
+          toast.error(
+            `Mark notified failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+          );
+        },
+        onSuccess: (result) => {
+          const updated = (result as { count?: number } | undefined)?.count;
+          toast.success(
+            updated != null
+              ? `Marked ${updated} entries as notified`
+              : "Marked entries as notified",
+          );
+        },
+      },
+    );
   };
 
   if (error) {
@@ -303,7 +340,7 @@ notifyPending={notifyPending}
       )}
 
       <Dialog open={showWaitlistModal} onOpenChange={setShowWaitlistModal}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
               Waitlist — {selectedInstructor?.name || selectedInstructor?.slug || "Unknown"}
@@ -316,9 +353,10 @@ notifyPending={notifyPending}
           <WaitlistModalBody
             entries={(waitlistEntries.data as InventoryWaitlistEntry[] | undefined) ?? []}
             loading={waitlistEntries.isLoading}
+            error={waitlistEntries.error}
             selectedIds={selectedWaitlistEntries}
             removePending={removeMultipleMutation.isPending}
-            notifyPending={notifyPending}
+            notifyPending={markNotifiedMutation.isPending}
             onToggle={handleToggleWaitlistEntry}
             onDelete={handleDeleteSelected}
             onMarkAll={handleMarkAllNotified}
@@ -406,8 +444,14 @@ function InstructorCard({
                 variant="outline"
                 size="sm"
                 onClick={() => onMarkNotified(instructor.slug, "oneOnOne")}
-                disabled={notifyPending}
-                title="Mark every unnotified 1-on-1 waitlist entry as notified"
+                disabled={
+                  notifyPending || (instructor.oneOnOneInventory ?? 0) <= 0
+                }
+                title={
+                  (instructor.oneOnOneInventory ?? 0) <= 0
+                    ? "Cannot send availability emails — 1-on-1 inventory is zero"
+                    : "Send the Inngest availability-email job for unnotified 1-on-1 waitlist entries"
+                }
               >
                 {notifyPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -424,8 +468,12 @@ function InstructorCard({
                 variant="outline"
                 size="sm"
                 onClick={() => onMarkNotified(instructor.slug, "group")}
-                disabled={notifyPending}
-                title="Mark every unnotified group waitlist entry as notified"
+                disabled={notifyPending || (instructor.groupInventory ?? 0) <= 0}
+                title={
+                  (instructor.groupInventory ?? 0) <= 0
+                    ? "Cannot send availability emails — group inventory is zero"
+                    : "Send the Inngest availability-email job for unnotified group waitlist entries"
+                }
               >
                 {notifyPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -519,6 +567,7 @@ function InventoryRow({
 function WaitlistModalBody({
   entries,
   loading,
+  error,
   selectedIds,
   removePending,
   notifyPending,
@@ -529,6 +578,7 @@ function WaitlistModalBody({
 }: {
   entries: InventoryWaitlistEntry[];
   loading: boolean;
+  error: unknown;
   selectedIds: Id<"marketingWaitlist">[];
   removePending: boolean;
   notifyPending: boolean;
@@ -538,9 +588,14 @@ function WaitlistModalBody({
   onClose: () => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 flex-1 min-h-0 flex flex-col">
       <div className="flex gap-2">
-        <Button size="sm" onClick={onMarkAll} disabled={loading || notifyPending || entries.length === 0}>
+        <Button
+          size="sm"
+          onClick={onMarkAll}
+          disabled={loading || notifyPending || entries.length === 0}
+          title="Mark every entry as notified without sending an email — use this when subscribers were already contacted out-of-band"
+        >
           Mark All Notified
         </Button>
         <Button
@@ -560,14 +615,21 @@ function WaitlistModalBody({
         <div className="flex justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
+      ) : error ? (
+        <div className="text-center py-8 text-destructive" role="alert">
+          <p>Failed to load waitlist entries.</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            {error instanceof Error ? error.message : "Unknown error"}
+          </p>
+        </div>
       ) : entries.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           No waitlist entries
         </div>
       ) : (
-        <div className="border rounded-md">
+        <div className="border rounded-md overflow-auto max-h-[55vh]">
           <table className="w-full">
-            <thead>
+            <thead className="sticky top-0 bg-background">
               <tr className="border-b">
                 <th className="text-left py-2 px-3 font-medium w-10"></th>
                 <th className="text-left py-2 px-3 font-medium">Email</th>
