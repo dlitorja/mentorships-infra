@@ -106,6 +106,14 @@ export function InventoryTable() {
     type: MentorshipType,
     delta: number,
   ) => {
+    // Reads the inventory from the React closure rather than the live
+    // Convex cache so two rapid +/- clicks send absolute values that
+    // compose against each other. Greptile flagged this as a "last
+    // write wins" race window — addressing it cleanly requires an
+    // atomic increment/decrement Convex function, which §4d rejects
+    // ("no new Convex code"). Optimistic `onMutate` in
+    // `useUpdateInventory` reduces the visual revert window but the
+    // server-side race remains. Plan doc §4d Known limitations #4.
     const current = type === "oneOnOne"
       ? (instructor.oneOnOneInventory ?? 0)
       : (instructor.groupInventory ?? 0);
@@ -154,6 +162,18 @@ export function InventoryTable() {
         },
         onSuccess: () => {
           toast.success(`Marked waitlist entries as notified (${type === "oneOnOne" ? "1-on-1" : "group"})`);
+          // Fire-and-forget the Inngest worker (PR 6b rewrote it to read
+          // from Convex) so recipients actually receive the email. The
+          // legacy `/api/admin/waitlist-notify` route is Supabase-backed
+          // for its OWN reads but the Inngest worker it sends to now
+          // queries Convex, so this stays consistent end-to-end.
+          fetch("/api/admin/waitlist-notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ instructorSlug: slug, type }),
+          }).catch((err) =>
+            console.error("Failed to send waitlist emails:", err),
+          );
         },
       },
     );
