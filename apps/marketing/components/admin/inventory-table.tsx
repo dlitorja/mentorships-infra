@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   Card,
@@ -25,7 +26,6 @@ import {
   useInventoryInstructors,
   useUpdateInventory,
   useWaitlistForInstructor,
-  useMarkNotifiedByInstructor,
   useRemoveMultipleFromWaitlist,
   type InventoryInstructor,
   type InventoryWaitlistEntry,
@@ -83,7 +83,31 @@ export function InventoryTable() {
 
   const { data, isLoading, error } = useInventoryInstructors();
   const updateInventory = useUpdateInventory();
-  const markNotifiedMutation = useMarkNotifiedByInstructor();
+  const notifyQueueMutation = useMutation({
+    mutationFn: async (vars: { instructorSlug: string; type: MentorshipType }) => {
+      // The Inngest worker validates `type` against ["one-on-one",
+      // "group"] (see
+      // apps/marketing/inngest/functions/waitlist-notifications.ts
+      // line 71) so we map our internal `oneOnOne`/`group` enum to
+      // the wire format the worker expects. The worker reads
+      // unnotified entries, sends Resend emails, then marks
+      // notified — we deliberately do NOT call
+      // `markNotifiedByInstructor` from the UI because doing so
+      // would race the worker's eligibility read (prior-0/1 on
+      // PR #866).
+      const wireType = vars.type === "oneOnOne" ? "one-on-one" : "group";
+      const res = await fetch("/api/admin/waitlist-notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instructorSlug: vars.instructorSlug, type: wireType }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.json().catch(() => ({}));
+    },
+  });
+  const notifyPending = notifyQueueMutation.isPending;
   const removeMultipleMutation = useRemoveMultipleFromWaitlist();
 
   const waitlistEntries = useWaitlistForInstructor(
@@ -154,25 +178,17 @@ export function InventoryTable() {
 
   const handleMarkNotified = (slug: string | null | undefined, type: MentorshipType) => {
     if (!slug) return;
-    markNotifiedMutation.mutate(
-      { instructorSlug: slug, mentorshipType: type },
+    notifyQueueMutation.mutate(
+      { instructorSlug: slug, type },
       {
         onError: (err) => {
-          toast.error(`Mark notified failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+          toast.error(
+            `Queue notify failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+          );
         },
         onSuccess: () => {
-          toast.success(`Marked waitlist entries as notified (${type === "oneOnOne" ? "1-on-1" : "group"})`);
-          // Fire-and-forget the Inngest worker (PR 6b rewrote it to read
-          // from Convex) so recipients actually receive the email. The
-          // legacy `/api/admin/waitlist-notify` route is Supabase-backed
-          // for its OWN reads but the Inngest worker it sends to now
-          // queries Convex, so this stays consistent end-to-end.
-          fetch("/api/admin/waitlist-notify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ instructorSlug: slug, type }),
-          }).catch((err) =>
-            console.error("Failed to send waitlist emails:", err),
+          toast.success(
+            `Queued ${type === "oneOnOne" ? "1-on-1" : "group"} waitlist notifications`,
           );
         },
       },
@@ -276,7 +292,7 @@ export function InventoryTable() {
               key={instructor._id}
               instructor={instructor}
               pending={updateInventory.isPending}
-              notifyPending={markNotifiedMutation.isPending}
+notifyPending={notifyPending}
               onAdjust={handleAdjustInventory}
               onSet={handleSetInventory}
               onMarkNotified={handleMarkNotified}
@@ -302,7 +318,7 @@ export function InventoryTable() {
             loading={waitlistEntries.isLoading}
             selectedIds={selectedWaitlistEntries}
             removePending={removeMultipleMutation.isPending}
-            notifyPending={markNotifiedMutation.isPending}
+            notifyPending={notifyPending}
             onToggle={handleToggleWaitlistEntry}
             onDelete={handleDeleteSelected}
             onMarkAll={handleMarkAllNotified}
