@@ -39,16 +39,18 @@
 
 const BATCH_SIZE = 200;
 const CONVEX_URL_ENV_KEYS = ["CONVEX_URL", "NEXT_PUBLIC_CONVEX_URL"] as const;
+import { z } from "zod";
 
-type SupabaseRow = {
-  id: string;
-  instructor_slug: string;
-  mentorship_type: string | null;
-  change_type: string;
-  old_value: number;
-  new_value: number;
-  changed_at: string;
-};
+const SUPABASE_ROW_SCHEMA = z.object({
+  id: z.string(),
+  instructor_slug: z.string(),
+  mentorship_type: z.string().nullable(),
+  change_type: z.string(),
+  old_value: z.number(),
+  new_value: z.number(),
+  changed_at: z.string(),
+});
+type SupabaseRow = z.infer<typeof SUPABASE_ROW_SCHEMA>;
 
 type ConvexImportEntry = {
   instructorSlug: string;
@@ -59,6 +61,12 @@ type ConvexImportEntry = {
   changedAt: number;
   legacyId: string;
 };
+
+const IMPORT_RESPONSE_SCHEMA = z.object({
+  success: z.boolean(),
+  inserted: z.number(),
+  skipped: z.number(),
+});
 
 type ImportResponse = {
   success: boolean;
@@ -112,7 +120,16 @@ async function fetchSupabaseRows(): Promise<SupabaseRow[]> {
       const text = await response.text();
       throw new Error(`Supabase fetch failed (${response.status}): ${text}`);
     }
-    const batch = (await response.json()) as SupabaseRow[];
+    const batchRaw = (await response.json()) as unknown[];
+    const batch = batchRaw.map((row) => {
+      const parsed = SUPABASE_ROW_SCHEMA.safeParse(row);
+      if (!parsed.success) {
+        throw new Error(
+          `Supabase returned a row that did not match the expected shape: ${JSON.stringify(parsed.error.format())}`,
+        );
+      }
+      return parsed.data;
+    });
     if (batch.length === 0) break;
     all.push(...batch);
     const last = batch[batch.length - 1];
@@ -189,7 +206,13 @@ async function postBatch(
   if (!response.ok) {
     throw new Error(`Convex import failed (${response.status}): ${text}`);
   }
-  return JSON.parse(text) as ImportResponse;
+  const parsed = IMPORT_RESPONSE_SCHEMA.safeParse(JSON.parse(text));
+  if (!parsed.success) {
+    throw new Error(
+      `Convex import returned a response that did not match the expected shape: ${JSON.stringify(parsed.error.format())}`,
+    );
+  }
+  return parsed.data;
 }
 
 async function main(): Promise<void> {

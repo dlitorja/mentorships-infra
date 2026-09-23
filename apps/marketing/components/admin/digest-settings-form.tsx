@@ -24,6 +24,10 @@ import {
 
 type Frequency = DigestSettings["frequency"];
 
+function isFrequency(v: string): v is Frequency {
+  return v === "daily" || v === "weekly" || v === "monthly";
+}
+
 const DEFAULT_SETTINGS: DigestSettings = {
   enabled: false,
   frequency: "weekly",
@@ -137,9 +141,10 @@ export function DigestSettingsForm() {
             <Label htmlFor="frequency">Frequency</Label>
             <Select
               value={settings.frequency}
-              onValueChange={(value) =>
-                setSettings({ ...settings, frequency: value as Frequency })
-              }
+              onValueChange={(value) => {
+                if (!isFrequency(value)) return;
+                setSettings({ ...settings, frequency: value });
+              }}
             >
               <SelectTrigger id="frequency">
                 <SelectValue />

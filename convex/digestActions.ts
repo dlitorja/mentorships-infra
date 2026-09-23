@@ -11,6 +11,9 @@
 import { action, internalAction } from "./_generated/server";
 import { ConvexError } from "convex/values";
 import { internal, api } from "./_generated/api";
+import { z } from "zod";
+
+const RESEND_RESPONSE_SCHEMA = z.object({ id: z.string() });
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 
@@ -499,8 +502,14 @@ async function sendDigest(
       message: `Resend digest send failed (${res.status}): ${errText.slice(0, 500)}`,
     });
   }
-  const resendData = (await res.json().catch(() => ({}))) as { id?: string };
-  const emailId = resendData.id ?? "";
+  const resendData = RESEND_RESPONSE_SCHEMA.safeParse(await res.json().catch(() => ({})));
+  if (!resendData.success) {
+    throw new ConvexError({
+      code: "RESEND_INVALID_RESPONSE",
+      message: "Resend returned 2xx without a valid { id: string } payload",
+    });
+  }
+  const emailId = resendData.data.id;
 
   // 8) Mark `lastSentAt` on success. Failure of the mark is
   //    non-fatal — the email already went out.

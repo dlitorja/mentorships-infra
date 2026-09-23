@@ -94,8 +94,8 @@ export const getInventoryStatusForDigest = query({
     return instructors.map((i) => ({
       instructorSlug: i.slug,
       instructorName: i.name,
-      oneOnOneInventory: (i as any).oneOnOneInventory ?? 0,
-      groupInventory: (i as any).groupInventory ?? 0,
+      oneOnOneInventory: i.oneOnOneInventory ?? 0,
+      groupInventory: i.groupInventory ?? 0,
     }));
   },
 });
@@ -233,8 +233,8 @@ export const internalGetInventoryStatusForDigest = internalQuery({
     return instructors.map((i) => ({
       instructorSlug: i.slug,
       instructorName: i.name,
-      oneOnOneInventory: (i as any).oneOnOneInventory ?? 0,
-      groupInventory: (i as any).groupInventory ?? 0,
+      oneOnOneInventory: i.oneOnOneInventory ?? 0,
+      groupInventory: i.groupInventory ?? 0,
     }));
   },
 });
