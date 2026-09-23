@@ -346,7 +346,12 @@ function buildWeeklyDigestEmail(data: {
  * (`sendAdminDigestEmail`) and the Inngest-scheduled internal
  * action (`internalSendScheduledDigest`). Both are essentially
  * "build the report, send the email, mark `lastSentAt`" — the only
- * difference is which admin-gate they pass.
+ * difference is which admin-gate they pass and whether cadence is
+ * enforced (cadence is only enforced on the scheduled path).
+ *
+ * Reads use internal queries (no auth check) because the caller
+ * already authenticated: the public action's admin gate, or the
+ * HTTP endpoint's CONVEX_HTTP_KEY gate.
  */
 async function sendDigest(
   ctx: {
@@ -366,24 +371,27 @@ async function sendDigest(
   conversions: number;
   emailId: string;
 }> {
-  // 1) Read settings.
-  const settings = await ctx.runQuery(api.digest.getAdminDigestSettings, {});
+  // 1) Read settings via internal query (no auth check; caller is trusted).
+  const settings = await ctx.runQuery(
+    internal.digest.internalGetAdminDigestSettings,
+    {}
+  );
 
   // 2) Compute period window from frequency.
   const period = getPeriodForDigest(settings.frequency);
 
   // 3) Read report sections in parallel — 4 indexed reads + 1 inventory.
   const [inventoryStatus, signups, notifications, changes] = await Promise.all([
-    ctx.runQuery(api.digest.getInventoryStatusForDigest, {}),
-    ctx.runQuery(api.digest.getWaitlistSignupsForPeriod, {
+    ctx.runQuery(internal.digest.internalGetInventoryStatusForDigest, {}),
+    ctx.runQuery(internal.digest.internalGetWaitlistSignupsForPeriod, {
       periodStart: period.start.getTime(),
       periodEnd: period.end.getTime(),
     }),
-    ctx.runQuery(api.digest.getNotificationsSentForPeriod, {
+    ctx.runQuery(internal.digest.internalGetNotificationsSentForPeriod, {
       periodStart: period.start.getTime(),
       periodEnd: period.end.getTime(),
     }),
-    ctx.runQuery(api.digest.getInventoryChangesForPeriod, {
+    ctx.runQuery(internal.digest.internalGetInventoryChangesForPeriod, {
       periodStart: period.start.getTime(),
       periodEnd: period.end.getTime(),
     }),
@@ -461,12 +469,18 @@ async function sendDigest(
 
   const emailContent = buildWeeklyDigestEmail(report);
 
-  // 7) Send via Resend.
+  // 7) Send via Resend with a deterministic Idempotency-Key so an
+  //    Inngest retry (or a user clicking Send Now twice rapidly) that
+  //    happens to fail mid-action and re-invoke Resend with the same
+  //    period content doesn't deliver the same email twice. Resend
+  //    dedupes on this key for 24h.
+  const idempotencyKey = `digest-${period.start.toISOString()}-${period.end.toISOString()}-${settings.adminEmail}`;
   const res = await fetch(RESEND_API_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify({
       from,
@@ -550,10 +564,40 @@ export const sendAdminDigestEmail = action({
  * Internal action — called by the Inngest cron via the CONVEX_HTTP_KEY-gated
  * HTTP endpoint `convex/http.ts:httpSendDigest`. No admin gate: the
  * HTTP endpoint is the trust boundary.
+ *
+ * Enforces cadence BEFORE calling the shared `sendDigest` helper:
+ *  - `enabled === false` → skip.
+ *  - `frequency === "weekly"` → only Monday (UTC).
+ *  - `frequency === "monthly"` → only the 1st of the month (UTC).
+ *  - `frequency === "daily"` → every cron tick.
+ *
+ * The cadence check is intentionally on the Convex side (per
+ * `marketing-convex-admin-mirror` plan doc §4f) so manual "Send Now"
+ * and scheduled sends share one code path; manual sends bypass this
+ * check entirely (they're user-initiated).
  */
 export const internalSendScheduledDigest = internalAction({
   args: {},
   handler: async (ctx) => {
+    const settings = await ctx.runQuery(
+      internal.digest.internalGetAdminDigestSettings,
+      {}
+    );
+
+    if (!settings.enabled) {
+      return { skipped: true, reason: "disabled" };
+    }
+
+    const now = new Date();
+    const utcDay = now.getUTCDay();
+    const utcDate = now.getUTCDate();
+    if (settings.frequency === "weekly" && utcDay !== 1) {
+      return { skipped: true, reason: "not-weekly" };
+    }
+    if (settings.frequency === "monthly" && utcDate !== 1) {
+      return { skipped: true, reason: "not-monthly" };
+    }
+
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       throw new ConvexError({

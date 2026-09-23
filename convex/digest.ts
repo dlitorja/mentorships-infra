@@ -20,6 +20,7 @@
 import {
   query,
   mutation,
+  internalQuery,
   internalMutation,
 } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
@@ -177,6 +178,116 @@ export const getInventoryChangesForPeriod = query({
     if (!identity) throw new Error("Unauthorized");
     if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
 
+    const rows = await ctx.db
+      .query("inventoryChangeLog")
+      .withIndex("by_changedAt", (q) =>
+        q.gte("changedAt", args.periodStart).lte("changedAt", args.periodEnd)
+      )
+      .collect();
+
+    return rows.map((r) => ({
+      instructorSlug: r.instructorSlug,
+      mentorshipType: r.mentorshipType,
+      changeType: r.changeType,
+      oldValue: r.oldValue,
+      newValue: r.newValue,
+      changedAt: r.changedAt,
+    }));
+  },
+});
+
+// ----------------------------------------------------------------------------
+// Internal queries (no auth check) — used by the digest send action
+// (`convex/digestActions.ts`). The action is the trust boundary: the
+// HTTP endpoint is gated by CONVEX_HTTP_KEY and the public action is
+// admin-gated at its entry, so the reads inside the action don't need
+// their own per-query admin check. Public (admin-gated) versions above
+// stay for UI hooks.
+// ----------------------------------------------------------------------------
+
+export const internalGetAdminDigestSettings = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db.query("adminDigestSettings").first();
+    if (!row) {
+      return DEFAULT_SETTINGS;
+    }
+    return {
+      enabled: row.enabled ?? false,
+      frequency: (row.frequency ?? "weekly") as Frequency,
+      adminEmail: row.adminEmail ?? "",
+      lastSentAt: row.lastSentAt ?? null,
+      updatedAt: row.updatedAt ?? null,
+    };
+  },
+});
+
+export const internalGetInventoryStatusForDigest = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const instructors = await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .collect();
+
+    return instructors.map((i) => ({
+      instructorSlug: i.slug,
+      instructorName: i.name,
+      oneOnOneInventory: (i as any).oneOnOneInventory ?? 0,
+      groupInventory: (i as any).groupInventory ?? 0,
+    }));
+  },
+});
+
+export const internalGetWaitlistSignupsForPeriod = internalQuery({
+  args: {
+    periodStart: v.number(),
+    periodEnd: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_createdAt", (q) =>
+        q.gte("createdAt", args.periodStart).lte("createdAt", args.periodEnd)
+      )
+      .collect();
+
+    return entries.map((e) => ({
+      instructorSlug: e.instructorSlug,
+      mentorshipType: e.mentorshipType,
+      email: e.email,
+      createdAt: e.createdAt,
+    }));
+  },
+});
+
+export const internalGetNotificationsSentForPeriod = internalQuery({
+  args: {
+    periodStart: v.number(),
+    periodEnd: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const entries = await ctx.db
+      .query("marketingWaitlist")
+      .withIndex("by_notifiedAt", (q) =>
+        q.gte("notifiedAt", args.periodStart).lte("notifiedAt", args.periodEnd)
+      )
+      .collect();
+
+    return entries.map((e) => ({
+      instructorSlug: e.instructorSlug,
+      mentorshipType: e.mentorshipType,
+      notifiedAt: e.notifiedAt!,
+    }));
+  },
+});
+
+export const internalGetInventoryChangesForPeriod = internalQuery({
+  args: {
+    periodStart: v.number(),
+    periodEnd: v.number(),
+  },
+  handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("inventoryChangeLog")
       .withIndex("by_changedAt", (q) =>

@@ -12,17 +12,26 @@
  * Reads `NEXT_PUBLIC_CONVEX_URL` (or `CONVEX_URL`) from the local
  * environment to resolve the Convex HTTP endpoint. Hits `POST
  * /inventory-change-log/import-bulk` on the dev or prod deployment
- * in batches of 200. Idempotent: the internal mutation uses
- * `(instructorSlug, mentorshipType, changeType, oldValue, newValue,
- * changedAt)` as the dedup key and skips triples that already exist.
+ * in batches of 200.
+ *
+ * Idempotency: every entry carries a `legacyId` equal to the
+ * Supabase row's primary key. The receiving internal mutation
+ * (`convex/digest.ts:internalBulkImportInventoryChangeLog`) dedups
+ * by `legacyId` so re-runs are safe and don't inflate the
+ * "Inventory Changes" count.
+ *
+ * `mentorship_type: null` is valid on the Supabase side (some
+ * manual updates apply to both 1-on-1 and group in one record).
+ * The destination validator accepts only `"oneOnOne"`, `"group"`,
+ * or the field omitted, so we OMIT the field on the wire when
+ * the source value is null.
  *
  * The Kajabi webhook still writes to Supabase `inventory_change_log`
- * after this script runs — a separate follow-up migrates the webhook
- * path to Convex. Until then, new inventory changes will not appear in
- * the digest's "Inventory Changes" section.
+ * after this script runs — a separate follow-up migrates the
+ * webhook path to Convex. Until then, new inventory changes will
+ * not appear in the digest's "Inventory Changes" section.
  *
- * Safe to re-run. Idempotent: the internal mutation dedups by
- * `legacyId` (Supabase PK). Required secrets:
+ * Required secrets:
  *   - CONVEX_HTTP_KEY (Convex deployment HTTP auth)
  *   - SUPABASE_URL
  *   - SUPABASE_SERVICE_ROLE_KEY
@@ -43,11 +52,12 @@ type SupabaseRow = {
 
 type ConvexImportEntry = {
   instructorSlug: string;
-  mentorshipType: "oneOnOne" | "group" | null;
+  mentorshipType?: "oneOnOne" | "group";
   changeType: "manual_update" | "kajabi_purchase";
   oldValue: number;
   newValue: number;
   changedAt: number;
+  legacyId: string;
 };
 
 type ImportResponse = {
@@ -117,32 +127,35 @@ function mapRow(row: SupabaseRow): ConvexImportEntry | null {
   const instructorSlug = row.instructor_slug?.trim().toLowerCase();
   if (!instructorSlug) return null;
 
-  let mentorshipType: "oneOnOne" | "group" | null = null;
-  if (row.mentorship_type === "one-on-one" || row.mentorship_type === "oneOnOne") {
-    mentorshipType = "oneOnOne";
-  } else if (row.mentorship_type === "group") {
-    mentorshipType = "group";
+  if (
+    row.change_type !== "manual_update" &&
+    row.change_type !== "kajabi_purchase"
+  ) {
+    return null;
   }
-  // Null mentorship_type is valid (some manual updates apply to both
-  // 1-on-1 and group in one record); only filter rows with an unknown
-  // mentorship_type.
-
-  let changeType: "manual_update" | "kajabi_purchase" | null = null;
-  if (row.change_type === "manual_update") changeType = "manual_update";
-  else if (row.change_type === "kajabi_purchase") changeType = "kajabi_purchase";
-  if (!changeType) return null;
 
   const changedAtMs = row.changed_at ? Date.parse(row.changed_at) : NaN;
   if (!Number.isFinite(changedAtMs)) return null;
 
-  return {
+  // Map Supabase mentorship_type to the Convex validator union. Null is
+  // valid on the Supabase side (some manual updates apply to both 1-on-1
+  // and group in one record), but the Convex validator only accepts
+  // `"oneOnOne"`, `"group"`, or the field omitted. OMIT (don't send null)
+  // when the source value is null.
+  const entry: ConvexImportEntry = {
     instructorSlug,
-    mentorshipType,
-    changeType,
+    changeType: row.change_type,
     oldValue: Number(row.old_value),
     newValue: Number(row.new_value),
     changedAt: changedAtMs,
+    legacyId: row.id,
   };
+  if (row.mentorship_type === "one-on-one" || row.mentorship_type === "oneOnOne") {
+    entry.mentorshipType = "oneOnOne";
+  } else if (row.mentorship_type === "group") {
+    entry.mentorshipType = "group";
+  }
+  return entry;
 }
 
 async function postBatch(
