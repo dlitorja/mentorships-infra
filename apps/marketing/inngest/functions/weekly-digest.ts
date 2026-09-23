@@ -1,252 +1,69 @@
 import { inngest } from "../client";
-import { createClient } from "@supabase/supabase-js";
-import { buildWeeklyDigestEmail } from "@/lib/email/weekly-digest";
-import { getWeeklyDigestData, getPeriodForDigest } from "@/lib/digest-data";
-import { getResendClient, getFromAddress } from "@/lib/email/client";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { z } from "zod";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const digestSettingsSchema = z.object({
-  id: z.string(),
-  enabled: z.boolean(),
-  frequency: z.enum(["daily", "weekly", "monthly"]),
-  admin_email: z.string().email(),
-  last_sent_at: z.string().nullable(),
-  updated_at: z.string(),
+const sendDigestResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.object({
+    success: z.boolean(),
+    message: z.string(),
+    recipientEmail: z.string().email(),
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    newSignups: z.number(),
+    emailsSent: z.number(),
+    conversions: z.number(),
+    emailId: z.string(),
+  }),
 });
 
-export const sendScheduledDigestByFrequency = inngest.createFunction(
+/**
+ * PR 7: scheduled digest send. Calls the Convex HTTP endpoint
+ * `POST /digest/send`, which runs the `internalSendScheduledDigest`
+ * action. The action does its own enabled + frequency + date check
+ * and either sends or returns `{ skipped: true }`. Cron: daily at
+ * 09:00 UTC. Inngest is dumb on purpose — all logic lives in
+ * Convex so manual "Send Now" (via `useSendDigest` →
+ * `sendAdminDigestEmail` action) and scheduled sends share one
+ * code path.
+ *
+ * Replaces the two Supabase-backed functions
+ * `sendScheduledDigestByFrequency` (cron `0 9 * * *`) and
+ * `sendWeeklyDigest` (cron `0 9 * * 1`) that read from
+ * `lib/digest-data.ts` + `lib/email/weekly-digest.ts`. The daily
+ * cron already covered Monday for `frequency === "weekly"`, so
+ * consolidating to one function removes the duplicate path.
+ */
+export const sendScheduledDigest = inngest.createFunction(
   {
-    id: "send-digest-by-frequency",
+    id: "send-scheduled-digest",
     retries: 3,
   },
   { cron: "0 9 * * *" },
   async ({ step }) => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error("Supabase not configured");
-    }
-
-    const resend = getResendClient();
-    const from = getFromAddress();
-
-    if (!resend || !from) {
-      return {
-        message: "Email provider not configured, skipping digest",
-        skipped: true,
-      };
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    const settings = await step.run("fetch-digest-settings", async () => {
-      const { data, error } = await supabase
-        .from("admin_digest_settings")
-        .select("*")
-        .eq("id", "default")
-        .single();
-
-      if (error) {
-        console.error("Error fetching digest settings:", error);
-        throw error;
-      }
-
-      return digestSettingsSchema.parse(data);
+    const result = await step.run("send-digest-via-convex", async () => {
+      return await convexServerCall("/digest/send", {});
     });
 
-    if (!settings || !settings.enabled) {
-      return {
-        message: "Digest is disabled in settings",
-        skipped: true,
-        enabled: settings?.enabled,
-      };
+    const validated = sendDigestResponseSchema.safeParse(result);
+    if (!validated.success) {
+      console.error(
+        "Invalid /digest/send response shape:",
+        validated.error.format()
+      );
+      throw new Error("Convex /digest/send returned unexpected shape");
     }
-
-    const startTime = new Date();
-    const shouldSendDaily = settings.frequency === "daily";
-    const shouldSendWeekly = settings.frequency === "weekly" && startTime.getDay() === 1;
-    const shouldSendMonthly = settings.frequency === "monthly" && startTime.getDate() === 1;
-
-    if (!shouldSendDaily && !shouldSendWeekly && !shouldSendMonthly) {
-      return {
-        message: "Not scheduled to send today based on frequency settings",
-        skipped: true,
-        frequency: settings.frequency,
-        dayOfWeek: startTime.getDay(),
-        dayOfMonth: startTime.getDate(),
-      };
-    }
-
-    const period = getPeriodForDigest(settings.frequency);
-
-    const digestData = await step.run("gather-digest-data", async () => {
-      return getWeeklyDigestData(period.start, period.end);
-    });
-
-    const emailContent = await step.run("build-email-content", async () => {
-      return buildWeeklyDigestEmail(digestData);
-    });
-
-    const sendResult = await step.run("send-digest-email", async () => {
-      const result = await resend.emails.send({
-        from,
-        to: settings.admin_email,
-        subject: emailContent.subject,
-        html: emailContent.html,
-        text: emailContent.text,
-        headers: emailContent.headers,
-      });
-
-      return result;
-    });
-
-    if (sendResult.error) {
-      console.error("Failed to send digest email:", sendResult.error);
-      return {
-        message: "Failed to send digest email",
-        error: sendResult.error,
-      };
-    }
-
-    await step.run("update-last-sent", async () => {
-      const { error } = await supabase
-        .from("admin_digest_settings")
-        .update({
-          last_sent_at: startTime.toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", "default");
-
-      if (error) {
-        console.error("Error updating last_sent_at:", error);
-        throw error;
-      }
-    });
 
     return {
-      message: "Digest sent successfully",
-      frequency: settings.frequency,
-      recipientEmail: settings.admin_email,
-      periodStart: digestData.periodStart,
-      periodEnd: digestData.periodEnd,
-      newSignups: digestData.waitlistSignups.length,
-      emailsSent: digestData.notificationsSent.reduce((sum, n) => sum + n.count, 0),
-      conversions: digestData.conversions.length,
-      emailId: sendResult.data?.id,
-    };
-  }
-);
-
-export const sendWeeklyDigest = inngest.createFunction(
-  {
-    id: "send-weekly-digest",
-    retries: 3,
-  },
-  { cron: "0 9 * * 1" },
-  async ({ step }) => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error("Supabase not configured");
-    }
-
-    const resend = getResendClient();
-    const from = getFromAddress();
-
-    if (!resend || !from) {
-      return {
-        message: "Email provider not configured, skipping digest",
-        skipped: true,
-      };
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    const settings = await step.run("fetch-digest-settings", async () => {
-      const { data, error } = await supabase
-        .from("admin_digest_settings")
-        .select("*")
-        .eq("id", "default")
-        .single();
-
-      if (error) {
-        console.error("Error fetching digest settings:", error);
-        throw error;
-      }
-
-      return digestSettingsSchema.parse(data);
-    });
-
-    if (!settings || !settings.enabled) {
-      return {
-        message: "Digest is disabled in settings",
-        skipped: true,
-        enabled: settings?.enabled,
-      };
-    }
-
-    if (settings.frequency !== "weekly") {
-      return {
-        message: "Skipping weekly digest - frequency is not set to weekly",
-        skipped: true,
-        frequency: settings.frequency,
-      };
-    }
-
-    const period = getPeriodForDigest("weekly");
-
-    const digestData = await step.run("gather-digest-data", async () => {
-      return getWeeklyDigestData(period.start, period.end);
-    });
-
-    const emailContent = await step.run("build-email-content", async () => {
-      return buildWeeklyDigestEmail(digestData);
-    });
-
-    const sendResult = await step.run("send-digest-email", async () => {
-      const result = await resend.emails.send({
-        from,
-        to: settings.admin_email,
-        subject: emailContent.subject,
-        html: emailContent.html,
-        text: emailContent.text,
-        headers: emailContent.headers,
-      });
-
-      return result;
-    });
-
-    if (sendResult.error) {
-      console.error("Failed to send weekly digest email:", sendResult.error);
-      return {
-        message: "Failed to send weekly digest email",
-        error: sendResult.error,
-      };
-    }
-
-    await step.run("update-last-sent", async () => {
-      const { error } = await supabase
-        .from("admin_digest_settings")
-        .update({
-          last_sent_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", "default");
-
-      if (error) {
-        console.error("Error updating last_sent_at:", error);
-        throw error;
-      }
-    });
-
-    return {
-      message: "Weekly digest sent successfully",
-      recipientEmail: settings.admin_email,
-      periodStart: digestData.periodStart,
-      periodEnd: digestData.periodEnd,
-      newSignups: digestData.waitlistSignups.length,
-      emailsSent: digestData.notificationsSent.reduce((sum, n) => sum + n.count, 0),
-      conversions: digestData.conversions.length,
-      emailId: sendResult.data?.id,
+      message: validated.data.result.message,
+      skipped: !validated.data.result.success,
+      recipientEmail: validated.data.result.recipientEmail,
+      periodStart: validated.data.result.periodStart,
+      periodEnd: validated.data.result.periodEnd,
+      newSignups: validated.data.result.newSignups,
+      emailsSent: validated.data.result.emailsSent,
+      conversions: validated.data.result.conversions,
+      emailId: validated.data.result.emailId,
     };
   }
 );

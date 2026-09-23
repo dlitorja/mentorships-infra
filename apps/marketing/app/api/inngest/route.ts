@@ -3,7 +3,7 @@ import { inngest } from "@/lib/inngest";
 import { processWaitlistNotifications } from "@/inngest/functions/waitlist-notifications";
 import { handleInventoryChanged } from "@/inngest/functions/inventory-changed";
 import { handleInventoryAvailable } from "@/inngest/functions/inventory-available";
-import { sendWeeklyDigest, sendScheduledDigestByFrequency } from "@/inngest/functions/weekly-digest";
+import { sendScheduledDigest } from "@/inngest/functions/weekly-digest";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -11,7 +11,6 @@ export const { GET, POST, PUT } = serve({
     processWaitlistNotifications,
     handleInventoryChanged,
     handleInventoryAvailable,
-    sendWeeklyDigest,
-    sendScheduledDigestByFrequency,
+    sendScheduledDigest,
   ],
 });
