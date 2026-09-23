@@ -364,7 +364,7 @@ function InstructorCard({
           </p>
         )}
         {instructor.slug && (
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             {hasOneOnOne && (
               <div className="relative group">
                 <Button
@@ -401,13 +401,24 @@ function InstructorCard({
                 </div>
               </div>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenWaitlist(instructor, "oneOnOne")}
-            >
-              View Waitlist
-            </Button>
+            {hasOneOnOne && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenWaitlist(instructor, "oneOnOne")}
+              >
+                View 1-on-1 Waitlist
+              </Button>
+            )}
+            {hasGroup && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenWaitlist(instructor, "group")}
+              >
+                View Group Waitlist
+              </Button>
+            )}
           </div>
         )}
       </CardContent>
