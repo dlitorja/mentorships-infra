@@ -366,40 +366,40 @@ function InstructorCard({
         {instructor.slug && (
           <div className="flex flex-wrap gap-2 pt-2">
             {hasOneOnOne && (
-              <div className="relative group">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={notifyPending}
-                >
-                  {notifyPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Bell className="h-3 w-3 mr-1" />
-                      Notify Waitlist
-                    </>
-                  )}
-                </Button>
-                <div className="absolute top-full left-0 mt-1 hidden group-hover:block z-10 bg-background border rounded-md shadow-lg p-1 min-w-[140px]">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => onMarkNotified(instructor.slug, "oneOnOne")}
-                  >
-                    One-on-One
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => onMarkNotified(instructor.slug, "group")}
-                  >
-                    Group
-                  </Button>
-                </div>
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onMarkNotified(instructor.slug, "oneOnOne")}
+                disabled={notifyPending}
+                title="Mark every unnotified 1-on-1 waitlist entry as notified"
+              >
+                {notifyPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Bell className="h-3 w-3 mr-1" />
+                    Notify 1-on-1 Waitlist
+                  </>
+                )}
+              </Button>
+            )}
+            {hasGroup && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onMarkNotified(instructor.slug, "group")}
+                disabled={notifyPending}
+                title="Mark every unnotified group waitlist entry as notified"
+              >
+                {notifyPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Bell className="h-3 w-3 mr-1" />
+                    Notify Group Waitlist
+                  </>
+                )}
+              </Button>
             )}
             {hasOneOnOne && (
               <Button
