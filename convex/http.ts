@@ -2853,4 +2853,82 @@ http.route({
   handler: httpFinalizeRecordingRetentionNotification,
 });
 
+// ----------------------------------------------------------------------------
+// PR 7: digest send + inventory-change-log import.
+//
+// These two HTTP endpoints exist so the Inngest cron and the
+// migration script (server-side, no admin identity) can drive
+// Convex writes. CONVEX_HTTP_KEY bearer is the trust boundary — no
+// admin gating inside. Pair with the corresponding internalAction /
+// internalMutation in `convex/digestActions.ts` and `convex/digest.ts`.
+// ----------------------------------------------------------------------------
+
+/** Bulk-imports inventoryChangeLog rows. Server-only. Called by the
+ * one-time migration script `scripts/migrate-inventory-change-log.ts`.
+ * Idempotent: skips entries that already exist (matched by `legacyId`).
+ */
+export const httpBulkImportInventoryChangeLog = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const entries = body?.entries;
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, inserted: 0, skipped: 0 }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const result = await ctx.runMutation(
+      internal.digest.internalBulkImportInventoryChangeLog as any,
+      { entries }
+    );
+
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
+/** Triggers the scheduled digest send. Called by the Inngest cron
+ * (`apps/marketing/inngest/functions/weekly-digest.ts`). The internal
+ * action reads settings, decides whether today is a send day for the
+ * configured frequency, then sends via Resend.
+ */
+export const httpSendDigest = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  try {
+    const result = await ctx.runAction(
+      internal.digestActions.internalSendScheduledDigest,
+      {}
+    );
+    return new Response(JSON.stringify({ success: true, result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(
+      JSON.stringify({ success: false, error: message }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+});
+
+http.route({
+  path: "/inventory-change-log/import-bulk",
+  method: "POST",
+  handler: httpBulkImportInventoryChangeLog,
+});
+
+http.route({
+  path: "/digest/send",
+  method: "POST",
+  handler: httpSendDigest,
+});
+
 export default http;
