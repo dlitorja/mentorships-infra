@@ -35,7 +35,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
 | 6a | `feat/marketing-port-addtowaitlist` | feat(marketing): port addToWaitlist to Convex (PR 6a) | ✅ Merged as PR #859 (combined with PR 6b) | First prerequisite for PR 6. Replace Supabase-backed `addToWaitlist` (`lib/supabase-inventory.ts:169`, called from `components/instructors/offer-button.tsx:32`) with a Convex **action** (not a direct mutation) so rate limiting + static-gen work correctly. First implementation reached 0/5 Greptile on commit `ae4e1001`; four P1 comments called out (a) static-gen crash because `useConvexMutation` runs at build time without a Convex provider, (b) mutation silently overwrites 1-on-1 vs group waitlist rows for the same `(email, instructorSlug)` pair, (c) Inngest worker still reads Supabase so new Convex signups miss notification emails, (d) `/api/waitlist`'s server-side Zod validation + per-IP rate limit are bypassed by going direct. Branch was reset to `main`, force-pushed, deleted from origin. Spec expansion tracked in §4e. Linear: HUC-38. **Merged (2026-09-21)** as the 6a+6b combined PR #859 (`f4a2d98c`). Public `addToWaitlist` mutation kept for server-side callers (admin, migration scripts); client calls go through `actionAddToWaitlist` with per-IP rate-limit + admin-gated `addToWaitlist` delegation. Greptile 4/5 on commit `f4a2d98c`. |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | **Unblocked (2026-09-21)** — PR 6a+6b prerequisite merged; PR 6 now resumes against the §4d spec | Marketing-only page. Replaces the Supabase-backed `getAllInstructorsWithInventory` + `getWaitlistCounts` join with Convex (`api.instructors.getInstructorsForAdmin` + `api.waitlist.*` mutations). UX mirror of `apps/web/app/admin/inventory/page.tsx` (card grid, +/- buttons, View Waitlist modal with checkboxes). Static `lib/instructors.ts` retained for `has_pricing_*` display only. **Resume order**: PR 6 against the §4d spec. Tracking: HUC-37. Spec in §4d. |
-| 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. |
+| 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. Spec in §4f. |
 
 Each PR:
 - `pnpm --filter @mentorships/marketing exec tsc --noEmit --skipLibCheck` → 0 errors.
@@ -436,6 +436,156 @@ Tracking issue: **HUC-37** (state `Backlog` → `In Progress` once PR 6 + PR 6c 
 5. "Mark All Notified" sets `notifiedAt = Date.now()` on every unnotified entry for the active tab.
 6. Static config (`apps/marketing/lib/instructors.ts`) still drives the offer pill labels and the `has_pricing_*` gating — admin sees the same UX shape as before the migration.
 7. **Live waitlist parity check.** Create a new waitlist entry via the public student-facing flow (click "Join Waitlist" on a 1-on-1 instructor). It appears in the modal within 2 seconds without a manual refresh — proves `addToWaitlist` writes to Convex (prerequisite PR).
+
+---
+
+## 4f. PR 7 spec (admin digest — Convex port)
+
+**Goal:** replace the Supabase-backed `/admin/digest` page + `/api/admin/digest-settings` (GET/PUT) + `/api/admin/digest-send` (POST) with Convex reads/writes. The page is admin-only (the parent `app/admin/layout.tsx` already gates access via `isAdminUser()`). Marketing-only — apps/web has no digest surface.
+
+### Status
+
+**Spec only (2026-09-23).** PR 6 + PR 6a/6b prerequisites merged (`e878343d`, `f4a2d98c`). PR 7 is the last in the 7-PR arc.
+
+### Current Supabase reads (per `apps/marketing/lib/digest-data.ts:17`)
+
+The Supabase-backed `getWeeklyDigestData` runs 4 sequential queries against `marketing_waitlist` + `inventory_change_log` + `instructor_inventory`:
+
+| Query | Supabase source | What it powers |
+| --- | --- | --- |
+| `instructor_inventory` (all rows) | `instructor_inventory` | `inventoryStatus[]` for every instructor's 1-on-1 + group counts (used in the email body summary + the static reference list). |
+| `marketing_waitlist` filtered by `created_at BETWEEN start AND end` | `marketing_waitlist` | `waitlistSignups[]` — count of new signups per instructor in the digest period. |
+| `inventory_change_log` filtered by `changed_at BETWEEN start AND end` | `inventory_change_log` | `inventoryChanges[]` — manual updates + Kajabi purchases in the period (informational). |
+| `marketing_waitlist` filtered by `last_notification_at BETWEEN start AND end` | `marketing_waitlist` | `notificationsSent[]` — count of notify emails per `(instructorSlug, mentorshipType)` in the period. |
+
+`conversions[]` is always empty (`digest-data.ts:141`). No port needed.
+
+### Convex table inventory (today)
+
+| Table | Fields | Indexes (current) | PR 7 needs |
+| --- | --- | --- | --- |
+| `marketingWaitlist` | `email`, `instructorSlug`, `mentorshipType`, `notifiedAt?`, `createdAt` | `by_instructorSlug_mentorshipType`, `by_email_instructorSlug`, `by_email_instructorSlug_mentorshipType` | + `by_createdAt` (for `created_at` range query) and `by_notifiedAt` (for `last_notification_at` range query). **Schema change.** |
+| `adminDigestSettings` | `enabled?`, `frequency?`, `adminEmail`, `lastSentAt?`, `updatedAt?`, `legacyId?` | (none — singleton row, queried by `_id`) | No new index. Singleton lookup by `_id`. |
+| `inventoryChangeLog` | **DOES NOT EXIST in Convex.** | — | Decision: **introduce a new Convex table** mirroring the Supabase schema so the digest section can keep its existing shape. **Schema change.** |
+| `instructors` | (already has `oneOnOneInventory`, `groupInventory`, `name`, `slug`) | — | Reused as-is for `inventoryStatus[]`. |
+
+### New Convex code (queries + mutations + actions)
+
+#### Queries
+
+| Function | Source | Notes |
+| --- | --- | --- |
+| `digest.getAdminDigestSettings` | `convex/digest.ts` *(new file)* | Admin-gated. Returns the singleton `adminDigestSettings` row, or a default `{ enabled: false, frequency: "weekly", adminEmail: "", lastSentAt: null, updatedAt: null }` if no row exists yet. Uses `requireAdmin(ctx)` to mirror `convex/admin.ts:699`. |
+| `digest.getInventoryStatusForDigest` | `convex/digest.ts` | Admin-gated. Returns `{ instructorSlug, instructorName, oneOnOneInventory, groupInventory }` for every non-deleted instructor. Reuses the same `by_deletedAt` index that `getInstructorsForAdmin` uses. |
+| `digest.getWaitlistSignupsForPeriod` | `convex/digest.ts` | Admin-gated. Args `{ periodStart: number, periodEnd: number }` (epoch ms). Uses new `marketingWaitlist.by_createdAt` index to return rows in range. Returns `{ instructorSlug, mentorshipType, email, createdAt }[]`. |
+| `digest.getNotificationsSentForPeriod` | `convex/digest.ts` | Admin-gated. Same args. Uses new `marketingWaitlist.by_notifiedAt` index. Returns the entries; the route handler aggregates them by `(instructorSlug, mentorshipType)` exactly like the Supabase code does. |
+| `digest.getInventoryChangesForPeriod` | `convex/digest.ts` | Admin-gated. Same args. Uses new `inventoryChangeLog.by_changedAt` index. Returns `{ instructorSlug, mentorshipType, changeType, oldValue, newValue, changedAt }[]`. |
+| `digest.getAdminDigestReport` | `convex/digest.ts` | Admin-gated. **Composite query** — calls the 4 above + `getInventoryStatusForDigest` + builds the `WeeklyDigestData` shape (matches `lib/email/weekly-digest.ts:58`). The composite query is what the email-builder route calls. Caches for the duration of a single Convex call only. |
+
+#### Mutations
+
+| Function | Source | Notes |
+| --- | --- | --- |
+| `digest.upsertAdminDigestSettings` | `convex/digest.ts` | Admin-gated. Args `{ enabled, frequency, adminEmail }`. Upserts the singleton row (`patch` if exists, `insert` if not). Sets `updatedAt = Date.now()`. Validates `adminEmail` matches `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`. |
+| `digest.markAdminDigestSent` | `convex/digest.ts` | Admin-gated. No args. Sets `lastSentAt = Date.now()`, `updatedAt = Date.now()` on the singleton row. Called by the digest-send route after a successful Resend send. |
+
+#### Actions
+
+| Function | Source | Notes |
+| --- | --- | --- |
+| `digest.sendAdminDigestEmail` | `convex/digest.ts` | Admin-gated. Reads settings via `ctx.runQuery(api.digest.getAdminDigestSettings)`, reads report via `ctx.runQuery(api.digest.getAdminDigestReport, { periodStart, periodEnd })`, builds the email via the existing `buildWeeklyDigestEmail` (moved to `convex/digest.ts` so the action can import it), sends via Resend using the same client + `from` helpers used by `waitlist-notifications.ts`, then calls `ctx.runMutation(internal.digest.markAdminDigestSent)`. Returns `{ success, recipientEmail, emailId, periodStart, periodEnd, newSignups, emailsSent, conversions }`. |
+
+#### Why an action (not a query + a separate send)
+
+The original Supabase flow had 3 round-trips: client → `/api/admin/digest-send` → Supabase GET settings → Supabase GET data → Resend send → Supabase UPDATE lastSentAt. PR 7 collapses this into a single admin-gated action: one Convex transaction for the read, one Resend call, one mutation. This eliminates the race where two admins click "Send Now" at the same time and both attempt to send (the action's atomic read-send-mark sequence prevents double sends; `markAdminDigestSent` is a single-row mutation).
+
+#### Resend import boundary
+
+`buildWeeklyDigestEmail` lives in `apps/marketing/lib/email/weekly-digest.ts:68` and is currently imported by the marketing route. Moving it into `convex/digest.ts` would create a marketing↔convex import cycle (Convex code can't import from `apps/marketing`). **Decision:** move `buildWeeklyDigestEmail` (and its types `WeeklyDigestData`, etc.) to a new `packages/email-templates` workspace package OR duplicate the email-building logic inside the Convex action.
+
+**Recommended:** duplicate the email builder inside the Convex action as a thin wrapper around a small `lib/email/templates.ts` shared between both call sites (marketing route + Convex action). The marketing route can keep building emails client-side via the Convex action response for symmetry.
+
+**Alternative (rejected for now):** keep `buildWeeklyDigestEmail` in `apps/marketing/lib/email/weekly-digest.ts` and have the marketing `/api/admin/digest-send` route call `convexServerCall('/digest/send', {})` — the action is the only path. Same outcome, no code duplication.
+
+### Schema impact (two changes)
+
+1. **New index `by_createdAt`** on `marketingWaitlist` (`convex/schema.ts:724`). Needed for the `created_at BETWEEN periodStart AND periodEnd` digest query. Single-field index on `createdAt`.
+2. **New index `by_notifiedAt`** on `marketingWaitlist` (`convex/schema.ts:724`). Needed for the `last_notification_at BETWEEN periodStart AND periodEnd` digest query. Single-field index on `notifiedAt`.
+3. **New table `inventoryChangeLog`** (`convex/schema.ts`). Mirrors the Supabase schema:
+   ```ts
+   inventoryChangeLog: defineTable({
+     instructorSlug: v.string(),
+     mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group"), v.null()),
+     changeType: v.union(v.literal("manual_update"), v.literal("kajabi_purchase")),
+     oldValue: v.number(),
+     newValue: v.number(),
+     changedAt: v.number(),
+   }).index("by_changedAt", ["changedAt"])
+     .index("by_instructorSlug", ["instructorSlug"])
+   ```
+
+Both changes require a **manual Convex prod deploy** after PR 7 merges (per §5.3). The existing `inventoryChangeLog` Supabase table has no Kajabi webhook writes today (the webhook is in `apps/marketing/app/api/webhooks/kajabi/route.ts` → `logInventoryChange` → Supabase); PR 7 does **not** migrate the webhook — that's a separate follow-up. New `inventoryChangeLog` Convex rows can be backfilled from Supabase via a one-off migration script (`scripts/migrate-inventory-change-log.ts`), parallel to `scripts/migrate-marketing-waitlist.ts` from PR #859.
+
+### New / changed marketing files
+
+| File | Change |
+| --- | --- |
+| `apps/marketing/lib/queries/convex/use-digest.ts` *(new)* | `useDigestSettings()` wraps `api.digest.getAdminDigestSettings`. `useUpdateDigestSettings()` wraps `api.digest.upsertAdminDigestSettings` with TanStack `useMutation` (invalidates `["digest", "settings"]`). `useSendDigest()` wraps `api.digest.sendAdminDigestEmail` with `useMutation`. Mirrors `apps/marketing/lib/queries/convex/use-inventory.ts`. |
+| `apps/marketing/lib/queries/convex/index.ts` | Add `export * from "./use-digest"`. |
+| `apps/marketing/components/admin/digest-settings-form.tsx` *(rewrite, 274 → ~200 lines)* | Replace the 3 `fetch('/api/admin/digest-*')` calls with the 3 Convex hooks. Drop the Zod parsing (Convex validates server-side). Keep the same UX: enable switch, frequency dropdown, admin email input, last-sent timestamp, "Send Now" button. Same error + loading states. |
+| `apps/marketing/app/admin/digest/page.tsx` | Unchanged. Still wraps `<DigestSettingsForm />` in `<ErrorBoundary>`. |
+| `apps/marketing/app/api/admin/digest-settings/route.ts` *(DELETE)* | Replaced by `useDigestSettings` + `useUpdateDigestSettings`. |
+| `apps/marketing/app/api/admin/digest-send/route.ts` *(DELETE)* | Replaced by `useSendDigest`. |
+| `apps/marketing/lib/digest-data.ts` *(DELETE)* | All 4 Supabase queries move to Convex queries in `convex/digest.ts`. `getPeriodForDigest` is pure JS — move to `apps/marketing/lib/digest-period.ts` so `useSendDigest` can compute the period client-side before calling the action. |
+| `scripts/migrate-inventory-change-log.ts` *(new, parallel to PR #859's `scripts/migrate-marketing-waitlist.ts`)* | One-shot Convex backfill from Supabase `inventory_change_log`. Runs once. Idempotent. Preserves `changedAt`. |
+
+### Static config role (intentionally preserved)
+
+`apps/marketing/lib/instructors.ts` continues to drive marketing copy (slug → name → offer labels → `has_pricing_*`). The digest page itself doesn't iterate over instructors — it builds the email body from the report data — so the static config isn't touched.
+
+### Compatibility with existing Supabase API routes
+
+| Caller | After PR 7 |
+| --- | --- |
+| `apps/marketing/components/admin/digest-settings-form.tsx` | Uses Convex hooks. |
+| `apps/marketing/app/api/admin/digest-settings/route.ts` | **Deleted.** No external callers (verified by grep — no other file in the repo imports it). |
+| `apps/marketing/app/api/admin/digest-send/route.ts` | **Deleted.** Same. |
+| `apps/marketing/lib/digest-data.ts` | **Deleted.** `getPeriodForDigest` lives on as `lib/digest-period.ts`. |
+| `apps/marketing/lib/supabase-inventory.ts` | `logInventoryChange` export retained (Kajabi webhook still uses it). PR 7 does NOT migrate the webhook to Convex — separate follow-up. |
+| Resend client (`apps/marketing/lib/email/client.ts`) | Retained for any other email sends (e.g. waitlist notify). PR 7's Convex action uses it via the same helpers. |
+
+### Known limitations
+
+1. **Kajabi webhook still writes to Supabase `inventory_change_log`.** New inventory changes won't appear in `inventoryChangeLog` Convex until a follow-up webhook migration. PR 7 backfills the existing rows via `scripts/migrate-inventory-change-log.ts` so the digest email is populated for historical data; going forward, the section will be empty until the webhook follow-up. Document in HUC-XX (PR 7 verification issue).
+2. **Email-builder duplication or workspace package.** PR 7 either duplicates `buildWeeklyDigestEmail` inside the Convex action or introduces a `packages/email-templates` workspace package. The duplication is ~50 lines and is acceptable for the v1 cut; the workspace package is the clean long-term answer. **Decision:** duplicate for v1; flag a follow-up.
+3. **Inventory section aggregation.** The current Supabase code uses an in-memory `Map` to aggregate notifications by `(instructorSlug, mentorshipType)`. PR 7 moves the aggregation client-side (in the Convex action, which runs on the server but isn't part of a query result). This is correct — `notificationsSent[]` is already reduced to a count per `(slug, type)` by the time the email is built.
+4. **`getAdminDigestReport` is a multi-query composite.** Each of the 4 queries is indexed (after PR 7's schema change), but the composite does 4 reads + 1 inventory read. Acceptable for weekly cadence. If digest frequency moves to daily or hourly, the 4 reads can collapse into a single denormalized view backed by an aggregation table.
+5. **`conversions[]` stays empty.** The Supabase code already returns `conversions = []` (no logic populates it). PR 7 preserves that. Populating this is a separate initiative that requires Kajabi purchase webhook data + `marketingWaitlist` joins.
+
+### Verification (Linear)
+
+Tracking issue: **HUC-XX** (will be created at PR open time per AGENTS.md schema-change convention). Verification labels: `schema-change`, `verification`, `prod`. State: `Backlog` → `In Progress` once PR 7 merges. Smoke tests:
+
+1. `dev.mentorships.huckleberry.art/admin/digest` returns a 200 with the Convex-backed form rendering. Layout-level `isAdminUser()` still gates access.
+2. Form fetches `getAdminDigestSettings` — initial state shows current enabled/frequency/adminEmail/lastSentAt/updatedAt.
+3. Toggle "Enable Digest" → mutation writes → toast confirms → reload page → state persisted.
+4. Change frequency dropdown → mutation writes → reload page → new frequency persisted.
+5. Change admin email → debounced mutation (500ms after typing stops) → reload page → new email persisted.
+6. Click "Send Now" → action runs → Resend email sent to the configured admin email → toast shows recipient + counts → `lastSentAt` updates → reload page → timestamp visible.
+7. Convex dashboard → `adminDigestSettings` table has the singleton row with `lastSentAt` populated after step 6.
+8. Convex dashboard → `marketingWaitlist` table query: `WHERE createdAt BETWEEN (startOfWeek) AND (endOfWeek)` returns the same set of rows the Supabase digest query returned (proves the new `by_createdAt` index is being used).
+9. Convex dashboard → `inventoryChangeLog` table has historical rows from `scripts/migrate-inventory-change-log.ts`. New Kajabi purchases (pre-follow-up migration) will NOT appear here — document the gap as limitation #1.
+10. `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` succeeds — both schema changes verified deployed to prod. Manual prod deploy per §5.3.
+
+### What remains after PR 7
+
+The 7-PR arc is complete. Two outstanding follow-ups:
+
+- **Cleanup PR**: delete `apps/marketing/app/api/waitlist/route.ts` (Supabase) — last remaining public Supabase write path. Per §4e limitation #2.
+- **Kajabi webhook Convex migration**: replace the Supabase-backed `logInventoryChange` in `apps/marketing/app/api/webhooks/kajabi/route.ts` with a Convex write. Per PR 7 limitation #1.
+- **PR 6c (apps/platform parity)**: redirect `apps/platform/app/api/waitlist/route.ts` to call `actionAddToWaitlist` instead of the public mutation. Per §4e.
+- **Turnstile follow-up** (already merged as PR #861 per §4e line 356).
+- **`packages/email-templates` workspace package** to de-duplicate `buildWeeklyDigestEmail` between Convex action + marketing route. Per PR 7 limitation #2.
 
 ---
 
