@@ -35,7 +35,7 @@ The user wants apps/marketing's admin to mirror apps/platform ("near identical o
 | 5 | `feat/marketing-admin-orders` | feat(marketing): port /admin/orders to Convex + API client | Pending | Mirror apps/platform `app/admin/orders/page.tsx` (`getAdminOrders` + refund modal). |
 | 6a | `feat/marketing-port-addtowaitlist` | feat(marketing): port addToWaitlist to Convex (PR 6a) | ✅ Merged as PR #859 (combined with PR 6b) | First prerequisite for PR 6. Replace Supabase-backed `addToWaitlist` (`lib/supabase-inventory.ts:169`, called from `components/instructors/offer-button.tsx:32`) with a Convex **action** (not a direct mutation) so rate limiting + static-gen work correctly. First implementation reached 0/5 Greptile on commit `ae4e1001`; four P1 comments called out (a) static-gen crash because `useConvexMutation` runs at build time without a Convex provider, (b) mutation silently overwrites 1-on-1 vs group waitlist rows for the same `(email, instructorSlug)` pair, (c) Inngest worker still reads Supabase so new Convex signups miss notification emails, (d) `/api/waitlist`'s server-side Zod validation + per-IP rate limit are bypassed by going direct. Branch was reset to `main`, force-pushed, deleted from origin. Spec expansion tracked in §4e. Linear: HUC-38. **Merged (2026-09-21)** as the 6a+6b combined PR #859 (`f4a2d98c`). Public `addToWaitlist` mutation kept for server-side callers (admin, migration scripts); client calls go through `actionAddToWaitlist` with per-IP rate-limit + admin-gated `addToWaitlist` delegation. Greptile 4/5 on commit `f4a2d98c`. |
 | 6 | `feat/marketing-admin-inventory` | feat(marketing): port /admin/inventory to Convex | **Unblocked (2026-09-21)** — PR 6a+6b prerequisite merged; PR 6 now resumes against the §4d spec | Marketing-only page. Replaces the Supabase-backed `getAllInstructorsWithInventory` + `getWaitlistCounts` join with Convex (`api.instructors.getInstructorsForAdmin` + `api.waitlist.*` mutations). UX mirror of `apps/web/app/admin/inventory/page.tsx` (card grid, +/- buttons, View Waitlist modal with checkboxes). Static `lib/instructors.ts` retained for `has_pricing_*` display only. **Resume order**: PR 6 against the §4d spec. Tracking: HUC-37. Spec in §4d. |
-| 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex | Pending | Marketing-only page. Move digest data + settings to Convex. Spec in §4f. |
+| 7 | `feat/marketing-admin-digest` | feat(marketing): port /admin/digest to Convex + Inngest cron port | **Merged (2026-09-24) as PR #868** (squash `fa5d0fe0`) | Marketing-only page. Port digest data + settings to Convex, port Inngest weekly digest cron. Spec in §4f. Tracking: HUC-40. Three Greptile review rounds resolved: round 1 (4 P1: internal-query authz, cadence check, migration legacyId, Resend Idempotency-Key) → fixed in `49ca256b`; round 2 (Inngest skip-schema discriminated union) → fixed in `53ee803b`; round 3 (P1 "period key suppresses sends") → fixed in `980c7018` (caller-provided `idempotencyKey` arg threaded from entry point to Resend; UI: `crypto.randomUUID()` per click; Inngest cron: `digest-cron-${event.id}` stable across retries; HTTP endpoint: body field, defaults to `crypto.randomUUID()`). P2 type-assertion cleanup in `22f7dbbb`. Final Greptile CLI: 4/5 confidence, no actionable findings. CI `convex-codegen` resolved by re-generating `_generated/*` without untracked `convex/workspaceStorage.ts` (preserved in `/tmp/preserve-workspace-storage/` for restoration when its PR lands). |
 
 Each PR:
 - `pnpm --filter @mentorships/marketing exec tsc --noEmit --skipLibCheck` → 0 errors.
@@ -564,7 +564,7 @@ Both changes require a **manual Convex prod deploy** after PR 7 merges (per §5.
 
 ### Verification (Linear)
 
-Tracking issue: **HUC-XX** (will be created at PR open time per AGENTS.md schema-change convention). Verification labels: `schema-change`, `verification`, `prod`. State: `Backlog` → `In Progress` once PR 7 merges. Smoke tests:
+Tracking issue: **HUC-40** (created at PR-open time per AGENTS.md schema-change convention). Verification labels: `schema-change`, `verification`, `prod`. State moved `Backlog` → `In Progress` on PR merge (2026-09-24). Squash commit: `fa5d0fe0`. Smoke tests:
 
 1. `dev.mentorships.huckleberry.art/admin/digest` returns a 200 with the Convex-backed form rendering. Layout-level `isAdminUser()` still gates access.
 2. Form fetches `getAdminDigestSettings` — initial state shows current enabled/frequency/adminEmail/lastSentAt/updatedAt.
@@ -577,15 +577,24 @@ Tracking issue: **HUC-XX** (will be created at PR open time per AGENTS.md schema
 9. Convex dashboard → `inventoryChangeLog` table has historical rows from `scripts/migrate-inventory-change-log.ts`. New Kajabi purchases (pre-follow-up migration) will NOT appear here — document the gap as limitation #1.
 10. `CONVEX_DEPLOYMENT=prod:fine-bulldog-260 npx convex@1.45.0 deploy` succeeds — both schema changes verified deployed to prod. Manual prod deploy per §5.3.
 
+### Resend Idempotency-Key scope (post-review)
+
+Final design (after Greptile round 3 P1 "period key suppresses sends"): the action takes a **caller-provided** `idempotencyKey: v.string()` argument. The Inngest weekly-digest cron stamps it `digest-cron-${event.id}` (stable across retries of the same run). The UI "Send Now" button stamps `crypto.randomUUID()` per click. The HTTP endpoint `/convex/digest/send` reads it from the request body and defaults to `crypto.randomUUID()` if absent. The action's internal `sendDigest(ctx, apiKey, from, idempotencyKey)` helper forwards it as the Resend `Idempotency-Key` header. This means a manual "Send Now" and the scheduled cron never collide on the same Resend key, and a retry of the cron reuses the same key (so Resend's 24h dedup still cancels the duplicate call).
+
+### `convex/_generated/*` CI quirk (post-review)
+
+PR 7's local codegen runs picked up an untracked `convex/workspaceStorage.ts` from a separate in-flight branch and emitted `workspaceStorage` imports in `api.d.ts` + `WORKSPACE_STORAGE_BUCKET_NAME` in `server.d.ts`'s `Env` type. CI's `convex-codegen` job (`.github/workflows/ci.yml`) only sees committed source, so it regenerated without those imports — failing the "Fail if codegen produced unstaged changes" check. Resolution: re-codegen locally with the untracked file moved out (preserved at `/tmp/preserve-workspace-storage/`) and commit the regenerated `_generated/*`. When the storage-refactor PR lands, it'll add the import back. No workflow change needed.
+
 ### What remains after PR 7
 
 The 7-PR arc is complete. Two outstanding follow-ups:
 
 - **Cleanup PR**: delete `apps/marketing/app/api/waitlist/route.ts` (Supabase) — last remaining public Supabase write path. Per §4e limitation #2.
-- **Kajabi webhook Convex migration**: replace the Supabase-backed `logInventoryChange` in `apps/marketing/app/api/webhooks/kajabi/route.ts` with a Convex write. Per PR 7 limitation #1.
+- **Kajabi webhook Convex migration**: replace the Supabase-backed `logInventoryChange` in `apps/marketing/app/api/webhooks/kajabi/route.ts` with a Convex write. Per PR 7 limitation #1. Tracking: **HUC-41**.
 - **PR 6c (apps/platform parity)**: redirect `apps/platform/app/api/waitlist/route.ts` to call `actionAddToWaitlist` instead of the public mutation. Per §4e.
 - **Turnstile follow-up** (already merged as PR #861 per §4e line 356).
 - **`packages/email-templates` workspace package** to de-duplicate `buildWeeklyDigestEmail` between Convex action + marketing route. Per PR 7 limitation #2.
+- **Restore `convex/workspaceStorage.ts` + `apps/platform/lib/b2-workspace-upload.ts`**: preserved at `/tmp/preserve-workspace-storage/`. The storage-refactor PR will pull them back in via `git checkout` of the appropriate branch.
 
 ---
 
