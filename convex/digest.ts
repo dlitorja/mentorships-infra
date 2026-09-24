@@ -454,6 +454,46 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
   },
 });
 
+/**
+ * Append a single `inventoryChangeLog` row. Called from
+ * `httpAppendInventoryChangeLog` (server-only, no admin identity)
+ * for Kajabi-purchase writes that previously went through
+ * `apps/marketing/lib/supabase-inventory.ts:logInventoryChange`
+ * (Supabase `inventory_change_log`). Migrated as part of the PR 7
+ * follow-up so Convex is the source of truth for the change log;
+ * see HUC-41 and `docs/plans/marketing-convex-admin-mirror.md` §4f.
+ *
+ * Takes `changedAt` so the server clock (webhook arrival time) is
+ * the canonical event timestamp; the bulk-import path accepts the
+ * same field for backfill entries.
+ */
+export const internalAppendInventoryChangeLog = internalMutation({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(
+      v.union(v.literal("oneOnOne"), v.literal("group"))
+    ),
+    changeType: v.union(
+      v.literal("manual_update"),
+      v.literal("kajabi_purchase")
+    ),
+    oldValue: v.number(),
+    newValue: v.number(),
+    changedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("inventoryChangeLog", {
+      instructorSlug: args.instructorSlug,
+      mentorshipType: args.mentorshipType,
+      changeType: args.changeType,
+      oldValue: args.oldValue,
+      newValue: args.newValue,
+      changedAt: args.changedAt,
+    });
+    return { success: true };
+  },
+});
+
 // ----------------------------------------------------------------------------
 // Action lives in `convex/digestActions.ts` ("use node" file).
 // ----------------------------------------------------------------------------

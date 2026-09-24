@@ -2891,6 +2891,38 @@ export const httpBulkImportInventoryChangeLog = httpAction(
   }
 );
 
+/** Append a single `inventoryChangeLog` row. Server-only. Called from
+ * the Kajabi webhook in `apps/marketing/app/api/webhooks/kajabi/route.ts`
+ * (via `convexServerCall`) after `decrement_inventory` succeeds.
+ * Replaces the Supabase-backed `logInventoryChange` writer that
+ * `apps/marketing/lib/supabase-inventory.ts` exposed before the
+ * PR 7 follow-up. See HUC-41 and `docs/plans/marketing-convex-admin-mirror.md`
+ * §4f. `mentorshipType` is `"oneOnOne" | "group"` (Convex camelCase);
+ * the webhook maps from Supabase's kebab-case before calling.
+ */
+export const httpAppendInventoryChangeLog = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const result = await ctx.runMutation(
+      internal.digest.internalAppendInventoryChangeLog as any,
+      {
+        instructorSlug: body?.instructorSlug,
+        mentorshipType: body?.mentorshipType,
+        changeType: body?.changeType,
+        oldValue: body?.oldValue,
+        newValue: body?.newValue,
+        changedAt: body?.changedAt,
+      }
+    );
+
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
 /** Triggers the scheduled digest send. Called by the Inngest cron
  * (`apps/marketing/inngest/functions/weekly-digest.ts`). The internal
  * action reads settings, decides whether today is a send day for the
@@ -2939,6 +2971,12 @@ http.route({
   path: "/inventory-change-log/import-bulk",
   method: "POST",
   handler: httpBulkImportInventoryChangeLog,
+});
+
+http.route({
+  path: "/inventory-change-log/append",
+  method: "POST",
+  handler: httpAppendInventoryChangeLog,
 });
 
 http.route({

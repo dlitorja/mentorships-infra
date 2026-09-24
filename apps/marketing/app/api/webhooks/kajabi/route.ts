@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
-import { logInventoryChange } from "@/lib/supabase-inventory";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { reportError } from "@/lib/observability";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -260,14 +260,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    await logInventoryChange({
-      instructorSlug: mapping.instructor_slug,
-      mentorshipType: mapping.mentorship_type,
-      changeType: "kajabi_purchase",
-      oldValue: previousInventory,
-      newValue: newInventory,
-      changedBy: `kajabi:${event.offer?.id}`,
-    });
+    try {
+      await convexServerCall("/inventory-change-log/append", {
+        instructorSlug: mapping.instructor_slug,
+        mentorshipType:
+          mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group",
+        changeType: "kajabi_purchase",
+        oldValue: previousInventory,
+        newValue: newInventory,
+        changedAt: Date.now(),
+      });
+    } catch (convexError) {
+      await reportError({
+        source: "webhooks/kajabi",
+        error: convexError,
+        message: "Failed to append inventory change log to Convex",
+        level: "error",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: mapping.mentorship_type,
+          previousInventory,
+          newInventory,
+        },
+      });
+    }
 
     const inngestError = await inngest.send({
       name: "inventory/changed",
