@@ -585,7 +585,17 @@ export default defineSchema({
     .index("by_workspaceId", ["workspaceId"])
     // PR workspace-storage-1: B2 path uses this index instead of
     // `by_storageId`. The legacy Convex-storage path is unchanged.
-    .index("by_b2Key", ["b2Key"]),
+    .index("by_b2Key", ["b2Key"])
+    // PR workspace-storage-1 (round 2): bounded index for the
+    // "count pending uploads for this caller in this workspace"
+    // server-side cap. Range-queries `uploadedAt` so an
+    // ever-growing ledger can't blow up the read limit (Greptile
+    // P1: "Historical uploads block new uploads").
+    .index("by_workspaceId_uploaderId_uploadedAt", [
+      "workspaceId",
+      "uploaderId",
+      "uploadedAt",
+    ]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
