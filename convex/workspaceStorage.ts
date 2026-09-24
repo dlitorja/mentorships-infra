@@ -528,6 +528,14 @@ export const recordB2FileUpload = mutation({
     if (workspace.deletedAt !== undefined) {
       throw new Error("Workspace not found");
     }
+    // Confirmation rejects ended workspaces (Greptile P1). A
+    // caller who reserved a key while the workspace was active
+    // must complete the upload before the workspace ends;
+    // otherwise the upload must be discarded so the B2 bucket
+    // does not accumulate objects from ended workspaces.
+    if (workspace.endedAt !== undefined) {
+      throw new Error("Workspace has ended");
+    }
 
     // Recheck workspace membership at bind time (Greptile P1). A
     // caller whose access was removed after minting the URL must
