@@ -1113,74 +1113,78 @@ export const confirmB2FileUpload = internalMutation({
 
     // Re-verify workspace state. The action saw the workspace
     // moments ago but HEAD may have taken seconds; the workspace
-    // could now be deleted or ended.
+    // could now be deleted or ended. If the re-check fails,
+    // delegate the cancel + cleanup to `cancelB2FileUpload` via
+    // `ctx.runMutation` so the cancellation and the cleanup
+    // schedule commit independently of this mutation's throw
+    // (Greptile P1 r25: "Rejected upload cleanup rolls back" —
+    // patching `cancelledAt` and calling `ctx.scheduler.runAfter`
+    // in the same throwing mutation rolls back both writes).
     const workspace: Doc<"workspaces"> | null = await ctx.db.get(
       row.workspaceId
     );
+    let authFailedReason: string | null = null;
     if (!workspace || workspace.deletedAt !== undefined) {
-      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
-      await ctx.scheduler.runAfter(
-        0,
-        internal.workspaceStorage.cleanupRejectedB2Upload,
-        { b2Key: row.b2Key ?? "", ledgerId: row._id }
-      );
-      throw new Error("Workspace was deleted during verify-and-confirm");
-    }
-    if (workspace.endedAt !== undefined) {
-      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
-      await ctx.scheduler.runAfter(
-        0,
-        internal.workspaceStorage.cleanupRejectedB2Upload,
-        { b2Key: row.b2Key ?? "", ledgerId: row._id }
-      );
-      throw new Error("Workspace ended during verify-and-confirm");
+      authFailedReason = "Workspace was deleted during verify-and-confirm";
+    } else if (workspace.endedAt !== undefined) {
+      authFailedReason = "Workspace ended during verify-and-confirm";
+    } else {
+      // Re-verify authorization. The action saw the caller's
+      // status moments ago but the instructor mapping or admin
+      // role could have changed during HEAD.
+      const user: { role?: string } | null = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+        .first();
+      const userIsAdmin = user?.role === "admin";
+      let authorized = false;
+      if (userIsAdmin) {
+        authorized = true;
+      } else if (workspace.type === "admin_student") {
+        if (workspace.ownerId === args.callerId) authorized = true;
+      } else if (workspace.type === "admin_instructor") {
+        if (workspace.instructorId) {
+          const instructor: Doc<"instructors"> | null = await ctx.db
+            .query("instructors")
+            .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+            .first();
+          if (instructor && instructor._id === workspace.instructorId) {
+            authorized = true;
+          }
+        }
+      } else {
+        if (workspace.instructorId) {
+          const instructor: Doc<"instructors"> | null = await ctx.db
+            .query("instructors")
+            .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+            .first();
+          if (instructor && instructor._id === workspace.instructorId) {
+            authorized = true;
+          }
+        }
+        if (!authorized && workspace.ownerId === args.callerId) {
+          authorized = true;
+        }
+      }
+      if (!authorized) {
+        authFailedReason =
+          "Caller authorization was revoked during verify-and-confirm";
+      }
     }
 
-    // Re-verify authorization. The action saw the caller's
-    // status moments ago but the instructor mapping or admin
-    // role could have changed during HEAD.
-    const user: { role?: string } | null = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
-      .first();
-    const userIsAdmin = user?.role === "admin";
-    let authorized = false;
-    if (userIsAdmin) {
-      authorized = true;
-    } else if (workspace.type === "admin_student") {
-      if (workspace.ownerId === args.callerId) authorized = true;
-    } else if (workspace.type === "admin_instructor") {
-      if (workspace.instructorId) {
-        const instructor: Doc<"instructors"> | null = await ctx.db
-          .query("instructors")
-          .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
-          .first();
-        if (instructor && instructor._id === workspace.instructorId) {
-          authorized = true;
-        }
+    if (authFailedReason !== null) {
+      // Cancel + schedule cleanup in a separate transaction so
+      // both writes survive this throw (see Greptile P1 r25).
+      // `cancelB2FileUpload` also skips if `completedAt` is set
+      // (concurrent completion race); for the failed-recheck
+      // branches the row is still in pending state, so the
+      // cleanup will be scheduled.
+      if (row.b2Key !== undefined) {
+        await ctx.runMutation(internal.workspaceStorage.cancelB2FileUpload, {
+          b2Key: row.b2Key,
+        });
       }
-    } else {
-      if (workspace.instructorId) {
-        const instructor: Doc<"instructors"> | null = await ctx.db
-          .query("instructors")
-          .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
-          .first();
-        if (instructor && instructor._id === workspace.instructorId) {
-          authorized = true;
-        }
-      }
-      if (!authorized && workspace.ownerId === args.callerId) {
-        authorized = true;
-      }
-    }
-    if (!authorized) {
-      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
-      await ctx.scheduler.runAfter(
-        0,
-        internal.workspaceStorage.cleanupRejectedB2Upload,
-        { b2Key: row.b2Key ?? "", ledgerId: row._id }
-      );
-      throw new Error("Caller authorization was revoked during verify-and-confirm");
+      throw new Error(authFailedReason);
     }
 
     await ctx.db.patch(args.ledgerId, { completedAt: Date.now() });
