@@ -580,6 +580,12 @@ export default defineSchema({
     uploaderId: v.string(),
     workspaceId: v.id("workspaces"),
     uploadedAt: v.number(),
+    // PR workspace-storage-1 (round 4): completion timestamp. The
+    // download action needs the ledger row to look up the
+    // workspace that owns a `b2Key`, so on bind we mark the row
+    // complete instead of deleting it. The pending-count query
+    // filters rows by `completedAt === undefined`.
+    completedAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
@@ -590,10 +596,12 @@ export default defineSchema({
     // "count pending uploads for this caller in this workspace"
     // server-side cap. Range-queries `uploadedAt` so an
     // ever-growing ledger can't blow up the read limit (Greptile
-    // P1: "Historical uploads block new uploads").
-    .index("by_workspaceId_uploaderId_uploadedAt", [
+    // P1: "Historical uploads block new uploads"). Pending rows
+    // have `completedAt === undefined`.
+    .index("by_workspaceId_uploaderId_completedAt_uploadedAt", [
       "workspaceId",
       "uploaderId",
+      "completedAt",
       "uploadedAt",
     ]),
 

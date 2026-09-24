@@ -279,10 +279,18 @@ export const resolveWorkspaceDownloadAccess = internalQuery({
  * (Greptile P1: "the count and insert occur in separate
  * transactions").
  *
- * The row is deleted (not marked) when the upload completes
- * successfully via `completeB2FileUpload` so the pending count
- * only counts open uploads — completing an upload frees a slot
- * (Greptile P1: "Completed uploads exhaust pending slots").
+ * A row is "pending" when `completedAt === undefined &&
+ * uploadedAt > (now - MAX_BINDING_AGE_MS)`. The pending count
+ * filters by this predicate. Completed uploads (`completedAt !==
+ * undefined`) do NOT count toward the cap, so completing an
+ * upload frees a slot (Greptile P1: "Completed uploads exhaust
+ * pending slots"). Stale rows whose freshness window has elapsed
+ * naturally drop out of the count after 5 minutes.
+ *
+ * The ledger row is retained after completion because the
+ * download action needs it to look up the workspace that owns
+ * a `b2Key` (Greptile P1: "Confirmed uploads cannot be
+ * downloaded").
  */
 export const reserveB2FileUploadLedger = internalMutation({
   args: {
@@ -302,19 +310,20 @@ export const reserveB2FileUploadLedger = internalMutation({
       );
     }
 
-    // Pending count is bounded by the freshness window via the
-    // compound index. Range-scanning inside a single mutation
-    // keeps the check + insert atomic against concurrent mint
-    // actions (Convex serializes mutations on the same document
-    // and on writes).
+    // Pending = not completed AND within the freshness window.
+    // The compound index orders `completedAt` first so the
+    // range scan stops at the first completed row.
     const threshold = args.uploadedAt - MAX_BINDING_AGE_MS;
     const pending = await ctx.db
       .query("fileUploads")
-      .withIndex("by_workspaceId_uploaderId_uploadedAt", (q) =>
-        q
-          .eq("workspaceId", args.workspaceId)
-          .eq("uploaderId", args.uploaderId)
-          .gt("uploadedAt", threshold)
+      .withIndex(
+        "by_workspaceId_uploaderId_completedAt_uploadedAt",
+        (q) =>
+          q
+            .eq("workspaceId", args.workspaceId)
+            .eq("uploaderId", args.uploaderId)
+            .eq("completedAt", undefined)
+            .gt("uploadedAt", threshold)
       )
       .collect();
     if (pending.length >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
@@ -329,26 +338,6 @@ export const reserveB2FileUploadLedger = internalMutation({
       uploadedAt: args.uploadedAt,
       b2Key: args.b2Key,
     });
-  },
-});
-
-/**
- * Internal mutation: complete a `fileUploads` ledger row.
- * Deletes the row (rather than marking it complete) so the
- * pending-count query is naturally bounded by open uploads. The
- * chat-create mutation in PR 3 will record the `b2Key` on the
- * workspace attachment row so the blob is still reachable after
- * the ledger row is gone.
- */
-export const completeB2FileUploadLedger = internalMutation({
-  args: { b2Key: v.string() },
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("fileUploads")
-      .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
-      .first();
-    if (!row) return;
-    await ctx.db.delete(row._id);
   },
 });
 
@@ -428,22 +417,26 @@ export const generateWorkspaceUploadUrl = action({
       throw new Error("Unauthorized");
     }
 
+    // Mint the presigned URL BEFORE reserving the ledger row
+    // (Greptile P2: "Failed signing consumes upload slots"). If
+    // signing throws (e.g. B2 credentials missing), no ledger
+    // row exists and the cap is not affected.
+    const uploadUrl = await mintB2PresignedPutUrl({
+      key: b2Key,
+      contentType: args.contentType,
+      size: args.size,
+    });
+
     // Server-side request-count cap (Greptile P1): the count check
     // and ledger insert run inside the same internal mutation
     // (`reserveB2FileUploadLedger`) so concurrent mint actions
-    // cannot both pass the check and then both insert — Convex
-    // serializes mutations on overlapping writes.
+    // cannot both pass the check and then both insert. Run AFTER
+    // signing so a signing failure doesn't consume a slot.
     await ctx.runMutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
       workspaceId: args.workspaceId,
       b2Key,
       uploaderId: identity.subject,
       uploadedAt: Date.now(),
-    });
-
-    const uploadUrl = await mintB2PresignedPutUrl({
-      key: b2Key,
-      contentType: args.contentType,
-      size: args.size,
     });
 
     return { uploadUrl, b2Key, fileId: args.fileId };
@@ -611,12 +604,16 @@ export const recordB2FileUpload = mutation({
       );
     }
 
-    // Free the pending slot by deleting the ledger row. The
-    // chat-create mutation in PR 3 records the `b2Key` on the
-    // workspace attachment row, so the blob is still reachable
-    // after the ledger row is gone (Greptile P1: "Completed
+    // Mark the ledger row complete (do NOT delete it). The
+    // download action needs the row to look up the workspace
+    // that owns this `b2Key` (Greptile P1: "Confirmed uploads
+    // cannot be downloaded"). Setting `completedAt` also frees
+    // the pending slot — the pending-count query filters rows by
+    // `completedAt === undefined` (Greptile P1: "Completed
     // uploads exhaust pending slots").
-    await ctx.db.delete(ledger._id);
+    if (ledger.completedAt === undefined) {
+      await ctx.db.patch(ledger._id, { completedAt: Date.now() });
+    }
 
     return { ok: true };
   },
