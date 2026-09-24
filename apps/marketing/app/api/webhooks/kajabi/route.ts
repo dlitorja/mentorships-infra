@@ -29,6 +29,28 @@ const kajabiPayloadSchema = z.object({
 
 type KajabiPayload = z.infer<typeof kajabiPayloadSchema>;
 
+/** Recursively serializes `value` to JSON with object keys sorted
+ * alphabetically at every depth. Produces a canonical form so
+ * equivalent payloads (whitespace, property order, missing
+ * defaults) hash identically. Used as the input to the
+ * transaction-id-less replay-key SHA-256.
+ */
+function canonicalJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return "[" + value.map(canonicalJsonStringify).join(",") + "]";
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts: string[] = [];
+  for (const key of keys) {
+    parts.push(JSON.stringify(key) + ":" + canonicalJsonStringify(obj[key]));
+  }
+  return "{" + parts.join(",") + "}";
+}
+
 type KajabiOfferMapping = {
   offerId: string;
   instructorSlug: string;
@@ -164,9 +186,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // (e.g., test events, sandbox replays, or some offer types),
     // the composite purchaseId would collide across distinct
     // purchases of the same offer by the same member. Fall back to
-    // a SHA-256 of the raw payload so two genuinely distinct events
-    // produce distinct purchaseIds, while exact-duplicate replays
-    // (same payload bytes) still dedupe.
+    // a SHA-256 of a CANONICALIZED JSON serialization of the
+    // payload (object keys sorted recursively) so two genuinely
+    // distinct events produce distinct purchaseIds AND equivalent
+    // JSON redeliveries (with whitespace/ordering differences) get
+    // the same hash and dedupe correctly.
     let purchaseId: string;
     if (transactionId.length > 0) {
       purchaseId = [
@@ -179,8 +203,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .filter((part) => part !== "")
         .join(":");
     } else {
+      const canonical = canonicalJsonStringify(parsedJson);
       const hash = createHash("sha256");
-      hash.update(payload);
+      hash.update(canonical);
       purchaseId = `kajabi:${event.event}:${offerId}:hash:${hash.digest("hex").slice(0, 32)}`;
     }
 
