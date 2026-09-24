@@ -9,6 +9,13 @@ import {
   MAX_IMAGE_BYTES,
 } from "./workspaceConstants";
 
+// PR workspace-storage-1: server-side cap on how many pending
+// upload URLs a single caller may hold open against one workspace
+// at a time. Mirrors PER_UPLOAD_CAP on the client. The action
+// enforces this so a caller cannot mint an arbitrary number of
+// URLs to inflate B2 storage costs (Greptile P1).
+const MAX_PENDING_UPLOADS_PER_WORKSPACE = 20;
+
 /**
  * Workspace storage migration (PR 1 of 3, widen).
  *
@@ -161,6 +168,36 @@ export const resolveB2FileUploadForKey = internalQuery({
 });
 
 /**
+ * Internal query: count how many pending `fileUploads` ledger
+ * rows a caller holds for one workspace. Used by
+ * `generateWorkspaceUploadUrl` to enforce a server-side per-
+ * caller cap so a caller cannot mint an unbounded number of URLs
+ * against one workspace (Greptile P1).
+ */
+export const countPendingUploadsForCallerInWorkspace = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    uploaderId: v.string(),
+  },
+  handler: async (ctx, args): Promise<number> => {
+    const rows = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_workspaceId", (q) =>
+        q.eq("workspaceId", args.workspaceId)
+      )
+      .collect();
+    let count = 0;
+    for (const row of rows) {
+      if (row.uploaderId !== args.uploaderId) continue;
+      if (row.uploadedAt > Date.now() - MAX_BINDING_AGE_MS) {
+        count += 1;
+      }
+    }
+    return count;
+  },
+});
+
+/**
  * Internal mutation: write a single `fileUploads` ledger row keyed
  * by `b2Key`. Idempotent on the (workspaceId, b2Key) pair — a
  * duplicate insert throws so the action surfaces a useful error
@@ -268,6 +305,19 @@ export const generateWorkspaceUploadUrl = action({
       throw new Error("Unauthorized");
     }
 
+    // Server-side request-count cap (Greptile P1): count the
+    // caller's pending ledger rows in this workspace, reject when
+    // over the cap so a caller cannot inflate B2 storage costs.
+    const pendingCount: number = await ctx.runQuery(
+      internal.workspaceStorage.countPendingUploadsForCallerInWorkspace,
+      { workspaceId: args.workspaceId, uploaderId: identity.subject }
+    );
+    if (pendingCount >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
+      throw new Error(
+        `Too many pending uploads for this workspace. Complete or cancel existing uploads before minting another.`
+      );
+    }
+
     await ctx.runMutation(internal.workspaceStorage.insertB2FileUploadLedger, {
       workspaceId: args.workspaceId,
       b2Key,
@@ -367,6 +417,33 @@ export const recordB2FileUpload = mutation({
     }
     if (workspace.deletedAt !== undefined) {
       throw new Error("Workspace not found");
+    }
+
+    // Recheck workspace membership at bind time (Greptile P1). A
+    // caller whose access was removed after minting the URL must
+    // not be able to confirm the upload. The ledger row's
+    // `uploaderId` is no longer a sufficient check on its own.
+    const callerId = identity.subject;
+    let authorized = false;
+    const user: { role?: string } | null = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", callerId))
+      .first();
+    if (user?.role === "admin") {
+      authorized = true;
+    } else if (workspace.instructorId) {
+      const instructor: Doc<"instructors"> | null = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", callerId))
+        .first();
+      if (instructor && instructor._id === workspace.instructorId) {
+        authorized = true;
+      }
+    } else if (workspace.ownerId === callerId) {
+      authorized = true;
+    }
+    if (!authorized) {
+      throw new Error("Not authorized to upload to this workspace");
     }
 
     const ledger = await ctx.db
@@ -507,8 +584,17 @@ async function mintB2PresignedPutUrl(params: {
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
 
-  const signedHeaders = ["host"];
-  const canonicalHeaders = `host:${host}\n`;
+  // Bind the PUT body length into the signature (Greptile P1):
+  // signing `content-length` makes the URL valid only for a PUT
+  // whose body matches the declared size. The browser's fetch PUT
+  // with a File body sends `Content-Length` matching the file
+  // size, so a caller cannot PUT a different-sized blob through
+  // this URL. Combined with the `x-amz-decoded-content-length`
+  // signed query parameter (a B2-specific belt), oversized PUTs
+  // are rejected before they reach storage.
+  const contentLength = String(params.size);
+  const signedHeaders = ["content-length", "host"];
+  const canonicalHeaders = `content-length:${contentLength}\nhost:${host}\n`;
 
   const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
   const payloadHash = "UNSIGNED-PAYLOAD";
