@@ -2912,7 +2912,7 @@ export const httpBulkImportKajabiOfferMappings = httpAction(
     const entries = body?.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, inserted: 0, skipped: 0 }),
+        JSON.stringify({ success: true, inserted: 0, updated: 0, skipped: 0 }),
         { headers: { "Content-Type": "application/json" } }
       );
     }

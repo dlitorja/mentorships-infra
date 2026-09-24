@@ -31,6 +31,18 @@
  * webhook path to Convex. Until then, new inventory changes will
  * not appear in the digest's "Inventory Changes" section.
  *
+ * IMPORTANT — transition-window guidance (HUC-41 PR):
+ * Legacy change-log rows imported here do NOT carry a per-purchase
+ * `purchaseId`, so the new webhook's replay-dedup check cannot
+ * catch them. If the same Kajabi purchase event is processed both
+ * by the legacy Supabase-backed webhook AND the new Convex-backed
+ * webhook during the cutover window, the new webhook will decrement
+ * Convex inventory a second time. Mitigation: before enabling the
+ * new Convex webhook in production, disable the Supabase-backed
+ * webhook so the cutover is atomic. The Convex import below is the
+ * historical audit trail only — it does not protect against a
+ * re-delivered live event in the transition window.
+ *
  * Required secrets:
  *   - CONVEX_HTTP_KEY (Convex deployment HTTP auth)
  *   - SUPABASE_URL

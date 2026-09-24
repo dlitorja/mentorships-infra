@@ -51,12 +51,14 @@ type ConvexImportEntry = {
 const IMPORT_RESPONSE_SCHEMA = z.object({
   success: z.boolean(),
   inserted: z.number(),
+  updated: z.number(),
   skipped: z.number(),
 });
 
 type ImportResponse = {
   success: boolean;
   inserted: number;
+  updated: number;
   skipped: number;
 };
 
@@ -192,19 +194,21 @@ async function main(): Promise<void> {
   );
 
   let totalInserted = 0;
+  let totalUpdated = 0;
   let totalSkipped = 0;
   for (let i = 0; i < entries.length; i += BATCH_SIZE) {
     const batch = entries.slice(i, i + BATCH_SIZE);
     const result = await postBatch(batch);
     totalInserted += result.inserted;
+    totalUpdated += result.updated;
     totalSkipped += result.skipped;
     console.log(
-      `[migrate-kajabi-offer-mappings] batch ${Math.floor(i / BATCH_SIZE) + 1}: inserted=${result.inserted} skipped=${result.skipped}`,
+      `[migrate-kajabi-offer-mappings] batch ${Math.floor(i / BATCH_SIZE) + 1}: inserted=${result.inserted} updated=${result.updated} skipped=${result.skipped}`,
     );
   }
 
   console.log(
-    `[migrate-kajabi-offer-mappings] supabase import done. totalInserted=${totalInserted} totalSkipped=${totalSkipped} unmappedRows=${supabaseRows.length - entries.length}`,
+    `[migrate-kajabi-offer-mappings] supabase import done. totalInserted=${totalInserted} totalUpdated=${totalUpdated} totalSkipped=${totalSkipped} unmappedRows=${supabaseRows.length - entries.length}`,
   );
   console.log("[migrate-kajabi-offer-mappings] all steps complete.");
 }

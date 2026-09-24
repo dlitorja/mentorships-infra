@@ -491,8 +491,11 @@ export const internalGetKajabiOfferMapping = internalQuery({
 
 /** Bulk-imports `kajabiOfferMappings` rows from Supabase. Server-only.
  * Called by the one-time migration script
- * `scripts/migrate-kajabi-offer-mappings.ts`. Idempotent: skips entries
- * that already exist (matched by `legacyId`).
+ * `scripts/migrate-kajabi-offer-mappings.ts`. Idempotent on
+ * `legacyId`: rows that already exist are UPDATED in-place so
+ * re-running the script after an upstream change in Supabase
+ * reflects the new mapping (instead of silently keeping stale data
+ * that would mis-route subsequent webhook deliveries).
  */
 export const internalBulkImportKajabiOfferMappings = internalMutation({
   args: {
@@ -513,20 +516,40 @@ export const internalBulkImportKajabiOfferMappings = internalMutation({
   },
   handler: async (ctx, args) => {
     let inserted = 0;
+    let updated = 0;
     let skipped = 0;
     for (const entry of args.entries) {
       const existing = await ctx.db
         .query("kajabiOfferMappings")
         .withIndex("by_legacyId", (q) => q.eq("legacyId", entry.legacyId))
         .first();
-      if (existing) {
+      if (!existing) {
+        await ctx.db.insert("kajabiOfferMappings", entry);
+        inserted++;
+        continue;
+      }
+      const sameShape =
+        existing.offerId === entry.offerId &&
+        existing.instructorSlug === entry.instructorSlug &&
+        existing.mentorshipType === entry.mentorshipType &&
+        existing.kajabiOfferUrl === entry.kajabiOfferUrl &&
+        existing.createdAt === entry.createdAt &&
+        existing.updatedAt === entry.updatedAt;
+      if (sameShape) {
         skipped++;
         continue;
       }
-      await ctx.db.insert("kajabiOfferMappings", entry);
-      inserted++;
+      await ctx.db.patch(existing._id, {
+        offerId: entry.offerId,
+        instructorSlug: entry.instructorSlug,
+        mentorshipType: entry.mentorshipType,
+        kajabiOfferUrl: entry.kajabiOfferUrl,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      });
+      updated++;
     }
-    return { success: true, inserted, skipped };
+    return { success: true, inserted, updated, skipped };
   },
 });
 

@@ -37,13 +37,13 @@ type KajabiOfferMapping = {
 
 async function getOfferMapping(
   offerId: string
-): Promise<KajabiOfferMapping | null> {
+): Promise<{ success: boolean; mapping: KajabiOfferMapping | null } | null> {
   try {
-    const mapping = await convexServerCall<{ success: boolean; mapping: KajabiOfferMapping | null }>(
-      "/kajabi-offer-mappings/lookup",
-      { offerId }
-    );
-    return mapping;
+    const response = await convexServerCall<{
+      success: boolean;
+      mapping: KajabiOfferMapping | null;
+    }>("/kajabi-offer-mappings/lookup", { offerId });
+    return response;
   } catch (error) {
     await reportError({
       source: "webhooks/kajabi",
@@ -215,10 +215,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Emit the inventory/changed Inngest event only on a successful
     // first-time apply so the waitlist handler doesn't fire on
-    // replays or skipped writes.
-    let inngestError: unknown = null;
+    // replays or skipped writes. Inngest is best-effort: a failed
+    // event send does NOT fail the webhook (Convex has already
+    // committed the authoritative inventory change). If the webhook
+    // returned 500 here on failure, Kajabi would retry; on retry,
+    // Convex reports already-applied and the Inngest event would be
+    // dropped permanently. Better to log and return success so the
+    // buyer's inventory is consistent even if the waitlist
+    // notification misses one cycle.
     if (!alreadyApplied && newInventory !== null) {
-      inngestError = await inngest.send({
+      const inngestSendResult = await inngest.send({
         name: "inventory/changed",
         data: {
           instructorSlug: mapping.instructorSlug,
@@ -228,21 +234,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           quantity,
         },
       });
-    }
-
-    if (inngestError) {
-      await reportError({
-        source: "webhooks/kajabi",
-        error: inngestError,
-        message: "Failed to send Inngest event",
-        level: "error",
-        context: {
-          instructorSlug: mapping.instructorSlug,
-          type: mapping.mentorshipType,
-          newInventory,
-          quantity,
-        },
-      });
+      const inngestError: unknown =
+        inngestSendResult && typeof inngestSendResult === "object" && "error" in inngestSendResult
+          ? (inngestSendResult as { error: unknown }).error
+          : inngestSendResult;
+      if (inngestError) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: inngestError,
+          message:
+            "Failed to send Inngest event after successful Convex inventory change; waitlist notification will be missed for this cycle.",
+          level: "warn",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            type: mapping.mentorshipType,
+            newInventory,
+            quantity,
+            purchaseId,
+          },
+        });
+      }
     }
 
     return NextResponse.json({
