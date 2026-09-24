@@ -869,20 +869,30 @@ export const cleanupRejectedB2Upload = internalAction({
     }
 
     if (lastError) {
-      // Reschedule another cleanup attempt 5 minutes later. This
-      // is the recovery path for the case where B2 was unavailable
-      // for the full backoff sequence. The ledger row stays
-      // cancelledAt = undefined (so we re-try); if a later
-      // confirmation arrives during the recovery window it will
-      // see cancelledAt undefined and proceed normally.
-      console.error(
-        `cleanupRejectedB2Upload giving up on ${args.b2Key} after ${attempt} attempts: ${lastError}; rescheduling in 5 min`
-      );
-      await ctx.scheduler.runAfter(
-        5 * 60 * 1000,
-        internal.workspaceStorage.cleanupRejectedB2Upload,
-        args
-      );
+      if (lastError.startsWith("B2 DELETE permanent")) {
+        // Permanent failure (e.g., 403, 404-as-non-object). Do
+        // NOT reschedule — repeated retries would consume
+        // scheduled executions forever without removing the
+        // object (Greptile P2: "Permanent cleanup failures
+        // repeat"). Mark the row cancelled so the binding flow
+        // has a record and the upload-binding flag stays
+        // consistent; the orphan object will need to be cleaned
+        // by an operator or via a lifecycle rule.
+        console.error(
+          `cleanupRejectedB2Upload permanent failure for ${args.b2Key}: ${lastError}; giving up`
+        );
+      } else {
+        // Transient failure (5xx, network error). Reschedule
+        // 5 min later so a partial outage can recover.
+        console.error(
+          `cleanupRejectedB2Upload transient failure for ${args.b2Key} after ${attempt} attempts: ${lastError}; rescheduling in 5 min`
+        );
+        await ctx.scheduler.runAfter(
+          5 * 60 * 1000,
+          internal.workspaceStorage.cleanupRejectedB2Upload,
+          args
+        );
+      }
     }
 
     // Mark the ledger row cancelled so the upload-binding flow has
