@@ -219,7 +219,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await reportError({
         source: "webhooks/kajabi",
         error: rpcError,
-        message: "Error decrementing inventory",
+        message: "Error decrementing Supabase inventory",
         level: "error",
         context: {
           instructorSlug: mapping.instructor_slug,
@@ -260,35 +260,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Mirror the Supabase decrement into Convex so the marketing admin
-    // inventory page + weekly digest read consistent inventory. Both
-    // calls are best-effort: a Convex outage must not fail the
-    // webhook (Kajabi retries on 5xx, which would double-decrement
-    // Supabase). Failures are surfaced via reportError for ops
-    // reconciliation. HUC-41 / plan §4f.
+    // Authoritative Convex write: decrement + change-log append in one
+    // atomic transaction, idempotent on `purchaseId`. Idempotency is
+    // the replay-safety guarantee — a Kajabi retry of the same event
+    // returns the original row's values without applying a second
+    // decrement. HUC-41 / plan §4f.
     const convexType =
       mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group";
-    const source = `kajabi:${event.offer?.id}`;
+    const purchaseId = `kajabi:${event.offer?.id}`;
+    const source = purchaseId;
 
-    let convexOldInventory: number | null = null;
-    let convexNewInventory: number | null = null;
+    let alreadyApplied = false;
     try {
-      const decrementResponse = await convexServerCall<{
+      const result = await convexServerCall<{
         success: boolean;
-        oldValue?: number;
-        newValue?: number;
-      }>("/inventory/decrement-by-slug", {
+        alreadyApplied?: boolean;
+      }>("/inventory/apply", {
         instructorSlug: mapping.instructor_slug,
         type: convexType,
         quantity,
+        changeType: "kajabi_purchase",
+        source,
+        purchaseId,
       });
-      convexOldInventory = decrementResponse.oldValue ?? null;
-      convexNewInventory = decrementResponse.newValue ?? null;
+      alreadyApplied = result.alreadyApplied === true;
     } catch (convexError) {
       await reportError({
         source: "webhooks/kajabi",
         error: convexError,
-        message: "Failed to mirror inventory decrement to Convex",
+        message: "Failed to apply inventory change to Convex (authoritative write)",
         level: "error",
         context: {
           instructorSlug: mapping.instructor_slug,
@@ -296,51 +296,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           quantity,
           previousInventory,
           newInventory,
+          purchaseId,
         },
       });
+      // Continue: the Supabase write already happened. Operator
+      // reconciles via reportError; the webhook returns 200 so
+      // Kajabi does not retry and double-decrement Supabase.
     }
 
-    if (convexOldInventory !== null && convexNewInventory !== null) {
-      try {
-        await convexServerCall("/inventory-change-log/append", {
-          instructorSlug: mapping.instructor_slug,
-          mentorshipType: convexType,
-          changeType: "kajabi_purchase",
-          oldValue: convexOldInventory,
-          newValue: convexNewInventory,
-          changedAt: Date.now(),
-          source,
-        });
-      } catch (convexError) {
-        await reportError({
-          source: "webhooks/kajabi",
-          error: convexError,
-          message: "Failed to append inventory change log to Convex",
-          level: "error",
-          context: {
-            instructorSlug: mapping.instructor_slug,
-            type: convexType,
-            previousInventory: convexOldInventory,
-            newInventory: convexNewInventory,
-            source,
-          },
-        });
-      }
-    } else {
+    if (alreadyApplied) {
+      // Replay-safe: this exact event was already processed on
+      // Convex. The Supabase decrement above is also a replay
+      // (Kajabi retries); that's the same pre-existing design
+      // issue both layers share. Surface for ops awareness
+      // without failing the webhook.
       await reportError({
         source: "webhooks/kajabi",
         error: new Error(
-          "Skipping Convex change log append because Convex decrement did not return oldValue/newValue",
+          `Kajabi webhook replay detected for purchaseId ${purchaseId}; Convex skipped, Supabase may have double-decremented.`,
         ),
-        message:
-          "Skipping Convex change log append because Convex decrement did not return oldValue/newValue",
+        message: `Kajabi webhook replay detected for purchaseId ${purchaseId}`,
         level: "warn",
         context: {
           instructorSlug: mapping.instructor_slug,
           type: convexType,
+          quantity,
           previousInventory,
           newInventory,
-          source,
+          purchaseId,
         },
       });
     }

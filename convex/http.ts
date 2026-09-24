@@ -2899,60 +2899,31 @@ export const httpBulkImportInventoryChangeLog = httpAction(
   }
 );
 
-/** Append a single `inventoryChangeLog` row. Server-only. Called from
- * the Kajabi webhook in `apps/marketing/app/api/webhooks/kajabi/route.ts`
- * (via `convexServerCall`) after `decrement_inventory` succeeds.
- * Replaces the Supabase-backed `logInventoryChange` writer that
- * `apps/marketing/lib/supabase-inventory.ts` exposed before the
- * PR 7 follow-up. See HUC-41 and `docs/plans/marketing-convex-admin-mirror.md`
- * §4f. `mentorshipType` is `"oneOnOne" | "group"` (Convex camelCase);
- * the webhook maps from Supabase's kebab-case before calling.
- */
-export const httpAppendInventoryChangeLog = httpAction(
-  async (ctx, request) => {
-    if (!verifyAuth(request)) return unauthorizedResponse();
-
-    const body = await request.json();
-    const result = await ctx.runMutation(
-      internal.digest.internalAppendInventoryChangeLog as any,
-      {
-        instructorSlug: body?.instructorSlug,
-        mentorshipType: body?.mentorshipType,
-        changeType: body?.changeType,
-        oldValue: body?.oldValue,
-        newValue: body?.newValue,
-        changedAt: body?.changedAt,
-        source: body?.source,
-      }
-    );
-
-    return new Response(JSON.stringify(result), {
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-);
-
-/** Mirrors the Supabase `decrement_inventory` RPC into Convex so the
- * marketing admin inventory page + weekly digest read consistent
- * inventory. Called from `apps/marketing/app/api/webhooks/kajabi/route.ts`
- * after the Supabase decrement commits (best-effort; if this fails,
- * the webhook still succeeds and the change is logged via
- * `reportError` for ops reconciliation). Pair with
- * `internal.instructors.decrementInventoryBySlug`. See HUC-41 and
+/** Authoritative inventory write for the Kajabi webhook.
+ * Replaces the Supabase `decrement_inventory` RPC + `inventory_change_log`
+ * insert pair with a single Convex transaction that does the
+ * decrement + change-log append atomically and is idempotent on
+ * `purchaseId`. Called from
+ * `apps/marketing/app/api/webhooks/kajabi/route.ts` as the primary
+ * write. Supabase writes from the same webhook are downgraded to a
+ * best-effort mirror behind a runtime env flag. See HUC-41 and
  * `docs/plans/marketing-convex-admin-mirror.md` §4f.
  */
-export const httpDecrementInventoryBySlug = httpAction(
+export const httpApplyInventoryChange = httpAction(
   async (ctx, request) => {
     if (!verifyAuth(request)) return unauthorizedResponse();
 
     const body = await request.json();
     try {
       const result = await ctx.runMutation(
-        internal.instructors.decrementInventoryBySlug as any,
+        internal.instructors.applyInventoryChange as any,
         {
           instructorSlug: body?.instructorSlug,
           type: body?.type,
           quantity: body?.quantity,
+          changeType: body?.changeType,
+          source: body?.source,
+          purchaseId: body?.purchaseId,
         }
       );
       return new Response(JSON.stringify({ success: true, ...result }), {
@@ -3022,15 +2993,9 @@ http.route({
 });
 
 http.route({
-  path: "/inventory-change-log/append",
+  path: "/inventory/apply",
   method: "POST",
-  handler: httpAppendInventoryChangeLog,
-});
-
-http.route({
-  path: "/inventory/decrement-by-slug",
-  method: "POST",
-  handler: httpDecrementInventoryBySlug,
+  handler: httpApplyInventoryChange,
 });
 
 http.route({

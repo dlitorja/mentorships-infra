@@ -1750,28 +1750,60 @@ export const decrementInventory = mutation({
   },
 });
 
-/** Decrements oneOnOne or group inventory for an instructor by a given
- * quantity, looked up by slug. Used by the Kajabi webhook to mirror
- * the Supabase `decrement_inventory` RPC into Convex so the marketing
- * admin inventory page + weekly digest read consistent inventory.
- * Server-only (called from `httpDecrementInventoryBySlug`); no admin
- * gating because the webhook is the only caller. Returns the
- * pre- and post-decrement values so the webhook can record the
- * change log with values from the same inventory transition. Throws
- * on missing / soft-deleted instructor, invalid quantity, or
- * insufficient stock.
+/** Applies an inventory change (decrement by quantity) and records a
+ * matching `inventoryChangeLog` row in a single atomic transaction.
+ * This is the authoritative write target for Kajabi purchase events
+ * (replacing the previous Supabase `decrement_inventory` RPC + log
+ * row write). The whole sequence — slug lookup, idempotency check,
+ * decrement, log append — runs in one Convex transaction so there is
+ * no possible window where a replay could double-decrement.
+ *
+ * Idempotency is keyed on `purchaseId`: if an existing
+ * `inventoryChangeLog` row already has this purchaseId, the mutation
+ * returns the existing row's pre/post values without applying a
+ * second decrement. The Kajabi webhook passes
+ * `kajabi:${event.offer.id}` as the purchaseId so a Kajabi retry
+ * (which Kajabi does on non-2xx responses) is replay-safe.
+ *
+ * Source of truth: Convex. Supabase writes from the same webhook are
+ * downgraded to a best-effort mirror behind a runtime env flag so
+ * existing Supabase readers keep working during the transition.
  */
-export const decrementInventoryBySlug = internalMutation({
+export const applyInventoryChange = internalMutation({
   args: {
     instructorSlug: v.string(),
     type: v.union(v.literal("oneOnOne"), v.literal("group")),
     quantity: v.number(),
+    changeType: v.union(
+      v.literal("manual_update"),
+      v.literal("kajabi_purchase")
+    ),
+    source: v.optional(v.string()),
+    purchaseId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
       throw new Error(
         `Invalid quantity ${args.quantity}: must be a positive integer`,
       );
+    }
+
+    // Idempotency check: if a change log row with this purchaseId
+    // already exists, return its values without applying a second
+    // decrement. Without purchaseId (e.g. manual updates), the mutation
+    // is non-idempotent and applies the change directly.
+    if (args.purchaseId) {
+      const prior = await ctx.db
+        .query("inventoryChangeLog")
+        .withIndex("by_purchaseId", (q) => q.eq("purchaseId", args.purchaseId))
+        .first();
+      if (prior) {
+        return {
+          oldValue: prior.oldValue,
+          newValue: prior.newValue,
+          alreadyApplied: true,
+        };
+      }
     }
 
     const candidates = await ctx.db
@@ -1805,7 +1837,19 @@ export const decrementInventoryBySlug = internalMutation({
     await ctx.db.patch(instructor._id, {
       [field]: newValue,
     });
-    return { oldValue: currentValue, newValue };
+
+    await ctx.db.insert("inventoryChangeLog", {
+      instructorSlug: args.instructorSlug,
+      mentorshipType: args.type,
+      changeType: args.changeType,
+      oldValue: currentValue,
+      newValue,
+      changedAt: Date.now(),
+      source: args.source,
+      purchaseId: args.purchaseId,
+    });
+
+    return { oldValue: currentValue, newValue, alreadyApplied: false };
   },
 });
 

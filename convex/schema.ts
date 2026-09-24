@@ -761,13 +761,19 @@ export default defineSchema({
     // from the Supabase `changed_by` column that PR 7 dropped. Lets
     // ops trace an inventory change to its origin during reconciliation.
     source: v.optional(v.string()),
+    // Stable external purchase id (e.g. `kajabi:offer_abc123`). Used
+    // as the idempotency key for Kajabi purchases so a replayed
+    // webhook call does not double-decrement inventory. Null for
+    // manual updates (no external purchase id).
+    purchaseId: v.optional(v.string()),
     // Migration source row id (Supabase PK). Preserves idempotency
     // for the backfill script; null on rows created post-migration.
     legacyId: v.optional(v.string()),
   })
     .index("by_changedAt", ["changedAt"])
     .index("by_instructorSlug", ["instructorSlug"])
-    .index("by_legacyId", ["legacyId"]),
+    .index("by_legacyId", ["legacyId"])
+    .index("by_purchaseId", ["purchaseId"]),
 
   studentSessionCounts: defineTable({
     userId: v.string(),

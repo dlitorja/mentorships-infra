@@ -422,6 +422,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         newValue: v.number(),
         changedAt: v.number(),
         source: v.optional(v.string()),
+        purchaseId: v.optional(v.string()),
         legacyId: v.optional(v.string()),
       })
     ),
@@ -456,53 +457,12 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         newValue: entry.newValue,
         changedAt: entry.changedAt,
         source: entry.source,
+        purchaseId: entry.purchaseId,
         legacyId: entry.legacyId,
       });
       inserted++;
     }
     return { success: true, inserted, skipped, backfilledSource };
-  },
-});
-
-/**
- * Append a single `inventoryChangeLog` row. Called from
- * `httpAppendInventoryChangeLog` (server-only, no admin identity)
- * for Kajabi-purchase writes that previously went through
- * `apps/marketing/lib/supabase-inventory.ts:logInventoryChange`
- * (Supabase `inventory_change_log`). Migrated as part of the PR 7
- * follow-up so Convex is the source of truth for the change log;
- * see HUC-41 and `docs/plans/marketing-convex-admin-mirror.md` §4f.
- *
- * Takes `changedAt` so the server clock (webhook arrival time) is
- * the canonical event timestamp; the bulk-import path accepts the
- * same field for backfill entries.
- */
-export const internalAppendInventoryChangeLog = internalMutation({
-  args: {
-    instructorSlug: v.string(),
-    mentorshipType: v.optional(
-      v.union(v.literal("oneOnOne"), v.literal("group"))
-    ),
-    changeType: v.union(
-      v.literal("manual_update"),
-      v.literal("kajabi_purchase")
-    ),
-    oldValue: v.number(),
-    newValue: v.number(),
-    changedAt: v.number(),
-    source: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.insert("inventoryChangeLog", {
-      instructorSlug: args.instructorSlug,
-      mentorshipType: args.mentorshipType,
-      changeType: args.changeType,
-      oldValue: args.oldValue,
-      newValue: args.newValue,
-      changedAt: args.changedAt,
-      source: args.source,
-    });
-    return { success: true };
   },
 });
 
