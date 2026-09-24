@@ -21,9 +21,11 @@ const kajabiPayloadSchema = z.object({
     name: z.string().optional(),
   }).optional(),
   transaction: z.object({
+    id: z.string().optional(),
     quantity: z.number().optional(),
   }).optional(),
   payment_transaction: z.object({
+    id: z.string().optional(),
     quantity: z.number().optional(),
   }).optional(),
 });
@@ -264,10 +266,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // atomic transaction, idempotent on `purchaseId`. Idempotency is
     // the replay-safety guarantee — a Kajabi retry of the same event
     // returns the original row's values without applying a second
-    // decrement. HUC-41 / plan §4f.
+    // decrement. The purchaseId is a composite key (event name + offer
+    // id + transaction id if present + member email) so that two
+    // distinct purchases of the same offer do NOT collide. HUC-41 /
+    // plan §4f.
     const convexType =
       mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group";
-    const purchaseId = `kajabi:${event.offer?.id}`;
+    const transactionId =
+      event.transaction?.id ?? event.payment_transaction?.id ?? "";
+    const memberEmail = event.member?.email ?? "";
+    const purchaseId = [
+      "kajabi",
+      event.event,
+      event.offer?.id ?? "",
+      transactionId,
+      memberEmail,
+    ]
+      .filter((part) => part !== "")
+      .join(":");
     const source = purchaseId;
 
     let alreadyApplied = false;
