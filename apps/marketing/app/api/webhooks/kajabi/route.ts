@@ -159,15 +159,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const transactionId =
       event.transaction?.id ?? event.payment_transaction?.id ?? "";
     const memberEmail = event.member?.email ?? "";
-    // When Kajabi omits a transaction id (e.g., test events, sandbox
-    // replays, or some offer types), the canonical
-    // `kajabi:<event>:<offerId>:<tx>:<email>` shape would collide
-    // across distinct purchases. Fall back to a SHA-256 of the raw
-    // payload so two genuinely distinct events produce distinct
-    // purchaseIds, while exact-duplicate replays (same payload
-    // bytes) still dedupe.
+    // Kajabi's canonical transaction id is the only field that
+    // uniquely identifies a single purchase. When it is missing
+    // (e.g., test events, sandbox replays, or some offer types),
+    // the composite purchaseId would collide across distinct
+    // purchases of the same offer by the same member. Fall back to
+    // a SHA-256 of the raw payload so two genuinely distinct events
+    // produce distinct purchaseIds, while exact-duplicate replays
+    // (same payload bytes) still dedupe.
     let purchaseId: string;
-    if (transactionId.length > 0 || memberEmail.length > 0) {
+    if (transactionId.length > 0) {
       purchaseId = [
         "kajabi",
         event.event,
