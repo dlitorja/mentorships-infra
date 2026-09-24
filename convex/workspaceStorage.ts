@@ -1,4 +1,10 @@
-import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
@@ -310,11 +316,13 @@ export const reserveB2FileUploadLedger = internalMutation({
       );
     }
 
-    // Pending = not completed AND within the B2 freshness window.
-    // The compound index orders `completedAt` first so the
-    // range scan stops at the first completed row. The threshold
-    // is `B2_BINDING_AGE_MS` (1h) to match the presigned URL
-    // expiry so a slow upload can still complete (Greptile P1).
+    // Pending = not completed AND not cancelled AND within the B2
+    // freshness window. The compound index orders `completedAt`
+    // first so the range scan stops at the first completed row.
+    // The threshold is `B2_BINDING_AGE_MS` (1h) to match the
+    // presigned URL expiry so a slow upload can still complete
+    // (Greptile P1). Cancelled rows are excluded so the cleanup
+    // path doesn't hold a slot indefinitely.
     const threshold = args.uploadedAt - B2_BINDING_AGE_MS;
     const pending = await ctx.db
       .query("fileUploads")
@@ -328,7 +336,10 @@ export const reserveB2FileUploadLedger = internalMutation({
             .gt("uploadedAt", threshold)
       )
       .collect();
-    if (pending.length >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
+    // Filter cancelled separately (the compound index above is on
+    // completedAt + uploadedAt; cancelledAt is checked here).
+    const filtered = pending.filter((row) => row.cancelledAt === undefined);
+    if (filtered.length >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
       throw new Error(
         `Too many pending uploads for this workspace. Complete or cancel existing uploads before minting another.`
       );
@@ -523,11 +534,59 @@ export const recordB2FileUpload = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    // Look up the ledger row first so every rejection path can
+    // schedule a B2 cleanup (Greptile P1: "Rejected uploads remain
+    // in B2"). When a caller PUTs bytes to B2 before rejection,
+    // we mark the row cancelled and schedule `cleanupRejectedB2Upload`
+    // to delete the B2 object.
+    const ledger = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
+      .first();
+    if (!ledger) {
+      throw new Error(
+        "B2 key is not reserved. Mint a fresh upload URL and try again."
+      );
+    }
+
+    const tryReject = (reason: string): never => {
+      void ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: args.b2Key, ledgerId: ledger._id }
+      );
+      throw new Error(reason);
+    };
+
+    if (ledger.workspaceId !== args.workspaceId) {
+      tryReject("B2 key does not belong to this workspace. Refusing to bind.");
+    }
+    if (ledger.uploaderId !== identity.subject) {
+      tryReject("B2 key was minted by a different user. Refusing to bind.");
+    }
+
+    const ageMs = Date.now() - ledger.uploadedAt;
+    if (ageMs < 0 || ageMs > B2_BINDING_AGE_MS) {
+      tryReject(
+        "B2 key cannot be bound: the upload is too old. Mint a fresh upload URL and try again."
+      );
+    }
+
+    const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
     if (!workspace) {
+      void ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: args.b2Key, ledgerId: ledger._id }
+      );
       throw new Error("Workspace not found");
     }
     if (workspace.deletedAt !== undefined) {
+      void ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: args.b2Key, ledgerId: ledger._id }
+      );
       throw new Error("Workspace not found");
     }
     // Confirmation rejects ended workspaces (Greptile P1). A
@@ -536,6 +595,11 @@ export const recordB2FileUpload = mutation({
     // otherwise the upload must be discarded so the B2 bucket
     // does not accumulate objects from ended workspaces.
     if (workspace.endedAt !== undefined) {
+      void ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: args.b2Key, ledgerId: ledger._id }
+      );
       throw new Error("Workspace has ended");
     }
 
@@ -584,34 +648,12 @@ export const recordB2FileUpload = mutation({
       }
     }
     if (!authorized) {
+      void ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: args.b2Key, ledgerId: ledger._id }
+      );
       throw new Error("Not authorized to upload to this workspace");
-    }
-
-    const ledger = await ctx.db
-      .query("fileUploads")
-      .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
-      .first();
-    if (!ledger) {
-      throw new Error(
-        "B2 key is not reserved. Mint a fresh upload URL and try again."
-      );
-    }
-    if (ledger.workspaceId !== args.workspaceId) {
-      throw new Error(
-        "B2 key does not belong to this workspace. Refusing to bind."
-      );
-    }
-    if (ledger.uploaderId !== identity.subject) {
-      throw new Error(
-        "B2 key was minted by a different user. Refusing to bind."
-      );
-    }
-
-    const ageMs = Date.now() - ledger.uploadedAt;
-    if (ageMs < 0 || ageMs > B2_BINDING_AGE_MS) {
-      throw new Error(
-        "B2 key cannot be bound: the upload is too old. Mint a fresh upload URL and try again."
-      );
     }
 
     // Mark the ledger row complete (do NOT delete it). The
@@ -626,6 +668,151 @@ export const recordB2FileUpload = mutation({
     }
 
     return { ok: true };
+  },
+});
+
+/**
+ * Internal action: delete a B2 object for a rejected upload
+ * (Greptile P1: "Rejected uploads remain in B2"). Scheduled by
+ * `recordB2FileUpload` whenever it rejects a confirmation — by
+ * that point the caller may have already PUT bytes to B2, and we
+ * must clean those up so the workspace bucket does not
+ * accumulate orphan objects. Runs asynchronously after the
+ * rejection so the caller still sees the rejection synchronously.
+ *
+ * Uses a simple SigV4 DELETE against the workspace bucket.
+ * Retries up to 3 times with exponential backoff for transient
+ * 5xx errors; permanent 4xx errors are logged and the ledger row
+ * is marked `cancelledAt` so the upload-binding flow has a
+ * record of the rejected upload.
+ */
+export const cleanupRejectedB2Upload = internalAction({
+  args: {
+    b2Key: v.string(),
+    ledgerId: v.id("fileUploads"),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    const creds = loadB2Credentials();
+    const endpoint = creds.endpoint.replace(/\/+$/, "");
+    const encodedKey = args.b2Key
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+    const url = `${endpoint}/${creds.bucket}/${encodedKey}`;
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.host;
+    const canonicalUri = `/${creds.bucket}/${encodedKey}`;
+    const amzDate = new Date()
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "");
+    const dateStamp = amzDate.slice(0, 8);
+
+    const canonicalHeaders = `host:${host}\n`;
+    const signedHeaders = "host";
+    const payloadHash = "UNSIGNED-PAYLOAD";
+
+    const canonicalRequest = [
+      "DELETE",
+      canonicalUri,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+
+    const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      await sha256Hex(canonicalRequest),
+    ].join("\n");
+
+    const encoder = new TextEncoder();
+    const kDate = await hmacSha256(
+      encoder.encode("AWS4" + creds.secretAccessKey),
+      dateStamp
+    );
+    const kRegion = await hmacSha256(kDate, creds.region);
+    const kService = await hmacSha256(kRegion, "s3");
+    const kSigning = await hmacSha256(kService, "aws4_request");
+    const signature = await hmacSha256(kSigning, stringToSign);
+    const sigHex = Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    const authorization = `AWS4-HMAC-SHA256 Credential=${creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${sigHex}`;
+
+    let attempt = 0;
+    let lastError: string | null = null;
+    while (attempt < 3) {
+      attempt += 1;
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          Authorization: authorization,
+          "x-amz-content-sha256": payloadHash,
+          "x-amz-date": amzDate,
+        },
+      });
+      if (response.ok || response.status === 404) {
+        // 404 = object already gone, treat as success.
+        break;
+      }
+      if (response.status >= 400 && response.status < 500) {
+        lastError = `B2 DELETE permanent error: ${response.status}`;
+        break;
+      }
+      lastError = `B2 DELETE transient error: ${response.status}`;
+    }
+
+    if (lastError) {
+      console.error(
+        `cleanupRejectedB2Upload failed for ${args.b2Key}: ${lastError}`
+      );
+    }
+
+    // Mark the ledger row cancelled so the upload-binding flow has
+    // a record of the rejection (regardless of whether the B2
+    // DELETE succeeded). The row stays around so the download
+    // action can still answer "this key was rejected".
+    const row = await ctx.runQuery(
+      internal.workspaceStorage.getFileUploadById,
+      { id: args.ledgerId }
+    );
+    if (row) {
+      await ctx.runMutation(internal.workspaceStorage.markLedgerCancelled, {
+        id: args.ledgerId,
+      });
+    }
+  },
+});
+
+/**
+ * Internal query: look up a single `fileUploads` row by id.
+ * Used by `cleanupRejectedB2Upload` to confirm the row still
+ * exists before patching it.
+ */
+export const getFileUploadById = internalQuery({
+  args: { id: v.id("fileUploads") },
+  handler: async (ctx, args): Promise<Doc<"fileUploads"> | null> => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Internal mutation: mark a `fileUploads` row cancelled.
+ * Called by `cleanupRejectedB2Upload` after the (possibly
+ * failed) B2 DELETE so the row is not re-checked.
+ */
+export const markLedgerCancelled = internalMutation({
+  args: { id: v.id("fileUploads") },
+  handler: async (ctx, args): Promise<void> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return;
+    if (row.cancelledAt === undefined) {
+      await ctx.db.patch(args.id, { cancelledAt: Date.now() });
+    }
   },
 });
 
