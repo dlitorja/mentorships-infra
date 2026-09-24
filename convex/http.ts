@@ -2899,10 +2899,26 @@ export const httpBulkImportInventoryChangeLog = httpAction(
 export const httpSendDigest = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
+  // The Inngest cron function generates a stable per-tick
+  // idempotency key (`digest-${cronTimestamp}`) and passes it as
+  // the request body so retries of the same cron tick dedup at
+  // Resend, but distinct cron ticks and overlapping manual sends
+  // get distinct keys.
+  let idempotencyKey: string;
+  try {
+    const body = await request.json();
+    idempotencyKey =
+      typeof body?.idempotencyKey === "string" && body.idempotencyKey.length > 0
+        ? body.idempotencyKey
+        : crypto.randomUUID();
+  } catch {
+    idempotencyKey = crypto.randomUUID();
+  }
+
   try {
     const result = await ctx.runAction(
       internal.digestActions.internalSendScheduledDigest,
-      {}
+      { idempotencyKey }
     );
     return new Response(JSON.stringify({ success: true, result }), {
       headers: { "Content-Type": "application/json" },

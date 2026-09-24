@@ -25,6 +25,14 @@ import { z } from "zod";
  * `lib/digest-data.ts` + `lib/email/weekly-digest.ts`. The daily cron
  * already covered Monday for `frequency === "weekly"`, so consolidating
  * to one function removes the duplicate path.
+ *
+ * Idempotency: the Resend `Idempotency-Key` is scoped to one Inngest
+ * run by deriving it from `event.id` (the Inngest cron event id,
+ * stable across retries of the same run). This way retries of the
+ * same cron tick dedup at Resend, but distinct cron ticks and any
+ * overlapping manual "Send Now" invocations have distinct keys and
+ * deliver as separate emails. See `marketing-convex-admin-mirror`
+ * plan doc §4f for the rationale.
  */
 const sendDigestEnvelopeSchema = z.object({
   success: z.literal(true),
@@ -53,9 +61,11 @@ export const sendScheduledDigest = inngest.createFunction(
     retries: 3,
   },
   { cron: "0 9 * * *" },
-  async ({ step }) => {
+  async ({ step, event }) => {
+    const idempotencyKey = `digest-cron-${event.id}`;
+
     const envelope = await step.run("send-digest-via-convex", async () => {
-      return await convexServerCall("/digest/send", {});
+      return await convexServerCall("/digest/send", { idempotencyKey });
     });
 
     const validated = sendDigestEnvelopeSchema.safeParse(envelope);

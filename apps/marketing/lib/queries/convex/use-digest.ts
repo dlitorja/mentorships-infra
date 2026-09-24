@@ -62,7 +62,17 @@ export function useUpdateDigestSettings() {
  * the form's toast string stays unchanged.
  */
 export function useSendDigest() {
+  const action = useConvexAction(api.digestActions.sendAdminDigestEmail);
   return useMutation({
-    mutationFn: useConvexAction(api.digestActions.sendAdminDigestEmail),
+    mutationFn: async () => {
+      // Fresh UUID per click → Resend does not dedup across distinct
+      // manual sends. Each "Send Now" is one logical invocation; if the
+      // user double-clicks rapidly, both click ids are different and
+      // Resend delivers two emails. The UI does not retry, so the
+      // dedup-on-retry protection that the scheduled Inngest path uses
+      // (see `apps/marketing/inngest/functions/weekly-digest.ts`) is
+      // not needed here.
+      return await action({ idempotencyKey: crypto.randomUUID() });
+    },
   });
 }

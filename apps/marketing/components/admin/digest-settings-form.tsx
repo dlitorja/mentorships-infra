@@ -80,7 +80,7 @@ export function DigestSettingsForm() {
 
   const sendManualDigest = useCallback(async (): Promise<void> => {
     try {
-      const result = await sendMutation.mutateAsync({});
+      const result = await sendMutation.mutateAsync();
       toast.success(`Digest sent to ${result.recipientEmail}`);
       await refetch();
     } catch (err) {

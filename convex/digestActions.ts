@@ -9,7 +9,7 @@
  */
 
 import { action, internalAction } from "./_generated/server";
-import { ConvexError } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import { z } from "zod";
 
@@ -362,7 +362,24 @@ async function sendDigest(
     runMutation: (ref: any, args: any) => Promise<any>;
   },
   apiKey: string,
-  from: string
+  from: string,
+  /**
+   * Caller-provided key used for Resend's `Idempotency-Key` header.
+   * MUST be unique per logical send invocation (not per period).
+   *
+   * - Inngest scheduled send: pass `digest-${cronTimestamp}` so
+   *   retries of the same cron tick dedup, but distinct cron ticks
+   *   (and any overlapping manual "Send Now") send fresh emails.
+   * - UI manual send: pass a fresh `crypto.randomUUID()` per click;
+   *   the UI does not retry, so dedup is not needed.
+   *
+   * When omitted, a random UUID is generated per invocation —
+   * effectively disabling Resend dedup. This is correct for
+   * non-retrying callers but loses the retry protection that the
+   * scheduled path relies on, so callers SHOULD always pass an
+   * explicit key.
+   */
+  idempotencyKey: string = crypto.randomUUID()
 ): Promise<{
   success: true;
   message: string;
@@ -472,12 +489,15 @@ async function sendDigest(
 
   const emailContent = buildWeeklyDigestEmail(report);
 
-  // 7) Send via Resend with a deterministic Idempotency-Key so an
-  //    Inngest retry (or a user clicking Send Now twice rapidly) that
-  //    happens to fail mid-action and re-invoke Resend with the same
-  //    period content doesn't deliver the same email twice. Resend
-  //    dedupes on this key for 24h.
-  const idempotencyKey = `digest-${period.start.toISOString()}-${period.end.toISOString()}-${settings.adminEmail}`;
+  // 7) Send via Resend with a caller-provided `Idempotency-Key` so
+  //    retries of the SAME invocation (e.g. an Inngest retry of the
+  //    same cron tick that failed before Resend completed) do not
+  //    deliver the email twice. Resend dedupes on this key for 24h.
+  //
+  //    The key is intentionally NOT derived from the period+recipient:
+  //    that would cause a manual "Send Now" and a scheduled cron in
+  //    the same period to share the same key, so Resend would dedupe
+  //    a legitimate scheduled delivery.
   const res = await fetch(RESEND_API_URL, {
     method: "POST",
     headers: {
@@ -535,8 +555,16 @@ async function sendDigest(
  * Admin-gated via `convex/waitlist.ts:isAdminMarketing`.
  */
 export const sendAdminDigestEmail = action({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    /**
+     * Unique key for this logical "Send Now" invocation. Each UI
+     * click generates a fresh `crypto.randomUUID()`; rapid double
+     * clicks therefore produce two distinct keys and two emails,
+     * matching the user's intent.
+     */
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, { idempotencyKey }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
@@ -565,7 +593,7 @@ export const sendAdminDigestEmail = action({
       });
     }
 
-    return await sendDigest(ctx, apiKey, from);
+    return await sendDigest(ctx, apiKey, from, idempotencyKey);
   },
 });
 
@@ -586,8 +614,17 @@ export const sendAdminDigestEmail = action({
  * check entirely (they're user-initiated).
  */
 export const internalSendScheduledDigest = internalAction({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    /**
+     * Stable key for this scheduled invocation. The Inngest function
+     * passes `digest-${cronTimestamp}`; retries of the same cron tick
+     * share the key so Resend dedupes, while distinct cron ticks and
+     * any overlapping manual "Send Now" invocations have different
+     * keys and deliver as separate emails.
+     */
+    idempotencyKey: v.string(),
+  },
+  handler: async (ctx, { idempotencyKey }) => {
     const settings = await ctx.runQuery(
       internal.digest.internalGetAdminDigestSettings,
       {}
@@ -624,6 +661,6 @@ export const internalSendScheduledDigest = internalAction({
       });
     }
 
-    return await sendDigest(ctx, apiKey, from);
+    return await sendDigest(ctx, apiKey, from, idempotencyKey);
   },
 });
