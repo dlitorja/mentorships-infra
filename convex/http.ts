@@ -2899,6 +2899,64 @@ export const httpBulkImportInventoryChangeLog = httpAction(
   }
 );
 
+/** Bulk-imports kajabiOfferMappings rows. Server-only. Called by
+ * the one-time migration script
+ * `scripts/migrate-kajabi-offer-mappings.ts`. Idempotent: skips
+ * entries that already exist (matched by `legacyId`).
+ */
+export const httpBulkImportKajabiOfferMappings = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const entries = body?.entries;
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, inserted: 0, skipped: 0 }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const result = await ctx.runMutation(
+      internal.digest.internalBulkImportKajabiOfferMappings as any,
+      { entries }
+    );
+
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
+/** Look up a single Kajabi offer mapping by offer id. Server-only.
+ * Called from `apps/marketing/app/api/webhooks/kajabi/route.ts`
+ * (no admin identity — the webhook uses a server credential).
+ * Returns `null` if no mapping exists for the offer id.
+ */
+export const httpGetKajabiOfferMapping = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const offerId = body?.offerId;
+    if (typeof offerId !== "string" || offerId.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "offerId is required" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const mapping = await ctx.runQuery(
+      internal.digest.internalGetKajabiOfferMapping as any,
+      { offerId }
+    );
+
+    return new Response(JSON.stringify({ success: true, mapping }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
 /** Authoritative inventory write for the Kajabi webhook.
  * Replaces the Supabase `decrement_inventory` RPC + `inventory_change_log`
  * insert pair with a single Convex transaction that does the
@@ -2990,6 +3048,18 @@ http.route({
   path: "/inventory-change-log/import-bulk",
   method: "POST",
   handler: httpBulkImportInventoryChangeLog,
+});
+
+http.route({
+  path: "/kajabi-offer-mappings/import-bulk",
+  method: "POST",
+  handler: httpBulkImportKajabiOfferMappings,
+});
+
+http.route({
+  path: "/kajabi-offer-mappings/lookup",
+  method: "POST",
+  handler: httpGetKajabiOfferMapping,
 });
 
 http.route({

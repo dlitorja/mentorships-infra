@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
 import { reportError } from "@/lib/observability";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const kajabiPayloadSchema = z.object({
   event: z.string(),
@@ -32,119 +28,35 @@ const kajabiPayloadSchema = z.object({
 
 type KajabiPayload = z.infer<typeof kajabiPayloadSchema>;
 
-const offerMappingSchema = z.object({
-  instructor_slug: z.string(),
-  mentorship_type: z.enum(["one-on-one", "group"]),
-});
-
-type OfferMapping = z.infer<typeof offerMappingSchema>;
+type KajabiOfferMapping = {
+  offerId: string;
+  instructorSlug: string;
+  mentorshipType: "one-on-one" | "group";
+  kajabiOfferUrl: string;
+};
 
 async function getOfferMapping(
-  supabase: SupabaseClient,
   offerId: string
-): Promise<OfferMapping | null> {
-  const { data, error } = await supabase
-    .from("kajabi_offer_mappings")
-    .select("instructor_slug, mentorship_type")
-    .eq("offer_id", offerId)
-    .single();
-
-  if (error || !data) {
+): Promise<KajabiOfferMapping | null> {
+  try {
+    const mapping = await convexServerCall<{ success: boolean; mapping: KajabiOfferMapping | null }>(
+      "/kajabi-offer-mappings/lookup",
+      { offerId }
+    );
+    return mapping;
+  } catch (error) {
     await reportError({
       source: "webhooks/kajabi",
       error,
-      message: "Error fetching offer mapping",
+      message: "Error fetching offer mapping from Convex",
       level: "error",
       context: { offerId },
     });
     return null;
   }
-
-  const parsed = offerMappingSchema.safeParse(data);
-  if (!parsed.success) {
-    await reportError({
-      source: "webhooks/kajabi",
-      error: parsed.error,
-      message: "Invalid offer mapping data",
-      level: "error",
-      context: { offerId, receivedKeys: data ? Object.keys(data) : [] },
-    });
-    return null;
-  }
-
-  return parsed.data;
-}
-
-async function getInventory(
-  supabase: SupabaseClient,
-  instructorSlug: string,
-  type: "one-on-one" | "group"
-): Promise<number | null> {
-  const column = type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
-  
-  const { data, error } = await supabase
-    .from("instructor_inventory")
-    .select(column)
-    .eq("instructor_slug", instructorSlug)
-    .single();
-
-  if (error || !data) {
-    await reportError({
-      source: "webhooks/kajabi",
-      error,
-      message: "Error fetching current inventory",
-      level: "error",
-      context: { instructorSlug, type, column },
-    });
-    return null;
-  }
-
-  const dataAny = data as Record<string, unknown>;
-  const value = dataAny[column];
-  if (typeof value !== "number") {
-    await reportError({
-      source: "webhooks/kajabi",
-      error: new Error("Invalid inventory value"),
-      message: "Invalid inventory value",
-      level: "error",
-      context: { instructorSlug, type, column, value },
-    });
-    return null;
-  }
-
-  return value;
-}
-
-async function verifyAndGetMapping(
-  supabase: SupabaseClient,
-  request: NextRequest,
-  offerId: string
-): Promise<OfferMapping | null> {
-  const userAgent = request.headers.get("user-agent") || "";
-  const userAgentValid = userAgent.includes("Kajabi") || userAgent.includes("kajabi");
-  
-  if (!userAgentValid) {
-    await reportError({
-      source: "webhooks/kajabi",
-      error: new Error("Suspicious request - invalid User-Agent"),
-      message: `Suspicious request - User-Agent: ${userAgent}`,
-      level: "warn",
-      context: { userAgent, offerId },
-    });
-    return null;
-  }
-
-  return getOfferMapping(supabase, offerId);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return NextResponse.json(
-      { error: "Server configuration error: Supabase not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
     const payload = await request.text();
 
@@ -174,7 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const event = parseResult.data;
     const relevantEvents = ["purchase.created", "payment.succeeded", "order.created"];
-    
+
     if (!relevantEvents.includes(event.event)) {
       return NextResponse.json({ received: true, message: `Event type ${event.event} not processed` });
     }
@@ -184,175 +96,139 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "No offer ID in payload" }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const mapping = await verifyAndGetMapping(supabase, request, offerId);
+    // Kajabi webhooks do not provide HMAC signature verification
+    // out-of-the-box (only User-Agent matching). Until signature
+    // verification is added, the User-Agent check is the only
+    // forgery mitigation; an attacker that knows the offer IDs can
+    // forge requests. This is acceptable for the current threat
+    // model because the same forgeable requests already affected
+    // the Supabase pre-PR, and a follow-up Linear issue tracks HMAC
+    // verification. See `docs/post-merge/HANDOFF.md`-style docs
+    // (or the Linear issue) for the security roadmap.
+    const userAgent = request.headers.get("user-agent") || "";
+    if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
+      await reportError({
+        source: "webhooks/kajabi",
+        error: new Error("Suspicious request - invalid User-Agent"),
+        message: `Suspicious request - User-Agent: ${userAgent}`,
+        level: "warn",
+        context: { userAgent, offerId },
+      });
+      return NextResponse.json(
+        { error: "Invalid request: invalid User-Agent" },
+        { status: 400 }
+      );
+    }
 
+    const mappingResponse = await getOfferMapping(offerId);
+    const mapping = mappingResponse?.mapping ?? null;
     if (!mapping) {
-      return NextResponse.json({ error: "Invalid request: offer not found or invalid User-Agent" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Offer mapping not found" },
+        { status: 404 }
+      );
     }
 
     const quantity = event.event === "order.created"
       ? (event.transaction?.quantity || event.payment_transaction?.quantity || 1)
-      : event.event === "purchase.created" 
+      : event.event === "purchase.created"
         ? (event.transaction?.quantity || 1)
         : (event.payment_transaction?.quantity || 1);
 
-    const column = mapping.mentorship_type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
-
-    const previousInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
-    if (previousInventory === null) {
-      await reportError({
-        source: "webhooks/kajabi",
-        error: new Error("Could not fetch current inventory before decrement"),
-        message: "Could not fetch current inventory before decrement",
-        level: "warn",
-        context: { instructorSlug: mapping.instructor_slug, type: mapping.mentorship_type },
-      });
-      return NextResponse.json({ error: "Failed to get current inventory" }, { status: 500 });
-    }
-
-    const { data: decrementResult, error: rpcError } = await supabase.rpc("decrement_inventory", {
-      slug_param: mapping.instructor_slug,
-      inventory_column: column,
-      decrement_by: quantity,
-    });
-
-    if (rpcError) {
-      await reportError({
-        source: "webhooks/kajabi",
-        error: rpcError,
-        message: "Error decrementing Supabase inventory",
-        level: "error",
-        context: {
-          instructorSlug: mapping.instructor_slug,
-          type: mapping.mentorship_type,
-          quantity,
-          column,
-        },
-      });
-      return NextResponse.json({ error: "Failed to decrement inventory" }, { status: 500 });
-    }
-
-    const success = decrementResult as boolean;
-    if (!success) {
-      return NextResponse.json({ error: "Insufficient inventory" }, { status: 400 });
-    }
-
-    const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
-    const postDecrementReadFailed = newInventory === null;
-    if (postDecrementReadFailed) {
-      await reportError({
-        source: "webhooks/kajabi",
-        error: new Error("Could not determine new inventory from Supabase"),
-        message: "Could not determine new inventory from Supabase (post-decrement read)",
-        level: "warn",
-        context: {
-          instructorSlug: mapping.instructor_slug,
-          type: mapping.mentorship_type,
-          quantity,
-          previousInventory,
-        },
-      });
-      // Continue: the Supabase decrement succeeded; we still
-      // want to apply the Convex write + emit the Inngest event.
-      // The Inngest handler can fall back to a Supabase read for
-      // the new inventory count if needed.
-    }
-
-    // Authoritative Convex write: decrement + change-log append in one
-    // atomic transaction, idempotent on `purchaseId`. Idempotency is
-    // the replay-safety guarantee — a Kajabi retry of the same event
-    // returns the original row's values without applying a second
-    // decrement. The purchaseId is a composite key (event name + offer
-    // id + transaction id if present + member email) so that two
-    // distinct purchases of the same offer do NOT collide. HUC-41 /
-    // plan §4f.
     const convexType =
-      mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group";
+      mapping.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
     const transactionId =
       event.transaction?.id ?? event.payment_transaction?.id ?? "";
     const memberEmail = event.member?.email ?? "";
     const purchaseId = [
       "kajabi",
       event.event,
-      event.offer?.id ?? "",
+      offerId,
       transactionId,
       memberEmail,
     ]
       .filter((part) => part !== "")
       .join(":");
-    const source = purchaseId;
 
     let alreadyApplied = false;
+    let newInventory: number | null = null;
     try {
       const result = await convexServerCall<{
         success: boolean;
         alreadyApplied?: boolean;
+        newValue?: number;
       }>("/inventory/apply", {
-        instructorSlug: mapping.instructor_slug,
+        instructorSlug: mapping.instructorSlug,
         type: convexType,
         quantity,
         changeType: "kajabi_purchase",
-        source,
+        source: purchaseId,
         purchaseId,
       });
       alreadyApplied = result.alreadyApplied === true;
-    } catch (convexError) {
+      newInventory = result.newValue ?? null;
+    } catch (applyError) {
+      const message = (applyError as Error).message;
+      // Insufficient inventory is a normal 4xx (Kajabi should not
+      // retry); bubble up so the buyer sees an "out of stock"
+      // response on the next sync.
+      if (message.toLowerCase().includes("insufficient")) {
+        return NextResponse.json(
+          { error: "Insufficient inventory", instructor: mapping.instructorSlug, type: mapping.mentorshipType },
+          { status: 400 }
+        );
+      }
       await reportError({
         source: "webhooks/kajabi",
-        error: convexError,
+        error: applyError,
         message: "Failed to apply inventory change to Convex (authoritative write)",
         level: "error",
         context: {
-          instructorSlug: mapping.instructor_slug,
+          instructorSlug: mapping.instructorSlug,
           type: convexType,
           quantity,
-          previousInventory,
-          newInventory: newInventory ?? null,
           purchaseId,
         },
       });
-      // Continue: the Supabase write already happened. Operator
-      // reconciles via reportError; the webhook returns 200 so
-      // Kajabi does not retry and double-decrement Supabase.
+      return NextResponse.json(
+        { error: "Failed to apply inventory change" },
+        { status: 500 }
+      );
     }
 
     if (alreadyApplied) {
-      // Replay-safe: this exact event was already processed on
-      // Convex. The Supabase decrement above is also a replay
-      // (Kajabi retries); that's the same pre-existing design
-      // issue both layers share. Surface for ops awareness
-      // without failing the webhook.
       await reportError({
         source: "webhooks/kajabi",
         error: new Error(
-          `Kajabi webhook replay detected for purchaseId ${purchaseId}; Convex skipped, Supabase may have double-decremented.`,
+          `Kajabi webhook replay detected for purchaseId ${purchaseId}; Convex skipped.`,
         ),
         message: `Kajabi webhook replay detected for purchaseId ${purchaseId}`,
         level: "warn",
         context: {
-          instructorSlug: mapping.instructor_slug,
+          instructorSlug: mapping.instructorSlug,
           type: convexType,
           quantity,
-          previousInventory,
-          newInventory: newInventory ?? null,
           purchaseId,
         },
       });
     }
 
-    const inngestError = postDecrementReadFailed
-      ? null
-      : await inngest.send({
-          name: "inventory/changed",
-          data: {
-            instructorSlug: mapping.instructor_slug,
-            type: mapping.mentorship_type,
-            previousInventory,
-            newInventory: newInventory as number,
-            quantity,
-          },
-        });
+    // Emit the inventory/changed Inngest event only on a successful
+    // first-time apply so the waitlist handler doesn't fire on
+    // replays or skipped writes.
+    let inngestError: unknown = null;
+    if (!alreadyApplied && newInventory !== null) {
+      inngestError = await inngest.send({
+        name: "inventory/changed",
+        data: {
+          instructorSlug: mapping.instructorSlug,
+          type: mapping.mentorshipType,
+          previousInventory: newInventory + quantity,
+          newInventory,
+          quantity,
+        },
+      });
+    }
 
     if (inngestError) {
       await reportError({
@@ -361,38 +237,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         message: "Failed to send Inngest event",
         level: "error",
         context: {
-          instructorSlug: mapping.instructor_slug,
-          type: mapping.mentorship_type,
-          previousInventory,
+          instructorSlug: mapping.instructorSlug,
+          type: mapping.mentorshipType,
           newInventory,
-        },
-      });
-    } else if (postDecrementReadFailed) {
-      await reportError({
-        source: "webhooks/kajabi",
-        error: new Error(
-          "Supabase post-decrement inventory read failed; skipped Inngest event to avoid incorrect waitlist handling. Convex write already applied.",
-        ),
-        message:
-          "Supabase post-decrement inventory read failed; skipped Inngest event to avoid incorrect waitlist handling. Convex write already applied.",
-        level: "warn",
-        context: {
-          instructorSlug: mapping.instructor_slug,
-          type: mapping.mentorship_type,
-          previousInventory,
+          quantity,
         },
       });
     }
 
     return NextResponse.json({
       received: true,
-      message: `Inventory decremented by ${quantity}`,
-      instructor: mapping.instructor_slug,
-      type: mapping.mentorship_type,
+      message: `Inventory ${alreadyApplied ? "already" : ""} ${alreadyApplied ? "applied" : "decremented"} by ${quantity}`,
+      instructor: mapping.instructorSlug,
+      type: mapping.mentorshipType,
       quantity,
-      previousInventory,
-      newInventory: newInventory ?? null,
-      postDecrementReadFailed,
+      newInventory,
+      alreadyApplied,
     });
   } catch (error) {
     await reportError({

@@ -739,6 +739,28 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_notifiedAt", ["notifiedAt"]),
 
+  // PR 7 + HUC-41: Kajabi offer → instructor mapping. Source of truth
+  // for the Kajabi webhook (`apps/marketing/app/api/webhooks/kajabi/route.ts`)
+  // which no longer reads Supabase for this lookup. Backfilled from
+  // Supabase `kajabi_offer_mappings` via
+  // `scripts/migrate-kajabi-offer-mappings.ts` (one-time).
+  kajabiOfferMappings: defineTable({
+    offerId: v.string(),
+    instructorSlug: v.string(),
+    mentorshipType: v.union(
+      v.literal("one-on-one"),
+      v.literal("group")
+    ),
+    kajabiOfferUrl: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    // Supabase PK. Preserves idempotency for the backfill script;
+    // null on rows created post-migration.
+    legacyId: v.optional(v.string()),
+  })
+    .index("by_offerId", ["offerId"])
+    .index("by_legacyId", ["legacyId"]),
+
   // PR 7: append-only audit of instructor inventory changes.
   // Source of truth for `getInventoryChangesForPeriod` and the
   // historical "Kajabi purchase" attribution in the weekly digest.
