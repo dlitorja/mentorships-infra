@@ -586,6 +586,14 @@ export default defineSchema({
     // complete instead of deleting it. The pending-count query
     // filters rows by `completedAt === undefined`.
     completedAt: v.optional(v.number()),
+    // PR workspace-storage-1 (round 8): cancellation timestamp.
+    // Set by `recordB2FileUpload` when the confirmation is
+    // rejected (e.g., workspace ended, access removed). A
+    // scheduled cleanup action deletes the B2 object that the
+    // caller may have already PUT, so the bucket does not
+    // accumulate orphan blobs from rejected uploads (Greptile
+    // P1: "Rejected uploads remain in B2").
+    cancelledAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
