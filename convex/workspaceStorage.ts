@@ -636,9 +636,18 @@ export const recordB2FileUpload = mutation({
       const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
       if (!workspace) {
         rejectionReason = "Workspace not found";
+        // The caller is the legitimate uploader (we passed the
+        // uploaderId check above) and the ledger row matches
+        // their workspace, but the workspace itself is gone.
+        // The PUT bytes in B2 still need cleanup (Greptile P1:
+        // "missing or deleted workspace rejects confirmation
+        // without scheduling deletion of bytes already PUT to
+        // B2").
+        rejectionCleanupNeeded = true;
       } else {
         if (workspace.deletedAt !== undefined) {
           rejectionReason = "Workspace not found";
+          rejectionCleanupNeeded = true;
         }
         // Confirmation rejects ended workspaces (Greptile P1). A
         // caller who reserved a key while the workspace was active
