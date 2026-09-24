@@ -49,3 +49,14 @@ export const CHAT_FILE_RETENTION_MS = CHAT_FILE_RETENTION_DAYS * 24 * 60 * 60 * 
  * is suspicious.
  */
 export const MAX_BINDING_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * PR workspace-storage-1 (round 7): B2 binding freshness window.
+ * Longer than `MAX_BINDING_AGE_MS` because presigned PUT URLs are
+ * valid for 1 hour and a 500MB upload on a slow connection can
+ * exceed the legacy 5-minute window. The cap exists to prevent
+ * replay of an old key (a freshly-minted key by another caller in
+ * the same workspace could otherwise be replayed), not to bound
+ * upload duration.
+ */
+export const B2_BINDING_AGE_MS = 60 * 60 * 1000;

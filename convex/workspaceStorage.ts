@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 
 import {
-  MAX_BINDING_AGE_MS,
+  B2_BINDING_AGE_MS,
   MAX_CHAT_FILE_BYTES,
   MAX_IMAGE_BYTES,
 } from "./workspaceConstants";
@@ -280,7 +280,7 @@ export const resolveWorkspaceDownloadAccess = internalQuery({
  * transactions").
  *
  * A row is "pending" when `completedAt === undefined &&
- * uploadedAt > (now - MAX_BINDING_AGE_MS)`. The pending count
+ * uploadedAt > (now - B2_BINDING_AGE_MS)`. The pending count
  * filters by this predicate. Completed uploads (`completedAt !==
  * undefined`) do NOT count toward the cap, so completing an
  * upload frees a slot (Greptile P1: "Completed uploads exhaust
@@ -310,10 +310,12 @@ export const reserveB2FileUploadLedger = internalMutation({
       );
     }
 
-    // Pending = not completed AND within the freshness window.
+    // Pending = not completed AND within the B2 freshness window.
     // The compound index orders `completedAt` first so the
-    // range scan stops at the first completed row.
-    const threshold = args.uploadedAt - MAX_BINDING_AGE_MS;
+    // range scan stops at the first completed row. The threshold
+    // is `B2_BINDING_AGE_MS` (1h) to match the presigned URL
+    // expiry so a slow upload can still complete (Greptile P1).
+    const threshold = args.uploadedAt - B2_BINDING_AGE_MS;
     const pending = await ctx.db
       .query("fileUploads")
       .withIndex(
@@ -606,7 +608,7 @@ export const recordB2FileUpload = mutation({
     }
 
     const ageMs = Date.now() - ledger.uploadedAt;
-    if (ageMs < 0 || ageMs > MAX_BINDING_AGE_MS) {
+    if (ageMs < 0 || ageMs > B2_BINDING_AGE_MS) {
       throw new Error(
         "B2 key cannot be bound: the upload is too old. Mint a fresh upload URL and try again."
       );
