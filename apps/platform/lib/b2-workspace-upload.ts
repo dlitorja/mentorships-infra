@@ -105,6 +105,7 @@ export async function uploadFileToB2(
     fileId: string;
     fileName: string;
     contentType: string;
+    size: number;
   }) => Promise<{ uploadUrl: string; b2Key: string; fileId: string }>,
   recordFileUpload?: (args: {
     workspaceId: Id<'workspaces'>;
@@ -118,6 +119,7 @@ export async function uploadFileToB2(
       fileId,
       fileName: file.name,
       contentType: file.type || 'application/octet-stream',
+      size: file.size,
     });
 
     const response = await fetch(uploadUrl, {

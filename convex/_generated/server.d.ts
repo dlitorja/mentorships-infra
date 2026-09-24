@@ -37,6 +37,7 @@ type Env = {
   readonly RESEND_WEBHOOK_SECRET: string | undefined;
   readonly TURNSTILE_ALLOWED_HOSTNAMES: string | undefined;
   readonly TURNSTILE_SECRET_KEY: string | undefined;
+  readonly WORKSPACE_STORAGE_BUCKET_NAME: string | undefined;
 };
 
 /**
