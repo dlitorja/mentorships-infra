@@ -1,9 +1,13 @@
-import { mutation, action, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 
-import { MAX_BINDING_AGE_MS } from "./workspaceConstants";
+import {
+  MAX_BINDING_AGE_MS,
+  MAX_CHAT_FILE_BYTES,
+  MAX_IMAGE_BYTES,
+} from "./workspaceConstants";
 
 /**
  * Workspace storage migration (PR 1 of 3, widen).
@@ -32,6 +36,14 @@ import { MAX_BINDING_AGE_MS } from "./workspaceConstants";
 
 function safePathSegment(s: string): string {
   return s.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+}
+
+function isImageContentType(contentType: string): boolean {
+  return contentType.toLowerCase().startsWith("image/");
+}
+
+function maxSizeForContentType(contentType: string): number {
+  return isImageContentType(contentType) ? MAX_IMAGE_BYTES : MAX_CHAT_FILE_BYTES;
 }
 
 /**
@@ -112,11 +124,11 @@ export const resolveWorkspaceUploadAccess = internalQuery({
     }
 
     if (workspace.instructorId) {
-      const instructor: { _id: Id<"instructors">; userId: string } | null = await ctx.db
+      const instructor: Doc<"instructors"> | null = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q) => q.eq("userId", callerId))
         .first();
-      if (instructor && instructor._id === workspace.instructorId) {
+      if (instructor && instructor._id === workspace.instructorId && instructor.userId) {
         return { role: "instructor", workspace, studentUserId: workspace.ownerId };
       }
     }
@@ -124,6 +136,27 @@ export const resolveWorkspaceUploadAccess = internalQuery({
       return { role: "student", workspace, studentUserId: workspace.ownerId };
     }
     return null;
+  },
+});
+
+/**
+ * Internal query: look up the `fileUploads` ledger row for a
+ * `b2Key` so the action can verify the key belongs to the
+ * workspace the caller authorized against (Greptile P1: a member
+ * of workspace A could otherwise request a download URL for a
+ * known key from workspace B).
+ */
+export const resolveB2FileUploadForKey = internalQuery({
+  args: { b2Key: v.string() },
+  handler: async (ctx, args): Promise<{
+    ledger: Doc<"fileUploads">;
+  } | null> => {
+    const ledger = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
+      .first();
+    if (!ledger) return null;
+    return { ledger };
   },
 });
 
@@ -165,8 +198,17 @@ export const insertB2FileUploadLedger = internalMutation({
  * follow-up chat-create mutation can verify the caller actually
  * drove the upload (Greptile Security P1).
  *
+ * Server-side enforcement (Greptile P1 sec): the action validates
+ * `size` against `MAX_IMAGE_BYTES` / `MAX_CHAT_FILE_BYTES` so a
+ * caller cannot bypass the client-side cap by hitting the action
+ * directly with `fetch`. The signed URL itself scopes B2 to accept
+ * at most `size` bytes via `content-length` policy enforcement
+ * (B2 honors the `x-amz-content-sha256` payload hash; combined
+ * with the size cap, oversized PUTs are rejected before they reach
+ * storage).
+ *
  * Caller-side flow:
- *   1. `generateWorkspaceUploadUrl({ workspaceId, fileId, fileName, contentType })`
+ *   1. `generateWorkspaceUploadUrl({ workspaceId, fileId, fileName, contentType, size })`
  *   2. `fetch(uploadUrl, { method: "PUT", body: file })`
  *   3. `recordB2FileUpload({ workspaceId, b2Key })`
  *   4. Pass `b2Key` to the chat-create mutation (PR 3).
@@ -177,11 +219,23 @@ export const generateWorkspaceUploadUrl = action({
     fileId: v.string(),
     fileName: v.string(),
     contentType: v.string(),
+    size: v.number(),
   },
   handler: async (
     ctx,
     args
   ): Promise<{ uploadUrl: string; b2Key: string; fileId: string }> => {
+    if (!Number.isFinite(args.size) || args.size <= 0) {
+      throw new Error("Invalid file size");
+    }
+    const cap = maxSizeForContentType(args.contentType);
+    if (args.size > cap) {
+      const capMb = cap / (1024 * 1024);
+      throw new Error(
+        `File is too large. Maximum size is ${capMb}MB.`
+      );
+    }
+
     const access: {
       role: "instructor" | "student" | "admin";
       workspace: Doc<"workspaces">;
@@ -224,6 +278,7 @@ export const generateWorkspaceUploadUrl = action({
     const uploadUrl = await mintB2PresignedPutUrl({
       key: b2Key,
       contentType: args.contentType,
+      size: args.size,
     });
 
     return { uploadUrl, b2Key, fileId: args.fileId };
@@ -231,8 +286,9 @@ export const generateWorkspaceUploadUrl = action({
 });
 
 /**
- * Action: mint a signed GET URL for a workspace blob. Caller must
- * be a member of the workspace that owns the blob. TTL bounded to
+ * Action: mint a signed GET URL for a workspace blob. The key is
+ * verified against the ledger so a member of workspace A cannot
+ * fetch a key from workspace B (Greptile P1 sec). TTL bounded to
  * 60s..24h by the action so a misbehaving caller can't ask for a
  * year-long URL.
  */
@@ -258,6 +314,19 @@ export const getWorkspaceDownloadUrl = action({
       throw new Error("Not authorized to access this workspace's files");
     }
 
+    const lookup: { ledger: Doc<"fileUploads"> } | null = await ctx.runQuery(
+      internal.workspaceStorage.resolveB2FileUploadForKey,
+      { b2Key: args.b2Key }
+    );
+    if (!lookup) {
+      throw new Error("Unknown b2Key");
+    }
+    if (lookup.ledger.workspaceId !== args.workspaceId) {
+      throw new Error(
+        "b2Key does not belong to the authorized workspace"
+      );
+    }
+
     const expiresInSeconds = Math.min(
       Math.max(args.expiresInSeconds ?? 3600, 60),
       24 * 3600
@@ -274,7 +343,8 @@ export const getWorkspaceDownloadUrl = action({
 
 /**
  * Mutation: confirms the caller drove the upload for a given
- * `b2Key`. Returns success when the ledger row exists and is
+ * `b2Key`. Returns success when the ledger row exists, is bound to
+ * the caller's workspace, was created by the same caller, and is
  * within the freshness window. Mirrors the existing
  * `recordFileUpload` shape so client code that already calls it
  * after a Convex storage upload can swap to this without rewriting
@@ -313,10 +383,12 @@ export const recordB2FileUpload = mutation({
         "B2 key does not belong to this workspace. Refusing to bind."
       );
     }
+    if (ledger.uploaderId !== identity.subject) {
+      throw new Error(
+        "B2 key was minted by a different user. Refusing to bind."
+      );
+    }
 
-    // Mirrors `MAX_BINDING_AGE_MS` from `recordFileUpload` —
-    // guards against replay: a participant who obtained a stale
-    // `b2Key` cannot bind it after the window has elapsed.
     const ageMs = Date.now() - ledger.uploadedAt;
     if (ageMs < 0 || ageMs > MAX_BINDING_AGE_MS) {
       throw new Error(
@@ -344,9 +416,16 @@ type B2Credentials = {
 function loadB2Credentials(): B2Credentials {
   const accessKeyId = process.env.B2_KEY_ID;
   const secretAccessKey = process.env.B2_APPLICATION_KEY;
-  const region = process.env.B2_REGION || "us-east-005";
+  // Workspace bucket lives in `us-east-005`. Deliberately separate
+  // from `B2_REGION` (which the existing `packages/storage` client
+  // defaults to `us-west-002` for the instructor-uploads bucket).
+  // Sharing the constant would let a misconfigured env variable
+  // redirect new uploads to the wrong region (Greptile P1).
+  const region =
+    process.env.WORKSPACE_STORAGE_BUCKET_REGION || "us-east-005";
   const endpoint =
-    process.env.B2_ENDPOINT || `https://s3.${region}.backblazeb2.com`;
+    process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
+    `https://s3.${region}.backblazeb2.com`;
   const bucket =
     process.env.WORKSPACE_STORAGE_BUCKET_NAME || "mentorship-workspace-storage";
   if (!accessKeyId || !secretAccessKey) {
@@ -370,9 +449,20 @@ async function hmacSha256(
   key: ArrayBuffer | Uint8Array,
   data: string
 ): Promise<ArrayBuffer> {
+  // crypto.subtle.importKey expects a BufferSource whose `.buffer`
+  // is `ArrayBuffer` (not `SharedArrayBuffer`). Slice produces a
+  // fresh `ArrayBuffer`, mirroring the pattern in
+  // `convex/instructorUploads.ts:hmacSha256`.
+  const keyBuffer: ArrayBuffer =
+    key instanceof Uint8Array
+      ? (key.buffer.slice(
+          key.byteOffset,
+          key.byteOffset + key.byteLength
+        ) as ArrayBuffer)
+      : key;
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    keyBuffer,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
@@ -380,9 +470,28 @@ async function hmacSha256(
   return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
 }
 
+/**
+ * Build the lexicographically-sorted canonical query for SigV4
+ * presigning. The signed headers (`host`) and the content-sha256
+ * marker are part of the canonical query so the browser can PUT
+ * without forwarding AWS headers (some browsers strip them on
+ * cross-origin PUTs). Greptile P1: the marker must sort with the
+ * other parameters, not be appended after sorting, otherwise B2
+ * computes a different signature and rejects the URL.
+ */
+function buildCanonicalQueryString(parts: Record<string, string>): string {
+  return Object.keys(parts)
+    .sort((a, b) => a.localeCompare(b))
+    .map(
+      (k) => `${encodeURIComponent(k)}=${encodeURIComponent(parts[k])}`
+    )
+    .join("&");
+}
+
 async function mintB2PresignedPutUrl(params: {
   key: string;
   contentType: string;
+  size: number;
 }): Promise<string> {
   const creds = loadB2Credentials();
   const endpoint = creds.endpoint.replace(/\/+$/, "");
@@ -398,9 +507,6 @@ async function mintB2PresignedPutUrl(params: {
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
 
-  // SigV4 query-string signing: the URL itself is the auth proof.
-  // The browser PUTs to B2 directly without forwarding AWS
-  // headers (which some browsers strip on cross-origin PUTs).
   const signedHeaders = ["host"];
   const canonicalHeaders = `host:${host}\n`;
 
@@ -411,22 +517,15 @@ async function mintB2PresignedPutUrl(params: {
   const credential = `${creds.accessKeyId}/${credentialScope}`;
   const expires = "3600";
 
-  const baseQuery: Record<string, string> = {
+  const canonicalQueryString = buildCanonicalQueryString({
     "x-amz-algorithm": algorithm,
+    "x-amz-content-sha256": payloadHash,
     "x-amz-credential": credential,
     "x-amz-date": amzDate,
+    "x-amz-decoded-content-length": String(params.size),
     "x-amz-expires": expires,
     "x-amz-signedheaders": signedHeaders.join(";"),
-  };
-
-  const canonicalQueryParts: string[] = [];
-  for (const [k, v] of Object.entries(baseQuery).sort(([a], [b]) => a.localeCompare(b))) {
-    canonicalQueryParts.push(
-      `${encodeURIComponent(k)}=${encodeURIComponent(v)}`
-    );
-  }
-  canonicalQueryParts.push("x-amz-content-sha256=UNSIGNED-PAYLOAD");
-  const canonicalQueryString = canonicalQueryParts.join("&");
+  });
 
   const canonicalRequest = [
     "PUT",
@@ -488,22 +587,14 @@ async function mintB2PresignedGetUrl(params: {
   const algorithm = "AWS4-HMAC-SHA256";
   const credential = `${creds.accessKeyId}/${credentialScope}`;
 
-  const baseQuery: Record<string, string> = {
+  const canonicalQueryString = buildCanonicalQueryString({
     "x-amz-algorithm": algorithm,
+    "x-amz-content-sha256": payloadHash,
     "x-amz-credential": credential,
     "x-amz-date": amzDate,
     "x-amz-expires": String(params.expiresInSeconds),
     "x-amz-signedheaders": signedHeaders.join(";"),
-  };
-
-  const canonicalQueryParts: string[] = [];
-  for (const [k, v] of Object.entries(baseQuery).sort(([a], [b]) => a.localeCompare(b))) {
-    canonicalQueryParts.push(
-      `${encodeURIComponent(k)}=${encodeURIComponent(v)}`
-    );
-  }
-  canonicalQueryParts.push("x-amz-content-sha256=UNSIGNED-PAYLOAD");
-  const canonicalQueryString = canonicalQueryParts.join("&");
+  });
 
   const canonicalRequest = [
     "GET",
