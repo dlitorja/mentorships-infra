@@ -845,21 +845,31 @@ export const cleanupRejectedB2Upload = internalAction({
         await new Promise((r) => setTimeout(r, delayMs));
       }
       attempt += 1;
-      const response = await fetch(url, {
-        method: "DELETE",
-        headers: {
-          Authorization: authorization,
-          "x-amz-content-sha256": payloadHash,
-          "x-amz-date": amzDate,
-        },
-      });
+      // Wrap the fetch in try/catch so a thrown error (DNS,
+      // socket reset, abort) is treated as a transient failure
+      // rather than escaping the action (Greptile P1: "cleanup
+      // action does not reschedule when its DELETE fetch throws").
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "DELETE",
+          headers: {
+            Authorization: authorization,
+            "x-amz-content-sha256": payloadHash,
+            "x-amz-date": amzDate,
+          },
+        });
+      } catch (err) {
+        lastError = `B2 DELETE network error: ${err instanceof Error ? err.message : String(err)}`;
+        continue;
+      }
       if (response.ok || response.status === 404) {
         // 404 = object already gone, treat as success.
         lastError = null;
         break;
       }
       if (response.status >= 400 && response.status < 500) {
-        // Permanent client error (e.g. 403, 404 on a key the
+        // Permanent client error (e.g., 403, 404 on a key the
         // bucket doesn't recognize as an object). Stop retrying —
         // further attempts will not change the outcome.
         lastError = `B2 DELETE permanent error: ${response.status}`;
@@ -1063,6 +1073,21 @@ async function mintB2PresignedPutUrl(params: {
   contentType: string;
   size: number;
 }): Promise<string> {
+  // PUT URL expiry matches `B2_BINDING_AGE_MS` (1h, see
+  // `workspaceConstants.ts`) so a caller can take up to an hour
+  // to upload a 500MB file on a slow connection. Once the URL
+  // is minted, the binding window is the same as the URL
+  // window — a confirmation beyond that window will reject
+  // with "key too old".
+  //
+// Known race: if the caller PUTs, then the confirmation
+  // rejects, the cleanup action deletes the B2 object within
+  // seconds, but the PUT URL remains valid for up to 1h. If the
+  // caller re-PUTs in that window, the object is re-created in
+  // B2 as an orphan (the ledger is `cancelledAt` so a
+  // subsequent confirmation will fail). PR 3 will add a
+  // lifecycle rule that sweeps orphans older than the binding
+  // window; PR 1 documents the race.
   const creds = loadB2Credentials();
   const endpoint = creds.endpoint.replace(/\/+$/, "");
   const encodedKey = params.key
