@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
@@ -35,15 +36,23 @@ type KajabiOfferMapping = {
   kajabiOfferUrl: string;
 };
 
+type OfferLookupResult =
+  | { kind: "found"; mapping: KajabiOfferMapping }
+  | { kind: "not_found" }
+  | { kind: "lookup_error"; cause: unknown };
+
 async function getOfferMapping(
   offerId: string
-): Promise<{ success: boolean; mapping: KajabiOfferMapping | null } | null> {
+): Promise<OfferLookupResult> {
   try {
     const response = await convexServerCall<{
       success: boolean;
       mapping: KajabiOfferMapping | null;
     }>("/kajabi-offer-mappings/lookup", { offerId });
-    return response;
+    if (response.mapping) {
+      return { kind: "found", mapping: response.mapping };
+    }
+    return { kind: "not_found" };
   } catch (error) {
     await reportError({
       source: "webhooks/kajabi",
@@ -52,7 +61,7 @@ async function getOfferMapping(
       level: "error",
       context: { offerId },
     });
-    return null;
+    return { kind: "lookup_error", cause: error };
   }
 }
 
@@ -121,13 +130,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const mappingResponse = await getOfferMapping(offerId);
-    const mapping = mappingResponse?.mapping ?? null;
-    if (!mapping) {
+    if (mappingResponse.kind === "lookup_error") {
+      // Don't conflate a transient Convex outage with "offer not
+      // configured". A 500 here tells Kajabi to retry the webhook
+      // (correct), whereas a 404 would be treated as a permanent
+      // failure.
+      return NextResponse.json(
+        { error: "Offer mapping lookup failed" },
+        { status: 500 }
+      );
+    }
+    if (mappingResponse.kind === "not_found") {
       return NextResponse.json(
         { error: "Offer mapping not found" },
         { status: 404 }
       );
     }
+    const mapping = mappingResponse.mapping;
 
     const quantity = event.event === "order.created"
       ? (event.transaction?.quantity || event.payment_transaction?.quantity || 1)
@@ -140,15 +159,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const transactionId =
       event.transaction?.id ?? event.payment_transaction?.id ?? "";
     const memberEmail = event.member?.email ?? "";
-    const purchaseId = [
-      "kajabi",
-      event.event,
-      offerId,
-      transactionId,
-      memberEmail,
-    ]
-      .filter((part) => part !== "")
-      .join(":");
+    // When Kajabi omits a transaction id (e.g., test events, sandbox
+    // replays, or some offer types), the canonical
+    // `kajabi:<event>:<offerId>:<tx>:<email>` shape would collide
+    // across distinct purchases. Fall back to a SHA-256 of the raw
+    // payload so two genuinely distinct events produce distinct
+    // purchaseIds, while exact-duplicate replays (same payload
+    // bytes) still dedupe.
+    let purchaseId: string;
+    if (transactionId.length > 0 || memberEmail.length > 0) {
+      purchaseId = [
+        "kajabi",
+        event.event,
+        offerId,
+        transactionId,
+        memberEmail,
+      ]
+        .filter((part) => part !== "")
+        .join(":");
+    } else {
+      const hash = createHash("sha256");
+      hash.update(payload);
+      purchaseId = `kajabi:${event.event}:${offerId}:hash:${hash.digest("hex").slice(0, 32)}`;
+    }
 
     let alreadyApplied = false;
     let newInventory: number | null = null;
@@ -224,26 +257,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // buyer's inventory is consistent even if the waitlist
     // notification misses one cycle.
     if (!alreadyApplied && newInventory !== null) {
-      const inngestSendResult = await inngest.send({
-        name: "inventory/changed",
-        data: {
-          instructorSlug: mapping.instructorSlug,
-          type: mapping.mentorshipType,
-          previousInventory: newInventory + quantity,
-          newInventory,
-          quantity,
-        },
-      });
-      const inngestError: unknown =
-        inngestSendResult && typeof inngestSendResult === "object" && "error" in inngestSendResult
-          ? (inngestSendResult as { error: unknown }).error
-          : inngestSendResult;
-      if (inngestError) {
+      try {
+        const inngestSendResult = await inngest.send({
+          name: "inventory/changed",
+          data: {
+            instructorSlug: mapping.instructorSlug,
+            type: mapping.mentorshipType,
+            previousInventory: newInventory + quantity,
+            newInventory,
+            quantity,
+          },
+        });
+        // `inngest.send` returns either `{ ids: [...] }` on
+        // success or `{ error: Error, status: number }` on failure.
+        // A thrown/rejected promise is also possible.
+        const failure =
+          inngestSendResult &&
+          typeof inngestSendResult === "object" &&
+          "error" in inngestSendResult
+            ? (inngestSendResult as { error: unknown }).error
+            : null;
+        if (failure) {
+          await reportError({
+            source: "webhooks/kajabi",
+            error: failure,
+            message:
+              "Inngest send returned error result after successful Convex inventory change; waitlist notification will be missed for this cycle.",
+            level: "warn",
+            context: {
+              instructorSlug: mapping.instructorSlug,
+              type: mapping.mentorshipType,
+              newInventory,
+              quantity,
+              purchaseId,
+            },
+          });
+        }
+      } catch (sendError) {
         await reportError({
           source: "webhooks/kajabi",
-          error: inngestError,
+          error: sendError,
           message:
-            "Failed to send Inngest event after successful Convex inventory change; waitlist notification will be missed for this cycle.",
+            "Inngest send threw after successful Convex inventory change; waitlist notification will be missed for this cycle.",
           level: "warn",
           context: {
             instructorSlug: mapping.instructorSlug,

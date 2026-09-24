@@ -125,10 +125,22 @@ function mapRow(row: SupabaseRow): ConvexImportEntry | null {
   if (row.mentorship_type !== "one-on-one" && row.mentorship_type !== "group") {
     return null;
   }
-  const createdAtMs = row.created_at ? Date.parse(row.created_at) : NaN;
-  const updatedAtMs = row.updated_at ? Date.parse(row.updated_at) : NaN;
+  const now = Date.now();
+  // Supabase allows null `created_at` / `updated_at`. Convex
+  // requires both. Fall back to "now" so the row is still
+  // importable; the durable Convex primary key (legacyId) ensures
+  // re-runs don't double-insert. The migration script logs a
+  // warning for each fallback so the operator can decide whether
+  // to backfill the source row.
+  const createdAtMs = row.created_at ? Date.parse(row.created_at) : now;
+  const updatedAtMs = row.updated_at ? Date.parse(row.updated_at) : now;
   if (!Number.isFinite(createdAtMs) || !Number.isFinite(updatedAtMs)) {
     return null;
+  }
+  if (!row.created_at || !row.updated_at) {
+    console.warn(
+      `[migrate-kajabi-offer-mappings] row ${row.id} (offer ${row.offer_id}) has null created_at/updated_at; substituting now=${new Date(now).toISOString()}`,
+    );
   }
   return {
     offerId: row.offer_id,
