@@ -2866,6 +2866,9 @@ http.route({
 /** Bulk-imports inventoryChangeLog rows. Server-only. Called by the
  * one-time migration script `scripts/migrate-inventory-change-log.ts`.
  * Idempotent: skips entries that already exist (matched by `legacyId`).
+ * Also backfills `source` on rows imported before the field existed
+ * (PR 7 dropped the Supabase `changed_by` column; the script now
+ * reads it on re-runs).
  */
 export const httpBulkImportInventoryChangeLog = httpAction(
   async (ctx, request) => {
@@ -2875,7 +2878,12 @@ export const httpBulkImportInventoryChangeLog = httpAction(
     const entries = body?.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, inserted: 0, skipped: 0 }),
+        JSON.stringify({
+          success: true,
+          inserted: 0,
+          skipped: 0,
+          backfilledSource: 0,
+        }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
@@ -2888,6 +2896,107 @@ export const httpBulkImportInventoryChangeLog = httpAction(
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+);
+
+/** Bulk-imports kajabiOfferMappings rows. Server-only. Called by
+ * the one-time migration script
+ * `scripts/migrate-kajabi-offer-mappings.ts`. Idempotent: skips
+ * entries that already exist (matched by `legacyId`).
+ */
+export const httpBulkImportKajabiOfferMappings = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const entries = body?.entries;
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, inserted: 0, updated: 0, skipped: 0 }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const result = await ctx.runMutation(
+      internal.digest.internalBulkImportKajabiOfferMappings as any,
+      { entries }
+    );
+
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
+/** Look up a single Kajabi offer mapping by offer id. Server-only.
+ * Called from `apps/marketing/app/api/webhooks/kajabi/route.ts`
+ * (no admin identity — the webhook uses a server credential).
+ * Returns `null` if no mapping exists for the offer id.
+ */
+export const httpGetKajabiOfferMapping = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    const offerId = body?.offerId;
+    if (typeof offerId !== "string" || offerId.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "offerId is required" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const mapping = await ctx.runQuery(
+      internal.digest.internalGetKajabiOfferMapping as any,
+      { offerId }
+    );
+
+    return new Response(JSON.stringify({ success: true, mapping }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
+/** Authoritative inventory write for the Kajabi webhook.
+ * Replaces the Supabase `decrement_inventory` RPC + `inventory_change_log`
+ * insert pair with a single Convex transaction that does the
+ * decrement + change-log append atomically and is idempotent on
+ * `purchaseId`. Called from
+ * `apps/marketing/app/api/webhooks/kajabi/route.ts` as the primary
+ * write. Supabase writes from the same webhook are downgraded to a
+ * best-effort mirror behind a runtime env flag. See HUC-41 and
+ * `docs/plans/marketing-convex-admin-mirror.md` §4f.
+ */
+export const httpApplyInventoryChange = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    try {
+      const result = await ctx.runMutation(
+        internal.instructors.applyInventoryChange as any,
+        {
+          instructorSlug: body?.instructorSlug,
+          type: body?.type,
+          quantity: body?.quantity,
+          changeType: body?.changeType,
+          source: body?.source,
+          purchaseId: body?.purchaseId,
+        }
+      );
+      return new Response(JSON.stringify({ success: true, ...result }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      return new Response(
+        JSON.stringify({ success: false, error: message }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
   }
 );
 
@@ -2939,6 +3048,24 @@ http.route({
   path: "/inventory-change-log/import-bulk",
   method: "POST",
   handler: httpBulkImportInventoryChangeLog,
+});
+
+http.route({
+  path: "/kajabi-offer-mappings/import-bulk",
+  method: "POST",
+  handler: httpBulkImportKajabiOfferMappings,
+});
+
+http.route({
+  path: "/kajabi-offer-mappings/lookup",
+  method: "POST",
+  handler: httpGetKajabiOfferMapping,
+});
+
+http.route({
+  path: "/inventory/apply",
+  method: "POST",
+  handler: httpApplyInventoryChange,
 });
 
 http.route({

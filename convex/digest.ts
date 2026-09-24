@@ -421,6 +421,8 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         oldValue: v.number(),
         newValue: v.number(),
         changedAt: v.number(),
+        source: v.optional(v.string()),
+        purchaseId: v.optional(v.string()),
         legacyId: v.optional(v.string()),
       })
     ),
@@ -428,6 +430,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
   handler: async (ctx, args) => {
     let inserted = 0;
     let skipped = 0;
+    let backfilledSource = 0;
     for (const entry of args.entries) {
       if (entry.legacyId) {
         const existing = await ctx.db
@@ -435,6 +438,13 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
           .withIndex("by_legacyId", (q) => q.eq("legacyId", entry.legacyId))
           .first();
         if (existing) {
+          // Backfill `source` on rows imported before the field
+          // existed (PR 7 dropped the Supabase `changed_by` column).
+          // The new script now reads it; patch in place if missing.
+          if (entry.source && !existing.source) {
+            await ctx.db.patch(existing._id, { source: entry.source });
+            backfilledSource++;
+          }
           skipped++;
           continue;
         }
@@ -446,11 +456,100 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         oldValue: entry.oldValue,
         newValue: entry.newValue,
         changedAt: entry.changedAt,
+        source: entry.source,
+        purchaseId: entry.purchaseId,
         legacyId: entry.legacyId,
       });
       inserted++;
     }
-    return { success: true, inserted, skipped };
+    return { success: true, inserted, skipped, backfilledSource };
+  },
+});
+
+/** Looks up a Kajabi offer mapping by Kajabi offer id. Server-only
+ * (called from the Kajabi webhook via internal query). Returns
+ * `null` if the offer id is unknown. Replaces the Supabase read in
+ * `apps/marketing/lib/supabase-inventory.ts:getKajabiOfferMapping`.
+ */
+export const internalGetKajabiOfferMapping = internalQuery({
+  args: { offerId: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("kajabiOfferMappings")
+      .withIndex("by_offerId", (q) => q.eq("offerId", args.offerId))
+      .first();
+    return row
+      ? {
+          offerId: row.offerId,
+          instructorSlug: row.instructorSlug,
+          mentorshipType: row.mentorshipType,
+          kajabiOfferUrl: row.kajabiOfferUrl,
+        }
+      : null;
+  },
+});
+
+/** Bulk-imports `kajabiOfferMappings` rows from Supabase. Server-only.
+ * Called by the one-time migration script
+ * `scripts/migrate-kajabi-offer-mappings.ts`. Idempotent on
+ * `legacyId`: rows that already exist are UPDATED in-place so
+ * re-running the script after an upstream change in Supabase
+ * reflects the new mapping (instead of silently keeping stale data
+ * that would mis-route subsequent webhook deliveries).
+ */
+export const internalBulkImportKajabiOfferMappings = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        offerId: v.string(),
+        instructorSlug: v.string(),
+        mentorshipType: v.union(
+          v.literal("one-on-one"),
+          v.literal("group")
+        ),
+        kajabiOfferUrl: v.string(),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        legacyId: v.string(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const entry of args.entries) {
+      const existing = await ctx.db
+        .query("kajabiOfferMappings")
+        .withIndex("by_legacyId", (q) => q.eq("legacyId", entry.legacyId))
+        .first();
+      if (!existing) {
+        await ctx.db.insert("kajabiOfferMappings", entry);
+        inserted++;
+        continue;
+      }
+      const sameShape =
+        existing.offerId === entry.offerId &&
+        existing.instructorSlug === entry.instructorSlug &&
+        existing.mentorshipType === entry.mentorshipType &&
+        existing.kajabiOfferUrl === entry.kajabiOfferUrl &&
+        existing.createdAt === entry.createdAt &&
+        existing.updatedAt === entry.updatedAt;
+      if (sameShape) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.patch(existing._id, {
+        offerId: entry.offerId,
+        instructorSlug: entry.instructorSlug,
+        mentorshipType: entry.mentorshipType,
+        kajabiOfferUrl: entry.kajabiOfferUrl,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      });
+      updated++;
+    }
+    return { success: true, inserted, updated, skipped };
   },
 });
 
