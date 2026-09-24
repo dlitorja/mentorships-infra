@@ -1755,8 +1755,11 @@ export const decrementInventory = mutation({
  * the Supabase `decrement_inventory` RPC into Convex so the marketing
  * admin inventory page + weekly digest read consistent inventory.
  * Server-only (called from `httpDecrementInventoryBySlug`); no admin
- * gating because the webhook is the only caller. Returns the new
- * inventory value or throws on missing instructor / insufficient stock.
+ * gating because the webhook is the only caller. Returns the
+ * pre- and post-decrement values so the webhook can record the
+ * change log with values from the same inventory transition. Throws
+ * on missing / soft-deleted instructor, invalid quantity, or
+ * insufficient stock.
  */
 export const decrementInventoryBySlug = internalMutation({
   args: {
@@ -1765,12 +1768,21 @@ export const decrementInventoryBySlug = internalMutation({
     quantity: v.number(),
   },
   handler: async (ctx, args) => {
-    const instructor = await ctx.db
+    if (!Number.isInteger(args.quantity) || args.quantity <= 0) {
+      throw new Error(
+        `Invalid quantity ${args.quantity}: must be a positive integer`,
+      );
+    }
+
+    const candidates = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.instructorSlug))
-      .first();
+      .collect();
+    const instructor = candidates.find((row) => !row.deletedAt);
     if (!instructor) {
-      throw new Error(`Instructor not found for slug ${args.instructorSlug}`);
+      throw new Error(
+        `Active instructor not found for slug ${args.instructorSlug}`,
+      );
     }
 
     const field =
@@ -1783,10 +1795,11 @@ export const decrementInventoryBySlug = internalMutation({
       );
     }
 
+    const newValue = currentValue - args.quantity;
     await ctx.db.patch(instructor._id, {
-      [field]: currentValue - args.quantity,
+      [field]: newValue,
     });
-    return { newValue: currentValue - args.quantity };
+    return { oldValue: currentValue, newValue };
   },
 });
 

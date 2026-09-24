@@ -270,16 +270,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group";
     const source = `kajabi:${event.offer?.id}`;
 
+    let convexOldInventory: number | null = null;
     let convexNewInventory: number | null = null;
     try {
       const decrementResponse = await convexServerCall<{
         success: boolean;
+        oldValue?: number;
         newValue?: number;
       }>("/inventory/decrement-by-slug", {
         instructorSlug: mapping.instructor_slug,
         type: convexType,
         quantity,
       });
+      convexOldInventory = decrementResponse.oldValue ?? null;
       convexNewInventory = decrementResponse.newValue ?? null;
     } catch (convexError) {
       await reportError({
@@ -297,13 +300,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    if (convexNewInventory !== null) {
+    if (convexOldInventory !== null && convexNewInventory !== null) {
       try {
         await convexServerCall("/inventory-change-log/append", {
           instructorSlug: mapping.instructor_slug,
           mentorshipType: convexType,
           changeType: "kajabi_purchase",
-          oldValue: previousInventory,
+          oldValue: convexOldInventory,
           newValue: convexNewInventory,
           changedAt: Date.now(),
           source,
@@ -317,7 +320,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           context: {
             instructorSlug: mapping.instructor_slug,
             type: convexType,
-            previousInventory,
+            previousInventory: convexOldInventory,
             newInventory: convexNewInventory,
             source,
           },
@@ -327,10 +330,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await reportError({
         source: "webhooks/kajabi",
         error: new Error(
-          "Skipping Convex change log append because Convex decrement did not return a newValue",
+          "Skipping Convex change log append because Convex decrement did not return oldValue/newValue",
         ),
         message:
-          "Skipping Convex change log append because Convex decrement did not return a newValue",
+          "Skipping Convex change log append because Convex decrement did not return oldValue/newValue",
         level: "warn",
         context: {
           instructorSlug: mapping.instructor_slug,
