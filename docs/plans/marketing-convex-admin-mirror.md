@@ -286,15 +286,15 @@ The original spec reused the existing `api.waitlist.addToWaitlist` mutation dire
 | --- | --- | --- |
 | New action `api.waitlist.addToWaitlistAction(args: { email, instructorSlug, mentorshipType })` | `convex/waitlist.ts` (new export) | Validates args with a `v.*` schema, rate-limits by IP via `@convex-dev/rate-limiter`, then calls `internal.waitlist.addToWaitlist` with `(email, instructorSlug, mentorshipType)` triple dedup. Returns `{ success, message, existingId? }`. |
 | New index `by_email_instructorSlug_mentorshipType` | `convex/schema.ts` (`marketingWaitlist` table) | Compound index on `(email, instructorSlug, mentorshipType)`. Enables the triple-key dedup that fixes P1 #1. **Schema change** → manual Convex prod deploy. |
-| Renamed export `addToWaitlist` → `internal.addToWaitlist` | `convex/waitlist.ts` | Public mutation becomes internal. Caller surface shrinks. apps/platform already calls through the mutation — apps/platform keeps working because the action is the only public entry point and apps/platform uses its own `/api/waitlist` route which calls the public mutation (a separate small change in apps/platform is required, tracked in PR 6c). |
+| Renamed export `addToWaitlist` → `internal.addToWaitlist` | `convex/waitlist.ts` | Public mutation becomes internal. Caller surface shrinks. apps/platform's `/api/waitlist` route has no POST handler — PR #861 (Turnstile follow-up) already moved the platform waitlist page onto `actionAddToWaitlist` via the `useAddToWaitlist` hook, so PR 6c (apps/platform parity) is **not** outstanding. |
 
-### apps/platform parallel change (PR 6c, follow-up)
+### apps/platform parallel change (was PR 6c, follow-up — now completed by PR #861)
 
-apps/platform currently calls `api.waitlist.addToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. After PR 6a renames the mutation to `internal.addToWaitlist`, apps/platform's call breaks. Two options:
+apps/platform was originally targeted to call `api.waitlist.addToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. After PR 6a renames the mutation to `internal.addToWaitlist`, apps/platform's call breaks. Two options were considered:
 - (A) Update apps/platform's `/api/waitlist` route to call the new `api.waitlist.addToWaitlistAction` instead.
 - (B) Have apps/platform keep calling a public `api.waitlist.addToWaitlist` **public** mutation that the action delegates to.
 
-PR 6a ships with option (B) — public mutation stays, just renamed `publicAddToWaitlist`, and the action calls into it after rate-limiting + triple dedup. apps/platform does not need to change in PR 6a; PR 6c later moves apps/platform to the action for symmetry.
+**Resolution:** PR #861 (Turnstile siteverify on the waitlist action, merged 2026-09-21) chose option (A) — it removed the apps/platform POST handler entirely (see the comment block at the top of `apps/platform/app/api/waitlist/route.ts:14-20`), made the platform waitlist page call `actionAddToWaitlist` via the `useAddToWaitlist` hook, and siteverified the Turnstile token at the action. The "PR 6c" follow-up never shipped as a separate PR — apps/platform parity was completed inside PR #861.
 
 ### New / changed marketing files
 
@@ -333,7 +333,7 @@ PR 6a ships with option (B) — public mutation stays, just renamed `publicAddTo
 1. **Inngest worker rewrite to Convex** — *resolved in PR #859 (combined 6a+6b)*. Commit `fcb161fc` rewrites `apps/marketing/inngest/functions/waitlist-notifications.ts` + `apps/marketing/inngest/functions/inventory-available.ts` to read from Convex `marketingWaitlist` via `getAuthenticatedConvexClient()`. Migration script (`9ecc72e4`) preserved `notifiedAt` from Supabase. New Convex signups now receive availability emails.
 2. **`/api/waitlist` route still hits Supabase.** Any third-party POSTing to it continues to write to Supabase. Cleanup PR after PR 6 + 7 deletes it.
 3. **Supabase→Convex backfill** — *resolved in PR #859 (commit `9ecc72e4`)*. `scripts/migrate-marketing-waitlist.ts` runs once with `CONVEX_HTTP_KEY` to populate `marketingWaitlist` from `marketing_waitlist`, preserving `notifiedAt`. Idempotent converge loop via `internalNormalizeEmailsToLowercase` (paginated cursor).
-4. **apps/platform still uses the public mutation, not the action.** PR 6c moves apps/platform onto the action for symmetry. Until then, apps/platform bypasses the rate limiter. Document in HUC-38.
+4. **apps/platform parity — *resolved in PR #861***. apps/platform's `/api/waitlist` POST handler was removed (only the GET handler remains), and the platform waitlist page now calls `actionAddToWaitlist` via `useAddToWaitlist`, which runs Turnstile siteverify before delegating to the internal mutation. apps/platform is on the action for symmetry; no separate PR 6c is needed.
 
 ### Verification (Linear)
 
@@ -351,9 +351,9 @@ Tracking issue: **HUC-38** (state `In Progress` after merge, target `Done` once 
 ### What remains after PR #859
 
 - **PR 6 (admin inventory port)** — the source-of-truth divergence is gone; Greptile should approve at ≥4/5. Spec in §4d.
-- **PR 6c (apps/platform parity)** — moves apps/platform onto `actionAddToWaitlist` for symmetry (currently calls public mutation directly).
-- **PR 7 (admin digest port)** — last in the 7-PR arc. Spec not yet written.
-- **Turnstile follow-up** — separate PR. Adds `actionAddToWaitlist` siteverify gate to bound unauthenticated `addToWaitlist` rate-limit per-caller (closes Greptile's only outstanding concern at 4/5). Sitekey: `0x4AAAAAAE-8eX4SXF543qZq` (widget `mentorships-waitlist-signup-v2`). Env vars set in `apps/marketing/.env.local` and Convex prod+dev. Vercel env vars still need to be set manually.
+- **PR 6c (apps/platform parity)** — *resolved in PR #861*. apps/platform's `/api/waitlist` POST handler was removed; the platform waitlist page calls `actionAddToWaitlist` via `useAddToWaitlist`. No separate PR 6c is needed.
+- **PR 7 (admin digest port)** — last in the 7-PR arc. Spec in §4f (now Shipped as PR #868).
+- **Turnstile follow-up** — *shipped as PR #861 (2026-09-21)*. Adds `actionAddToWaitlist` siteverify gate. Sitekey: `0x4AAAAAAE-8eX4SXF543qZq` (widget `mentorships-waitlist-signup-v2`).
 
 ---
 
@@ -365,7 +365,7 @@ Tracking issue: **HUC-38** (state `In Progress` after merge, target `Done` once 
 
 First implementation attempt landed 7 commits on `feat/marketing-admin-inventory` but Greptile reviews held confidence at **1/5** due to a structural issue: live public waitlist signups continue to flow through the Supabase `marketing_waitlist` table via `apps/marketing/components/instructors/offer-button.tsx:32` (`addToWaitlist`), while the new admin UI reads and writes the Convex `marketingWaitlist` table. The two sources can diverge, so the admin cannot manage current demand from the new page. The branch was reset to `main` and the implementation reverted.
 
-PR #859 (combined 6a+6b) merged 2026-09-21 and resolved items 1 and 2 below. The second implementation attempt landed on `feat/marketing-admin-inventory` off the unblocked base, passed Greptile reviews, and shipped as PR #866 on 2026-09-23. Only item 3 (apps/platform parity) remains as a follow-up — see "What remains after PR 7" below.
+PR #859 (combined 6a+6b) merged 2026-09-21 and resolved items 1 and 2 below. The second implementation attempt landed on `feat/marketing-admin-inventory` off the unblocked base, passed Greptile reviews, and shipped as PR #866 on 2026-09-23. Item 3 (apps/platform parity) was resolved separately as part of PR #861 (Turnstile siteverify, merged 2026-09-21) — apps/platform's `/api/waitlist` POST handler was removed and the platform waitlist page calls `actionAddToWaitlist` directly. The 7-PR arc has no open follow-up from §4d; only the post-PR-7 follow-ups remain (see "What remains after PR 7").
 
 ### Prerequisite
 
@@ -373,9 +373,9 @@ Single source of truth for the waitlist. Status as of 2026-09-21:
 
 1. **Port `addToWaitlist` to Convex — PR 6a ✅ MERGED as part of PR #859 (commit `4667f49a` + 24 fixup commits → `f4a2d98c`).** Replaced the Supabase insert in `apps/marketing/components/instructors/offer-button.tsx:32` with a Convex action. New public action `api.waitlist.actionAddToWaitlist` does siteverify (Turnstile follow-up) + admin-gated delegation to internal mutation. Per-(email, slug) 10/hr + global 5,000/hr rate-limits via `@convex-dev/rate-limiter`. Triple `(email, instructorSlug, mentorshipType)` dedup via existing `by_email_instructorSlug_mentorshipType` index. Public `addToWaitlist` mutation kept for server callers (admin, migration).
 2. **Rewrite Inngest worker to read Convex — PR 6b ✅ MERGED as part of PR #859 (commit `fcb161fc`).** `apps/marketing/inngest/functions/waitlist-notifications.ts` and `inventory-available.ts` now call `getAuthenticatedConvexClient()` and invoke Convex HTTP actions via `CONVEX_HTTP_KEY` bearer. New Convex signups receive availability emails end-to-end. The Supabase→Convex migration script (`scripts/migrate-marketing-waitlist.ts`, commit `9ecc72e4`) preserves `notifiedAt`.
-3. **Move apps/platform onto the new action — PR 6c (open follow-up).** apps/platform currently calls `api.waitlist.addToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. After PR #859, this public mutation still exists, so apps/platform keeps working — but it bypasses the rate limiter and the Turnstile gate. PR 6c redirects apps/platform's `/api/waitlist` POST to call `api.waitlist.actionAddToWaitlist` instead (or to a new server-side proxy that siteverifies the token).
+3. **Move apps/platform onto the new action — PR 6c (resolved by PR #861, 2026-09-21).** apps/platform originally called `api.waitlist.addToWaitlist` directly from `apps/platform/app/api/waitlist/route.ts:30`. PR #861 (Turnstile siteverify on the waitlist action) removed the apps/platform POST handler entirely — `apps/platform/app/api/waitlist/route.ts` now only exports a GET handler (see the comment block at lines 14-20). The platform waitlist page calls `actionAddToWaitlist` via the `useAddToWaitlist` hook, which siteverifies the Turnstile token and rate-limits before delegating to the internal mutation. No separate PR 6c is required.
 
-Resume PR 6 against this spec once PR 6c lands (or alongside it if both can be cleanly split).
+Resume PR 6 against this spec. The original resume-order caveat is moot — apps/platform parity was completed in PR #861 alongside the Turnstile follow-up.
 
 ### Reused Convex functions (no new code in `convex/`)
 
@@ -428,7 +428,7 @@ A follow-up cleanup PR can migrate these after the prerequisite + PR 7 land; for
 
 ### Verification (Linear)
 
-Tracking issue: **HUC-37** (state `Backlog` → `In Progress` once PR 6 + PR 6c merge). Prerequisites 1 + 2 merged in PR #859 (2026-09-21). Smoke tests:
+Tracking issue: **HUC-37** (state `Backlog` → `In Progress` once PR 6 merges; **PR 6c was resolved by PR #861**, so the gating condition is just the PR 6 merge, which has happened — PR #866). Prerequisites 1 + 2 merged in PR #859 (2026-09-21). Smoke tests:
 1. `mentorships.huckleberry.art/admin/inventory` returns a 200 (was 500 + Supabase 502 before PR 1–5, broken since Supabase `text`/`uuid` join).
 2. The page lists every non-deleted instructor from Convex (verified against `instructor.listInstructors`).
 3. +/- oneOnOne and group buttons persist via `api.instructors.updateInstructor`. Reload page → values unchanged.
@@ -591,8 +591,6 @@ The 7-PR arc is complete. Two outstanding follow-ups:
 
 - **Cleanup PR**: delete `apps/marketing/app/api/waitlist/route.ts` (Supabase) — last remaining public Supabase write path. Per §4e limitation #2.
 - **Kajabi webhook Convex migration**: replace the Supabase-backed `logInventoryChange` in `apps/marketing/app/api/webhooks/kajabi/route.ts` with a Convex write. Per PR 7 limitation #1. Tracking: **HUC-41**.
-- **PR 6c (apps/platform parity)**: redirect `apps/platform/app/api/waitlist/route.ts` to call `actionAddToWaitlist` instead of the public mutation. Per §4e.
-- **Turnstile follow-up** (already merged as PR #861 per §4e line 356).
 - **`packages/email-templates` workspace package** to de-duplicate `buildWeeklyDigestEmail` between Convex action + marketing route. Per PR 7 limitation #2.
 - **Workspace-safety note (operator-local, not durable in git)**: during the PR 7 stash-recovery step, two untracked files (`convex/workspaceStorage.ts`, `apps/platform/lib/b2-workspace-upload.ts`) from a separate in-flight storage-refactor branch were moved out of the working tree and preserved locally at `/tmp/preserve-workspace-storage/` on the operator's machine. This backup is **not durable in git** — `git checkout` cannot recover the files (they were never committed) and any other machine or contributor cannot reach `/tmp` on this operator's host. Action required: the operator must (a) reintroduce the files into the storage-refactor branch's working tree before that PR merges, or (b) commit the storage-refactor branch's untracked files before they are needed, or (c) confirm the storage-refactor work has been abandoned and discard the local backup. The plan does not store a copy of these files; they live only on the operator's disk.
 
