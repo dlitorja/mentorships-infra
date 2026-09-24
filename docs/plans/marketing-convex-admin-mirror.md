@@ -361,11 +361,11 @@ Tracking issue: **HUC-38** (state `In Progress` after merge, target `Done` once 
 
 **Goal:** replace the Supabase-backed `apps/marketing/app/admin/inventory/page.tsx` and `apps/marketing/components/admin/inventory-table.tsx` with Convex reads + mutations, mirroring the UX of `apps/web/app/admin/inventory/page.tsx`. The page is admin-only (the parent `app/admin/layout.tsx` already gates access via `isAdminUser()`), so the wrapper page can drop the redundant `requireAdmin()` server check.
 
-### Status: ready to resume (2026-09-21) — PR 6a+6b prerequisite merged
+### Status: shipped (2026-09-23) as PR #866
 
 First implementation attempt landed 7 commits on `feat/marketing-admin-inventory` but Greptile reviews held confidence at **1/5** due to a structural issue: live public waitlist signups continue to flow through the Supabase `marketing_waitlist` table via `apps/marketing/components/instructors/offer-button.tsx:32` (`addToWaitlist`), while the new admin UI reads and writes the Convex `marketingWaitlist` table. The two sources can diverge, so the admin cannot manage current demand from the new page. The branch was reset to `main` and the implementation reverted.
 
-PR #859 (combined 6a+6b) merged 2026-09-21 and resolves items 1 and 2 below. Only item 3 (apps/platform parity) remains before PR 6 ships.
+PR #859 (combined 6a+6b) merged 2026-09-21 and resolved items 1 and 2 below. The second implementation attempt landed on `feat/marketing-admin-inventory` off the unblocked base, passed Greptile reviews, and shipped as PR #866 on 2026-09-23. Only item 3 (apps/platform parity) remains as a follow-up — see "What remains after PR 7" below.
 
 ### Prerequisite
 
@@ -445,7 +445,7 @@ Tracking issue: **HUC-37** (state `Backlog` → `In Progress` once PR 6 + PR 6c 
 
 ### Status
 
-**Spec only (2026-09-23).** PR 6 + PR 6a/6b prerequisites merged (`e878343d`, `f4a2d98c`). PR 7 is the last in the 7-PR arc.
+**Shipped (2026-09-24) as PR #868 (squash `fa5d0fe0`).** PR 6 + PR 6a/6b prerequisites merged (`e878343d`, `f4a2d98c`). The 7-PR arc is complete; this spec is kept as the design record of what shipped.
 
 ### Current Supabase reads (per `apps/marketing/lib/digest-data.ts:17`)
 
@@ -594,7 +594,7 @@ The 7-PR arc is complete. Two outstanding follow-ups:
 - **PR 6c (apps/platform parity)**: redirect `apps/platform/app/api/waitlist/route.ts` to call `actionAddToWaitlist` instead of the public mutation. Per §4e.
 - **Turnstile follow-up** (already merged as PR #861 per §4e line 356).
 - **`packages/email-templates` workspace package** to de-duplicate `buildWeeklyDigestEmail` between Convex action + marketing route. Per PR 7 limitation #2.
-- **Workspace-safety note**: during the PR 7 stash-recovery step, two untracked files (`convex/workspaceStorage.ts`, `apps/platform/lib/b2-workspace-upload.ts`) from a separate in-flight storage-refactor branch were moved out of the working tree and preserved locally at `/tmp/preserve-workspace-storage/`. The operator should confirm they are still needed by the storage-refactor PR and re-introduce them into that branch's working tree before it merges; `git checkout` is **not** an option because the files were never committed. If the storage-refactor work has been abandoned, the local backup can be discarded.
+- **Workspace-safety note (operator-local, not durable in git)**: during the PR 7 stash-recovery step, two untracked files (`convex/workspaceStorage.ts`, `apps/platform/lib/b2-workspace-upload.ts`) from a separate in-flight storage-refactor branch were moved out of the working tree and preserved locally at `/tmp/preserve-workspace-storage/` on the operator's machine. This backup is **not durable in git** — `git checkout` cannot recover the files (they were never committed) and any other machine or contributor cannot reach `/tmp` on this operator's host. Action required: the operator must (a) reintroduce the files into the storage-refactor branch's working tree before that PR merges, or (b) commit the storage-refactor branch's untracked files before they are needed, or (c) confirm the storage-refactor work has been abandoned and discard the local backup. The plan does not store a copy of these files; they live only on the operator's disk.
 
 ---
 
