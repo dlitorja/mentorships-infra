@@ -239,12 +239,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
-    if (newInventory === null) {
+    const postDecrementReadFailed = newInventory === null;
+    if (postDecrementReadFailed) {
       await reportError({
         source: "webhooks/kajabi",
-        error: new Error("Could not determine new inventory, skipping Inngest event"),
-        message: "Could not determine new inventory, skipping Inngest event",
-        level: "error",
+        error: new Error("Could not determine new inventory from Supabase"),
+        message: "Could not determine new inventory from Supabase (post-decrement read)",
+        level: "warn",
         context: {
           instructorSlug: mapping.instructor_slug,
           type: mapping.mentorship_type,
@@ -252,14 +253,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           previousInventory,
         },
       });
-      return NextResponse.json({
-        received: true,
-        message: `Inventory decremented by ${quantity} (event notification skipped)`,
-        instructor: mapping.instructor_slug,
-        type: mapping.mentorship_type,
-        quantity,
-        previousInventory,
-      });
+      // Continue: the Supabase decrement succeeded; we still
+      // want to apply the Convex write + emit the Inngest event.
+      // The Inngest handler can fall back to a Supabase read for
+      // the new inventory count if needed.
     }
 
     // Authoritative Convex write: decrement + change-log append in one
@@ -311,7 +308,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           type: convexType,
           quantity,
           previousInventory,
-          newInventory,
+          newInventory: newInventory ?? null,
           purchaseId,
         },
       });
@@ -338,7 +335,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           type: convexType,
           quantity,
           previousInventory,
-          newInventory,
+          newInventory: newInventory ?? null,
           purchaseId,
         },
       });
@@ -350,7 +347,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         instructorSlug: mapping.instructor_slug,
         type: mapping.mentorship_type,
         previousInventory,
-        newInventory,
+        newInventory: newInventory ?? -1,
         quantity,
       },
     });
@@ -377,7 +374,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       type: mapping.mentorship_type,
       quantity,
       previousInventory,
-      newInventory,
+      newInventory: newInventory ?? null,
+      postDecrementReadFailed,
     });
   } catch (error) {
     await reportError({
