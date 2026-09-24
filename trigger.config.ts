@@ -57,6 +57,10 @@ export default defineConfig({
         pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
         pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);
         pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
+        pushIfPresent(
+          "WORKSPACE_STORAGE_BUCKET_NAME",
+          process.env.WORKSPACE_STORAGE_BUCKET_NAME
+        );
         pushIfPresent("RESEND_API_KEY", process.env.RESEND_API_KEY);
         pushIfPresent("EMAIL_FROM", process.env.EMAIL_FROM);
         pushIfPresent("EMAIL_FROM_TRANSACTIONAL", process.env.EMAIL_FROM_TRANSACTIONAL);

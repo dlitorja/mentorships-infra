@@ -2063,6 +2063,30 @@ Convex agent skills for common tasks can be installed by running
 - If you must switch branches, confirm whether to stash or preserve local changes first. Do not assume untracked files are disposable.
 - If you accidentally delete or lose user work, stop immediately, report exactly what was lost, and do not continue until the user responds.
 
+## Parallel Session Collision Prevention
+
+When more than one agent or session is operating in this repo at the same time, untracked files and uncommitted edits are vulnerable to silent loss. The pattern that bit this repo (Sept 2026, `workspaceStorage` PR 1): a parallel session on a different branch ran `convex codegen`, which swept untracked WIP out of `_generated/`; around the same time a branch switch in another session removed the untracked source files from the working tree. Both events were individually reasonable; together they erased several hours of uncommitted work.
+
+**Hard rules for any agent working in this repo:**
+
+- **Commit before you walk away.** If the user has confirmed a set of files is in-progress for a feature, the next action is `git add` + commit to a topic branch — never leave it as floating untracked work. A WIP commit on `feat/<topic>` is better than a clean working tree.
+- **Never run `git checkout <branch>` in another agent's session.** A checkout resets the working tree and removes untracked files visible to other sessions. If you need a different branch, either (a) ask the operator to coordinate, or (b) open a worktree: `git worktree add ../<repo>-<branch> <branch>`.
+- **Never `git stash --include-untracked` an agent's WIP.** Stashing hides work-in-progress from other sessions and from `git status`; the other session can `git stash pop` against the wrong base and corrupt the WIP.
+- **Treat `_generated/` and other regenerated directories as scratch.** `convex codegen`, `drizzle-kit generate`, `prisma generate`, etc. may sweep WIP out of these dirs on a different branch. Real edits belong in source files, not generated ones.
+- **Name new modules after the topic.** `convex/workspaceStorage.ts` for workspace-storage PR 1 is obviously owned; an unnamed `convex/util.ts` is not. Make ownership visible.
+
+**Operational policy for the operator running multiple sessions:**
+
+- Coordinate which session owns which topic before starting. Write the assignment in Linear or a comment so both sessions can read it.
+- Prefer one agent per topic. Two agents on the same PR is coordination cost without value.
+- If you need to switch the working tree to a different branch while another session has WIP, ask that session to commit or move files to `/tmp/` first.
+
+**If a collision has already happened:**
+
+1. Stop and report exactly what is lost (file paths, approximate content, what branch each session was on).
+2. Do NOT silently rewrite — the operator may have had context that the colliding work was correct as-is.
+3. Wait for explicit confirmation before recreating.
+
 ## CLI Execution Policy
 
 **NEVER stop after presenting an npx/npm/pnpm command. ALWAYS continue to execute the command.**
