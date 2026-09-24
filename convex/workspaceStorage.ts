@@ -538,7 +538,8 @@ export const getWorkspaceDownloadUrl = action({
     // "Download outlives retention"). Without this clamp a
     // caller who mints a URL just before the 18-month deadline
     // could keep downloading for the full 24h URL lifetime
-    // even after the retention deadline passes.
+    // even after the retention deadline passes. If the
+    // deadline is already past, refuse to sign a URL at all.
     const maxLifetimeSeconds = 24 * 3600;
     let deadlineSeconds = maxLifetimeSeconds;
     if (lookup.ledger.workspaceId === args.workspaceId) {
@@ -551,9 +552,19 @@ export const getWorkspaceDownloadUrl = action({
         const secondsUntilDeadline = Math.floor(
           (retentionDeadlineMs - Date.now()) / 1000
         );
-        if (secondsUntilDeadline > 0) {
-          deadlineSeconds = Math.min(maxLifetimeSeconds, secondsUntilDeadline);
+        if (secondsUntilDeadline <= 0) {
+          // Deadline already past (access-check passed but a
+          // few ms elapsed between check and signing — Greptile
+          // P1 r24: "When an ended workspace reaches its
+          // retention deadline between the access check and URL
+          // signing, the remaining lifetime becomes non-positive
+          // ... leaves the permitted lifetime at 24 hours").
+          // Refuse to sign rather than fall back to 24h.
+          throw new Error(
+            "Workspace retention deadline has passed; file is no longer downloadable"
+          );
         }
+        deadlineSeconds = Math.min(maxLifetimeSeconds, secondsUntilDeadline);
       }
     }
     const expiresInSeconds = Math.min(
@@ -742,6 +753,7 @@ export const recordB2FileUpload = action({
       {
         b2Key: args.b2Key,
         ledgerId: ledger._id,
+        callerId,
       }
     );
 
@@ -984,6 +996,7 @@ export const verifyAndConfirmB2Upload = internalAction({
   args: {
     b2Key: v.string(),
     ledgerId: v.id("fileUploads"),
+    callerId: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
     const creds = loadB2Credentials();
@@ -1060,6 +1073,7 @@ export const verifyAndConfirmB2Upload = internalAction({
 
     await ctx.runMutation(internal.workspaceStorage.confirmB2FileUpload, {
       ledgerId: args.ledgerId,
+      callerId: args.callerId,
     });
   },
 });
@@ -1067,27 +1081,109 @@ export const verifyAndConfirmB2Upload = internalAction({
 /**
  * Internal mutation: mark a `fileUploads` row complete. Called
  * by `verifyAndConfirmB2Upload` after the HEAD check succeeds.
- * Separate from `recordB2FileUpload` so the verify step can
- * use a `fetch` HEAD (mutations cannot make external HTTP calls
- * in Convex) while still completing the row in a database
- * transaction.
+ * Re-verifies the workspace state and caller authorization
+ * inside this transaction (Greptile P1 r24: "Stale authorization
+ * confirms uploads"). The outer action does the same checks
+ * before HEAD, but a few ms may elapse during HEAD — a workspace
+ * could be deleted or the caller's access could be revoked in
+ * that window. Re-checking inside this mutation closes the
+ * TOCTOU window without forcing the caller to retry.
+ *
+ * If the re-check fails, mark the row cancelled and schedule
+ * cleanup so the B2 object is still deleted (the caller already
+ * PUT bytes successfully; the upload just isn't bindable).
  */
 export const confirmB2FileUpload = internalMutation({
-  args: { ledgerId: v.id("fileUploads") },
+  args: {
+    ledgerId: v.id("fileUploads"),
+    callerId: v.string(),
+  },
   handler: async (ctx, args): Promise<void> => {
     const row = await ctx.db.get(args.ledgerId);
     if (!row) {
       throw new Error("Ledger row vanished during verify-and-confirm");
     }
     if (row.cancelledAt !== undefined) {
-      // Cleanup action beat us — refuse to mark complete so we
-      // don't end up with a "complete" row whose B2 object is
-      // gone (Greptile P1).
       throw new Error("Ledger row was cancelled during verify-and-confirm");
     }
-    if (row.completedAt === undefined) {
-      await ctx.db.patch(args.ledgerId, { completedAt: Date.now() });
+    if (row.completedAt !== undefined) {
+      // Already confirmed by a concurrent caller — no-op.
+      return;
     }
+
+    // Re-verify workspace state. The action saw the workspace
+    // moments ago but HEAD may have taken seconds; the workspace
+    // could now be deleted or ended.
+    const workspace: Doc<"workspaces"> | null = await ctx.db.get(
+      row.workspaceId
+    );
+    if (!workspace || workspace.deletedAt !== undefined) {
+      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: row.b2Key ?? "", ledgerId: row._id }
+      );
+      throw new Error("Workspace was deleted during verify-and-confirm");
+    }
+    if (workspace.endedAt !== undefined) {
+      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: row.b2Key ?? "", ledgerId: row._id }
+      );
+      throw new Error("Workspace ended during verify-and-confirm");
+    }
+
+    // Re-verify authorization. The action saw the caller's
+    // status moments ago but the instructor mapping or admin
+    // role could have changed during HEAD.
+    const user: { role?: string } | null = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+      .first();
+    const userIsAdmin = user?.role === "admin";
+    let authorized = false;
+    if (userIsAdmin) {
+      authorized = true;
+    } else if (workspace.type === "admin_student") {
+      if (workspace.ownerId === args.callerId) authorized = true;
+    } else if (workspace.type === "admin_instructor") {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId) {
+          authorized = true;
+        }
+      }
+    } else {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", args.callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId) {
+          authorized = true;
+        }
+      }
+      if (!authorized && workspace.ownerId === args.callerId) {
+        authorized = true;
+      }
+    }
+    if (!authorized) {
+      await ctx.db.patch(row._id, { cancelledAt: Date.now() });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        { b2Key: row.b2Key ?? "", ledgerId: row._id }
+      );
+      throw new Error("Caller authorization was revoked during verify-and-confirm");
+    }
+
+    await ctx.db.patch(args.ledgerId, { completedAt: Date.now() });
   },
 });
 
@@ -1126,6 +1222,15 @@ export const cancelB2FileUpload = internalMutation({
       .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
       .first();
     if (!row) return;
+    // Refuse to schedule cleanup if the row is already completed
+    // (Greptile P1 r24: "Cancellation deletes completed uploads").
+    // Two concurrent confirmations can race: one completes the
+    // upload, the other rejects (e.g., window expired). The
+    // reject path must NOT delete the B2 object — the other
+    // confirmation already succeeded and the file is in use.
+    if (row.completedAt !== undefined) {
+      return;
+    }
     if (row.cancelledAt === undefined) {
       await ctx.db.patch(row._id, { cancelledAt: Date.now() });
     }
