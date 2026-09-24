@@ -24,6 +24,11 @@
       "url": "https://mcp.linear.app/mcp",
       "enabled": true,
       "oauth": {}
+    },
+    "sprites": {
+      "type": "local",
+      "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"],
+      "enabled": true
     }
   }
 }

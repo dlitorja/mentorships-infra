@@ -356,6 +356,84 @@ Going forward, **do not** write new `HANDOFF.md` files for multi-PR arcs — ope
 - GitHub PR ↔ Linear issue sync: configure in Linear workspace settings > GitHub
 - Canonical example: `docs/post-merge/instructor-profiles-consolidation.md` (the 9-issue spec that produced the `Post-Merge Verification` project).
 
+# Fly Sprites (Sandboxed Agent Execution)
+
+[Fly Sprites](https://fly.io/sprites) are hardware-isolated Firecracker VMs (own kernel, dedicated CPU/RAM, own network namespace, persistent ext4 disk) that give the agent a fresh Linux computer — separate from the laptop that launched it. They are the recommended sandbox for risky, long-running, or parallel agent work that should not run on the operator's machine.
+
+When the agent runs a Sprite, its code never touches the agent's host: every shell command, file write, and network request happens inside the VM. Sprites support whole-filesystem checkpoint/restore, optional network policy, durable storage that survives sleep, and a public URL on port 8080.
+
+## MCP server
+
+The workspace `opencode.json` registers Sprites as a local MCP server that invokes the pinned `mcp-remote` proxy from `node_modules` (matches the `resend-mcp` / `firecrawl-mcp` convention — `mcp-remote` is listed in `package.json` `devDependencies` and the lockfile, so `pnpm install` pins it):
+
+```json
+"sprites": {
+  "type": "local",
+  "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"],
+  "enabled": true
+}
+```
+
+OAuth is handled on first use — call any `sprites_*` tool, opencode spawns the pinned `mcp-remote` proxy from `node_modules/mcp-remote/dist/proxy.js`, which opens a browser window for the operator to pick the Fly.io organization to scope the token to. The resulting token is cached for future sessions (same one-time flow as the Linear MCP).
+
+**Default safety guards** (set by the hosted MCP server, configurable in your Fly.io org):
+
+- Sprite name prefix `mcp-` — easy to spot and disassemble
+- Cap of 5 concurrent Sprites per org
+- Network policy default: unrestricted outbound; apply a policy to narrow egress
+
+## When to use Sprites
+
+Prefer Sprites over running the agent directly on your laptop when the task matches any of:
+
+- **Risky or destructive** — schema migrations, mass refactors, "rewrite X", "delete Y". Checkpoint before, rollback after if it goes wrong.
+- **Long-running** — multi-hour sweeps, large batch jobs, anything you want to keep running after you close your laptop (Sprites idle for free, resume in <1s).
+- **Reproducible / environment-heavy** — install packages or services once; the env is checkpointed with the code, so the next run starts from the same state.
+- **Needs a public URL** — serving a web app the agent generated (just listen on port 8080).
+- **Parallel / fan-out** — spin up multiple Sprites to run independent work in parallel (one agent per task, each in its own VM, results merged back).
+- **Untrusted or unproven input** — anything that reads user-supplied code, runs AI-generated commands, or might hit prompt injection.
+
+For interactive day-to-day editing (single-file changes, small PRs, debugging sessions), run opencode locally. The latency and context cost of pushing the repo to a remote VM every turn makes Sprites strictly worse for this.
+
+## When NOT to use Sprites
+
+- Day-to-day edits inside one small PR.
+- Anything that needs to commit back to the host git working tree mid-run — Sprites have their own filesystem; you pull results back into the host repo when the run ends.
+- Tasks that need the operator's local state (open browser tabs, SSH agent, macOS keychain) — Sprites are isolated by design.
+- Smoke tests of `convex deploy`, `supabase db push`, or any other command that talks to a long-lived production deployment, unless the agent is running in a checkout that intentionally points at a preview/dev deployment.
+
+## Quick start
+
+```bash
+# One-time browser auth (cached for future sessions)
+opencode mcp auth sprites
+
+# Verify the connection from inside an opencode session
+# Ask the agent: "List my sprites" → empty list means auth OK
+
+# Drive a Sprite through the agent
+# Ask the agent: "On a new Sprite, take this repo, run `pnpm typecheck`, and report failures"
+```
+
+For direct (non-agent) use, install the Sprites CLI:
+
+```bash
+curl -fsSL https://sprites.dev/install.sh | sh
+sprite org auth   # one-time browser auth
+sprite create mcp-scratchpad
+sprite exec mcp-scratchpad -- bash
+```
+
+The CLI uses the same OAuth token cache as the MCP, so you only authorize once.
+
+## Reference
+
+- Sprites overview: <https://fly.io/sprites>
+- OpenCode integration: <https://fly.io/sprites/ecosystem> (see the "opencode" row)
+- MCP launch (alternative: wrap any stdio MCP server in a Fly Machine): <https://fly.io/docs/mcp/launch>
+- Pricing: `$0.07/vCPU-hour`, `$0.011/GB-hour` RAM, `$0.10/GB-month` storage; idle ≈ free; compute billed per second of actual use
+- Blog post (rationale + Sprites-MCP design): <https://fly.io/blog/sprites-mcp>
+
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
 
