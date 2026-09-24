@@ -341,16 +341,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    const inngestError = await inngest.send({
-      name: "inventory/changed",
-      data: {
-        instructorSlug: mapping.instructor_slug,
-        type: mapping.mentorship_type,
-        previousInventory,
-        newInventory: newInventory ?? -1,
-        quantity,
-      },
-    });
+    const inngestError = postDecrementReadFailed
+      ? null
+      : await inngest.send({
+          name: "inventory/changed",
+          data: {
+            instructorSlug: mapping.instructor_slug,
+            type: mapping.mentorship_type,
+            previousInventory,
+            newInventory: newInventory as number,
+            quantity,
+          },
+        });
 
     if (inngestError) {
       await reportError({
@@ -363,6 +365,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           type: mapping.mentorship_type,
           previousInventory,
           newInventory,
+        },
+      });
+    } else if (postDecrementReadFailed) {
+      await reportError({
+        source: "webhooks/kajabi",
+        error: new Error(
+          "Supabase post-decrement inventory read failed; skipped Inngest event to avoid incorrect waitlist handling. Convex write already applied.",
+        ),
+        message:
+          "Supabase post-decrement inventory read failed; skipped Inngest event to avoid incorrect waitlist handling. Convex write already applied.",
+        level: "warn",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: mapping.mentorship_type,
+          previousInventory,
         },
       });
     }
