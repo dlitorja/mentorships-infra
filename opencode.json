@@ -27,7 +27,7 @@
     },
     "sprites": {
       "type": "local",
-      "command": ["npx", "-y", "mcp-remote", "https://sprites.dev/mcp"],
+      "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"],
       "enabled": true
     }
   }

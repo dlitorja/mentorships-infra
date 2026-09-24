@@ -364,12 +364,12 @@ When the agent runs a Sprite, its code never touches the agent's host: every she
 
 ## MCP server
 
-The workspace `opencode.json` registers Sprites as a local MCP server using `mcp-remote` to proxy the hosted HTTP endpoint and handle OAuth:
+The workspace `opencode.json` registers Sprites as a local MCP server that invokes the pinned `mcp-remote` proxy from `node_modules` (matches the `resend-mcp` / `firecrawl-mcp` convention — `mcp-remote` is listed in `package.json` `devDependencies` and the lockfile, so `pnpm install` pins it):
 
 ```json
 "sprites": {
   "type": "local",
-  "command": ["npx", "-y", "mcp-remote", "https://sprites.dev/mcp"],
+  "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"],
   "enabled": true
 }
 ```
