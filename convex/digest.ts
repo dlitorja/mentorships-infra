@@ -429,6 +429,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
   handler: async (ctx, args) => {
     let inserted = 0;
     let skipped = 0;
+    let backfilledSource = 0;
     for (const entry of args.entries) {
       if (entry.legacyId) {
         const existing = await ctx.db
@@ -436,6 +437,13 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
           .withIndex("by_legacyId", (q) => q.eq("legacyId", entry.legacyId))
           .first();
         if (existing) {
+          // Backfill `source` on rows imported before the field
+          // existed (PR 7 dropped the Supabase `changed_by` column).
+          // The new script now reads it; patch in place if missing.
+          if (entry.source && !existing.source) {
+            await ctx.db.patch(existing._id, { source: entry.source });
+            backfilledSource++;
+          }
           skipped++;
           continue;
         }
@@ -452,7 +460,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
       });
       inserted++;
     }
-    return { success: true, inserted, skipped };
+    return { success: true, inserted, skipped, backfilledSource };
   },
 });
 

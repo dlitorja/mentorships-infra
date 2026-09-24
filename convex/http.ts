@@ -2866,6 +2866,9 @@ http.route({
 /** Bulk-imports inventoryChangeLog rows. Server-only. Called by the
  * one-time migration script `scripts/migrate-inventory-change-log.ts`.
  * Idempotent: skips entries that already exist (matched by `legacyId`).
+ * Also backfills `source` on rows imported before the field existed
+ * (PR 7 dropped the Supabase `changed_by` column; the script now
+ * reads it on re-runs).
  */
 export const httpBulkImportInventoryChangeLog = httpAction(
   async (ctx, request) => {
@@ -2875,7 +2878,12 @@ export const httpBulkImportInventoryChangeLog = httpAction(
     const entries = body?.entries;
     if (!Array.isArray(entries) || entries.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, inserted: 0, skipped: 0 }),
+        JSON.stringify({
+          success: true,
+          inserted: 0,
+          skipped: 0,
+          backfilledSource: 0,
+        }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
