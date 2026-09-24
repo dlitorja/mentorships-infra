@@ -374,7 +374,7 @@ The workspace `opencode.json` registers Sprites as a local MCP server that invok
 }
 ```
 
-OAuth is handled on first use — call any `sprites_*` tool, opencode spawns `mcp-remote`, which opens a browser window for the operator to pick the Fly.io organization to scope the token to. The resulting token is cached for future sessions (same one-time flow as the Linear MCP).
+OAuth is handled on first use — call any `sprites_*` tool, opencode spawns the pinned `mcp-remote` proxy from `node_modules/mcp-remote/dist/proxy.js`, which opens a browser window for the operator to pick the Fly.io organization to scope the token to. The resulting token is cached for future sessions (same one-time flow as the Linear MCP).
 
 **Default safety guards** (set by the hosted MCP server, configurable in your Fly.io org):
 
