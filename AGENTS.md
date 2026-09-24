@@ -384,16 +384,54 @@ OAuth is handled on first use — call any `sprites_*` tool, opencode spawns the
 
 ## When to use Sprites
 
-Prefer Sprites over running the agent directly on your laptop when the task matches any of:
+**Default to a Sprite over a local opencode run whenever a task matches one of the patterns below.** Each pattern lists a typical cost, the velocity / reliability benefit, and why the spend pays for itself. Numbers assume `small-1x` (0.5 vCPU, 0.5 GB) unless noted; see [Cost awareness](#cost-awareness) for the rules that govern larger or recurring spends.
 
-- **Risky or destructive** — schema migrations, mass refactors, "rewrite X", "delete Y". Checkpoint before, rollback after if it goes wrong.
-- **Long-running** — multi-hour sweeps, large batch jobs, anything you want to keep running after you close your laptop (Sprites idle for free, resume in <1s).
-- **Reproducible / environment-heavy** — install packages or services once; the env is checkpointed with the code, so the next run starts from the same state.
-- **Needs a public URL** — serving a web app the agent generated (just listen on port 8080).
-- **Parallel / fan-out** — spin up multiple Sprites to run independent work in parallel (one agent per task, each in its own VM, results merged back).
-- **Untrusted or unproven input** — anything that reads user-supplied code, runs AI-generated commands, or might hit prompt injection.
+- **Risky or destructive work** — schema migrations, mass refactors, "rewrite X", "delete Y". Checkpoint before, restore on rollback if it goes wrong. **~$0.05–$0.50 per run.** A botched prod migration costs many engineer-hours of incident response; the sandbox spend pays for itself on the first near-miss.
 
-For interactive day-to-day editing (single-file changes, small PRs, debugging sessions), run opencode locally. The latency and context cost of pushing the repo to a remote VM every turn makes Sprites strictly worse for this.
+- **Long-running agent jobs (multi-hour)** — Sprites idle for free and resume in <1 s after the operator returns. **~$0.04/hr; a 4 h sweep is ~$0.16.** Pays for itself the first time you don't lose hours of agent work to laptop sleep or tab refresh.
+
+- **Reproducible / env-heavy setups** — install packages once; the env is checkpointed with the code, so the next run starts from the same state. Pays for itself by eliminating "works on my machine" debugging cycles and re-install rounds.
+
+- **Parallel / fan-out** — up to 5 concurrent Sprites per org. A 5-branch CI sweep that would take 5 sequential hours collapses to ~1 hour. **~$0.20 per 5-batch run** vs. the wall-clock savings of parallel developer time.
+
+- **Public URL hosting for agent-generated apps** — listen on port 8080 and the hostnames stay reachable while the agent is elsewhere. Useful for sharing preview URLs with reviewers. See [Cost awareness](#cost-awareness) before leaving a preview up across sessions.
+
+- **Untrusted or unproven input** — user-supplied code, AI-generated commands, anything with prompt-injection risk. The sprite's isolation is the entire point. The cost is a few cents and it unlocks tasks you couldn't safely run on the host at all.
+
+For interactive day-to-day editing (single-file changes, small PRs, debugging sessions) run opencode locally. The latency and context cost of pushing the repo to a remote VM every turn makes Sprites strictly worse for this.
+
+## Cost awareness
+
+**All Fly Sprites usage in this repo incurs real spend.** The hosted MCP defaults are intentionally permissive (network unrestricted, 5 concurrent Sprites per org, name prefix `mcp-`); cost discipline is on the operator.
+
+### Pricing recap
+
+- `$0.07` per vCPU-hour
+- `$0.011` per GB-hour RAM
+- `$0.10` per GB-month storage
+- Idle ≈ free; compute billed per second of actual use
+
+### Typical per-task cost ranges
+
+Assumes `small-1x` (0.5 vCPU, 0.5 GB) and the published rates above; revise if you size up.
+
+| Task pattern | Wall time | Estimated cost |
+|---|---|---|
+| Schema migration rehearsal on a preview | 1–2 h | **$0.05–$0.10** |
+| 5-branch parallel CI sweep | 1–2 h | **$0.20–$0.40** |
+| Web app preview URL, idle between agent sessions | 24 h | **$0.04** |
+| Multi-hour backfill job | 4 h | **$0.16** |
+| Long-lived dev preview left up 24/7 for a week | 168 h | **~$6.72** |
+
+### Disclosure thresholds
+
+- **Under $3/month cumulative** — no explicit disclosure required; the table above is the standing visibility. Individual tasks stay well within this band for the patterns listed.
+- **$3/month cumulative and up** — flag the projected spend in the PR description, the Linear issue, or the operator-facing chat **before triggering**. Triggering cases:
+  - Long-lived preview URLs left up across sessions (each week of 24/7 uptime on `small-1x` ≈ $2.69)
+  - Recurring scheduled runs that accumulate compute time (5 min/day on `small-1x` ≈ $0.10/month; 1 h/day on `small-1x` ≈ $1.20/month)
+  - Parallel fan-out that grows beyond the 5-Sprite default cap
+  - Larger presets (`medium-1x` and up) used routinely rather than one-off
+- **$20/month cumulative and up** — confirm with the operator before triggering. Cite the per-hour rate, projected wall time, and the cheaper alternative (local opencode, GitHub Actions free tier, Vercel preview, etc.).
 
 ## When NOT to use Sprites
 

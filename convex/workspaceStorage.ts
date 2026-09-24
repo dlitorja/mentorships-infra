@@ -201,48 +201,90 @@ export const resolveB2FileUploadForKey = internalQuery({
 });
 
 /**
- * Internal query: count how many pending `fileUploads` ledger
- * rows a caller holds for one workspace. Used by
- * `generateWorkspaceUploadUrl` to enforce a server-side per-
- * caller cap so a caller cannot mint an unbounded number of URLs
- * against one workspace (Greptile P1).
- *
- * Uses the bounded compound index
- * `by_workspaceId_uploaderId_uploadedAt` and a range on
- * `uploadedAt` so the result set is bounded by the freshness
- * window regardless of how many ledger rows accumulate over
- * time. New B2 rows have no `storageId`, so the existing
- * storage-id cleanup does not delete them; bounding the read
- * here prevents the read from hitting Convex limits (Greptile
- * P1).
+ * Internal query: resolve the caller's role for downloading a
+ * workspace B2 object. Same role rules as upload, but ended
+ * workspaces are still readable during their 18-month retention
+ * window (Greptile P1: "Ended workspaces block downloads").
+ * Deleted workspaces always reject.
  */
-export const countPendingUploadsForCallerInWorkspace = internalQuery({
-  args: {
-    workspaceId: v.id("workspaces"),
-    uploaderId: v.string(),
-  },
-  handler: async (ctx, args): Promise<number> => {
-    const threshold = Date.now() - MAX_BINDING_AGE_MS;
-    const rows = await ctx.db
-      .query("fileUploads")
-      .withIndex("by_workspaceId_uploaderId_uploadedAt", (q) =>
-        q
-          .eq("workspaceId", args.workspaceId)
-          .eq("uploaderId", args.uploaderId)
-          .gt("uploadedAt", threshold)
-      )
-      .collect();
-    return rows.length;
+export const resolveWorkspaceDownloadAccess = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<{
+    role: "instructor" | "student" | "admin";
+    workspace: Doc<"workspaces">;
+    studentUserId: string;
+  } | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
+    if (!workspace) return null;
+    if (workspace.deletedAt !== undefined) return null;
+    // Deliberately do NOT reject `endedAt !== undefined` here —
+    // ended workspaces are readable during retention
+    // (convex/workspaces.ts:getWorkspaceIfNotDeleted documents
+    // this 18-month window).
+
+    const callerId = identity.subject;
+
+    const user: { role?: string } | null = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", callerId))
+      .first();
+    const userIsAdmin = user?.role === "admin";
+    if (userIsAdmin) {
+      return { role: "admin", workspace, studentUserId: workspace.ownerId };
+    }
+
+    if (workspace.type === "admin_student") {
+      if (workspace.ownerId === callerId) {
+        return { role: "student", workspace, studentUserId: workspace.ownerId };
+      }
+      return null;
+    }
+
+    if (workspace.type === "admin_instructor") {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId && instructor.userId) {
+          return { role: "instructor", workspace, studentUserId: workspace.ownerId };
+        }
+      }
+      return null;
+    }
+
+    if (workspace.instructorId) {
+      const instructor: Doc<"instructors"> | null = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", callerId))
+        .first();
+      if (instructor && instructor._id === workspace.instructorId && instructor.userId) {
+        return { role: "instructor", workspace, studentUserId: workspace.ownerId };
+      }
+    }
+    if (workspace.ownerId === callerId) {
+      return { role: "student", workspace, studentUserId: workspace.ownerId };
+    }
+    return null;
   },
 });
 
 /**
- * Internal mutation: write a single `fileUploads` ledger row keyed
- * by `b2Key`. Idempotent on the (workspaceId, b2Key) pair — a
- * duplicate insert throws so the action surfaces a useful error
- * instead of silently producing two competing bindings.
+ * Internal mutation: reserve a `fileUploads` ledger row keyed by
+ * `b2Key`. Combines the cap check + insert into a single
+ * transaction so concurrent mint requests cannot exceed the cap
+ * (Greptile P1: "the count and insert occur in separate
+ * transactions").
+ *
+ * The row is deleted (not marked) when the upload completes
+ * successfully via `completeB2FileUpload` so the pending count
+ * only counts open uploads — completing an upload frees a slot
+ * (Greptile P1: "Completed uploads exhaust pending slots").
  */
-export const insertB2FileUploadLedger = internalMutation({
+export const reserveB2FileUploadLedger = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     b2Key: v.string(),
@@ -259,12 +301,54 @@ export const insertB2FileUploadLedger = internalMutation({
         "B2 key is already reserved. Retry with a fresh fileId."
       );
     }
+
+    // Pending count is bounded by the freshness window via the
+    // compound index. Range-scanning inside a single mutation
+    // keeps the check + insert atomic against concurrent mint
+    // actions (Convex serializes mutations on the same document
+    // and on writes).
+    const threshold = args.uploadedAt - MAX_BINDING_AGE_MS;
+    const pending = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_workspaceId_uploaderId_uploadedAt", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("uploaderId", args.uploaderId)
+          .gt("uploadedAt", threshold)
+      )
+      .collect();
+    if (pending.length >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
+      throw new Error(
+        `Too many pending uploads for this workspace. Complete or cancel existing uploads before minting another.`
+      );
+    }
+
     await ctx.db.insert("fileUploads", {
       uploaderId: args.uploaderId,
       workspaceId: args.workspaceId,
       uploadedAt: args.uploadedAt,
       b2Key: args.b2Key,
     });
+  },
+});
+
+/**
+ * Internal mutation: complete a `fileUploads` ledger row.
+ * Deletes the row (rather than marking it complete) so the
+ * pending-count query is naturally bounded by open uploads. The
+ * chat-create mutation in PR 3 will record the `b2Key` on the
+ * workspace attachment row so the blob is still reachable after
+ * the ledger row is gone.
+ */
+export const completeB2FileUploadLedger = internalMutation({
+  args: { b2Key: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
+      .first();
+    if (!row) return;
+    await ctx.db.delete(row._id);
   },
 });
 
@@ -344,20 +428,12 @@ export const generateWorkspaceUploadUrl = action({
       throw new Error("Unauthorized");
     }
 
-    // Server-side request-count cap (Greptile P1): count the
-    // caller's pending ledger rows in this workspace, reject when
-    // over the cap so a caller cannot inflate B2 storage costs.
-    const pendingCount: number = await ctx.runQuery(
-      internal.workspaceStorage.countPendingUploadsForCallerInWorkspace,
-      { workspaceId: args.workspaceId, uploaderId: identity.subject }
-    );
-    if (pendingCount >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
-      throw new Error(
-        `Too many pending uploads for this workspace. Complete or cancel existing uploads before minting another.`
-      );
-    }
-
-    await ctx.runMutation(internal.workspaceStorage.insertB2FileUploadLedger, {
+    // Server-side request-count cap (Greptile P1): the count check
+    // and ledger insert run inside the same internal mutation
+    // (`reserveB2FileUploadLedger`) so concurrent mint actions
+    // cannot both pass the check and then both insert — Convex
+    // serializes mutations on overlapping writes.
+    await ctx.runMutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
       workspaceId: args.workspaceId,
       b2Key,
       uploaderId: identity.subject,
@@ -391,12 +467,14 @@ export const getWorkspaceDownloadUrl = action({
     ctx,
     args
   ): Promise<{ url: string; expiresAt: number }> => {
+    // Use the download-specific resolver that allows ended
+    // workspaces during their retention window (Greptile P1).
     const access: {
       role: "instructor" | "student" | "admin";
       workspace: Doc<"workspaces">;
       studentUserId: string;
     } | null = await ctx.runQuery(
-      internal.workspaceStorage.resolveWorkspaceUploadAccess,
+      internal.workspaceStorage.resolveWorkspaceDownloadAccess,
       { workspaceId: args.workspaceId }
     );
     if (!access) {
@@ -532,6 +610,13 @@ export const recordB2FileUpload = mutation({
         "B2 key cannot be bound: the upload is too old. Mint a fresh upload URL and try again."
       );
     }
+
+    // Free the pending slot by deleting the ledger row. The
+    // chat-create mutation in PR 3 records the `b2Key` on the
+    // workspace attachment row, so the blob is still reachable
+    // after the ledger row is gone (Greptile P1: "Completed
+    // uploads exhaust pending slots").
+    await ctx.db.delete(ledger._id);
 
     return { ok: true };
   },
