@@ -696,6 +696,15 @@ export const recordB2FileUpload = mutation({
           }
           if (!authorized) {
             rejectionReason = "Not authorized to upload to this workspace";
+            // The caller is the legitimate uploader (we passed
+            // the uploaderId check above) and the key matches
+            // their workspace, but they lost access since minting
+            // the URL. The PUT bytes in B2 belong to this
+            // uploader's session — schedule cleanup so they
+            // don't accumulate (Greptile P1: "uploader loses
+            // workspace access after a PUT, confirmation rejects
+            // without scheduling cleanup").
+            rejectionCleanupNeeded = true;
           }
         }
       }
@@ -774,9 +783,9 @@ export const cleanupRejectedB2Upload = internalAction({
       .replace(/[:-]|\.\d{3}/g, "");
     const dateStamp = amzDate.slice(0, 8);
 
-    const canonicalHeaders = `host:${host}\n`;
-    const signedHeaders = "host";
     const payloadHash = "UNSIGNED-PAYLOAD";
+    const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
 
     const canonicalRequest = [
       "DELETE",
