@@ -60,3 +60,14 @@ export const MAX_BINDING_AGE_MS = 5 * 60 * 1000;
  * upload duration.
  */
 export const B2_BINDING_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * Workspace retention deadline (matches the 18-month window used
+ * by `convex/queries/http.ts:getWorkspacesNeedingDeletion` and
+ * the retention-notification query). After this many milliseconds
+ * past `endedAt`, downloads of workspace files must be refused
+ * regardless of whether the underlying B2 object still exists.
+ * PR 1 enforces this on the download path; PR 3 adds the
+ * lifecycle rule that hard-deletes the B2 objects.
+ */
+export const WORKSPACE_RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
