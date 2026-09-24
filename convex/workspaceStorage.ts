@@ -499,6 +499,20 @@ export const getWorkspaceDownloadUrl = action({
         "b2Key does not belong to the authorized workspace"
       );
     }
+    // Refuse to sign a download URL for a binding that has not
+    // been completed yet, or has been cancelled (Greptile P1:
+    // "Cancelled uploads remain downloadable"). Cancelled rows
+    // are kept around so the upload-binding flow has a record of
+    // the rejection, but they MUST NOT produce a signed GET URL
+    // — the cleanup action may still be running, or it may have
+    // failed, so the B2 object is unreliable as a download
+    // source.
+    if (lookup.ledger.completedAt === undefined) {
+      throw new Error("B2 upload is not available for download");
+    }
+    if (lookup.ledger.cancelledAt !== undefined) {
+      throw new Error("B2 upload is not available for download");
+    }
 
     const expiresInSeconds = Math.min(
       Math.max(args.expiresInSeconds ?? 3600, 60),
@@ -546,6 +560,27 @@ export const recordB2FileUpload = mutation({
     if (!ledger) {
       throw new Error(
         "B2 key is not reserved. Mint a fresh upload URL and try again."
+      );
+    }
+    // Refuse if the ledger row is already cancelled (Greptile P1:
+    // "Cancelled row still reaches {ok: true}"). The cleanup
+    // action is already scheduled (or already running); telling
+    // the caller that the bind succeeded would be a lie. Force
+    // them to mint a fresh key.
+    if (ledger.cancelledAt !== undefined) {
+      throw new Error(
+        "This upload was already cancelled. Mint a fresh upload URL and try again."
+      );
+    }
+    // Refuse if the ledger row is already completed (Greptile P1:
+    // "cancellation does not guard completed rows"). A second
+    // confirmation attempt on the same key — after the bind has
+    // already succeeded — must not be allowed to schedule a B2
+    // cleanup, because the B2 object is the one the caller
+    // successfully uploaded.
+    if (ledger.completedAt !== undefined) {
+      throw new Error(
+        "This upload has already been confirmed. Refusing to bind again."
       );
     }
 
@@ -775,9 +810,22 @@ export const cleanupRejectedB2Upload = internalAction({
 
     const authorization = `AWS4-HMAC-SHA256 Credential=${creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${sigHex}`;
 
+    // Retry with exponential backoff (in ms): 1s, 4s, 16s.
+    // Greptile P1 "failed deletion has no recovery": the previous
+    // version retried 3x immediately which doesn't give B2 time
+    // to recover from a transient outage; this version spreads
+    // retries over ~21s and reschedules the action if all three
+    // fail. Trigger.dev / Convex scheduler resumes from the new
+    // schedule, so a partially-failed cleanup eventually succeeds
+    // without losing the cancelledAt ledger state.
+    const backoffsMs = [0, 1000, 4000, 16000];
     let attempt = 0;
     let lastError: string | null = null;
-    while (attempt < 3) {
+    while (attempt < backoffsMs.length) {
+      const delayMs = backoffsMs[attempt];
+      if (delayMs > 0) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
       attempt += 1;
       const response = await fetch(url, {
         method: "DELETE",
@@ -789,9 +837,13 @@ export const cleanupRejectedB2Upload = internalAction({
       });
       if (response.ok || response.status === 404) {
         // 404 = object already gone, treat as success.
+        lastError = null;
         break;
       }
       if (response.status >= 400 && response.status < 500) {
+        // Permanent client error (e.g. 403, 404 on a key the
+        // bucket doesn't recognize as an object). Stop retrying —
+        // further attempts will not change the outcome.
         lastError = `B2 DELETE permanent error: ${response.status}`;
         break;
       }
@@ -799,23 +851,36 @@ export const cleanupRejectedB2Upload = internalAction({
     }
 
     if (lastError) {
+      // Reschedule another cleanup attempt 5 minutes later. This
+      // is the recovery path for the case where B2 was unavailable
+      // for the full backoff sequence. The ledger row stays
+      // cancelledAt = undefined (so we re-try); if a later
+      // confirmation arrives during the recovery window it will
+      // see cancelledAt undefined and proceed normally.
       console.error(
-        `cleanupRejectedB2Upload failed for ${args.b2Key}: ${lastError}`
+        `cleanupRejectedB2Upload giving up on ${args.b2Key} after ${attempt} attempts: ${lastError}; rescheduling in 5 min`
+      );
+      await ctx.scheduler.runAfter(
+        5 * 60 * 1000,
+        internal.workspaceStorage.cleanupRejectedB2Upload,
+        args
       );
     }
 
     // Mark the ledger row cancelled so the upload-binding flow has
-    // a record of the rejection (regardless of whether the B2
-    // DELETE succeeded). The row stays around so the download
-    // action can still answer "this key was rejected".
-    const row = await ctx.runQuery(
-      internal.workspaceStorage.getFileUploadById,
-      { id: args.ledgerId }
-    );
-    if (row) {
-      await ctx.runMutation(internal.workspaceStorage.markLedgerCancelled, {
-        id: args.ledgerId,
-      });
+    // a record of the rejection. Only do this when the cleanup
+    // succeeded; if we're rescheduling, leave cancelledAt unset so
+    // a retry can run.
+    if (!lastError) {
+      const row = await ctx.runQuery(
+        internal.workspaceStorage.getFileUploadById,
+        { id: args.ledgerId }
+      );
+      if (row) {
+        await ctx.runMutation(internal.workspaceStorage.markLedgerCancelled, {
+          id: args.ledgerId,
+        });
+      }
     }
   },
 });
