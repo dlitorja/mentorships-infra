@@ -102,9 +102,18 @@ export function buildWorkspaceStorageKey(args: {
  * "Not authorized" error.
  *
  * Convex actions don't have `ctx.db` — they have to delegate
- * authorization to a query. Reusing the same logic keeps the new
- * B2 path and the existing Convex-storage path enforcing the same
- * access rules (mirrors `convex/workspaces.ts:getWorkspaceRole`).
+ * authorization to a query. Mirrors
+ * `convex/workspaces.ts:getWorkspaceRole` exactly:
+ *   - Admin status is checked at query time (a former admin does
+ *     not retain access, Greptile P1).
+ *   - `admin_instructor` workspaces grant access only to admins
+ *     and the assigned instructor; the owner check is skipped
+ *     because the owner is the creating admin (Greptile P1).
+ *   - `admin_student` workspaces grant access only to admins and
+ *     the owner (student).
+ *   - `mentorship` workspaces grant access to admins, the
+ *     instructor, or the owner (student).
+ *   - Ended or deleted workspaces grant nothing (Greptile P1).
  */
 export const resolveWorkspaceUploadAccess = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -119,6 +128,7 @@ export const resolveWorkspaceUploadAccess = internalQuery({
     const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
     if (!workspace) return null;
     if (workspace.deletedAt !== undefined) return null;
+    if (workspace.endedAt !== undefined) return null;
 
     const callerId = identity.subject;
 
@@ -126,10 +136,33 @@ export const resolveWorkspaceUploadAccess = internalQuery({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", callerId))
       .first();
-    if (user?.role === "admin") {
+    const userIsAdmin = user?.role === "admin";
+    if (userIsAdmin) {
       return { role: "admin", workspace, studentUserId: workspace.ownerId };
     }
 
+    if (workspace.type === "admin_student") {
+      if (workspace.ownerId === callerId) {
+        return { role: "student", workspace, studentUserId: workspace.ownerId };
+      }
+      return null;
+    }
+
+    if (workspace.type === "admin_instructor") {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId && instructor.userId) {
+          return { role: "instructor", workspace, studentUserId: workspace.ownerId };
+        }
+      }
+      return null;
+    }
+
+    // mentorship (or untyped legacy) workspace: admin already
+    // returned above; remaining roles are instructor and student.
     if (workspace.instructorId) {
       const instructor: Doc<"instructors"> | null = await ctx.db
         .query("instructors")
@@ -173,6 +206,15 @@ export const resolveB2FileUploadForKey = internalQuery({
  * `generateWorkspaceUploadUrl` to enforce a server-side per-
  * caller cap so a caller cannot mint an unbounded number of URLs
  * against one workspace (Greptile P1).
+ *
+ * Uses the bounded compound index
+ * `by_workspaceId_uploaderId_uploadedAt` and a range on
+ * `uploadedAt` so the result set is bounded by the freshness
+ * window regardless of how many ledger rows accumulate over
+ * time. New B2 rows have no `storageId`, so the existing
+ * storage-id cleanup does not delete them; bounding the read
+ * here prevents the read from hitting Convex limits (Greptile
+ * P1).
  */
 export const countPendingUploadsForCallerInWorkspace = internalQuery({
   args: {
@@ -180,20 +222,17 @@ export const countPendingUploadsForCallerInWorkspace = internalQuery({
     uploaderId: v.string(),
   },
   handler: async (ctx, args): Promise<number> => {
+    const threshold = Date.now() - MAX_BINDING_AGE_MS;
     const rows = await ctx.db
       .query("fileUploads")
-      .withIndex("by_workspaceId", (q) =>
-        q.eq("workspaceId", args.workspaceId)
+      .withIndex("by_workspaceId_uploaderId_uploadedAt", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("uploaderId", args.uploaderId)
+          .gt("uploadedAt", threshold)
       )
       .collect();
-    let count = 0;
-    for (const row of rows) {
-      if (row.uploaderId !== args.uploaderId) continue;
-      if (row.uploadedAt > Date.now() - MAX_BINDING_AGE_MS) {
-        count += 1;
-      }
-    }
-    return count;
+    return rows.length;
   },
 });
 
@@ -423,24 +462,45 @@ export const recordB2FileUpload = mutation({
     // caller whose access was removed after minting the URL must
     // not be able to confirm the upload. The ledger row's
     // `uploaderId` is no longer a sufficient check on its own.
+    //
+    // Mirrors `resolveWorkspaceUploadAccess` so the mint-time and
+    // bind-time authorization rules stay in sync. (The action path
+    // delegates to that query because actions cannot use `ctx.db`;
+    // the mutation path runs the same logic inline.)
     const callerId = identity.subject;
     let authorized = false;
     const user: { role?: string } | null = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", callerId))
       .first();
-    if (user?.role === "admin") {
+    const userIsAdmin = user?.role === "admin";
+    if (userIsAdmin) {
       authorized = true;
-    } else if (workspace.instructorId) {
-      const instructor: Doc<"instructors"> | null = await ctx.db
-        .query("instructors")
-        .withIndex("by_userId", (q) => q.eq("userId", callerId))
-        .first();
-      if (instructor && instructor._id === workspace.instructorId) {
+    } else if (workspace.type === "admin_student") {
+      if (workspace.ownerId === callerId) authorized = true;
+    } else if (workspace.type === "admin_instructor") {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId) {
+          authorized = true;
+        }
+      }
+    } else {
+      if (workspace.instructorId) {
+        const instructor: Doc<"instructors"> | null = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", callerId))
+          .first();
+        if (instructor && instructor._id === workspace.instructorId) {
+          authorized = true;
+        }
+      }
+      if (!authorized && workspace.ownerId === callerId) {
         authorized = true;
       }
-    } else if (workspace.ownerId === callerId) {
-      authorized = true;
     }
     if (!authorized) {
       throw new Error("Not authorized to upload to this workspace");
