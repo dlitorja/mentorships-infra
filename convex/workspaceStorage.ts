@@ -13,6 +13,7 @@ import {
   B2_BINDING_AGE_MS,
   MAX_CHAT_FILE_BYTES,
   MAX_IMAGE_BYTES,
+  WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
 // PR workspace-storage-1: server-side cap on how many pending
@@ -226,10 +227,22 @@ export const resolveWorkspaceDownloadAccess = internalQuery({
     const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
     if (!workspace) return null;
     if (workspace.deletedAt !== undefined) return null;
-    // Deliberately do NOT reject `endedAt !== undefined` here —
-    // ended workspaces are readable during retention
-    // (convex/workspaces.ts:getWorkspaceIfNotDeleted documents
-    // this 18-month window).
+    // Enforce the 18-month retention deadline (Greptile P1:
+    // "Files remain downloadable after retention"). After this
+    // window past `endedAt`, the workspace and its files are
+    // scheduled for hard-delete by the retention cron. Until
+    // the hard-delete runs, the download resolver must refuse
+    // to mint signed GET URLs so a member who knows a file key
+    // cannot keep accessing a file that should have expired.
+    if (
+      workspace.endedAt !== undefined &&
+      Date.now() - workspace.endedAt > WORKSPACE_RETENTION_MS
+    ) {
+      return null;
+    }
+    // Within the retention window (endedAt set but not past
+    // deadline) we keep allowing downloads so members can
+    // re-download files they uploaded.
 
     const callerId = identity.subject;
 
