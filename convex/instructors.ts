@@ -1778,12 +1778,18 @@ export const decrementInventoryBySlug = internalMutation({
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.instructorSlug))
       .collect();
-    const instructor = candidates.find((row) => !row.deletedAt);
-    if (!instructor) {
+    const activeCandidates = candidates.filter((row) => !row.deletedAt);
+    if (activeCandidates.length === 0) {
       throw new Error(
         `Active instructor not found for slug ${args.instructorSlug}`,
       );
     }
+    if (activeCandidates.length > 1) {
+      throw new Error(
+        `Ambiguous slug ${args.instructorSlug}: ${activeCandidates.length} active instructors share this slug. Disambiguate by passing instructorId instead.`,
+      );
+    }
+    const instructor = activeCandidates[0];
 
     const field =
       args.type === "oneOnOne" ? "oneOnOneInventory" : "groupInventory";
