@@ -329,13 +329,16 @@ export const reserveB2FileUploadLedger = internalMutation({
       );
     }
 
-    // Pending = not completed AND not cancelled AND within the B2
-    // freshness window. The compound index orders `completedAt`
-    // first so the range scan stops at the first completed row.
-    // The threshold is `B2_BINDING_AGE_MS` (1h) to match the
-    // presigned URL expiry so a slow upload can still complete
-    // (Greptile P1). Cancelled rows are excluded so the cleanup
-    // path doesn't hold a slot indefinitely.
+    // Pending = B2 reservation only AND not completed AND not
+    // cancelled AND within the B2 freshness window. Legacy
+    // Convex-storage rows have `b2Key` undefined; they MUST NOT
+    // count against the B2 pending cap (Greptile P1: "Legacy
+    // uploads consume B2 slots"). The compound index orders
+    // `completedAt` first so the range scan stops at the first
+    // completed row. The threshold is `B2_BINDING_AGE_MS` (1h)
+    // to match the presigned URL expiry so a slow upload can
+    // still complete (Greptile P1). Cancelled rows are excluded
+    // so the cleanup path doesn't hold a slot indefinitely.
     const threshold = args.uploadedAt - B2_BINDING_AGE_MS;
     const pending = await ctx.db
       .query("fileUploads")
@@ -349,9 +352,12 @@ export const reserveB2FileUploadLedger = internalMutation({
             .gt("uploadedAt", threshold)
       )
       .collect();
-    // Filter cancelled separately (the compound index above is on
-    // completedAt + uploadedAt; cancelledAt is checked here).
-    const filtered = pending.filter((row) => row.cancelledAt === undefined);
+    // Filter to B2 rows only and not cancelled. The compound
+    // index above is on completedAt + uploadedAt; b2Key and
+    // cancelledAt are checked here.
+    const filtered = pending.filter(
+      (row) => row.cancelledAt === undefined && row.b2Key !== undefined
+    );
     if (filtered.length >= MAX_PENDING_UPLOADS_PER_WORKSPACE) {
       throw new Error(
         `Too many pending uploads for this workspace. Complete or cancel existing uploads before minting another.`
