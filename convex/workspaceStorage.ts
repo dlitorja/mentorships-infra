@@ -557,84 +557,111 @@ export const recordB2FileUpload = mutation({
     // (Greptile P1: a `ctx.scheduler.runAfter` inside a throwing
     // mutation is rolled back; `ctx.runMutation` commits
     // independently).
+    //
+    // SECURITY: only schedule a B2 cleanup when the caller is the
+    // legitimate uploader AND the ledger row matches the caller's
+    // workspace. Otherwise an attacker who knows a `b2Key` could
+    // submit a fake `(workspaceId, b2Key)` pair and trigger
+    // deletion of another user's completed upload (Greptile P1:
+    // "Rejected confirmation deletes other files").
     let rejectionReason: string | null = null;
     let rejectionCleanupNeeded = false;
 
     if (ledger.workspaceId !== args.workspaceId) {
+      // Caller passed a workspaceId that does not own this
+      // b2Key. Refuse to bind; do NOT schedule a cleanup (we
+      // cannot trust the caller to act on someone else's key).
       rejectionReason =
         "B2 key does not belong to this workspace. Refusing to bind.";
     } else if (ledger.uploaderId !== identity.subject) {
+      // Caller is not the original uploader. Same defensive
+      // posture as the workspaceId mismatch — refuse without
+      // scheduling cleanup.
       rejectionReason = "B2 key was minted by a different user. Refusing to bind.";
     } else {
       const ageMs = Date.now() - ledger.uploadedAt;
       if (ageMs < 0 || ageMs > B2_BINDING_AGE_MS) {
+        // Caller is the legitimate uploader and the key matches
+        // their workspace — safe to clean up if they reject.
         rejectionReason =
           "B2 key cannot be bound: the upload is too old. Mint a fresh upload URL and try again.";
+        rejectionCleanupNeeded = true;
       }
     }
 
-    const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
-    if (!workspace) {
-      rejectionReason = "Workspace not found";
-    } else {
-      if (workspace.deletedAt !== undefined) {
+    // Only run workspace / authorization re-checks when the caller
+    // is the legitimate uploader AND the ledger row matches their
+    // workspace. This is the same security gate as above — never
+    // act on a key owned by someone else.
+    if (
+      rejectionReason === null &&
+      ledger.workspaceId === args.workspaceId &&
+      ledger.uploaderId === identity.subject
+    ) {
+      const workspace: Doc<"workspaces"> | null = await ctx.db.get(args.workspaceId);
+      if (!workspace) {
         rejectionReason = "Workspace not found";
-      }
-      // Confirmation rejects ended workspaces (Greptile P1). A
-      // caller who reserved a key while the workspace was active
-      // must complete the upload before the workspace ends;
-      // otherwise the upload must be discarded so the B2 bucket
-      // does not accumulate objects from ended workspaces.
-      else if (workspace.endedAt !== undefined) {
-        rejectionReason = "Workspace has ended";
-      }
-      // Recheck workspace membership at bind time (Greptile P1). A
-      // caller whose access was removed after minting the URL must
-      // not be able to confirm the upload. The ledger row's
-      // `uploaderId` is no longer a sufficient check on its own.
-      //
-      // Mirrors `resolveWorkspaceUploadAccess` so the mint-time and
-      // bind-time authorization rules stay in sync. (The action
-      // path delegates to that query because actions cannot use
-      // `ctx.db`; the mutation path runs the same logic inline.)
-      else {
-        const callerId = identity.subject;
-        let authorized = false;
-        const user: { role?: string } | null = await ctx.db
-          .query("users")
-          .withIndex("by_userId", (q) => q.eq("userId", callerId))
-          .first();
-        const userIsAdmin = user?.role === "admin";
-        if (userIsAdmin) {
-          authorized = true;
-        } else if (workspace.type === "admin_student") {
-          if (workspace.ownerId === callerId) authorized = true;
-        } else if (workspace.type === "admin_instructor") {
-          if (workspace.instructorId) {
-            const instructor: Doc<"instructors"> | null = await ctx.db
-              .query("instructors")
-              .withIndex("by_userId", (q) => q.eq("userId", callerId))
-              .first();
-            if (instructor && instructor._id === workspace.instructorId) {
-              authorized = true;
-            }
-          }
-        } else {
-          if (workspace.instructorId) {
-            const instructor: Doc<"instructors"> | null = await ctx.db
-              .query("instructors")
-              .withIndex("by_userId", (q) => q.eq("userId", callerId))
-              .first();
-            if (instructor && instructor._id === workspace.instructorId) {
-              authorized = true;
-            }
-          }
-          if (!authorized && workspace.ownerId === callerId) {
-            authorized = true;
-          }
+      } else {
+        if (workspace.deletedAt !== undefined) {
+          rejectionReason = "Workspace not found";
         }
-        if (!authorized) {
-          rejectionReason = "Not authorized to upload to this workspace";
+        // Confirmation rejects ended workspaces (Greptile P1). A
+        // caller who reserved a key while the workspace was active
+        // must complete the upload before the workspace ends;
+        // otherwise the upload must be discarded so the B2 bucket
+        // does not accumulate objects from ended workspaces.
+        else if (workspace.endedAt !== undefined) {
+          rejectionReason = "Workspace has ended";
+          rejectionCleanupNeeded = true;
+        }
+        // Recheck workspace membership at bind time (Greptile P1). A
+        // caller whose access was removed after minting the URL must
+        // not be able to confirm the upload. The ledger row's
+        // `uploaderId` is no longer a sufficient check on its own.
+        //
+        // Mirrors `resolveWorkspaceUploadAccess` so the mint-time and
+        // bind-time authorization rules stay in sync. (The action
+        // path delegates to that query because actions cannot use
+        // `ctx.db`; the mutation path runs the same logic inline.)
+        else {
+          const callerId = identity.subject;
+          let authorized = false;
+          const user: { role?: string } | null = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", callerId))
+            .first();
+          const userIsAdmin = user?.role === "admin";
+          if (userIsAdmin) {
+            authorized = true;
+          } else if (workspace.type === "admin_student") {
+            if (workspace.ownerId === callerId) authorized = true;
+          } else if (workspace.type === "admin_instructor") {
+            if (workspace.instructorId) {
+              const instructor: Doc<"instructors"> | null = await ctx.db
+                .query("instructors")
+                .withIndex("by_userId", (q) => q.eq("userId", callerId))
+                .first();
+              if (instructor && instructor._id === workspace.instructorId) {
+                authorized = true;
+              }
+            }
+          } else {
+            if (workspace.instructorId) {
+              const instructor: Doc<"instructors"> | null = await ctx.db
+                .query("instructors")
+                .withIndex("by_userId", (q) => q.eq("userId", callerId))
+                .first();
+              if (instructor && instructor._id === workspace.instructorId) {
+                authorized = true;
+              }
+            }
+            if (!authorized && workspace.ownerId === callerId) {
+              authorized = true;
+            }
+          }
+          if (!authorized) {
+            rejectionReason = "Not authorized to upload to this workspace";
+          }
         }
       }
     }
@@ -642,13 +669,18 @@ export const recordB2FileUpload = mutation({
     // If any check rejected, schedule the B2 cleanup in a
     // separate internal mutation (so its writes commit
     // independently of this mutation's throw) and then throw.
+    // Only schedule the cleanup when the caller is the
+    // legitimate uploader AND the ledger row matches their
+    // workspace — otherwise an attacker who knows a `b2Key`
+    // could trigger deletion of another user's upload.
     if (rejectionReason !== null) {
-      await ctx.runMutation(internal.workspaceStorage.cancelB2FileUpload, {
-        b2Key: args.b2Key,
-      });
+      if (rejectionCleanupNeeded) {
+        await ctx.runMutation(internal.workspaceStorage.cancelB2FileUpload, {
+          b2Key: args.b2Key,
+        });
+      }
       throw new Error(rejectionReason);
     }
-    void rejectionCleanupNeeded; // reserved for future flag-driven cleanup
 
     // Mark the ledger row complete (do NOT delete it). The
     // download action needs the row to look up the workspace
@@ -657,7 +689,13 @@ export const recordB2FileUpload = mutation({
     // the pending slot — the pending-count query filters rows by
     // `completedAt === undefined` (Greptile P1: "Completed
     // uploads exhaust pending slots").
-    if (ledger.completedAt === undefined) {
+    //
+    // Refuse to mark complete if the ledger row is already
+    // cancelled (Greptile P1: "Cancelled upload can be
+    // confirmed"). The cleanup action may still be running; if we
+    // mark complete now the caller will see a successful bind
+    // for a file whose B2 object is about to be deleted.
+    if (ledger.completedAt === undefined && ledger.cancelledAt === undefined) {
       await ctx.db.patch(ledger._id, { completedAt: Date.now() });
     }
 
