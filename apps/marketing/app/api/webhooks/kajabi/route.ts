@@ -260,27 +260,84 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // Mirror the Supabase decrement into Convex so the marketing admin
+    // inventory page + weekly digest read consistent inventory. Both
+    // calls are best-effort: a Convex outage must not fail the
+    // webhook (Kajabi retries on 5xx, which would double-decrement
+    // Supabase). Failures are surfaced via reportError for ops
+    // reconciliation. HUC-41 / plan §4f.
+    const convexType =
+      mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group";
+    const source = `kajabi:${event.offer?.id}`;
+
+    let convexNewInventory: number | null = null;
     try {
-      await convexServerCall("/inventory-change-log/append", {
+      const decrementResponse = await convexServerCall<{
+        success: boolean;
+        newValue?: number;
+      }>("/inventory/decrement-by-slug", {
         instructorSlug: mapping.instructor_slug,
-        mentorshipType:
-          mapping.mentorship_type === "one-on-one" ? "oneOnOne" : "group",
-        changeType: "kajabi_purchase",
-        oldValue: previousInventory,
-        newValue: newInventory,
-        changedAt: Date.now(),
+        type: convexType,
+        quantity,
       });
+      convexNewInventory = decrementResponse.newValue ?? null;
     } catch (convexError) {
       await reportError({
         source: "webhooks/kajabi",
         error: convexError,
-        message: "Failed to append inventory change log to Convex",
+        message: "Failed to mirror inventory decrement to Convex",
         level: "error",
         context: {
           instructorSlug: mapping.instructor_slug,
-          type: mapping.mentorship_type,
+          type: convexType,
+          quantity,
           previousInventory,
           newInventory,
+        },
+      });
+    }
+
+    if (convexNewInventory !== null) {
+      try {
+        await convexServerCall("/inventory-change-log/append", {
+          instructorSlug: mapping.instructor_slug,
+          mentorshipType: convexType,
+          changeType: "kajabi_purchase",
+          oldValue: previousInventory,
+          newValue: convexNewInventory,
+          changedAt: Date.now(),
+          source,
+        });
+      } catch (convexError) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: convexError,
+          message: "Failed to append inventory change log to Convex",
+          level: "error",
+          context: {
+            instructorSlug: mapping.instructor_slug,
+            type: convexType,
+            previousInventory,
+            newInventory: convexNewInventory,
+            source,
+          },
+        });
+      }
+    } else {
+      await reportError({
+        source: "webhooks/kajabi",
+        error: new Error(
+          "Skipping Convex change log append because Convex decrement did not return a newValue",
+        ),
+        message:
+          "Skipping Convex change log append because Convex decrement did not return a newValue",
+        level: "warn",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: convexType,
+          previousInventory,
+          newInventory,
+          source,
         },
       });
     }

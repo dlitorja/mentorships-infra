@@ -756,6 +756,11 @@ export default defineSchema({
     oldValue: v.number(),
     newValue: v.number(),
     changedAt: v.number(),
+    // Free-form source identifier (e.g. `"kajabi:offer_abc123"` for a
+    // purchase, `"admin:user_xyz"` for a manual update). Restored
+    // from the Supabase `changed_by` column that PR 7 dropped. Lets
+    // ops trace an inventory change to its origin during reconciliation.
+    source: v.optional(v.string()),
     // Migration source row id (Supabase PK). Preserves idempotency
     // for the backfill script; null on rows created post-migration.
     legacyId: v.optional(v.string()),

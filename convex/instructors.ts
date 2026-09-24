@@ -1728,25 +1728,65 @@ export const hardDeleteInstructor = mutation({
 
 /** Decrements the oneOnOne or group inventory for an instructor by 1. */
 export const decrementInventory = mutation({
-  args: { 
-    id: v.id("instructors"), 
-    type: v.union(v.literal("oneOnOne"), v.literal("group")) 
+  args: {
+    id: v.id("instructors"),
+    type: v.union(v.literal("oneOnOne"), v.literal("group"))
   },
   handler: async (ctx, args) => {
     const instructor = await ctx.db.get(args.id);
     if (!instructor) {
       throw new Error("Instructor not found");
     }
-    
+
     const field = args.type === "oneOnOne" ? "oneOnOneInventory" : "groupInventory";
     const currentValue = instructor[field] as number;
-    
+
     if (currentValue <= 0) {
       throw new Error("No inventory available");
     }
-    
+
     await ctx.db.patch(args.id, { [field]: currentValue - 1 });
     return await ctx.db.get(args.id);
+  },
+});
+
+/** Decrements oneOnOne or group inventory for an instructor by a given
+ * quantity, looked up by slug. Used by the Kajabi webhook to mirror
+ * the Supabase `decrement_inventory` RPC into Convex so the marketing
+ * admin inventory page + weekly digest read consistent inventory.
+ * Server-only (called from `httpDecrementInventoryBySlug`); no admin
+ * gating because the webhook is the only caller. Returns the new
+ * inventory value or throws on missing instructor / insufficient stock.
+ */
+export const decrementInventoryBySlug = internalMutation({
+  args: {
+    instructorSlug: v.string(),
+    type: v.union(v.literal("oneOnOne"), v.literal("group")),
+    quantity: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.instructorSlug))
+      .first();
+    if (!instructor) {
+      throw new Error(`Instructor not found for slug ${args.instructorSlug}`);
+    }
+
+    const field =
+      args.type === "oneOnOne" ? "oneOnOneInventory" : "groupInventory";
+    const currentValue = (instructor[field] as number | undefined) ?? 0;
+
+    if (currentValue < args.quantity) {
+      throw new Error(
+        `Insufficient ${args.type} inventory: have ${currentValue}, need ${args.quantity}`,
+      );
+    }
+
+    await ctx.db.patch(instructor._id, {
+      [field]: currentValue - args.quantity,
+    });
+    return { newValue: currentValue - args.quantity };
   },
 });
 

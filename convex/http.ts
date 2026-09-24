@@ -2914,12 +2914,52 @@ export const httpAppendInventoryChangeLog = httpAction(
         oldValue: body?.oldValue,
         newValue: body?.newValue,
         changedAt: body?.changedAt,
+        source: body?.source,
       }
     );
 
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
+  }
+);
+
+/** Mirrors the Supabase `decrement_inventory` RPC into Convex so the
+ * marketing admin inventory page + weekly digest read consistent
+ * inventory. Called from `apps/marketing/app/api/webhooks/kajabi/route.ts`
+ * after the Supabase decrement commits (best-effort; if this fails,
+ * the webhook still succeeds and the change is logged via
+ * `reportError` for ops reconciliation). Pair with
+ * `internal.instructors.decrementInventoryBySlug`. See HUC-41 and
+ * `docs/plans/marketing-convex-admin-mirror.md` §4f.
+ */
+export const httpDecrementInventoryBySlug = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = await request.json();
+    try {
+      const result = await ctx.runMutation(
+        internal.instructors.decrementInventoryBySlug as any,
+        {
+          instructorSlug: body?.instructorSlug,
+          type: body?.type,
+          quantity: body?.quantity,
+        }
+      );
+      return new Response(JSON.stringify({ success: true, ...result }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      return new Response(
+        JSON.stringify({ success: false, error: message }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
   }
 );
 
@@ -2977,6 +3017,12 @@ http.route({
   path: "/inventory-change-log/append",
   method: "POST",
   handler: httpAppendInventoryChangeLog,
+});
+
+http.route({
+  path: "/inventory/decrement-by-slug",
+  method: "POST",
+  handler: httpDecrementInventoryBySlug,
 });
 
 http.route({

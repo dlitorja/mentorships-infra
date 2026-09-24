@@ -421,6 +421,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         oldValue: v.number(),
         newValue: v.number(),
         changedAt: v.number(),
+        source: v.optional(v.string()),
         legacyId: v.optional(v.string()),
       })
     ),
@@ -446,6 +447,7 @@ export const internalBulkImportInventoryChangeLog = internalMutation({
         oldValue: entry.oldValue,
         newValue: entry.newValue,
         changedAt: entry.changedAt,
+        source: entry.source,
         legacyId: entry.legacyId,
       });
       inserted++;
@@ -480,6 +482,7 @@ export const internalAppendInventoryChangeLog = internalMutation({
     oldValue: v.number(),
     newValue: v.number(),
     changedAt: v.number(),
+    source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("inventoryChangeLog", {
@@ -489,6 +492,7 @@ export const internalAppendInventoryChangeLog = internalMutation({
       oldValue: args.oldValue,
       newValue: args.newValue,
       changedAt: args.changedAt,
+      source: args.source,
     });
     return { success: true };
   },

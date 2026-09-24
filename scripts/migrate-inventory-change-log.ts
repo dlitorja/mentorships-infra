@@ -49,6 +49,7 @@ const SUPABASE_ROW_SCHEMA = z.object({
   old_value: z.number(),
   new_value: z.number(),
   changed_at: z.string(),
+  changed_by: z.string().nullable().optional(),
 });
 type SupabaseRow = z.infer<typeof SUPABASE_ROW_SCHEMA>;
 
@@ -59,6 +60,7 @@ type ConvexImportEntry = {
   oldValue: number;
   newValue: number;
   changedAt: number;
+  source?: string;
   legacyId: string;
 };
 
@@ -97,7 +99,7 @@ async function fetchSupabaseRows(): Promise<SupabaseRow[]> {
     const url = new URL("/rest/v1/inventory_change_log", supabaseUrl);
     url.searchParams.set(
       "select",
-      "id,instructor_slug,mentorship_type,change_type,old_value,new_value,changed_at",
+      "id,instructor_slug,mentorship_type,change_type,old_value,new_value,changed_at,changed_by",
     );
     url.searchParams.set("limit", String(BATCH_SIZE));
     // Stable keyset pagination by (changed_at, id) — see
@@ -172,6 +174,8 @@ function mapRow(row: SupabaseRow): ConvexImportEntry | null {
   } else if (row.mentorship_type === "group") {
     entry.mentorshipType = "group";
   }
+  const trimmedSource = row.changed_by?.trim();
+  if (trimmedSource) entry.source = trimmedSource;
   return entry;
 }
 
