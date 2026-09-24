@@ -6,7 +6,7 @@ import {
   internalQuery,
   env,
 } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
@@ -37,7 +37,10 @@ const rateLimiter = new RateLimiter(components.rateLimiter, {
   },
 });
 
-async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
+export async function isAdminUser(
+  ctx: QueryCtx | MutationCtx,
+  userId: string
+): Promise<boolean> {
   const dbUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
@@ -594,6 +597,20 @@ export const getUnnotifiedWaitlist = query({
  * The HTTP caller is responsible for de-duplication by email within a single
  * run; the cooldown handles cross-run re-notification.
  */
+/** Server-only admin check for the digest action. ActionCtx has no
+ * `ctx.db`, so callers must round-trip through this query. Mirrors
+ * `convex/admin.ts:isAdminUser` shape; intentionally narrow — returns
+ * just the boolean the digest action needs.
+ */
+export const isAdminMarketing = internalQuery({
+  args: {
+    subject: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await isAdminUser(ctx, args.subject);
+  },
+});
+
 export const internalGetUnnotifiedWaitlist = internalQuery({
   args: {
     instructorSlug: v.string(),
