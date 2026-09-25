@@ -148,9 +148,14 @@ export async function GET(request: NextRequest) {
         convexRefused = true;
       }
     } catch (error) {
-      // Convex unavailable — transport-level error. We may
-      // consult Supabase as a last-resort fallback below.
-      console.error("Convex inventory read failed; falling back to Supabase:", error);
+      // Convex unavailable (transport-level error). We do NOT
+      // fall back to Supabase here: Supabase may hold a stale
+      // positive value for an offer that Kajabi has already
+      // sold out of, and advertising a checkout link for a
+      // sold-out offer is worse than hiding the buy CTA.
+      // Returning zeros (offer page renders no stock message)
+      // is the safe default until Convex recovers.
+      console.error("Convex inventory read failed; returning zeros:", error);
     }
 
     if (convexRefused) {
@@ -161,19 +166,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(ZERO_INVENTORY, { status: 200 });
     }
 
+    if (convexInventory === null) {
+      // Convex transport failed. Per the policy above, we
+      // return zeros rather than leak stale Supabase
+      // availability.
+      return NextResponse.json(ZERO_INVENTORY, { status: 200 });
+    }
+
     // Convex has at least one field explicitly set — use the
-    // resolver to pick the right value per field.
+    // resolver to pick the right value per field. Only fall
+    // back to Supabase for fields that Convex reports as
+    // `null` (the pre-backfill signal).
     const hasAnyConvexValue =
-      convexInventory !== null &&
-      (convexInventory.one_on_one_inventory !== null ||
-        convexInventory.group_inventory !== null);
+      convexInventory.one_on_one_inventory !== null ||
+      convexInventory.group_inventory !== null;
     if (hasAnyConvexValue) {
-      // Only fetch Supabase when at least one Convex field is
-      // null (would need a fallback). If both fields are set,
-      // skip the Supabase read entirely.
       const needsSupabase =
-        convexInventory!.one_on_one_inventory === null ||
-        convexInventory!.group_inventory === null;
+        convexInventory.one_on_one_inventory === null ||
+        convexInventory.group_inventory === null;
       const supabaseInventory = needsSupabase
         ? await readSupabaseInventorySafe(slug)
         : null;

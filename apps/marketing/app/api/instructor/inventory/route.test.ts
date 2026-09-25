@@ -241,7 +241,12 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
   });
 
   describe("Convex read fails — Supabase fallback", () => {
-    it("returns Supabase value when Convex HTTP rejects", async () => {
+    it("returns zeros when Convex transport fails (does NOT leak stale Supabase positive)", async () => {
+      // Greptile P1: a sold-out offer's Convex value is 0; if
+      // the next Convex read fails and we fall back to Supabase,
+      // a stale positive Supabase value would advertise a
+      // checkout link for a sold-out offer. The safe default
+      // during a Convex outage is zeros.
       vi.mocked(convexServerCall).mockRejectedValue(
         new Error("network gone")
       );
@@ -259,12 +264,14 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
 
       expect(response.status).toBe(200);
       expect(body).toEqual({
-        one_on_one_inventory: 3,
-        group_inventory: 1,
+        one_on_one_inventory: 0,
+        group_inventory: 0,
       });
+      // Supabase MUST NOT be consulted during a Convex outage.
+      expect(getInstructorInventory).not.toHaveBeenCalled();
     });
 
-    it("returns zeros when both Convex and Supabase are unavailable", async () => {
+    it("returns zeros when both Convex transport and Supabase module fail", async () => {
       vi.mocked(convexServerCall).mockRejectedValue(new Error("boom"));
       vi.mocked(getInstructorInventory).mockRejectedValue(
         new Error("also boom")
