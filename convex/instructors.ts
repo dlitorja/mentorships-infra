@@ -543,10 +543,26 @@ export const internalGetInstructorBySlugForBackfill = internalQuery({
   args: { slug: v.string() },
   returns: v.union(v.null(), v.any()),
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Slug is unique-ish but not enforced: a soft-deleted row may
+    // remain at the same slug when the operator re-uses it for a
+    // replacement. Picking the first match without checking
+    // `deletedAt` would patch the WRONG instructor — the
+    // soft-deleted one — and leave the live one untouched while
+    // the backfill reports success.
+    //
+    // Prefer the active (not soft-deleted) row. Fall back to a
+    // non-deleted row if there are multiple active rows (e.g.
+    // duplicates); if the only row at this slug is soft-deleted,
+    // return null so the caller can surface it as a skipped
+    // failure rather than corrupt the wrong row.
+    const candidates = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
+      .collect();
+    if (candidates.length === 0) return null;
+    const active = candidates.filter((c) => !c.deletedAt);
+    if (active.length > 0) return active[0];
+    return null;
   },
 });
 

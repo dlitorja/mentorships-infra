@@ -317,3 +317,64 @@ test("internalBackfillInventory: handles partial updates (only one field supplie
   expect(after?.oneOnOneInventory).toBe(7);
   expect(after?.groupInventory).toBe(4);
 });
+
+test("internalGetInstructorBySlugForBackfill: prefers the active row when slug has a soft-deleted duplicate", async () => {
+  // Greptile P1: the previous .first() lookup could return the
+  // soft-deleted row when a slug had both a deleted historical
+  // instructor and an active replacement. The backfill would
+  // then patch the WRONG instructor and report success.
+  const t = convexTest({ schema, modules });
+  const deletedId = await t.run((ctx) =>
+    ctx.db.insert("instructors", {
+      slug: "shared-slug",
+      name: "Shared Slug (deleted)",
+      isListed: true,
+      oneOnOneInventory: 99,
+      groupInventory: 99,
+      deletedAt: 1_700_000_000_000,
+      updatedAt: 1_600_000_000_000,
+    })
+  );
+  await seedInstructor(t, {
+    slug: "shared-slug",
+    name: "Shared Slug (active)",
+    oneOnOneInventory: undefined,
+    groupInventory: undefined,
+  });
+
+  const resolved = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "shared-slug" }
+  );
+
+  expect(resolved).not.toBeNull();
+  expect(resolved?.name).toBe("Shared Slug (active)");
+  // Confirm we did NOT return the deleted row's record id.
+  expect(resolved?._id).not.toBe(deletedId);
+});
+
+test("internalGetInstructorBySlugForBackfill: returns null when only a soft-deleted row matches the slug", async () => {
+  // If the only row at this slug is soft-deleted, the backfill
+  // should report a not-found rather than corrupt a deleted
+  // record. Operators can then decide whether to restore or
+  // remap the slug.
+  const t = convexTest({ schema, modules });
+  await t.run((ctx) =>
+    ctx.db.insert("instructors", {
+      slug: "retired-only",
+      name: "Retired Only",
+      isListed: true,
+      oneOnOneInventory: 1,
+      groupInventory: 1,
+      deletedAt: 1_700_000_000_000,
+      updatedAt: 1_600_000_000_000,
+    })
+  );
+
+  const resolved = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "retired-only" }
+  );
+
+  expect(resolved).toBeNull();
+});
