@@ -4,6 +4,7 @@ import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
 import { reportError } from "@/lib/observability";
+import { getIp } from "@/lib/ratelimit";
 
 const kajabiPayloadSchema = z.object({
   event: z.string(),
@@ -88,6 +89,50 @@ async function getOfferMapping(
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Forgeable auth: the only auth on this endpoint is the User-Agent
+  // check below — Kajabi does not publish HMAC signing for outbound
+  // webhooks (verified 2026-09-24 against help.kajabi.com +
+  // api-reference/webhooks/create-hook.md). The compensating
+  // controls, in order of effectiveness:
+  //
+  //   1. Per-IP rate limit, applied in `apps/marketing/proxy.ts`
+  //      before this handler runs. The `webhook` policy in
+  //      `lib/ratelimit.ts` is 10 req / 60s sliding-window per IP.
+  //      Sustained forgery bursts (>10 attempts in 60s from one IP)
+  //      are rejected with 429 by the proxy before any payload
+  //      parsing or Convex call. `protectWithRateLimit` also emits a
+  //      `reportError` event with `source = "ratelimit.middleware"`
+  //      and the source IP in `context`, so 429s are observable in
+  //      BetterStack / Axiom. Kajabi's legitimate traffic is bursty
+  //      but rare (1–5 events per purchase, well below the 10/60s
+  //      ceiling).
+  //   2. User-Agent anomaly alerting. Invalid-UA rejections emit a
+  //      `reportError({ source: "webhooks/kajabi", level: "warn",
+  //      message: "Suspicious request …" })` event with the source
+  //      IP in `context`, flowing to BetterStack + Axiom (when
+  //      configured). Operators can alert on `source =
+  //      "webhooks/kajabi"` AND `level = "warn"` AND `message
+  //      CONTAINS "Suspicious request"` AND `context.ip` count > N
+  //      per minute. See `docs/post-merge/kajabi-webhook-security.md`
+  //      for the runbook.
+  //
+  // Threat model after these controls:
+  //   - An attacker who knows the offer IDs can still forge single
+  //     requests with `User-Agent: Kajabi/...`, each of which can
+  //     decrement inventory by `quantity` units (default 1, but the
+  //     schema accepts any positive integer up to the available
+  //     stock — a single forged request can therefore exhaust an
+  //     offer). The 10/60s rate limit bounds the REQUEST volume to
+  //     ~10 requests/IP/min — but the per-request damage is bounded
+  //     only by the offer's remaining inventory, not by the rate
+  //     limit. Operators should monitor inventory-change volume per
+  //     instructor per hour to detect single-request exhausts.
+  //   - The attacker cannot mint real transactions, steal money, or
+  //     exfiltrate customer data.
+  //
+  // If Kajabi support later confirms HMAC signing is available,
+  // replace both controls with signature verification (see HUC-44,
+  // which was canceled for the original premise).
   try {
     const payload = await request.text();
 
@@ -127,23 +172,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "No offer ID in payload" }, { status: 400 });
     }
 
-    // Kajabi webhooks do not provide HMAC signature verification
-    // out-of-the-box (only User-Agent matching). Until signature
-    // verification is added, the User-Agent check is the only
-    // forgery mitigation; an attacker that knows the offer IDs can
-    // forge requests. This is acceptable for the current threat
-    // model because the same forgeable requests already affected
-    // the Supabase pre-PR, and a follow-up Linear issue tracks HMAC
-    // verification. See `docs/post-merge/HANDOFF.md`-style docs
-    // (or the Linear issue) for the security roadmap.
     const userAgent = request.headers.get("user-agent") || "";
     if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
+      // Capture the source IP so operators can configure per-IP
+      // alerts. `getIp` from `lib/ratelimit.ts` reads Vercel's
+      // trusted edge header `x-vercel-forwarded-for` first and only
+      // falls back to client-spoofable headers (cf-connecting-ip,
+      // x-forwarded-for, x-real-ip) when no trusted edge is in front
+      // of the deployment. Sharing this helper with the
+      // rate-limiter ensures the IP used here matches the IP that
+      // the rate-limiter buckets by, so per-IP alerts on
+      // `source = "webhooks/kajabi"` and `source =
+      // "ratelimit.middleware"` pivot to the same IP address space.
       await reportError({
         source: "webhooks/kajabi",
         error: new Error("Suspicious request - invalid User-Agent"),
         message: `Suspicious request - User-Agent: ${userAgent}`,
         level: "warn",
-        context: { userAgent, offerId },
+        context: { userAgent, offerId, ip: getIp(request) },
       });
       return NextResponse.json(
         { error: "Invalid request: invalid User-Agent" },
@@ -216,6 +262,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         success: boolean;
         alreadyApplied?: boolean;
         newValue?: number;
+        oldValue?: number;
       }>("/inventory/apply", {
         instructorSlug: mapping.instructorSlug,
         type: convexType,
@@ -226,6 +273,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
       alreadyApplied = result.alreadyApplied === true;
       newInventory = result.newValue ?? null;
+      const previousInventory = result.oldValue ?? null;
+      // Emit an observability event for every successful inventory
+      // change so operators can configure the per-instructor inventory
+      // drop alert described in
+      // docs/post-merge/kajabi-webhook-security.md. Neither the
+      // Convex mutation nor the Inngest event surfaces to
+      // BetterStack/Axiom, so the webhook handler is the natural
+      // emit point. The event payload includes previousInventory,
+      // newInventory, and quantity so a monitor can alert on
+      // drop > N units/hour per instructor.
+      //
+      // PII NOTE: `purchaseId` is intentionally NOT included in this
+      // event context because the Webhook's `purchaseId` value embeds
+      // the buyer's email address when Kajabi sends a transaction id.
+      // Sending that to BetterStack/Axiom would expose buyer PII in
+      // routine operational logs. Operators who need to pivot from an
+      // inventory drop to a specific purchase should join via the
+      // `inventoryChangeLog` Convex table (which is the authoritative
+      // source and is not exported to the observability backends).
+      //
+      // Latency: the emit is fire-and-forget (`void reportError`) so
+      // a slow observability backend cannot delay Kajabi's webhook
+      // acknowledgement. Convex is the authoritative inventory store
+      // and is already committed by this point.
+      if (!alreadyApplied && newInventory !== null) {
+        void reportError({
+          source: "inventory.changed",
+          error: new Error(
+            `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+          ),
+          message: `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+          level: "info",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            type: mapping.mentorshipType,
+            previousInventory,
+            newInventory,
+            quantity,
+          },
+        });
+      }
     } catch (applyError) {
       const message = (applyError as Error).message;
       // Insufficient inventory is a normal 4xx (Kajabi should not

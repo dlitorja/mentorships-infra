@@ -38,8 +38,21 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
   },
 };
 
-function getIp(req: NextRequest): string {
+export function getIp(req: NextRequest): string {
+  // Header priority — first non-empty wins:
+  //   1. `x-vercel-forwarded-for`  Vercel-trusted (set by Vercel's edge;
+  //      strips client-supplied values from upstream forwarded headers).
+  //   2. `cf-connecting-ip`        Cloudflare-trusted (set by Cloudflare's
+  //      edge when Vercel sits behind Cloudflare).
+  //   3. `x-forwarded-for[0]`       Spoofable — only used as a fallback when
+  //      no trusted edge is in front of the deployment.
+  //   4. `x-real-ip`                Spoofable — fallback only.
+  //   5. `"unknown"`                Final fallback when no header is set.
+  //
+  // Spoofable headers are intentionally LAST so a forged value cannot
+  // mask the real IP for rate-limit identification or alerting.
   return (
+    req.headers.get("x-vercel-forwarded-for") ||
     req.headers.get("cf-connecting-ip") ||
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
@@ -90,6 +103,28 @@ export async function protectWithRateLimit(
     if (result.success) {
       return null;
     }
+
+    // Emit an observability event for the rejected request so
+    // operators can alert on sustained forgery bursts. Source is
+    // `ratelimit.middleware` (constant) so it can be filtered
+    // separately from the per-route error stream; `context.ip`
+    // matches the `ip` field that handlers also emit on per-route
+    // rejections, so a single monitor can pivot by IP across both.
+    void reportError({
+      source: "ratelimit.middleware",
+      error: new Error("Rate limit exceeded"),
+      message: `Rate limit exceeded for ${config.identifyBy} on ${req.nextUrl.pathname}`,
+      level: "warn",
+      context: {
+        policy,
+        pathname: req.nextUrl.pathname,
+        method: req.method,
+        identifier,
+        ip: identifier,
+        limit: config.short.limit,
+        window: config.short.window,
+      },
+    });
 
     return new NextResponse("Too many requests", {
       status: 429,
