@@ -24,9 +24,13 @@ vi.mock("@/lib/observability", () => ({
   reportInfo: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/ratelimit", () => ({
-  protectWithRateLimit: vi.fn(),
-}));
+vi.mock("@/lib/ratelimit", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ratelimit")>("@/lib/ratelimit");
+  return {
+    ...actual,
+    protectWithRateLimit: vi.fn(),
+  };
+});
 
 import { protectWithRateLimit } from "@/lib/ratelimit";
 import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
@@ -99,7 +103,7 @@ describe("Kajabi webhook route", () => {
         body: makeKajabiPayload(),
         headers: {
           "user-agent": "curl/7.79.1",
-          "x-forwarded-for": "203.0.113.42, 10.0.0.1",
+          "x-vercel-forwarded-for": "203.0.113.42",
         },
       });
 
@@ -117,6 +121,46 @@ describe("Kajabi webhook route", () => {
           }),
         }),
       );
+    });
+
+    it("uses Vercel's trusted edge header (x-vercel-forwarded-for) over spoofable client headers", async () => {
+      // Greptile P1: a caller-supplied x-forwarded-for / cf-connecting-ip
+      // is spoofable, so per-IP alerts would not reliably identify a
+      // burst. Vercel strips the client-supplied portion before setting
+      // x-vercel-forwarded-for, so that header is the trusted one and
+      // must take precedence over the spoofable headers.
+      const reportError = (await import("@/lib/observability")).reportError;
+
+      const request = makeRequest({
+        method: "POST",
+        url: URL,
+        body: makeKajabiPayload(),
+        headers: {
+          "user-agent": "curl/7.79.1",
+          "x-vercel-forwarded-for": "203.0.113.42",
+          "cf-connecting-ip": "198.51.100.7",
+          "x-forwarded-for": "198.51.100.7, 10.0.0.1",
+          "x-real-ip": "198.51.100.7",
+        },
+      });
+
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+      await POST(request);
+
+      expect(vi.mocked(reportError)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "webhooks/kajabi",
+          level: "warn",
+          context: expect.objectContaining({ ip: "203.0.113.42" }),
+        }),
+      );
+      const call = vi.mocked(reportError).mock.calls.find(
+        (c) =>
+          c[0]?.source === "webhooks/kajabi" &&
+          c[0]?.context?.ip === "203.0.113.42",
+      );
+      expect(call).toBeDefined();
+      expect(call![0].context?.ip).not.toBe("198.51.100.7");
     });
 
     it("accepts a User-Agent containing 'Kajabi' (case-insensitive)", async () => {

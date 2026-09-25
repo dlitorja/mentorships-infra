@@ -4,6 +4,7 @@ import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
 import { reportError } from "@/lib/observability";
+import { getIp } from "@/lib/ratelimit";
 
 const kajabiPayloadSchema = z.object({
   event: z.string(),
@@ -168,20 +169,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const userAgent = request.headers.get("user-agent") || "";
     if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
       // Capture the source IP so operators can configure per-IP
-      // alerts. Order: CF → X-Forwarded-For → X-Real-IP, matching
-      // `lib/ratelimit.ts` so the IP used here matches the IP that
-      // the rate-limiter buckets by.
-      const sourceIp =
-        request.headers.get("cf-connecting-ip") ||
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        request.headers.get("x-real-ip") ||
-        "unknown";
+      // alerts. `getIp` from `lib/ratelimit.ts` reads Vercel's
+      // trusted edge header `x-vercel-forwarded-for` first and only
+      // falls back to client-spoofable headers (cf-connecting-ip,
+      // x-forwarded-for, x-real-ip) when no trusted edge is in front
+      // of the deployment. Sharing this helper with the
+      // rate-limiter ensures the IP used here matches the IP that
+      // the rate-limiter buckets by, so per-IP alerts on
+      // `source = "webhooks/kajabi"` and `source =
+      // "ratelimit.middleware"` pivot to the same IP address space.
       await reportError({
         source: "webhooks/kajabi",
         error: new Error("Suspicious request - invalid User-Agent"),
         message: `Suspicious request - User-Agent: ${userAgent}`,
         level: "warn",
-        context: { userAgent, offerId, ip: sourceIp },
+        context: { userAgent, offerId, ip: getIp(request) },
       });
       return NextResponse.json(
         { error: "Invalid request: invalid User-Agent" },

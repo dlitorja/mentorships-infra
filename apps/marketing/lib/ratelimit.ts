@@ -38,8 +38,21 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
   },
 };
 
-function getIp(req: NextRequest): string {
+export function getIp(req: NextRequest): string {
+  // Header priority — first non-empty wins:
+  //   1. `x-vercel-forwarded-for`  Vercel-trusted (set by Vercel's edge;
+  //      strips client-supplied values from upstream forwarded headers).
+  //   2. `cf-connecting-ip`        Cloudflare-trusted (set by Cloudflare's
+  //      edge when Vercel sits behind Cloudflare).
+  //   3. `x-forwarded-for[0]`       Spoofable — only used as a fallback when
+  //      no trusted edge is in front of the deployment.
+  //   4. `x-real-ip`                Spoofable — fallback only.
+  //   5. `"unknown"`                Final fallback when no header is set.
+  //
+  // Spoofable headers are intentionally LAST so a forged value cannot
+  // mask the real IP for rate-limit identification or alerting.
   return (
+    req.headers.get("x-vercel-forwarded-for") ||
     req.headers.get("cf-connecting-ip") ||
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||

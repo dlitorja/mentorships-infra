@@ -94,10 +94,26 @@ BetterStack / Axiom.
 The handler emits a `reportError({ source: "webhooks/kajabi", level:
 "warn", message: "Suspicious request - User-Agent: …" })` event for
 every request rejected at the User-Agent check. The event includes
-the source IP in `context.ip` (extracted from `cf-connecting-ip`,
-`x-forwarded-for`, or `x-real-ip`, in that order — same lookup order
-used by `lib/ratelimit.ts` so the IP used here matches the IP that
-the rate-limiter buckets by).
+the source IP in `context.ip` (extracted by `getIp` from
+`lib/ratelimit.ts`, which is shared between the rate-limiter and
+this handler so the IP used for alerting is the same IP the
+rate-limiter buckets by).
+
+**Trusted-header priority in `getIp`** (first non-empty wins):
+
+1. `x-vercel-forwarded-for` — Vercel-trusted (set by Vercel's edge;
+   client-supplied portions of upstream forwarded headers are
+   stripped). **This is the only header that should be used to
+   identify an attacker** in Vercel deployments.
+2. `cf-connecting-ip` — Cloudflare-trusted when Vercel sits behind
+   Cloudflare.
+3. `x-forwarded-for[0]` — Spoofable. Used only as a fallback when
+   no trusted edge is in front of the deployment.
+4. `x-real-ip` — Spoofable. Fallback only.
+5. `"unknown"` — Final fallback.
+
+Spoofable headers are intentionally LAST so a forged value cannot
+mask the real IP for rate-limit identification or per-IP alerting.
 
 Events flow to BetterStack and Axiom when their respective tokens are
 configured (`BETTERSTACK_SOURCE_TOKEN` / `AXIOM_TOKEN` + `AXIOM_DATASET`).
