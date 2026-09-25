@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { convexServerCall } from "@/lib/convex-server-call";
-import { getInstructorInventory } from "@/lib/supabase-inventory";
+import type { getInstructorInventory as getInstructorInventoryType } from "@/lib/supabase-inventory";
 
 interface PublicInventoryResponse {
   success: boolean;
@@ -28,6 +28,45 @@ const ZERO_INVENTORY: InventoryResponse = {
   one_on_one_inventory: 0,
   group_inventory: 0,
 };
+
+/**
+ * Lazy Supabase fallback reader.
+ *
+ * `apps/marketing/lib/supabase-inventory.ts` throws at module load
+ * when `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+ * are not configured. During the rollout window, an environment
+ * may have been provisioned for Convex-only without the legacy
+ * Supabase keys, in which case eagerly importing the module would
+ * fail the entire route handler — including instructors whose
+ * Convex inventory is already complete. Lazy-import on first use
+ * isolates that failure to the fallback path.
+ *
+ * Once the Supabase `instructor_inventory` table is dropped in
+ * the Phase 3 narrow PR, this helper is removed along with the
+ * module-level Supabase read.
+ */
+type InventoryReader = typeof getInstructorInventoryType;
+let inventoryReaderPromise: Promise<InventoryReader | null> | null = null;
+async function loadInventoryReader(): Promise<InventoryReader | null> {
+  if (!inventoryReaderPromise) {
+    inventoryReaderPromise = (async () => {
+      try {
+        const mod = await import("@/lib/supabase-inventory");
+        return mod.getInstructorInventory;
+      } catch (error) {
+        // Module-load failure (env vars missing) or import
+        // resolution failure — fall through and return null so
+        // the route can still serve Convex-only values.
+        console.error(
+          "Supabase inventory reader unavailable; falling back to Convex-only:",
+          error
+        );
+        return null;
+      }
+    })();
+  }
+  return inventoryReaderPromise;
+}
 
 /**
  * Pick the inventory value to return to the public offer page.
@@ -83,12 +122,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Read Convex first; fall back to Supabase for any field
-    // that is still unset (null). A Convex field that has been
-    // explicitly set — including 0 from a real Kajabi purchase —
-    // wins, even if Supabase disagrees, because Supabase has been
-    // stale since PR #873.
+    // Read Convex first. `{ success: true }` means the instructor
+    // is publicly visible and we have inventory data (possibly
+    // both fields null = unset, possibly one or both real
+    // numbers including 0 from a Kajabi purchase).
+    //
+    // `{ success: false }` means the instructor is hidden /
+    // unlisted / soft-deleted / genuinely not found. In that
+    // case we MUST NOT consult Supabase — an unlisted instructor
+    // must remain invisible even if a stale Supabase row still
+    // holds a positive value. Return zeros.
     let convexInventory: { one_on_one_inventory: number | null; group_inventory: number | null } | null = null;
+    let convexRefused = false;
     try {
       const response = await convexServerCall<
         PublicInventoryResponse | PublicInventoryErrorResponse
@@ -99,12 +144,21 @@ export async function GET(request: NextRequest) {
           one_on_one_inventory: response.one_on_one_inventory,
           group_inventory: response.group_inventory,
         };
+      } else {
+        convexRefused = true;
       }
     } catch (error) {
-      // Convex unavailable — degrade gracefully by reading
-      // Supabase for both fields. This is the same contract as
-      // the pre-Phase-2 behavior.
+      // Convex unavailable — transport-level error. We may
+      // consult Supabase as a last-resort fallback below.
       console.error("Convex inventory read failed; falling back to Supabase:", error);
+    }
+
+    if (convexRefused) {
+      // Visibility rule: Convex says "not publicly visible".
+      // Do not leak a Supabase baseline for an unlisted
+      // instructor. Return zeros so the offer page hides the
+      // buy CTA entirely (it gates on both fields being > 0).
+      return NextResponse.json(ZERO_INVENTORY, { status: 200 });
     }
 
     // Convex has at least one field explicitly set — use the
@@ -128,8 +182,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Convex is null across the board — pre-backfill or unknown
-    // slug. Check Supabase to decide.
+    // Convex transport succeeded but both fields are null
+    // (pre-backfill) — fall back to Supabase.
     const supabaseInventory = await readSupabaseInventorySafe(slug);
     if (supabaseInventory !== null) {
       return NextResponse.json(
@@ -150,8 +204,12 @@ export async function GET(request: NextRequest) {
 async function readSupabaseInventorySafe(
   slug: string
 ): Promise<InventoryResponse | null> {
+  const reader = await loadInventoryReader();
+  if (!reader) {
+    return null;
+  }
   try {
-    const row = await getInstructorInventory(slug);
+    const row = await reader(slug);
     return row;
   } catch (error) {
     console.error(`Supabase inventory read failed for ${slug}:`, error);

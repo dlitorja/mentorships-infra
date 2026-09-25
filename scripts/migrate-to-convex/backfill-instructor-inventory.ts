@@ -92,6 +92,16 @@ interface BackfillResponse {
   slug?: string;
   oneOnOneInventory?: number;
   groupInventory?: number;
+  /**
+   * Fields that the Convex endpoint deliberately did NOT
+   * overwrite because they already had a non-zero value.
+   * Without this, an operator running a partial backfill (or
+   * one that re-runs after a Kajabi purchase) sees only
+   * checkmarks and has no way to know which legacy values
+   * were not copied — leading to a "successful" exit on an
+   * incomplete migration.
+   */
+  skipped?: string[];
   error?: string;
 }
 
@@ -99,6 +109,7 @@ async function backfillOne(row: SupabaseInventoryRow): Promise<{
   slug: string;
   ok: boolean;
   error?: string;
+  skipped?: string[];
 }> {
   const body = {
     slug: row.instructor_slug,
@@ -151,7 +162,11 @@ async function backfillOne(row: SupabaseInventoryRow): Promise<{
     };
   }
 
-  return { slug: row.instructor_slug, ok: true };
+  return {
+    slug: row.instructor_slug,
+    ok: true,
+    skipped: parsed.skipped,
+  };
 }
 
 async function main() {
@@ -179,15 +194,33 @@ async function main() {
   console.log(`Found ${rows.length} instructor_inventory rows in Supabase.\n`);
 
   let succeeded = 0;
+  let succeededWithSkips = 0;
   let failed = 0;
   let notFound = 0;
   const failures: Array<{ slug: string; error: string }> = [];
+  const skips: Array<{ slug: string; fields: string[]; legacy: { one_on_one_inventory: number; group_inventory: number } }> = [];
 
   for (const row of rows) {
     const result = await backfillOne(row);
     if (result.ok) {
       succeeded++;
-      console.log(`✓ ${row.instructor_slug}`);
+      const skipped = result.skipped ?? [];
+      if (skipped.length > 0) {
+        succeededWithSkips++;
+        skips.push({
+          slug: row.instructor_slug,
+          fields: skipped,
+          legacy: {
+            one_on_one_inventory: row.one_on_one_inventory,
+            group_inventory: row.group_inventory,
+          },
+        });
+        console.log(
+          `△ ${row.instructor_slug} (skipped: ${skipped.join(", ")} — Convex already had non-zero values; legacy ${skipped.map((f) => `${f}=${f === "oneOnOneInventory" ? row.one_on_one_inventory : row.group_inventory}`).join(", ")} NOT applied)`
+        );
+      } else {
+        console.log(`✓ ${row.instructor_slug}`);
+      }
     } else {
       failed++;
       const message = result.error ?? "unknown";
@@ -204,16 +237,30 @@ async function main() {
   }
 
   console.log(`\n========================================`);
-  console.log(`Done: ${succeeded} succeeded, ${failed} failed (${notFound} not-found)`);
+  console.log(`Done: ${succeeded} succeeded (${succeededWithSkips} with skipped fields), ${failed} failed (${notFound} not-found)`);
+  if (skips.length > 0) {
+    console.log(`\nSkipped (Convex already had non-zero values — legacy NOT applied):`);
+    for (const s of skips) {
+      console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+    }
+    if (!FORCE) {
+      console.log(`\nTo overwrite these fields, re-run with FORCE=1 (after operator review).`);
+    }
+  }
   if (failures.length > 0) {
-    console.log(`Failures:`);
+    console.log(`\nFailures:`);
     for (const f of failures) {
       console.log(`  ${f.slug}: ${f.error}`);
     }
   }
   console.log(`========================================`);
 
-  process.exit(failed > 0 ? 1 : 0);
+  // Exit non-zero if any row was a partial backfill — a migration
+  // that "succeeded" but skipped legacy fields is incomplete and
+  // the operator should reconcile before proceeding to Phase 3
+  // narrow. Allow `FORCE=1` runs to exit 0 even with skips since
+  // the operator opted in to overwriting.
+  process.exit(failed > 0 || (succeededWithSkips > 0 && !FORCE) ? 1 : 0);
 }
 
 main().catch((err) => {

@@ -184,6 +184,62 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
     });
   });
 
+  describe("Supabase module not configured", () => {
+    it("still serves Convex-only values when the Supabase module throws at import time", async () => {
+      // Simulate a marketing environment that has Convex env
+      // vars but is missing NEXT_PUBLIC_SUPABASE_URL /
+      // NEXT_PUBLIC_SUPABASE_ANON_KEY (Phase 3 narrow preview
+      // windows). The lazy dynamic import must catch the
+      // module-load failure and continue to serve the Convex
+      // values without failing the request.
+      vi.mocked(getInstructorInventory).mockRejectedValue(
+        new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured")
+      );
+      vi.mocked(convexServerCall).mockResolvedValue({
+        success: true,
+        one_on_one_inventory: 7,
+        group_inventory: 3,
+      });
+
+      const req = makeRequest({
+        method: "GET",
+        url: `${URL}?slug=conor-mclaughlin`,
+      });
+      const response = await GET(req);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        one_on_one_inventory: 7,
+        group_inventory: 3,
+      });
+    });
+
+    it("returns zeros when both Convex and Supabase are unavailable in a Convex-only environment", async () => {
+      vi.mocked(getInstructorInventory).mockRejectedValue(
+        new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured")
+      );
+      vi.mocked(convexServerCall).mockResolvedValue({
+        success: true,
+        one_on_one_inventory: null,
+        group_inventory: null,
+      });
+
+      const req = makeRequest({
+        method: "GET",
+        url: `${URL}?slug=conor-mclaughlin`,
+      });
+      const response = await GET(req);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+      });
+    });
+  });
+
   describe("Convex read fails — Supabase fallback", () => {
     it("returns Supabase value when Convex HTTP rejects", async () => {
       vi.mocked(convexServerCall).mockRejectedValue(
@@ -229,14 +285,18 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       });
     });
 
-    it("treats Convex not-found (`{ success: false }`) as zero and falls back to Supabase", async () => {
+    it("treats Convex not-found / unlisted (`{ success: false }`) as zeros — does NOT leak Supabase baseline", async () => {
+      // Visibility rule: Convex says "instructor is not publicly
+      // visible" (not found, unlisted, or soft-deleted). The
+      // route MUST NOT consult Supabase — an unlisted instructor
+      // with a retained positive Supabase baseline must not leak.
       vi.mocked(convexServerCall).mockResolvedValue({
         success: false,
         error: "Instructor not found",
       });
       vi.mocked(getInstructorInventory).mockResolvedValue({
         one_on_one_inventory: 2,
-        group_inventory: 0,
+        group_inventory: 1,
       });
 
       const req = makeRequest({
@@ -248,9 +308,11 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
 
       expect(response.status).toBe(200);
       expect(body).toEqual({
-        one_on_one_inventory: 2,
+        one_on_one_inventory: 0,
         group_inventory: 0,
       });
+      // Visibility override: Supabase must NOT be consulted.
+      expect(getInstructorInventory).not.toHaveBeenCalled();
     });
   });
 });
