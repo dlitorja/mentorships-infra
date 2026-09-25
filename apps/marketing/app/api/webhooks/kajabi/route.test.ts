@@ -32,6 +32,18 @@ vi.mock("@/lib/ratelimit", async () => {
   };
 });
 
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  // `after` from next/server requires a real request context
+  // and throws outside it. In tests we use a no-op so the
+  // observed emissions are still verifiable via the existing
+  // `vi.mocked(reportError)` assertions.
+  return {
+    ...actual,
+    after: (callback: () => unknown) => callback(),
+  };
+});
+
 import { protectWithRateLimit } from "@/lib/ratelimit";
 import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
 

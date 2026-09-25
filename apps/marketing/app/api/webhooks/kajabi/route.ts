@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createHash } from "node:crypto";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
@@ -293,26 +293,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // `inventoryChangeLog` Convex table (which is the authoritative
       // source and is not exported to the observability backends).
       //
-      // Latency: the emit is fire-and-forget (`void reportError`) so
-      // a slow observability backend cannot delay Kajabi's webhook
-      // acknowledgement. Convex is the authoritative inventory store
-      // and is already committed by this point.
+      // Latency: the emit runs AFTER the response is sent (`after`
+      // from next/server) so a slow observability backend cannot
+      // delay Kajabi's webhook acknowledgement AND the network
+      // sends are guaranteed to complete before the serverless
+      // invocation ends.
+      //
+      // Greptile P2 (round 12): the previous `void reportError`
+      // returned a Promise to the runtime that could be cut off
+      // the moment NextResponse.json returned. In serverless
+      // environments (Vercel functions) that means an inventory
+      // drop could be silently dropped from BetterStack/Axiom.
       if (!alreadyApplied && newInventory !== null) {
-        void reportError({
-          source: "inventory.changed",
-          error: new Error(
-            `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
-          ),
-          message: `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
-          level: "info",
-          context: {
-            instructorSlug: mapping.instructorSlug,
-            type: mapping.mentorshipType,
-            previousInventory,
-            newInventory,
-            quantity,
-          },
-        });
+        after(() =>
+          reportError({
+            source: "inventory.changed",
+            error: new Error(
+              `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+            ),
+            message: `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+            level: "info",
+            context: {
+              instructorSlug: mapping.instructorSlug,
+              type: mapping.mentorshipType,
+              previousInventory,
+              newInventory,
+              quantity,
+            },
+          })
+        );
       }
     } catch (applyError) {
       const message = (applyError as Error).message;
