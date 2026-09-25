@@ -49,6 +49,7 @@ type InventorySource =
   | "convex"
   | "convex-supabase-mixed"
   | "supabase"
+  | "supabase-empty"
   | "convex-not-found"
   | "convex-error";
 
@@ -276,7 +277,15 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(ZERO_INVENTORY, {
       status: 200,
-      headers: { "X-Inventory-Source": "convex" },
+      // Greptile P2 (round 11): when both Convex fields are
+      // null (pre-backfill) and the Supabase fallback is
+      // unavailable, the previous label was "convex" — which
+      // made this state indistinguishable from a real
+      // "Convex has the answer (and it's zero)" response.
+      // Use "supabase-empty" so on-call can see that both
+      // sources returned no data and the route fell through
+      // to zeros as a last-resort default.
+      headers: { "X-Inventory-Source": "supabase-empty" as InventorySource },
     });
   } catch (error) {
     console.error("Error fetching inventory:", error);

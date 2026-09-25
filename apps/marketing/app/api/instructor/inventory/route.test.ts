@@ -181,6 +181,12 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      // Greptile P2 (round 11): distinguish from "Convex has
+      // the answer and it's zero" — when both sources are
+      // empty, label the source as `supabase-empty` so
+      // operators can see the route fell through to zeros
+      // rather than reading a real zero from Convex.
+      expect(response.headers.get("X-Inventory-Source")).toBe("supabase-empty");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 0,
