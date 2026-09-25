@@ -3173,10 +3173,19 @@ http.route({
  * Clerk admin session. Bearer auth via `verifyAuth` keeps the
  * endpoint private to server-to-server callers.
  *
- * This endpoint deliberately uses an absolute `db.patch` instead
- * of `applyInventoryChange` (which is a decrement) because the
+ * This endpoint deliberately uses an absolute patch instead of
+ * `applyInventoryChange` (which is a decrement) because the
  * script's job is to copy the existing Supabase value, not to
- * record a delta against a zero baseline.
+ * record a delta against a zero baseline. The actual `db.patch`
+ * is delegated to `internalBackfillInventory` because HTTP
+ * actions do not expose a database writer on their context —
+ * they only have one via `ctx.runMutation`.
+ *
+ * Not-found is downgraded to a 200 with `{ success: false, error }`
+ * (instead of HTTP 404) so the script and the marketing route can
+ * both inspect a uniform `{ success: false }` shape without having
+ * to differentiate between transport-level and application-level
+ * "not found" responses.
  */
 export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -3185,6 +3194,7 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
     slug?: unknown;
     oneOnOneInventory?: unknown;
     groupInventory?: unknown;
+    force?: unknown;
   };
   try {
     body = await request.json();
@@ -3245,36 +3255,58 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
     );
   }
 
+  const force = body.force === true;
+
   try {
-    const instructor = await ctx.runQuery(api.instructors.getInstructorBySlug, {
-      slug,
-    });
+    const instructor = await ctx.runQuery(
+      internal.instructors.internalGetInstructorBySlugForBackfill,
+      { slug }
+    );
     if (!instructor) {
       return new Response(
-        JSON.stringify({ success: false, error: `Instructor not found: ${slug}` }),
+        JSON.stringify({
+          success: false,
+          error: `Instructor not found: ${slug}`,
+          skipped: ["instructor"],
+        }),
         {
-          status: 404,
+          status: 200,
           headers: { "Content-Type": "application/json" },
         }
       );
     }
 
-    const updates: Record<string, number> = { updatedAt: Date.now() };
-    if (body.oneOnOneInventory !== undefined) {
-      updates.oneOnOneInventory = body.oneOnOneInventory;
-    }
-    if (body.groupInventory !== undefined) {
-      updates.groupInventory = body.groupInventory;
-    }
-
-    await ctx.db.patch(instructor._id, updates);
+    const result = await ctx.runMutation(
+      internal.instructors.internalBackfillInventory,
+      {
+        instructorId: instructor._id,
+        oneOnOneInventory:
+          typeof body.oneOnOneInventory === "number"
+            ? body.oneOnOneInventory
+            : undefined,
+        groupInventory:
+          typeof body.groupInventory === "number"
+            ? body.groupInventory
+            : undefined,
+        force,
+      }
+    );
 
     return new Response(
       JSON.stringify({
         success: true,
         slug,
-        oneOnOneInventory: updates.oneOnOneInventory,
-        groupInventory: updates.groupInventory,
+        oneOnOneInventory:
+          typeof body.oneOnOneInventory === "number"
+            ? body.oneOnOneInventory
+            : undefined,
+        groupInventory:
+          typeof body.groupInventory === "number"
+            ? body.groupInventory
+            : undefined,
+        patched: result.patched,
+        skipped: result.skipped,
+        force,
       }),
       {
         status: 200,

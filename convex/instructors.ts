@@ -527,6 +527,101 @@ export const internalAtomicFullUpdateInstructor = internalMutation({
 });
 
 /**
+ * HUC-46: raw instructor lookup used by the one-shot Supabase → Convex
+ * inventory backfill HTTP action.
+ *
+ * Unlike `getInstructorBySlug` (the public query), this helper does NOT
+ * apply visibility rules — `isListed === false` and soft-deleted rows
+ * still resolve, because the backfill is a server-to-server bootstrap
+ * that should NOT be silently dropping inventory rows whose Supabase
+ * counterpart was the source of truth.
+ *
+ * Internal: only callable from server-side code via
+ * `ctx.runQuery(internal.instructors.internalGetInstructorBySlugForBackfill, ...)`.
+ */
+export const internalGetInstructorBySlugForBackfill = internalQuery({
+  args: { slug: v.string() },
+  returns: v.union(v.null(), v.any()),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+  },
+});
+
+/**
+ * HUC-46: conditional inventory patch used by the one-shot Supabase →
+ * Convex backfill HTTP action.
+ *
+ * Skips any field whose Convex value is already set (non-null AND
+ * non-undefined AND non-zero). This is the safeguard against
+ * overwriting live inventory that Kajabi decrements have already
+ * touched: a Convex row that PR #873 has driven from `null` → `0`
+ * is treated as "untouched" and patched; a row that already has
+ * a real value (e.g. `3` from a 1-of-3 admin hand-off, or `2`
+ * after two Kajabi purchases) is left alone.
+ *
+ * Pass `force: true` to bypass the conditional check and overwrite
+ * unconditionally. The default never overwrites a non-null,
+ * non-zero value.
+ *
+ * Internal: only callable from server-side code via
+ * `ctx.runMutation(internal.instructors.internalBackfillInventory, ...)`.
+ */
+export const internalBackfillInventory = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    oneOnOneInventory: v.optional(v.number()),
+    groupInventory: v.optional(v.number()),
+    force: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    patched: v.array(v.string()),
+    skipped: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const patched: string[] = [];
+    const skipped: string[] = [];
+    const updates: Record<string, number> = {};
+
+    if (args.oneOnOneInventory !== undefined) {
+      const existing = instructor.oneOnOneInventory;
+      const alreadySet = typeof existing === "number" && existing !== 0;
+      if (alreadySet && !args.force) {
+        skipped.push("oneOnOneInventory");
+      } else {
+        updates.oneOnOneInventory = args.oneOnOneInventory;
+        patched.push("oneOnOneInventory");
+      }
+    }
+
+    if (args.groupInventory !== undefined) {
+      const existing = instructor.groupInventory;
+      const alreadySet = typeof existing === "number" && existing !== 0;
+      if (alreadySet && !args.force) {
+        skipped.push("groupInventory");
+      } else {
+        updates.groupInventory = args.groupInventory;
+        patched.push("groupInventory");
+      }
+    }
+
+    if (patched.length > 0) {
+      await ctx.db.patch(args.instructorId, {
+        ...updates,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { patched, skipped };
+  },
+});
+
+/**
  * Internal backfill scoped to specific slugs.
  * Fetches images from a source site, uploads to Convex Storage, and updates the `instructors` table.
  */
