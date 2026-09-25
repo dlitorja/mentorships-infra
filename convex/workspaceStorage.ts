@@ -1329,6 +1329,7 @@ export const listWorkspaceMigrationCandidates = internalQuery({
     graceThreshold: v.number(),
     cursor: v.optional(v.string()),
     limit: v.number(),
+    now: v.number(),
   },
   handler: async (
     ctx,
@@ -1358,13 +1359,23 @@ export const listWorkspaceMigrationCandidates = internalQuery({
             .lt("uploadedAt", args.graceThreshold)
       )
       .paginate({ numItems: args.limit, cursor: args.cursor ?? null });
+    // PR workspace-storage-2 (Greptile round 29 P1 fix):
+    // include rows whose `migratedAt` is older than
+    // `STALE_MIGRATION_LOCK_MS` (1h) so the per-row
+    // migration action sees them and `acquireMigrationLock`
+    // takes over the stale lock. Without this filter, the
+    // `migratedAt === undefined` check would exclude
+    // rows whose previous attempt crashed between lock
+    // acquisition and B2 finalize, leaving them
+    // permanently disabled.
     const rows = page.page
       .filter(
         (r) =>
           r.storageId !== undefined &&
           r.b2Key === undefined &&
           r.cancelledAt === undefined &&
-          r.migratedAt === undefined
+          (r.migratedAt === undefined ||
+            args.now - r.migratedAt > STALE_MIGRATION_LOCK_MS)
       )
       .map((r) => ({
         _id: r._id,
@@ -1924,6 +1935,7 @@ export const backfillWorkspaceB2Storage = internalAction({
         graceThreshold,
         cursor: args.cursor ?? undefined,
         limit,
+        now: Date.now(),
       }
     );
     let migrated = 0;
