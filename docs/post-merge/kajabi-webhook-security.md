@@ -33,8 +33,18 @@ authoritative source of inventory since PR #873, merged 2026-09-24 at
 * Mint real transactions or steal money — Convex does not store payment
   data, and the inventory decrement does not depend on any verified
   payment information.
-* Exfiltrate customer data — the webhook does not return PII in its
-  response, and Kajabi is the only system that holds customer records.
+* Exfiltrate customer data via the webhook response — the webhook
+  does not return PII in its response body, and the
+  `inventory.changed` observability event emitted by the handler
+  intentionally omits `purchaseId` (which embeds the buyer email
+  when Kajabi sends a transaction id) so buyer PII does not flow to
+  BetterStack / Axiom. **Note**: Convex itself stores the buyer
+  email via the `inventoryChangeLog` table's `purchaseId` field
+  (which is `kajabi:<event>:<offerId>:<transactionId>:<email>`).
+  Kajabi remains the authoritative customer-record store; the
+  Convex-side `purchaseId` is for replay-deduplication only and is
+  not used for marketing or outreach. Operators planning data
+  retention / deletion must consider both stores.
 * Bypass Convex authorization on writes — all writes go through the
   existing `internalApplyInventoryChange` mutation, which is unchanged.
 
