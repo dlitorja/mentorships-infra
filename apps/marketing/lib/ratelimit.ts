@@ -91,6 +91,28 @@ export async function protectWithRateLimit(
       return null;
     }
 
+    // Emit an observability event for the rejected request so
+    // operators can alert on sustained forgery bursts. Source is
+    // `ratelimit.middleware` (constant) so it can be filtered
+    // separately from the per-route error stream; `context.ip`
+    // matches the `ip` field that handlers also emit on per-route
+    // rejections, so a single monitor can pivot by IP across both.
+    void reportError({
+      source: "ratelimit.middleware",
+      error: new Error("Rate limit exceeded"),
+      message: `Rate limit exceeded for ${config.identifyBy} on ${req.nextUrl.pathname}`,
+      level: "warn",
+      context: {
+        policy,
+        pathname: req.nextUrl.pathname,
+        method: req.method,
+        identifier,
+        ip: identifier,
+        limit: config.short.limit,
+        window: config.short.window,
+      },
+    });
+
     return new NextResponse("Too many requests", {
       status: 429,
       headers: {

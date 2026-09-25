@@ -54,11 +54,11 @@ support confirms HMAC signing is available on a Growth/Pro plan.
 
 ## Compensating controls (HUC-50)
 
-### 1. Per-IP rate limit
+### 1. Per-IP rate limit (applied in `apps/marketing/proxy.ts`)
 
-The route calls `protectWithRateLimit(request, "webhook")` as its first
-action — before any JSON parsing, schema validation, or Convex call. The
-policy is defined in `apps/marketing/lib/ratelimit.ts`:
+The rate-limit middleware runs in `apps/marketing/proxy.ts` before
+this route handler is invoked. The policy is defined in
+`apps/marketing/lib/ratelimit.ts`:
 
 ```ts
 webhook: {
@@ -70,8 +70,9 @@ webhook: {
 
 This is a sliding-window limit of **10 requests per 60 seconds per
 source IP**. Sustained forgery bursts (more than 10 attempts in 60
-seconds from one IP) are rejected with HTTP 429 before any other work
-is done.
+seconds from one IP) are rejected with HTTP 429 *before* the route
+handler runs — `protectWithRateLimit` is called once per request in
+the proxy, not duplicated in the handler.
 
 **Why 10/60s is appropriate for legitimate Kajabi traffic:**
 
@@ -82,25 +83,45 @@ is done.
 * The 1-hour ceiling of 100/h also exists in the policy for sustained
   bursts (though it is currently not wired — see "Known limitations").
 
-### 2. User-Agent anomaly alerting
+When a 429 is returned, `protectWithRateLimit` emits a
+`reportError({ source: "ratelimit.middleware", level: "warn" })` event
+with `context.ip`, `context.policy`, `context.pathname`, and
+`context.identifier`, so rejected requests are observable in
+BetterStack / Axiom.
 
-The route emits a `reportError({ source: "webhooks/kajabi", level: "warn", message: "Suspicious request - User-Agent: …" })` event for every
-rejected request. Events flow to BetterStack and Axiom when their
-respective tokens are configured (`BETTERSTACK_SOURCE_TOKEN` /
-`AXIOM_TOKEN` + `AXIOM_DATASET`).
+### 2. User-Agent anomaly alerting (emitted in the route handler)
+
+The handler emits a `reportError({ source: "webhooks/kajabi", level:
+"warn", message: "Suspicious request - User-Agent: …" })` event for
+every request rejected at the User-Agent check. The event includes
+the source IP in `context.ip` (extracted from `cf-connecting-ip`,
+`x-forwarded-for`, or `x-real-ip`, in that order — same lookup order
+used by `lib/ratelimit.ts` so the IP used here matches the IP that
+the rate-limiter buckets by).
+
+Events flow to BetterStack and Axiom when their respective tokens are
+configured (`BETTERSTACK_SOURCE_TOKEN` / `AXIOM_TOKEN` + `AXIOM_DATASET`).
 
 **How to alert on forgery attempts:**
 
-In BetterStack or Axiom, configure a monitor with:
+In BetterStack or Axiom, configure two monitors and OR them together:
 
-* **Source filter:** `source = "webhooks/kajabi"`
-* **Level filter:** `level = "warn"`
-* **Message filter:** `message CONTAINS "Suspicious request"`
-* **Threshold:** count per source IP > N per minute (e.g. N = 5)
-* **Action:** page on-call / open Slack channel alert
+1. **Invalid-UA monitor** (per-IP attempt volume):
+   * `source = "webhooks/kajabi"`
+   * `level = "warn"`
+   * `message CONTAINS "Suspicious request"`
+   * `context.ip` count > N per minute (e.g. N = 5)
+   * Action: page on-call / Slack alert.
 
-The `source` field is structured and queryable in both backends, so no
-additional tagging infrastructure is needed.
+2. **Rate-limit monitor** (sustained burst):
+   * `source = "ratelimit.middleware"`
+   * `level = "warn"`
+   * `context.policy = "webhook"`
+   * `context.ip` count > M per minute (e.g. M = 50).
+   * Action: page on-call / Slack alert.
+
+The `source` and `context` fields are structured and queryable in both
+backends, so no additional tagging infrastructure is needed.
 
 ### 3. Defensive error responses
 
@@ -134,13 +155,18 @@ additional tagging infrastructure is needed.
 ## Acceptance criteria (HUC-50)
 
 * [ ] A burst of 100 forged POSTs from a single IP within 60s returns
-      60×401 + 40×429 in staging. (Operator verification — not in
-      unit tests.)
+      **10×400 + 90×429** in staging (the first 10 pass through the
+      rate-limit and are rejected at the User-Agent check with 400;
+      the next 90 are rejected by the rate-limiter with 429 before
+      the handler runs). (Operator verification — not in unit tests.)
 * [ ] Legitimate Kajabi deliveries still pass through cleanly. (Smoke
       test against `dev.mentorships.huckleberry.art`.)
 * [ ] BetterStack / Axiom shows a `webhooks/kajabi` warning event for
-      every invalid-UA attempt with the source IP in the `context`
-      field.
+      every invalid-UA attempt with `context.ip`, `context.userAgent`,
+      `context.offerId`.
+* [ ] BetterStack / Axiom shows a `ratelimit.middleware` warning
+      event for every 429 with `context.ip`, `context.policy`,
+      `context.pathname`.
 * [ ] Vitest unit tests pass: `pnpm test:unit
       apps/marketing/app/api/webhooks/kajabi/route.test.ts`.
 

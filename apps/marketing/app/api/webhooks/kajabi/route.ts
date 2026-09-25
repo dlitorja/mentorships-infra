@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
-import { protectWithRateLimit } from "@/lib/ratelimit";
 import { reportError } from "@/lib/observability";
 
 const kajabiPayloadSchema = z.object({
@@ -95,21 +94,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // api-reference/webhooks/create-hook.md). The compensating
   // controls, in order of effectiveness:
   //
-  //   1. Per-IP rate limit via `protectWithRateLimit(req, "webhook")`
-  //      (10 req / 60s sliding-window per IP, defined in
-  //      `lib/ratelimit.ts`). This rejects sustained forgery bursts
-  //      (>10 attempts in 60s from one IP) with 429 before any
-  //      payload parsing or Convex call. Kajabi's legitimate traffic
-  //      is bursty but rare (1–5 events per purchase, well below the
-  //      10/60s ceiling).
+  //   1. Per-IP rate limit, applied in `apps/marketing/proxy.ts`
+  //      before this handler runs. The `webhook` policy in
+  //      `lib/ratelimit.ts` is 10 req / 60s sliding-window per IP.
+  //      Sustained forgery bursts (>10 attempts in 60s from one IP)
+  //      are rejected with 429 by the proxy before any payload
+  //      parsing or Convex call. `protectWithRateLimit` also emits a
+  //      `reportError` event with `source = "ratelimit.middleware"`
+  //      and the source IP in `context`, so 429s are observable in
+  //      BetterStack / Axiom. Kajabi's legitimate traffic is bursty
+  //      but rare (1–5 events per purchase, well below the 10/60s
+  //      ceiling).
   //   2. User-Agent anomaly alerting. Invalid-UA rejections emit a
   //      `reportError({ source: "webhooks/kajabi", level: "warn",
-  //      message: "Suspicious request …" })` event to BetterStack +
-  //      Axiom (when configured). Operators can alert on
-  //      `source = "webhooks/kajabi"` AND `level = "warn"` AND
-  //      `message CONTAINS "Suspicious request"` > N/min from one
-  //      IP. See `docs/post-merge/kajabi-webhook-security.md` for the
-  //      runbook.
+  //      message: "Suspicious request …" })` event with the source
+  //      IP in `context`, flowing to BetterStack + Axiom (when
+  //      configured). Operators can alert on `source =
+  //      "webhooks/kajabi"` AND `level = "warn"` AND `message
+  //      CONTAINS "Suspicious request"` AND `context.ip` count > N
+  //      per minute. See `docs/post-merge/kajabi-webhook-security.md`
+  //      for the runbook.
   //
   // Threat model after these controls:
   //   - An attacker who knows the offer IDs can still forge single
@@ -122,11 +126,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // If Kajabi support later confirms HMAC signing is available,
   // replace both controls with signature verification (see HUC-44,
   // which was canceled for the original premise).
-  const rateLimitResponse = await protectWithRateLimit(request, "webhook");
-  if (rateLimitResponse) {
-    return rateLimitResponse;
-  }
-
   try {
     const payload = await request.text();
 
@@ -168,12 +167,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const userAgent = request.headers.get("user-agent") || "";
     if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
+      // Capture the source IP so operators can configure per-IP
+      // alerts. Order: CF → X-Forwarded-For → X-Real-IP, matching
+      // `lib/ratelimit.ts` so the IP used here matches the IP that
+      // the rate-limiter buckets by.
+      const sourceIp =
+        request.headers.get("cf-connecting-ip") ||
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        request.headers.get("x-real-ip") ||
+        "unknown";
       await reportError({
         source: "webhooks/kajabi",
         error: new Error("Suspicious request - invalid User-Agent"),
         message: `Suspicious request - User-Agent: ${userAgent}`,
         level: "warn",
-        context: { userAgent, offerId },
+        context: { userAgent, offerId, ip: sourceIp },
       });
       return NextResponse.json(
         { error: "Invalid request: invalid User-Agent" },

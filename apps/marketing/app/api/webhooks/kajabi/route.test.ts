@@ -1,14 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NextResponse } from "next/server";
 import { makeRequest } from "../../../../../../tests/unit/api-route-utils";
-
-vi.mock("@/lib/ratelimit", async () => {
-  const actual = await vi.importActual("@/lib/ratelimit");
-  return {
-    ...actual,
-    protectWithRateLimit: vi.fn(),
-  };
-});
 
 vi.mock("@/lib/inngest", () => ({
   inngest: {
@@ -33,6 +24,10 @@ vi.mock("@/lib/observability", () => ({
   reportInfo: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/ratelimit", () => ({
+  protectWithRateLimit: vi.fn(),
+}));
+
 import { protectWithRateLimit } from "@/lib/ratelimit";
 import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
 
@@ -51,53 +46,17 @@ function makeKajabiPayload(overrides: Record<string, unknown> = {}) {
 describe("Kajabi webhook route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset mock implementations and queued return values so each test
-    // starts with a fresh, empty mock queue (mockReset clears both).
     vi.mocked(protectWithRateLimit).mockReset();
     vi.mocked(convexServerCall).mockReset();
-    // Default: rate-limit middleware is "open" (returns null = pass-through).
-    vi.mocked(protectWithRateLimit).mockResolvedValue(null);
   });
 
-  describe("rate-limit protection", () => {
-    it("returns 429 when protectWithRateLimit returns a 429 response, and short-circuits before any Convex call", async () => {
-      vi.mocked(protectWithRateLimit).mockResolvedValueOnce(
-        new NextResponse("Too many requests", { status: 429 }),
-      );
-
-      const request = makeRequest({
-        method: "POST",
-        url: URL,
-        body: makeKajabiPayload(),
-        headers: { "user-agent": "Kajabi-Webhook/1.0" },
-      });
-
-      const { POST } = await import("@/app/api/webhooks/kajabi/route");
-      const response = await POST(request);
-      expect(response.status).toBe(429);
-      expect(vi.mocked(convexServerCall)).not.toHaveBeenCalled();
-    });
-
-    it("calls protectWithRateLimit BEFORE any payload parsing (cheap rejection)", async () => {
-      // Even a totally empty body should still be rate-limit-checked.
-      const emptyRequest = new Request(URL, {
-        method: "POST",
-        headers: { "user-agent": "" },
-        body: "",
-      }) as any;
-
-      vi.mocked(protectWithRateLimit).mockResolvedValueOnce(
-        new NextResponse("Too many requests", { status: 429 }),
-      );
-
-      const { POST } = await import("@/app/api/webhooks/kajabi/route");
-      const response = await POST(emptyRequest);
-      expect(response.status).toBe(429);
-      expect(vi.mocked(protectWithRateLimit)).toHaveBeenCalledTimes(1);
-    });
-
-    it("falls through when protectWithRateLimit returns null (no redis configured or under limit)", async () => {
-      vi.mocked(protectWithRateLimit).mockResolvedValueOnce(null);
+  describe("rate-limit integration", () => {
+    it("does NOT call protectWithRateLimit itself (proxy is the single charge point)", async () => {
+      // The proxy already applies the `webhook` policy before this
+      // handler runs. If the handler called it again, the same IP
+      // bucket would be incremented twice per request, doubling the
+      // effective limit and 429'ing legitimate bursts earlier than
+      // intended. This test guards against that regression.
       vi.mocked(convexServerCall)
         .mockResolvedValueOnce({ success: true, mapping: null })
         .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 4 });
@@ -110,10 +69,8 @@ describe("Kajabi webhook route", () => {
       });
 
       const { POST } = await import("@/app/api/webhooks/kajabi/route");
-      const response = await POST(request);
-      // not_found path: 404 (we're returning null for the lookup)
-      expect([200, 404]).toContain(response.status);
-      expect(vi.mocked(protectWithRateLimit)).toHaveBeenCalledTimes(1);
+      await POST(request);
+      expect(vi.mocked(protectWithRateLimit)).not.toHaveBeenCalled();
     });
   });
 
@@ -133,6 +90,35 @@ describe("Kajabi webhook route", () => {
       expect(body.error).toMatch(/Invalid request/i);
     });
 
+    it("includes the source IP in the reportError context for invalid-UA rejections", async () => {
+      const reportError = (await import("@/lib/observability")).reportError;
+
+      const request = makeRequest({
+        method: "POST",
+        url: URL,
+        body: makeKajabiPayload(),
+        headers: {
+          "user-agent": "curl/7.79.1",
+          "x-forwarded-for": "203.0.113.42, 10.0.0.1",
+        },
+      });
+
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+      await POST(request);
+
+      expect(vi.mocked(reportError)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "webhooks/kajabi",
+          level: "warn",
+          context: expect.objectContaining({
+            userAgent: "curl/7.79.1",
+            offerId: "off_test_123",
+            ip: "203.0.113.42",
+          }),
+        }),
+      );
+    });
+
     it("accepts a User-Agent containing 'Kajabi' (case-insensitive)", async () => {
       vi.mocked(convexServerCall)
         .mockResolvedValueOnce({ success: true, mapping: null })
@@ -147,7 +133,6 @@ describe("Kajabi webhook route", () => {
 
       const { POST } = await import("@/app/api/webhooks/kajabi/route");
       const response = await POST(request);
-      // not_found → 404
       expect([200, 404]).toContain(response.status);
     });
   });
@@ -171,7 +156,7 @@ describe("Kajabi webhook route", () => {
       const request = makeRequest({
         method: "POST",
         url: URL,
-        body: { offer: { id: "off_test_123" } }, // no event field
+        body: { offer: { id: "off_test_123" } },
         headers: { "user-agent": "Kajabi-Webhook/1.0" },
       });
 
