@@ -56,7 +56,12 @@ test("getCurrentInstructor: returns null when the only instructor row has a diff
   expect(result).toBeNull();
 });
 
-test("getCurrentInstructor: identity-scoped lookup ignores unrelated rows (by_userId index in use)", async () => {
+test("getCurrentInstructor: identity-scoped lookup ignores unrelated rows", async () => {
+  // Note: this test verifies that the identity filter works correctly (no row
+  // matches), but it does NOT distinguish between an index-backed lookup and a
+  // full-table scan. It would pass either way. If you need to assert that the
+  // by_userId index is in use, do it via Convex's explain-analyze tooling,
+  // not via test fixtures.
   const t = convexTest({ schema, modules });
   await t.run(async (ctx) => {
     // Three unrelated rows — none should match user_a.
@@ -82,14 +87,26 @@ test("getCurrentInstructor: identity-scoped lookup ignores unrelated rows (by_us
   expect(result).toBeNull();
 });
 
-// Regression guard: getCurrentInstructor intentionally does NOT filter
-// soft-deleted rows at the query layer. The auth-helpers JS layer
-// (apps/platform/lib/auth-helpers.ts) applies the `row.deletedAt === undefined`
-// filter before granting access. If someone "fixes" this query to filter
-// deletedAt here, the HUC-47 fallback would silently start allowing soft-deleted
-// instructors, because the helper would never see the row to reject it.
-// Keep this test as the contract: query returns the raw row, helper filters.
-test("getCurrentInstructor: returns soft-deleted rows (intentional — the auth-helpers JS layer is responsible for filtering)", async () => {
+// Contract test for the query's filter policy. getCurrentInstructor
+// intentionally returns the raw row without filtering soft-deleted records.
+// Two reasons to keep that policy at the query level:
+//
+// 1. The auth-helpers JS layer (apps/platform/lib/auth-helpers.ts:
+//    hasInstructorRecord) is the single source of truth for "is this
+//    instructor currently active for the caller?" — keeping the filter
+//    there means every consumer of getCurrentInstructor benefits from the
+//    same gating logic. Filtering at the query would scatter the rule
+//    across callers (admin views that want soft-deleted rows, audit logs,
+//    exports, etc. would each need their own variant of the query).
+//
+// 2. Filter at the JS layer is unit-tested in PR #877. If a future change
+//    moves the filter to the query, the auth-helpers unit test for soft-
+//    delete rejection stays valid as a defensive contract — the helper
+//    still rejects deleted rows if any query ever returns them.
+//
+// This test pins the current behavior so the policy is visible in the test
+// suite rather than implied.
+test("getCurrentInstructor: returns soft-deleted rows (filter lives in the auth-helpers JS layer, not here)", async () => {
   const t = convexTest({ schema, modules });
   const userId = "user_soft_deleted";
   let instructorId: string | undefined;
