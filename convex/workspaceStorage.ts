@@ -1574,7 +1574,15 @@ export const migrateConvexStorageRowToB2 = internalAction({
         `Migration target ${args.fileUploadId} not found`
       );
     }
-    if (target.b2Key !== undefined || target.migratedAt !== undefined) {
+    // Greptile round 31 P1 fix: only short-circuit on
+    // `b2Key !== undefined`. A row whose `migratedAt` is set
+    // without `b2Key` is in stale-locked state (the previous
+    // action crashed between `acquireMigrationLock` and
+    // `markLedgerMigrated`). Returning `already_migrated`
+    // here would skip `acquireMigrationLock`, leaving the
+    // new takeover branch unreachable. Proceed to the lock
+    // step so the stale-lock takeover runs.
+    if (target.b2Key !== undefined) {
       return {
         status: "already_migrated",
         b2Key: target.b2Key,
@@ -1712,29 +1720,29 @@ export const migrateConvexStorageRowToB2 = internalAction({
     // of leaving an orphan B2 object. Safe to no-op if no
     // chat message shares the storageId.
     //
-    // PR workspace-storage-2 (Greptile round 30 review): the
-    // `propagate` call may patch zero rows when chat retention
-    // already deleted the only chat message that referenced
-    // this storageId (race with the lock window). The B2
-    // object's cleanup in that case is NOT chat retention —
-    // chat retention already processed the row and will not
-    // revisit it. Instead, the cleanup path is:
+    // PR workspace-storage-2 (Greptile round 30 review):
+    // the `propagate` call may patch zero rows when chat
+    // retention already deleted the only chat message that
+    // referenced this storageId (race with the lock window).
     //
-    //   1. The workspace ledger still has `b2Key`, so
-    //      `getWorkspaceDownloadUrl({ b2Key, workspaceId })`
-    //      (`apps/platform/lib/b2-workspace-upload.ts:175`)
-    //      keeps working for the workspace. The workspace can
-    //      download and re-host the file indefinitely.
+    // PR workspace-storage-2 (Greptile round 31 P2 fix):
+    // correct the cleanup topology. The round 30 comment
+    // claimed workspace retention deletes the ledger row;
+    // workspace retention in this codebase only deletes
+    // workspace content rows (chat rows + their Convex
+    // blobs) and clamps download URL lifetimes via
+    // `WORKSPACE_RETENTION_MS`. It does NOT delete
+    // `fileUploads` rows and does NOT delete B2 objects.
+    // See the analogous correction in
+    // `convex/cleanup/chatFileRetention.ts:351-381`.
     //
-    //   2. Workspace retention (`WORKSPACE_RETENTION_MS =
-    //      18 months`) eventually deletes the ledger row, so
-    //      the B2 object has a workspace-side cleanup deadline
-    //      once the workspace's retention window closes.
-    //
-    //   3. PR 3's B2 lifecycle rule sweeps B2 objects whose
-    //      owning ledger has been hard-deleted (workspace
-    //      removed before retention ran). Out of scope for
-    //      PR 2.
+    // Within PR 2, a B2 object written by a migration that
+    // races chat retention has no in-PR-2 cleanup path
+    // (chat retention already processed the row; PR 3's
+    // lifecycle rule is out of scope). The B2 object
+    // remains reachable via the workspace ledger's `b2Key`
+    // for as long as the workspace exists; PR 3 closes the
+    // loop after the workspace is gone.
     //
     // The migration action does NOT delete the B2 object
     // when `propagate` patches zero rows, because the

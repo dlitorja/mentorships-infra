@@ -355,41 +355,58 @@ export const forceDeleteExpiredChatMessageRow = internalMutation({
     // branch fires, the migration completes: B2 PUT, ledger
     // gets `b2Key + completedAt`, propagate patches zero rows
     // (the chat row is already gone), and the Convex blob is
-    // already deleted. The B2 object's lifecycle after this
-    // point:
+    // already deleted.
     //
-    //   - Chat retention: will not revisit the deleted row.
-    //     `b2Key !== undefined` cleanup in
-    //     `hardDeleteExpiredChatFiles` runs per-row, so once
-    //     the chat row is gone, chat retention has no
-    //     future chance to delete the B2 object. This is the
-    //     path Greptile's round 30 P1 diagram terminates on.
+    // PR workspace-storage-2 (Greptile round 31 P2 fix):
+    // correct the cleanup topology. The earlier round 30
+    // comment claimed workspace retention deletes the ledger
+    // row. Workspace retention in this codebase deletes
+    // workspace content rows (chat rows in `workspaceMessages`
+    // and their associated Convex blobs via the chat
+    // retention sweep) but does NOT delete `fileUploads` rows
+    // and does NOT delete B2 objects. The download URL
+    // retention deadline
+    // (`apps/platform/lib/b2-workspace-upload.ts:540-572`,
+    // `WORKSPACE_RETENTION_MS = 18 months`) only clamps the
+    // signed-URL lifetime; it does not sweep rows. So within
+    // PR 2, the only path that can delete a B2 object is chat
+    // retention's `b2Key !== undefined` branch — and that
+    // branch misses the migration race window because the
+    // chat row is already gone.
     //
-    //   - Workspace retention: the ledger still holds
-    //     `b2Key`, so the workspace can still download via
+    // The race window therefore has no in-PR-2 cleanup path
+    // for the B2 object. The boundary conditions are:
+    //
+    //   - The ledger row is preserved (round 27), so
     //     `getWorkspaceDownloadUrl({ b2Key, workspaceId })`
-    //     (see `apps/platform/lib/b2-workspace-upload.ts:175`).
-    //     The workspace retention cron
-    //     (`WORKSPACE_RETENTION_MS = 18 months`) deletes
-    //     the ledger when its workspace lifetime expires,
-    //     so the B2 object has a workspace-side cleanup
-    //     path even with the chat row gone.
+    //     keeps working for the workspace that owns the file.
+    //     The workspace can still download the file via
+    //     `apps/platform/lib/b2-workspace-upload.ts:175`.
     //
-    //   - PR 3 B2 lifecycle rule (out of scope here): sweeps
-    //     B2 objects whose owning ledger has been deleted,
-    //     closing the loop for workspaces that exited before
-    //     retention ran. Until PR 3 ships, a B2 object whose
-    //     owning workspace is hard-deleted before retention
-    //     can stay in B2 — bounded by the bucket's own
-    //     lifecycle rule (B2 default: no auto-delete).
+    //   - PR 3's B2 lifecycle rule (out of scope) sweeps B2
+    //     objects whose owning ledger has been hard-deleted
+    //     (e.g., workspace removed before retention ran).
+    //     Until PR 3 ships, a B2 object written by a
+    //     migration that races chat retention can live
+    //     indefinitely in B2 — bounded only by the bucket's
+    //     own lifecycle rule (B2 default: no auto-delete).
+    //
+    //   - If the workspace is still active, the B2 object is
+    //     reachable via the ledger's `b2Key` and serves the
+    //     same purpose as before. The "orphan" is only a
+    //     leak: a B2 object that nobody references once the
+    //     workspace is gone and PR 3 hasn't shipped.
     //
     // The round 28 alternative (delete the ledger when
     // migration is mid-flight) created a strictly worse
-    // orphan because the migration's finalize step would
-    // then throw on the missing ledger row, leaving the B2
-    // object written but unrecorded. Round 27 is correct:
-    // the ledger is the cleanup pointer, both during and
-    // after the migration window.
+    // orphan: migration finalize would throw on the missing
+    // ledger row, leaving the B2 object written but
+    // unrecorded, with no workspace download path AND no PR
+    // 3 cleanup path. Round 27 preservation is correct — the
+    // ledger is the cleanup pointer during AND after the
+    // migration window, and the B2 object leak is bounded
+    // by the workspace's continued existence plus PR 3's
+    // pending lifecycle rule.
     if (row.storageId !== undefined && row.b2Key === undefined) {
       const ledger = await ctx.db
         .query("fileUploads")
