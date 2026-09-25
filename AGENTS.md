@@ -386,7 +386,7 @@ OAuth is handled on first use — call any `sprites_*` tool, opencode spawns the
 
 **Default to a Sprite over a local opencode run whenever a task matches one of the patterns below.** Each pattern lists a typical cost, the velocity / reliability benefit, and why the spend pays for itself. Numbers assume `small-1x` (0.5 vCPU, 0.5 GB) unless noted; see [Cost awareness](#cost-awareness) for the rules that govern larger or recurring spends.
 
-- **Risky or destructive work** — schema migrations, mass refactors, "rewrite X", "delete Y". Checkpoint before, restore on rollback if it goes wrong. **~$0.05–$0.50 per run.** A botched prod migration costs many engineer-hours of incident response; the sandbox spend pays for itself on the first near-miss.
+- **Risky or destructive work** — schema migrations, mass refactors, "rewrite X", "delete Y". Checkpoint the Sprite before, and on rollback **restore the Sprite AND roll back the external state** (database migration, deployed resource, etc.) — a Sprite restore only reverts the VM filesystem; it does not undo writes already applied to Convex, Supabase, B2, GitHub, or any other external system. **~$0.05–$0.50 per run.** A botched prod migration costs many engineer-hours of incident response; the sandbox spend pays for itself on the first near-miss.
 
 - **Long-running agent jobs (multi-hour)** — Sprites idle for free and resume in <1 s after the operator returns. **~$0.04/hr; a 4 h sweep is ~$0.16.** Pays for itself the first time you don't lose hours of agent work to laptop sleep or tab refresh.
 
@@ -413,22 +413,22 @@ For interactive day-to-day editing (single-file changes, small PRs, debugging se
 
 ### Typical per-task cost ranges
 
-Assumes `small-1x` (0.5 vCPU, 0.5 GB) and the published rates above; revise if you size up.
+Estimates cover **CPU + RAM only** (compute-active time on `small-1x` = 0.5 vCPU × $0.07 + 0.5 GB × $0.011 = **~$0.0405/hr**). Persistent storage ($0.10/GB-month) is billed separately for retained disks and checkpoints, even while idle — add it when projecting cumulative spend against the disclosure thresholds below. Revise the estimates if you size up.
 
-| Task pattern | Wall time | Estimated cost |
+| Task pattern | Wall time | Estimated cost (compute only) |
 |---|---|---|
 | Schema migration rehearsal on a preview | 1–2 h | **$0.05–$0.10** |
 | 5-branch parallel CI sweep | 1–2 h | **$0.20–$0.40** |
-| Web app preview URL, idle between agent sessions | 24 h | **$0.04** |
+| Web app preview URL, idle between agent sessions | 24 h | **$0.04** (mostly idle — see storage note above) |
 | Multi-hour backfill job | 4 h | **$0.16** |
-| Long-lived dev preview left up 24/7 for a week | 168 h | **~$6.72** |
+| Long-lived dev preview left up 24/7 for a week | 168 h | **~$6.80** (plus retained storage) |
 
 ### Disclosure thresholds
 
 - **Under $3/month cumulative** — no explicit disclosure required; the table above is the standing visibility. Individual tasks stay well within this band for the patterns listed.
 - **$3/month cumulative and up** — flag the projected spend in the PR description, the Linear issue, or the operator-facing chat **before triggering**. Triggering cases:
-  - Long-lived preview URLs left up across sessions (each week of 24/7 uptime on `small-1x` ≈ $2.69)
-  - Recurring scheduled runs that accumulate compute time (5 min/day on `small-1x` ≈ $0.10/month; 1 h/day on `small-1x` ≈ $1.20/month)
+  - Long-lived preview URLs left up across sessions (each week of 24/7 uptime on `small-1x` ≈ **$6.80** compute, plus retained storage)
+  - Recurring scheduled runs that accumulate compute time (5 min/day on `small-1x` ≈ **$0.10/month**; 1 h/day on `small-1x` ≈ **$1.20/month**)
   - Parallel fan-out that grows beyond the 5-Sprite default cap
   - Larger presets (`medium-1x` and up) used routinely rather than one-off
 - **$20/month cumulative and up** — confirm with the operator before triggering. Cite the per-hour rate, projected wall time, and the cheaper alternative (local opencode, GitHub Actions free tier, Vercel preview, etc.).
