@@ -158,19 +158,22 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
     throw new UnauthorizedError("Unauthorized");
   }
 
-  // Resolve the user's role. Use the session-claim role when present and
-  // known (zero-cost, JWT-cached). Otherwise call the Clerk server API
-  // for the freshest value. Cache the API result so we can reuse the
-  // `hasKey` signal below without a second Clerk call.
+  // Resolve the user's role. Trust the session claim when it asserts a
+  // *positive* role (`instructor` / `admin`) — those are the values we
+  // gate against, and a stale claim here just means the user keeps
+  // access for the JWT lifetime after a fresh demotion, which is the
+  // pre-existing trade-off. For `student` / `support` / undefined claims
+  // we go to the live Clerk API so the explicit-demotion signal reflects
+  // the current server state, not a stale JWT.
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const claimsHasKey = claimsRole !== undefined;
   let server: { role: UserRole; hasKey: boolean } | null = null;
-  if (!isKnownRole(claimsRole)) {
+  if (!isKnownRole(claimsRole) || claimsRole === "student" || claimsRole === "support") {
     server = await getServerUserRole(userId);
   }
-  const role: UserRole = isKnownRole(claimsRole)
-    ? claimsRole
-    : server!.role;
+  const role: UserRole =
+    claimsRole === "instructor" || claimsRole === "admin"
+      ? claimsRole
+      : server!.role;
   const clerkApiHasKey = server?.hasKey ?? false;
 
   if (requiredRole === "admin" && role !== "admin") {
@@ -182,16 +185,18 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
     // or admin-created account without a Clerk publicMetadata.role).
     // Before 403'ing, ask Convex — `getCurrentInstructor` is identity-
     // scoped and only returns the row when the user has an ACTIVE (non-
-    // soft-deleted) `instructors` record. The DB fallback only runs when
-    // the role key is genuinely missing from Clerk metadata in BOTH the
-    // JWT and the live API. If the admin has explicitly set a non-
-    // instructor role (`student` / `support`) in Clerk — including via
-    // a fresh demotion whose JWT hasn't propagated yet — the fallback
-    // is skipped so explicit demotions take effect immediately. See
+    // soft-deleted) `instructors` record.
+    //
+    // We gate the fallback on `clerkApiHasKey` ONLY (not on the JWT
+    // claim) so a stale `student`/`support` claim cannot block an
+    // active instructor whose Clerk role key was simply removed.
+    // If the live Clerk API still has the role key set to anything
+    // other than `instructor`/`admin`, that is an explicit demotion and
+    // the fallback is skipped — handles the fresh-demotion JWT-lag case
+    // without the round-3 P1 stale-claim bypass. See
     // `docs/post-merge/instructor-dashboard-and-one-way-audio.md` for
     // the dual-source-of-truth analysis.
-    const hasExplicitRoleKey = claimsHasKey || clerkApiHasKey;
-    if (!hasExplicitRoleKey && (await hasInstructorRecord(userId))) {
+    if (!clerkApiHasKey && (await hasInstructorRecord(userId))) {
       return { id: userId, role: "instructor" };
     }
     throw new ForbiddenError("Instructor role required");
@@ -207,19 +212,18 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
     throw new UnauthorizedError("Unauthorized");
   }
 
-  // Resolve the user's role. Use the session-claim role when present and
-  // known (zero-cost, JWT-cached). Otherwise call the Clerk server API
-  // for the freshest value. Cache the API result so we can reuse the
-  // `hasKey` signal below without a second Clerk call.
+  // Resolve the user's role. Trust positive session claims (`instructor`
+  // / `admin`) and otherwise call the live Clerk API — see `requireRole`
+  // above for the JWT-lag trade-off rationale.
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const claimsHasKey = claimsRole !== undefined;
   let server: { role: UserRole; hasKey: boolean } | null = null;
-  if (!isKnownRole(claimsRole)) {
+  if (!isKnownRole(claimsRole) || claimsRole === "student" || claimsRole === "support") {
     server = await getServerUserRole(userId);
   }
-  const role: UserRole = isKnownRole(claimsRole)
-    ? claimsRole
-    : server!.role;
+  const role: UserRole =
+    claimsRole === "instructor" || claimsRole === "admin"
+      ? claimsRole
+      : server!.role;
   const clerkApiHasKey = server?.hasKey ?? false;
 
   if (requiredRole === "admin" && role !== "admin") {
@@ -230,12 +234,10 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
   if (requiredRole === "instructor" && role !== "instructor" && role !== "admin") {
     // HUC-47: see `requireRole` above. Same DB fallback applies to API
     // routes so they don't 403 a legitimate instructor whose Clerk
-    // metadata is missing. Explicit demotions in Clerk are respected
-    // (the fallback is skipped when the role key is set to anything
-    // other than `instructor`/`admin` in EITHER the JWT or the live
-    // API — handles the fresh-demotion JWT-lag case).
-    const hasExplicitRoleKey = claimsHasKey || clerkApiHasKey;
-    if (!hasExplicitRoleKey && (await hasInstructorRecord(userId))) {
+    // metadata is missing. Gated on the live Clerk API state only (not
+    // the JWT claim) to avoid a stale `student`/`support` claim blocking
+    // an active instructor whose Clerk role key was removed.
+    if (!clerkApiHasKey && (await hasInstructorRecord(userId))) {
       return { id: userId, role: "instructor" };
     }
     throw new ForbiddenError("Instructor role required");
