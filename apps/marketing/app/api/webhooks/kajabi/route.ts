@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { convexServerCall } from "@/lib/convex-server-call";
+import { protectWithRateLimit } from "@/lib/ratelimit";
 import { reportError } from "@/lib/observability";
 
 const kajabiPayloadSchema = z.object({
@@ -88,6 +89,44 @@ async function getOfferMapping(
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Forgeable auth: the only auth on this endpoint is the User-Agent
+  // check below — Kajabi does not publish HMAC signing for outbound
+  // webhooks (verified 2026-09-24 against help.kajabi.com +
+  // api-reference/webhooks/create-hook.md). The compensating
+  // controls, in order of effectiveness:
+  //
+  //   1. Per-IP rate limit via `protectWithRateLimit(req, "webhook")`
+  //      (10 req / 60s sliding-window per IP, defined in
+  //      `lib/ratelimit.ts`). This rejects sustained forgery bursts
+  //      (>10 attempts in 60s from one IP) with 429 before any
+  //      payload parsing or Convex call. Kajabi's legitimate traffic
+  //      is bursty but rare (1–5 events per purchase, well below the
+  //      10/60s ceiling).
+  //   2. User-Agent anomaly alerting. Invalid-UA rejections emit a
+  //      `reportError({ source: "webhooks/kajabi", level: "warn",
+  //      message: "Suspicious request …" })` event to BetterStack +
+  //      Axiom (when configured). Operators can alert on
+  //      `source = "webhooks/kajabi"` AND `level = "warn"` AND
+  //      `message CONTAINS "Suspicious request"` > N/min from one
+  //      IP. See `docs/post-merge/kajabi-webhook-security.md` for the
+  //      runbook.
+  //
+  // Threat model after these controls:
+  //   - An attacker who knows the offer IDs can still forge single
+  //     requests with `User-Agent: Kajabi/...`, each of which can
+  //     decrement one unit of real inventory. This is bounded by the
+  //     10/60s rate limit (max ~10 units/IP/min).
+  //   - The attacker cannot mint real transactions, steal money, or
+  //     exfiltrate customer data.
+  //
+  // If Kajabi support later confirms HMAC signing is available,
+  // replace both controls with signature verification (see HUC-44,
+  // which was canceled for the original premise).
+  const rateLimitResponse = await protectWithRateLimit(request, "webhook");
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const payload = await request.text();
 
@@ -127,15 +166,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "No offer ID in payload" }, { status: 400 });
     }
 
-    // Kajabi webhooks do not provide HMAC signature verification
-    // out-of-the-box (only User-Agent matching). Until signature
-    // verification is added, the User-Agent check is the only
-    // forgery mitigation; an attacker that knows the offer IDs can
-    // forge requests. This is acceptable for the current threat
-    // model because the same forgeable requests already affected
-    // the Supabase pre-PR, and a follow-up Linear issue tracks HMAC
-    // verification. See `docs/post-merge/HANDOFF.md`-style docs
-    // (or the Linear issue) for the security roadmap.
     const userAgent = request.headers.get("user-agent") || "";
     if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
       await reportError({
