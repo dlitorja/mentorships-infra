@@ -49,6 +49,48 @@ test("getPublicInventoryBySlug: returns inventory for a listed instructor", asyn
   expect(result?.groupInventory).toBe(2);
 });
 
+test("getPublicInventoryBySlug: returns explicit 0 (not null) after a real write", async () => {
+  // A Kajabi purchase can drive the field to 0. The route MUST
+  // see 0 (not null) so it knows this is a live value and does
+  // not fall back to a stale positive Supabase baseline.
+  const t = convexTest({ schema, modules });
+  await seedInstructor(t, {
+    slug: "sold-out-instructor",
+    name: "Sold Out Instructor",
+    oneOnOneInventory: 0,
+    groupInventory: 0,
+  });
+
+  const result = await t.query(api.instructors.getPublicInventoryBySlug, {
+    slug: "sold-out-instructor",
+  });
+
+  expect(result).not.toBeNull();
+  expect(result?.oneOnOneInventory).toBe(0);
+  expect(result?.groupInventory).toBe(0);
+});
+
+test("getPublicInventoryBySlug: returns null for unset fields (pre-backfill signal)", async () => {
+  // Pre-backfill: Convex fields are undefined. The route uses
+  // `null` as the signal that the field is unset and should fall
+  // back to Supabase, distinguishing it from a real 0 above.
+  const t = convexTest({ schema, modules });
+  await seedInstructor(t, {
+    slug: "new-instructor",
+    name: "New Instructor",
+    oneOnOneInventory: undefined,
+    groupInventory: undefined,
+  });
+
+  const result = await t.query(api.instructors.getPublicInventoryBySlug, {
+    slug: "new-instructor",
+  });
+
+  expect(result).not.toBeNull();
+  expect(result?.oneOnOneInventory).toBeNull();
+  expect(result?.groupInventory).toBeNull();
+});
+
 test("getPublicInventoryBySlug: returns null when instructor is not found", async () => {
   const t = convexTest({ schema, modules });
   await seedInstructor(t, { slug: "jordan-jardine", name: "Jordan Jardine" });
@@ -92,24 +134,6 @@ test("getPublicInventoryBySlug: returns null when instructor is soft-deleted", a
   });
 
   expect(result).toBeNull();
-});
-
-test("getPublicInventoryBySlug: defaults missing inventory fields to 0", async () => {
-  const t = convexTest({ schema, modules });
-  await seedInstructor(t, {
-    slug: "new-instructor",
-    name: "New Instructor",
-    oneOnOneInventory: undefined,
-    groupInventory: undefined,
-  });
-
-  const result = await t.query(api.instructors.getPublicInventoryBySlug, {
-    slug: "new-instructor",
-  });
-
-  expect(result).not.toBeNull();
-  expect(result?.oneOnOneInventory).toBe(0);
-  expect(result?.groupInventory).toBe(0);
 });
 
 test("internalGetInstructorBySlugForBackfill: returns unlisted instructors (visibility bypass)", async () => {

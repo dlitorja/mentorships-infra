@@ -381,6 +381,13 @@ export const httpGetPublicInventoryBySlug = httpAction(async (ctx, request) => {
     return new Response(
       JSON.stringify({
         success: true,
+        // Forward `null` vs `number` per field so the route can
+        // distinguish "Convex has been touched (e.g. Kajabi
+        // decremented this row to 0)" from "Convex has not been
+        // touched (the field is unset, fall back to Supabase
+        // during the rollout window)". The route collapses these
+        // to a final per-field number before sending to the
+        // client, which still receives the snake_case contract.
         one_on_one_inventory: result.oneOnOneInventory,
         group_inventory: result.groupInventory,
       }),
@@ -3149,12 +3156,6 @@ http.route({
 });
 
 http.route({
-  path: "/inventory/backfill-by-slug",
-  method: "POST",
-  handler: httpBackfillInventoryBySlug,
-});
-
-http.route({
   path: "/digest/send",
   method: "POST",
   handler: httpSendDigest,
@@ -3320,6 +3321,12 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+});
+
+http.route({
+  path: "/inventory/backfill-by-slug",
+  method: "POST",
+  handler: httpBackfillInventoryBySlug,
 });
 
 export default http;

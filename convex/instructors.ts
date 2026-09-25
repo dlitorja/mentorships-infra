@@ -1198,10 +1198,19 @@ export const getPublicInventoryBySlug = query({
     if (instructor.isListed === false) return null;
     if (instructor.deletedAt) return null;
 
+    // Return `null` vs `number` per field so callers can
+    // distinguish "Convex has been touched (a real zero from a
+    // Kajabi purchase is meaningful)" from "Convex has not been
+    // touched yet (a zero here just means 'unset, fall back to
+    // Supabase during the rollout window')". Defaulting to 0
+    // here would let the public route advertise a sold-out offer
+    // as available whenever the Supabase baseline is non-zero.
+    const oneRaw = (instructor as any).oneOnOneInventory;
+    const groupRaw = (instructor as any).groupInventory;
     return {
       slug: instructor.slug,
-      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
-      groupInventory: (instructor as any).groupInventory ?? 0,
+      oneOnOneInventory: typeof oneRaw === "number" ? oneRaw : null,
+      groupInventory: typeof groupRaw === "number" ? groupRaw : null,
     };
   },
 });
