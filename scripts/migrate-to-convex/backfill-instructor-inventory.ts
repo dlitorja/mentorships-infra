@@ -13,11 +13,16 @@
  * Usage (from project root):
  *   pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
  *
- *   # Or with explicit target deployment:
- *   CONVEX_DEPLOYMENT=prod pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *   # Or with explicit target URL (the script reads CONVEX_URL /
+ *   # NEXT_PUBLIC_CONVEX_URL — there is no CONVEX_DEPLOYMENT flag):
+ *   CONVEX_URL=https://huckleberry-prod.convex.site \
+ *     pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
  *
  *   # Dry-run (logs intended writes, makes no HTTP calls):
  *   DRY_RUN=1 pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *
+ *   # Force-overwrite even when Convex already has a non-zero value:
+ *   FORCE=1 pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
  *
  * Idempotency: the script reads the source-of-truth Supabase row
  * for every instructor and unconditionally writes the value to
@@ -71,6 +76,7 @@ if (!convexHttpKey) {
 }
 
 const DRY_RUN = process.env.DRY_RUN === "1";
+const FORCE = process.env.FORCE === "1";
 
 interface SupabaseInventoryRow {
   id: string;
@@ -98,6 +104,7 @@ async function backfillOne(row: SupabaseInventoryRow): Promise<{
     slug: row.instructor_slug,
     oneOnOneInventory: row.one_on_one_inventory,
     groupInventory: row.group_inventory,
+    ...(FORCE ? { force: true } : {}),
   };
 
   if (DRY_RUN) {
@@ -151,6 +158,11 @@ async function main() {
   console.log(`HUC-46 inventory backfill → ${convexBaseUrl}/inventory/backfill-by-slug`);
   if (DRY_RUN) {
     console.log("[DRY_RUN=1] No writes will be made.\n");
+  }
+  if (FORCE) {
+    console.log(
+      "[FORCE=1] Will overwrite non-zero Convex values. Use only after operator review.\n"
+    );
   }
 
   const { data, error } = await supabase
