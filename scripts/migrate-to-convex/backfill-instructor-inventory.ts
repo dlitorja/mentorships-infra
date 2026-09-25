@@ -181,17 +181,34 @@ async function main() {
     );
   }
 
-  const { data, error } = await supabase
-    .from("instructor_inventory")
-    .select("id, instructor_slug, one_on_one_inventory, group_inventory, updated_at, updated_by")
-    .order("instructor_slug");
+  // Greptile P2 (round 13): paginate the source read so a
+  // table that grows beyond Supabase's response limit can't
+  // silently truncate. Page size 500 keeps each request well
+  // under the 1k row default ceiling and matches the repo's
+  // pagination convention for tables that can grow.
+  const PAGE_SIZE = 500;
+  const rows: SupabaseInventoryRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("instructor_inventory")
+      .select("id, instructor_slug, one_on_one_inventory, group_inventory, updated_at, updated_by")
+      .order("instructor_slug")
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (error) {
-    console.error("Supabase read failed:", error);
-    process.exit(1);
+    if (error) {
+      console.error("Supabase read failed:", error);
+      process.exit(1);
+    }
+
+    const page = (data ?? []) as SupabaseInventoryRow[];
+    rows.push(...page);
+
+    if (page.length < PAGE_SIZE) {
+      // Last page.
+      break;
+    }
   }
 
-  const rows = (data ?? []) as SupabaseInventoryRow[];
   console.log(`Found ${rows.length} instructor_inventory rows in Supabase.\n`);
 
   let succeeded = 0;

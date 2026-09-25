@@ -1,6 +1,6 @@
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { reportError } from "@/lib/observability";
 
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -110,26 +110,28 @@ export async function protectWithRateLimit(
     // separately from the per-route error stream; `context.ip`
     // matches the `ip` field that handlers also emit on per-route
     // rejections, so a single monitor can pivot by IP across both.
-    void reportError({
-      source: "ratelimit.middleware",
-      error: new Error("Rate limit exceeded"),
-      message: `Rate limit exceeded for ${config.identifyBy} on ${req.nextUrl.pathname}`,
-      level: "warn",
-      context: {
-        policy,
-        pathname: req.nextUrl.pathname,
-        method: req.method,
-        identifier,
-        // `identifier` is the rate-limit key (IP for unauthenticated
-        // requests, Clerk userId for authenticated admin routes).
-        // Operators investigating these alerts should see the
-        // request's actual IP, not a userId masquerading as one.
-        ip: getIp(req),
-        identifyBy: config.identifyBy,
-        limit: config.short.limit,
-        window: config.short.window,
-      },
-    });
+    after(() =>
+      reportError({
+        source: "ratelimit.middleware",
+        error: new Error("Rate limit exceeded"),
+        message: `Rate limit exceeded for ${config.identifyBy} on ${req.nextUrl.pathname}`,
+        level: "warn",
+        context: {
+          policy,
+          pathname: req.nextUrl.pathname,
+          method: req.method,
+          identifier,
+          // `identifier` is the rate-limit key (IP for unauthenticated
+          // requests, Clerk userId for authenticated admin routes).
+          // Operators investigating these alerts should see the
+          // request's actual IP, not a userId masquerading as one.
+          ip: getIp(req),
+          identifyBy: config.identifyBy,
+          limit: config.short.limit,
+          window: config.short.window,
+        },
+      })
+    );
 
     return new NextResponse("Too many requests", {
       status: 429,
