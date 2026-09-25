@@ -91,7 +91,7 @@ export default async function DashboardWorkspaceIdPage({
     redirect("/dashboard");
   }
 
-  const userRole: UserRole = await getServerUserRole(clerkUserId);
+  const userRole: UserRole = (await getServerUserRole(clerkUserId)).role;
 
   return (
     <ProtectedLayout currentPath="/workspace">

@@ -79,7 +79,7 @@ export default async function WorkspaceIdPage({
     redirect("/workspace");
   }
 
-  const userRole: UserRole = await getServerUserRole(clerkUserId);
+  const userRole: UserRole = (await getServerUserRole(clerkUserId)).role;
 
   const joinSessionId =
     typeof join === "string" && convexIdSchema.safeParse(join).success

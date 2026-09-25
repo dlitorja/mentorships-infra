@@ -47,11 +47,14 @@ export async function getDbUser(): Promise<DbUser> {
   if (!userId) {
     throw new UnauthorizedError();
   }
-  // Fast path: use claims role when present; fallback to server API
+  // Fast path: use claims role when present; fallback to server API.
+  // `getServerUserRole` now returns `{ role, hasKey }` (HUC-47 refactor
+  // so callers can distinguish stale-JWT demotions from no-key-at-all);
+  // we only need the role here.
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
   const role =
     typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)
       ? (claimsRole as string)
-      : await getServerUserRole(userId);
+      : (await getServerUserRole(userId)).role;
   return { id: userId, role, timeZone: undefined };
 }
