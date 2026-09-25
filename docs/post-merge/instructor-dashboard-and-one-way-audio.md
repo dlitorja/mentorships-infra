@@ -166,7 +166,7 @@ After the role-fallback fix ships:
 
 For the audio diagnostic:
 
-- **T1.** Forced audio-play failure (e.g., mute the tab then start a call) surfaces a toast + reportError entry. ⏳ Open — manual browser test, no automated check yet.
+- **T1.** Forced audio-play failure (e.g., mute the tab then start a call) surfaces a toast + reportError entry. ✅ PR #881 — automated via 9 unit tests in `apps/platform/components/video/video-call.test.tsx`. Each test is a regression guard for a specific Greptile finding from PR #874's review rounds (round-2 P2: toast + working retry; round-3 P1: listener without `{once: true}`; round-3 P2: toast dismissal on unmount).
 
 ## References
 
