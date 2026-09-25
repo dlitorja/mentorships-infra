@@ -153,7 +153,27 @@ function buildRuntimeFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
 
 async function backfillOne(
   row: SupabaseInventoryRow,
-  options: { force: boolean; runtime: RuntimeConfig }
+  options: {
+    /**
+     * Greptile P1 (round 17): when set, force-overwrite EVERY
+     * provided field (destructive FORCE_ALL path).
+     */
+    force: boolean;
+    /**
+     * Greptile P1 (round 17): per-field force flags for the
+     * safe FORCE retry pass. The retry pass sends BOTH
+     * inventory fields (the endpoint needs them to compute
+     * alreadyMatches/alreadyTouched), but `forceOneOnOne` /
+     * `forceGroup` tell the endpoint which fields are allowed
+     * to overwrite the live value. A field NOT in this list
+     * remains "skip if non-zero / non-undefined" so a Kajabi
+     * purchase between phase 1 and phase 2 is not clobbered.
+     * Ignored when `force: true` is set.
+     */
+    forceOneOnOne?: boolean;
+    forceGroup?: boolean;
+    runtime: RuntimeConfig;
+  }
 ): Promise<{
   slug: string;
   ok: boolean;
@@ -165,19 +185,23 @@ async function backfillOne(
     slug: row.instructor_slug,
     oneOnOneInventory: row.one_on_one_inventory,
     groupInventory: row.group_inventory,
-    ...(options.force ? { force: true } : {}),
+    ...(options.force
+      ? { force: true }
+      : {
+          ...(options.forceOneOnOne ? { forceOneOnOne: true } : {}),
+          ...(options.forceGroup ? { forceGroup: true } : {}),
+        }),
   };
 
   if (runtime.dryRun) {
-    if (options.force) {
-      console.log(
-        `[dry-run] would force-patch ${row.instructor_slug}: 1:1=${row.one_on_one_inventory}, group=${row.group_inventory}`
-      );
-    } else {
-      console.log(
-        `[dry-run] would patch ${row.instructor_slug}: 1:1=${row.one_on_one_inventory}, group=${row.group_inventory}`
-      );
-    }
+    const forcedFields: string[] = [];
+    if (options.force) forcedFields.push("force (all)");
+    if (options.forceOneOnOne) forcedFields.push("forceOneOnOne");
+    if (options.forceGroup) forcedFields.push("forceGroup");
+    const forceLabel = forcedFields.length > 0 ? ` (${forcedFields.join(", ")})` : "";
+    console.log(
+      `[dry-run] would patch ${row.instructor_slug}${forceLabel}: 1:1=${row.one_on_one_inventory}, group=${row.group_inventory}`
+    );
     return { slug: row.instructor_slug, ok: true };
   }
 
@@ -260,7 +284,23 @@ async function fetchAllRows(
 
 async function runPhase(
   rowsToProcess: SupabaseInventoryRow[],
-  options: { force: boolean; phaseLabel: string; runtime: RuntimeConfig }
+  options: {
+    /**
+     * Global force flag — when true, every row is force-overwritten
+     * in its entirety. Use FORCE_ALL=1 path.
+     */
+    force: boolean;
+    /**
+     * Per-row force fields. When `force` is false, a row's
+     * per-field overrides are used instead. Maps slug →
+     * { forceOneOnOne, forceGroup }. Used by the FORCE retry
+     * pass to target only the fields reported as skipped in
+     * phase 1.
+     */
+    perRowForceFields?: Map<string, { forceOneOnOne: boolean; forceGroup: boolean }>;
+    phaseLabel: string;
+    runtime: RuntimeConfig;
+  }
 ): Promise<{
   succeeded: number;
   succeededWithSkips: number;
@@ -277,8 +317,11 @@ async function runPhase(
   const skips: SkipRecord[] = [];
 
   for (const row of rowsToProcess) {
+    const perRow = options.perRowForceFields?.get(row.instructor_slug);
     const result = await backfillOne(row, {
       force: options.force,
+      forceOneOnOne: perRow?.forceOneOnOne,
+      forceGroup: perRow?.forceGroup,
       runtime: options.runtime,
     });
     if (result.ok) {
@@ -299,6 +342,11 @@ async function runPhase(
         );
       } else if (options.force) {
         console.log(`✓ ${row.instructor_slug} (force)`);
+      } else if (perRow) {
+        const forced: string[] = [];
+        if (perRow.forceOneOnOne) forced.push("1:1");
+        if (perRow.forceGroup) forced.push("group");
+        console.log(`✓ ${row.instructor_slug} (forced: ${forced.join(", ")})`);
       } else {
         console.log(`✓ ${row.instructor_slug}`);
       }
@@ -362,14 +410,32 @@ export async function runBackfill(
   // P1 round-15 fix: a global FORCE=1 used to re-run every row
   // with force=true, which could overwrite unrelated instructors'
   // live sold-out zeros with stale positive counts.
+  //
+  // Greptile P1 (round 17): even scoped to skipped slugs, the
+  // retry resend previously overwrote BOTH inventory fields
+  // per instructor. If a Kajabi purchase decremented the OTHER
+  // field between phase 1 and phase 2, the retry replaced its
+  // live value with the stale Supabase value — potentially
+  // reopening a sold-out offer. The retry now sends per-field
+  // force flags so only the fields reported as skipped are
+  // allowed to overwrite.
   if (runtime.force && phase1.skips.length > 0) {
     console.log(
-      `\n[FORCE=1] Phase 2: re-running ${phase1.skips.length} skipped slug(s) with force=true.\n`
+      `\n[FORCE=1] Phase 2: re-running ${phase1.skips.length} skipped slug(s) with per-field force=true.\n`
     );
-    const slugSet = new Set(phase1.skips.map((s) => s.slug));
+    const perRowForceFields = new Map<string, { forceOneOnOne: boolean; forceGroup: boolean }>();
+    const slugSet = new Set<string>();
+    for (const skip of phase1.skips) {
+      slugSet.add(skip.slug);
+      perRowForceFields.set(skip.slug, {
+        forceOneOnOne: skip.fields.includes("oneOnOneInventory"),
+        forceGroup: skip.fields.includes("groupInventory"),
+      });
+    }
     const retryRows = rows.filter((r) => slugSet.has(r.instructor_slug));
     phase2 = await runPhase(retryRows, {
-      force: true,
+      force: false,
+      perRowForceFields,
       phaseLabel: "phase-2",
       runtime,
     });

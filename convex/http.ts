@@ -3196,6 +3196,13 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
     oneOnOneInventory?: unknown;
     groupInventory?: unknown;
     force?: unknown;
+    /**
+     * Per-field force flags (Greptile P1 round 17). See
+     * `internalBackfillInventory` for the rationale. When
+     * `force: true` is also set, the global override wins.
+     */
+    forceOneOnOne?: unknown;
+    forceGroup?: unknown;
   };
   try {
     body = await request.json();
@@ -3257,6 +3264,8 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
   }
 
   const force = body.force === true;
+  const forceOneOnOne = body.forceOneOnOne === true;
+  const forceGroup = body.forceGroup === true;
 
   try {
     const instructor = await ctx.runQuery(
@@ -3290,6 +3299,8 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
             ? body.groupInventory
             : undefined,
         force,
+        forceOneOnOne,
+        forceGroup,
       }
     );
 
@@ -3308,6 +3319,8 @@ export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
         patched: result.patched,
         skipped: result.skipped,
         force,
+        forceOneOnOne,
+        forceGroup,
       }),
       {
         status: 200,

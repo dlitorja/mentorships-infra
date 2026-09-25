@@ -596,7 +596,26 @@ export const internalBackfillInventory = internalMutation({
     instructorId: v.id("instructors"),
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
+    /**
+     * Force-overwrite every provided field. Used by the destructive
+     * `FORCE_ALL=1` backfill mode where the operator explicitly
+     * accepts the blast radius.
+     */
     force: v.optional(v.boolean()),
+    /**
+     * Per-field force flags. Greptile P1 (round 17): the previous
+     * FORCE=1 retry resend overwrote BOTH inventory fields for an
+     * instructor even when only one was reported as skipped. If a
+     * Kajabi purchase decremented the other field between phase 1
+     * and phase 2, the retry replaced the live count with the
+     * stale Supabase value — potentially reopening a sold-out
+     * offer. `forceOneOnOne` / `forceGroup` let the caller force
+     * ONLY the field that was skipped, preserving the live state
+     * of the untouched field. Implies no effect when `force: true`
+     * is set (global override still wins).
+     */
+    forceOneOnOne: v.optional(v.boolean()),
+    forceGroup: v.optional(v.boolean()),
   },
   returns: v.object({
     patched: v.array(v.string()),
@@ -616,12 +635,13 @@ export const internalBackfillInventory = internalMutation({
         typeof existing === "number" && existing === args.oneOnOneInventory;
       const alreadyTouched =
         typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      const fieldForce = args.force === true || args.forceOneOnOne === true;
       if (alreadyMatches) {
         // Idempotent no-op: Convex already equals the legacy
         // value. Not a real skip — the backfill script counts
         // such rows as "already reconciled" rather than
         // "incomplete migration".
-      } else if (alreadyTouched && !args.force) {
+      } else if (alreadyTouched && !fieldForce) {
         // Greptile P1 (round 12): a Convex field of `0` is a
         // REAL value (Kajabi decremented the row to zero). The
         // previous condition `existing !== 0` allowed the
@@ -631,9 +651,9 @@ export const internalBackfillInventory = internalMutation({
         // we skip any non-zero — only patch fields that have
         // never been written (undefined).
         skipped.push("oneOnOneInventory");
-      } else if (typeof existing === "number" && existing === 0 && !args.force) {
+      } else if (typeof existing === "number" && existing === 0 && !fieldForce) {
         // Real sold-out — never restore from Supabase without
-        // explicit FORCE=1.
+        // explicit FORCE=1 / forceOneOnOne=1.
         skipped.push("oneOnOneInventory");
       } else {
         updates.oneOnOneInventory = args.oneOnOneInventory;
@@ -647,14 +667,15 @@ export const internalBackfillInventory = internalMutation({
         typeof existing === "number" && existing === args.groupInventory;
       const alreadyTouched =
         typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      const fieldForce = args.force === true || args.forceGroup === true;
       if (alreadyMatches) {
         // Idempotent no-op: see oneOnOneInventory comment above.
-      } else if (alreadyTouched && !args.force) {
+      } else if (alreadyTouched && !fieldForce) {
         // See oneOnOneInventory comment above.
         skipped.push("groupInventory");
-      } else if (typeof existing === "number" && existing === 0 && !args.force) {
+      } else if (typeof existing === "number" && existing === 0 && !fieldForce) {
         // Real sold-out — never restore from Supabase without
-        // explicit FORCE=1.
+        // explicit FORCE=1 / forceGroup=1.
         skipped.push("groupInventory");
       } else {
         updates.groupInventory = args.groupInventory;

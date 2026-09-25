@@ -535,3 +535,142 @@ test("internalBackfillInventory: with force=true, restores a sold-out zero from 
   expect(result.patched).toEqual(["oneOnOneInventory", "groupInventory"]);
   expect(result.skipped).toEqual([]);
 });
+
+test("internalBackfillInventory: per-field force (forceOneOnOne) overwrites ONLY the targeted field", async () => {
+  // Greptile P1 (round 17): the FORCE retry pass previously
+  // resend both inventory fields with `force: true`, which
+  // could clobber the OTHER field if a Kajabi purchase
+  // changed it between phase 1 and phase 2. The retry now
+  // uses per-field force flags so only the field that phase 1
+  // reported as skipped is allowed to overwrite.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "per-field-force",
+    name: "Per Field Force",
+    oneOnOneInventory: 7, // live value — must be preserved
+    groupInventory: 2,    // will be the skipped field
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 99, // legacy value (different from live 7)
+      groupInventory: 99,    // legacy value (different from live 2)
+      forceOneOnOne: false,  // 1:1 is NOT in the skipped set
+      forceGroup: true,      // group IS in the skipped set
+    }
+  );
+
+  // 1:1 should be skipped (live 7 ≠ legacy 99, forceOneOnOne=false).
+  // group should be patched (forceGroup=true).
+  expect(result.patched).toEqual(["groupInventory"]);
+  expect(result.skipped).toEqual(["oneOnOneInventory"]);
+
+  const after = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "per-field-force" }
+  );
+  expect(after?.oneOnOneInventory).toBe(7); // preserved
+  expect(after?.groupInventory).toBe(99);   // overwritten
+});
+
+test("internalBackfillInventory: per-field force (forceGroup) overwrites ONLY the targeted field", async () => {
+  // Mirror of the above test but the skipped field is 1:1,
+  // not group. Verifies that forceOneOnOne / forceGroup are
+  // independent — either one can be set without affecting the
+  // other field.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "per-field-force-1on1",
+    name: "Per Field Force 1on1",
+    oneOnOneInventory: 2,   // will be the skipped field
+    groupInventory: 5,      // live value — must be preserved
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 88, // legacy value (different from live 2)
+      groupInventory: 88,    // legacy value (different from live 5)
+      forceOneOnOne: true,   // 1:1 IS in the skipped set
+      forceGroup: false,     // group is NOT in the skipped set
+    }
+  );
+
+  expect(result.patched).toEqual(["oneOnOneInventory"]);
+  expect(result.skipped).toEqual(["groupInventory"]);
+
+  const after = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "per-field-force-1on1" }
+  );
+  expect(after?.oneOnOneInventory).toBe(88); // overwritten
+  expect(after?.groupInventory).toBe(5);     // preserved
+});
+
+test("internalBackfillInventory: per-field force preserves a real sold-out zero on the non-targeted field", async () => {
+  // Greptile P1 (round 12) safeguard: a Convex field of `0` is
+  // a real value (Kajabi decremented the row to zero). The
+  // per-field force path must NOT overwrite a sold-out zero
+  // on the non-targeted field — only the targeted field can
+  // be forced.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "per-field-force-zero",
+    name: "Per Field Force Zero",
+    oneOnOneInventory: 0,    // REAL sold-out (must NOT be overwritten)
+    groupInventory: 3,       // will be the skipped field
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 99, // legacy non-zero
+      groupInventory: 99,    // legacy non-zero
+      forceOneOnOne: false,  // 1:1 is NOT in the skipped set
+      forceGroup: true,      // group IS in the skipped set
+    }
+  );
+
+  // 1:1 stays at the real sold-out zero (forceOneOnOne=false).
+  // group is forced to 99.
+  expect(result.patched).toEqual(["groupInventory"]);
+  expect(result.skipped).toEqual(["oneOnOneInventory"]);
+
+  const after = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "per-field-force-zero" }
+  );
+  expect(after?.oneOnOneInventory).toBe(0);  // preserved
+  expect(after?.groupInventory).toBe(99);    // overwritten
+});
+
+test("internalBackfillInventory: global force:true overrides per-field flags", async () => {
+  // Sanity check: setting `force: true` still applies globally,
+  // regardless of the per-field flags. Documents the precedence.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "global-wins",
+    name: "Global Wins",
+    oneOnOneInventory: 7,
+    groupInventory: 2,
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 99,
+      groupInventory: 99,
+      force: true,           // global override
+      forceOneOnOne: false,  // would normally mean "don't force 1:1"
+      forceGroup: false,
+    }
+  );
+
+  expect(result.patched).toEqual(["oneOnOneInventory", "groupInventory"]);
+  expect(result.skipped).toEqual([]);
+});
