@@ -52,18 +52,12 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
     });
   });
 
-  describe("Convex has live (non-zero) data — prefer Convex", () => {
-    it("returns Convex values verbatim when both fields are non-zero", async () => {
+  describe("Convex has live data — trust Convex, do NOT fall back to Supabase", () => {
+    it("returns Convex values verbatim when both fields are explicit numbers", async () => {
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
         one_on_one_inventory: 4,
         group_inventory: 2,
-      });
-      // Even though Supabase is consulted as a partial-fallback
-      // safety net, the route prefers Convex's non-zero values.
-      vi.mocked(getInstructorInventory).mockResolvedValue({
-        one_on_one_inventory: 99,
-        group_inventory: 99,
       });
 
       const req = makeRequest({
@@ -73,26 +67,53 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const response = await GET(req);
       const body = await response.json();
 
-      expect(convexServerCall).toHaveBeenCalledWith(
-        "/inventory/get-public-by-slug",
-        { slug: "jordan-jardine" }
-      );
       expect(response.status).toBe(200);
-      // Convex values win over Supabase's stale baseline of 99.
       expect(body).toEqual({
         one_on_one_inventory: 4,
         group_inventory: 2,
       });
+      // Both fields explicit in Convex → no Supabase fallback.
+      expect(getInstructorInventory).not.toHaveBeenCalled();
     });
 
-    it("falls back to Supabase for any field that is still zero in Convex (partial backfill)", async () => {
-      // Admin touched 1:1 manually but did not touch group. The
-      // backfill only seeded group. Supabase has the post-backfill
-      // ground truth.
+    it("preserves a live zero from a real Kajabi purchase (does NOT substitute stale Supabase)", async () => {
+      // The route must treat Convex=0 (a real value) as
+      // authoritative. A stale positive Supabase baseline would
+      // otherwise advertise a sold-out offer as available.
+      vi.mocked(convexServerCall).mockResolvedValue({
+        success: true,
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+      });
+      vi.mocked(getInstructorInventory).mockResolvedValue({
+        one_on_one_inventory: 5,
+        group_inventory: 3,
+      });
+
+      const req = makeRequest({
+        method: "GET",
+        url: `${URL}?slug=sold-out-instructor`,
+      });
+      const response = await GET(req);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      // Supabase is NOT consulted: a real zero wins.
+      expect(body).toEqual({
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+      });
+      expect(getInstructorInventory).not.toHaveBeenCalled();
+    });
+
+    it("falls back to Supabase ONLY for the field that is null (mixed state)", async () => {
+      // Admin manually patched 1:1, but did not touch group yet.
+      // Convex 1:1 is set; Convex group is null. Supabase still has
+      // the pre-patch baseline for group.
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
         one_on_one_inventory: 4,
-        group_inventory: 0,
+        group_inventory: null,
       });
       vi.mocked(getInstructorInventory).mockResolvedValue({
         one_on_one_inventory: 0,
@@ -114,14 +135,12 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
     });
   });
 
-  describe("Convex has zero across the board — read Supabase fallback", () => {
-    it("returns Supabase value when Convex has both fields as 0 (pre-backfill)", async () => {
-      // Pre-backfill: Convex defaults to null/0. Supabase still
-      // has the historical baseline.
+  describe("Convex has null/unset fields — read Supabase fallback", () => {
+    it("returns Supabase value when Convex has both fields as null (pre-backfill)", async () => {
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
-        one_on_one_inventory: 0,
-        group_inventory: 0,
+        one_on_one_inventory: null,
+        group_inventory: null,
       });
       vi.mocked(getInstructorInventory).mockResolvedValue({
         one_on_one_inventory: 5,
@@ -142,11 +161,11 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       });
     });
 
-    it("returns zeros when both Convex and Supabase are empty", async () => {
+    it("returns zeros when both Convex (null) and Supabase (null) are empty", async () => {
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
-        one_on_one_inventory: 0,
-        group_inventory: 0,
+        one_on_one_inventory: null,
+        group_inventory: null,
       });
       vi.mocked(getInstructorInventory).mockResolvedValue(null);
 
