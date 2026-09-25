@@ -178,8 +178,11 @@ backends, so no additional tagging infrastructure is needed.
 * [ ] Legitimate Kajabi deliveries still pass through cleanly. (Smoke
       test against `dev.mentorships.huckleberry.art`.)
 * [ ] BetterStack / Axiom shows a `webhooks/kajabi` warning event for
-      every invalid-UA attempt with `context.ip`, `context.userAgent`,
-      `context.offerId`.
+      every invalid-UA request that reaches the handler (i.e. the
+      first 10 of a 100-request burst, which the proxy lets through;
+      the next 90 are blocked at the proxy and never produce this
+      event). The event payload has `context.ip`, `context.userAgent`,
+      and `context.offerId`.
 * [ ] BetterStack / Axiom shows a `ratelimit.middleware` warning
       event for every 429 with `context.ip`, `context.policy`,
       `context.pathname`.
