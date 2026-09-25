@@ -614,14 +614,26 @@ export const internalBackfillInventory = internalMutation({
       const existing = instructor.oneOnOneInventory;
       const alreadyMatches =
         typeof existing === "number" && existing === args.oneOnOneInventory;
-      const alreadySetAndDifferent =
+      const alreadyTouched =
         typeof existing === "number" && existing !== 0 && !alreadyMatches;
       if (alreadyMatches) {
         // Idempotent no-op: Convex already equals the legacy
         // value. Not a real skip — the backfill script counts
         // such rows as "already reconciled" rather than
         // "incomplete migration".
-      } else if (alreadySetAndDifferent && !args.force) {
+      } else if (alreadyTouched && !args.force) {
+        // Greptile P1 (round 12): a Convex field of `0` is a
+        // REAL value (Kajabi decremented the row to zero). The
+        // previous condition `existing !== 0` allowed the
+        // backfill to overwrite a sold-out zero with the stale
+        // Supabase legacy, advertising a sold-out offer as
+        // available on the public page. Skip zero the same way
+        // we skip any non-zero — only patch fields that have
+        // never been written (undefined).
+        skipped.push("oneOnOneInventory");
+      } else if (typeof existing === "number" && existing === 0 && !args.force) {
+        // Real sold-out — never restore from Supabase without
+        // explicit FORCE=1.
         skipped.push("oneOnOneInventory");
       } else {
         updates.oneOnOneInventory = args.oneOnOneInventory;
@@ -633,11 +645,16 @@ export const internalBackfillInventory = internalMutation({
       const existing = instructor.groupInventory;
       const alreadyMatches =
         typeof existing === "number" && existing === args.groupInventory;
-      const alreadySetAndDifferent =
+      const alreadyTouched =
         typeof existing === "number" && existing !== 0 && !alreadyMatches;
       if (alreadyMatches) {
         // Idempotent no-op: see oneOnOneInventory comment above.
-      } else if (alreadySetAndDifferent && !args.force) {
+      } else if (alreadyTouched && !args.force) {
+        // See oneOnOneInventory comment above.
+        skipped.push("groupInventory");
+      } else if (typeof existing === "number" && existing === 0 && !args.force) {
+        // Real sold-out — never restore from Supabase without
+        // explicit FORCE=1.
         skipped.push("groupInventory");
       } else {
         updates.groupInventory = args.groupInventory;

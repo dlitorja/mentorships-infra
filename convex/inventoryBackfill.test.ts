@@ -257,17 +257,18 @@ test("internalBackfillInventory: skips fields when Convex value is already non-z
   expect(after?.groupInventory).toBe(1);
 });
 
-test("internalBackfillInventory: patches 0-valued fields (treated as untouched)", async () => {
+test("internalBackfillInventory: patches undefined fields (never written)", async () => {
   const t = convexTest({ schema, modules });
   const instructorId = await seedInstructor(t, {
-    slug: "zero-instructor",
-    name: "Zero Instructor",
-    oneOnOneInventory: 0,
-    groupInventory: 0,
+    slug: "untouched-instructor",
+    name: "Untouched Instructor",
+    // No Kajabi write has touched the row yet — fields are
+    // undefined (NOT 0; see round 12 policy: 0 is a real value).
+    oneOnOneInventory: undefined,
+    groupInventory: undefined,
   });
 
-  // Convex defaults to 0 when no Kajabi write has touched the row yet.
-  // The backfill should treat 0 as "untouched" and patch.
+  // The backfill should patch fields that were never written.
   const result = await t.mutation(
     internal.instructors.internalBackfillInventory,
     {
@@ -284,7 +285,7 @@ test("internalBackfillInventory: patches 0-valued fields (treated as untouched)"
 
   const after = await t.query(
     internal.instructors.internalGetInstructorBySlugForBackfill,
-    { slug: "zero-instructor" }
+    { slug: "untouched-instructor" }
   );
   expect(after?.oneOnOneInventory).toBe(5);
   expect(after?.groupInventory).toBe(3);
@@ -327,7 +328,7 @@ test("internalBackfillInventory: handles partial updates (only one field supplie
   const instructorId = await seedInstructor(t, {
     slug: "partial-instructor",
     name: "Partial Instructor",
-    oneOnOneInventory: 0,
+    oneOnOneInventory: undefined,
     groupInventory: 4,
   });
 
@@ -468,5 +469,69 @@ test("internalBackfillInventory: treats already-matching values as no-op (not sk
   );
 
   expect(result.patched).toEqual([]);
+  expect(result.skipped).toEqual([]);
+});
+
+test("internalBackfillInventory: never overwrites a real sold-out zero", async () => {
+  // Greptile P1 (round 12): if a Kajabi purchase decremented
+  // Convex to 0, a later backfill would replace that real
+  // zero with the stale Supabase legacy positive value,
+  // advertising a sold-out offer as available on the public
+  // page. The default path must treat `0` as a real value
+  // and skip; only `force: true` should restore from Supabase.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "sold-out-via-kajabi",
+    name: "Sold Out Via Kajabi",
+    oneOnOneInventory: 0,
+    groupInventory: 0,
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 8,
+      groupInventory: 4,
+    }
+  );
+
+  expect(result.patched).toEqual([]);
+  expect(result.skipped).toEqual([
+    "oneOnOneInventory",
+    "groupInventory",
+  ]);
+
+  // Confirm Convex still has the sold-out zeros.
+  const after = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "sold-out-via-kajabi" }
+  );
+  expect(after?.oneOnOneInventory).toBe(0);
+  expect(after?.groupInventory).toBe(0);
+});
+
+test("internalBackfillInventory: with force=true, restores a sold-out zero from Supabase", async () => {
+  // Operator opt-in path: FORCE=1 should let the operator
+  // restore a sold-out zero from the Supabase legacy.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "force-restore",
+    name: "Force Restore",
+    oneOnOneInventory: 0,
+    groupInventory: 0,
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 8,
+      groupInventory: 4,
+      force: true,
+    }
+  );
+
+  expect(result.patched).toEqual(["oneOnOneInventory", "groupInventory"]);
   expect(result.skipped).toEqual([]);
 });

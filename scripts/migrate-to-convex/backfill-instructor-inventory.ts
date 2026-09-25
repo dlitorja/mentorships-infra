@@ -11,18 +11,19 @@
  * "Insufficient inventory".
  *
  * Usage (from project root):
- *   pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *   pnpm backfill:inventory
  *
  *   # Or with explicit target URL (the script reads CONVEX_URL /
  *   # NEXT_PUBLIC_CONVEX_URL — there is no CONVEX_DEPLOYMENT flag):
  *   CONVEX_URL=https://huckleberry-prod.convex.site \
- *     pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *     pnpm backfill:inventory
  *
  *   # Dry-run (logs intended writes, makes no HTTP calls):
- *   DRY_RUN=1 pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *   DRY_RUN=1 pnpm backfill:inventory
  *
- *   # Force-overwrite even when Convex already has a non-zero value:
- *   FORCE=1 pnpm tsx scripts/migrate-to-convex/backfill-instructor-inventory.ts
+ *   # Force-overwrite even when Convex already has a non-zero
+ *   # value OR a real sold-out zero:
+ *   FORCE=1 pnpm backfill:inventory
  *
  * Idempotency: the script reads the source-of-truth Supabase row
  * for every instructor and unconditionally writes the value to
