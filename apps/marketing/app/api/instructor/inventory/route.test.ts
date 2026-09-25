@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase-inventory", () => ({
 }));
 
 import { GET } from "./route";
-import { convexServerCall } from "@/lib/convex-server-call";
+import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
 import { getInstructorInventory } from "@/lib/supabase-inventory";
 
 const URL = "https://huckleberry-drive.example.com/api/instructor/inventory";
@@ -271,6 +271,35 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       });
       // Visibility override: Supabase must NOT be consulted.
       expect(getInstructorInventory).not.toHaveBeenCalled();
+    });
+
+    it("treats a 404 from Convex as `convex-not-found` (NOT a transport error)", async () => {
+      // Greptile P2 (round 9): `convexServerCall` throws on any
+      // non-2xx status. The HTTP action returns 404 when the
+      // instructor is not publicly visible. Without explicit
+      // handling, the route would label the response
+      // `convex-error` instead of `convex-not-found`, making it
+      // indistinguishable from a transport outage.
+      vi.mocked(convexServerCall).mockRejectedValue(
+        new ConvexServerCallError(
+          "Convex HTTP 404 at /inventory/get-public-by-slug: Instructor not found",
+          404
+        )
+      );
+
+      const req = makeRequest({
+        method: "GET",
+        url: `${URL}?slug=hidden-instructor`,
+      });
+      const response = await GET(req);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-not-found");
+      expect(body).toEqual({
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+      });
     });
   });
 });

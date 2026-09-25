@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { convexServerCall } from "@/lib/convex-server-call";
+import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
 import type { getInstructorInventory as getInstructorInventoryType } from "@/lib/supabase-inventory";
 
 interface PublicInventoryResponse {
@@ -171,6 +171,32 @@ export async function GET(request: NextRequest) {
         convexRefused = true;
       }
     } catch (error) {
+      // Greptile P2 (round 9): `convexServerCall` throws on any
+      // non-2xx status, including the 404 the HTTP action returns
+      // when the instructor is not publicly visible. Without
+      // explicit handling, that 404 lands here as a "transport
+      // error" and the source header misclassifies the response as
+      // `convex-error` instead of `convex-not-found`. Operators
+      // investigating "sold out" complaints would not be able to
+      // distinguish a hidden instructor from a real outage.
+      //
+      // Treat a 404 from Convex as a not-found visibility result
+      // (not an outage): the instructor is hidden / unlisted /
+      // soft-deleted / genuinely missing. Surface this with the
+      // `convex-not-found` source so it is distinguishable from
+      // both a real sold-out and a transport failure.
+      if (
+        error instanceof ConvexServerCallError &&
+        error.status === 404
+      ) {
+        return NextResponse.json(ZERO_INVENTORY, {
+          status: 200,
+          headers: {
+            "X-Inventory-Source": "convex-not-found" as InventorySource,
+          },
+        });
+      }
+
       // Convex unavailable (transport-level error). We do NOT
       // fall back to Supabase here: Supabase may hold a stale
       // positive value for an offer that Kajabi has already
