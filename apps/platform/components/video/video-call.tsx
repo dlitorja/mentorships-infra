@@ -60,16 +60,27 @@ export function VideoCall() {
   // prompt left the user unable to recover.
   const [retryAudioEl, setRetryAudioEl] = useState<HTMLAudioElement | null>(null);
   useEffect(() => {
-    if (!retryAudioEl) return;
+    if (!retryAudioEl) {
+      // Component unmounted (call ended, route changed, etc.) or
+      // retry succeeded — either way, the recovery prompt is no
+      // longer actionable. Dismiss the persistent toast so the
+      // user is not left staring at "Call audio isn't playing"
+      // for a call they have already left. Greptile round-3 P2.
+      toast.dismiss("audio-needs-gesture");
+      return;
+    }
     let cancelled = false;
     const onUserGesture = async () => {
+      if (cancelled) return;
       try {
         await retryAudioEl.play();
       } catch (err) {
         // Still blocked — likely the click target was inside an
-        // iframe or the element is detached. Keep the flag set so
-        // the next click retries; surface to observability so the
-        // operator can see the recovery path itself failed.
+        // iframe, the element is detached, or the browser still
+        // considers this gesture invalid. Keep the listener (no
+        // `{ once: true }`) so the next user click retries again,
+        // and surface to observability so the operator can see
+        // the recovery path itself failed. Greptile round-3 P1.
         await reportError({
           source: "video-call.audio-retry-failed",
           error: err instanceof Error ? err : new Error(String(err)),
@@ -84,10 +95,11 @@ export function VideoCall() {
       toast.dismiss("audio-needs-gesture");
       toast.success("Audio restored");
     };
-    document.addEventListener("click", onUserGesture, { once: true });
+    document.addEventListener("click", onUserGesture);
     return () => {
       cancelled = true;
       document.removeEventListener("click", onUserGesture);
+      toast.dismiss("audio-needs-gesture");
     };
   }, [retryAudioEl, session?.sessionId]);
   // Daily exposes a separate "screen" filter that returns participants
