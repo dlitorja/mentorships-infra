@@ -289,6 +289,11 @@ describe("Kajabi webhook route", () => {
         newInventory: 9,
         quantity: 1,
       });
+      // PII: purchaseId embeds buyer email when Kajabi sends a
+      // transaction id, so it must NOT be present in the event sent
+      // to BetterStack/Axiom. Operators pivot via the
+      // inventoryChangeLog Convex table instead.
+      expect(inventoryCalls[0][0].context).not.toHaveProperty("purchaseId");
     });
   });
 

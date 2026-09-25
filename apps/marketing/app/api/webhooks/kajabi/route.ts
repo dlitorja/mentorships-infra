@@ -283,6 +283,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // emit point. The event payload includes previousInventory,
       // newInventory, and quantity so a monitor can alert on
       // drop > N units/hour per instructor.
+      //
+      // PII NOTE: `purchaseId` is intentionally NOT included in this
+      // event context because the Webhook's `purchaseId` value embeds
+      // the buyer's email address when Kajabi sends a transaction id.
+      // Sending that to BetterStack/Axiom would expose buyer PII in
+      // routine operational logs. Operators who need to pivot from an
+      // inventory drop to a specific purchase should join via the
+      // `inventoryChangeLog` Convex table (which is the authoritative
+      // source and is not exported to the observability backends).
       if (!alreadyApplied && newInventory !== null) {
         await reportError({
           source: "inventory.changed",
@@ -297,7 +306,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             previousInventory,
             newInventory,
             quantity,
-            purchaseId,
           },
         });
       }
