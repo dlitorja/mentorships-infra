@@ -324,6 +324,80 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** HUC-46: public read of `oneOnOneInventory` + `groupInventory` by slug.
+ *
+ * The marketing `/api/instructor/inventory` route used to read the
+ * legacy Supabase `instructor_inventory` table. After PR #873 made
+ * Convex the sole inventory write target, that read became stale
+ * (a Kajabi purchase decremented Convex but never touched Supabase),
+ * so a sold-out offer kept showing the Kajabi checkout CTA instead
+ * of the waitlist action.
+ *
+ * This HTTP action reads from `getPublicInventoryBySlug`, which is
+ * the narrow public query added alongside it (returns only the
+ * inventory fields the public offer page needs). It is auth-gated
+ * with the same `verifyAuth` flow as the rest of `convex/http.ts`
+ * so the marketing API route continues to authenticate against
+ * `CONVEX_HTTP_KEY` like every other internal caller.
+ */
+export const httpGetPublicInventoryBySlug = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let slug: string;
+  try {
+    const body = await request.json();
+    slug = body.slug;
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: "Invalid JSON body" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (typeof slug !== "string" || slug.length === 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing or empty slug" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  try {
+    const result = await ctx.runQuery(api.instructors.getPublicInventoryBySlug, { slug });
+    if (!result) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Instructor not found" }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        one_on_one_inventory: result.oneOnOneInventory,
+        group_inventory: result.groupInventory,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 /** Syncs instructor inventory from admin (called by Inngest after Drizzle writes). Looks up by slug and creates/updates. */
 export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -3069,9 +3143,151 @@ http.route({
 });
 
 http.route({
+  path: "/inventory/get-public-by-slug",
+  method: "POST",
+  handler: httpGetPublicInventoryBySlug,
+});
+
+http.route({
+  path: "/inventory/backfill-by-slug",
+  method: "POST",
+  handler: httpBackfillInventoryBySlug,
+});
+
+http.route({
   path: "/digest/send",
   method: "POST",
   handler: httpSendDigest,
+});
+
+/** HUC-46: one-shot backfill of `instructor_inventory` from Supabase to Convex.
+ *
+ * Reads `oneOnOneInventory` + `groupInventory` from the Supabase
+ * `instructor_inventory` table and writes them onto the matching
+ * `instructors` row in Convex. The script that drives this is
+ * `scripts/migrate-to-convex/backfill-instructor-inventory.ts`.
+ *
+ * The HTTP action runs as the system identity inside Convex
+ * (bypassing the admin-only auth check that `updateInstructor`
+ * enforces for client callers), so the script does not need a
+ * Clerk admin session. Bearer auth via `verifyAuth` keeps the
+ * endpoint private to server-to-server callers.
+ *
+ * This endpoint deliberately uses an absolute `db.patch` instead
+ * of `applyInventoryChange` (which is a decrement) because the
+ * script's job is to copy the existing Supabase value, not to
+ * record a delta against a zero baseline.
+ */
+export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: {
+    slug?: unknown;
+    oneOnOneInventory?: unknown;
+    groupInventory?: unknown;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: "Invalid JSON body" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const slug = body.slug;
+  if (typeof slug !== "string" || slug.length === 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing or empty slug" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (
+    body.oneOnOneInventory !== undefined &&
+    (typeof body.oneOnOneInventory !== "number" ||
+      !Number.isInteger(body.oneOnOneInventory) ||
+      body.oneOnOneInventory < 0)
+  ) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "oneOnOneInventory must be a non-negative integer",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (
+    body.groupInventory !== undefined &&
+    (typeof body.groupInventory !== "number" ||
+      !Number.isInteger(body.groupInventory) ||
+      body.groupInventory < 0)
+  ) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "groupInventory must be a non-negative integer",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  try {
+    const instructor = await ctx.runQuery(api.instructors.getInstructorBySlug, {
+      slug,
+    });
+    if (!instructor) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Instructor not found: ${slug}` }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const updates: Record<string, number> = { updatedAt: Date.now() };
+    if (body.oneOnOneInventory !== undefined) {
+      updates.oneOnOneInventory = body.oneOnOneInventory;
+    }
+    if (body.groupInventory !== undefined) {
+      updates.groupInventory = body.groupInventory;
+    }
+
+    await ctx.db.patch(instructor._id, updates);
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        slug,
+        oneOnOneInventory: updates.oneOnOneInventory,
+        groupInventory: updates.groupInventory,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 });
 
 export default http;

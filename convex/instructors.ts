@@ -1074,6 +1074,43 @@ export const getInstructorBySlug = query({
   },
 });
 
+/** HUC-46: narrow public read for the marketing public offer page.
+ *
+ * Returns ONLY the inventory fields the public offer page needs to
+ * decide between "Sold Out / Join Waitlist" vs "Buy (Kajabi checkout)".
+ * Intentionally does NOT return the full `instructors` document —
+ * `getInstructorBySlug` already serves the full public shape for
+ * marketing pages that need the profile. This query exists so the
+ * public inventory read path can be cheaply subscribed to from a
+ * client component (the marketing `OffersSection`) without paying
+ * the egress cost of the full document on every inventory update.
+ *
+ * Returns `null` if the slug does not exist or the instructor is
+ * unlisted / soft-deleted, matching `getInstructorBySlug`'s
+ * visibility rules. The HTTP wrapper at `/inventory/get-public-by-slug`
+ * (in `convex/http.ts`) serialises `null` as a 404 so callers can
+ * distinguish "no such instructor" from "instructor exists with
+ * zero inventory".
+ */
+export const getPublicInventoryBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!instructor) return null;
+    if (instructor.isListed === false) return null;
+    if (instructor.deletedAt) return null;
+
+    return {
+      slug: instructor.slug,
+      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
+      groupInventory: (instructor as any).groupInventory ?? 0,
+    };
+  },
+});
+
 // PR #convex-egress-5: cap public/admin instructor listings and return a
 // narrow shape so we don't stream full portfolios to listing pages.
 const DEFAULT_INSTRUCTOR_LIST_LIMIT = 100;
