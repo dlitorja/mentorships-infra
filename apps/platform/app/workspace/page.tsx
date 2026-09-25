@@ -51,7 +51,7 @@ export default async function WorkspacePage() {
   // `getServerUserRole` call (a Clerk API lookup) entirely on the
   // hot path so the user lands in their workspace without the
   // extra round-trip.
-  const userRole: UserRole = await getServerUserRole(clerkUserId);
+  const userRole: UserRole = (await getServerUserRole(clerkUserId)).role;
 
   return (
     <ProtectedLayout currentPath="/workspace">

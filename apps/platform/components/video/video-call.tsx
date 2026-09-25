@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   DailyAudio,
   DailyVideo,
@@ -46,6 +47,49 @@ export function VideoCall() {
     errorMessage,
   } = useVideoCallContext();
   const participantIds = useParticipantIds();
+  // HUC-48: when <DailyAudio onPlayFailed> fires (Chrome autoplay policy
+  // blocking playback after a programmatic auto-join), the user must
+  // gesture in the tab before audio can resume. The exception exposes
+  // the underlying `HTMLAudioElement` (Daily's `<DailyAudio>` renders
+  // one per remote track); we hold a reference and register a one-shot
+  // document-level click listener that re-invokes `audioEl.play()` on
+  // the user's behalf. After the user gesture the browser allows the
+  // promise to resolve, the listener removes itself, and the recovery
+  // toast is dismissed. Greptile round-2 P2: previous version only
+  // showed the toast without wiring a retry, so the "click anywhere"
+  // prompt left the user unable to recover.
+  const [retryAudioEl, setRetryAudioEl] = useState<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    if (!retryAudioEl) return;
+    let cancelled = false;
+    const onUserGesture = async () => {
+      try {
+        await retryAudioEl.play();
+      } catch (err) {
+        // Still blocked — likely the click target was inside an
+        // iframe or the element is detached. Keep the flag set so
+        // the next click retries; surface to observability so the
+        // operator can see the recovery path itself failed.
+        await reportError({
+          source: "video-call.audio-retry-failed",
+          error: err instanceof Error ? err : new Error(String(err)),
+          level: "warn",
+          message: "audioEl.play() after user gesture failed",
+          context: { sessionId: session?.sessionId ?? null },
+        });
+        return;
+      }
+      if (cancelled) return;
+      setRetryAudioEl(null);
+      toast.dismiss("audio-needs-gesture");
+      toast.success("Audio restored");
+    };
+    document.addEventListener("click", onUserGesture, { once: true });
+    return () => {
+      cancelled = true;
+      document.removeEventListener("click", onUserGesture);
+    };
+  }, [retryAudioEl, session?.sessionId]);
   // Daily exposes a separate "screen" filter that returns participants
   // where screen-audio or screen-video is currently tracked. Local
   // screen-share appears as a NEW participant with `session_id` ending
@@ -229,10 +273,12 @@ export function VideoCall() {
        * `HTMLAudioElement.play()` promise (e.g. Chrome autoplay policy
        * blocking playback after a programmatic auto-join on a deep-link
        * `/workspace/[id]?join=...`) surfaces as a user-visible toast +
-       * a `reportError` event the operator can grep for. NB: `onPlayFailed`
-       * only fires when the audio element's play() is rejected — it does
-       * NOT detect muted tab, OS-level mute, or wrong audio output device.
-       * For those, follow the operator runbook in
+       * a `reportError` event the operator can grep for AND registers a
+       * one-shot click listener that calls `daily.startAudio()` so the
+       * "click anywhere" recovery instruction actually works. NB:
+       * `onPlayFailed` only fires when the audio element's play() is
+       * rejected — it does NOT detect muted tab, OS-level mute, or wrong
+       * audio output device. For those, follow the operator runbook in
        * `docs/post-merge/instructor-dashboard-and-one-way-audio.md`
        * (cause #1 in the doc). Without this callback, the "playback
        * rejected" mode arrived with no telemetry at all. */}
@@ -241,9 +287,19 @@ export function VideoCall() {
         onPlayFailed={(e) => {
           const message =
             typeof e?.message === "string" ? e.message : "unknown reason";
+          // Grab the underlying HTMLAudioElement from the exception so
+          // the click-retry path can re-invoke `play()` on the same
+          // element. Without this, the recovery toast's "Click
+          // anywhere" instruction would leave the user with no way
+          // to actually resume playback — Greptile round-2 P2.
+          if (e?.target instanceof HTMLAudioElement) {
+            setRetryAudioEl(e.target);
+          }
           toast.error("Call audio isn't playing", {
+            id: "audio-needs-gesture",
             description:
               "Click anywhere in this tab to allow audio playback, then check your speakers or headphones.",
+            duration: Number.POSITIVE_INFINITY,
           });
           void reportError({
             source: "video-call.audio-play-failed",

@@ -106,14 +106,29 @@ export async function getClerkUserEmail(userId: string): Promise<string | null> 
   }
 }
 
-export async function getServerUserRole(userId: string): Promise<UserRole> {
+/**
+ * Live Clerk role lookup. Returns both the resolved role and whether the
+ * role key was explicitly set in `publicMetadata` — the latter is what
+ * callers need to distinguish a deliberate demotion (`role: "student"`
+ * set by an admin) from a stale JWT (no role key in claims, but Clerk
+ * has one). The default-`"student"` return applies only when (a) the
+ * API succeeded but the role key is absent, or (b) the API failed
+ * (with a `reportError` warning). Both produce `hasKey: false`.
+ */
+export async function getServerUserRole(
+  userId: string
+): Promise<{ role: UserRole; hasKey: boolean }> {
   try {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
     const role = user.publicMetadata?.role;
     if (isKnownRole(role)) {
-      return role;
+      return { role, hasKey: true };
     }
+    // Clerk succeeded but the role key is missing — default to "student"
+    // for backward compatibility, but signal `hasKey: false` so the
+    // instructor fallback can still widen access (HUC-47).
+    return { role: "student", hasKey: false };
   } catch (err) {
     // Emit a warning so outages are observable; fall through to default.
     await reportError({
@@ -123,8 +138,8 @@ export async function getServerUserRole(userId: string): Promise<UserRole> {
       message: "Failed to fetch user role from Clerk API, defaulting to 'student'",
       context: { userId },
     });
+    return { role: "student", hasKey: false };
   }
-  return "student";
 }
 
 export async function requireAuth() {
@@ -143,9 +158,20 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
     throw new UnauthorizedError("Unauthorized");
   }
 
-  // Fast path: use claims role when present; fallback to server API
+  // Resolve the user's role. Use the session-claim role when present and
+  // known (zero-cost, JWT-cached). Otherwise call the Clerk server API
+  // for the freshest value. Cache the API result so we can reuse the
+  // `hasKey` signal below without a second Clerk call.
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
+  const claimsHasKey = claimsRole !== undefined;
+  let server: { role: UserRole; hasKey: boolean } | null = null;
+  if (!isKnownRole(claimsRole)) {
+    server = await getServerUserRole(userId);
+  }
+  const role: UserRole = isKnownRole(claimsRole)
+    ? claimsRole
+    : server!.role;
+  const clerkApiHasKey = server?.hasKey ?? false;
 
   if (requiredRole === "admin" && role !== "admin") {
     throw new ForbiddenError("Admin role required");
@@ -157,14 +183,14 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
     // Before 403'ing, ask Convex — `getCurrentInstructor` is identity-
     // scoped and only returns the row when the user has an ACTIVE (non-
     // soft-deleted) `instructors` record. The DB fallback only runs when
-    // the role key is genuinely missing from Clerk metadata. If the admin
-    // has explicitly set a non-instructor role (`student` / `support`)
-    // in Clerk, that's a demotion signal — the fallback is skipped so
-    // explicit demotions take effect immediately. See
+    // the role key is genuinely missing from Clerk metadata in BOTH the
+    // JWT and the live API. If the admin has explicitly set a non-
+    // instructor role (`student` / `support`) in Clerk — including via
+    // a fresh demotion whose JWT hasn't propagated yet — the fallback
+    // is skipped so explicit demotions take effect immediately. See
     // `docs/post-merge/instructor-dashboard-and-one-way-audio.md` for
     // the dual-source-of-truth analysis.
-    const hasExplicitRoleKey =
-      (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role !== undefined;
+    const hasExplicitRoleKey = claimsHasKey || clerkApiHasKey;
     if (!hasExplicitRoleKey && (await hasInstructorRecord(userId))) {
       return { id: userId, role: "instructor" };
     }
@@ -181,9 +207,20 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
     throw new UnauthorizedError("Unauthorized");
   }
 
-  // Fast path: use claims role when present; fallback to server API
+  // Resolve the user's role. Use the session-claim role when present and
+  // known (zero-cost, JWT-cached). Otherwise call the Clerk server API
+  // for the freshest value. Cache the API result so we can reuse the
+  // `hasKey` signal below without a second Clerk call.
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
+  const claimsHasKey = claimsRole !== undefined;
+  let server: { role: UserRole; hasKey: boolean } | null = null;
+  if (!isKnownRole(claimsRole)) {
+    server = await getServerUserRole(userId);
+  }
+  const role: UserRole = isKnownRole(claimsRole)
+    ? claimsRole
+    : server!.role;
+  const clerkApiHasKey = server?.hasKey ?? false;
 
   if (requiredRole === "admin" && role !== "admin") {
     // Typed error so API handlers return 403
@@ -195,9 +232,9 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
     // routes so they don't 403 a legitimate instructor whose Clerk
     // metadata is missing. Explicit demotions in Clerk are respected
     // (the fallback is skipped when the role key is set to anything
-    // other than `instructor`/`admin`).
-    const hasExplicitRoleKey =
-      (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role !== undefined;
+    // other than `instructor`/`admin` in EITHER the JWT or the live
+    // API — handles the fresh-demotion JWT-lag case).
+    const hasExplicitRoleKey = claimsHasKey || clerkApiHasKey;
     if (!hasExplicitRoleKey && (await hasInstructorRecord(userId))) {
       return { id: userId, role: "instructor" };
     }
@@ -219,7 +256,9 @@ export async function requireAdminOrSupportForApi(): Promise<{ id: string; role:
     throw new UnauthorizedError("Unauthorized");
   }
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
+  const role: UserRole = isKnownRole(claimsRole)
+    ? claimsRole
+    : (await getServerUserRole(userId)).role;
   if (role !== "admin" && role !== "support") {
     throw new ForbiddenError("Admin or support role required");
   }
