@@ -378,3 +378,29 @@ test("internalGetInstructorBySlugForBackfill: returns null when only a soft-dele
 
   expect(resolved).toBeNull();
 });
+
+test("internalBackfillInventory: treats already-matching values as no-op (not skipped)", async () => {
+  // Greptile P2: an idempotent re-run where the Convex value
+  // already equals the Supabase legacy value should be treated
+  // as reconciled (neither patched nor skipped), so the backfill
+  // script can count such rows as complete and not exit non-zero.
+  const t = convexTest({ schema, modules });
+  const instructorId = await seedInstructor(t, {
+    slug: "reconciled-instructor",
+    name: "Reconciled Instructor",
+    oneOnOneInventory: 4,
+    groupInventory: 7,
+  });
+
+  const result = await t.mutation(
+    internal.instructors.internalBackfillInventory,
+    {
+      instructorId: instructorId as any,
+      oneOnOneInventory: 4, // already equals Convex
+      groupInventory: 7, // already equals Convex
+    }
+  );
+
+  expect(result.patched).toEqual([]);
+  expect(result.skipped).toEqual([]);
+});

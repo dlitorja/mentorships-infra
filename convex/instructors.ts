@@ -606,8 +606,16 @@ export const internalBackfillInventory = internalMutation({
 
     if (args.oneOnOneInventory !== undefined) {
       const existing = instructor.oneOnOneInventory;
-      const alreadySet = typeof existing === "number" && existing !== 0;
-      if (alreadySet && !args.force) {
+      const alreadyMatches =
+        typeof existing === "number" && existing === args.oneOnOneInventory;
+      const alreadySetAndDifferent =
+        typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      if (alreadyMatches) {
+        // Idempotent no-op: Convex already equals the legacy
+        // value. Not a real skip — the backfill script counts
+        // such rows as "already reconciled" rather than
+        // "incomplete migration".
+      } else if (alreadySetAndDifferent && !args.force) {
         skipped.push("oneOnOneInventory");
       } else {
         updates.oneOnOneInventory = args.oneOnOneInventory;
@@ -617,8 +625,13 @@ export const internalBackfillInventory = internalMutation({
 
     if (args.groupInventory !== undefined) {
       const existing = instructor.groupInventory;
-      const alreadySet = typeof existing === "number" && existing !== 0;
-      if (alreadySet && !args.force) {
+      const alreadyMatches =
+        typeof existing === "number" && existing === args.groupInventory;
+      const alreadySetAndDifferent =
+        typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      if (alreadyMatches) {
+        // Idempotent no-op: see oneOnOneInventory comment above.
+      } else if (alreadySetAndDifferent && !args.force) {
         skipped.push("groupInventory");
       } else {
         updates.groupInventory = args.groupInventory;
