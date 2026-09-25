@@ -120,7 +120,12 @@ export async function protectWithRateLimit(
         pathname: req.nextUrl.pathname,
         method: req.method,
         identifier,
-        ip: identifier,
+        // `identifier` is the rate-limit key (IP for unauthenticated
+        // requests, Clerk userId for authenticated admin routes).
+        // Operators investigating these alerts should see the
+        // request's actual IP, not a userId masquerading as one.
+        ip: getIp(req),
+        identifyBy: config.identifyBy,
         limit: config.short.limit,
         window: config.short.window,
       },
