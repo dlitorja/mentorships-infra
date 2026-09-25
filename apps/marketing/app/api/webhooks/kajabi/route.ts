@@ -292,8 +292,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // inventory drop to a specific purchase should join via the
       // `inventoryChangeLog` Convex table (which is the authoritative
       // source and is not exported to the observability backends).
+      //
+      // Latency: the emit is fire-and-forget (`void reportError`) so
+      // a slow observability backend cannot delay Kajabi's webhook
+      // acknowledgement. Convex is the authoritative inventory store
+      // and is already committed by this point.
       if (!alreadyApplied && newInventory !== null) {
-        await reportError({
+        void reportError({
           source: "inventory.changed",
           error: new Error(
             `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
