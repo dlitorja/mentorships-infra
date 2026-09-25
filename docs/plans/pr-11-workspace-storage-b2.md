@@ -1,6 +1,6 @@
 # PR 11 Plan: Workspace File Storage → Backblaze B2 (widen → migrate → narrow)
 
-**Status (updated):** PR 1 (widen) merged as commit `a7dbdfc9` on `main` (PR #872, 2026-09-24) after explicit user override of AGENTS.md merge policy (Greptile bot had not re-reviewed since round 17; local confidence 2/5; CodeRabbit skipped per 10-star rule). PR 2 (migrate) implementation in `feat/workspace-storage-pr2` worktree; PR 3 (narrow) still pending.
+**Status (updated):** PR 1 (widen) merged as commit `a7dbdfc9` on `main` (PR #872, 2026-09-24) after explicit user override of AGENTS.md merge policy (Greptile bot had not re-reviewed since round 17; local confidence 2/5; CodeRabbit skipped per 10-star rule). PR 2 (migrate) implementation in PR #876 (branch `feat/workspace-storage-pr2`); Greptile bot reviewed commit `2c208a97` at confidence 1/5 with 4 P1s + 1 P2 — all five addressed in commit `7d8b85b0` on the same branch (force-pushed, awaiting Greptile bot re-review). PR 3 (narrow) still pending.
 
 **PR 2 commit plan (subject to Greptile + CodeRabbit review per AGENTS.md merge policy; do NOT merge without explicit user confirmation):**
 - Schema: `fileUploads.migratedAt`, `fileUploads.scheduledBackfillAt`, index `by_b2Key_uploadedAt`.
