@@ -5,9 +5,9 @@ Two production-affecting symptoms on the same instructor in the same session on 
 1. `GET /instructor/dashboard` returns **500 Internal Server Error** with `Error [ForbiddenError]: Instructor role required` (digest `825625058`) — also surfaced earlier as `Error [UnauthorizedError]: Unauthorized` (digest `2290410895`).
 2. **One-way audio in the live call** — the student hears the instructor; the instructor cannot hear the student. Instructor reports seeing the browser's "sound playing" icon on the tab but hearing no sound from the speakers.
 
-Both are documented below. Code-level fixes live on branch `fix/instructor-dashboard-500-and-audio`. Tracked in Linear:
-- `HUC-??` — `/instructor/dashboard` returns 500 for instructors whose Clerk `publicMetadata.role` is missing or non-`instructor` (PR link forthcoming).
-- `HUC-??` — One-way call audio (instructor can't hear student); root cause unclear; see "Open questions" below.
+Both are documented below. Code-level fixes merged to `main` via PR #874 (squash `98a1b276`). Tracked in Linear:
+- **HUC-47** — `/instructor/dashboard` returns 500 for instructors whose Clerk `publicMetadata.role` is missing or non-`instructor` — fixed in PR #874, T2 unit tests added in PR #877 (commit `18e34845`).
+- **HUC-48** — One-way call audio (instructor can't hear student); root cause unclear; see "Open questions" below. Fixed as diagnostic-only in PR #874.
 
 ## Timeline (UTC, from Vercel + browser console)
 
@@ -159,14 +159,14 @@ If the diagnostic onPlayFailed handler ships (see "What the code can fix" above)
 
 After the role-fallback fix ships:
 
-- **T1.** `pnpm typecheck` and `pnpm lint` pass on the touched files (`apps/platform/lib/auth-helpers.ts`, `apps/platform/components/video/video-call.tsx`).
-- **T2.** Unit tests for `requireRole("instructor")` and `requireRoleForApi("instructor")` cover the new fallback path: throws on no-instructor-record, returns instructor on DB match.
-- **T3.** Manual smoke on `dev.mentorships.huckleberry.art`: log in as an instructor whose Clerk `publicMetadata.role` is undefined; `/instructor/dashboard` renders the dashboard skeleton (not the 500 error page).
-- **T4.** Greptile + CodeRabbit review both approve the PR before merge (per `AGENTS.md` PR Merge Policy).
+- **T1.** `pnpm typecheck` and `pnpm lint` pass on the touched files (`apps/platform/lib/auth-helpers.ts`, `apps/platform/components/video/video-call.tsx`). ✅ PR #874 CI green.
+- **T2.** Unit tests for `requireRole("instructor")` and `requireRoleForApi("instructor")` cover the new fallback path: throws on no-instructor-record, returns instructor on DB match. ✅ PR #877 — 30 unit tests in `apps/platform/lib/auth-helpers.test.ts` covering the full Greptile review matrix (round-1 P1 soft-delete filter, round-3 P1 stale `student` claim, round-3 P2 explicit demotion via Clerk API, admin gate, identity drift, Convex outage swallowing). Greptile CLI round 3 confidence 5/5, 0 review comments.
+- **T3.** Manual smoke on `dev.mentorships.huckleberry.art`: log in as an instructor whose Clerk `publicMetadata.role` is undefined; `/instructor/dashboard` renders the dashboard skeleton (not the 500 error page). ⏳ Open — requires operator action (impersonate the failing instructor from session `mentorship-kd7b06sx4gm0av5r8ym8yxk4nx8f1b9z`).
+- **T4.** Greptile + CodeRabbit review both approve the PR before merge (per `AGENTS.md` PR Merge Policy). ✅ PR #874: Greptile CLI round 4 confidence 5/5, CodeRabbit SUCCESS, merge squash `98a1b276`.
 
 For the audio diagnostic:
 
-- **T1.** Forced audio-play failure (e.g., mute the tab then start a call) surfaces a toast + reportError entry.
+- **T1.** Forced audio-play failure (e.g., mute the tab then start a call) surfaces a toast + reportError entry. ⏳ Open — manual browser test, no automated check yet.
 
 ## References
 
