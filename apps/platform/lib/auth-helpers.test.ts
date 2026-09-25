@@ -194,8 +194,8 @@ describe("requireRole('instructor') — DB fallback (HUC-47)", () => {
     expect(result).toEqual({ id: "user_a", role: "instructor" });
   });
 
-  it("returns instructor when stale JWT says 'student' but Clerk has no role key and DB has an active instructor row (round-4 P1 case)", async () => {
-    setAuth({ userId: "user_a", publicMetadataRole: "student" });
+  it("returns instructor when JWT is missing and Clerk has no role key and DB has an active instructor row", async () => {
+    setAuth({ userId: "user_a", publicMetadataRole: undefined });
     setClerkUser({});
     mockFetchQuery.mockResolvedValue({
       _id: "instructor_1",
@@ -204,14 +204,23 @@ describe("requireRole('instructor') — DB fallback (HUC-47)", () => {
     });
     const result = await requireRole("instructor");
     expect(result).toEqual({ id: "user_a", role: "instructor" });
+    // Lock down the call shape: getCurrentInstructor is identity-scoped
+    // (Convex token in the third arg, no args object). If the helper ever
+    // changes to pass a `userId` arg directly, this test fails — that's
+    // intentional, because the identity-scoped query is the security model.
+    expect(mockFetchQuery).toHaveBeenCalledWith(
+      "instructors.getCurrentInstructor",
+      {},
+      { token: "convex-test-token" },
+    );
   });
 
-  it("returns instructor when DB row's userId is undefined (defense-in-depth identity check)", async () => {
-    setAuth({ userId: "user_a", publicMetadataRole: undefined });
+  it("returns instructor when stale JWT says 'student' but Clerk has no role key and DB has an active instructor row (round-4 P1 case)", async () => {
+    setAuth({ userId: "user_a", publicMetadataRole: "student" });
     setClerkUser({});
     mockFetchQuery.mockResolvedValue({
       _id: "instructor_1",
-      userId: undefined,
+      userId: "user_a",
       deletedAt: undefined,
     });
     const result = await requireRole("instructor");
