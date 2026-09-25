@@ -445,7 +445,14 @@ export default defineSchema({
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
     storageId: v.optional(v.string()),
-  }).index("by_noteId", ["noteId"]),
+    // PR workspace-storage-1 (widen): B2 key for this comment's
+    // attachment, populated when the upload went through
+    // `workspaceStorage.generateWorkspaceUploadUrl` instead of the
+    // legacy Convex storage path. Optional so pre-#workspace-storage-1
+    // rows remain valid.
+    b2Key: v.optional(v.string()),
+  }).index("by_noteId", ["noteId"])
+    .index("by_b2Key", ["b2Key"]),
 
   workspaceLinks: defineTable({
     workspaceId: v.id("workspaces"),
@@ -465,13 +472,17 @@ export default defineSchema({
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
     sessionId: v.optional(v.id("sessions")),
+    // PR workspace-storage-1 (widen): B2 key when upload went
+    // through the new path. Optional for backwards compat.
+    b2Key: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     // PR #B: lets the chat-file retention cron detect when the blob is
     // still referenced by the gallery row that was inserted alongside
     // the chat message in `createWorkspaceImageAndMessage`.
-    .index("by_storageId", ["storageId"]),
+    .index("by_storageId", ["storageId"])
+    .index("by_b2Key", ["b2Key"]),
 
   instructorResources: defineTable({
     instructorId: v.id("instructors"),
@@ -521,6 +532,10 @@ export default defineSchema({
     // back to parsing `content` only when this field is undefined,
     // which is the pre-#B invariant.
     storageId: v.optional(v.id("_storage")),
+    // PR workspace-storage-1 (widen): B2 key when upload went
+    // through the new path. Optional for backwards compat; PR 3
+    // makes it required for new rows.
+    b2Key: v.optional(v.string()),
     // Soft-delete timestamp. When set, the message (and its underlying
     // Convex storage blob for `type: "file"` / `"image"`) is hidden from
     // queries. A daily cron (`hardDeleteExpiredChatFiles` in
@@ -545,7 +560,9 @@ export default defineSchema({
     .index("by_workspaceId_deletedAt", ["workspaceId", "deletedAt"])
     // PR #B chat-file retention: locate soft-deleted messages past their
     // retention window without scanning the entire table.
-    .index("by_deletedAt", ["deletedAt"]),
+    .index("by_deletedAt", ["deletedAt"])
+    // PR workspace-storage-1: lets PR 2 migration locate migrated rows.
+    .index("by_b2Key", ["b2Key"]),
 
   // PR #B upload-binding ledger: every storage blob that is referenced
   // by `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
@@ -558,13 +575,43 @@ export default defineSchema({
   // after the 30-day window). One row per upload (rejected on a
   // duplicate `storageId` so a single blob cannot be claimed twice).
   fileUploads: defineTable({
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
+    b2Key: v.optional(v.string()),
     uploaderId: v.string(),
     workspaceId: v.id("workspaces"),
     uploadedAt: v.number(),
+    // PR workspace-storage-1 (round 4): completion timestamp. The
+    // download action needs the ledger row to look up the
+    // workspace that owns a `b2Key`, so on bind we mark the row
+    // complete instead of deleting it. The pending-count query
+    // filters rows by `completedAt === undefined`.
+    completedAt: v.optional(v.number()),
+    // PR workspace-storage-1 (round 8): cancellation timestamp.
+    // Set by `recordB2FileUpload` when the confirmation is
+    // rejected (e.g., workspace ended, access removed). A
+    // scheduled cleanup action deletes the B2 object that the
+    // caller may have already PUT, so the bucket does not
+    // accumulate orphan blobs from rejected uploads (Greptile
+    // P1: "Rejected uploads remain in B2").
+    cancelledAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
-    .index("by_workspaceId", ["workspaceId"]),
+    .index("by_workspaceId", ["workspaceId"])
+    // PR workspace-storage-1: B2 path uses this index instead of
+    // `by_storageId`. The legacy Convex-storage path is unchanged.
+    .index("by_b2Key", ["b2Key"])
+    // PR workspace-storage-1 (round 2): bounded index for the
+    // "count pending uploads for this caller in this workspace"
+    // server-side cap. Range-queries `uploadedAt` so an
+    // ever-growing ledger can't blow up the read limit (Greptile
+    // P1: "Historical uploads block new uploads"). Pending rows
+    // have `completedAt === undefined`.
+    .index("by_workspaceId_uploaderId_completedAt_uploadedAt", [
+      "workspaceId",
+      "uploaderId",
+      "completedAt",
+      "uploadedAt",
+    ]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

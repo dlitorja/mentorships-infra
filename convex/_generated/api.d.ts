@@ -71,6 +71,7 @@ import type * as videoEditorAssignments from "../videoEditorAssignments.js";
 import type * as waitlist from "../waitlist.js";
 import type * as workspaceActions from "../workspaceActions.js";
 import type * as workspaceConstants from "../workspaceConstants.js";
+import type * as workspaceStorage from "../workspaceStorage.js";
 import type * as workspaces from "../workspaces.js";
 
 import type {
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   waitlist: typeof waitlist;
   workspaceActions: typeof workspaceActions;
   workspaceConstants: typeof workspaceConstants;
+  workspaceStorage: typeof workspaceStorage;
   workspaces: typeof workspaces;
 }>;
 

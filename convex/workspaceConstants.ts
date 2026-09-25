@@ -49,3 +49,25 @@ export const CHAT_FILE_RETENTION_MS = CHAT_FILE_RETENTION_DAYS * 24 * 60 * 60 * 
  * is suspicious.
  */
 export const MAX_BINDING_AGE_MS = 5 * 60 * 1000;
+
+/**
+ * PR workspace-storage-1 (round 7): B2 binding freshness window.
+ * Longer than `MAX_BINDING_AGE_MS` because presigned PUT URLs are
+ * valid for 1 hour and a 500MB upload on a slow connection can
+ * exceed the legacy 5-minute window. The cap exists to prevent
+ * replay of an old key (a freshly-minted key by another caller in
+ * the same workspace could otherwise be replayed), not to bound
+ * upload duration.
+ */
+export const B2_BINDING_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * Workspace retention deadline (matches the 18-month window used
+ * by `convex/queries/http.ts:getWorkspacesNeedingDeletion` and
+ * the retention-notification query). After this many milliseconds
+ * past `endedAt`, downloads of workspace files must be refused
+ * regardless of whether the underlying B2 object still exists.
+ * PR 1 enforces this on the download path; PR 3 adds the
+ * lifecycle rule that hard-deletes the B2 objects.
+ */
+export const WORKSPACE_RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
