@@ -68,6 +68,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex");
       expect(body).toEqual({
         one_on_one_inventory: 4,
         group_inventory: 2,
@@ -98,6 +99,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex");
       // Supabase is NOT consulted: a real zero wins.
       expect(body).toEqual({
         one_on_one_inventory: 0,
@@ -128,6 +130,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-supabase-mixed");
       expect(body).toEqual({
         one_on_one_inventory: 4,
         group_inventory: 3,
@@ -155,6 +158,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("supabase");
       expect(body).toEqual({
         one_on_one_inventory: 5,
         group_inventory: 2,
@@ -184,63 +188,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
     });
   });
 
-  describe("Supabase module not configured", () => {
-    it("still serves Convex-only values when the Supabase module throws at import time", async () => {
-      // Simulate a marketing environment that has Convex env
-      // vars but is missing NEXT_PUBLIC_SUPABASE_URL /
-      // NEXT_PUBLIC_SUPABASE_ANON_KEY (Phase 3 narrow preview
-      // windows). The lazy dynamic import must catch the
-      // module-load failure and continue to serve the Convex
-      // values without failing the request.
-      vi.mocked(getInstructorInventory).mockRejectedValue(
-        new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured")
-      );
-      vi.mocked(convexServerCall).mockResolvedValue({
-        success: true,
-        one_on_one_inventory: 7,
-        group_inventory: 3,
-      });
-
-      const req = makeRequest({
-        method: "GET",
-        url: `${URL}?slug=conor-mclaughlin`,
-      });
-      const response = await GET(req);
-      const body = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(body).toEqual({
-        one_on_one_inventory: 7,
-        group_inventory: 3,
-      });
-    });
-
-    it("returns zeros when both Convex and Supabase are unavailable in a Convex-only environment", async () => {
-      vi.mocked(getInstructorInventory).mockRejectedValue(
-        new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured")
-      );
-      vi.mocked(convexServerCall).mockResolvedValue({
-        success: true,
-        one_on_one_inventory: null,
-        group_inventory: null,
-      });
-
-      const req = makeRequest({
-        method: "GET",
-        url: `${URL}?slug=conor-mclaughlin`,
-      });
-      const response = await GET(req);
-      const body = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(body).toEqual({
-        one_on_one_inventory: 0,
-        group_inventory: 0,
-      });
-    });
-  });
-
-  describe("Convex read fails — Supabase fallback", () => {
+  describe("Convex read fails — return zeros (no stale Supabase)", () => {
     it("returns zeros when Convex transport fails (does NOT leak stale Supabase positive)", async () => {
       // Greptile P1: a sold-out offer's Convex value is 0; if
       // the next Convex read fails and we fall back to Supabase,
@@ -263,6 +211,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-error");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 0,
@@ -271,7 +220,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       expect(getInstructorInventory).not.toHaveBeenCalled();
     });
 
-    it("returns zeros when both Convex transport and Supabase module fail", async () => {
+    it("returns zeros when both Convex transport and Supabase call fail", async () => {
       vi.mocked(convexServerCall).mockRejectedValue(new Error("boom"));
       vi.mocked(getInstructorInventory).mockRejectedValue(
         new Error("also boom")
@@ -286,6 +235,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
 
       // Page renders zeros so visitors see a graceful response.
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-error");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 0,
@@ -314,6 +264,7 @@ describe("/api/instructor/inventory route (Phase 1 widen)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-not-found");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 0,

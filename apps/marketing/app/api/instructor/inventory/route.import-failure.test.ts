@@ -14,8 +14,30 @@
  * module-load failure vitest can produce.
  */
 import { describe, it, expect, vi } from "vitest";
+import { makeRequest } from "../../../../../../tests/unit/api-route-utils";
 
 const URL = "https://huckleberry-drive.example.com/api/instructor/inventory";
+
+async function loadRouteWithSupabaseImportWorking(
+  convexCall: ReturnType<typeof vi.fn>
+) {
+  vi.resetModules();
+  vi.doMock("@/lib/convex-server-call", () => ({
+    convexServerCall: convexCall,
+    ConvexServerCallError: class ConvexServerCallError extends Error {
+      readonly status: number;
+      constructor(message: string, status: number) {
+        super(message);
+        this.name = "ConvexServerCallError";
+        this.status = status;
+      }
+    },
+  }));
+  vi.doMock("@/lib/supabase-inventory", () => ({
+    getInstructorInventory: vi.fn(),
+  }));
+  return await import("./route");
+}
 
 async function loadRouteWithSupabaseImportFailing() {
   vi.resetModules();
@@ -38,29 +60,6 @@ async function loadRouteWithSupabaseImportFailing() {
   return await import("./route");
 }
 
-async function loadRouteWithSupabaseImportWorking(convexMock: ReturnType<typeof vi.fn>) {
-  vi.resetModules();
-  vi.doMock("@/lib/convex-server-call", () => ({
-    convexServerCall: convexMock,
-    ConvexServerCallError: class ConvexServerCallError extends Error {
-      readonly status: number;
-      constructor(message: string, status: number) {
-        super(message);
-        this.name = "ConvexServerCallError";
-        this.status = status;
-      }
-    },
-  }));
-  vi.doMock("@/lib/supabase-inventory", () => ({
-    getInstructorInventory: vi.fn(),
-  }));
-  return await import("./route");
-}
-
-function makeRequest(url: string) {
-  return new Request(url, { method: "GET" });
-}
-
 describe("/api/instructor/inventory route — lazy Supabase import failure", () => {
   it("still serves Convex-only values when the Supabase module throws at import time", async () => {
     const convexCall = vi.fn().mockResolvedValue({
@@ -70,7 +69,9 @@ describe("/api/instructor/inventory route — lazy Supabase import failure", () 
     });
     const { GET } = await loadRouteWithSupabaseImportWorking(convexCall);
 
-    const response = await GET(makeRequest(`${URL}?slug=conor-mclaughlin`));
+    const response = await GET(
+      makeRequest({ method: "GET", url: `${URL}?slug=conor-mclaughlin` })
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -88,7 +89,9 @@ describe("/api/instructor/inventory route — lazy Supabase import failure", () 
     });
     const { GET } = await loadRouteWithSupabaseImportWorking(convexCall);
 
-    const response = await GET(makeRequest(`${URL}?slug=conor-mclaughlin`));
+    const response = await GET(
+      makeRequest({ method: "GET", url: `${URL}?slug=conor-mclaughlin` })
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -99,16 +102,13 @@ describe("/api/instructor/inventory route — lazy Supabase import failure", () 
   });
 
   it("returns zeros during a Convex outage when the Supabase module also fails to load", async () => {
-    const convexCall = vi.fn().mockRejectedValue(new Error("convex down"));
     const { GET } = await loadRouteWithSupabaseImportFailing();
-    // Re-stub convexServerCall with our rejecting mock (the
-    // loadRouteWithSupabaseImportFailing helper registers a
-    // fresh vi.fn() with a default resolve; override here).
-    (await import("@/lib/convex-server-call")).convexServerCall.mockRejectedValue(
-      new Error("convex down")
-    );
+    const { convexServerCall } = await import("@/lib/convex-server-call");
+    vi.mocked(convexServerCall).mockRejectedValue(new Error("convex down"));
 
-    const response = await GET(makeRequest(`${URL}?slug=rakasa`));
+    const response = await GET(
+      makeRequest({ method: "GET", url: `${URL}?slug=rakasa` })
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);

@@ -30,6 +30,29 @@ const ZERO_INVENTORY: InventoryResponse = {
 };
 
 /**
+ * Inventory source tag, surfaced as the `X-Inventory-Source`
+ * response header so operators investigating "sold out"
+ * complaints can distinguish:
+ *
+ *   - "convex":   Convex returned explicit values
+ *   - "convex-supabase-mixed": some fields from Convex, some from Supabase
+ *   - "supabase": all fields from Supabase (pre-backfill)
+ *   - "convex-not-found": Convex says instructor is not publicly visible
+ *   - "convex-error": Convex transport failed (config or network) — likely misconfig
+ *
+ * The page treats all of these as "zeros means sold out" so the
+ * visitor never sees a checkout link for an unsold-out offer
+ * during an outage. The header is the operator-facing signal
+ * that "zeros" may not mean a real sold-out state.
+ */
+type InventorySource =
+  | "convex"
+  | "convex-supabase-mixed"
+  | "supabase"
+  | "convex-not-found"
+  | "convex-error";
+
+/**
  * Lazy Supabase fallback reader.
  *
  * `apps/marketing/lib/supabase-inventory.ts` throws at module load
@@ -155,6 +178,15 @@ export async function GET(request: NextRequest) {
       // sold-out offer is worse than hiding the buy CTA.
       // Returning zeros (offer page renders no stock message)
       // is the safe default until Convex recovers.
+      //
+      // Greptile P1: a missing CONVEX_HTTP_KEY or wrong
+      // CONVEX_URL would cause EVERY read to throw here. Without
+      // an operator-visible signal, every offer on the public
+      // site would silently render as "Sold Out" with no
+      // indication that it's a configuration failure. Surface
+      // the source via the X-Inventory-Source header so the
+      // dashboards and on-call can distinguish a real
+      // sold-out state from a misconfig.
       console.error("Convex inventory read failed; returning zeros:", error);
     }
 
@@ -163,14 +195,21 @@ export async function GET(request: NextRequest) {
       // Do not leak a Supabase baseline for an unlisted
       // instructor. Return zeros so the offer page hides the
       // buy CTA entirely (it gates on both fields being > 0).
-      return NextResponse.json(ZERO_INVENTORY, { status: 200 });
+      return NextResponse.json(ZERO_INVENTORY, {
+        status: 200,
+        headers: { "X-Inventory-Source": "convex-not-found" as InventorySource },
+      });
     }
 
     if (convexInventory === null) {
       // Convex transport failed. Per the policy above, we
       // return zeros rather than leak stale Supabase
-      // availability.
-      return NextResponse.json(ZERO_INVENTORY, { status: 200 });
+      // availability. Surface the source so operators can
+      // distinguish this from a real sold-out.
+      return NextResponse.json(ZERO_INVENTORY, {
+        status: 200,
+        headers: { "X-Inventory-Source": "convex-error" as InventorySource },
+      });
     }
 
     // Convex has at least one field explicitly set — use the
@@ -187,8 +226,15 @@ export async function GET(request: NextRequest) {
       const supabaseInventory = needsSupabase
         ? await readSupabaseInventorySafe(slug)
         : null;
+      const source: InventorySource =
+        supabaseInventory &&
+        (convexInventory.one_on_one_inventory === null ||
+          convexInventory.group_inventory === null)
+          ? "convex-supabase-mixed"
+          : "convex";
       return NextResponse.json(
-        preferLiveInventory(convexInventory, supabaseInventory)
+        preferLiveInventory(convexInventory, supabaseInventory),
+        { headers: { "X-Inventory-Source": source } }
       );
     }
 
@@ -197,11 +243,15 @@ export async function GET(request: NextRequest) {
     const supabaseInventory = await readSupabaseInventorySafe(slug);
     if (supabaseInventory !== null) {
       return NextResponse.json(
-        preferLiveInventory(convexInventory, supabaseInventory)
+        preferLiveInventory(convexInventory, supabaseInventory),
+        { headers: { "X-Inventory-Source": "supabase" } }
       );
     }
 
-    return NextResponse.json(ZERO_INVENTORY, { status: 200 });
+    return NextResponse.json(ZERO_INVENTORY, {
+      status: 200,
+      headers: { "X-Inventory-Source": "convex" },
+    });
   } catch (error) {
     console.error("Error fetching inventory:", error);
     return NextResponse.json(
