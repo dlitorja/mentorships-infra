@@ -191,8 +191,11 @@ backends, so no additional tagging infrastructure is needed.
       instructor per hour exceeding N units (default N = 20),
       regardless of source. This catches single-request exhausts
       (a forged POST with `quantity` > 1) that bypass the
-      request-volume rate limit. Filter on the `inventory/apply`
-      Convex mutation or the `inventory/changed` Inngest event.
+      request-volume rate limit. Filter on the `inventory.changed`
+      observability event emitted by the webhook handler (level =
+      `info`, source = `inventory.changed`, with
+      `context.previousInventory`, `context.newInventory`,
+      `context.quantity`, and `context.instructorSlug`).
 * [ ] BetterStack / Axiom shows a `ratelimit.middleware` warning
       event for every 429 with `context.ip`, `context.policy`,
       `context.pathname`.

@@ -262,6 +262,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         success: boolean;
         alreadyApplied?: boolean;
         newValue?: number;
+        previousValue?: number;
       }>("/inventory/apply", {
         instructorSlug: mapping.instructorSlug,
         type: convexType,
@@ -272,6 +273,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
       alreadyApplied = result.alreadyApplied === true;
       newInventory = result.newValue ?? null;
+      const previousInventory = result.previousValue ?? null;
+      // Emit an observability event for every successful inventory
+      // change so operators can configure the per-instructor inventory
+      // drop alert described in
+      // docs/post-merge/kajabi-webhook-security.md. Neither the
+      // Convex mutation nor the Inngest event surfaces to
+      // BetterStack/Axiom, so the webhook handler is the natural
+      // emit point. The event payload includes previousInventory,
+      // newInventory, and quantity so a monitor can alert on
+      // drop > N units/hour per instructor.
+      if (!alreadyApplied && newInventory !== null) {
+        await reportError({
+          source: "inventory.changed",
+          error: new Error(
+            `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+          ),
+          message: `Inventory applied for instructor ${mapping.instructorSlug} (${mapping.mentorshipType})`,
+          level: "info",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            type: mapping.mentorshipType,
+            previousInventory,
+            newInventory,
+            quantity,
+            purchaseId,
+          },
+        });
+      }
     } catch (applyError) {
       const message = (applyError as Error).message;
       // Insufficient inventory is a normal 4xx (Kajabi should not
