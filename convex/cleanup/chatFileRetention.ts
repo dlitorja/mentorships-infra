@@ -347,6 +347,49 @@ export const forceDeleteExpiredChatMessageRow = internalMutation({
     // deletes the Convex blob. The ledger IS the cleanup
     // pointer (the workspace can still download via
     // `b2Key`), so no orphan is created.
+    //
+    // PR workspace-storage-2 (Greptile round 30 review):
+    // document the cleanup topology for the race where chat
+    // retention deletes a message AFTER the migration locks
+    // the ledger but BEFORE the B2 key propagates. After this
+    // branch fires, the migration completes: B2 PUT, ledger
+    // gets `b2Key + completedAt`, propagate patches zero rows
+    // (the chat row is already gone), and the Convex blob is
+    // already deleted. The B2 object's lifecycle after this
+    // point:
+    //
+    //   - Chat retention: will not revisit the deleted row.
+    //     `b2Key !== undefined` cleanup in
+    //     `hardDeleteExpiredChatFiles` runs per-row, so once
+    //     the chat row is gone, chat retention has no
+    //     future chance to delete the B2 object. This is the
+    //     path Greptile's round 30 P1 diagram terminates on.
+    //
+    //   - Workspace retention: the ledger still holds
+    //     `b2Key`, so the workspace can still download via
+    //     `getWorkspaceDownloadUrl({ b2Key, workspaceId })`
+    //     (see `apps/platform/lib/b2-workspace-upload.ts:175`).
+    //     The workspace retention cron
+    //     (`WORKSPACE_RETENTION_MS = 18 months`) deletes
+    //     the ledger when its workspace lifetime expires,
+    //     so the B2 object has a workspace-side cleanup
+    //     path even with the chat row gone.
+    //
+    //   - PR 3 B2 lifecycle rule (out of scope here): sweeps
+    //     B2 objects whose owning ledger has been deleted,
+    //     closing the loop for workspaces that exited before
+    //     retention ran. Until PR 3 ships, a B2 object whose
+    //     owning workspace is hard-deleted before retention
+    //     can stay in B2 — bounded by the bucket's own
+    //     lifecycle rule (B2 default: no auto-delete).
+    //
+    // The round 28 alternative (delete the ledger when
+    // migration is mid-flight) created a strictly worse
+    // orphan because the migration's finalize step would
+    // then throw on the missing ledger row, leaving the B2
+    // object written but unrecorded. Round 27 is correct:
+    // the ledger is the cleanup pointer, both during and
+    // after the migration window.
     if (row.storageId !== undefined && row.b2Key === undefined) {
       const ledger = await ctx.db
         .query("fileUploads")

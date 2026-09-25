@@ -1711,6 +1711,38 @@ export const migrateConvexStorageRowToB2 = internalAction({
     // retention's `b2Key !== undefined` branch fires instead
     // of leaving an orphan B2 object. Safe to no-op if no
     // chat message shares the storageId.
+    //
+    // PR workspace-storage-2 (Greptile round 30 review): the
+    // `propagate` call may patch zero rows when chat retention
+    // already deleted the only chat message that referenced
+    // this storageId (race with the lock window). The B2
+    // object's cleanup in that case is NOT chat retention —
+    // chat retention already processed the row and will not
+    // revisit it. Instead, the cleanup path is:
+    //
+    //   1. The workspace ledger still has `b2Key`, so
+    //      `getWorkspaceDownloadUrl({ b2Key, workspaceId })`
+    //      (`apps/platform/lib/b2-workspace-upload.ts:175`)
+    //      keeps working for the workspace. The workspace can
+    //      download and re-host the file indefinitely.
+    //
+    //   2. Workspace retention (`WORKSPACE_RETENTION_MS =
+    //      18 months`) eventually deletes the ledger row, so
+    //      the B2 object has a workspace-side cleanup deadline
+    //      once the workspace's retention window closes.
+    //
+    //   3. PR 3's B2 lifecycle rule sweeps B2 objects whose
+    //      owning ledger has been hard-deleted (workspace
+    //      removed before retention ran). Out of scope for
+    //      PR 2.
+    //
+    // The migration action does NOT delete the B2 object
+    // when `propagate` patches zero rows, because the
+    // workspace may still have a UI reference to the file via
+    // the ledger (workspaces can fetch their own files
+    // directly without going through `workspaceMessages`).
+    // Auto-deleting on a zero-row `propagate` would
+    // regress legitimate workspace-only downloads.
     await ctx.runMutation(
       internal.workspaceStorage.propagateMigratedB2KeyToMessages,
       {
