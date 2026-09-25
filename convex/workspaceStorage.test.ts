@@ -236,7 +236,7 @@ test("acquireMigrationLock succeeds when row is unmigrated", async () => {
     internal.workspaceStorage.acquireMigrationLock,
     { id: rowId as any, lockAt: now }
   );
-  expect(result).toEqual({ locked: true });
+  expect(result).toEqual({ locked: true, tookOverStaleLock: false });
 
   // The lock timestamp is on the row.
   const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
@@ -252,14 +252,14 @@ test("acquireMigrationLock refuses already-locked rows", async () => {
     uploaderId: "u_uploader_1",
     uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
     storageId: "storage_for_concurrent_lock",
-    migratedAt: now - 5 * 60 * 1000, // another trigger already locked
+    migratedAt: now - 5 * 60 * 1000, // another trigger already locked (still recent, under STALE_MIGRATION_LOCK_MS)
   });
 
   const result = await t.mutation(
     internal.workspaceStorage.acquireMigrationLock,
     { id: rowId as any, lockAt: now }
   );
-  expect(result).toEqual({ locked: false });
+  expect(result).toEqual({ locked: false, tookOverStaleLock: false });
 
   // The pre-existing migratedAt survived.
   const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
@@ -282,7 +282,7 @@ test("acquireMigrationLock refuses already-migrated rows", async () => {
     internal.workspaceStorage.acquireMigrationLock,
     { id: rowId as any, lockAt: now }
   );
-  expect(result).toEqual({ locked: false });
+  expect(result).toEqual({ locked: false, tookOverStaleLock: false });
 });
 
 test("releaseMigrationLock clears the lock when PUT fails", async () => {
@@ -533,12 +533,21 @@ test("forceDeleteExpiredChatMessageRow removes legacy ledger rows", async () => 
   expect(ledgerAfter).toBeNull();
 });
 
-test("forceDeleteExpiredChatMessageRow preserves mid-migration ledger rows (Greptile round 27 P1)", async () => {
-  // Mirrors the PUT-vs-cleanup race window: migration sets
-  // `migratedAt` BEFORE the B2 PUT, so a concurrent cleanup
-  // tick must NOT delete the ledger — the B2 PUT is in flight
-  // and deleting the ledger here would orphan the B2 object
-  // the migration is about to write.
+test("forceDeleteExpiredChatMessageRow deletes mid-migration ledger rows (Greptile round 28 P1)", async () => {
+  // Round 28 P1 fix: the round 27 implementation preserved
+  // the ledger when the migration was mid-flight
+  // (`migratedAt !== undefined && b2Key === undefined`) so
+  // the migration action could finish its PUT and then call
+  // `propagateMigratedB2KeyToMessages` to copy the B2 key
+  // onto chat rows still referencing the same blob. With
+  // the chat row already deleted, propagate finds zero
+  // matching `workspaceMessages` and the B2 object lives on
+  // without a chat-row pointer — silent per-row orphan.
+  //
+  // Round 28 deletes the ledger in the mid-migration case
+  // so any B2 object the migration still writes is orphaned
+  // in a controllable way (PR 3's lifecycle rule sweeps by
+  // `workspaceId + uploadedAt` age).
   const t = convexTest({ schema, modules });
   const now = Date.now();
   let workspaceId = "";
@@ -581,9 +590,154 @@ test("forceDeleteExpiredChatMessageRow preserves mid-migration ledger rows (Grep
   const chatAfter = await t.run(async (ctx) => ctx.db.get(messageId as any));
   expect(chatAfter).toBeNull();
 
-  // Ledger row SURVIVED — migration is still in flight.
+  // Ledger row is DELETED — round 28 fix. The migration
+  // action's downstream PUT, if it completes, will orphan a
+  // B2 object that PR 3's lifecycle rule sweeps.
+  const ledgerAfter = await t.run(async (ctx) => ctx.db.get(ledgerId as any));
+  expect(ledgerAfter).toBeNull();
+});
+
+test("forceDeleteExpiredChatMessageRow preserves migrated ledger rows (chat row already has b2Key)", async () => {
+  // Round 28 keeps the round 27 preservation when the chat
+  // row's own `b2Key` is set. In that case the chat-side
+  // retention path is responsible for the B2 object, and
+  // deleting the ledger would orphan a B2 object that the
+  // retention flow expects to find.
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  let workspaceId = "";
+  let messageId = "";
+  let ledgerId = "";
+  await t.run(async (ctx) => {
+    workspaceId = await ctx.db.insert("workspaces", {
+      name: "Migrated Chat WS",
+      ownerId: "u_owner_1",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    const storageId = await ctx.storage.store(new Blob(["migrated bytes"]));
+    messageId = await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_uploader_1",
+      content: "image",
+      type: "image",
+      storageId,
+      b2Key: "workspace/owner/migrated/key",
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    });
+    ledgerId = await ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_uploader_1",
+      uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+      storageId,
+      b2Key: "workspace/owner/migrated/key",
+      migratedAt: now - 100,
+      completedAt: now - 100,
+    });
+  });
+
+  await t.mutation(
+    internal.cleanup.chatFileRetention.forceDeleteExpiredChatMessageRow,
+    { messageId: messageId as any }
+  );
+
+  // Chat message is gone.
+  const chatAfter = await t.run(async (ctx) => ctx.db.get(messageId as any));
+  expect(chatAfter).toBeNull();
+
+  // Ledger row SURVIVED — chat row's b2Key implies the B2
+  // object is still referenced for downstream cleanup.
   const ledgerAfter = await t.run(async (ctx) => ctx.db.get(ledgerId as any));
   expect(ledgerAfter).not.toBeNull();
-  expect((ledgerAfter as any).migratedAt).toBe(now - 100);
-  expect((ledgerAfter as any).b2Key).toBeUndefined();
+  expect((ledgerAfter as any).b2Key).toBe("workspace/owner/migrated/key");
+});
+
+test("markLedgerMigrated writes b2Key when lock is held (Greptile round 28 P1)", async () => {
+  // Round 28 P1 fix: round 27's `markLedgerMigrated` short-
+  // circuited on `migratedAt !== undefined`, but the
+  // round 27 `acquireMigrationLock` sets `migratedAt`
+  // BEFORE the B2 PUT. That made every successful PUT leave
+  // its B2 copy unrecorded on the ledger and the row was
+  // permanently excluded from the candidate query.
+  // Idempotency now keys off `b2Key` alone.
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_post_lock_finalize",
+    // Lock in place — round 27 finalize would short-circuit here.
+    migratedAt: now - 30 * 1000,
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.markLedgerMigrated,
+    {
+      id: rowId as any,
+      b2Key: "workspace/owner/post-lock/key",
+      migratedAt: now,
+    }
+  );
+  expect(result).toEqual({ alreadyMigrated: false });
+
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).b2Key).toBe("workspace/owner/post-lock/key");
+  expect((stored as any).migratedAt).toBe(now);
+  expect((stored as any).completedAt).toBe(now);
+});
+
+test("acquireMigrationLock takes over stale locks (Greptile round 28 P1)", async () => {
+  // Round 28 P1 fix: an action that crashes or restarts
+  // AFTER acquiring the lock but BEFORE finishing the PUT
+  // leaves `migratedAt` set without `b2Key`. Without stale
+  // takeover, the candidate query excludes the row and a
+  // retry sees `migratedAt !== undefined` and short-circuits,
+  // permanently disabling the row.
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const staleLockAt = now - 2 * 60 * 60 * 1000; // 2 h ago, well over 1 h threshold
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_stale_lock_takeover",
+    migratedAt: staleLockAt,
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.acquireMigrationLock,
+    { id: rowId as any, lockAt: now }
+  );
+  expect(result).toEqual({ locked: true, tookOverStaleLock: true });
+
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).migratedAt).toBe(now);
+  expect((stored as any).b2Key).toBeUndefined();
+});
+
+test("acquireMigrationLock refuses recent locks within STALE_MIGRATION_LOCK_MS", async () => {
+  // Round 28: locks that are recent (within the stale
+  // threshold) must still be refused — the previous action
+  // is still legitimately running.
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const recentLockAt = now - 30 * 60 * 1000; // 30 min ago, under 1 h threshold
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_recent_lock_refusal",
+    migratedAt: recentLockAt,
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.acquireMigrationLock,
+    { id: rowId as any, lockAt: now }
+  );
+  expect(result).toEqual({ locked: false, tookOverStaleLock: false });
+
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).migratedAt).toBe(recentLockAt);
 });

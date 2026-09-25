@@ -103,6 +103,19 @@ export const BACKFILL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SCHEDULE_BACKFILL_DEDUP_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * PR workspace-storage-2 (Greptile round 28 P1 fix): staleness
+ * window for `acquireMigrationLock`. A `fileUploads` row whose
+ * `migratedAt` is older than this threshold is treated as an
+ * abandoned lock (the previous action crashed or restarted
+ * between lock acquisition and B2 finalize), and the next
+ * migration attempt takes it over. Picked 1 h — longer than the
+ * 1 h B2 PUT URL binding window so a transient Convex-node
+ * restart mid-PUT can finish on its own, but short enough that
+ * a stuck row is retried inside a single cron tick.
+ */
+export const STALE_MIGRATION_LOCK_MS = 60 * 60 * 1000;
+
+/**
  * PR workspace-storage-2: page size for the backfill candidate
  * query. Mirrors `chatFileRetention.BATCH_SIZE` so a single
  * sweep tick drains a similar volume. Bounded to keep the

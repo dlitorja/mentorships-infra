@@ -16,6 +16,7 @@ import {
   MAX_CHAT_FILE_BYTES,
   MAX_IMAGE_BYTES,
   SCHEDULE_BACKFILL_DEDUP_MS,
+  STALE_MIGRATION_LOCK_MS,
   WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
@@ -1427,32 +1428,10 @@ export const getMigrationTargetById = internalQuery({
  * SECURITY: `callerId` re-check — the Trigger.dev task runs as
  * the system, not the original uploader; we cannot meaningfully
  * re-authorize here, so we trust the caller side. PR 3 closes
- * this by replacing `storageId` with `b2Key` everywhere; until
- * then the per-row trigger is scheduled from a server-side
- * internalMutation so the call path is trusted.
+* this by replacing `storageId` with `b2Key` everywhere; until
+  * then the per-row trigger is scheduled from a server-side
+  * internalMutation so the call path is trusted.
  */
-export const markLedgerMigrated = internalMutation({
-  args: {
-    id: v.id("fileUploads"),
-    b2Key: v.string(),
-    migratedAt: v.number(),
-  },
-  handler: async (ctx, args): Promise<{ alreadyMigrated: boolean }> => {
-    const row = await ctx.db.get(args.id);
-    if (!row) {
-      throw new Error("Ledger row vanished during migration");
-    }
-    if (row.migratedAt !== undefined || row.b2Key !== undefined) {
-      return { alreadyMigrated: true };
-    }
-    await ctx.db.patch(args.id, {
-      b2Key: args.b2Key,
-      completedAt: args.migratedAt,
-      migratedAt: args.migratedAt,
-    });
-    return { alreadyMigrated: false };
-  },
-});
 
 /**
  * Internal mutation: stamp `scheduledBackfillAt` on the
@@ -1737,6 +1716,46 @@ export const migrateConvexStorageRowToB2 = internalAction({
 });
 
 /**
+ * Internal mutation: mark a `fileUploads` ledger row as
+ * migrated by writing `b2Key` + `completedAt` + `migratedAt`.
+ * Called by `migrateConvexStorageRowToB2` after the B2 PUT
+ * succeeds so a future cron tick treats the row as migrated.
+ *
+ * Greptile round 28 P1 fix: the round 27 implementation
+ * short-circuited on `migratedAt !== undefined`, but the
+ * round 27 lock step (`acquireMigrationLock`) already sets
+ * `migratedAt` BEFORE the PUT. That made every successful
+ * PUT leave its B2 copy unrecorded on the ledger and the
+ * row was permanently excluded from the candidate query.
+ * Idempotency now keys off `b2Key` alone — once the B2 key
+ * is written the row is done, and re-running the finalize
+ * on a partially-migrated row (lock held, no `b2Key`) is a
+ * safe no-op overwrite.
+ */
+export const markLedgerMigrated = internalMutation({
+  args: {
+    id: v.id("fileUploads"),
+    b2Key: v.string(),
+    migratedAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ alreadyMigrated: boolean }> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) {
+      throw new Error("Ledger row vanished during migration");
+    }
+    if (row.b2Key !== undefined) {
+      return { alreadyMigrated: true };
+    }
+    await ctx.db.patch(args.id, {
+      b2Key: args.b2Key,
+      completedAt: args.migratedAt,
+      migratedAt: args.migratedAt,
+    });
+    return { alreadyMigrated: false };
+  },
+});
+
+/**
  * Internal mutation: acquire a "migration in progress" lock
  * on a `fileUploads` row by setting `migratedAt = lockAt`.
  * Conditional on `b2Key === undefined && migratedAt ===
@@ -1744,22 +1763,43 @@ export const migrateConvexStorageRowToB2 = internalAction({
  * same row. Returns `{ locked: false }` if a concurrent
  * trigger won the race. Greptile round 27 P1: this lock is
  * the fix for the PUT-vs-cleanup race window.
+ *
+ * Greptile round 28 P1 fix: an action that crashes or
+ * restarts AFTER acquiring the lock but BEFORE finishing
+ * the PUT or finalize leaves `migratedAt` set without
+ * `b2Key`. The candidate query excludes the row and a
+ * retry sees `migratedAt !== undefined` and short-circuits.
+ * A crashed action therefore permanently disables a row.
+ * Treat the lock as stale after `STALE_MIGRATION_LOCK_MS`
+ * (1 h by default — longer than the B2 PUT URL's 1 h
+ * binding window so a transient restart mid-PUT can finish)
+ * and take it over.
  */
 export const acquireMigrationLock = internalMutation({
   args: {
     id: v.id("fileUploads"),
     lockAt: v.number(),
   },
-  handler: async (ctx, args): Promise<{ locked: boolean }> => {
+  handler: async (ctx, args): Promise<{ locked: boolean; tookOverStaleLock: boolean }> => {
     const row = await ctx.db.get(args.id);
-    if (!row) return { locked: false };
-    if (row.migratedAt !== undefined || row.b2Key !== undefined) {
-      return { locked: false };
+    if (!row) return { locked: false, tookOverStaleLock: false };
+    if (row.b2Key !== undefined) {
+      return { locked: false, tookOverStaleLock: false };
+    }
+    if (row.migratedAt !== undefined) {
+      // Greptile round 28 P1: stale-lock takeover. If the
+      // previous lock is older than `STALE_MIGRATION_LOCK_MS`
+      // assume the action crashed and reclaim.
+      if (args.lockAt - row.migratedAt > STALE_MIGRATION_LOCK_MS) {
+        await ctx.db.patch(args.id, { migratedAt: args.lockAt });
+        return { locked: true, tookOverStaleLock: true };
+      }
+      return { locked: false, tookOverStaleLock: false };
     }
     await ctx.db.patch(args.id, {
       migratedAt: args.lockAt,
     });
-    return { locked: true };
+    return { locked: true, tookOverStaleLock: false };
   },
 });
 
@@ -2064,6 +2104,19 @@ export const deleteFromB2WorkspaceAction = internalAction({
  * The canonical-request SHA-256 is still computed — that one
  * runs over the small fixed strings (method, URI, headers),
  * not the body, so it was already cheap.
+ *
+ * Greptile round 28 P1 fix: SigV4 requires every header that
+ * appears in the request to also appear in the signed-headers
+ * list and the canonical-headers block. The round 27 helper
+ * sent `x-amz-decoded-content-length` to the bucket but did
+ * NOT include it in `signedHeaders` / `canonicalHeaders`.
+ * B2's signature verification rejects the PUT with
+ * `SignatureDoesNotMatch` because the canonical request the
+ * server reconstructs is missing a header that the client
+ * actually sent. Added to both lists (and to the body digest
+ * block) so the PUT signature is well-formed. Mirrors the
+ * presigned-PUT helper above, which already signs the same
+ * header.
  */
 async function putBlobToB2Workspace(params: {
   key: string;
@@ -2083,12 +2136,19 @@ async function putBlobToB2Workspace(params: {
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = "UNSIGNED-PAYLOAD";
   const contentLength = String(params.blob.size);
-  const signedHeaders = ["content-length", "host", "x-amz-content-sha256", "x-amz-date"];
+  const signedHeaders = [
+    "content-length",
+    "host",
+    "x-amz-content-sha256",
+    "x-amz-date",
+    "x-amz-decoded-content-length",
+  ];
   const canonicalHeaders = [
     `content-length:${contentLength}`,
     `host:${host}`,
     `x-amz-content-sha256:${payloadHash}`,
     `x-amz-date:${amzDate}`,
+    `x-amz-decoded-content-length:${contentLength}`,
     "",
   ].join("\n");
   const canonicalRequest = [

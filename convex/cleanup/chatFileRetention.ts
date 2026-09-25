@@ -323,27 +323,45 @@ export const forceDeleteExpiredChatMessageRow = internalMutation({
   handler: async (ctx, args): Promise<{ deleted: boolean }> => {
     const row = await ctx.db.get(args.messageId);
     if (!row) return { deleted: false };
-    // PR workspace-storage-2 (Greptile round 27 P1 fix):
-    // preserve the ledger row when the chat message has a
-    // `b2Key` (migrated), OR when the underlying ledger row is
-    // mid-migration (`migratedAt !== undefined` but `b2Key ===
-    // undefined`). The lock case matters because
-    // `migrateConvexStorageRowToB2` sets `migratedAt` BEFORE
-    // the B2 PUT; if cleanup raced the PUT, deleting the
-    // ledger here would orphan the B2 object the migration
-    // is about to write. Pre-migration rows with no lock keep
-    // the original behavior (delete the ledger).
+    // PR workspace-storage-2 (Greptile round 28 P1 fix):
+    // the round 27 logic preserved the ledger when the
+    // migration was mid-flight (`migratedAt !== undefined &&
+    // b2Key === undefined`) so the migration action could
+    // finish its B2 PUT and then call
+    // `propagateMigratedB2KeyToMessages` to copy the B2 key
+    // onto any chat rows still referencing the same blob.
+    // But the chat message we are hard-deleting is the only
+    // chat row referencing the blob (round 27 also preserves
+    // when `b2Key !== undefined`, so the converse — chat row
+    // has `b2Key` but ledger exists pre-migration — is
+    // impossible in steady state). With this row gone,
+    // propagate finds zero matching `workspaceMessages`
+    // rows to patch, the migration's downstream
+    // `ctx.storage.delete(blob)` succeeds anyway, and the
+    // B2 object lives on with no chat-row pointer.
+    //
+    // Round 28 deletes the ledger in the mid-migration case
+    // so the B2 object is orphaned in a controllable way
+    // (PR 3's B2 lifecycle rule sweeps by
+    // `workspaceId + uploadedAt` age — see
+    // `convex/workspaceConstants.ts:WORKSPACE_RETENTION_MS`
+    // doc comment) rather than producing a silent
+    // per-row orphan that propagate could not see.
+    //
+    // The `row.b2Key !== undefined` branch (chat row already
+    // migrated) is preserved so we do not orphan a B2 object
+    // that the chat retention itself relies on to delete
+    // later. A chat row with `b2Key !== undefined` but no
+    // matching ledger is treated as a migrate-only row and
+    // still gets the ledger cleanup so the workspace side can
+    // not find a dangling reference.
     if (row.storageId !== undefined && row.b2Key === undefined) {
       const ledger = await ctx.db
         .query("fileUploads")
         .withIndex("by_storageId", (q) => q.eq("storageId", row.storageId!))
         .first();
       if (ledger) {
-        if (ledger.migratedAt === undefined && ledger.b2Key === undefined) {
-          await ctx.db.delete(ledger._id);
-        }
-        // else: ledger is mid-migration or already migrated;
-        // leave it in place so the migration action can finish.
+        await ctx.db.delete(ledger._id);
       }
     }
     await ctx.db.delete(args.messageId);
