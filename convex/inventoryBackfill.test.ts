@@ -413,6 +413,38 @@ test("internalGetInstructorBySlugForBackfill: returns null when only a soft-dele
   expect(resolved).toBeNull();
 });
 
+test("internalGetInstructorBySlugForBackfill: prefers the listed row when slug has both listed + unlisted active rows", async () => {
+  // Greptile P1 (round 9): the backfill must agree with the
+  // public read about which active row owns the slug. If the
+  // backfill picks the unlisted row while the public read
+  // serves the listed row, the backfill would patch the wrong
+  // instructor while reporting success.
+  const t = convexTest({ schema, modules });
+  await seedInstructor(t, {
+    slug: "mixed-state",
+    name: "Mixed State (unlisted)",
+    isListed: false,
+    oneOnOneInventory: undefined,
+    groupInventory: undefined,
+  });
+  await seedInstructor(t, {
+    slug: "mixed-state",
+    name: "Mixed State (listed)",
+    isListed: true,
+    oneOnOneInventory: undefined,
+    groupInventory: undefined,
+  });
+
+  const resolved = await t.query(
+    internal.instructors.internalGetInstructorBySlugForBackfill,
+    { slug: "mixed-state" }
+  );
+
+  expect(resolved).not.toBeNull();
+  expect(resolved?.name).toBe("Mixed State (listed)");
+  expect(resolved?.isListed).toBe(true);
+});
+
 test("internalBackfillInventory: treats already-matching values as no-op (not skipped)", async () => {
   // Greptile P2: an idempotent re-run where the Convex value
   // already equals the Supabase legacy value should be treated

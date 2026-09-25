@@ -543,23 +543,29 @@ export const internalGetInstructorBySlugForBackfill = internalQuery({
   args: { slug: v.string() },
   returns: v.union(v.null(), v.any()),
   handler: async (ctx, args) => {
-    // Slug is unique-ish but not enforced: a soft-deleted row may
-    // remain at the same slug when the operator re-uses it for a
-    // replacement. Picking the first match without checking
-    // `deletedAt` would patch the WRONG instructor — the
-    // soft-deleted one — and leave the live one untouched while
-    // the backfill reports success.
+    // Greptile P1 (round 9): this lookup must use the SAME
+    // visibility policy as `getPublicInventoryBySlug`. The
+    // previous "active first" policy filtered only `!deletedAt`,
+    // so a slug with both a soft-deleted row and an UNLISTED
+    // active replacement would patch the unlisted row while the
+    // public read served the replacement — a silent split where
+    // the backfill reports success but the live instructor's
+    // inventory is untouched.
     //
-    // Prefer the active (not soft-deleted) row. Fall back to a
-    // non-deleted row if there are multiple active rows (e.g.
-    // duplicates); if the only row at this slug is soft-deleted,
-    // return null so the caller can surface it as a skipped
-    // failure rather than corrupt the wrong row.
+    // Mirror the public-read visibility rules exactly:
+    //   1. Prefer rows that are not soft-deleted AND listed.
+    //   2. Fall back to non-deleted (covers transient unlisted
+    //      states where the operator is mid-edit).
+    //   3. Otherwise null (every row is hidden).
     const candidates = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
     if (candidates.length === 0) return null;
+    const visibleAndActive = candidates.filter(
+      (c) => !c.deletedAt && c.isListed !== false
+    );
+    if (visibleAndActive.length > 0) return visibleAndActive[0];
     const active = candidates.filter((c) => !c.deletedAt);
     if (active.length > 0) return active[0];
     return null;
