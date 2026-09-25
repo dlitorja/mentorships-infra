@@ -188,14 +188,17 @@ backends, so no additional tagging infrastructure is needed.
       event). The event payload has `context.ip`, `context.userAgent`,
       and `context.offerId`.
 * [ ] BetterStack / Axiom alerts on sudden inventory drops per
-      instructor per hour exceeding N units (default N = 20),
-      regardless of source. This catches single-request exhausts
-      (a forged POST with `quantity` > 1) that bypass the
-      request-volume rate limit. Filter on the `inventory.changed`
-      observability event emitted by the webhook handler (level =
-      `info`, source = `inventory.changed`, with
-      `context.previousInventory`, `context.newInventory`,
-      `context.quantity`, and `context.instructorSlug`).
+      instructor per hour exceeding N units (default N = 20) for
+      **Kajabi-sourced** writes. This catches single-request
+      exhausts (a forged POST with `quantity` > 1) that bypass
+      the request-volume rate limit. Filter on the
+      `inventory.changed` observability event emitted by the
+      Kajabi webhook handler (level = `info`, source =
+      `inventory.changed`, with `context.previousInventory`,
+      `context.newInventory`, `context.quantity`, and
+      `context.instructorSlug`). Stripe / PayPal / admin
+      inventory edits use different write paths and are out of
+      scope for this runbook.
 * [ ] BetterStack / Axiom shows a `ratelimit.middleware` warning
       event for every 429 with `context.ip`, `context.policy`,
       `context.pathname`.
