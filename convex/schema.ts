@@ -594,6 +594,21 @@ export default defineSchema({
     // accumulate orphan blobs from rejected uploads (Greptile
     // P1: "Rejected uploads remain in B2").
     cancelledAt: v.optional(v.number()),
+    // PR workspace-storage-2 (migrate): timestamp at which the
+    // backfill action uploaded the Convex-storage blob to B2 and
+    // confirmed the resulting ledger row. Set by
+    // `migrateConvexStorageRowToB2` only; presence implies the
+    // row has both `storageId !== undefined` and `b2Key !==
+    // undefined` so PR 3 can drop `storageId` and trust the
+    // migratedAt timestamp as the cutover watermark.
+    migratedAt: v.optional(v.number()),
+    // PR workspace-storage-2: re-entrancy guard for
+    // `scheduleBackfillSweep`. The cron sets this when it
+    // queues per-row migration tasks; a second invocation
+    // within the re-entrancy window (`SCHEDULE_BACKFILL_DEDUP_MS`)
+    // returns the existing value so a backlogged cron does not
+    // double-trigger the backfill.
+    scheduledBackfillAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
@@ -611,7 +626,18 @@ export default defineSchema({
       "uploaderId",
       "completedAt",
       "uploadedAt",
-    ]),
+    ])
+    // PR workspace-storage-2: the migration scan selects rows
+    // where `storageId !== undefined && b2Key === undefined &&
+    // uploadedAt < NOW - 7 days` across every workspace. Convex
+    // indexes require equality on leftmost columns, so the
+    // cross-workspace scan keys on `b2Key` (NULL bucket
+    // matches legacy rows that have not yet been migrated to
+    // B2) and ranges on `uploadedAt`. The post-filter drops
+    // rows whose `storageId === undefined` (those have no
+    // blob to migrate) and the `migratedAt / cancelledAt`
+    // carve-outs.
+    .index("by_b2Key_uploadedAt", ["b2Key", "uploadedAt"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

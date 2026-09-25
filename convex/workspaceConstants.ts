@@ -71,3 +71,39 @@ export const B2_BINDING_AGE_MS = 60 * 60 * 1000;
  * lifecycle rule that hard-deletes the B2 objects.
  */
 export const WORKSPACE_RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2 (migrate): the 7-day grace period the
+ * backfill sweep skips. Rows newer than this may still be in
+ * flight (a user uploaded a chat image 6 days ago and is still
+ * active in the workspace); migrating them now would race a
+ * possible future `ctx.storage.delete` from the chatFileRetention
+ * cron and lose the row's metadata. Once the row is 7 days old
+ * the upload is either confirmed-and-stable or already soft-
+ * deleted; either way migrating is safe.
+ *
+ * Picked 7 days to align with the B2 PUT URL's 1-hour expiry plus
+ * slack for slow connections + the 30-day chat-file retention
+ * boundary. Anything shorter risks racing a freshly uploaded
+ * blob; anything longer accumulates orphans on the Convex side.
+ */
+export const BACKFILL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2: re-entrancy guard for
+ * `scheduleBackfillSweep`. The daily cron sets
+ * `scheduledBackfillAt` when it queues per-row tasks; if a
+ * second sweep runs within this window it short-circuits so a
+ * backlogged sweep does not double-trigger the per-row task
+ * (which itself is idempotent but would waste Trigger.dev
+ * quota).
+ */
+export const SCHEDULE_BACKFILL_DEDUP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2: page size for the backfill candidate
+ * query. Mirrors `chatFileRetention.BATCH_SIZE` so a single
+ * sweep tick drains a similar volume. Bounded to keep the
+ * internal query read budget under Convex's 8KB doc limit.
+ */
+export const BACKFILL_BATCH_SIZE = 50;
