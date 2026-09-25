@@ -8,10 +8,12 @@ import {
   useScreenShare,
 } from "@daily-co/daily-react";
 import { PhoneOff, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { VideoControls } from "@/components/video/video-controls";
 import { Button } from "@/components/ui/button";
+import { reportError } from "@/lib/observability";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,6 +38,7 @@ import { cn } from "@/lib/utils";
 export function VideoCall() {
   const {
     status,
+    session,
     remoteParticipantName,
     isPictureInPicture,
     join,
@@ -222,8 +225,35 @@ export function VideoCall() {
         </div>
       )}
 
-      {/* Audio playback (no UI) */}
-      <DailyAudio autoSubscribeActiveSpeaker />
+      {/* Audio playback (no UI). HUC-48: wire `onPlayFailed` so a rejected
+       * `HTMLAudioElement.play()` promise (e.g. Chrome autoplay policy
+       * blocking playback after a programmatic auto-join on a deep-link
+       * `/workspace/[id]?join=...`) surfaces as a user-visible toast +
+       * a `reportError` event the operator can grep for. NB: `onPlayFailed`
+       * only fires when the audio element's play() is rejected — it does
+       * NOT detect muted tab, OS-level mute, or wrong audio output device.
+       * For those, follow the operator runbook in
+       * `docs/post-merge/instructor-dashboard-and-one-way-audio.md`
+       * (cause #1 in the doc). Without this callback, the "playback
+       * rejected" mode arrived with no telemetry at all. */}
+      <DailyAudio
+        autoSubscribeActiveSpeaker
+        onPlayFailed={(e) => {
+          const message =
+            typeof e?.message === "string" ? e.message : "unknown reason";
+          toast.error("Call audio isn't playing", {
+            description:
+              "Click anywhere in this tab to allow audio playback, then check your speakers or headphones.",
+          });
+          void reportError({
+            source: "video-call.audio-play-failed",
+            error: new Error(message),
+            level: "warn",
+            message: "Daily <DailyAudio> onPlayFailed fired",
+            context: { sessionId: session?.sessionId ?? null },
+          });
+        }}
+      />
 
       {/* Controls bar */}
       {!isPictureInPicture && (
