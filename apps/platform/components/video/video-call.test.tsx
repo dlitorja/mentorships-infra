@@ -162,12 +162,26 @@ describe("<VideoCall> HUC-48 audio diagnostic wiring", () => {
       props.onPlayFailed({ message: "blocked", target: {} as unknown });
     });
     expect(mocks.toastError).toHaveBeenCalledTimes(1);
+    // 1 diagnostic reportError from onPlayFailed. After this point we
+    // assert no further reportError calls are made — if a click-to-retry
+    // listener were wrongly registered, the click would attempt
+    // `target.play()` and catch the resulting TypeError, surfacing an
+    // additional `audio-retry-failed` reportError.
     expect(mocks.reportError).toHaveBeenCalledTimes(1);
-    // After dispatching a document click, no recovery toast.success should fire.
+
     await act(async () => {
       await userEvent.setup().click(document.body);
     });
+
+    // Still 1 — no retry-failed report fired.
+    expect(mocks.reportError).toHaveBeenCalledTimes(1);
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    // No second dismiss beyond what mount already produced.
+    expect(
+      mocks.toastDismiss.mock.calls.filter(
+        (args) => args[0] === "audio-needs-gesture",
+      ).length,
+    ).toBeLessThanOrEqual(1);
   });
 
   it("falls back to 'unknown reason' when event.message is not a string", () => {
@@ -176,12 +190,14 @@ describe("<VideoCall> HUC-48 audio diagnostic wiring", () => {
     act(() => {
       props.onPlayFailed({ target: document.createElement("audio") });
     });
-    expect(mocks.reportError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        source: "video-call.audio-play-failed",
-        message: "Daily <DailyAudio> onPlayFailed fired",
-      }),
-    );
+    // Assert the fallback string actually flows through to the reported
+    // error. The component builds the message as:
+    //   typeof e?.message === "string" ? e.message : "unknown reason"
+    // and wraps it in `new Error(message)` before passing to reportError.
+    const call = mocks.reportError.mock.calls[0][0];
+    expect(call.source).toBe("video-call.audio-play-failed");
+    expect(call.message).toBe("Daily <DailyAudio> onPlayFailed fired");
+    expect((call.error as Error).message).toBe("unknown reason");
   });
 
   it("registers a click-retry listener after onPlayFailed and dismisses the toast + shows 'Audio restored' when retry succeeds (round-2 P2 guard)", async () => {
@@ -198,6 +214,9 @@ describe("<VideoCall> HUC-48 audio diagnostic wiring", () => {
     expect(mocks.reportError).toHaveBeenLastCalledWith(
       expect.objectContaining({ source: "video-call.audio-play-failed" }),
     );
+    // Reset dismiss mock so the post-click assertion cannot be satisfied
+    // by the mount-time dismiss call.
+    mocks.toastDismiss.mockClear();
 
     await act(async () => {
       await userEvent.setup().click(document.body);
@@ -265,6 +284,12 @@ describe("<VideoCall> HUC-48 audio diagnostic wiring", () => {
       props.onPlayFailed({ message: "blocked", target: audioEl });
     });
     expect(mocks.toastError).toHaveBeenCalledTimes(1);
+    // After mount the useEffect for retryAudioEl === null fires once,
+    // dismissing any pre-existing toast. Reset the dismissal mock now
+    // so the post-unmount assertion cannot be satisfied by that mount-
+    // time call. Without this reset, the test would pass even if the
+    // cleanup branch was removed.
+    mocks.toastDismiss.mockClear();
     // Unmount (e.g. user leaves the call before clicking). The cleanup
     // branch in the retry useEffect must dismiss the persistent toast
     // so the user is not left staring at "Call audio isn't playing"
@@ -272,6 +297,7 @@ describe("<VideoCall> HUC-48 audio diagnostic wiring", () => {
     act(() => {
       unmount();
     });
+    expect(mocks.toastDismiss).toHaveBeenCalledTimes(1);
     expect(mocks.toastDismiss).toHaveBeenCalledWith("audio-needs-gesture");
   });
 
