@@ -562,7 +562,13 @@ export default defineSchema({
     // retention window without scanning the entire table.
     .index("by_deletedAt", ["deletedAt"])
     // PR workspace-storage-1: lets PR 2 migration locate migrated rows.
-    .index("by_b2Key", ["b2Key"]),
+    .index("by_b2Key", ["b2Key"])
+    // PR workspace-storage-2 (Greptile round 27 P1): lets the
+    // migration action propagate `b2Key` onto any chat row that
+    // shares a `storageId` with the migrated ledger row, so
+    // chat-retention cleanup takes the B2 branch instead of
+    // leaving an orphan B2 object.
+    .index("by_storageId", ["storageId"]),
 
   // PR #B upload-binding ledger: every storage blob that is referenced
   // by `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
@@ -602,12 +608,15 @@ export default defineSchema({
     // undefined` so PR 3 can drop `storageId` and trust the
     // migratedAt timestamp as the cutover watermark.
     migratedAt: v.optional(v.number()),
-    // PR workspace-storage-2: re-entrancy guard for
-    // `scheduleBackfillSweep`. The cron sets this when it
-    // queues per-row migration tasks; a second invocation
-    // within the re-entrancy window (`SCHEDULE_BACKFILL_DEDUP_MS`)
-    // returns the existing value so a backlogged cron does not
-    // double-trigger the backfill.
+    // PR workspace-storage-2 (Greptile round 27 P1 fix):
+    // heartbeat observability marker for the daily backfill
+    // cron. Greptile round 27 originally used this field as a
+    // re-entrancy guard via an unindexed table-scan, which
+    // exceeded Convex's read budget. The cron no longer reads
+    // it for gating; it is only written as a low-cost
+    // "cron-ran-against-this-row" stamp so operators can grep
+    // the ledger. PR 3 retires the field once the cutover
+    // flag flips.
     scheduledBackfillAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])

@@ -90,13 +90,15 @@ export const WORKSPACE_RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 export const BACKFILL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * PR workspace-storage-2: re-entrancy guard for
- * `scheduleBackfillSweep`. The daily cron sets
- * `scheduledBackfillAt` when it queues per-row tasks; if a
- * second sweep runs within this window it short-circuits so a
- * backlogged sweep does not double-trigger the per-row task
- * (which itself is idempotent but would waste Trigger.dev
- * quota).
+ * PR workspace-storage-2 (Greptile round 27 P1 fix): re-entrancy
+ * guard window, RETIRED. The sweep used to short-circuit when a
+ * recent stamp was found within this window, but the underlying
+ * query was an unindexed table-scan that exceeded Convex's read
+ * budget. The cron now relies on Trigger.dev's own schedule
+ * guarantees + the per-row `migrateConvexStorageRowToB2`
+ * idempotency, so the dedup is unnecessary. Constant retained
+ * (deprecated) so PR 3 imports do not break — the value is
+ * otherwise unused.
  */
 export const SCHEDULE_BACKFILL_DEDUP_MS = 6 * 60 * 60 * 1000;
 

@@ -1455,32 +1455,31 @@ export const markLedgerMigrated = internalMutation({
 });
 
 /**
- * Internal mutation: stamp `scheduledBackfillAt` on a freshly
- * migrated row so the daily cron knows not to re-enqueue it.
- * Idempotent: if a value is already present and recent
- * (`< SCHEDULE_BACKFILL_DEDUP_MS` old), leave it alone. PR 3
- * will retire this field; until then it gives us cheap
- * observability into "how recently did the cron run".
+ * Internal mutation: stamp `scheduledBackfillAt` on the
+ * oldest un-migrated candidate as a low-cost observability
+ * marker. Greptile round 27 P1: the original implementation
+ * used this stamp as a re-entrancy guard (returning
+ * `{ stamped: false }` to short-circuit duplicate cron runs)
+ * via an unindexed `q.filter(q.and(q.gte(...), q.neq(...)))`
+ * scan over the entire `fileUploads` ledger. That scan
+ * exceeded Convex's read budget once the ledger grew. The
+ * cron now relies on Trigger.dev's own schedule guarantees
+ * (one tick per cron entry per day) plus the per-row
+ * `migrateConvexStorageRowToB2` idempotency, so this
+ * function is reduced to "log a heartbeat stamp on the next
+ * candidate so an operator can grep the ledger for `when did
+ * the cron last see work to do`". It never returns `stamped:
+ * false`; if no candidate is found it is a no-op so the
+ * cron's pagination loop still runs.
+ *
+ * Index used: `by_b2Key_uploadedAt` (NULL bucket +
+ * `uploadedAt` range) — same path the candidate query uses,
+ * so we get an index-scan instead of a table-scan. The
+ * `first()` call only reads one row.
  */
 export const stampBackfillSchedule = internalMutation({
   args: { scheduledAt: v.number() },
   handler: async (ctx, args): Promise<{ stamped: boolean }> => {
-    const threshold = args.scheduledAt - SCHEDULE_BACKFILL_DEDUP_MS;
-    const recent = await ctx.db
-      .query("fileUploads")
-      .filter((q) =>
-        q.and(
-          q.gte(q.field("scheduledBackfillAt"), threshold),
-          q.neq(q.field("scheduledBackfillAt"), undefined)
-        )
-      )
-      .first();
-    if (recent) {
-      return { stamped: false };
-    }
-    // We only need a single watermark row. Pick the oldest
-    // un-migrated candidate (there is at least one — the cron
-    // is being invoked because such rows exist) and stamp it.
     const next = await ctx.db
       .query("fileUploads")
       .withIndex(
@@ -1507,33 +1506,57 @@ export const stampBackfillSchedule = internalMutation({
  *
  *   1. Look up the row. If `b2Key !== undefined || migratedAt
  *      !== undefined`, no-op (idempotency).
- *   2. Pull the blob bytes via `ctx.storage.get(storageId)`.
+ *   2. Defensive grace check (the cron filters by grace, but
+ *      a manual CLI invocation could target a too-recent row).
+ *   3. Defensive `storageId !== undefined` check.
+ *   4. Pull the blob bytes via `ctx.storage.get(storageId)`.
  *      Returns `null` if the blob is already gone (orphan
  *      ledger row); no-op and report.
- *   3. Look up the workspace and instructor to build the
- *      workspace B2 key shape (mirrors `buildWorkspaceStorageKey`).
- *   4. PUT the bytes to B2 with the workspace-bucket SigV4
- *      helper (`mintB2WorkspacePutUrl` + `putBlobToB2Workspace`).
- *      On a 4xx/5xx failure, throw so Trigger.dev retries the
- *      task with exponential backoff.
- *   5. Call `markLedgerMigrated` so the row gets
- *      `b2Key` + `completedAt` + `migratedAt`.
+ *   5. Resolve workspace + instructor so we can build the B2
+ *      key (mirrors `generateWorkspaceUploadUrl`).
+ *   6. Compute the `b2Key` (PR 1 key shape, synthetic
+ *      fileId/fileName since the original is in the Convex
+ *      blob metadata, not the ledger row).
+ *   7. ACQUIRE LOCK: set `migratedAt = lockAt` on the ledger
+ *      BEFORE the B2 PUT. The chat-retention cron treats a
+ *      row with `migratedAt !== undefined` as "migration in
+ *      progress or done — preserve the ledger row", so a
+ *      concurrent `forceDeleteExpiredChatMessageRow` cannot
+ *      delete the ledger between PUT and final mark
+ *      (Greptile round 27 P1: this is the race window).
+ *   8. PUT bytes to B2 via SigV4 with `UNSIGNED-PAYLOAD`
+ *      (Greptile round 27 P2: avoids allocating a 500 MB
+ *      ArrayBuffer just to compute a body hash we never use
+ *      server-side).
+ *   9. FINALIZE: patch `b2Key` + `completedAt` on the ledger.
+ *      The `migratedAt` stays at `lockAt` (not `now()`) so a
+ *      future cron tick sees a consistent value.
+ *   10. PROPAGATE: patch `b2Key` on any `workspaceMessages`
+ *       rows whose `storageId` equals the migrated blob's
+ *       id (Greptile round 27 P1: chat retention's
+ *       `b2Key !== undefined` branch otherwise falls back
+ *       to `ctx.storage.delete(storageId)` and orphans the
+ *       B2 copy).
  *
  * Idempotency: the lookup at step 1 short-circuits; the
- * patch at step 5 is conditional on `migratedAt === undefined
+ * patch at step 9 is conditional on `migratedAt === undefined
  * && b2Key === undefined` so a concurrent duplicate trigger
- * cannot overwrite a successful prior migration.
+ * cannot overwrite a successful prior migration. The lock at
+ * step 7 is also conditional on the same predicate.
  *
  * Failure model:
  *   - 404 from B2 PUT: treated as permanent failure. The
  *     bucket or key prefix may be misconfigured; re-running
- *     will not help. Throws so Trigger.dev logs the failure.
+ *     will not help. Throws after clearing the lock so the
+ *     next cron tick can retry.
  *   - 5xx from B2 PUT: retried by Trigger.dev's task retry
- *     pipeline (3 attempts, exponential backoff).
- *   - `ctx.storage.get` returns null: row is an orphan
- *     (the Convex storage blob was deleted without the
- *     ledger row being cleaned up). We skip the migration
- *     and log the orphan so the operator can investigate.
+ *     pipeline (3 attempts, exponential backoff). The lock
+ *     stays in place until the next attempt; if all 3
+ *     attempts fail, the final run clears the lock before
+ *     throwing.
+ *   - `ctx.storage.get` returns null: row is an orphan.
+ *     Skip the migration and log so the operator can
+ *     investigate. No lock is acquired.
  */
 export const migrateConvexStorageRowToB2 = internalAction({
   args: { fileUploadId: v.id("fileUploads") },
@@ -1636,20 +1659,160 @@ export const migrateConvexStorageRowToB2 = internalAction({
       fileName,
     });
 
-    await putBlobToB2Workspace({ key: b2Key, blob });
+    // Step 7: acquire lock before PUT so a concurrent chat-
+    // retention cleanup cannot delete the ledger between PUT
+    // and finalize. Conditional on `b2Key === undefined &&
+    // migratedAt === undefined` so concurrent triggers do not
+    // race.
+    const lockAt = Date.now();
+    const lockResult: { locked: boolean } = await ctx.runMutation(
+      internal.workspaceStorage.acquireMigrationLock,
+      {
+        id: target._id,
+        lockAt,
+      }
+    );
+    if (!lockResult.locked) {
+      // Another concurrent trigger already locked this row.
+      // Re-read to find the winning b2Key.
+      const winner: {
+        b2Key: string | undefined;
+        migratedAt: number | undefined;
+      } | null = await ctx.runQuery(
+        internal.workspaceStorage.getMigrationTargetById,
+        { id: target._id }
+      );
+      return {
+        status: "already_migrated",
+        b2Key: winner?.b2Key,
+      };
+    }
 
-    const result: { alreadyMigrated: boolean } = await ctx.runMutation(
+    // Step 8: PUT bytes to B2. Uses UNSIGNED-PAYLOAD to avoid
+    // allocating a full ArrayBuffer copy just for the body
+    // SHA-256 (Greptile round 27 P2). If PUT fails, clear the
+    // lock so the next cron tick can retry.
+    try {
+      await putBlobToB2Workspace({ key: b2Key, blob });
+    } catch (err) {
+      await ctx.runMutation(
+        internal.workspaceStorage.releaseMigrationLock,
+        {
+          id: target._id,
+        }
+      );
+      throw err;
+    }
+
+    // Step 9: finalize — patch b2Key + completedAt. The lock
+    // timestamp stays as migratedAt so a future cron tick sees
+    // a consistent value.
+    const finalizeResult: { alreadyMigrated: boolean } = await ctx.runMutation(
       internal.workspaceStorage.markLedgerMigrated,
       {
         id: target._id,
         b2Key,
-        migratedAt: Date.now(),
+        migratedAt: lockAt,
       }
     );
+
+    // Step 10: propagate b2Key to workspaceMessages rows whose
+    // storageId matches the migrated blob's id so chat
+    // retention's `b2Key !== undefined` branch fires instead
+    // of leaving an orphan B2 object. Safe to no-op if no
+    // chat message shares the storageId.
+    await ctx.runMutation(
+      internal.workspaceStorage.propagateMigratedB2KeyToMessages,
+      {
+        storageId: target.storageId,
+        b2Key,
+      }
+    );
+
     return {
-      status: result.alreadyMigrated ? "already_migrated" : "migrated",
+      status: finalizeResult.alreadyMigrated ? "already_migrated" : "migrated",
       b2Key,
     };
+  },
+});
+
+/**
+ * Internal mutation: acquire a "migration in progress" lock
+ * on a `fileUploads` row by setting `migratedAt = lockAt`.
+ * Conditional on `b2Key === undefined && migratedAt ===
+ * undefined` so concurrent triggers cannot both lock the
+ * same row. Returns `{ locked: false }` if a concurrent
+ * trigger won the race. Greptile round 27 P1: this lock is
+ * the fix for the PUT-vs-cleanup race window.
+ */
+export const acquireMigrationLock = internalMutation({
+  args: {
+    id: v.id("fileUploads"),
+    lockAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ locked: boolean }> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return { locked: false };
+    if (row.migratedAt !== undefined || row.b2Key !== undefined) {
+      return { locked: false };
+    }
+    await ctx.db.patch(args.id, {
+      migratedAt: args.lockAt,
+    });
+    return { locked: true };
+  },
+});
+
+/**
+ * Internal mutation: clear the `migratedAt` lock when the
+ * B2 PUT fails so the next cron tick can retry. Companion to
+ * `acquireMigrationLock`. Does NOT clear `b2Key` because the
+ * PUT never reached the success branch.
+ */
+export const releaseMigrationLock = internalMutation({
+  args: { id: v.id("fileUploads") },
+  handler: async (ctx, args): Promise<void> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return;
+    if (row.b2Key !== undefined) return;
+    await ctx.db.patch(args.id, {
+      migratedAt: undefined,
+    });
+  },
+});
+
+/**
+ * Internal mutation: copy the migrated `b2Key` onto any
+ * `workspaceMessages` rows whose `storageId` equals the
+ * migrated blob's id. Greptile round 27 P1: without this
+ * patch, the chat-retention cleanup's `row.b2Key !==
+ * undefined` branch never fires for legacy migrated rows,
+ * and the cleanup deletes the Convex blob + ledger but
+ * leaves the B2 object behind (orphan).
+ *
+ * Best-effort: if the query fails (e.g., the index isn't
+ * available in a preview deployment), we log and continue
+ * so the migration itself is not rolled back.
+ */
+export const propagateMigratedB2KeyToMessages = internalMutation({
+  args: {
+    storageId: v.id("_storage"),
+    b2Key: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ patched: number }> => {
+    let patched = 0;
+    const messages = await ctx.db
+      .query("workspaceMessages")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .collect();
+    for (const msg of messages) {
+      if (msg.b2Key === args.b2Key) continue;
+      await ctx.db.patch(msg._id, {
+        b2Key: args.b2Key,
+      });
+      patched++;
+    }
+    return { patched };
   },
 });
 
@@ -1873,7 +2036,7 @@ export const deleteFromB2WorkspaceAction = internalAction({
 });
 
 /**
- * PR workspace-storage-2: SigV4 PUT a `Blob` to the workspace
+ * Internal action: PUT a Blob to the workspace B2
  * bucket at a fixed `b2Key`. Used by `migrateConvexStorageRowToB2`
  * to copy the legacy Convex-storage bytes into B2.
  *
@@ -1882,6 +2045,25 @@ export const deleteFromB2WorkspaceAction = internalAction({
  * `mintB2PresignedPutUrl`). On a 4xx error we throw — the
  * migration is non-recoverable for that row until an operator
  * inspects; Trigger.dev's retry will not help.
+ *
+ * Greptile round 27 P2: original implementation computed
+ * `sha256Hex(await params.blob.arrayBuffer())` to fill the
+ * `x-amz-content-sha256` header. For a 500 MB blob that
+ * forces a full-size ArrayBuffer allocation just to throw
+ * the digest away (the server-side signature still verifies
+ * the canonical request, not the body). Switched to
+ * `UNSIGNED-PAYLOAD` (mirrors the DELETE helper above):
+ *
+ *   - `x-amz-content-sha256: UNSIGNED-PAYLOAD` per SigV4 spec.
+ *   - `x-amz-decoded-content-length` enforces the original
+ *     size (mirrors the presigned PUT) so the bucket still
+ *     refuses an oversized PUT even with no body digest.
+ *   - We do NOT compute `sha256Hex` of the body, so memory
+ *     stays at the streaming size of the `Blob`.
+ *
+ * The canonical-request SHA-256 is still computed — that one
+ * runs over the small fixed strings (method, URI, headers),
+ * not the body, so it was already cheap.
  */
 async function putBlobToB2Workspace(params: {
   key: string;
@@ -1899,9 +2081,7 @@ async function putBlobToB2Workspace(params: {
   const canonicalUri = `/${creds.bucket}/${encodedKey}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
-  const payloadHash = await sha256Hex(
-    await params.blob.arrayBuffer()
-  );
+  const payloadHash = "UNSIGNED-PAYLOAD";
   const contentLength = String(params.blob.size);
   const signedHeaders = ["content-length", "host", "x-amz-content-sha256", "x-amz-date"];
   const canonicalHeaders = [
@@ -1946,6 +2126,7 @@ async function putBlobToB2Workspace(params: {
       "Content-Length": contentLength,
       "Content-Type": params.blob.type || "application/octet-stream",
       "x-amz-content-sha256": payloadHash,
+      "x-amz-decoded-content-length": contentLength,
       "x-amz-date": amzDate,
     },
     body: params.blob,

@@ -79,7 +79,6 @@ type SweepResult = {
   skippedTooRecent: number;
   failed: number;
   nextCursor: string | null;
-  dedupHit: boolean;
 };
 
 /**
@@ -90,19 +89,28 @@ type SweepResult = {
  * — Trigger.dev and Convex run them on separate runtimes so
  * they do not collide).
  *
- * Re-entrancy: `stampBackfillSchedule` returns `dedupHit: true`
- * if a recent schedule is already in place; the sweep then
- * short-circuits without scheduling any tasks. The window is
- * `SCHEDULE_BACKFILL_DEDUP_MS` (6h) so a backlogged sweep does
- * not double-trigger the per-row tasks (which are themselves
- * idempotent but would waste Trigger.dev quota).
+ * Re-entrancy model (Greptile round 27 P1: was an unindexed
+ * `q.filter(...)` table-scan via `stampBackfillSchedule`):
+ * the sweep pages through candidates and triggers a task per
+ * row without checking a dedup stamp first. Three safeguards
+ * make duplicate work safe:
+ *
+ *   1. Trigger.dev's `schedules.task` only fires on its cron
+ *      schedule (once per day at 03:00 UTC). It does not
+ *      re-fire on its own.
+ *   2. `migrateConvexStorageRowToB2` is idempotent: a row
+ *      with `b2Key !== undefined || migratedAt !== undefined`
+ *      is a no-op. Re-triggering the same row is safe.
+ *   3. `stampBackfillSchedule` is still called as a heartbeat
+ *      observability marker (sets `scheduledBackfillAt` on the
+ *      oldest candidate) but does NOT gate the sweep — the
+ *      scan runs unconditionally so a partial failure on a
+ *      previous day is caught up by the next day.
  *
  * Pagination: the sweep pages through candidates via the
- * `cursor` returned by `listWorkspaceMigrationCandidates`. The
- * per-page limit is `BACKFILL_BATCH_SIZE` (50) — enough for one
- * day's worth of un-migrated rows in steady state, low enough
- * to keep a single tick's runtime under the Trigger.dev 1h
- * default.
+ * `cursor` returned by `listWorkspaceMigrationCandidates`.
+ * Per-page limit is 50 (mirrors `BACKFILL_BATCH_SIZE`).
+ * `maxPages` is 20 so a single tick drains up to 1k rows.
  */
 export const workspaceStorageBackfillSweep = schedules.task({
   id: "workspace-storage-backfill-sweep",
@@ -113,26 +121,6 @@ export const workspaceStorageBackfillSweep = schedules.task({
     const convex = getConvex();
     const now = Date.now();
 
-    const stamp = await convex.mutation(
-      internal.workspaceStorage.stampBackfillSchedule,
-      { scheduledAt: now }
-    );
-    if (!stamp.stamped) {
-      logger.info("workspaceStorageBackfillSweep dedup hit; skipping", {
-        now,
-      });
-      return {
-        scanned: 0,
-        scheduled: 0,
-        alreadyMigrated: 0,
-        skippedOrphan: 0,
-        skippedTooRecent: 0,
-        failed: 0,
-        nextCursor: null,
-        dedupHit: true,
-      };
-    }
-
     const totals: SweepResult = {
       scanned: 0,
       scheduled: 0,
@@ -141,7 +129,6 @@ export const workspaceStorageBackfillSweep = schedules.task({
       skippedTooRecent: 0,
       failed: 0,
       nextCursor: null,
-      dedupHit: false,
     };
 
     let cursor: string | undefined = undefined;
@@ -180,6 +167,20 @@ export const workspaceStorageBackfillSweep = schedules.task({
       if (!pageResult.nextCursor) break;
     }
     totals.nextCursor = cursor ?? null;
+
+    // Heartbeat stamp — never gates the sweep, only marks the
+    // oldest candidate so operators can grep the ledger for
+    // "when did the cron last see work to do".
+    try {
+      await convex.mutation(
+        internal.workspaceStorage.stampBackfillSchedule,
+        { scheduledAt: now }
+      );
+    } catch (err) {
+      logger.warn("workspaceStorageBackfillSweep heartbeat stamp failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     logger.info("workspaceStorageBackfillSweep complete", totals);
     return totals;

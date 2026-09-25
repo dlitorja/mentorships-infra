@@ -323,18 +323,27 @@ export const forceDeleteExpiredChatMessageRow = internalMutation({
   handler: async (ctx, args): Promise<{ deleted: boolean }> => {
     const row = await ctx.db.get(args.messageId);
     if (!row) return { deleted: false };
-    // PR workspace-storage-2: only delete the ledger for
-    // pre-migration rows. Migrated rows have `b2Key !==
-    // undefined`; their ledger row is the only place the
-    // download action can look up the workspace that owns the
-    // `b2Key`. PR 3 retires this branch.
+    // PR workspace-storage-2 (Greptile round 27 P1 fix):
+    // preserve the ledger row when the chat message has a
+    // `b2Key` (migrated), OR when the underlying ledger row is
+    // mid-migration (`migratedAt !== undefined` but `b2Key ===
+    // undefined`). The lock case matters because
+    // `migrateConvexStorageRowToB2` sets `migratedAt` BEFORE
+    // the B2 PUT; if cleanup raced the PUT, deleting the
+    // ledger here would orphan the B2 object the migration
+    // is about to write. Pre-migration rows with no lock keep
+    // the original behavior (delete the ledger).
     if (row.storageId !== undefined && row.b2Key === undefined) {
       const ledger = await ctx.db
         .query("fileUploads")
         .withIndex("by_storageId", (q) => q.eq("storageId", row.storageId!))
         .first();
       if (ledger) {
-        await ctx.db.delete(ledger._id);
+        if (ledger.migratedAt === undefined && ledger.b2Key === undefined) {
+          await ctx.db.delete(ledger._id);
+        }
+        // else: ledger is mid-migration or already migrated;
+        // leave it in place so the migration action can finish.
       }
     }
     await ctx.db.delete(args.messageId);

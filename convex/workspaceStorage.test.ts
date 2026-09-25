@@ -190,29 +190,211 @@ test("markLedgerMigrated is idempotent on repeat", async () => {
   expect((stored as any).b2Key).toBe("first/key");
 });
 
-test("stampBackfillSchedule re-entrancy guard", async () => {
+test("stampBackfillSchedule heartbeat is a low-cost marker (Greptile round 27 P1)", async () => {
   const t = convexTest({ schema, modules });
   const now = Date.now();
-  await seedUnmigratedRow(t, {
+  const rowId = await seedUnmigratedRow(t, {
     workspaceOwnerId: "u_owner_1",
     uploaderId: "u_uploader_1",
     uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
     storageId: "storage_for_stamp",
   });
 
-  // First stamp sets scheduledBackfillAt.
+  // First stamp sets scheduledBackfillAt on the oldest candidate.
   const first = await t.mutation(
     internal.workspaceStorage.stampBackfillSchedule,
     { scheduledAt: now }
   );
   expect(first).toEqual({ stamped: true });
 
-  // Second stamp within the dedup window returns stamped: false.
-  const dedup = await t.mutation(
+  // Second stamp also succeeds (no longer a dedup guard — the
+  // cron's re-entrancy model is now "Trigger.dev schedule +
+  // per-row idempotency", so the stamp is a heartbeat that
+  // must NOT gate the sweep).
+  const second = await t.mutation(
     internal.workspaceStorage.stampBackfillSchedule,
     { scheduledAt: now + 60 * 1000 }
   );
-  expect(dedup).toEqual({ stamped: false });
+  expect(second).toEqual({ stamped: true });
+
+  // Verify the stamp landed on a row.
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).scheduledBackfillAt).toBe(now + 60 * 1000);
+});
+
+test("acquireMigrationLock succeeds when row is unmigrated", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_lock",
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.acquireMigrationLock,
+    { id: rowId as any, lockAt: now }
+  );
+  expect(result).toEqual({ locked: true });
+
+  // The lock timestamp is on the row.
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).migratedAt).toBe(now);
+  expect((stored as any).b2Key).toBeUndefined();
+});
+
+test("acquireMigrationLock refuses already-locked rows", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_concurrent_lock",
+    migratedAt: now - 5 * 60 * 1000, // another trigger already locked
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.acquireMigrationLock,
+    { id: rowId as any, lockAt: now }
+  );
+  expect(result).toEqual({ locked: false });
+
+  // The pre-existing migratedAt survived.
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).migratedAt).toBe(now - 5 * 60 * 1000);
+});
+
+test("acquireMigrationLock refuses already-migrated rows", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_already_migrated",
+    b2Key: "done/key",
+    migratedAt: now - 5 * 60 * 1000,
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.acquireMigrationLock,
+    { id: rowId as any, lockAt: now }
+  );
+  expect(result).toEqual({ locked: false });
+});
+
+test("releaseMigrationLock clears the lock when PUT fails", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_release",
+    migratedAt: now, // lock in place
+  });
+
+  await t.mutation(
+    internal.workspaceStorage.releaseMigrationLock,
+    { id: rowId as any }
+  );
+
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).migratedAt).toBeUndefined();
+});
+
+test("releaseMigrationLock does NOT clear an already-migrated row", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const rowId = await seedUnmigratedRow(t, {
+    workspaceOwnerId: "u_owner_1",
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+    storageId: "storage_for_release_with_b2key",
+    b2Key: "successful/key",
+    migratedAt: now - 5 * 60 * 1000,
+  });
+
+  await t.mutation(
+    internal.workspaceStorage.releaseMigrationLock,
+    { id: rowId as any }
+  );
+
+  // Both b2Key + migratedAt survived (this is a successful
+  // migration, not a failed PUT — release is a no-op).
+  const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((stored as any).b2Key).toBe("successful/key");
+  expect((stored as any).migratedAt).toBe(now - 5 * 60 * 1000);
+});
+
+test("propagateMigratedB2KeyToMessages patches sharing chat rows", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  let workspaceId = "";
+  let storageId: Id<"_storage"> | undefined = undefined;
+  let messageId = "";
+  await t.run(async (ctx) => {
+    workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test WS",
+      ownerId: "u_owner_1",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    storageId = await ctx.storage.store(new Blob(["shared bytes"]));
+    messageId = await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_uploader_1",
+      content: "image",
+      type: "image",
+      storageId,
+    });
+  });
+
+  await t.mutation(
+    internal.workspaceStorage.propagateMigratedB2KeyToMessages,
+    { storageId: storageId as any, b2Key: "migrated/share/key" }
+  );
+
+  const msgAfter = await t.run(async (ctx) => ctx.db.get(messageId as any));
+  expect((msgAfter as any).b2Key).toBe("migrated/share/key");
+});
+
+test("propagateMigratedB2KeyToMessages skips already-matched rows", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  let workspaceId = "";
+  let storageId: Id<"_storage"> | undefined = undefined;
+  let messageId = "";
+  await t.run(async (ctx) => {
+    workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test WS",
+      ownerId: "u_owner_1",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    storageId = await ctx.storage.store(new Blob(["already propagated"]));
+    messageId = await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_uploader_1",
+      content: "image",
+      type: "image",
+      storageId,
+      b2Key: "already/set/key",
+    });
+  });
+
+  const result = await t.mutation(
+    internal.workspaceStorage.propagateMigratedB2KeyToMessages,
+    { storageId: storageId as any, b2Key: "already/set/key" }
+  );
+  expect(result.patched).toBe(0);
+
+  const msgAfter = await t.run(async (ctx) => ctx.db.get(messageId as any));
+  expect((msgAfter as any).b2Key).toBe("already/set/key");
 });
 
 test("getMigrationTargetById returns row when present", async () => {
@@ -349,4 +531,59 @@ test("forceDeleteExpiredChatMessageRow removes legacy ledger rows", async () => 
   expect(chatAfter).toBeNull();
   const ledgerAfter = await t.run(async (ctx) => ctx.db.get(ledgerId as any));
   expect(ledgerAfter).toBeNull();
+});
+
+test("forceDeleteExpiredChatMessageRow preserves mid-migration ledger rows (Greptile round 27 P1)", async () => {
+  // Mirrors the PUT-vs-cleanup race window: migration sets
+  // `migratedAt` BEFORE the B2 PUT, so a concurrent cleanup
+  // tick must NOT delete the ledger — the B2 PUT is in flight
+  // and deleting the ledger here would orphan the B2 object
+  // the migration is about to write.
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  let workspaceId = "";
+  let messageId = "";
+  let ledgerId = "";
+  await t.run(async (ctx) => {
+    workspaceId = await ctx.db.insert("workspaces", {
+      name: "Mid-Migration WS",
+      ownerId: "u_owner_1",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    const storageId = await ctx.storage.store(new Blob(["in-flight bytes"]));
+    messageId = await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_uploader_1",
+      content: "image",
+      type: "image",
+      storageId,
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    });
+    ledgerId = await ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_uploader_1",
+      uploadedAt: now - 8 * 24 * 60 * 60 * 1000,
+      storageId,
+      // Mid-migration: lock acquired, PUT in flight, no b2Key yet.
+      migratedAt: now - 100,
+    });
+  });
+
+  await t.mutation(
+    internal.cleanup.chatFileRetention.forceDeleteExpiredChatMessageRow,
+    { messageId: messageId as any }
+  );
+
+  // Chat message is gone (the chat-side state is unrecoverable
+  // anyway once `deletedAt` is in the past).
+  const chatAfter = await t.run(async (ctx) => ctx.db.get(messageId as any));
+  expect(chatAfter).toBeNull();
+
+  // Ledger row SURVIVED — migration is still in flight.
+  const ledgerAfter = await t.run(async (ctx) => ctx.db.get(ledgerId as any));
+  expect(ledgerAfter).not.toBeNull();
+  expect((ledgerAfter as any).migratedAt).toBe(now - 100);
+  expect((ledgerAfter as any).b2Key).toBeUndefined();
 });
