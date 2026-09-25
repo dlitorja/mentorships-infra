@@ -262,7 +262,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         success: boolean;
         alreadyApplied?: boolean;
         newValue?: number;
-        previousValue?: number;
+        oldValue?: number;
       }>("/inventory/apply", {
         instructorSlug: mapping.instructorSlug,
         type: convexType,
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
       alreadyApplied = result.alreadyApplied === true;
       newInventory = result.newValue ?? null;
-      const previousInventory = result.previousValue ?? null;
+      const previousInventory = result.oldValue ?? null;
       // Emit an observability event for every successful inventory
       // change so operators can configure the per-instructor inventory
       // drop alert described in

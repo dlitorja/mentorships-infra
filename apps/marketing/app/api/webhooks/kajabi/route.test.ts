@@ -63,7 +63,7 @@ describe("Kajabi webhook route", () => {
       // intended. This test guards against that regression.
       vi.mocked(convexServerCall)
         .mockResolvedValueOnce({ success: true, mapping: null })
-        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 4 });
+        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 4, oldValue: 5 });
 
       const request = makeRequest({
         method: "POST",
@@ -166,7 +166,7 @@ describe("Kajabi webhook route", () => {
     it("accepts a User-Agent containing 'Kajabi' (case-insensitive)", async () => {
       vi.mocked(convexServerCall)
         .mockResolvedValueOnce({ success: true, mapping: null })
-        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 4 });
+        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 4, oldValue: 5 });
 
       const request = makeRequest({
         method: "POST",
@@ -224,7 +224,7 @@ describe("Kajabi webhook route", () => {
             kajabiOfferUrl: "https://example.com/offer",
           },
         })
-        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 9 });
+        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 9, oldValue: 10 });
 
       const request = makeRequest({
         method: "POST",
@@ -242,6 +242,53 @@ describe("Kajabi webhook route", () => {
       expect(body.quantity).toBe(1);
       expect(body.newInventory).toBe(9);
       expect(body.alreadyApplied).toBe(false);
+    });
+
+    it("emits inventory.changed observability event with previousInventory + newInventory on a successful apply", async () => {
+      // Greptile P2 'Inventory baseline is always null': the handler
+      // must read the pre-change inventory from the Convex response
+      // (field name `oldValue`) and surface it as
+      // `context.previousInventory` so the per-instructor drop alert
+      // documented in kajabi-webhook-security.md can compute the
+      // before-and-after diff. Without this, every event would have
+      // previousInventory: null and the alert would have no signal.
+      const reportError = (await import("@/lib/observability")).reportError;
+
+      vi.mocked(convexServerCall)
+        .mockResolvedValueOnce({
+          success: true,
+          mapping: {
+            offerId: "off_test_123",
+            instructorSlug: "instructor_test",
+            mentorshipType: "one-on-one",
+            kajabiOfferUrl: "https://example.com/offer",
+          },
+        })
+        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 9, oldValue: 10 });
+
+      const request = makeRequest({
+        method: "POST",
+        url: URL,
+        body: makeKajabiPayload({ transaction: { id: "tx_inventory_event_test", quantity: 1 } }),
+        headers: { "user-agent": "Kajabi-Webhook/1.0" },
+      });
+
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+
+      const inventoryCalls = vi.mocked(reportError).mock.calls.filter(
+        (c) => c[0]?.source === "inventory.changed",
+      );
+      expect(inventoryCalls).toHaveLength(1);
+      expect(inventoryCalls[0][0].level).toBe("info");
+      expect(inventoryCalls[0][0].context).toMatchObject({
+        instructorSlug: "instructor_test",
+        type: "one-on-one",
+        previousInventory: 10,
+        newInventory: 9,
+        quantity: 1,
+      });
     });
   });
 
