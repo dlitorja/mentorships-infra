@@ -1219,13 +1219,24 @@ export const getInstructorBySlug = query({
 export const getPublicInventoryBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    const instructor = await ctx.db
+    // Greptile P1: `.first()` could return a soft-deleted row
+    // when a slug has both a deleted historical instructor and
+    // an active replacement. The route would map the resulting
+    // `null` to "not publicly visible" → zeros, hiding the live
+    // instructor's available inventory from the public page.
+    // Mirror the backfill's "active first" policy: collect all
+    // rows at the slug, prefer a non-deleted + listed row, and
+    // only return null if every row is hidden.
+    const candidates = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
-    if (!instructor) return null;
-    if (instructor.isListed === false) return null;
-    if (instructor.deletedAt) return null;
+      .collect();
+    if (candidates.length === 0) return null;
+    const visible = candidates.filter(
+      (c) => !c.deletedAt && c.isListed !== false
+    );
+    if (visible.length === 0) return null;
+    const instructor = visible[0];
 
     // Return `null` vs `number` per field so callers can
     // distinguish "Convex has been touched (a real zero from a

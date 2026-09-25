@@ -136,6 +136,40 @@ test("getPublicInventoryBySlug: returns null when instructor is soft-deleted", a
   expect(result).toBeNull();
 });
 
+test("getPublicInventoryBySlug: prefers the active row when slug has a soft-deleted duplicate", async () => {
+  // Greptile P1 (round 8): the previous `.first()` lookup could
+  // return the soft-deleted row, hiding the live instructor's
+  // available inventory from the public page. The query now
+  // mirrors the backfill's "active first" policy.
+  const t = convexTest({ schema, modules });
+  await t.run((ctx) =>
+    ctx.db.insert("instructors", {
+      slug: "shared-public-slug",
+      name: "Shared Public Slug (deleted)",
+      isListed: true,
+      oneOnOneInventory: 99,
+      groupInventory: 99,
+      deletedAt: 1_700_000_000_000,
+      updatedAt: 1_600_000_000_000,
+    })
+  );
+  await seedInstructor(t, {
+    slug: "shared-public-slug",
+    name: "Shared Public Slug (active)",
+    oneOnOneInventory: 4,
+    groupInventory: 2,
+  });
+
+  const result = await t.query(api.instructors.getPublicInventoryBySlug, {
+    slug: "shared-public-slug",
+  });
+
+  expect(result).not.toBeNull();
+  expect(result?.slug).toBe("shared-public-slug");
+  expect(result?.oneOnOneInventory).toBe(4);
+  expect(result?.groupInventory).toBe(2);
+});
+
 test("internalGetInstructorBySlugForBackfill: returns unlisted instructors (visibility bypass)", async () => {
   const t = convexTest({ schema, modules });
   await seedInstructor(t, {
