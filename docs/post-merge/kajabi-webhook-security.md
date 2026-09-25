@@ -17,7 +17,11 @@ authoritative source of inventory since PR #873, merged 2026-09-24 at
   with a crafted JSON body that matches the schema in
   `apps/marketing/app/api/webhooks/kajabi/route.ts`.
 * Each forged request that passes the User-Agent check will trigger
-  exactly one inventory decrement (subject to the rate limit below).
+  an inventory decrement of `quantity` units (default 1; the schema
+  accepts any positive integer up to the available stock, so a single
+  forged request can exhaust an offer). The request volume is bounded
+  by the rate limit below, but the per-request damage is bounded only
+  by the offer's remaining inventory.
 * Forged requests can therefore:
   * Prematurely sell out a specific offer (denial-of-service to
     legitimate buyers).
@@ -183,6 +187,12 @@ backends, so no additional tagging infrastructure is needed.
       the next 90 are blocked at the proxy and never produce this
       event). The event payload has `context.ip`, `context.userAgent`,
       and `context.offerId`.
+* [ ] BetterStack / Axiom alerts on sudden inventory drops per
+      instructor per hour exceeding N units (default N = 20),
+      regardless of source. This catches single-request exhausts
+      (a forged POST with `quantity` > 1) that bypass the
+      request-volume rate limit. Filter on the `inventory/apply`
+      Convex mutation or the `inventory/changed` Inngest event.
 * [ ] BetterStack / Axiom shows a `ratelimit.middleware` warning
       event for every 429 with `context.ip`, `context.policy`,
       `context.pathname`.

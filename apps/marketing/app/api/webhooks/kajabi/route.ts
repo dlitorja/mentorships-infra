@@ -119,8 +119,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Threat model after these controls:
   //   - An attacker who knows the offer IDs can still forge single
   //     requests with `User-Agent: Kajabi/...`, each of which can
-  //     decrement one unit of real inventory. This is bounded by the
-  //     10/60s rate limit (max ~10 units/IP/min).
+  //     decrement inventory by `quantity` units (default 1, but the
+  //     schema accepts any positive integer up to the available
+  //     stock — a single forged request can therefore exhaust an
+  //     offer). The 10/60s rate limit bounds the REQUEST volume to
+  //     ~10 requests/IP/min — but the per-request damage is bounded
+  //     only by the offer's remaining inventory, not by the rate
+  //     limit. Operators should monitor inventory-change volume per
+  //     instructor per hour to detect single-request exhausts.
   //   - The attacker cannot mint real transactions, steal money, or
   //     exfiltrate customer data.
   //
