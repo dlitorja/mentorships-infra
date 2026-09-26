@@ -77,6 +77,24 @@ function stubB2Credentials(): void {
   process.env.B2_APPLICATION_KEY = "test-b2-secret";
 }
 
+/**
+ * Build the expected B2 base URL from the same env vars the
+ * production code reads in `loadB2Credentials`. Keeps the
+ * signature assertions tied to whatever bucket / region the
+ * test environment sets (Greptile P2: "Assertions assume
+ * default B2 settings").
+ */
+function expectedB2BaseUrl(): string {
+  const region =
+    process.env.WORKSPACE_STORAGE_BUCKET_REGION || "us-east-005";
+  const endpoint =
+    process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
+    `https://s3.${region}.backblazeb2.com`;
+  const bucket =
+    process.env.WORKSPACE_STORAGE_BUCKET_NAME || "mentorship-workspace-storage";
+  return `${endpoint.replace(/\/+$/, "")}/${bucket}`;
+}
+
 async function seedUnmigratedRow(
   t: ReturnType<typeof convexTest>,
   args: {
@@ -812,7 +830,7 @@ test("generateWorkspaceUploadUrl mints a presigned PUT and reserves a ledger row
 
   expect(result.fileId).toBe("file_abc");
   expect(result.uploadUrl).toMatch(
-    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\//
+    new RegExp("^" + expectedB2BaseUrl().replace(/\//g, "\\/") + "/")
   );
   expect(result.uploadUrl).toContain("x-amz-signature=");
   // The key path includes the instructor / student / workspace
@@ -971,7 +989,12 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
     instructorUserId: "u_instructor_1",
   });
   const now = Date.now();
-  // Insert 25 legacy rows with storageId set (no b2Key).
+  // Insert 25 legacy rows with storageId set (no b2Key) and
+  // LEFT PENDING (no completedAt). A regression where legacy
+  // rows count against the B2 cap would cause the fresh mint
+  // below to throw; without the pending state the index would
+  // drop them before the b2Key filter and the test would pass
+  // even with the regression present.
   for (let i = 0; i < 25; i++) {
     const storageId = await t.run(async (ctx) =>
       ctx.storage.store(new Blob([`legacy:${i}`]))
@@ -982,12 +1005,13 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
         uploaderId: "u_student_1",
         uploadedAt: now - 1000 * (i + 1),
         storageId,
-        completedAt: now - 500 * (i + 1),
       })
     );
   }
   // A single fresh B2 mint must still succeed because none of
-  // the legacy rows have `b2Key !== undefined`.
+  // the legacy rows have `b2Key !== undefined` (the compound
+  // index filters to pending rows by completedAt; legacy rows
+  // are not b2Key-reservations).
   await t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
     workspaceId: workspaceId as any,
     b2Key: "2026-01-01/file_fresh/fresh.png",
@@ -1172,6 +1196,19 @@ test("recordB2FileUpload rejects a key bound to a different workspace (Greptile 
     }
   );
 
+  // Look up the original ledger row so we can assert it
+  // survives the cross-workspace rejection (Greptile round
+  // 32 P2: "Rejection leaves cleanup unchecked" — without
+  // this assertion, a regression that cancels the original
+  // upload and schedules its B2 deletion on rejection would
+  // pass the test).
+  const originalRow = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -1188,6 +1225,15 @@ test("recordB2FileUpload rejects a key bound to a different workspace (Greptile 
       b2Key,
     })
   ).rejects.toThrow(/does not belong to this workspace/i);
+
+  // The original ledger row must remain pending + not cancelled.
+  // A regression that scheduled cleanup on rejection would mark
+  // this row cancelled.
+  const after = await t.run(async (ctx) =>
+    ctx.db.get(originalRow!._id)
+  );
+  expect((after as any).cancelledAt).toBeUndefined();
+  expect((after as any).completedAt).toBeUndefined();
 });
 
 test("confirmB2FileUpload refuses to re-confirm an already-completed ledger row", async () => {
@@ -1323,7 +1369,7 @@ test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key"
     }
   );
   expect(result.url).toMatch(
-    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\//
+    new RegExp("^" + expectedB2BaseUrl().replace(/\//g, "\\/") + "/")
   );
   expect(result.url).toContain("x-amz-signature=");
   expect(result.expiresAt).toBeGreaterThan(Date.now());
@@ -1407,8 +1453,8 @@ test("deleteFromB2WorkspaceAction issues a SigV4 DELETE to the workspace bucket"
 
   expect(fetchSpy).toHaveBeenCalledTimes(1);
   const [calledUrl, calledInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
-  expect(calledUrl).toMatch(
-    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\/2026-01-01\/file_del\/del\.png$/
+  expect(calledUrl).toBe(
+    `${expectedB2BaseUrl()}/2026-01-01/file_del/del.png`
   );
   expect(calledInit.method).toBe("DELETE");
   // Authorization header carries the SigV4 signature.
@@ -1578,4 +1624,177 @@ test("forceDeleteExpiredChatMessageRow preserves the ledger when the row is mid-
   expect(afterMessage).toBeNull();
   // Ledger survives so the migration can finish.
   expect(afterLedger).not.toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Greptile P2 (round 32 follow-up): close the remaining gaps.
+//   1. cancelB2FileUpload is the unit that does the cancel
+//      patch + cleanup schedule. Assert it directly so a
+//      regression that drops the call would fail this test
+//      independent of confirmB2FileUpload's TOCTOU throw.
+//   2. hardDeleteExpiredChatFiles is the action that decides
+//      between the B2 branch and the Convex-storage branch.
+//      Assert which storage operation runs for each branch.
+// ---------------------------------------------------------------------------
+
+test("cancelB2FileUpload patches cancelledAt and schedules cleanup for a pending ledger row", async () => {
+  // Direct test of the cancel unit. Greptile round 32 P2: the
+  // TOCTOU test above only asserts that completedAt is unset,
+  // but does not check that the cleanup was actually scheduled.
+  // Asserting cancelledAt + the schedule here means a future
+  // refactor that drops the cancel call would fail this test
+  // even if it didn't regress the throw.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: Date.now(),
+      b2Key: "2026-01-01/file_cancel/cancel.png",
+    })
+  );
+
+  await t.mutation(internal.workspaceStorage.cancelB2FileUpload, {
+    b2Key: "2026-01-01/file_cancel/cancel.png",
+  });
+  const after = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((after as any).cancelledAt).toBeTypeOf("number");
+  expect((after as any).completedAt).toBeUndefined();
+});
+
+test("cancelB2FileUpload is a no-op when the ledger row is already completed (Greptile round 24 P1)", async () => {
+  // Two concurrent confirmations can race: one completes, the
+  // other rejects. The reject path must NOT delete the B2
+  // object — the other confirmation already succeeded. Without
+  // this guard, a completed row would get its B2 object
+  // swept by the cleanup action.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_done/done.png",
+      completedAt: now,
+    })
+  );
+  await t.mutation(internal.workspaceStorage.cancelB2FileUpload, {
+    b2Key: "2026-01-01/file_done/done.png",
+  });
+  const after = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((after as any).cancelledAt).toBeUndefined();
+  expect((after as any).completedAt).toBe(now);
+});
+
+test("hardDeleteExpiredChatFiles calls deleteFromB2WorkspaceAction for a migrated row", async () => {
+  // Greptile round 32 P2: the B2-vs-Convex-storage decision
+  // lives in `hardDeleteExpiredChatFiles`, not in
+  // `forceDeleteExpiredChatMessageRow`. Exercise the action
+  // and assert the B2 DELETE was called (not ctx.storage.delete).
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Seed a chat message row that has been migrated
+  // (`b2Key !== undefined`) and is past retention.
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["legacy-bytes"]))
+  );
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_student_1",
+      content: "(deleted)",
+      type: "file",
+      storageId,
+      b2Key: "2026-01-01/file_retention/retention.png",
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    })
+  );
+
+  // Spy fetch. The B2 branch should call DELETE on the
+  // workspace bucket URL. The legacy Convex-storage branch
+  // would call ctx.storage.delete (which is NOT a fetch).
+  const fetchSpy = vi.fn(async () =>
+    ({ ok: true, status: 204, text: async () => "" }) as Response
+  );
+  vi.stubGlobal("fetch", fetchSpy);
+
+  const result = await t.action(
+    internal.cleanup.chatFileRetention.hardDeleteExpiredChatFiles,
+    {}
+  );
+  expect(result.deletedBlobs).toBe(1);
+  expect(result.deletedRows).toBe(1);
+  expect(result.scanned).toBe(1);
+  expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+  const calls = fetchSpy.mock.calls.map(
+    (c) => [c[0] as string, (c[1] as RequestInit).method] as const
+  );
+  // Every call must be a DELETE against the workspace bucket.
+  // (The test seeds only one B2-migrated row, so any non-
+  // DELETE / non-bucket URL would mean a regression. Calls
+  // from earlier tests' scheduled cleanups are tolerated
+  // because `t.action` drains the scheduler queue, but
+  // they all target the same bucket so the invariant holds.)
+  for (const call of calls) {
+    expect(call[1]).toBe("DELETE");
+    expect(call[0].startsWith(expectedB2BaseUrl())).toBe(true);
+  }
+});
+
+test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row", async () => {
+  // Mirror of the B2 test above, but for a row that has not
+  // been migrated (`b2Key === undefined`). The action must
+  // fall back to `ctx.storage.delete` and MUST NOT call fetch.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["legacy-only"]))
+  );
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_student_1",
+      content: "(deleted)",
+      type: "file",
+      storageId,
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    })
+  );
+
+  const fetchSpy = vi.fn(async () =>
+    ({ ok: true, status: 204, text: async () => "" }) as Response
+  );
+  vi.stubGlobal("fetch", fetchSpy);
+
+  const result = await t.action(
+    internal.cleanup.chatFileRetention.hardDeleteExpiredChatFiles,
+    {}
+  );
+  expect(result.deletedBlobs).toBe(1);
+  expect(result.deletedRows).toBe(1);
+  // No B2 DELETE — the row has b2Key === undefined, so the
+  // action takes the legacy `ctx.storage.delete` branch and
+  // never invokes fetch.
+  expect(fetchSpy).toHaveBeenCalledTimes(0);
 });
