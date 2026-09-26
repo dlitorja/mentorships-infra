@@ -1453,6 +1453,90 @@ export const getPublicInstructors = query({
   },
 });
 
+/**
+ * HUC-46 Phase 3 prerequisite check (Greptile P1, PR #883 round 22):
+ * Returns the slug + raw inventory fields for every public-listed
+ * (non-deleted, active, listed) instructor. Unlike
+ * `getPublicInstructors`, this query returns the RAW `oneOnOneInventory`
+ * and `groupInventory` values (`null` for never-written, `number` for
+ * touched) so the caller can detect "Convex has never been touched
+ * for this instructor" — the exact signal the Phase 3 narrow SQL
+ * migration's preflight check needs. The backfill script uses this
+ * via the auth-gated HTTP wrapper at
+ * `/inventory/list-public-instructor-slugs-for-backfill` in
+ * `convex/http.ts`.
+ *
+ * The query is INTERNAL — not callable from the public client. The
+ * HTTP wrapper requires `Authorization: Bearer ${CONVEX_HTTP_KEY}`.
+ *
+ * Greptile P2 round 25: declared as `internalQuery` so a client
+ * cannot call it directly to dump every public-listed
+ * instructor's raw inventory + unset-field state. Only the
+ * auth-gated HTTP action invokes it via `internal`.
+ */
+export const listPublicInstructorSlugsForBackfill = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    // Paginate the by_deletedAt index. Same pageSize + iteration cap
+    // pattern as `getConnectedInstructorsForAdmin`: 8000 reads / 200
+    // = 40 pages max, so a sparse active set yields the most
+    // instructors possible before Convex's 8192-doc budget refuses.
+    const pageSize = 200;
+    const maxIterations = 40;
+    const out: Array<{
+      slug: string;
+      oneOnOneInventory: number | null;
+      groupInventory: number | null;
+    }> = [];
+    let cursor: string | null = null;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      iterations++;
+      const result = await ctx.db
+        .query("instructors")
+        .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+        .paginate({ numItems: pageSize, cursor });
+      for (const inst of result.page) {
+        if (inst.deletedAt !== undefined) continue;
+        // Greptile P1 round 26: mirror getPublicInventoryBySlug
+        // exactly. The previous isActive === false → continue filter
+        // skipped inactive-but-listed instructors whose slug still
+        // resolves through the public route. The per-slug lookup
+        // (which the marketing route uses) only filters
+        // !deletedAt && isListed !== false, so this scan must match
+        // that intersection or it can miss reachable instructors.
+        if (inst.isListed === false) continue;
+        if (typeof inst.slug !== "string" || inst.slug.length === 0) continue;
+        const oneRaw = (inst as any).oneOnOneInventory;
+        const groupRaw = (inst as any).groupInventory;
+        out.push({
+          slug: inst.slug,
+          oneOnOneInventory: typeof oneRaw === "number" ? oneRaw : null,
+          groupInventory: typeof groupRaw === "number" ? groupRaw : null,
+        });
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+      // Greptile P1 round 24: if we exhaust the iteration cap on a
+      // page that is still full, we cannot guarantee we read every
+      // public instructor — fail loudly rather than silently return
+      // a partial result. The HUC-46 team has < 100 instructors
+      // today so the cap should never fire; if it ever does, it
+      // signals an organic-growth scenario that needs a redesigned
+      // cursor (e.g. chunk-by-slug) before Phase 3 can be applied.
+      if (iterations === maxIterations && result.page.length === pageSize) {
+        throw new Error(
+          `listPublicInstructorSlugsForBackfill: iteration cap (${maxIterations} pages) reached with a full page still remaining. ` +
+            `This means the public-instructor scan is INCOMPLETE — applying the Phase 3 SQL migration in this state would risk ` +
+            `masking unset Convex inventory as sold-out zeros for any instructor beyond this cap. ` +
+            `Increase the pageSize or iteration cap, or split the scan by slug, before re-running VERIFY_PUBLIC_COVERAGE.`
+        );
+      }
+    }
+    return out;
+  },
+});
+
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
 export const getInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },

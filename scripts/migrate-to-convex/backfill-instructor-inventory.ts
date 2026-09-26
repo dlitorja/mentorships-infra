@@ -36,6 +36,19 @@
  *   # behavior; prefer FORCE=1 alone for almost every case.
  *   FORCE_ALL=1 pnpm backfill:inventory
  *
+ *   # Zero-fill only fields whose Supabase legacy value is null
+ *   # or missing — replaces nulls with explicit 0 before posting
+ *   # to Convex. The Convex endpoint's skip-if-already-touched
+ *   # guard preserves any live (non-zero, non-undefined) Convex
+ *   # field, so a run is safe even after Kajabi purchases have
+ *   # mutated live counts. This is the HUC-46 Phase 3 narrow SQL
+ *   # prerequisite: run it once before applying the SQL migration
+ *   # to guarantee no public-offer-visible instructor has an
+ *   # unset Convex field (otherwise the marketing route's
+ *   # `null → 0` coercion would silently render an available offer
+ *   # as sold-out). Cannot be combined with FORCE=1 or FORCE_ALL=1.
+ *   ZERO_FILL_NULLS=1 pnpm backfill:inventory
+ *
  * Idempotency: the script reads the source-of-truth Supabase row
  * for every instructor and unconditionally writes the value to
  * Convex. The default non-FORCE behavior preserves any field
@@ -65,10 +78,14 @@ import { createClient } from "@supabase/supabase-js";
 export function validateForceFlags(env: {
   FORCE?: string;
   FORCE_ALL?: string;
+  ZERO_FILL_NULLS?: string;
+  VERIFY_PUBLIC_COVERAGE?: string;
   [key: string]: string | undefined;
 }): { ok: true } | { ok: false; code: 2; message: string } {
   const force = env.FORCE === "1";
   const forceAll = env.FORCE_ALL === "1";
+  const zeroFillNulls = env.ZERO_FILL_NULLS === "1";
+  const verifyPublicCoverage = env.VERIFY_PUBLIC_COVERAGE === "1";
   if (force && forceAll) {
     return {
       ok: false,
@@ -77,14 +94,38 @@ export function validateForceFlags(env: {
         "FORCE=1 and FORCE_ALL=1 are both set. Pick one: FORCE alone targets only the rows that this run reports as skipped (safe); FORCE_ALL blasts every row (destructive).",
     };
   }
+  if (zeroFillNulls && (force || forceAll)) {
+    return {
+      ok: false,
+      code: 2,
+      message:
+        "ZERO_FILL_NULLS=1 cannot be combined with FORCE=1 or FORCE_ALL=1. ZERO_FILL_NULLS only writes 0 to Convex fields that are currently unset (never written); it never overwrites a live Convex value, so it is safe to combine with the normal (non-FORCE) backfill pass.",
+    };
+  }
+  if (verifyPublicCoverage && (force || forceAll || zeroFillNulls)) {
+    return {
+      ok: false,
+      code: 2,
+      message:
+        "VERIFY_PUBLIC_COVERAGE=1 is a read-only preflight check and cannot be combined with FORCE=1, FORCE_ALL=1, or ZERO_FILL_NULLS=1. Run it on its own as a prerequisite gate.",
+    };
+  }
   return { ok: true };
 }
 
 interface SupabaseInventoryRow {
   id: string;
   instructor_slug: string;
-  one_on_one_inventory: number;
-  group_inventory: number;
+  /**
+   * Supabase rows are nullable — the legacy schema allowed a row to
+   * exist with one or both fields unset. ZERO_FILL_NULLS=1 coerces
+   * `null` → `0` before posting. Phantoms synthesised by the
+   * VERIFY_PUBLIC_COVERAGE merge path also store `null` here so the
+   * zero-fill logic kicks in for public instructors that never had
+   * a Supabase row.
+   */
+  one_on_one_inventory: number | null;
+  group_inventory: number | null;
   updated_at: string;
   updated_by: string | null;
 }
@@ -110,7 +151,12 @@ interface BackfillResponse {
 interface SkipRecord {
   slug: string;
   fields: string[];
-  legacy: { one_on_one_inventory: number; group_inventory: number };
+  /**
+   * `legacy` preserves the Supabase value at the time of the skip
+   * for forensic logging. `null` is possible because Supabase
+   * legacy rows are nullable.
+   */
+  legacy: { one_on_one_inventory: number | null; group_inventory: number | null };
 }
 
 interface RuntimeConfig {
@@ -120,6 +166,34 @@ interface RuntimeConfig {
   dryRun: boolean;
   force: boolean;
   forceAll: boolean;
+  /**
+   * HUC-46 Phase 3 prerequisite: when true, the script replaces
+   * null/undefined Supabase inventory values with explicit 0
+   * before posting to Convex. The Convex endpoint's skip-if-
+   * already-touched logic preserves any live (non-zero,
+   * non-undefined) Convex field, so a run is safe even for
+   * instructors whose live Convex state was set by a Kajabi
+   * purchase after the original backfill. Use this to guarantee
+   * that every public-offer-visible instructor has explicit
+   * Convex fields BEFORE applying the Phase 3 SQL migration
+   * (which drops the Supabase fallback that masked unset
+   * Convex fields as sold-out zeros).
+   */
+  zeroFillNulls: boolean;
+  /**
+   * HUC-46 Phase 3 prerequisite gate (Greptile P1, PR #883
+   * round 22): when true, the script fetches every public-listed
+   * instructor from Convex (via
+   * `/inventory/list-public-instructor-slugs-for-backfill`) and
+   * verifies that each has non-null inventory fields. Exits
+   * non-zero if any public instructor has unset Convex inventory,
+   * because the Supabase fallback (which currently masks unset
+   * Convex fields as sold-out zeros) is about to be dropped in
+   * Phase 3. Read-only; cannot combine with FORCE/FORCE_ALL/
+   * ZERO_FILL_NULLS — run it standalone as the preflight check
+   * before applying the Phase 3 SQL migration.
+   */
+  verifyPublicCoverage: boolean;
 }
 
 function buildRuntimeFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -148,6 +222,8 @@ function buildRuntimeFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     dryRun: env.DRY_RUN === "1",
     force: env.FORCE === "1",
     forceAll: env.FORCE_ALL === "1",
+    zeroFillNulls: env.ZERO_FILL_NULLS === "1",
+    verifyPublicCoverage: env.VERIFY_PUBLIC_COVERAGE === "1",
   };
 }
 
@@ -181,10 +257,27 @@ async function backfillOne(
   skipped?: string[];
 }> {
   const { runtime } = options;
+  /**
+   * HUC-46 Phase 3 prerequisite: in ZERO_FILL_NULLS mode, send
+   * explicit 0 for any Supabase field that is null/undefined.
+   * The Convex endpoint's skip-if-already-touched guard means a
+   * live (non-zero) Convex value is preserved untouched; only an
+   * unset (undefined) Convex field receives the 0. This makes
+   * Phase 3 safe to apply: every public-offer-visible instructor
+   * ends up with explicit Convex values, so the
+   * `null → 0` coercion in the marketing route no longer hides
+   * a "never-written" Convex field as a sold-out zero.
+   */
+  const oneOnOneInventory = runtime.zeroFillNulls
+    ? (row.one_on_one_inventory ?? 0)
+    : row.one_on_one_inventory;
+  const groupInventory = runtime.zeroFillNulls
+    ? (row.group_inventory ?? 0)
+    : row.group_inventory;
   const body = {
     slug: row.instructor_slug,
-    oneOnOneInventory: row.one_on_one_inventory,
-    groupInventory: row.group_inventory,
+    oneOnOneInventory,
+    groupInventory,
     ...(options.force
       ? { force: true }
       : {
@@ -198,9 +291,17 @@ async function backfillOne(
     if (options.force) forcedFields.push("force (all)");
     if (options.forceOneOnOne) forcedFields.push("forceOneOnOne");
     if (options.forceGroup) forcedFields.push("forceGroup");
+    if (runtime.zeroFillNulls) forcedFields.push("zero-fill-nulls");
     const forceLabel = forcedFields.length > 0 ? ` (${forcedFields.join(", ")})` : "";
+    // Greptile P2 (round 20, PR #883): in ZERO_FILL_NULLS mode
+    // the request body is prepared with 0 for any null field, so
+    // the dry-run preview must show the COMPUTED values that
+    // would be posted — otherwise an operator running
+    // `DRY_RUN=1 ZERO_FILL_NULLS=1 pnpm backfill:inventory` would
+    // see `null` in the preview and conclude that no write would
+    // happen, missing the actual zero-fill.
     console.log(
-      `[dry-run] would patch ${row.instructor_slug}${forceLabel}: 1:1=${row.one_on_one_inventory}, group=${row.group_inventory}`
+      `[dry-run] would patch ${row.instructor_slug}${forceLabel}: 1:1=${oneOnOneInventory}, group=${groupInventory}`
     );
     return { slug: row.instructor_slug, ok: true };
   }
@@ -280,6 +381,60 @@ async function fetchAllRows(
     }
   }
   return rows;
+}
+
+/**
+ * HUC-46 Phase 3 prerequisite gate (Greptile P1, PR #883 round 22).
+ * Returns the slug + raw inventory fields for every public-listed
+ * instructor in Convex. Unlike `getPublicInstructors`, this query
+ * returns RAW (null for never-written, number for touched) so the
+ * caller can detect "Convex has never been touched for this
+ * instructor" — the exact signal the Phase 3 narrow SQL
+ * migration's preflight check needs.
+ */
+async function fetchPublicInstructors(
+  runtime: RuntimeConfig
+): Promise<
+  Array<{
+    slug: string;
+    oneOnOneInventory: number | null;
+    groupInventory: number | null;
+  }>
+> {
+  const response = await fetch(
+    `${runtime.convexBaseUrl}/inventory/list-public-instructor-slugs-for-backfill`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${runtime.convexHttpKey}`,
+      },
+      body: JSON.stringify({}),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Convex HTTP action returned ${response.status}: ${await response.text()}`
+    );
+  }
+
+  const payload = (await response.json()) as {
+    success: boolean;
+    instructors?: Array<{
+      slug: string;
+      oneOnOneInventory: number | null;
+      groupInventory: number | null;
+    }>;
+    error?: string;
+  };
+
+  if (!payload.success || !payload.instructors) {
+    throw new Error(
+      `Convex HTTP action returned success=false: ${payload.error ?? "unknown"}`
+    );
+  }
+  return payload.instructors;
 }
 
 async function runPhase(
@@ -392,9 +547,110 @@ export async function runBackfill(
       "[FORCE_ALL=1] Will overwrite every Convex value with the Supabase legacy value, including unrelated instructors with manually-set sold-out zeros. Destructive; confirm with the team before running on prod.\n"
     );
   }
+  if (runtime.zeroFillNulls) {
+    console.log(
+      "[ZERO_FILL_NULLS=1] Will replace null Supabase inventory values with explicit 0 before posting to Convex. The Convex endpoint's skip-if-already-touched guard preserves any live (non-zero, non-undefined) Convex field, so this is safe to run after Kajabi purchases. Use this as the Phase 3 narrow SQL prerequisite to guarantee no instructor has an unset Convex field.\n"
+    );
+  }
 
-  const rows = await fetchAllRows(runtime);
+  let rows = await fetchAllRows(runtime);
   console.log(`Found ${rows.length} instructor_inventory rows in Supabase.\n`);
+
+  // Greptile P1 (PR #883 round 22): when ZERO_FILL_NULLS=1 is set,
+  // ALSO pull the public-listed instructor slugs from Convex and
+  // synthesise phantom Supabase rows for any slug not already
+  // present in the Supabase fetch. Without this, a public
+  // instructor who never had a Supabase inventory row would
+  // skip the zero-fill pass entirely — leaving their Convex
+  // inventory unset. After Phase 3 drops the Supabase fallback,
+  // the marketing route's `null → 0` coercion would render
+  // their offer as sold-out with no signal that the inventory
+  // was never initialised.
+  if (runtime.zeroFillNulls) {
+    const publicInstructors = await fetchPublicInstructors(runtime);
+    const slugSet = new Set(rows.map((r) => r.instructor_slug));
+    const synthesised: string[] = [];
+    for (const inst of publicInstructors) {
+      if (slugSet.has(inst.slug)) continue;
+      rows.push({
+        id: `phantom-${inst.slug}`,
+        instructor_slug: inst.slug,
+        one_on_one_inventory: null,
+        group_inventory: null,
+        updated_at: new Date(0).toISOString(),
+        updated_by: null,
+      });
+      synthesised.push(inst.slug);
+    }
+    if (synthesised.length > 0) {
+      console.log(
+        `[ZERO_FILL_NULLS=1] Synthesised ${synthesised.length} phantom Supabase row(s) for public instructor(s) without a Supabase inventory row: ${synthesised.join(", ")}. Each phantom row posts 0/0 to Convex; the endpoint's skip-if-already-touched guard preserves any live Convex value.\n`
+      );
+    }
+  }
+
+  // HUC-46 Phase 3 prerequisite gate (Greptile P1, PR #883 round 22).
+  // Read-only preflight that verifies every public-listed instructor
+  // has explicit non-null Convex inventory BEFORE the Supabase
+  // fallback is dropped. If any instructor's Convex inventory is
+  // null/undefined for any field, the script exits non-zero so the
+  // operator can run ZERO_FILL_NULLS=1 first (or manually zero-fill).
+  //
+  // Greptile P1 round 23 (local review of 1037f1aa): a previous
+  // version of this check skipped the Convex field inspection for
+  // any slug that ALSO had a Supabase row — reasoning that the
+  // backfill script would cover it. That was wrong: the backfill
+  // script reads Supabase values, but if those Supabase values are
+  // themselves null and ZERO_FILL_NULLS=1 is NOT set, the script
+  // posts `null` to Convex and the endpoint's skip-if-already-
+  // touched guard may not initialize either. The check therefore
+  // inspects Convex fields for every public instructor regardless
+  // of Supabase coverage. If a slug has both a Supabase row AND
+  // non-null Convex fields, it's logged as "covered by backfill";
+  // if it has any null Convex field, it goes into `missing`.
+  if (runtime.verifyPublicCoverage) {
+    const publicInstructors = await fetchPublicInstructors(runtime);
+    const slugSet = new Set(rows.map((r) => r.instructor_slug));
+    const missing: Array<{ slug: string; missingFields: string[] }> = [];
+    const coveredByBackfill: string[] = [];
+    const coveredByConvex: string[] = [];
+    for (const inst of publicInstructors) {
+      const missingFields: string[] = [];
+      if (inst.oneOnOneInventory === null) missingFields.push("oneOnOneInventory");
+      if (inst.groupInventory === null) missingFields.push("groupInventory");
+      if (missingFields.length > 0) {
+        missing.push({ slug: inst.slug, missingFields });
+        continue;
+      }
+      if (slugSet.has(inst.slug)) {
+        coveredByBackfill.push(inst.slug);
+      } else {
+        coveredByConvex.push(inst.slug);
+      }
+    }
+    console.log(
+      `\n[VERIFY_PUBLIC_COVERAGE=1] Coverage check on ${publicInstructors.length} public-listed instructor(s):`
+    );
+    console.log(
+      `  - ${coveredByBackfill.length} have BOTH a Supabase inventory row AND non-null Convex fields (covered by the backfill script)`
+    );
+    console.log(
+      `  - ${coveredByConvex.length} have non-null Convex fields but NO Supabase row (already covered by another path)`
+    );
+    if (missing.length === 0) {
+      console.log(
+        "\n  All public instructors have non-null Convex inventory fields. Phase 3 SQL is safe to apply.\n"
+      );
+      return { exitCode: 0 };
+    }
+    console.log(
+      `\n  ${missing.length} public instructor(s) have unset Convex inventory fields. The Supabase fallback masks these as sold-out zeros today; after Phase 3 drops the fallback, these offers would appear sold out with no signal of why. Run ZERO_FILL_NULLS=1 pnpm backfill:inventory to zero-fill them before applying the SQL migration.\n`
+    );
+    for (const m of missing) {
+      console.log(`    - ${m.slug}: missing ${m.missingFields.join(", ")}`);
+    }
+    process.exit(1);
+  }
 
   // Phase 1: dry-or-normal backfill for every row.
   const phase1 = await runPhase(rows, {
@@ -466,16 +722,37 @@ export async function runBackfill(
       `Done: ${phase1.succeeded} succeeded (${phase1.succeededWithSkips} with skipped fields), ${phase1.failed} failed (${phase1.notFound} not-found)`
     );
     if (phase1.skips.length > 0) {
-      console.log(`\nSkipped (Convex already had non-zero values — legacy NOT applied):`);
-      for (const s of phase1.skips) {
-        console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+      if (runtime.zeroFillNulls) {
+        // Greptile P1 (round 21, PR #883): in ZERO_FILL_NULLS mode
+        // the Convex endpoint's skip-if-already-touched guard
+        // intentionally preserves any live (non-zero) Convex
+        // field. A "skipped" row here means "Convex already had
+        // a value that the script chose to preserve" — which is
+        // the desired outcome of this mode, not a failure. Tell
+        // the operator that explicitly so they don't reach for
+        // FORCE=1 (which is rightly refused by the validator and
+        // would also defeat the purpose of the safe mode).
+        console.log(
+          `\nSkipped fields (live Convex value preserved — expected for ZERO_FILL_NULLS):`
+        );
+        for (const s of phase1.skips) {
+          console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+        }
+        console.log(
+          `\nNo further action needed: live Convex values are correct. ZERO_FILL_NULLS only writes 0 to fields that were unset; any field with a live value was intentionally left untouched.`
+        );
+      } else {
+        console.log(`\nSkipped (Convex already had non-zero values — legacy NOT applied):`);
+        for (const s of phase1.skips) {
+          console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+        }
+        console.log(
+          `\nTo overwrite these fields, re-run with FORCE=1 (targets ONLY the skipped slugs; safe by default).`
+        );
+        console.log(
+          `For the rare case of re-mirroring every legacy value, run with FORCE_ALL=1 instead.`
+        );
       }
-      console.log(
-        `\nTo overwrite these fields, re-run with FORCE=1 (targets ONLY the skipped slugs; safe by default).`
-      );
-      console.log(
-        `For the rare case of re-mirroring every legacy value, run with FORCE_ALL=1 instead.`
-      );
     }
   }
   const failures = phase2
@@ -496,11 +773,20 @@ export async function runBackfill(
   // operator explicitly accepted the blast radius; FORCE=1 with
   // remaining skips also exits 1 because that means the endpoint
   // refused the overwrite (likely a logic bug, not user error).
+  //
+  // Greptile P1 (round 21, PR #883): ZERO_FILL_NULLS=1 is the
+  // exception. In that mode, a "skip" means "Convex had a live
+  // non-zero value, which we preserved on purpose" — which is
+  // exactly the outcome the operator wants. Counting those as
+  // failures would make the prerequisite exit 1 even when every
+  // public-offer-visible instructor has explicit Convex values.
+  // Skips in zero-fill mode are success indicators, not failures.
   const finalSkips = phase2?.skips.length ?? phase1.succeededWithSkips;
+  const skipIsFailure = !runtime.zeroFillNulls;
   const exitCode =
     phase1.failed > 0 ||
     (phase2?.failed ?? 0) > 0 ||
-    (!runtime.forceAll && finalSkips > 0)
+    (skipIsFailure && !runtime.forceAll && finalSkips > 0)
       ? 1
       : 0;
   return { exitCode };
