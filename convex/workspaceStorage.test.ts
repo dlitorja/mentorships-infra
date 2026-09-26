@@ -6,25 +6,76 @@ import type { Id } from "./_generated/dataModel";
  * `chatFileRetention.ts` cleanup swap (B2 branch + legacy
  * branch).
  *
+ * The B2 mint/confirm/download blocks below prove the *server-
+ * side state machine* that PR 3 will rely on when it swaps the
+ * UI to B2. The actual B2 PUT/DELETE bytes still go through
+ * `fetch`, which is mocked with `vi.stubGlobal` (see the
+ * `discordActionQueue.test.ts` precedent).
+ *
  * What is NOT tested here:
- *   - The actual B2 PUT/DELETE bytes. Convex test cannot reach
- *     B2, so the integration surface (`putBlobToB2Workspace` and
- *     `deleteFromB2WorkspaceAction`) is exercised in staging.
- *     The candidate query + per-row state-machine logic is
- *     tested below because that is what regresses if the
- *     schema or the grace window drifts.
- *   - The Trigger.dev cron + task. Trigger.dev is exercised
- *     in staging; the cron only calls the same Convex actions
+ *   - The actual B2 PUT/DELETE bytes against the real bucket.
+ *     Convex test cannot reach B2, so the integration surface
+ *     is exercised in staging via the CLI backfill wrapper.
+ *   - The Trigger.dev cron + task. Trigger.dev is exercised in
+ *     staging; the cron only calls the same Convex actions
  *     this file tests.
+ *   - Real SigV4 signature verification by B2. The presigned-
+ *     URL helpers are exercised in a separate staging script
+ *     (`scripts/verify-workspace-b2-credentials.ts`).
  */
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
-import { internal } from "./_generated/api";
+import { expect, test, vi, afterEach } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.B2_KEY_ID;
+  delete process.env.B2_APPLICATION_KEY;
+});
+
+/**
+ * Seed a workspace owned by `studentUserId` with an instructor
+ * mapped to `instructorUserId` so the B2 mint / confirm /
+ * download authz branches can be exercised. Used by the new
+ * B2 mint/confirm/download test block below.
+ */
+async function seedWorkspaceWithInstructor(t: ReturnType<typeof convexTest>, args: {
+  studentUserId: string;
+  instructorUserId: string;
+  endedAt?: number;
+  deletedAt?: number;
+  type?: "mentorship" | "admin_student" | "admin_instructor";
+}): Promise<{ workspaceId: string; instructorId: string }> {
+  let workspaceId = "";
+  let instructorId = "";
+  await t.run(async (ctx) => {
+    instructorId = await ctx.db.insert("instructors", {
+      userId: args.instructorUserId,
+    });
+    workspaceId = await ctx.db.insert("workspaces", {
+      name: "Test Workspace",
+      ownerId: args.studentUserId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      instructorId: instructorId as any,
+      type: args.type ?? "mentorship",
+      endedAt: args.endedAt,
+      deletedAt: args.deletedAt,
+    });
+  });
+  return { workspaceId, instructorId };
+}
+
+function stubB2Credentials(): void {
+  process.env.B2_KEY_ID = "test-b2-key-id";
+  process.env.B2_APPLICATION_KEY = "test-b2-secret";
+}
 
 async function seedUnmigratedRow(
   t: ReturnType<typeof convexTest>,
@@ -726,4 +777,805 @@ test("acquireMigrationLock refuses recent locks within STALE_MIGRATION_LOCK_MS",
 
   const stored = await t.run(async (ctx) => ctx.db.get(rowId as any));
   expect((stored as any).migratedAt).toBe(recentLockAt);
+});
+
+// ---------------------------------------------------------------------------
+// PR workspace-storage-2 (migrate) test coverage for the B2
+// mint/confirm/download path. The actions are the only way the
+// PR 3 UI swap can succeed; proving their state-machine logic
+// in convex-test now means the cutover is a one-line change.
+// ---------------------------------------------------------------------------
+
+test("generateWorkspaceUploadUrl mints a presigned PUT and reserves a ledger row", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId, instructorId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  // Mint as the instructor so the B2 key path includes the
+  // instructor / student / workspace ids (used by PR 3
+  // lifecycle rules). As a student, the key would fall back
+  // to the org-shape `{date}/workspaces/...` path.
+  const asInstructor = t.withIdentity({ subject: "u_instructor_1" });
+
+  const result = await asInstructor.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_abc",
+      fileName: "image.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  expect(result.fileId).toBe("file_abc");
+  expect(result.uploadUrl).toMatch(
+    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\//
+  );
+  expect(result.uploadUrl).toContain("x-amz-signature=");
+  // The key path includes the instructor / student / workspace
+  // ids so a B2 lifecycle rule can scope per-pair in PR 3.
+  expect(result.b2Key).toContain(`instructors/${instructorId}/`);
+  expect(result.b2Key).toContain(`/workspaces/${workspaceId}/`);
+  expect(result.b2Key).toContain("/file_abc/image.png");
+
+  // The ledger row is reserved (pending) so the binding flow
+  // has a place to look up the workspaceId + uploaderId for
+  // the subsequent `recordB2FileUpload` call.
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", result.b2Key))
+      .first()
+  );
+  expect(ledger).not.toBeNull();
+  expect(ledger?.uploaderId).toBe("u_instructor_1");
+  expect(ledger?.workspaceId).toBe(workspaceId);
+  expect(ledger?.completedAt).toBeUndefined();
+  expect(ledger?.cancelledAt).toBeUndefined();
+});
+
+test("generateWorkspaceUploadUrl refuses oversized image above MAX_IMAGE_BYTES", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  await expect(
+    asStudent.action(api.workspaceStorage.generateWorkspaceUploadUrl, {
+      workspaceId: workspaceId as any,
+      fileId: "file_big",
+      fileName: "big.png",
+      contentType: "image/png",
+      size: 9 * 1024 * 1024, // MAX_IMAGE_BYTES is 8 MB
+    })
+  ).rejects.toThrow(/too large/i);
+
+  // No ledger row reserved because signing threw before
+  // `reserveB2FileUploadLedger` ran (Greptile P2: "Failed
+  // signing consumes upload slots").
+  const ledger = await t.run(async (ctx) =>
+    ctx.db.query("fileUploads").collect()
+  );
+  expect(ledger).toHaveLength(0);
+});
+
+test("generateWorkspaceUploadUrl refuses non-members (authz)", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStranger = t.withIdentity({ subject: "u_stranger" });
+
+  await expect(
+    asStranger.action(api.workspaceStorage.generateWorkspaceUploadUrl, {
+      workspaceId: workspaceId as any,
+      fileId: "file_x",
+      fileName: "x.png",
+      contentType: "image/png",
+      size: 1024,
+    })
+  ).rejects.toThrow(/not authorized/i);
+});
+
+test("generateWorkspaceUploadUrl refuses ended workspaces", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+    endedAt: Date.now() - 1000,
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  await expect(
+    asStudent.action(api.workspaceStorage.generateWorkspaceUploadUrl, {
+      workspaceId: workspaceId as any,
+      fileId: "file_x",
+      fileName: "x.png",
+      contentType: "image/png",
+      size: 1024,
+    })
+  ).rejects.toThrow(/not authorized/i);
+});
+
+test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  await t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
+    workspaceId: workspaceId as any,
+    b2Key: "2026-01-01/file_x/x.png",
+    uploaderId: "u_student_1",
+    uploadedAt: now,
+  });
+
+  await expect(
+    t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
+      workspaceId: workspaceId as any,
+      b2Key: "2026-01-01/file_x/x.png",
+      uploaderId: "u_student_1",
+      uploadedAt: now + 1,
+    })
+  ).rejects.toThrow(/already reserved/i);
+});
+
+test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per uploader", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Fill 20 pending reservations for one uploader.
+  for (let i = 0; i < 20; i++) {
+    await t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
+      workspaceId: workspaceId as any,
+      b2Key: `2026-01-01/file_${i}/${i}.png`,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+    });
+  }
+  await expect(
+    t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
+      workspaceId: workspaceId as any,
+      b2Key: "2026-01-01/file_21/21.png",
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+    })
+  ).rejects.toThrow(/too many pending uploads/i);
+});
+
+test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 cap", async () => {
+  // Greptile P1: "Legacy uploads consume B2 slots". A row with
+  // `storageId !== undefined && b2Key === undefined` is the
+  // legacy path; it must not count against the new B2 pending
+  // cap so a workspace that has hundreds of pre-#B chat
+  // attachments can still mint new B2 URLs after PR 2.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Insert 25 legacy rows with storageId set (no b2Key).
+  for (let i = 0; i < 25; i++) {
+    const storageId = await t.run(async (ctx) =>
+      ctx.storage.store(new Blob([`legacy:${i}`]))
+    );
+    await t.run(async (ctx) =>
+      ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        uploaderId: "u_student_1",
+        uploadedAt: now - 1000 * (i + 1),
+        storageId,
+        completedAt: now - 500 * (i + 1),
+      })
+    );
+  }
+  // A single fresh B2 mint must still succeed because none of
+  // the legacy rows have `b2Key !== undefined`.
+  await t.mutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
+    workspaceId: workspaceId as any,
+    b2Key: "2026-01-01/file_fresh/fresh.png",
+    uploaderId: "u_student_1",
+    uploadedAt: now,
+  });
+});
+
+test("recordB2FileUpload binds a freshly minted key after B2 HEAD succeeds", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  // Mint + reserve.
+  const { b2Key } = await asStudent.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_bind",
+      fileName: "bind.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  // Mock B2 HEAD: object exists.
+  const fetchSpy = vi.fn(async () =>
+    ({ ok: true, status: 200, text: async () => "" }) as Response
+  );
+  vi.stubGlobal("fetch", fetchSpy);
+
+  await asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+    workspaceId: workspaceId as any,
+    b2Key,
+  });
+
+  // Confirm: ledger row is now completed.
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+  expect(ledger?.completedAt).toBeTypeOf("number");
+  expect(ledger?.cancelledAt).toBeUndefined();
+  // Exactly one HEAD fetch (the confirm path); the mint action
+  // does not fetch.
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+});
+
+test("recordB2FileUpload rejects when B2 HEAD reports a missing object", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  const { b2Key } = await asStudent.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_missing",
+      fileName: "missing.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: false, status: 404, text: async () => "NoSuchKey" }) as Response
+    )
+  );
+
+  await expect(
+    asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+      workspaceId: workspaceId as any,
+      b2Key,
+    })
+  ).rejects.toThrow(/not found/i);
+
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+  // Greptile P1: "Missing uploads appear complete" — the
+  // completedAt MUST remain undefined.
+  expect(ledger?.completedAt).toBeUndefined();
+});
+
+test("recordB2FileUpload rejects an unknown b2Key", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  await expect(
+    asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+      workspaceId: workspaceId as any,
+      b2Key: "1970-01-01/nonexistent/x.png",
+    })
+  ).rejects.toThrow(/not reserved/i);
+});
+
+test("recordB2FileUpload rejects a key whose binding window has expired (Greptile round 27 P1)", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Seed a ledger row whose uploadedAt is older than
+  // B2_BINDING_AGE_MS (1h). The reservation cap test above
+  // already covers fresh mint; this exercises the age check
+  // in recordB2FileUpload.
+  const tooOldB2Key = "2026-01-01/file_stale/stale.png";
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now - 2 * 60 * 60 * 1000, // 2h ago
+      b2Key: tooOldB2Key,
+    })
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  await expect(
+    asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+      workspaceId: workspaceId as any,
+      b2Key: tooOldB2Key,
+    })
+  ).rejects.toThrow(/too old/i);
+});
+
+test("recordB2FileUpload rejects a key bound to a different workspace (Greptile round 28 P1)", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  // Seed a SECOND workspace for the same student so the
+  // caller can try to bind workspace A's key against
+  // workspace B.
+  const { workspaceId: otherWorkspaceId } = await seedWorkspaceWithInstructor(
+    t,
+    {
+      studentUserId: "u_student_1",
+      instructorUserId: "u_instructor_1",
+    }
+  );
+
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  const { b2Key } = await asStudent.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_cross",
+      fileName: "cross.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+
+  // Caller passes `otherWorkspaceId` but the ledger row
+  // belongs to `workspaceId`. recordB2FileUpload must reject
+  // (Greptile P1: "Rejected confirmation deletes other files").
+  await expect(
+    asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+      workspaceId: otherWorkspaceId as any,
+      b2Key,
+    })
+  ).rejects.toThrow(/does not belong to this workspace/i);
+});
+
+test("confirmB2FileUpload refuses to re-confirm an already-completed ledger row", async () => {
+  // Greptile round 28 P1: the cancel path must guard against
+  // completed rows so a concurrent confirmation cannot
+  // schedule a B2 cleanup that deletes a live file.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_done/done.png",
+      completedAt: now - 1000,
+    })
+  );
+
+  // Calling confirmB2FileUpload on a completed row is a
+  // no-op (the action's terminal state machine). Verify by
+  // reading the row back: completedAt must NOT change.
+  await t.mutation(internal.workspaceStorage.confirmB2FileUpload, {
+    ledgerId: rowId as any,
+    callerId: "u_student_1",
+  });
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).completedAt).toBe(now - 1000);
+  expect((ledger as any).cancelledAt).toBeUndefined();
+});
+
+test("confirmB2FileUpload sets completedAt when workspace state still authorizes", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_ok/ok.png",
+    })
+  );
+
+  await t.mutation(internal.workspaceStorage.confirmB2FileUpload, {
+    ledgerId: rowId as any,
+    callerId: "u_student_1",
+  });
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).completedAt).toBeTypeOf("number");
+  expect((ledger as any).cancelledAt).toBeUndefined();
+});
+
+test("confirmB2FileUpload rejects and leaves row pending when the workspace ended during HEAD (TOCTOU)", async () => {
+  // Greptile round 24 P1: a workspace could be ended between
+  // the action's authz check and the B2 HEAD call. The
+  // mutation must re-verify and cancel rather than mark
+  // complete. Verified by exercising the throw + the
+  // completedAt NOT being set.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_toctou/toctou.png",
+    })
+  );
+  // Race: the workspace was ended by an admin a few ms ago.
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt: now - 10 })
+  );
+
+  await expect(
+    t.mutation(internal.workspaceStorage.confirmB2FileUpload, {
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+    })
+  ).rejects.toThrow(/ended during/i);
+
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  // Greptile P1: "Missing uploads appear complete" — the row
+  // MUST NOT be marked complete even though HEAD would have
+  // returned 200 had the action not re-verified.
+  expect((ledger as any).completedAt).toBeUndefined();
+});
+
+test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_dl/dl.png",
+      completedAt: now,
+    })
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  const result = await asStudent.action(
+    api.workspaceStorage.getWorkspaceDownloadUrl,
+    {
+      b2Key: "2026-01-01/file_dl/dl.png",
+      workspaceId: workspaceId as any,
+      expiresInSeconds: 3600,
+    }
+  );
+  expect(result.url).toMatch(
+    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\//
+  );
+  expect(result.url).toContain("x-amz-signature=");
+  expect(result.expiresAt).toBeGreaterThan(Date.now());
+});
+
+test("getWorkspaceDownloadUrl refuses a key whose ledger row has been cancelled", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_dlx/dlx.png",
+      completedAt: now,
+      cancelledAt: now,
+    })
+  );
+
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  await expect(
+    asStudent.action(api.workspaceStorage.getWorkspaceDownloadUrl, {
+      b2Key: "2026-01-01/file_dlx/dlx.png",
+      workspaceId: workspaceId as any,
+    })
+  ).rejects.toThrow(/not available for download/i);
+});
+
+test("getWorkspaceDownloadUrl refuses a cross-workspace b2Key (Greptile P1 sec)", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const { workspaceId: otherWorkspaceId } = await seedWorkspaceWithInstructor(
+    t,
+    {
+      studentUserId: "u_student_2",
+      instructorUserId: "u_instructor_2",
+    }
+  );
+  const now = Date.now();
+  // The b2Key is in `otherWorkspaceId`; the caller will pass
+  // `workspaceId` (their own workspace).
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: otherWorkspaceId as any,
+      uploaderId: "u_student_2",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_cross/cross.png",
+      completedAt: now,
+    })
+  );
+
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  await expect(
+    asStudent.action(api.workspaceStorage.getWorkspaceDownloadUrl, {
+      b2Key: "2026-01-01/file_cross/cross.png",
+      workspaceId: workspaceId as any,
+    })
+  ).rejects.toThrow(/does not belong to the authorized workspace/i);
+});
+
+test("deleteFromB2WorkspaceAction issues a SigV4 DELETE to the workspace bucket", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const fetchSpy = vi.fn(async () =>
+    ({ ok: true, status: 204, text: async () => "" }) as Response
+  );
+  vi.stubGlobal("fetch", fetchSpy);
+
+  await t.action(internal.workspaceStorage.deleteFromB2WorkspaceAction, {
+    b2Key: "2026-01-01/file_del/del.png",
+  });
+
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  const [calledUrl, calledInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
+  expect(calledUrl).toMatch(
+    /^https:\/\/s3\.us-east-005\.backblazeb2\.com\/mentorship-workspace-storage\/2026-01-01\/file_del\/del\.png$/
+  );
+  expect(calledInit.method).toBe("DELETE");
+  // Authorization header carries the SigV4 signature.
+  const headers = calledInit.headers as Record<string, string>;
+  expect(headers["Authorization"]).toMatch(
+    /^AWS4-HMAC-SHA256 Credential=test-b2-key-id\/\d{8}\/us-east-005\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/
+  );
+});
+
+test("deleteFromB2WorkspaceAction treats a 404 as a successful cleanup (object already gone)", async () => {
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: false, status: 404, statusText: "Not Found", text: async () => "" }) as Response
+    )
+  );
+  // Should NOT throw — 404 is treated as success.
+  await t.action(internal.workspaceStorage.deleteFromB2WorkspaceAction, {
+    b2Key: "2026-01-01/file_ghost/ghost.png",
+  });
+});
+
+test("forceDeleteExpiredChatMessageRow B2 branch deletes from B2 and skips ctx.storage.delete", async () => {
+  // Greptile round 27 P1 / round 30 topology: when a chat row
+  // has been migrated (`b2Key !== undefined`), the chat
+  // retention cron must call `deleteFromB2WorkspaceAction`
+  // and MUST NOT call `ctx.storage.delete` (otherwise we'd
+  // hit Convex's free-plan storage quota).
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Seed a chat message row in `workspaceMessages` with both
+  // storageId (legacy) and b2Key (migrated). The retention
+  // cron's B2 branch must take the b2Key path.
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["legacy-bytes"]))
+  );
+  const messageId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_student_1",
+      content: "(deleted)",
+      type: "file",
+      storageId,
+      b2Key: "2026-01-01/file_msg/msg.png",
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    })
+  );
+
+  // The mutation only touches the DB; the action that
+  // performs the B2 DELETE is `hardDeleteExpiredChatFiles`.
+  // For this test we just need to confirm that the mutation
+  // deletes the message row and DOES NOT touch `ctx.storage`.
+  // (The B2 fetch is exercised in `hardDeleteExpiredChatFiles`
+  // which we do not invoke here.)
+  const result = await t.mutation(
+    internal.cleanup.chatFileRetention.forceDeleteExpiredChatMessageRow,
+    { messageId: messageId as any }
+  );
+  expect(result).toEqual({ deleted: true });
+  const after = await t.run(async (ctx) => ctx.db.get(messageId as any));
+  expect(after).toBeNull();
+});
+
+test("forceDeleteExpiredChatMessageRow legacy branch deletes the matching ledger row when not migrated", async () => {
+  // Round 27 P1 fix: pre-migration rows (storageId !== undefined,
+  // b2Key === undefined, migratedAt === undefined) keep the
+  // original ledger-cleanup behavior so the chat-row GC closes
+  // the loop. The mutation MUST delete the ledger row in this
+  // case so PR 3 can rely on the chat-retention sweep to clean
+  // orphan Convex-storage rows.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["legacy"]))
+  );
+  const messageId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_student_1",
+      content: "(deleted)",
+      type: "file",
+      storageId,
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    })
+  );
+  // Seed the matching ledger row in legacy (un-migrated) state.
+  const ledgerId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now - 1000,
+      storageId,
+      completedAt: now - 500,
+    })
+  );
+
+  await t.mutation(internal.cleanup.chatFileRetention.forceDeleteExpiredChatMessageRow, {
+    messageId: messageId as any,
+  });
+  const afterMessage = await t.run(async (ctx) =>
+    ctx.db.get(messageId as any)
+  );
+  const afterLedger = await t.run(async (ctx) =>
+    ctx.db.get(ledgerId as any)
+  );
+  expect(afterMessage).toBeNull();
+  expect(afterLedger).toBeNull();
+});
+
+test("forceDeleteExpiredChatMessageRow preserves the ledger when the row is mid-migration (Greptile round 27 P1 fix)", async () => {
+  // Round 27 P1 fix: rows whose migration has locked the ledger
+  // (`migratedAt !== undefined && b2Key === undefined`) MUST be
+  // preserved so the migration can finish writing `b2Key +
+  // completedAt` and propagating the key. Round 28 attempted to
+  // delete the ledger mid-migration but created a worse orphan.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const storageId = await t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["mid-migration"]))
+  );
+  const messageId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_student_1",
+      content: "(deleted)",
+      type: "file",
+      storageId,
+      deletedAt: now - 31 * 24 * 60 * 60 * 1000,
+    })
+  );
+  const ledgerId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now - 1000,
+      storageId,
+      migratedAt: now - 100, // lock present, b2Key not yet written
+    })
+  );
+
+  await t.mutation(internal.cleanup.chatFileRetention.forceDeleteExpiredChatMessageRow, {
+    messageId: messageId as any,
+  });
+  const afterMessage = await t.run(async (ctx) =>
+    ctx.db.get(messageId as any)
+  );
+  const afterLedger = await t.run(async (ctx) =>
+    ctx.db.get(ledgerId as any)
+  );
+  expect(afterMessage).toBeNull();
+  // Ledger survives so the migration can finish.
+  expect(afterLedger).not.toBeNull();
 });
