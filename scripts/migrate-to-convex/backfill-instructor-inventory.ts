@@ -253,9 +253,17 @@ async function backfillOne(
     if (options.force) forcedFields.push("force (all)");
     if (options.forceOneOnOne) forcedFields.push("forceOneOnOne");
     if (options.forceGroup) forcedFields.push("forceGroup");
+    if (runtime.zeroFillNulls) forcedFields.push("zero-fill-nulls");
     const forceLabel = forcedFields.length > 0 ? ` (${forcedFields.join(", ")})` : "";
+    // Greptile P2 (round 20, PR #883): in ZERO_FILL_NULLS mode
+    // the request body is prepared with 0 for any null field, so
+    // the dry-run preview must show the COMPUTED values that
+    // would be posted — otherwise an operator running
+    // `DRY_RUN=1 ZERO_FILL_NULLS=1 pnpm backfill:inventory` would
+    // see `null` in the preview and conclude that no write would
+    // happen, missing the actual zero-fill.
     console.log(
-      `[dry-run] would patch ${row.instructor_slug}${forceLabel}: 1:1=${row.one_on_one_inventory}, group=${row.group_inventory}`
+      `[dry-run] would patch ${row.instructor_slug}${forceLabel}: 1:1=${oneOnOneInventory}, group=${groupInventory}`
     );
     return { slug: row.instructor_slug, ok: true };
   }

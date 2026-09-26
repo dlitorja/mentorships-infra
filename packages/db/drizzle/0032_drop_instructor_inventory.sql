@@ -8,6 +8,28 @@
 -- PR kept a Supabase fallback during the rollout window; after a
 -- 24h gate, no traffic source is reporting the `supabase` /
 -- `convex-supabase-mixed` / `supabase-empty` headers, so the
+-- table is safe to drop.
+--
+-- ── APPLICATION ──────────────────────────────────────────────────
+-- This file is NOT a Drizzle-kit-generated migration: the
+-- `instructor_inventory` table is not declared in
+-- `packages/db/src/schema/`, so `drizzle-kit generate` would not
+-- emit this SQL. Apply it explicitly via the Supabase CLI after
+-- the PR merges:
+--
+--   supabase db query --linked -f packages/db/drizzle/0032_drop_instructor_inventory.sql
+--
+-- Per AGENTS.md, operators run the file directly with the Supabase
+-- CLI rather than `pnpm run db:migrate`, because the manual SQL
+-- files in `packages/db/drizzle/` cover destructive operations
+-- (table drops, function drops, RLS policy changes) that
+-- drizzle-kit's journal-driven `migrate` command does not manage.
+-- Greptile local-CLI round 20 flagged the absence of a journal
+-- entry; that is a non-issue because this file is intended to be
+-- applied with `supabase db query` and not via the Drizzle
+-- journal.
+-- ─────────────────────────────────────────────────────────────────
+-- `convex-supabase-mixed` / `supabase-empty` headers, so the
 -- fallback can be retired along with its table.
 --
 -- Order matters: drop the dependent objects first, then the
