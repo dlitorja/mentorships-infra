@@ -1506,6 +1506,21 @@ export const listPublicInstructorSlugsForBackfill = query({
       }
       if (result.isDone) break;
       cursor = result.continueCursor;
+      // Greptile P1 round 24: if we exhaust the iteration cap on a
+      // page that is still full, we cannot guarantee we read every
+      // public instructor — fail loudly rather than silently return
+      // a partial result. The HUC-46 team has < 100 instructors
+      // today so the cap should never fire; if it ever does, it
+      // signals an organic-growth scenario that needs a redesigned
+      // cursor (e.g. chunk-by-slug) before Phase 3 can be applied.
+      if (iterations === maxIterations && result.page.length === pageSize) {
+        throw new Error(
+          `listPublicInstructorSlugsForBackfill: iteration cap (${maxIterations} pages) reached with a full page still remaining. ` +
+            `This means the public-instructor scan is INCOMPLETE — applying the Phase 3 SQL migration in this state would risk ` +
+            `masking unset Convex inventory as sold-out zeros for any instructor beyond this cap. ` +
+            `Increase the pageSize or iteration cap, or split the scan by slug, before re-running VERIFY_PUBLIC_COVERAGE.`
+        );
+      }
     }
     return out;
   },
