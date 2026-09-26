@@ -405,6 +405,50 @@ export const httpGetPublicInventoryBySlug = httpAction(async (ctx, request) => {
   }
 });
 
+/**
+ * HUC-46 Phase 3 prerequisite (Greptile P1, PR #883 round 22):
+ * Returns the slug + raw inventory fields for every public-listed
+ * instructor. Used by the `VERIFY_PUBLIC_COVERAGE=1` mode of
+ * `scripts/migrate-to-convex/backfill-instructor-inventory.ts` to
+ * verify that EVERY public instructor has explicit (non-null)
+ * Convex inventory fields BEFORE the Phase 3 narrow SQL migration
+ * drops the Supabase fallback. The script then prints a coverage
+ * report and exits non-zero if any public instructor is missing
+ * non-null inventory.
+ *
+ * Auth-gated via the same `verifyAuth` flow as the rest of
+ * `convex/http.ts`. The script sends the same `Authorization:
+ * Bearer ${CONVEX_HTTP_KEY}` header used by every other internal
+ * caller.
+ */
+export const httpListPublicInstructorSlugsForBackfill = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  try {
+    const result = await ctx.runQuery(
+      api.instructors.listPublicInstructorSlugsForBackfill,
+      {}
+    );
+    return new Response(
+      JSON.stringify({
+        success: true,
+        // Stable order so the script's diff output is reproducible.
+        instructors: [...result].sort((a, b) => a.slug.localeCompare(b.slug)),
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 /** Syncs instructor inventory from admin (called by Inngest after Drizzle writes). Looks up by slug and creates/updates. */
 export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -3153,6 +3197,12 @@ http.route({
   path: "/inventory/get-public-by-slug",
   method: "POST",
   handler: httpGetPublicInventoryBySlug,
+});
+
+http.route({
+  path: "/inventory/list-public-instructor-slugs-for-backfill",
+  method: "POST",
+  handler: httpListPublicInstructorSlugsForBackfill,
 });
 
 http.route({

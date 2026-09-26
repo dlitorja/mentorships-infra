@@ -69,4 +69,46 @@ describe("validateForceFlags", () => {
     expect(validateForceFlags({ ZERO_FILL_NULLS: "yes" })).toEqual({ ok: true });
     expect(validateForceFlags({ ZERO_FILL_NULLS: "" })).toEqual({ ok: true });
   });
+
+  // HUC-46 Phase 3 prerequisite gate (Greptile P1, PR #883 round 22).
+  it("accepts VERIFY_PUBLIC_COVERAGE=1 alone", () => {
+    expect(validateForceFlags({ VERIFY_PUBLIC_COVERAGE: "1" })).toEqual({ ok: true });
+  });
+
+  it("rejects VERIFY_PUBLIC_COVERAGE=1 + FORCE=1 (read-only cannot combine with writes)", () => {
+    const result = validateForceFlags({
+      VERIFY_PUBLIC_COVERAGE: "1",
+      FORCE: "1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe(2);
+    expect(result.message).toMatch(/VERIFY_PUBLIC_COVERAGE=1 is a read-only preflight/);
+  });
+
+  it("rejects VERIFY_PUBLIC_COVERAGE=1 + FORCE_ALL=1", () => {
+    const result = validateForceFlags({
+      VERIFY_PUBLIC_COVERAGE: "1",
+      FORCE_ALL: "1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/VERIFY_PUBLIC_COVERAGE=1/);
+  });
+
+  it("rejects VERIFY_PUBLIC_COVERAGE=1 + ZERO_FILL_NULLS=1 (preflight cannot run alongside the zero-fill pass)", () => {
+    const result = validateForceFlags({
+      VERIFY_PUBLIC_COVERAGE: "1",
+      ZERO_FILL_NULLS: "1",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/VERIFY_PUBLIC_COVERAGE=1/);
+  });
+
+  it("ignores VERIFY_PUBLIC_COVERAGE values other than '1'", () => {
+    expect(validateForceFlags({ VERIFY_PUBLIC_COVERAGE: "true" })).toEqual({ ok: true });
+    expect(validateForceFlags({ VERIFY_PUBLIC_COVERAGE: "yes" })).toEqual({ ok: true });
+    expect(validateForceFlags({ VERIFY_PUBLIC_COVERAGE: "" })).toEqual({ ok: true });
+  });
 });

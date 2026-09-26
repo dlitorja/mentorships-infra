@@ -1453,6 +1453,64 @@ export const getPublicInstructors = query({
   },
 });
 
+/**
+ * HUC-46 Phase 3 prerequisite check (Greptile P1, PR #883 round 22):
+ * Returns the slug + raw inventory fields for every public-listed
+ * (non-deleted, active, listed) instructor. Unlike
+ * `getPublicInstructors`, this query returns the RAW `oneOnOneInventory`
+ * and `groupInventory` values (`null` for never-written, `number` for
+ * touched) so the caller can detect "Convex has never been touched
+ * for this instructor" — the exact signal the Phase 3 narrow SQL
+ * migration's preflight check needs. The backfill script uses this
+ * via the auth-gated HTTP wrapper at
+ * `/inventory/list-public-instructor-slugs-for-backfill` in
+ * `convex/http.ts`.
+ *
+ * The query is INTERNAL — not callable from the public client. The
+ * HTTP wrapper requires `Authorization: Bearer ${CONVEX_HTTP_KEY}`.
+ */
+export const listPublicInstructorSlugsForBackfill = query({
+  args: {},
+  handler: async (ctx) => {
+    // Paginate the by_deletedAt index. Same pageSize + iteration cap
+    // pattern as `getConnectedInstructorsForAdmin`: 8000 reads / 200
+    // = 40 pages max, so a sparse active set yields the most
+    // instructors possible before Convex's 8192-doc budget refuses.
+    const pageSize = 200;
+    const maxIterations = 40;
+    const out: Array<{
+      slug: string;
+      oneOnOneInventory: number | null;
+      groupInventory: number | null;
+    }> = [];
+    let cursor: string | null = null;
+    let iterations = 0;
+    while (iterations < maxIterations) {
+      iterations++;
+      const result = await ctx.db
+        .query("instructors")
+        .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+        .paginate({ numItems: pageSize, cursor });
+      for (const inst of result.page) {
+        if (inst.deletedAt !== undefined) continue;
+        if (inst.isActive === false) continue;
+        if (inst.isListed === false) continue;
+        if (typeof inst.slug !== "string" || inst.slug.length === 0) continue;
+        const oneRaw = (inst as any).oneOnOneInventory;
+        const groupRaw = (inst as any).groupInventory;
+        out.push({
+          slug: inst.slug,
+          oneOnOneInventory: typeof oneRaw === "number" ? oneRaw : null,
+          groupInventory: typeof groupRaw === "number" ? groupRaw : null,
+        });
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+    return out;
+  },
+});
+
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
 export const getInstructorsForAdmin = query({
   args: { limit: v.optional(v.number()) },
