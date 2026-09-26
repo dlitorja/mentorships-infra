@@ -1646,10 +1646,26 @@ export const migrateConvexStorageRowToB2 = internalAction({
     // stable derived name. PR 3 will read the original from the
     // migration metadata once the schema gains
     // `originalFileName`.
+    //
+    // PR workspace-storage-2 (Greptile round 31 P1 fix): use
+    // a STABLE date derived from `target.uploadedAt` instead
+    // of `ctxData.date` (the current UTC date). If the first
+    // attempt PUT succeeds but finalization fails, the row
+    // has `migratedAt !== undefined` and `b2Key === undefined`.
+    // A retry that uses today's date would build a NEW b2Key
+    // (different date prefix) and orphan the previous B2
+    // object that already succeeded. Anchoring the date to
+    // `target.uploadedAt` makes the b2Key deterministic
+    // across retries — the second attempt uploads to the same
+    // key as the first, so any previous PUT is overwritten in
+    // place rather than left as an orphan.
     const fileId = `migrated-${target._id}`;
     const fileName = `migrated-${target._id}`;
+    const stableDate = new Date(target.uploadedAt)
+      .toISOString()
+      .split("T")[0];
     const b2Key = buildWorkspaceStorageKey({
-      date: ctxData.date,
+      date: stableDate,
       instructorId,
       studentUserId: ctxData.workspace.ownerId,
       workspaceId: target.workspaceId,
