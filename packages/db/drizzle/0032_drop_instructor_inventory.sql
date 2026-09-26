@@ -23,7 +23,20 @@ DROP FUNCTION IF EXISTS public.decrement_inventory(TEXT, TEXT, INTEGER);
 DROP FUNCTION IF EXISTS public.trigger_waitlist_notifications(TEXT, TEXT);
 
 -- Drop the RLS policy that was granted to the anon role.
-DROP POLICY IF EXISTS "Public read inventory" ON public.instructor_inventory;
+-- Greptile P2 (PR #883): `DROP POLICY IF EXISTS` on a table that
+-- no longer exists fails with `relation does not exist`, so a
+-- re-run after the table is already dropped would error here.
+-- Guard the drop behind an `EXISTS` check so the migration stays
+-- idempotent across the full sequence.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_class
+    WHERE relname = 'instructor_inventory' AND relkind = 'r'
+  ) THEN
+    DROP POLICY IF EXISTS "Public read inventory" ON public.instructor_inventory;
+  END IF;
+END $$;
 
 -- Drop the index on the slug column.
 DROP INDEX IF EXISTS public.idx_instructor_inventory_slug;

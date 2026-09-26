@@ -36,6 +36,19 @@
  *   # behavior; prefer FORCE=1 alone for almost every case.
  *   FORCE_ALL=1 pnpm backfill:inventory
  *
+ *   # Zero-fill only fields whose Supabase legacy value is null
+ *   # or missing — replaces nulls with explicit 0 before posting
+ *   # to Convex. The Convex endpoint's skip-if-already-touched
+ *   # guard preserves any live (non-zero, non-undefined) Convex
+ *   # field, so a run is safe even after Kajabi purchases have
+ *   # mutated live counts. This is the HUC-46 Phase 3 narrow SQL
+ *   # prerequisite: run it once before applying the SQL migration
+ *   # to guarantee no public-offer-visible instructor has an
+ *   # unset Convex field (otherwise the marketing route's
+ *   # `null → 0` coercion would silently render an available offer
+ *   # as sold-out). Cannot be combined with FORCE=1 or FORCE_ALL=1.
+ *   ZERO_FILL_NULLS=1 pnpm backfill:inventory
+ *
  * Idempotency: the script reads the source-of-truth Supabase row
  * for every instructor and unconditionally writes the value to
  * Convex. The default non-FORCE behavior preserves any field
@@ -65,16 +78,26 @@ import { createClient } from "@supabase/supabase-js";
 export function validateForceFlags(env: {
   FORCE?: string;
   FORCE_ALL?: string;
+  ZERO_FILL_NULLS?: string;
   [key: string]: string | undefined;
 }): { ok: true } | { ok: false; code: 2; message: string } {
   const force = env.FORCE === "1";
   const forceAll = env.FORCE_ALL === "1";
+  const zeroFillNulls = env.ZERO_FILL_NULLS === "1";
   if (force && forceAll) {
     return {
       ok: false,
       code: 2,
       message:
         "FORCE=1 and FORCE_ALL=1 are both set. Pick one: FORCE alone targets only the rows that this run reports as skipped (safe); FORCE_ALL blasts every row (destructive).",
+    };
+  }
+  if (zeroFillNulls && (force || forceAll)) {
+    return {
+      ok: false,
+      code: 2,
+      message:
+        "ZERO_FILL_NULLS=1 cannot be combined with FORCE=1 or FORCE_ALL=1. ZERO_FILL_NULLS only writes 0 to Convex fields that are currently unset (never written); it never overwrites a live Convex value, so it is safe to combine with the normal (non-FORCE) backfill pass.",
     };
   }
   return { ok: true };
@@ -120,6 +143,20 @@ interface RuntimeConfig {
   dryRun: boolean;
   force: boolean;
   forceAll: boolean;
+  /**
+   * HUC-46 Phase 3 prerequisite: when true, the script replaces
+   * null/undefined Supabase inventory values with explicit 0
+   * before posting to Convex. The Convex endpoint's skip-if-
+   * already-touched logic preserves any live (non-zero,
+   * non-undefined) Convex field, so a run is safe even for
+   * instructors whose live Convex state was set by a Kajabi
+   * purchase after the original backfill. Use this to guarantee
+   * that every public-offer-visible instructor has explicit
+   * Convex fields BEFORE applying the Phase 3 SQL migration
+   * (which drops the Supabase fallback that masked unset
+   * Convex fields as sold-out zeros).
+   */
+  zeroFillNulls: boolean;
 }
 
 function buildRuntimeFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -148,6 +185,7 @@ function buildRuntimeFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     dryRun: env.DRY_RUN === "1",
     force: env.FORCE === "1",
     forceAll: env.FORCE_ALL === "1",
+    zeroFillNulls: env.ZERO_FILL_NULLS === "1",
   };
 }
 
@@ -181,10 +219,27 @@ async function backfillOne(
   skipped?: string[];
 }> {
   const { runtime } = options;
+  /**
+   * HUC-46 Phase 3 prerequisite: in ZERO_FILL_NULLS mode, send
+   * explicit 0 for any Supabase field that is null/undefined.
+   * The Convex endpoint's skip-if-already-touched guard means a
+   * live (non-zero) Convex value is preserved untouched; only an
+   * unset (undefined) Convex field receives the 0. This makes
+   * Phase 3 safe to apply: every public-offer-visible instructor
+   * ends up with explicit Convex values, so the
+   * `null → 0` coercion in the marketing route no longer hides
+   * a "never-written" Convex field as a sold-out zero.
+   */
+  const oneOnOneInventory = runtime.zeroFillNulls
+    ? (row.one_on_one_inventory ?? 0)
+    : row.one_on_one_inventory;
+  const groupInventory = runtime.zeroFillNulls
+    ? (row.group_inventory ?? 0)
+    : row.group_inventory;
   const body = {
     slug: row.instructor_slug,
-    oneOnOneInventory: row.one_on_one_inventory,
-    groupInventory: row.group_inventory,
+    oneOnOneInventory,
+    groupInventory,
     ...(options.force
       ? { force: true }
       : {
@@ -390,6 +445,11 @@ export async function runBackfill(
   if (runtime.forceAll) {
     console.log(
       "[FORCE_ALL=1] Will overwrite every Convex value with the Supabase legacy value, including unrelated instructors with manually-set sold-out zeros. Destructive; confirm with the team before running on prod.\n"
+    );
+  }
+  if (runtime.zeroFillNulls) {
+    console.log(
+      "[ZERO_FILL_NULLS=1] Will replace null Supabase inventory values with explicit 0 before posting to Convex. The Convex endpoint's skip-if-already-touched guard preserves any live (non-zero, non-undefined) Convex field, so this is safe to run after Kajabi purchases. Use this as the Phase 3 narrow SQL prerequisite to guarantee no instructor has an unset Convex field.\n"
     );
   }
 
