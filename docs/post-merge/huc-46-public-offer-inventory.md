@@ -261,19 +261,43 @@ migrate–narrow close-out):
 * **Delete `apps/marketing/lib/supabase-inventory.ts`** (no remaining
   importers after the test rewrite below).
 * **Rewrite `apps/marketing/app/api/instructor/inventory/route.test.ts`**
-  to remove the `supabase-inventory` import + `vi.mock("@/lib/supabase-inventory")`
-  mock block (currently lines 16–18 and 22 of the test file) AND the
-  three Phase 1 cases asserting `X-Inventory-Source: supabase |
-  supabase-empty | convex-supabase-mixed` (lines 133, 161, 189).
-  The retained test file imports `@/lib/supabase-inventory` for the
-  mock helper `getInstructorInventory`, so the deletion of
-  `supabase-inventory.ts` requires the test to be rewritten first;
-  following the checklist in the wrong order leaves an unresolved
-  import that breaks the test typecheck (Greptile P1, PR #882
-  round 3: the original draft said "no remaining importers after
-  the route strip above" — that was inaccurate; `route.test.ts` is
-  also an importer). The PR #883 implementation already performs
-  this rewrite; see `feat/marketing-inventory-phase3-narrow`.
+  so it has **zero references to `getInstructorInventory` and zero
+  references to `@/lib/supabase-inventory`**. The pre-Phase-3 file has
+  these references that must all be deleted or replaced (line numbers
+  against `route.test.ts` on `main` at `3f8e8323`):
+  * Line 16–18: the `vi.mock("@/lib/supabase-inventory", () => ({
+    getInstructorInventory: vi.fn(), }))` block — delete entirely.
+  * Line 22: `import { getInstructorInventory } from "@/lib/supabase-inventory";`
+    — delete entirely.
+  * Line 30: `vi.mocked(getInstructorInventory).mockReset();` inside
+    `beforeEach` — delete the line (the mock no longer exists).
+  * Lines 89, 120, 148, 174, 207, 231, 260: per-case
+    `vi.mocked(getInstructorInventory).mockResolvedValue(...)` /
+    `mockRejectedValue(...)` setup calls — delete; assertions that
+    depend on Supabase fallback behaviour must also be deleted.
+  * Lines 42, 77, 108, 226, 279: `expect(getInstructorInventory).not.toHaveBeenCalled()`
+    assertions — delete.
+  * Lines 133, 161, 189: the three Phase 1 cases that assert
+    `X-Inventory-Source: supabase | supabase-empty | convex-supabase-mixed`
+    — delete (the source labels they cover no longer exist post-strip).
+  * `beforeEach` body shrinks to `vi.clearAllMocks();
+    vi.mocked(convexServerCall).mockReset();` (Convex-only).
+  * Each surviving test case uses `vi.mocked(convexServerCall).mockResolvedValue(...)`
+    for happy paths and `mockRejectedValue(...)` for error paths,
+    asserting `X-Inventory-Source: convex | convex-not-found |
+    convex-error`. Canonical Phase 3 shape demonstrated in PR #883
+    (`feat/marketing-inventory-phase3-narrow`, `route.test.ts`).
+  * Delete `route.import-failure.test.ts` entirely — it asserted
+    lazy-import fallback behaviour that no longer exists post-strip.
+  Following the checklist in the wrong order (delete
+  `supabase-inventory.ts` before rewriting the test) leaves the
+  test file with an unresolved import that breaks the marketing
+  test typecheck (Greptile P1, PR #882 round 3: the original draft
+  said "no remaining importers after the route strip above" — that
+  was inaccurate; `route.test.ts` is also an importer, with
+  16+ references across the file). The PR #883 implementation
+  already performs this rewrite; see
+  `feat/marketing-inventory-phase3-narrow`.
 * **Delete `apps/marketing/app/api/admin/inventory/route.ts`** after
   confirming zero callers in the marketing app; the Convex-backed
   `/admin/inventory` page is the replacement surface (per Greptile
