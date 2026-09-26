@@ -534,16 +534,37 @@ export async function runBackfill(
       `Done: ${phase1.succeeded} succeeded (${phase1.succeededWithSkips} with skipped fields), ${phase1.failed} failed (${phase1.notFound} not-found)`
     );
     if (phase1.skips.length > 0) {
-      console.log(`\nSkipped (Convex already had non-zero values — legacy NOT applied):`);
-      for (const s of phase1.skips) {
-        console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+      if (runtime.zeroFillNulls) {
+        // Greptile P1 (round 21, PR #883): in ZERO_FILL_NULLS mode
+        // the Convex endpoint's skip-if-already-touched guard
+        // intentionally preserves any live (non-zero) Convex
+        // field. A "skipped" row here means "Convex already had
+        // a value that the script chose to preserve" — which is
+        // the desired outcome of this mode, not a failure. Tell
+        // the operator that explicitly so they don't reach for
+        // FORCE=1 (which is rightly refused by the validator and
+        // would also defeat the purpose of the safe mode).
+        console.log(
+          `\nSkipped fields (live Convex value preserved — expected for ZERO_FILL_NULLS):`
+        );
+        for (const s of phase1.skips) {
+          console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+        }
+        console.log(
+          `\nNo further action needed: live Convex values are correct. ZERO_FILL_NULLS only writes 0 to fields that were unset; any field with a live value was intentionally left untouched.`
+        );
+      } else {
+        console.log(`\nSkipped (Convex already had non-zero values — legacy NOT applied):`);
+        for (const s of phase1.skips) {
+          console.log(`  ${s.slug}: ${s.fields.join(", ")}`);
+        }
+        console.log(
+          `\nTo overwrite these fields, re-run with FORCE=1 (targets ONLY the skipped slugs; safe by default).`
+        );
+        console.log(
+          `For the rare case of re-mirroring every legacy value, run with FORCE_ALL=1 instead.`
+        );
       }
-      console.log(
-        `\nTo overwrite these fields, re-run with FORCE=1 (targets ONLY the skipped slugs; safe by default).`
-      );
-      console.log(
-        `For the rare case of re-mirroring every legacy value, run with FORCE_ALL=1 instead.`
-      );
     }
   }
   const failures = phase2
@@ -564,11 +585,20 @@ export async function runBackfill(
   // operator explicitly accepted the blast radius; FORCE=1 with
   // remaining skips also exits 1 because that means the endpoint
   // refused the overwrite (likely a logic bug, not user error).
+  //
+  // Greptile P1 (round 21, PR #883): ZERO_FILL_NULLS=1 is the
+  // exception. In that mode, a "skip" means "Convex had a live
+  // non-zero value, which we preserved on purpose" — which is
+  // exactly the outcome the operator wants. Counting those as
+  // failures would make the prerequisite exit 1 even when every
+  // public-offer-visible instructor has explicit Convex values.
+  // Skips in zero-fill mode are success indicators, not failures.
   const finalSkips = phase2?.skips.length ?? phase1.succeededWithSkips;
+  const skipIsFailure = !runtime.zeroFillNulls;
   const exitCode =
     phase1.failed > 0 ||
     (phase2?.failed ?? 0) > 0 ||
-    (!runtime.forceAll && finalSkips > 0)
+    (skipIsFailure && !runtime.forceAll && finalSkips > 0)
       ? 1
       : 0;
   return { exitCode };
