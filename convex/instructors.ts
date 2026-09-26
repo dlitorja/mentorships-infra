@@ -1498,7 +1498,13 @@ export const listPublicInstructorSlugsForBackfill = internalQuery({
         .paginate({ numItems: pageSize, cursor });
       for (const inst of result.page) {
         if (inst.deletedAt !== undefined) continue;
-        if (inst.isActive === false) continue;
+        // Greptile P1 round 26: mirror getPublicInventoryBySlug
+        // exactly. The previous isActive === false → continue filter
+        // skipped inactive-but-listed instructors whose slug still
+        // resolves through the public route. The per-slug lookup
+        // (which the marketing route uses) only filters
+        // !deletedAt && isListed !== false, so this scan must match
+        // that intersection or it can miss reachable instructors.
         if (inst.isListed === false) continue;
         if (typeof inst.slug !== "string" || inst.slug.length === 0) continue;
         const oneRaw = (inst as any).oneOnOneInventory;
