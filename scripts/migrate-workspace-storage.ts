@@ -88,6 +88,7 @@ function getConvex(): ConvexHttpClient {
 async function dryRun(convex: ConvexHttpClient, args: Args): Promise<void> {
   console.log("dry-run: counting candidates without PUTting to B2");
   const graceThreshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
   let total = 0;
   let cursor: string | undefined;
   for (let page = 0; page < args.maxPages; page++) {
@@ -96,7 +97,7 @@ async function dryRun(convex: ConvexHttpClient, args: Args): Promise<void> {
       nextCursor: string | null;
     } = await convex.query(
       internal.workspaceStorage.listWorkspaceMigrationCandidates,
-      { graceThreshold, cursor, limit: args.batch }
+      { graceThreshold, cursor, limit: args.batch, now }
     );
     total += result.rows.length;
     cursor = result.nextCursor ?? undefined;

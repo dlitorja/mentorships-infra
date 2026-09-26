@@ -144,6 +144,7 @@ export const workspaceStorageBackfillSweep = schedules.task({
           graceThreshold,
           cursor,
           limit: 50,
+          now,
         }
       );
       totals.scanned += pageResult.rows.length;
