@@ -7,7 +7,9 @@
     "dev:turbo": "next dev --turbo",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint -c ../web/eslint.config.mjs ."
+    "lint": "eslint -c ../web/eslint.config.mjs .",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "typecheck:test": "tsc --noEmit --skipLibCheck -p tsconfig.test.json"
   },
   "engines": {
     "node": "^24.0.0"

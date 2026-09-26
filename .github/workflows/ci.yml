@@ -60,6 +60,10 @@ jobs:
         run: NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @mentorships/platform run typecheck
       - name: Typecheck apps/huckleberry-drive
         run: pnpm --filter @mentorships/huckleberry-drive run typecheck
+      - name: Typecheck apps/marketing
+        run: pnpm --filter @mentorships/marketing run typecheck
+      - name: Typecheck apps/marketing tests
+        run: pnpm --filter @mentorships/marketing run typecheck:test
 
   build-apps:
     runs-on: ubuntu-latest

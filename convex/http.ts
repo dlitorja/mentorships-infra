@@ -324,6 +324,87 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** HUC-46: public read of `oneOnOneInventory` + `groupInventory` by slug.
+ *
+ * The marketing `/api/instructor/inventory` route used to read the
+ * legacy Supabase `instructor_inventory` table. After PR #873 made
+ * Convex the sole inventory write target, that read became stale
+ * (a Kajabi purchase decremented Convex but never touched Supabase),
+ * so a sold-out offer kept showing the Kajabi checkout CTA instead
+ * of the waitlist action.
+ *
+ * This HTTP action reads from `getPublicInventoryBySlug`, which is
+ * the narrow public query added alongside it (returns only the
+ * inventory fields the public offer page needs). It is auth-gated
+ * with the same `verifyAuth` flow as the rest of `convex/http.ts`
+ * so the marketing API route continues to authenticate against
+ * `CONVEX_HTTP_KEY` like every other internal caller.
+ */
+export const httpGetPublicInventoryBySlug = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let slug: string;
+  try {
+    const body = await request.json();
+    slug = body.slug;
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: "Invalid JSON body" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (typeof slug !== "string" || slug.length === 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing or empty slug" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  try {
+    const result = await ctx.runQuery(api.instructors.getPublicInventoryBySlug, { slug });
+    if (!result) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Instructor not found" }),
+        {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        // Forward `null` vs `number` per field so the route can
+        // distinguish "Convex has been touched (e.g. Kajabi
+        // decremented this row to 0)" from "Convex has not been
+        // touched (the field is unset, fall back to Supabase
+        // during the rollout window)". The route collapses these
+        // to a final per-field number before sending to the
+        // client, which still receives the snake_case contract.
+        one_on_one_inventory: result.oneOnOneInventory,
+        group_inventory: result.groupInventory,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 /** Syncs instructor inventory from admin (called by Inngest after Drizzle writes). Looks up by slug and creates/updates. */
 export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -3069,9 +3150,196 @@ http.route({
 });
 
 http.route({
+  path: "/inventory/get-public-by-slug",
+  method: "POST",
+  handler: httpGetPublicInventoryBySlug,
+});
+
+http.route({
   path: "/digest/send",
   method: "POST",
   handler: httpSendDigest,
+});
+
+/** HUC-46: one-shot backfill of `instructor_inventory` from Supabase to Convex.
+ *
+ * Reads `oneOnOneInventory` + `groupInventory` from the Supabase
+ * `instructor_inventory` table and writes them onto the matching
+ * `instructors` row in Convex. The script that drives this is
+ * `scripts/migrate-to-convex/backfill-instructor-inventory.ts`.
+ *
+ * The HTTP action runs as the system identity inside Convex
+ * (bypassing the admin-only auth check that `updateInstructor`
+ * enforces for client callers), so the script does not need a
+ * Clerk admin session. Bearer auth via `verifyAuth` keeps the
+ * endpoint private to server-to-server callers.
+ *
+ * This endpoint deliberately uses an absolute patch instead of
+ * `applyInventoryChange` (which is a decrement) because the
+ * script's job is to copy the existing Supabase value, not to
+ * record a delta against a zero baseline. The actual `db.patch`
+ * is delegated to `internalBackfillInventory` because HTTP
+ * actions do not expose a database writer on their context —
+ * they only have one via `ctx.runMutation`.
+ *
+ * Not-found is downgraded to a 200 with `{ success: false, error }`
+ * (instead of HTTP 404) so the script and the marketing route can
+ * both inspect a uniform `{ success: false }` shape without having
+ * to differentiate between transport-level and application-level
+ * "not found" responses.
+ */
+export const httpBackfillInventoryBySlug = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: {
+    slug?: unknown;
+    oneOnOneInventory?: unknown;
+    groupInventory?: unknown;
+    force?: unknown;
+    /**
+     * Per-field force flags (Greptile P1 round 17). See
+     * `internalBackfillInventory` for the rationale. When
+     * `force: true` is also set, the global override wins.
+     */
+    forceOneOnOne?: unknown;
+    forceGroup?: unknown;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(
+      JSON.stringify({ success: false, error: "Invalid JSON body" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const slug = body.slug;
+  if (typeof slug !== "string" || slug.length === 0) {
+    return new Response(
+      JSON.stringify({ success: false, error: "Missing or empty slug" }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (
+    body.oneOnOneInventory !== undefined &&
+    (typeof body.oneOnOneInventory !== "number" ||
+      !Number.isInteger(body.oneOnOneInventory) ||
+      body.oneOnOneInventory < 0)
+  ) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "oneOnOneInventory must be a non-negative integer",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  if (
+    body.groupInventory !== undefined &&
+    (typeof body.groupInventory !== "number" ||
+      !Number.isInteger(body.groupInventory) ||
+      body.groupInventory < 0)
+  ) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "groupInventory must be a non-negative integer",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const force = body.force === true;
+  const forceOneOnOne = body.forceOneOnOne === true;
+  const forceGroup = body.forceGroup === true;
+
+  try {
+    const instructor = await ctx.runQuery(
+      internal.instructors.internalGetInstructorBySlugForBackfill,
+      { slug }
+    );
+    if (!instructor) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Instructor not found: ${slug}`,
+          skipped: ["instructor"],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const result = await ctx.runMutation(
+      internal.instructors.internalBackfillInventory,
+      {
+        instructorId: instructor._id,
+        oneOnOneInventory:
+          typeof body.oneOnOneInventory === "number"
+            ? body.oneOnOneInventory
+            : undefined,
+        groupInventory:
+          typeof body.groupInventory === "number"
+            ? body.groupInventory
+            : undefined,
+        force,
+        forceOneOnOne,
+        forceGroup,
+      }
+    );
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        slug,
+        oneOnOneInventory:
+          typeof body.oneOnOneInventory === "number"
+            ? body.oneOnOneInventory
+            : undefined,
+        groupInventory:
+          typeof body.groupInventory === "number"
+            ? body.groupInventory
+            : undefined,
+        patched: result.patched,
+        skipped: result.skipped,
+        force,
+        forceOneOnOne,
+        forceGroup,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/inventory/backfill-by-slug",
+  method: "POST",
+  handler: httpBackfillInventoryBySlug,
 });
 
 export default http;

@@ -527,6 +527,174 @@ export const internalAtomicFullUpdateInstructor = internalMutation({
 });
 
 /**
+ * HUC-46: raw instructor lookup used by the one-shot Supabase → Convex
+ * inventory backfill HTTP action.
+ *
+ * Unlike `getInstructorBySlug` (the public query), this helper does NOT
+ * apply visibility rules — `isListed === false` and soft-deleted rows
+ * still resolve, because the backfill is a server-to-server bootstrap
+ * that should NOT be silently dropping inventory rows whose Supabase
+ * counterpart was the source of truth.
+ *
+ * Internal: only callable from server-side code via
+ * `ctx.runQuery(internal.instructors.internalGetInstructorBySlugForBackfill, ...)`.
+ */
+export const internalGetInstructorBySlugForBackfill = internalQuery({
+  args: { slug: v.string() },
+  returns: v.union(v.null(), v.any()),
+  handler: async (ctx, args) => {
+    // Greptile P1 (round 9): this lookup must use the SAME
+    // visibility policy as `getPublicInventoryBySlug`. The
+    // previous "active first" policy filtered only `!deletedAt`,
+    // so a slug with both a soft-deleted row and an UNLISTED
+    // active replacement would patch the unlisted row while the
+    // public read served the replacement — a silent split where
+    // the backfill reports success but the live instructor's
+    // inventory is untouched.
+    //
+    // Mirror the public-read visibility rules exactly:
+    //   1. Prefer rows that are not soft-deleted AND listed.
+    //   2. Fall back to non-deleted (covers transient unlisted
+    //      states where the operator is mid-edit).
+    //   3. Otherwise null (every row is hidden).
+    const candidates = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .collect();
+    if (candidates.length === 0) return null;
+    const visibleAndActive = candidates.filter(
+      (c) => !c.deletedAt && c.isListed !== false
+    );
+    if (visibleAndActive.length > 0) return visibleAndActive[0];
+    const active = candidates.filter((c) => !c.deletedAt);
+    if (active.length > 0) return active[0];
+    return null;
+  },
+});
+
+/**
+ * HUC-46: conditional inventory patch used by the one-shot Supabase →
+ * Convex backfill HTTP action.
+ *
+ * Skips any field whose Convex value is already set (non-null AND
+ * non-undefined AND non-zero). This is the safeguard against
+ * overwriting live inventory that Kajabi decrements have already
+ * touched: a Convex row that PR #873 has driven from `null` → `0`
+ * is treated as "untouched" and patched; a row that already has
+ * a real value (e.g. `3` from a 1-of-3 admin hand-off, or `2`
+ * after two Kajabi purchases) is left alone.
+ *
+ * Pass `force: true` to bypass the conditional check and overwrite
+ * unconditionally. The default never overwrites a non-null,
+ * non-zero value.
+ *
+ * Internal: only callable from server-side code via
+ * `ctx.runMutation(internal.instructors.internalBackfillInventory, ...)`.
+ */
+export const internalBackfillInventory = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    oneOnOneInventory: v.optional(v.number()),
+    groupInventory: v.optional(v.number()),
+    /**
+     * Force-overwrite every provided field. Used by the destructive
+     * `FORCE_ALL=1` backfill mode where the operator explicitly
+     * accepts the blast radius.
+     */
+    force: v.optional(v.boolean()),
+    /**
+     * Per-field force flags. Greptile P1 (round 17): the previous
+     * FORCE=1 retry resend overwrote BOTH inventory fields for an
+     * instructor even when only one was reported as skipped. If a
+     * Kajabi purchase decremented the other field between phase 1
+     * and phase 2, the retry replaced the live count with the
+     * stale Supabase value — potentially reopening a sold-out
+     * offer. `forceOneOnOne` / `forceGroup` let the caller force
+     * ONLY the field that was skipped, preserving the live state
+     * of the untouched field. Implies no effect when `force: true`
+     * is set (global override still wins).
+     */
+    forceOneOnOne: v.optional(v.boolean()),
+    forceGroup: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    patched: v.array(v.string()),
+    skipped: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const patched: string[] = [];
+    const skipped: string[] = [];
+    const updates: Record<string, number> = {};
+
+    if (args.oneOnOneInventory !== undefined) {
+      const existing = instructor.oneOnOneInventory;
+      const alreadyMatches =
+        typeof existing === "number" && existing === args.oneOnOneInventory;
+      const alreadyTouched =
+        typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      const fieldForce = args.force === true || args.forceOneOnOne === true;
+      if (alreadyMatches) {
+        // Idempotent no-op: Convex already equals the legacy
+        // value. Not a real skip — the backfill script counts
+        // such rows as "already reconciled" rather than
+        // "incomplete migration".
+      } else if (alreadyTouched && !fieldForce) {
+        // Greptile P1 (round 12): a Convex field of `0` is a
+        // REAL value (Kajabi decremented the row to zero). The
+        // previous condition `existing !== 0` allowed the
+        // backfill to overwrite a sold-out zero with the stale
+        // Supabase legacy, advertising a sold-out offer as
+        // available on the public page. Skip zero the same way
+        // we skip any non-zero — only patch fields that have
+        // never been written (undefined).
+        skipped.push("oneOnOneInventory");
+      } else if (typeof existing === "number" && existing === 0 && !fieldForce) {
+        // Real sold-out — never restore from Supabase without
+        // explicit FORCE=1 / forceOneOnOne=1.
+        skipped.push("oneOnOneInventory");
+      } else {
+        updates.oneOnOneInventory = args.oneOnOneInventory;
+        patched.push("oneOnOneInventory");
+      }
+    }
+
+    if (args.groupInventory !== undefined) {
+      const existing = instructor.groupInventory;
+      const alreadyMatches =
+        typeof existing === "number" && existing === args.groupInventory;
+      const alreadyTouched =
+        typeof existing === "number" && existing !== 0 && !alreadyMatches;
+      const fieldForce = args.force === true || args.forceGroup === true;
+      if (alreadyMatches) {
+        // Idempotent no-op: see oneOnOneInventory comment above.
+      } else if (alreadyTouched && !fieldForce) {
+        // See oneOnOneInventory comment above.
+        skipped.push("groupInventory");
+      } else if (typeof existing === "number" && existing === 0 && !fieldForce) {
+        // Real sold-out — never restore from Supabase without
+        // explicit FORCE=1 / forceGroup=1.
+        skipped.push("groupInventory");
+      } else {
+        updates.groupInventory = args.groupInventory;
+        patched.push("groupInventory");
+      }
+    }
+
+    if (patched.length > 0) {
+      await ctx.db.patch(args.instructorId, {
+        ...updates,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { patched, skipped };
+  },
+});
+
+/**
  * Internal backfill scoped to specific slugs.
  * Fetches images from a source site, uploads to Convex Storage, and updates the `instructors` table.
  */
@@ -1070,6 +1238,63 @@ export const getInstructorBySlug = query({
       useKajabiCheckout: (instructor as any).useKajabiCheckout ?? false,
       kajabiCheckoutUrlOneOnOne: (instructor as any).kajabiCheckoutUrlOneOnOne,
       kajabiCheckoutUrlGroup: (instructor as any).kajabiCheckoutUrlGroup,
+    };
+  },
+});
+
+/** HUC-46: narrow public read for the marketing public offer page.
+ *
+ * Returns ONLY the inventory fields the public offer page needs to
+ * decide between "Sold Out / Join Waitlist" vs "Buy (Kajabi checkout)".
+ * Intentionally does NOT return the full `instructors` document —
+ * `getInstructorBySlug` already serves the full public shape for
+ * marketing pages that need the profile. This query exists so the
+ * public inventory read path can be cheaply subscribed to from a
+ * client component (the marketing `OffersSection`) without paying
+ * the egress cost of the full document on every inventory update.
+ *
+ * Returns `null` if the slug does not exist or the instructor is
+ * unlisted / soft-deleted, matching `getInstructorBySlug`'s
+ * visibility rules. The HTTP wrapper at `/inventory/get-public-by-slug`
+ * (in `convex/http.ts`) serialises `null` as a 404 so callers can
+ * distinguish "no such instructor" from "instructor exists with
+ * zero inventory".
+ */
+export const getPublicInventoryBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    // Greptile P1: `.first()` could return a soft-deleted row
+    // when a slug has both a deleted historical instructor and
+    // an active replacement. The route would map the resulting
+    // `null` to "not publicly visible" → zeros, hiding the live
+    // instructor's available inventory from the public page.
+    // Mirror the backfill's "active first" policy: collect all
+    // rows at the slug, prefer a non-deleted + listed row, and
+    // only return null if every row is hidden.
+    const candidates = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .collect();
+    if (candidates.length === 0) return null;
+    const visible = candidates.filter(
+      (c) => !c.deletedAt && c.isListed !== false
+    );
+    if (visible.length === 0) return null;
+    const instructor = visible[0];
+
+    // Return `null` vs `number` per field so callers can
+    // distinguish "Convex has been touched (a real zero from a
+    // Kajabi purchase is meaningful)" from "Convex has not been
+    // touched yet (a zero here just means 'unset, fall back to
+    // Supabase during the rollout window')". Defaulting to 0
+    // here would let the public route advertise a sold-out offer
+    // as available whenever the Supabase baseline is non-zero.
+    const oneRaw = (instructor as any).oneOnOneInventory;
+    const groupRaw = (instructor as any).groupInventory;
+    return {
+      slug: instructor.slug,
+      oneOnOneInventory: typeof oneRaw === "number" ? oneRaw : null,
+      groupInventory: typeof groupRaw === "number" ? groupRaw : null,
     };
   },
 });
