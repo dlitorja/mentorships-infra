@@ -23,7 +23,7 @@ to Convex (authoritative source of truth since PR #873, merged
 | `convex/http.ts` | `httpGetPublicInventoryBySlug` (read), `httpBackfillInventoryBySlug` (backfill; reads per-field force flags from request body). |
 | `convex/inventoryBackfill.test.ts` | 23 convex-test cases (19 base + 4 per-field force). |
 | `apps/marketing/app/api/instructor/inventory/route.ts` | Switched from Supabase to Convex. Per-field Supabase fallback for reconciliation window. `X-Inventory-Source: convex \| supabase \| supabase-empty \| convex-error` header for observability. Lazy Supabase import. |
-| `apps/marketing/app/api/instructor/inventory/route.test.ts` | 14 vitest cases. |
+| `apps/marketing/app/api/instructor/inventory/route.test.ts` | 11 vitest cases. |
 | `apps/marketing/app/api/instructor/inventory/route.import-failure.test.ts` | 3 vitest cases (lazy import edge cases). |
 | `apps/marketing/lib/ratelimit.ts` | Per-IP rate-limit alert now uses `after(() => reportError(...))` instead of awaiting the alert inside the request path (round 13 follow-up). |
 | `apps/marketing/app/api/webhooks/kajabi/route.ts:301` | `inventory.changed` emit uses `after(() => reportError(...))` (round 13 follow-up). |
@@ -92,18 +92,22 @@ Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)
 
 **Result: accepted as-is.**
 
-* **9 clean patches** — Convex value matched Supabase, no change needed.
-* **6 skipped** — Convex had newer non-zero values for `oneOnOneInventory` (e.g. live data from Kajabi purchases that landed after the last Supabase write). Per script design, `0` and non-zero Convex values are preserved unless `FORCE=1` is passed. These skips are exactly the safety mechanism working correctly.
+Reconciled counts from `/tmp/huc46-t3.log`:
+
+* **6 fully clean patches** — both `oneOnOneInventory` and `groupInventory` matched Supabase, no change needed: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley.
+* **8 partial patches** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied clean: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia. One of these (`rakasa`) had both fields skipped because both Convex values were non-zero.
 * **1 not-found** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
+
+Sums to 14 succeeded (6 clean + 8 partial) + 1 failed = 15 total = matches the script summary line `Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)`.
 
 Decision: **Convex values are authoritative**. Supabase has not been the source of truth for months. No `FORCE` re-application needed; the legacy Supabase values for skipped slugs are out of date.
 
 ### T4 — `FORCE_ALL=1 DRY_RUN=1` ⏭ skipped
 
-Not run. The 8 skipped slugs above are exactly the data integrity case
-that `FORCE_ALL` would re-mirror from Supabase — which would overwrite
-live, newer Convex values with stale Supabase data. The operator's
-decision was to accept the current state.
+Not run. The 8 partial-patch rows in T3 are exactly the data integrity
+case that `FORCE_ALL` would re-mirror from Supabase — which would
+overwrite live, newer Convex values with stale Supabase data. The
+operator's decision was to accept the current state.
 
 ### T5 — `X-Inventory-Source: convex-error` in marketing access log ⏭ operator-only
 
@@ -158,19 +162,46 @@ The following values appeared in the chat log via user input and
 ## Phase 3 narrow PR — deferred
 
 Per PR #880 verification step #6: **do not open Phase 3 until 24h of
-clean prod traffic after merge**. Scope of Phase 3:
+clean prod traffic after merge**. Scope of Phase 3 (single PR; widen–
+migrate–narrow close-out):
 
-* Delete `apps/marketing/lib/supabase-inventory.ts`.
-* Delete `apps/marketing/app/api/admin/inventory/route.ts` (after
-  verifying no callers; `/admin/digest` on Convex is the replacement).
-* Drop Supabase `instructor_inventory` table (SQL migration).
+* **Strip the Supabase fallback from
+  `apps/marketing/app/api/instructor/inventory/route.ts`:**
+  * Remove the `import type { getInstructorInventory } from
+    "@/lib/supabase-inventory"` (route.ts:3).
+  * Remove the lazy `await import("@/lib/supabase-inventory")` and
+    the `readSupabaseInventorySafe` wrapper (route.ts:78, 270).
+  * Remove the `needsSupabase` / `supabaseInventory` / `preferLiveInventory`
+    branches (route.ts:253–273) and the corresponding tests
+    (`route.test.ts` cases that assert `X-Inventory-Source: supabase |
+    supabase-empty`, `route.import-failure.test.ts` entirely).
+  * Drop `X-Inventory-Source: supabase | supabase-empty` from the
+    response header union; keep only `convex | convex-error`.
+* **Delete `apps/marketing/lib/supabase-inventory.ts`** (no remaining
+  importers after the route strip above).
+* **Delete `apps/marketing/app/api/admin/inventory/route.ts`** after
+  confirming zero callers in the marketing app; `/admin/digest` on
+  Convex (PR #7 WIDEN + MIGRATE, per `docs/plans/README.md` line 4) is
+  the replacement surface.
+* **Drop Supabase `instructor_inventory` table** (committed SQL file
+  under `packages/db/drizzle/` applied via `supabase db query --linked
+  -f <path-to-sql>` per AGENTS.md operational policy). Final clean-up
+  removes the `lily-ghost` stale row noted in T3.
 
-Gate on:
+### Gate on opening Phase 3 (measurable)
 
-* [ ] No `X-Inventory-Source: convex-error` in marketing access log
-      during a full 24h Kajabi purchase cycle.
-* [ ] No 401 / 404 from `httpGetPublicInventoryBySlug` in Vercel logs.
-* [ ] Greptile review on the Phase 3 PR.
+* [ ] **No `X-Inventory-Source: convex-error` in any marketing
+       response over a full 24h window.** Concrete signal: Vercel
+       access-log query `vercel logs inspect /marketing/api/instructor/inventory
+       --filter 'response.headers.x-inventory-source:convex-error' --since 24h`
+       returns zero rows. (Vercel captures response headers in
+       `access-log`; this query is the gate.)
+* [ ] **Zero `supabase | supabase-empty` headers in the same window.**
+       Same query, filter inverted. Asserts no live callers are
+       exercising the fallback path.
+* [ ] **No 401 / 404 from `httpGetPublicInventoryBySlug`** in Vercel
+       function logs for the window.
+* [ ] **Greptile review** on the Phase 3 PR shows no P1/P2 issues.
 
 ## Related issues / PRs
 
