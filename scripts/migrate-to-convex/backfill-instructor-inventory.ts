@@ -628,14 +628,7 @@ export async function runBackfill(
       console.log(
         "\n  All public instructors have non-null Convex inventory fields. Phase 3 SQL is safe to apply.\n"
       );
-      return {
-        succeeded: 0,
-        succeededWithSkips: 0,
-        failed: 0,
-        notFound: 0,
-        failures: [],
-        skips: [],
-      };
+      return { exitCode: 0 };
     }
     console.log(
       `\n  ${missing.length} public instructor(s) have unset Convex inventory fields. The Supabase fallback masks these as sold-out zeros today; after Phase 3 drops the fallback, these offers would appear sold out with no signal of why. Run ZERO_FILL_NULLS=1 pnpm backfill:inventory to zero-fill them before applying the SQL migration.\n`
