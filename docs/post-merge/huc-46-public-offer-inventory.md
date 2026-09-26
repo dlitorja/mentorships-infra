@@ -82,13 +82,26 @@ Done: 15 succeeded (0 with skipped fields), 0 failed (0 not-found)
 
 ```
 ✓ amanda-kiefer
-△ andrea-sipl (skipped: oneOnOneInventory — Convex already had non-zero values)
-... 9 successes total
-△ ... 6 more skips
-? lily-ghost (not in Convex)
+△ andrea-sipl (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=1 NOT applied)
+△ ash-kirk (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=7 NOT applied)
+✓ cameron-nissen
+△ jeszika-le-vye (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=1 NOT applied)
+✓ jordan-jardine
+△ keven-mallqui (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=3 NOT applied)
+△ kim-myatt (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=2 NOT applied)
+✓ kimea-zizzari
+? lily-ghost (not in Convex — instructor may be unlisted, soft-deleted, or missing)
+✓ malina-dowling
+△ neil-gray (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=1 NOT applied)
+△ nino-vecia (skipped: oneOnOneInventory — Convex already had non-zero values; legacy oneOnOneInventory=2 NOT applied)
+✓ oliver-titley
+△ rakasa (skipped: oneOnOneInventory, groupInventory — Convex already had non-zero values; legacy oneOnOneInventory=1, groupInventory=0 NOT applied)
 ========================================
 Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)
 ```
+
+Totals: 6 clean + 8 partial + 1 not-found = 15 rows. The script's summary line
+`14 succeeded (8 with skipped fields)` matches: 14 = 6 clean + 8 partial.
 
 **Result: accepted as-is.**
 
@@ -180,9 +193,11 @@ migrate–narrow close-out):
 * **Delete `apps/marketing/lib/supabase-inventory.ts`** (no remaining
   importers after the route strip above).
 * **Delete `apps/marketing/app/api/admin/inventory/route.ts`** after
-  confirming zero callers in the marketing app; `/admin/digest` on
-  Convex (PR #7 WIDEN + MIGRATE, per `docs/plans/README.md` line 4) is
-  the replacement surface.
+  confirming zero callers in the marketing app; the Convex-backed
+  `/admin/inventory` page is the replacement surface (per Greptile
+  knowledge base: that page is the live inventory control surface on
+  Convex; `/admin/digest` is unrelated, it provides email settings
+  + summaries).
 * **Drop Supabase `instructor_inventory` table** (committed SQL file
   under `packages/db/drizzle/` applied via `supabase db query --linked
   -f <path-to-sql>` per AGENTS.md operational policy). Final clean-up
