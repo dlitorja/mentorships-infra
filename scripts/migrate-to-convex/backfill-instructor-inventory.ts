@@ -116,8 +116,16 @@ export function validateForceFlags(env: {
 interface SupabaseInventoryRow {
   id: string;
   instructor_slug: string;
-  one_on_one_inventory: number;
-  group_inventory: number;
+  /**
+   * Supabase rows are nullable — the legacy schema allowed a row to
+   * exist with one or both fields unset. ZERO_FILL_NULLS=1 coerces
+   * `null` → `0` before posting. Phantoms synthesised by the
+   * VERIFY_PUBLIC_COVERAGE merge path also store `null` here so the
+   * zero-fill logic kicks in for public instructors that never had
+   * a Supabase row.
+   */
+  one_on_one_inventory: number | null;
+  group_inventory: number | null;
   updated_at: string;
   updated_by: string | null;
 }
@@ -143,7 +151,12 @@ interface BackfillResponse {
 interface SkipRecord {
   slug: string;
   fields: string[];
-  legacy: { one_on_one_inventory: number; group_inventory: number };
+  /**
+   * `legacy` preserves the Supabase value at the time of the skip
+   * for forensic logging. `null` is possible because Supabase
+   * legacy rows are nullable.
+   */
+  legacy: { one_on_one_inventory: number | null; group_inventory: number | null };
 }
 
 interface RuntimeConfig {
