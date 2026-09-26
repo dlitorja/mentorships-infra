@@ -163,14 +163,25 @@ The following values appeared in the chat log via user input and
 
 ## Known limitations
 
-* **Supabase `instructor_inventory` still exists** as a legacy mirror.
+**HUC-46 is NOT fully closed.** Code migration shipped in PR #880 (Convex
+authoritative, Supabase fallback readable for reconciliation window), but
+the Supabase inventory reads in production code paths are still active:
+
+* **Supabase `instructor_inventory` table still exists** as a legacy mirror.
   Phase 3 drops it.
-* **Marketing `lib/supabase-inventory.ts`** still exists. Phase 3 drops
-  it.
-* **Marketing `app/api/admin/inventory/route.ts`** still uses Supabase.
-  Phase 3 ports it to Convex (or drops it; admin already has
-  `/admin/digest` on Convex since PR 7).
+* **`apps/marketing/lib/supabase-inventory.ts`** still exists. Phase 3
+  drops it.
+* **`apps/marketing/app/api/instructor/inventory/route.ts`** still has a
+  Supabase fallback branch + lazy import. Phase 3 strips it.
+* **`apps/marketing/app/api/admin/inventory/route.ts`** still uses
+  Supabase. Phase 3 drops it (Convex-backed `/admin/inventory` page is the
+  replacement surface).
 * **`lily-ghost` stale row** will be cleaned up by Phase 3.
+
+Until Phase 3 merges, production requests can still read from the Supabase
+`instructor_inventory` table on the mixed-source reconciliation path —
+this is the residual risk that the Phase 3 gate checks before allowing
+deletion of the table.
 
 ## Phase 3 narrow PR — deferred
 
@@ -186,10 +197,17 @@ migrate–narrow close-out):
     the `readSupabaseInventorySafe` wrapper (route.ts:78, 270).
   * Remove the `needsSupabase` / `supabaseInventory` / `preferLiveInventory`
     branches (route.ts:253–273) and the corresponding tests
-    (`route.test.ts` cases that assert `X-Inventory-Source: supabase |
-    supabase-empty`, `route.import-failure.test.ts` entirely).
-  * Drop `X-Inventory-Source: supabase | supabase-empty` from the
-    response header union; keep only `convex | convex-error`.
+    (`route.test.ts` cases that assert
+    `X-Inventory-Source: supabase | supabase-empty |
+    convex-supabase-mixed` — i.e. lines 133, 161, 189 of
+    `route.test.ts`; delete the `route.import-failure.test.ts` file
+    entirely since its purpose was to assert the lazy-import fallback
+    behavior).
+  * Drop the `supabase | supabase-empty | convex-supabase-mixed`
+    values from the `X-Inventory-Source` response header union; keep
+    `convex | convex-not-found | convex-error`. (`convex-not-found`
+    is the route's expected 404 for instructors that are not publicly
+    visible — it is NOT an error and must be preserved post-Phase 3.)
 * **Delete `apps/marketing/lib/supabase-inventory.ts`** (no remaining
   importers after the route strip above).
 * **Delete `apps/marketing/app/api/admin/inventory/route.ts`** after
@@ -211,11 +229,18 @@ migrate–narrow close-out):
        --filter 'response.headers.x-inventory-source:convex-error' --since 24h`
        returns zero rows. (Vercel captures response headers in
        `access-log`; this query is the gate.)
-* [ ] **Zero `supabase | supabase-empty` headers in the same window.**
-       Same query, filter inverted. Asserts no live callers are
-       exercising the fallback path.
-* [ ] **No 401 / 404 from `httpGetPublicInventoryBySlug`** in Vercel
-       function logs for the window.
+* [ ] **Zero `supabase | supabase-empty | convex-supabase-mixed`
+       headers in the same window.** Same query, filter inverted.
+       Asserts no live callers are exercising the Supabase fallback
+       path — including the mixed-source value (convex+supabase
+       reconciliation). The `convex-not-found` value is EXPECTED
+       (instructor not publicly visible → 404) and is NOT a gate item.
+* [ ] **Rate of `httpGetPublicInventoryBySlug` 5xx responses**
+       (NOT 404 — 404 is expected and surfaced as `convex-not-found`)
+       is at the noise floor over the 24h window. Signal: Vercel
+       function-log query for status `>= 500` on the route, baseline
+       rate prior to PR #880 (no rollback of `httpGetPublicInventoryBySlug`
+       historical error rate).
 * [ ] **Greptile review** on the Phase 3 PR shows no P1/P2 issues.
 
 ## Related issues / PRs
