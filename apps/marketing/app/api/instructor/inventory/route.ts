@@ -22,22 +22,34 @@ const ZERO_INVENTORY = {
  * response header so operators investigating "sold out"
  * complaints can distinguish:
  *
- *   - "convex":   Convex returned explicit values (or both null
- *                 coerced to 0)
+ *   - "convex":        Convex returned explicit numeric values
+ *                      for both fields
+ *   - "convex-unset":  Convex returned at least one null field
+ *                      (field was never written). The route
+ *                      coerces null to 0 so the offer page still
+ *                      renders deterministically, but the source
+ *                      label distinguishes this from a real
+ *                      sold-out zero so operators can spot
+ *                      instructors that need a backfill pass.
  *   - "convex-not-found": Convex says instructor is not publicly
- *                 visible (404 from HTTP action OR
- *                 `{ success: false }`)
- *   - "convex-error": Convex transport failed (config or network)
+ *                      visible (404 from HTTP action OR
+ *                      `{ success: false }`)
+ *   - "convex-error":  Convex transport failed (config or network)
  *
  * After HUC-46 Phase 3, the Supabase fallback is gone — every
- * response is one of these three. The page treats all of them as
+ * response is one of these four. The page treats all of them as
  * "zeros means sold out" so the visitor never sees a checkout
  * link for an unsold-out offer during an outage. The header is
  * the operator-facing signal that "zeros" may not mean a real
- * sold-out state.
+ * sold-out state. Greptile P1 (PR #883 round 19): distinguishing
+ * `convex-unset` from `convex` is required so the source
+ * histogram can flag instructors whose Convex fields were never
+ * written — otherwise a null that gets coerced to 0 is
+ * indistinguishable from a real sold-out.
  */
 type InventorySource =
   | "convex"
+  | "convex-unset"
   | "convex-not-found"
   | "convex-error";
 
@@ -99,13 +111,31 @@ export async function GET(request: NextRequest) {
 
     // Convex is the sole source of truth. `null` means "field is
     // unset" (never written) — coerce to 0 so the offer page
-    // renders a deterministic zeros value.
+    // renders a deterministic zeros value. If at least one field
+    // was null, surface `convex-unset` as the source so the
+    // operator histogram can flag instructors whose Convex
+    // fields were never written (a backfill pass on prod is the
+    // remediation — see the PR description's `ZERO_FILL_NULLS=1`
+    // prerequisite). Greptile P1 (PR #883 round 19): a `convex`
+    // label was previously used for both "explicit zero" and
+    // "null-coerced-to-zero", which made the two states
+    // indistinguishable in the source histogram. Splitting
+    // `convex-unset` out closes that gap and lets the marketing
+    // offer page detect a stuck offer (both null + has a public
+    // page) without inspecting Convex directly.
+    const oneOnOneInventory = response.one_on_one_inventory ?? 0;
+    const groupInventory = response.group_inventory ?? 0;
+    const source: InventorySource =
+      response.one_on_one_inventory === null ||
+      response.group_inventory === null
+        ? "convex-unset"
+        : "convex";
     return NextResponse.json(
       {
-        one_on_one_inventory: response.one_on_one_inventory ?? 0,
-        group_inventory: response.group_inventory ?? 0,
+        one_on_one_inventory: oneOnOneInventory,
+        group_inventory: groupInventory,
       },
-      { headers: { "X-Inventory-Source": "convex" as InventorySource } }
+      { headers: { "X-Inventory-Source": source } }
     );
   } catch (error) {
     console.error("Error fetching inventory:", error);

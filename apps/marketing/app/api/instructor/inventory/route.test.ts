@@ -95,11 +95,16 @@ describe("/api/instructor/inventory route (Phase 3 Convex-only)", () => {
       });
     });
 
-    it("coerces null Convex fields to 0 (unset, not yet written)", async () => {
+    it("coerces null Convex fields to 0 and tags source as `convex-unset`", async () => {
       // A `null` field in Convex is the "never written" signal.
       // The page treats both 0 and null as "sold out", but the
       // route contract requires a number. Coerce so the client
-      // sees the same shape as a real zero.
+      // sees the same shape as a real zero, AND surface the
+      // `convex-unset` source label so the operator histogram can
+      // flag this as a backfill gap rather than a real sold-out.
+      // Greptile P1 (PR #883 round 19): the source label must
+      // distinguish null-coerced-to-0 from a real Kajabi-purchase
+      // zero — the two are operationally very different signals.
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
         one_on_one_inventory: null,
@@ -114,14 +119,20 @@ describe("/api/instructor/inventory route (Phase 3 Convex-only)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("X-Inventory-Source")).toBe("convex");
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-unset");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 3,
       });
     });
 
-    it("coerces both Convex fields to 0 when both are null", async () => {
+    it("coerces both Convex fields to 0 with `convex-unset` when both are null", async () => {
+      // The operator's pre-merge prerequisite is to run
+      // `ZERO_FILL_NULLS=1 pnpm backfill:inventory` on prod so
+      // that no public-offer-visible instructor is in this state
+      // at the moment the Phase 3 SQL migration is applied. Until
+      // then, the source histogram is the operator's signal that
+      // a backfill pass is needed.
       vi.mocked(convexServerCall).mockResolvedValue({
         success: true,
         one_on_one_inventory: null,
@@ -136,7 +147,7 @@ describe("/api/instructor/inventory route (Phase 3 Convex-only)", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("X-Inventory-Source")).toBe("convex");
+      expect(response.headers.get("X-Inventory-Source")).toBe("convex-unset");
       expect(body).toEqual({
         one_on_one_inventory: 0,
         group_inventory: 0,
