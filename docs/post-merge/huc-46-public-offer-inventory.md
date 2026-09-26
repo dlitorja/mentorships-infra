@@ -107,7 +107,7 @@ Totals: 6 clean + 8 partial + 1 not-found = 15 rows. The script's summary line
 
 Reconciled counts from `/tmp/huc46-t3.log`:
 
-* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can query both databases directly (`supabase db query --linked -c "select slug, \"oneOnOneInventory\", \"groupInventory\" from instructor_inventory where slug = '<slug>'"`) against Convex (`httpGetPublicInventoryBySlug` via the dashboard or a `convex run instructors:getPublicInventoryBySlug '{"slug":"<slug>"}'` against the deployment). For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
+* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can query both databases directly (`supabase db query --linked -c "select instructor_slug, one_on_one_inventory, group_inventory from instructor_inventory where instructor_slug = '<slug>'"`) against Convex (`httpGetPublicInventoryBySlug` via the dashboard or a `convex run instructors:getPublicInventoryBySlug '{"slug":"<slug>"}'` against the deployment). For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
 * **7 partial (△ with one skipped field) rows** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia.
 * **1 full-skip (△ with both fields skipped) row** — `rakasa` had both `oneOnOneInventory` and `groupInventory` skipped because both Convex values were non-zero (`oneOnOneInventory=1`, `groupInventory=0`); the Supabase mirror values were out of date.
 * **1 not-found (?) row** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
@@ -172,7 +172,7 @@ pasting the new value into chat):
 Vercel app code. After rotating at the Convex / B2 / Resend / Daily
 dashboard, also sync the new value to:
 
-* **Trigger.dev project** (`TRIGGER_PROJECT_REF` in `trigger.config.ts`).
+* **Trigger.dev project** (`project` in `trigger.config.ts`).
   Trigger tasks (`transfer-daily-recording-to-b2`,
   `send-recording-retention-warning-page`, etc.) read `CONVEX_HTTP_KEY`
   + `CONVEX_TRIGGER_CALLBACK_SECRET` from the Trigger project's env
