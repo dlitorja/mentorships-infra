@@ -1,6 +1,6 @@
 # PR 11 Plan: Workspace File Storage → Backblaze B2 (widen → migrate → narrow)
 
-**Status (updated):** PR 1 (widen) merged as commit `a7dbdfc9` on `main` (PR #872, 2026-09-24) after explicit user override of AGENTS.md merge policy (Greptile bot had not re-reviewed since round 17; local confidence 2/5; CodeRabbit skipped per 10-star rule). PR 2 (migrate) implementation in PR #876 (branch `feat/workspace-storage-pr2`); Greptile bot reviewed commit `2c208a97` at confidence 1/5 with 4 P1s + 1 P2 — all five addressed in commit `7d8b85b0` on the same branch (force-pushed, awaiting Greptile bot re-review). PR 3 (narrow) still pending.
+**Status (updated):** PR 1 (widen) merged as commit `a7dbdfc9` on `main` (PR #872, 2026-09-24) after explicit user override of AGENTS.md merge policy (Greptile bot had not re-reviewed since round 17; local confidence 2/5; CodeRabbit skipped per 10-star rule). **PR 2 (migrate) merged as commit `b738eea5` on `main` (PR #876, 2026-09-26)**. Greptile bot reviewed at round 27 (commit `2c208a97`) with 4 P1s + 1 P2 at confidence 1/5 — all five addressed in commit `7d8b85b0` on the same branch. **Round 28 (commit `7d8b85b0`) flagged 4 NEW P1s as consequences of the lock + propagation + UNSIGNED-PAYLOAD fix shape — the merge proceeded despite these findings per user override; PR 3 must address them.** PR 3 (narrow) still pending.
 
 **PR 2 commit plan (subject to Greptile + CodeRabbit review per AGENTS.md merge policy; do NOT merge without explicit user confirmation):**
 - Schema: `fileUploads.migratedAt`, `fileUploads.scheduledBackfillAt`, index `by_b2Key_uploadedAt`.
@@ -161,7 +161,7 @@ Resolution: when the user is ready to merge, they should either (a) manually cli
 
 ### Greptile round 27 review of PR 2 (commit `2c208a97`, branch `feat/workspace-storage-pr2`)
 
-GitHub bot auto-review posted confidence **1/5** with **four P1s + one P2**. Local CLI review corroborated. All five addressed in the same branch (force-push to come; re-trigger Greptile bot):
+GitHub bot auto-review posted confidence **1/5** with **four P1s + one P2**. Local CLI review corroborated. All five addressed in commit `7d8b85b0` on the same branch:
 
 | # | Severity | Finding | Fix |
 |---|----------|---------|-----|
@@ -173,12 +173,30 @@ GitHub bot auto-review posted confidence **1/5** with **four P1s + one P2**. Loc
 
 Re-entrancy model after the fix: cron runs unconditionally every 24h at 03:00 UTC; each row is processed by an idempotent per-row Trigger.dev task that short-circuits on `b2Key !== undefined || migratedAt !== undefined`. Heartbeat stamp is best-effort and never gates the sweep.
 
-Test coverage added: 7 new convex-test cases (`acquireMigrationLock` accept/refuse on locked/migrated, `releaseMigrationLock` clear + no-op, `propagateMigratedB2KeyToMessages` patch + skip-already-set, `forceDeleteExpiredChatMessageRow` lock-preservation, plus the reworked `stampBackfillSchedule` heartbeat test). 16 total in `convex/workspaceStorage.test.ts`.
+Test coverage added: 8 new convex-test cases (`acquireMigrationLock` accept/refuse on locked/migrated, `releaseMigrationLock` clear + no-op, `propagateMigratedB2KeyToMessages` patch + skip-already-set, `forceDeleteExpiredChatMessageRow` lock-preservation, plus the reworked `stampBackfillSchedule` heartbeat test). 17 total in `convex/workspaceStorage.test.ts`.
 
-### Stage rehearsal (next)
+### Greptile round 28 review of PR 2 (commit `7d8b85b0`, branch `feat/workspace-storage-pr2`)
+
+Posted after the fix; the bot flagged **four NEW P1s** that the round-27 fixes created:
+
+| # | Severity | Finding | PR 3 plan |
+|---|----------|---------|-----------|
+| 1 | P1 | **Migration never finalizes.** `acquireMigrationLock` sets `migratedAt = lockAt` BEFORE the PUT. `markLedgerMigrated` then sees `migratedAt !== undefined` and returns `{ alreadyMigrated: true }` without writing `b2Key` or `completedAt`. Every successful PUT leaves its B2 copy unrecorded and the candidate query excludes the row from future sweeps | Round-27 fix's `markLedgerMigrated` patch is conditional on `migratedAt === undefined && b2Key === undefined`, but the lock sets `migratedAt`. **Fix:** patch `markLedgerMigrated` to accept a row that is `migratedAt !== undefined && b2Key === undefined` and finalize (write `b2Key` + `completedAt`, leave `migratedAt`). |
+| 2 | P1 | **Interrupted migrations stay locked.** If the action stops after acquiring the lock but before the PUT or finalize (Trigger.dev crash, network partition, action timeout), `migratedAt` is set and never cleared. The next trigger sees `migratedAt !== undefined` and short-circuits, the daily sweep excludes the row. **Permanent stuck state.** | **Fix:** add a lock-timeout check — if `migratedAt < now - LOCK_TIMEOUT_MS` (e.g., 24h), the lock is stale and `releaseMigrationLock` may overwrite it. The Trigger.dev 3-retry budget + 1h cron cadence makes 24h a safe upper bound. |
+| 3 | P1 | **Retention can leave B2 copies.** If retention lists a legacy chat message while migration holds its ledger lock, retention preserves the locked ledger but deletes the Convex blob and the `workspaceMessages` row. Migration then propagates `b2Key` onto a row that no longer exists (no-op), but the B2 PUT succeeds with an orphaned blob. | **Fix:** in `propagateMigratedB2KeyToMessages`, if no matching chat row exists, log a warning + delete the B2 object via `deleteFromB2WorkspaceAction`. If the chat row was already deleted, the migrated blob has no consumer and should be cleaned up. |
+| 4 | P1 | **PUT header is unsigned.** The PUT sends `x-amz-decoded-content-length` but the SigV4 canonical request omits it from `SignedHeaders`. If B2 requires `x-amz-*` headers to be signed, the PUT will be rejected. | **Fix:** add `x-amz-decoded-content-length` to `signedHeaders` + the `canonicalHeaders` block in `putBlobToB2Workspace`. The B2 PUT should keep `UNSIGNED-PAYLOAD` for body but sign the decoded-length header so the bucket accepts the request. |
+
+These four findings landed after the user already merged PR #876 (commit `b738eea5`, 2026-09-26). PR 3 must address all four; do NOT deploy `workspaceStorageUseB2` cutover flag flip until each is verified on a snapshot-seeded preview deployment.
+
+### Stage rehearsal (next, before PR 3)
 
 - Verify `migrateConvexStorageRowToB2` against a snapshot-seeded preview deployment with a small `<10 row` test set; confirm `markLedgerMigrated` does not race with concurrent `confirmB2FileUpload` paths (PR 1 mint/bind); run `chatFileRetention` cleanup tick against a seeded workspace with mixed migrated + legacy rows.
+- Stage-rehearse the Greptile round 28 fixes (finalize-on-lock, lock-timeout, retention-vs-propagation cleanup, signed decoded-length header) before opening PR 3.
 
 ### Prod verification (HUC-51)
 
-- Linear issue tracks the post-merge verification; same T1–T5 pattern as the instructor-profiles arc (`docs/post-merge/instructor-profiles-consolidation.md`).
+- Linear issue tracks the post-merge T1–T5 smoke tests. The four round-28 findings add explicit verification points to the checklist:
+  - [ ] After a successful migration, `b2Key` + `completedAt` are present on the ledger (round 28 P1 #1).
+  - [ ] A Trigger.dev crash mid-migration does not permanently lock the row (round 28 P1 #2).
+  - [ ] A retention race during in-flight migration does not orphan a B2 object (round 28 P1 #3).
+  - [ ] `putBlobToB2Workspace` PUT requests sign `x-amz-decoded-content-length` and the bucket accepts them (round 28 P1 #4).
