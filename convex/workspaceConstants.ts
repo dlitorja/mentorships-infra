@@ -71,3 +71,54 @@ export const B2_BINDING_AGE_MS = 60 * 60 * 1000;
  * lifecycle rule that hard-deletes the B2 objects.
  */
 export const WORKSPACE_RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2 (migrate): the 7-day grace period the
+ * backfill sweep skips. Rows newer than this may still be in
+ * flight (a user uploaded a chat image 6 days ago and is still
+ * active in the workspace); migrating them now would race a
+ * possible future `ctx.storage.delete` from the chatFileRetention
+ * cron and lose the row's metadata. Once the row is 7 days old
+ * the upload is either confirmed-and-stable or already soft-
+ * deleted; either way migrating is safe.
+ *
+ * Picked 7 days to align with the B2 PUT URL's 1-hour expiry plus
+ * slack for slow connections + the 30-day chat-file retention
+ * boundary. Anything shorter risks racing a freshly uploaded
+ * blob; anything longer accumulates orphans on the Convex side.
+ */
+export const BACKFILL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2 (Greptile round 27 P1 fix): re-entrancy
+ * guard window, RETIRED. The sweep used to short-circuit when a
+ * recent stamp was found within this window, but the underlying
+ * query was an unindexed table-scan that exceeded Convex's read
+ * budget. The cron now relies on Trigger.dev's own schedule
+ * guarantees + the per-row `migrateConvexStorageRowToB2`
+ * idempotency, so the dedup is unnecessary. Constant retained
+ * (deprecated) so PR 3 imports do not break — the value is
+ * otherwise unused.
+ */
+export const SCHEDULE_BACKFILL_DEDUP_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2 (Greptile round 28 P1 fix): staleness
+ * window for `acquireMigrationLock`. A `fileUploads` row whose
+ * `migratedAt` is older than this threshold is treated as an
+ * abandoned lock (the previous action crashed or restarted
+ * between lock acquisition and B2 finalize), and the next
+ * migration attempt takes it over. Picked 1 h — longer than the
+ * 1 h B2 PUT URL binding window so a transient Convex-node
+ * restart mid-PUT can finish on its own, but short enough that
+ * a stuck row is retried inside a single cron tick.
+ */
+export const STALE_MIGRATION_LOCK_MS = 60 * 60 * 1000;
+
+/**
+ * PR workspace-storage-2: page size for the backfill candidate
+ * query. Mirrors `chatFileRetention.BATCH_SIZE` so a single
+ * sweep tick drains a similar volume. Bounded to keep the
+ * internal query read budget under Convex's 8KB doc limit.
+ */
+export const BACKFILL_BATCH_SIZE = 50;

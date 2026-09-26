@@ -11,8 +11,12 @@ import { Doc, Id } from "./_generated/dataModel";
 
 import {
   B2_BINDING_AGE_MS,
+  BACKFILL_BATCH_SIZE,
+  BACKFILL_GRACE_MS,
   MAX_CHAT_FILE_BYTES,
   MAX_IMAGE_BYTES,
+  SCHEDULE_BACKFILL_DEDUP_MS,
+  STALE_MIGRATION_LOCK_MS,
   WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
@@ -1265,6 +1269,771 @@ export const markLedgerCancelled = internalMutation({
 });
 
 // ---------------------------------------------------------------------------
+// PR workspace-storage-2 (migrate): backfill path.
+//
+// Moves every `fileUploads` row whose blob lives in legacy Convex
+// storage (`storageId !== undefined && b2Key === undefined`)
+// into the new B2 workspace bucket. The action is additive: it
+// sets `b2Key` + `completedAt` + `migratedAt` but leaves
+// `storageId` in place. PR 3 narrows the schema and drops
+// `storageId` once the cutover flag flips.
+//
+// Three entry points:
+//   - `listWorkspaceMigrationCandidates` (query): the scan
+//     filter the cron + CLI use to find un-migrated rows.
+//   - `migrateConvexStorageRowToB2` (internalAction): the
+//     per-row migration. Idempotent (no-op when `b2Key !==
+//     undefined`).
+//   - `backfillWorkspaceB2Storage` (internalAction): drives a
+//     bounded page of candidates. Called by the CLI wrapper
+//     (`scripts/migrate-workspace-storage.ts`) for on-demand
+//     operator runs.
+//
+// The migration is also scheduled by the
+// `workspaceStorageBackfillSweep` cron in
+// `src/trigger/migrateWorkspaceStorage.ts`, which finds
+// candidates and queues one `migrateConvexStorageRowToB2`
+// Trigger.dev task per row. The cron keeps the "schedule" out
+// of Convex so the per-row retries go through Trigger.dev's
+// durable retry pipeline instead of Convex's scheduler.
+// ---------------------------------------------------------------------------
+
+/**
+ * Internal query: list `fileUploads` rows that still need to
+ * be migrated from Convex storage to B2. Bounded by
+ * `BACKFILL_BATCH_SIZE` so a single sweep tick drains a
+ * predictable volume.
+ *
+ * Candidate filter:
+ *   - `storageId !== undefined` (legacy Convex-storage row)
+ *   - `b2Key === undefined` (not yet migrated)
+ *   - `cancelledAt === undefined` (not a rejected B2 upload)
+ *   - `uploadedAt < graceThreshold` (skip in-flight uploads;
+ *     see `BACKFILL_GRACE_MS`).
+ *
+ * Uses the compound index `by_b2Key_uploadedAt` (added in
+ * PR 2) so the cross-workspace scan is bounded by the legacy
+ * `b2Key === undefined` NULL bucket and ordered by `uploadedAt`
+ * for the grace filter. `q.eq("b2Key", undefined)` matches
+ * rows whose `b2Key` field is absent in the index (Convex
+ * treats `undefined` as null in the index); rows that have
+ * migrated have `b2Key !== undefined` so they are excluded
+ * by the equality predicate before the range scan runs.
+ *
+ * Post-filter: `cancelledAt === undefined && migratedAt === undefined`
+ * (defensive — rows that completed the migration but were
+ * somehow missing `b2Key` are skipped here).
+ */
+export const listWorkspaceMigrationCandidates = internalQuery({
+  args: {
+    graceThreshold: v.number(),
+    cursor: v.optional(v.string()),
+    limit: v.number(),
+    now: v.number(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    rows: Array<{
+      _id: Id<"fileUploads">;
+      storageId: Id<"_storage">;
+      workspaceId: Id<"workspaces">;
+      uploaderId: string;
+      uploadedAt: number;
+    }>;
+    nextCursor: string | null;
+  }> => {
+    const page = await ctx.db
+      .query("fileUploads")
+      .withIndex(
+        "by_b2Key_uploadedAt",
+        (q) =>
+          q
+            // b2Key NULL bucket matches rows whose `b2Key`
+            // is undefined in the index. The migration only
+            // ever considers legacy Convex-storage rows; rows
+            // that have already migrated have `b2Key !==
+            // undefined` and never reach this query.
+            .eq("b2Key", undefined)
+            .lt("uploadedAt", args.graceThreshold)
+      )
+      .paginate({ numItems: args.limit, cursor: args.cursor ?? null });
+    // PR workspace-storage-2 (Greptile round 29 P1 fix):
+    // include rows whose `migratedAt` is older than
+    // `STALE_MIGRATION_LOCK_MS` (1h) so the per-row
+    // migration action sees them and `acquireMigrationLock`
+    // takes over the stale lock. Without this filter, the
+    // `migratedAt === undefined` check would exclude
+    // rows whose previous attempt crashed between lock
+    // acquisition and B2 finalize, leaving them
+    // permanently disabled.
+    const rows = page.page
+      .filter(
+        (r) =>
+          r.storageId !== undefined &&
+          r.b2Key === undefined &&
+          r.cancelledAt === undefined &&
+          (r.migratedAt === undefined ||
+            args.now - r.migratedAt > STALE_MIGRATION_LOCK_MS)
+      )
+      .map((r) => ({
+        _id: r._id,
+        storageId: r.storageId as Id<"_storage">,
+        workspaceId: r.workspaceId,
+        uploaderId: r.uploaderId,
+        uploadedAt: r.uploadedAt,
+      }));
+    return {
+      rows,
+      nextCursor: page.isDone ? null : page.continueCursor,
+    };
+  },
+});
+
+/**
+ * Internal query: look up a single `fileUploads` row by id and
+ * return just the fields `migrateConvexStorageRowToB2` needs.
+ * Used by the per-row action so it does not have to call into
+ * `ctx.db` (actions cannot use `ctx.db` directly).
+ */
+export const getMigrationTargetById = internalQuery({
+  args: { id: v.id("fileUploads") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    _id: Id<"fileUploads">;
+    storageId: Id<"_storage">;
+    workspaceId: Id<"workspaces">;
+    uploaderId: string;
+    uploadedAt: number;
+    b2Key: string | undefined;
+    migratedAt: number | undefined;
+  } | null> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return null;
+    return {
+      _id: row._id,
+      storageId: row.storageId as Id<"_storage">,
+      workspaceId: row.workspaceId,
+      uploaderId: row.uploaderId,
+      uploadedAt: row.uploadedAt,
+      b2Key: row.b2Key,
+      migratedAt: row.migratedAt,
+    };
+  },
+});
+
+/**
+ * Internal mutation: mark a migrated `fileUploads` row with
+ * `b2Key` + `completedAt` + `migratedAt`. Called by
+ * `migrateConvexStorageRowToB2` after the B2 PUT succeeds.
+ *
+ * Atomicity: the patch + the re-entrancy guard run inside the
+ * same transaction. If the row is already migrated (`b2Key !==
+ * undefined` or `migratedAt !== undefined`), the patch is a
+ * no-op so a concurrent duplicate trigger does not overwrite a
+ * successful prior migration with the same b2Key.
+ *
+ * SECURITY: `callerId` re-check — the Trigger.dev task runs as
+ * the system, not the original uploader; we cannot meaningfully
+ * re-authorize here, so we trust the caller side. PR 3 closes
+* this by replacing `storageId` with `b2Key` everywhere; until
+  * then the per-row trigger is scheduled from a server-side
+  * internalMutation so the call path is trusted.
+ */
+
+/**
+ * Internal mutation: stamp `scheduledBackfillAt` on the
+ * oldest un-migrated candidate as a low-cost observability
+ * marker. Greptile round 27 P1: the original implementation
+ * used this stamp as a re-entrancy guard (returning
+ * `{ stamped: false }` to short-circuit duplicate cron runs)
+ * via an unindexed `q.filter(q.and(q.gte(...), q.neq(...)))`
+ * scan over the entire `fileUploads` ledger. That scan
+ * exceeded Convex's read budget once the ledger grew. The
+ * cron now relies on Trigger.dev's own schedule guarantees
+ * (one tick per cron entry per day) plus the per-row
+ * `migrateConvexStorageRowToB2` idempotency, so this
+ * function is reduced to "log a heartbeat stamp on the next
+ * candidate so an operator can grep the ledger for `when did
+ * the cron last see work to do`". It never returns `stamped:
+ * false`; if no candidate is found it is a no-op so the
+ * cron's pagination loop still runs.
+ *
+ * Index used: `by_b2Key_uploadedAt` (NULL bucket +
+ * `uploadedAt` range) — same path the candidate query uses,
+ * so we get an index-scan instead of a table-scan. The
+ * `first()` call only reads one row.
+ */
+export const stampBackfillSchedule = internalMutation({
+  args: { scheduledAt: v.number() },
+  handler: async (ctx, args): Promise<{ stamped: boolean }> => {
+    const next = await ctx.db
+      .query("fileUploads")
+      .withIndex(
+        "by_b2Key_uploadedAt",
+        (q) =>
+          q
+            .eq("b2Key", undefined)
+            .lt("uploadedAt", args.scheduledAt - BACKFILL_GRACE_MS)
+      )
+      .first();
+    if (!next) {
+      return { stamped: false };
+    }
+    await ctx.db.patch(next._id, {
+      scheduledBackfillAt: args.scheduledAt,
+    });
+    return { stamped: true };
+  },
+});
+
+/**
+ * Internal action: migrate a single `fileUploads` row from
+ * Convex storage to the workspace B2 bucket. Steps:
+ *
+ *   1. Look up the row. If `b2Key !== undefined || migratedAt
+ *      !== undefined`, no-op (idempotency).
+ *   2. Defensive grace check (the cron filters by grace, but
+ *      a manual CLI invocation could target a too-recent row).
+ *   3. Defensive `storageId !== undefined` check.
+ *   4. Pull the blob bytes via `ctx.storage.get(storageId)`.
+ *      Returns `null` if the blob is already gone (orphan
+ *      ledger row); no-op and report.
+ *   5. Resolve workspace + instructor so we can build the B2
+ *      key (mirrors `generateWorkspaceUploadUrl`).
+ *   6. Compute the `b2Key` (PR 1 key shape, synthetic
+ *      fileId/fileName since the original is in the Convex
+ *      blob metadata, not the ledger row).
+ *   7. ACQUIRE LOCK: set `migratedAt = lockAt` on the ledger
+ *      BEFORE the B2 PUT. The chat-retention cron treats a
+ *      row with `migratedAt !== undefined` as "migration in
+ *      progress or done — preserve the ledger row", so a
+ *      concurrent `forceDeleteExpiredChatMessageRow` cannot
+ *      delete the ledger between PUT and final mark
+ *      (Greptile round 27 P1: this is the race window).
+ *   8. PUT bytes to B2 via SigV4 with `UNSIGNED-PAYLOAD`
+ *      (Greptile round 27 P2: avoids allocating a 500 MB
+ *      ArrayBuffer just to compute a body hash we never use
+ *      server-side).
+ *   9. FINALIZE: patch `b2Key` + `completedAt` on the ledger.
+ *      The `migratedAt` stays at `lockAt` (not `now()`) so a
+ *      future cron tick sees a consistent value.
+ *   10. PROPAGATE: patch `b2Key` on any `workspaceMessages`
+ *       rows whose `storageId` equals the migrated blob's
+ *       id (Greptile round 27 P1: chat retention's
+ *       `b2Key !== undefined` branch otherwise falls back
+ *       to `ctx.storage.delete(storageId)` and orphans the
+ *       B2 copy).
+ *
+ * Idempotency: the lookup at step 1 short-circuits; the
+ * patch at step 9 is conditional on `migratedAt === undefined
+ * && b2Key === undefined` so a concurrent duplicate trigger
+ * cannot overwrite a successful prior migration. The lock at
+ * step 7 is also conditional on the same predicate.
+ *
+ * Failure model:
+ *   - 404 from B2 PUT: treated as permanent failure. The
+ *     bucket or key prefix may be misconfigured; re-running
+ *     will not help. Throws after clearing the lock so the
+ *     next cron tick can retry.
+ *   - 5xx from B2 PUT: retried by Trigger.dev's task retry
+ *     pipeline (3 attempts, exponential backoff). The lock
+ *     stays in place until the next attempt; if all 3
+ *     attempts fail, the final run clears the lock before
+ *     throwing.
+ *   - `ctx.storage.get` returns null: row is an orphan.
+ *     Skip the migration and log so the operator can
+ *     investigate. No lock is acquired.
+ */
+export const migrateConvexStorageRowToB2 = internalAction({
+  args: { fileUploadId: v.id("fileUploads") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    status: "migrated" | "already_migrated" | "skipped_orphan" | "skipped_too_recent" | "skipped_no_storage";
+    b2Key: string | undefined;
+  }> => {
+    const target: {
+      _id: Id<"fileUploads">;
+      storageId: Id<"_storage">;
+      workspaceId: Id<"workspaces">;
+      uploaderId: string;
+      uploadedAt: number;
+      b2Key: string | undefined;
+      migratedAt: number | undefined;
+    } | null = await ctx.runQuery(
+      internal.workspaceStorage.getMigrationTargetById,
+      { id: args.fileUploadId }
+    );
+    if (!target) {
+      throw new Error(
+        `Migration target ${args.fileUploadId} not found`
+      );
+    }
+    // Greptile round 31 P1 fix: only short-circuit on
+    // `b2Key !== undefined`. A row whose `migratedAt` is set
+    // without `b2Key` is in stale-locked state (the previous
+    // action crashed between `acquireMigrationLock` and
+    // `markLedgerMigrated`). Returning `already_migrated`
+    // here would skip `acquireMigrationLock`, leaving the
+    // new takeover branch unreachable. Proceed to the lock
+    // step so the stale-lock takeover runs.
+    if (target.b2Key !== undefined) {
+      return {
+        status: "already_migrated",
+        b2Key: target.b2Key,
+      };
+    }
+    // Grace check (defensive — the cron already filters by
+    // grace, but a manual CLI invocation could target a row
+    // that is too recent).
+    if (Date.now() - target.uploadedAt < BACKFILL_GRACE_MS) {
+      return {
+        status: "skipped_too_recent",
+        b2Key: undefined,
+      };
+    }
+    if (target.storageId === undefined) {
+      return {
+        status: "skipped_no_storage",
+        b2Key: undefined,
+      };
+    }
+
+    const blob: Blob | null = await ctx.storage.get(target.storageId);
+    if (blob === null) {
+      console.warn(
+        `migrateConvexStorageRowToB2 orphan: storage row ${target.storageId} for ledger ${target._id} no longer exists`
+      );
+      return {
+        status: "skipped_orphan",
+        b2Key: undefined,
+      };
+    }
+
+    // Resolve the workspace + instructor so we can build the
+    // workspace B2 key. Mirrors the shape produced by
+    // `generateWorkspaceUploadUrl` for fresh uploads.
+    const ctxData: {
+      workspace: Doc<"workspaces"> | null;
+      instructor: Doc<"instructors"> | null;
+      date: string;
+    } | null = await ctx.runQuery(
+      internal.workspaceStorage.getMigrationContext,
+      { workspaceId: target.workspaceId }
+    );
+    if (!ctxData || !ctxData.workspace) {
+      throw new Error(
+        `Workspace ${target.workspaceId} not found during migration of ${target._id}`
+      );
+    }
+    const instructorId =
+      ctxData.workspace.instructorId &&
+      ctxData.instructor &&
+      ctxData.instructor._id === ctxData.workspace.instructorId
+        ? ctxData.instructor._id
+        : null;
+
+    // Build a synthetic fileId + fileName so the migrated blob
+    // lands in a key shape that matches the PR 1 path. We do
+    // not have the original filename (it lives in the Convex
+    // `fileUploads` row via the client `recordFileUpload`
+    // payload, but we only have the storageId here); use a
+    // stable derived name. PR 3 will read the original from the
+    // migration metadata once the schema gains
+    // `originalFileName`.
+    //
+    // PR workspace-storage-2 (Greptile round 31 P1 fix): use
+    // a STABLE date derived from `target.uploadedAt` instead
+    // of `ctxData.date` (the current UTC date). If the first
+    // attempt PUT succeeds but finalization fails, the row
+    // has `migratedAt !== undefined` and `b2Key === undefined`.
+    // A retry that uses today's date would build a NEW b2Key
+    // (different date prefix) and orphan the previous B2
+    // object that already succeeded. Anchoring the date to
+    // `target.uploadedAt` makes the b2Key deterministic
+    // across retries — the second attempt uploads to the same
+    // key as the first, so any previous PUT is overwritten in
+    // place rather than left as an orphan.
+    const fileId = `migrated-${target._id}`;
+    const fileName = `migrated-${target._id}`;
+    const stableDate = new Date(target.uploadedAt)
+      .toISOString()
+      .split("T")[0];
+    const b2Key = buildWorkspaceStorageKey({
+      date: stableDate,
+      instructorId,
+      studentUserId: ctxData.workspace.ownerId,
+      workspaceId: target.workspaceId,
+      fileId,
+      fileName,
+    });
+
+    // Step 7: acquire lock before PUT so a concurrent chat-
+    // retention cleanup cannot delete the ledger between PUT
+    // and finalize. Conditional on `b2Key === undefined &&
+    // migratedAt === undefined` so concurrent triggers do not
+    // race.
+    const lockAt = Date.now();
+    const lockResult: { locked: boolean } = await ctx.runMutation(
+      internal.workspaceStorage.acquireMigrationLock,
+      {
+        id: target._id,
+        lockAt,
+      }
+    );
+    if (!lockResult.locked) {
+      // Another concurrent trigger already locked this row.
+      // Re-read to find the winning b2Key.
+      const winner: {
+        b2Key: string | undefined;
+        migratedAt: number | undefined;
+      } | null = await ctx.runQuery(
+        internal.workspaceStorage.getMigrationTargetById,
+        { id: target._id }
+      );
+      return {
+        status: "already_migrated",
+        b2Key: winner?.b2Key,
+      };
+    }
+
+    // Step 8: PUT bytes to B2. Uses UNSIGNED-PAYLOAD to avoid
+    // allocating a full ArrayBuffer copy just for the body
+    // SHA-256 (Greptile round 27 P2). If PUT fails, clear the
+    // lock so the next cron tick can retry.
+    try {
+      await putBlobToB2Workspace({ key: b2Key, blob });
+    } catch (err) {
+      await ctx.runMutation(
+        internal.workspaceStorage.releaseMigrationLock,
+        {
+          id: target._id,
+        }
+      );
+      throw err;
+    }
+
+    // Step 9: finalize — patch b2Key + completedAt. The lock
+    // timestamp stays as migratedAt so a future cron tick sees
+    // a consistent value.
+    const finalizeResult: { alreadyMigrated: boolean } = await ctx.runMutation(
+      internal.workspaceStorage.markLedgerMigrated,
+      {
+        id: target._id,
+        b2Key,
+        migratedAt: lockAt,
+      }
+    );
+
+    // Step 10: propagate b2Key to workspaceMessages rows whose
+    // storageId matches the migrated blob's id so chat
+    // retention's `b2Key !== undefined` branch fires instead
+    // of leaving an orphan B2 object. Safe to no-op if no
+    // chat message shares the storageId.
+    //
+    // PR workspace-storage-2 (Greptile round 30 review):
+    // the `propagate` call may patch zero rows when chat
+    // retention already deleted the only chat message that
+    // referenced this storageId (race with the lock window).
+    //
+    // PR workspace-storage-2 (Greptile round 31 P2 fix):
+    // correct the cleanup topology. The round 30 comment
+    // claimed workspace retention deletes the ledger row;
+    // workspace retention in this codebase only deletes
+    // workspace content rows (chat rows + their Convex
+    // blobs) and clamps download URL lifetimes via
+    // `WORKSPACE_RETENTION_MS`. It does NOT delete
+    // `fileUploads` rows and does NOT delete B2 objects.
+    // See the analogous correction in
+    // `convex/cleanup/chatFileRetention.ts:351-381`.
+    //
+    // Within PR 2, a B2 object written by a migration that
+    // races chat retention has no in-PR-2 cleanup path
+    // (chat retention already processed the row; PR 3's
+    // lifecycle rule is out of scope). The B2 object
+    // remains reachable via the workspace ledger's `b2Key`
+    // for as long as the workspace exists; PR 3 closes the
+    // loop after the workspace is gone.
+    //
+    // The migration action does NOT delete the B2 object
+    // when `propagate` patches zero rows, because the
+    // workspace may still have a UI reference to the file via
+    // the ledger (workspaces can fetch their own files
+    // directly without going through `workspaceMessages`).
+    // Auto-deleting on a zero-row `propagate` would
+    // regress legitimate workspace-only downloads.
+    await ctx.runMutation(
+      internal.workspaceStorage.propagateMigratedB2KeyToMessages,
+      {
+        storageId: target.storageId,
+        b2Key,
+      }
+    );
+
+    return {
+      status: finalizeResult.alreadyMigrated ? "already_migrated" : "migrated",
+      b2Key,
+    };
+  },
+});
+
+/**
+ * Internal mutation: mark a `fileUploads` ledger row as
+ * migrated by writing `b2Key` + `completedAt` + `migratedAt`.
+ * Called by `migrateConvexStorageRowToB2` after the B2 PUT
+ * succeeds so a future cron tick treats the row as migrated.
+ *
+ * Greptile round 28 P1 fix: the round 27 implementation
+ * short-circuited on `migratedAt !== undefined`, but the
+ * round 27 lock step (`acquireMigrationLock`) already sets
+ * `migratedAt` BEFORE the PUT. That made every successful
+ * PUT leave its B2 copy unrecorded on the ledger and the
+ * row was permanently excluded from the candidate query.
+ * Idempotency now keys off `b2Key` alone — once the B2 key
+ * is written the row is done, and re-running the finalize
+ * on a partially-migrated row (lock held, no `b2Key`) is a
+ * safe no-op overwrite.
+ */
+export const markLedgerMigrated = internalMutation({
+  args: {
+    id: v.id("fileUploads"),
+    b2Key: v.string(),
+    migratedAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ alreadyMigrated: boolean }> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) {
+      throw new Error("Ledger row vanished during migration");
+    }
+    if (row.b2Key !== undefined) {
+      return { alreadyMigrated: true };
+    }
+    await ctx.db.patch(args.id, {
+      b2Key: args.b2Key,
+      completedAt: args.migratedAt,
+      migratedAt: args.migratedAt,
+    });
+    return { alreadyMigrated: false };
+  },
+});
+
+/**
+ * Internal mutation: acquire a "migration in progress" lock
+ * on a `fileUploads` row by setting `migratedAt = lockAt`.
+ * Conditional on `b2Key === undefined && migratedAt ===
+ * undefined` so concurrent triggers cannot both lock the
+ * same row. Returns `{ locked: false }` if a concurrent
+ * trigger won the race. Greptile round 27 P1: this lock is
+ * the fix for the PUT-vs-cleanup race window.
+ *
+ * Greptile round 28 P1 fix: an action that crashes or
+ * restarts AFTER acquiring the lock but BEFORE finishing
+ * the PUT or finalize leaves `migratedAt` set without
+ * `b2Key`. The candidate query excludes the row and a
+ * retry sees `migratedAt !== undefined` and short-circuits.
+ * A crashed action therefore permanently disables a row.
+ * Treat the lock as stale after `STALE_MIGRATION_LOCK_MS`
+ * (1 h by default — longer than the B2 PUT URL's 1 h
+ * binding window so a transient restart mid-PUT can finish)
+ * and take it over.
+ */
+export const acquireMigrationLock = internalMutation({
+  args: {
+    id: v.id("fileUploads"),
+    lockAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<{ locked: boolean; tookOverStaleLock: boolean }> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return { locked: false, tookOverStaleLock: false };
+    if (row.b2Key !== undefined) {
+      return { locked: false, tookOverStaleLock: false };
+    }
+    if (row.migratedAt !== undefined) {
+      // Greptile round 28 P1: stale-lock takeover. If the
+      // previous lock is older than `STALE_MIGRATION_LOCK_MS`
+      // assume the action crashed and reclaim.
+      if (args.lockAt - row.migratedAt > STALE_MIGRATION_LOCK_MS) {
+        await ctx.db.patch(args.id, { migratedAt: args.lockAt });
+        return { locked: true, tookOverStaleLock: true };
+      }
+      return { locked: false, tookOverStaleLock: false };
+    }
+    await ctx.db.patch(args.id, {
+      migratedAt: args.lockAt,
+    });
+    return { locked: true, tookOverStaleLock: false };
+  },
+});
+
+/**
+ * Internal mutation: clear the `migratedAt` lock when the
+ * B2 PUT fails so the next cron tick can retry. Companion to
+ * `acquireMigrationLock`. Does NOT clear `b2Key` because the
+ * PUT never reached the success branch.
+ */
+export const releaseMigrationLock = internalMutation({
+  args: { id: v.id("fileUploads") },
+  handler: async (ctx, args): Promise<void> => {
+    const row = await ctx.db.get(args.id);
+    if (!row) return;
+    if (row.b2Key !== undefined) return;
+    await ctx.db.patch(args.id, {
+      migratedAt: undefined,
+    });
+  },
+});
+
+/**
+ * Internal mutation: copy the migrated `b2Key` onto any
+ * `workspaceMessages` rows whose `storageId` equals the
+ * migrated blob's id. Greptile round 27 P1: without this
+ * patch, the chat-retention cleanup's `row.b2Key !==
+ * undefined` branch never fires for legacy migrated rows,
+ * and the cleanup deletes the Convex blob + ledger but
+ * leaves the B2 object behind (orphan).
+ *
+ * Best-effort: if the query fails (e.g., the index isn't
+ * available in a preview deployment), we log and continue
+ * so the migration itself is not rolled back.
+ */
+export const propagateMigratedB2KeyToMessages = internalMutation({
+  args: {
+    storageId: v.id("_storage"),
+    b2Key: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ patched: number }> => {
+    let patched = 0;
+    const messages = await ctx.db
+      .query("workspaceMessages")
+      .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
+      .collect();
+    for (const msg of messages) {
+      if (msg.b2Key === args.b2Key) continue;
+      await ctx.db.patch(msg._id, {
+        b2Key: args.b2Key,
+      });
+      patched++;
+    }
+    return { patched };
+  },
+});
+
+/**
+ * Internal query: bundle the workspace + instructor + UTC
+ * date that `migrateConvexStorageRowToB2` needs to build the
+ * B2 key. Pulled into a single query so the action body
+ * stays declarative (actions cannot use `ctx.db` directly).
+ */
+export const getMigrationContext = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    workspace: Doc<"workspaces"> | null;
+    instructor: Doc<"instructors"> | null;
+    date: string;
+  }> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return { workspace: null, instructor: null, date: new Date().toISOString().split("T")[0] };
+    }
+    const instructor = workspace.instructorId
+      ? await ctx.db.get(workspace.instructorId)
+      : null;
+    return {
+      workspace,
+      instructor,
+      date: new Date().toISOString().split("T")[0],
+    };
+  },
+});
+
+/**
+ * Internal action: scan + migrate a bounded page of
+ * candidates. Called by `scripts/migrate-workspace-storage.ts`
+ * for on-demand operator runs outside the Trigger.dev cron.
+ *
+ * Returns a summary so the CLI can print `{ scanned,
+ * migrated, skipped, failed }` and the operator can decide
+ * whether to run another page.
+ */
+export const backfillWorkspaceB2Storage = internalAction({
+  args: {
+    pageLimit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    scanned: number;
+    migrated: number;
+    alreadyMigrated: number;
+    skippedOrphan: number;
+    skippedTooRecent: number;
+    failed: number;
+    nextCursor: string | null;
+  }> => {
+    const graceThreshold = Date.now() - BACKFILL_GRACE_MS;
+    const limit = args.pageLimit ?? BACKFILL_BATCH_SIZE;
+    const candidates: {
+      rows: Array<{ _id: Id<"fileUploads"> }>;
+      nextCursor: string | null;
+    } = await ctx.runQuery(
+      internal.workspaceStorage.listWorkspaceMigrationCandidates,
+      {
+        graceThreshold,
+        cursor: args.cursor ?? undefined,
+        limit,
+        now: Date.now(),
+      }
+    );
+    let migrated = 0;
+    let alreadyMigrated = 0;
+    let skippedOrphan = 0;
+    let skippedTooRecent = 0;
+    let failed = 0;
+    for (const row of candidates.rows) {
+      try {
+        const result: {
+          status: "migrated" | "already_migrated" | "skipped_orphan" | "skipped_too_recent" | "skipped_no_storage";
+          b2Key: string | undefined;
+        } = await ctx.runAction(
+          internal.workspaceStorage.migrateConvexStorageRowToB2,
+          { fileUploadId: row._id }
+        );
+        if (result.status === "migrated") migrated++;
+        else if (result.status === "already_migrated") alreadyMigrated++;
+        else if (result.status === "skipped_orphan") skippedOrphan++;
+        else if (result.status === "skipped_too_recent") skippedTooRecent++;
+      } catch (err) {
+        failed++;
+        console.error(
+          `backfillWorkspaceB2Storage failed for ${row._id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+    }
+    return {
+      scanned: candidates.rows.length,
+      migrated,
+      alreadyMigrated,
+      skippedOrphan,
+      skippedTooRecent,
+      failed,
+      nextCursor: candidates.nextCursor,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // SigV4 helpers — inlined to avoid pulling @aws-sdk/client-s3 into the
 // Convex V8 bundle. Mirrors convex/instructorUploads.ts.
 // ---------------------------------------------------------------------------
@@ -1298,6 +2067,204 @@ function loadB2Credentials(): B2Credentials {
     );
   }
   return { accessKeyId, secretAccessKey, region, endpoint, bucket };
+}
+
+/**
+ * PR workspace-storage-2 (migrate): SigV4 DELETE the workspace
+ * bucket. Used by `cleanup/chatFileRetention.ts` once a chat
+ * row has been migrated (`b2Key !== undefined`) so the legacy
+ * `ctx.storage.delete(storageId)` branch can be retired in PR 3.
+ *
+ * Mirrors `convex/instructorUploads.ts:deleteFromB2` but targets
+ * the workspace bucket. Query-string parameters must be lower-
+ * case + lexicographically sorted per AWS SigV4 (Greptile false-
+ * positive in PR 1 round 17 — the original concern was about
+ * query-string casing, which AWS spec requires lowercase;
+ * `encodeURIComponent` does not change case so the canonical
+ * query matches what B2 computes server-side).
+ */
+export const deleteFromB2WorkspaceAction = internalAction({
+  args: { b2Key: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    const creds = loadB2Credentials();
+    const endpoint = creds.endpoint.replace(/\/+$/, "");
+    const encodedKey = args.b2Key.split("/").map(encodeURIComponent).join("/");
+    const url = `${endpoint}/${creds.bucket}/${encodedKey}`;
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.host;
+    const canonicalUri = `/${creds.bucket}/${encodedKey}`;
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = "UNSIGNED-PAYLOAD";
+    const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+    const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+    const canonicalRequest = [
+      "DELETE",
+      canonicalUri,
+      "",
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash,
+    ].join("\n");
+    const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      amzDate,
+      credentialScope,
+      await sha256Hex(canonicalRequest),
+    ].join("\n");
+    const encoder = new TextEncoder();
+    const kDate = await hmacSha256(
+      encoder.encode("AWS4" + creds.secretAccessKey),
+      dateStamp
+    );
+    const kRegion = await hmacSha256(kDate, creds.region);
+    const kService = await hmacSha256(kRegion, "s3");
+    const kSigning = await hmacSha256(kService, "aws4_request");
+    const signature = await hmacSha256(kSigning, stringToSign);
+    const sigHex = Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const authorization = `AWS4-HMAC-SHA256 Credential=${creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${sigHex}`;
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Authorization: authorization,
+        "x-amz-content-sha256": payloadHash,
+        "x-amz-date": amzDate,
+      },
+    });
+    if (!response.ok && response.status !== 404) {
+      const body = await response.text();
+      throw new Error(
+        `B2 workspace delete failed: ${response.status} ${response.statusText} - ${body}`
+      );
+    }
+  },
+});
+
+/**
+ * Internal action: PUT a Blob to the workspace B2
+ * bucket at a fixed `b2Key`. Used by `migrateConvexStorageRowToB2`
+ * to copy the legacy Convex-storage bytes into B2.
+ *
+ * Content length is bound into the signature so the bucket
+ * refuses an oversized PUT (mirrors the presigned-PUT guard in
+ * `mintB2PresignedPutUrl`). On a 4xx error we throw — the
+ * migration is non-recoverable for that row until an operator
+ * inspects; Trigger.dev's retry will not help.
+ *
+ * Greptile round 27 P2: original implementation computed
+ * `sha256Hex(await params.blob.arrayBuffer())` to fill the
+ * `x-amz-content-sha256` header. For a 500 MB blob that
+ * forces a full-size ArrayBuffer allocation just to throw
+ * the digest away (the server-side signature still verifies
+ * the canonical request, not the body). Switched to
+ * `UNSIGNED-PAYLOAD` (mirrors the DELETE helper above):
+ *
+ *   - `x-amz-content-sha256: UNSIGNED-PAYLOAD` per SigV4 spec.
+ *   - `x-amz-decoded-content-length` enforces the original
+ *     size (mirrors the presigned PUT) so the bucket still
+ *     refuses an oversized PUT even with no body digest.
+ *   - We do NOT compute `sha256Hex` of the body, so memory
+ *     stays at the streaming size of the `Blob`.
+ *
+ * The canonical-request SHA-256 is still computed — that one
+ * runs over the small fixed strings (method, URI, headers),
+ * not the body, so it was already cheap.
+ *
+ * Greptile round 28 P1 fix: SigV4 requires every header that
+ * appears in the request to also appear in the signed-headers
+ * list and the canonical-headers block. The round 27 helper
+ * sent `x-amz-decoded-content-length` to the bucket but did
+ * NOT include it in `signedHeaders` / `canonicalHeaders`.
+ * B2's signature verification rejects the PUT with
+ * `SignatureDoesNotMatch` because the canonical request the
+ * server reconstructs is missing a header that the client
+ * actually sent. Added to both lists (and to the body digest
+ * block) so the PUT signature is well-formed. Mirrors the
+ * presigned-PUT helper above, which already signs the same
+ * header.
+ */
+async function putBlobToB2Workspace(params: {
+  key: string;
+  blob: Blob;
+}): Promise<void> {
+  const creds = loadB2Credentials();
+  const endpoint = creds.endpoint.replace(/\/+$/, "");
+  const encodedKey = params.key
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+  const url = `${endpoint}/${creds.bucket}/${encodedKey}`;
+  const parsedUrl = new URL(url);
+  const host = parsedUrl.host;
+  const canonicalUri = `/${creds.bucket}/${encodedKey}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = "UNSIGNED-PAYLOAD";
+  const contentLength = String(params.blob.size);
+  const signedHeaders = [
+    "content-length",
+    "host",
+    "x-amz-content-sha256",
+    "x-amz-date",
+    "x-amz-decoded-content-length",
+  ];
+  const canonicalHeaders = [
+    `content-length:${contentLength}`,
+    `host:${host}`,
+    `x-amz-content-sha256:${payloadHash}`,
+    `x-amz-date:${amzDate}`,
+    `x-amz-decoded-content-length:${contentLength}`,
+    "",
+  ].join("\n");
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders.join(";"),
+    payloadHash,
+  ].join("\n");
+  const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join("\n");
+  const encoder = new TextEncoder();
+  const kDate = await hmacSha256(
+    encoder.encode("AWS4" + creds.secretAccessKey),
+    dateStamp
+  );
+  const kRegion = await hmacSha256(kDate, creds.region);
+  const kService = await hmacSha256(kRegion, "s3");
+  const kSigning = await hmacSha256(kService, "aws4_request");
+  const signature = await hmacSha256(kSigning, stringToSign);
+  const sigHex = Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const authorization = `AWS4-HMAC-SHA256 Credential=${creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders.join(";")}, Signature=${sigHex}`;
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: authorization,
+      "Content-Length": contentLength,
+      "Content-Type": params.blob.type || "application/octet-stream",
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-decoded-content-length": contentLength,
+      "x-amz-date": amzDate,
+    },
+    body: params.blob,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `B2 workspace PUT failed: ${response.status} ${response.statusText} - ${body}`
+    );
+  }
 }
 
 async function sha256Hex(input: string | ArrayBuffer): Promise<string> {

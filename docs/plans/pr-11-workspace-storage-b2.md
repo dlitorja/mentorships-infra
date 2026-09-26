@@ -1,6 +1,15 @@
 # PR 11 Plan: Workspace File Storage → Backblaze B2 (widen → migrate → narrow)
 
-**Status:** PR 1 (widen) at PR #872, branch `feat/workspace-storage-pr1`, 20 commits (Greptile local confidence 2/5; real-P1 fixes applied across rounds 18–20; Greptile bot on PR reviewed once at round 17 confidence 0/5 and has not re-reviewed since — see merge-policy note at the bottom). PRs 2 + 3 still to be planned in detail after PR 1 merges.
+**Status (updated):** PR 1 (widen) merged as commit `a7dbdfc9` on `main` (PR #872, 2026-09-24) after explicit user override of AGENTS.md merge policy (Greptile bot had not re-reviewed since round 17; local confidence 2/5; CodeRabbit skipped per 10-star rule). PR 2 (migrate) implementation in PR #876 (branch `feat/workspace-storage-pr2`); Greptile bot reviewed commit `2c208a97` at confidence 1/5 with 4 P1s + 1 P2 — all five addressed in commit `7d8b85b0` on the same branch (force-pushed, awaiting Greptile bot re-review). PR 3 (narrow) still pending.
+
+**PR 2 commit plan (subject to Greptile + CodeRabbit review per AGENTS.md merge policy; do NOT merge without explicit user confirmation):**
+- Schema: `fileUploads.migratedAt`, `fileUploads.scheduledBackfillAt`, index `by_b2Key_uploadedAt`.
+- New constants in `convex/workspaceConstants.ts`: `BACKFILL_GRACE_MS = 7d`, `SCHEDULE_BACKFILL_DEDUP_MS = 6h`, `BACKFILL_BATCH_SIZE = 50`.
+- New queries/mutations/actions in `convex/workspaceStorage.ts`: `listWorkspaceMigrationCandidates`, `getMigrationTargetById`, `markLedgerMigrated`, `stampBackfillSchedule`, `migrateConvexStorageRowToB2` (per-row action with `migrated | already_migrated | skipped_orphan | skipped_too_recent | skipped_no_storage` return enum), `getMigrationContext`, `backfillWorkspaceB2Storage` (page-bounded sweep), `deleteFromB2WorkspaceAction` (exposed for `chatFileRetention`), `putBlobToB2Workspace` (private helper).
+- `convex/cleanup/chatFileRetention.ts`: branch cleanup on `b2Key !== undefined` → `deleteFromB2WorkspaceAction`; preserve ledger rows for migrated chat messages (download action depends on the ledger until PR 3).
+- `src/trigger/migrateWorkspaceStorage.ts`: per-row task `migrateConvexStorageRowToB2` (3 retries, idempotent) + daily cron `workspaceStorageBackfillSweep` at 03:00 UTC.
+- `scripts/migrate-workspace-storage.ts`: operator CLI with `--batch`, `--dry-run`, `--max-pages`.
+- `convex/workspaceStorage.test.ts`: 9 tests covering candidate filter (grace, migrated, cancelled), idempotency, re-entrancy, target lookup, force-delete + ledger preservation.
 
 ## 1. Outcome
 
@@ -141,3 +150,35 @@ Resolution: when the user is ready to merge, they should either (a) manually cli
 - `convex/queries/http.ts` — `EIGHTEEN_MONTHS_MS` (mirrored as `WORKSPACE_RETENTION_MS`).
 - `convex/cleanup/chatFileRetention.ts` — PR 2 swaps the storage call.
 - AGENTS.md §Pull Request Merge Policy + §Parallel Session Collision Prevention.
+
+## 10.1 PR 2 new files
+
+- `src/trigger/migrateWorkspaceStorage.ts` — per-row Trigger.dev task + daily cron. Reuses `ConvexHttpClient` + `setAdminAuth(CONVEX_HTTP_KEY)` (mirrors `recording-transfer.ts`).
+- `scripts/migrate-workspace-storage.ts` — operator CLI for on-demand sweeps or backstop if the cron is paused. `--dry-run` uses the candidate query directly (no B2 traffic).
+- `convex/workspaceStorage.test.ts` — 9 convex-test cases. Convex-test cannot reach B2, so the per-row state machine + post-filters are tested; integration bytes verified in staging.
+
+## 10.2 PR 2 follow-ups
+
+### Greptile round 27 review of PR 2 (commit `2c208a97`, branch `feat/workspace-storage-pr2`)
+
+GitHub bot auto-review posted confidence **1/5** with **four P1s + one P2**. Local CLI review corroborated. All five addressed in the same branch (force-push to come; re-trigger Greptile bot):
+
+| # | Severity | Finding | Fix |
+|---|----------|---------|-----|
+| 1 | P1 | Migration writes `b2Key` only to the `fileUploads` ledger; chat messages keep no `b2Key`, so cleanup takes the legacy `ctx.storage.delete(storageId)` branch and orphans the B2 object | New `propagateMigratedB2KeyToMessages` mutation patches `b2Key` onto every `workspaceMessages` row sharing the `storageId`, called from `migrateConvexStorageRowToB2` after the B2 PUT + finalize |
+| 2 | P1 | `stampBackfillSchedule` used an unindexed `q.filter(q.and(q.gte(...), q.neq(...)))` scan over the entire `fileUploads` ledger — exceeded Convex read budget at scale | Removed the dedup branch; `stampBackfillSchedule` is now a single-row heartbeat via the existing `by_b2Key_uploadedAt` index. Cron relies on Trigger.dev's schedule + per-row `migrateConvexStorageRowToB2` idempotency |
+| 3 | P1 (related to #2) | The stamp-before-schedule dedup blocked retries if the sweep failed partway | Same fix as #2 — no dedup, partial failures are caught by the next day's tick |
+| 4 | P1 | PUT-to-B2 succeeds but `markLedgerMigrated` fails (e.g., ledger deleted in race window) → orphan B2 object, retry can't recover | New `acquireMigrationLock` mutation sets `migratedAt = lockAt` BEFORE the PUT; `forceDeleteExpiredChatMessageRow` now preserves the ledger when `migratedAt !== undefined` (in-progress lock); new `releaseMigrationLock` clears the lock on PUT failure so the next tick can retry |
+| 5 | P2 | `sha256Hex(await params.blob.arrayBuffer())` allocated a full-size ArrayBuffer just to compute a body hash the server doesn't validate | Switched `putBlobToB2Workspace` PUT to use `x-amz-content-sha256: UNSIGNED-PAYLOAD` (mirrors the DELETE helper) with `x-amz-decoded-content-length` enforcing size; memory stays at the streaming size of the `Blob` |
+
+Re-entrancy model after the fix: cron runs unconditionally every 24h at 03:00 UTC; each row is processed by an idempotent per-row Trigger.dev task that short-circuits on `b2Key !== undefined || migratedAt !== undefined`. Heartbeat stamp is best-effort and never gates the sweep.
+
+Test coverage added: 7 new convex-test cases (`acquireMigrationLock` accept/refuse on locked/migrated, `releaseMigrationLock` clear + no-op, `propagateMigratedB2KeyToMessages` patch + skip-already-set, `forceDeleteExpiredChatMessageRow` lock-preservation, plus the reworked `stampBackfillSchedule` heartbeat test). 16 total in `convex/workspaceStorage.test.ts`.
+
+### Stage rehearsal (next)
+
+- Verify `migrateConvexStorageRowToB2` against a snapshot-seeded preview deployment with a small `<10 row` test set; confirm `markLedgerMigrated` does not race with concurrent `confirmB2FileUpload` paths (PR 1 mint/bind); run `chatFileRetention` cleanup tick against a seeded workspace with mixed migrated + legacy rows.
+
+### Prod verification (HUC-51)
+
+- Linear issue tracks the post-merge verification; same T1–T5 pattern as the instructor-profiles arc (`docs/post-merge/instructor-profiles-consolidation.md`).

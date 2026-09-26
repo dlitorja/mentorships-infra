@@ -69,6 +69,17 @@ type CandidateRow = {
    *  create mutations (`createWorkspaceImageAndMessage`,
    *  `createWorkspaceFileMessage`). Undefined for pre-#B rows. */
   storageId: Id<"_storage"> | undefined;
+  /**
+   * PR workspace-storage-2 (migrate): B2 key for this chat
+   * row's attachment when the underlying upload went through
+   * the new path (`workspaceStorage.generateWorkspaceUploadUrl`).
+   * When set, the retention cron must delete the B2 object via
+   * `deleteFromB2WorkspaceAction` instead of the Convex-storage
+   * path. Undefined for pre-PR-1 uploads OR for rows that have
+   * not yet been migrated (PR 2 backlog). Both cases fall
+   * through to the legacy `ctx.storage.delete(storageId)` branch.
+   */
+  b2Key: string | undefined;
   content: string;
   deletedAt: number;
   type: "text" | "image" | "file";
@@ -168,6 +179,7 @@ export const listExpiredChatFileDeletes = internalQuery({
       .map((r) => ({
         _id: r._id,
         storageId: r.storageId,
+        b2Key: r.b2Key,
         content: r.content,
         deletedAt: r.deletedAt as number,
         type: r.type,
@@ -296,19 +308,116 @@ export const releaseExpiredChatMessageRow = internalMutation({
  * (ledger rows are only created by the new chat path, and we
  * keyed them by `storageId` not by message id, so deleting
  * before we know the `storageId` would be unsafe).
+ *
+ * PR workspace-storage-2 (migrate): rows that have been migrated
+ * (`b2Key !== undefined`) keep their ledger row because the
+ * download action resolves the workspace that owns a `b2Key`
+ * through the ledger. Deleting the ledger here would break
+ * `getWorkspaceDownloadUrl` for migrated files until PR 3
+ * re-points it to a different lookup. Pre-migration rows
+ * (legacy Convex-storage only) keep the original behavior:
+ * delete the ledger so the chat-row GC closes the loop.
  */
 export const forceDeleteExpiredChatMessageRow = internalMutation({
   args: { messageId: v.id("workspaceMessages") },
   handler: async (ctx, args): Promise<{ deleted: boolean }> => {
     const row = await ctx.db.get(args.messageId);
     if (!row) return { deleted: false };
-    if (row.storageId !== undefined) {
+    // PR workspace-storage-2 (Greptile round 27 P1 fix):
+    // preserve the ledger row when the chat message has a
+    // `b2Key` (migrated), OR when the underlying ledger row is
+    // mid-migration (`migratedAt !== undefined` but `b2Key ===
+    // undefined`). The lock case matters because
+    // `migrateConvexStorageRowToB2` sets `migratedAt` BEFORE
+    // the B2 PUT; if cleanup raced the PUT, deleting the
+    // ledger here would orphan the B2 object the migration
+    // is about to write. Pre-migration rows with no lock keep
+    // the original behavior (delete the ledger).
+    //
+    // PR workspace-storage-2 (Greptile round 29 review):
+    // the round 28 attempt to delete the ledger in the
+    // mid-migration case created a worse orphan — the
+    // migration wrote the B2 object, the finalize threw
+    // because the ledger was gone, and the B2 object lived
+    // on with no row pointing to it (PR 3's B2 lifecycle
+    // rule is not in this branch). Round 27's preservation
+    // is restored: the migration completes, writes
+    // `b2Key + completedAt` on the ledger, propagates the
+    // key onto any surviving `workspaceMessages` rows, and
+    // deletes the Convex blob. The ledger IS the cleanup
+    // pointer (the workspace can still download via
+    // `b2Key`), so no orphan is created.
+    //
+    // PR workspace-storage-2 (Greptile round 30 review):
+    // document the cleanup topology for the race where chat
+    // retention deletes a message AFTER the migration locks
+    // the ledger but BEFORE the B2 key propagates. After this
+    // branch fires, the migration completes: B2 PUT, ledger
+    // gets `b2Key + completedAt`, propagate patches zero rows
+    // (the chat row is already gone), and the Convex blob is
+    // already deleted.
+    //
+    // PR workspace-storage-2 (Greptile round 31 P2 fix):
+    // correct the cleanup topology. The earlier round 30
+    // comment claimed workspace retention deletes the ledger
+    // row. Workspace retention in this codebase deletes
+    // workspace content rows (chat rows in `workspaceMessages`
+    // and their associated Convex blobs via the chat
+    // retention sweep) but does NOT delete `fileUploads` rows
+    // and does NOT delete B2 objects. The download URL
+    // retention deadline
+    // (`apps/platform/lib/b2-workspace-upload.ts:540-572`,
+    // `WORKSPACE_RETENTION_MS = 18 months`) only clamps the
+    // signed-URL lifetime; it does not sweep rows. So within
+    // PR 2, the only path that can delete a B2 object is chat
+    // retention's `b2Key !== undefined` branch — and that
+    // branch misses the migration race window because the
+    // chat row is already gone.
+    //
+    // The race window therefore has no in-PR-2 cleanup path
+    // for the B2 object. The boundary conditions are:
+    //
+    //   - The ledger row is preserved (round 27), so
+    //     `getWorkspaceDownloadUrl({ b2Key, workspaceId })`
+    //     keeps working for the workspace that owns the file.
+    //     The workspace can still download the file via
+    //     `apps/platform/lib/b2-workspace-upload.ts:175`.
+    //
+    //   - PR 3's B2 lifecycle rule (out of scope) sweeps B2
+    //     objects whose owning ledger has been hard-deleted
+    //     (e.g., workspace removed before retention ran).
+    //     Until PR 3 ships, a B2 object written by a
+    //     migration that races chat retention can live
+    //     indefinitely in B2 — bounded only by the bucket's
+    //     own lifecycle rule (B2 default: no auto-delete).
+    //
+    //   - If the workspace is still active, the B2 object is
+    //     reachable via the ledger's `b2Key` and serves the
+    //     same purpose as before. The "orphan" is only a
+    //     leak: a B2 object that nobody references once the
+    //     workspace is gone and PR 3 hasn't shipped.
+    //
+    // The round 28 alternative (delete the ledger when
+    // migration is mid-flight) created a strictly worse
+    // orphan: migration finalize would throw on the missing
+    // ledger row, leaving the B2 object written but
+    // unrecorded, with no workspace download path AND no PR
+    // 3 cleanup path. Round 27 preservation is correct — the
+    // ledger is the cleanup pointer during AND after the
+    // migration window, and the B2 object leak is bounded
+    // by the workspace's continued existence plus PR 3's
+    // pending lifecycle rule.
+    if (row.storageId !== undefined && row.b2Key === undefined) {
       const ledger = await ctx.db
         .query("fileUploads")
         .withIndex("by_storageId", (q) => q.eq("storageId", row.storageId!))
         .first();
       if (ledger) {
-        await ctx.db.delete(ledger._id);
+        if (ledger.migratedAt === undefined && ledger.b2Key === undefined) {
+          await ctx.db.delete(ledger._id);
+        }
+        // else: ledger is mid-migration or already migrated;
+        // leave it in place so the migration action can finish.
       }
     }
     await ctx.db.delete(args.messageId);
@@ -461,8 +570,24 @@ export const hardDeleteExpiredChatFiles = internalAction({
             );
             continue;
           }
-          await ctx.storage.delete(storageId);
-          totalDeletedBlobs++;
+          // PR workspace-storage-2 (migrate): branch on `b2Key`
+          // so a migrated row deletes the B2 object instead of
+          // the Convex-storage blob. The legacy
+          // `ctx.storage.delete(storageId)` branch stays for
+          // rows that have not been migrated yet (PR 2 backlog)
+          // so a rollback of the migration does not leave
+          // orphans. PR 3 drops the legacy branch when the
+          // cutover flag flips.
+          if (row.b2Key !== undefined) {
+            await ctx.runAction(
+              internal.workspaceStorage.deleteFromB2WorkspaceAction,
+              { b2Key: row.b2Key }
+            );
+            totalDeletedBlobs++;
+          } else {
+            await ctx.storage.delete(storageId);
+            totalDeletedBlobs++;
+          }
           // Blob is gone. Force-delete the row so an admin restore
           // that raced past the claim sentinel cannot leave a
           // visible message pointing at deleted storage. This is
