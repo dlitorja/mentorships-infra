@@ -100,8 +100,9 @@ Done: 15 succeeded (0 with skipped fields), 0 failed (0 not-found)
 Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)
 ```
 
-Totals: 6 clean + 8 partial + 1 not-found = 15 rows. The script's summary line
-`14 succeeded (8 with skipped fields)` matches: 14 = 6 clean + 8 partial.
+Totals: 6 clean + 7 partial + 1 full-skip + 1 not-found = 15 rows. The script's
+summary line `14 succeeded (8 with skipped fields)` matches: 14 = 6 clean +
+7 partial + 1 full-skip.
 
 **Result: accepted as-is.**
 
@@ -194,6 +195,22 @@ workers, edge Workers, and Convex deployment env holding the old
 keys, which manifests as 401 responses in recording-pipeline +
 retention-email tasks within the next cron tick.
 
+**Trigger.dev rotate-via-deploy prerequisite (Greptile P2, PR #882
+round 2):** `trigger.config.ts` uses the `syncEnvVars` extension with
+`override: true`, which only emits a row for an env var when the
+local `process.env` value at deploy time is non-empty. **If an
+operator rotates a Trigger-side secret and deploys from a machine
+whose `.env` does not yet have the new value, the next `npx trigger.dev deploy`
+pushes the existing prod secret from the local env OR — if the local
+secret is missing — silently leaves the Trigger.dev prod secret
+unchanged on this extension's behaviour (no row emitted). Either
+way, the Trigger dev dashboard's prod Environment Variables page
+should be checked post-deploy to confirm the new value landed.
+Add this verification step to the rotation procedure for any
+secret consumed by a Trigger task (`CONVEX_HTTP_KEY`,
+`CONVEX_TRIGGER_CALLBACK_SECRET`, `B2_*`, `DAILY_API_KEY`,
+`RESEND_API_KEY`, etc.).
+
 ## Known limitations
 
 **HUC-46 is NOT fully closed.** Code migration shipped in PR #880 (Convex
@@ -258,22 +275,47 @@ migrate–narrow close-out):
 
 * [ ] **No `X-Inventory-Source: convex-error` in any marketing
        response over a full 24h window.** Concrete signal: Vercel
-       access-log query `vercel logs inspect /marketing/api/instructor/inventory
-       --filter 'response.headers.x-inventory-source:convex-error' --since 24h`
-       returns zero rows. (Vercel captures response headers in
-       `access-log`; this query is the gate.)
+       access-log query against the actual route path. The
+       marketing inventory route is `GET /api/instructor/inventory`
+       (no `/marketing` prefix), and the Vercel CLI flag is
+       `--filter` (not the more limited `inspect` shorthand used
+       in earlier drafts):
+
+       ```
+       vercel logs inspect /api/instructor/inventory \
+         --filter 'response.headers.x-inventory-source:convex-error' \
+         --since 24h
+       ```
+
+       Returns zero rows. (Vercel captures response headers in
+       `access-log`; this query is the gate.) Greptile P1 (PR #882
+       round 2): the original draft used the wrong route path
+       (`/marketing/api/instructor/inventory`) and an invocation
+       that does not exist on this repo's Vercel CLI version — a
+       failed or empty query would have looked like a clean
+       24-hour window even when production was reporting the
+       Supabase fallback or `convex-error`.
 * [ ] **Zero `supabase | supabase-empty | convex-supabase-mixed`
        headers in the same window.** Same query, filter inverted.
        Asserts no live callers are exercising the Supabase fallback
        path — including the mixed-source value (convex+supabase
        reconciliation). The `convex-not-found` value is EXPECTED
        (instructor not publicly visible → 404) and is NOT a gate item.
-* [ ] **Rate of `httpGetPublicInventoryBySlug` 5xx responses**
-       (NOT 404 — 404 is expected and surfaced as `convex-not-found`)
-       is at the noise floor over the 24h window. Signal: Vercel
-       function-log query for status `>= 500` on the route, baseline
-       rate prior to PR #880 (no rollback of `httpGetPublicInventoryBySlug`
-       historical error rate).
+* [ ] **Rate of `X-Inventory-Source: convex-error` responses is
+       at the noise floor over the 24h window.** Greptile P1
+       (PR #882 round 2): the original draft used a 5xx HTTP
+       status check as the gate, but the route returns
+       `HTTP 200` with body `{one_on_one_inventory: 0,
+       group_inventory: 0}` and `X-Inventory-Source: convex-error`
+       whenever Convex is unavailable (transport outage, missing
+       `CONVEX_HTTP_KEY`, etc.). The 5xx check would remain at
+       baseline while offers incorrectly appear sold out. The
+       correct gate is the response-header check above; treat the
+       header histogram as the authoritative signal that production
+       Convex reads succeeded. The 404 status check is also
+       insufficient because `convex-not-found` is the 200-OK
+       response for hidden / unlisted / soft-deleted instructors —
+       it is NOT an outage.
 * [ ] **Greptile review** on the Phase 3 PR shows no P1/P2 issues.
 
 ## Related issues / PRs
