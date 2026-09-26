@@ -1468,8 +1468,13 @@ export const getPublicInstructors = query({
  *
  * The query is INTERNAL — not callable from the public client. The
  * HTTP wrapper requires `Authorization: Bearer ${CONVEX_HTTP_KEY}`.
+ *
+ * Greptile P2 round 25: declared as `internalQuery` so a client
+ * cannot call it directly to dump every public-listed
+ * instructor's raw inventory + unset-field state. Only the
+ * auth-gated HTTP action invokes it via `internal`.
  */
-export const listPublicInstructorSlugsForBackfill = query({
+export const listPublicInstructorSlugsForBackfill = internalQuery({
   args: {},
   handler: async (ctx) => {
     // Paginate the by_deletedAt index. Same pageSize + iteration cap

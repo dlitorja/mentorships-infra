@@ -426,7 +426,7 @@ export const httpListPublicInstructorSlugsForBackfill = httpAction(async (ctx, r
 
   try {
     const result = await ctx.runQuery(
-      api.instructors.listPublicInstructorSlugsForBackfill,
+      internal.instructors.listPublicInstructorSlugsForBackfill,
       {}
     );
     return new Response(
