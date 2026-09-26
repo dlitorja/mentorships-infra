@@ -107,7 +107,7 @@ Totals: 6 clean + 8 partial + 1 not-found = 15 rows. The script's summary line
 
 Reconciled counts from `/tmp/huc46-t3.log`:
 
-* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can re-run with `DRY_RUN=1 FORCE=1` against a snapshot (Supabase value vs Convex value) to diff. For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
+* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can query both databases directly (`supabase db query --linked -c "select slug, \"oneOnOneInventory\", \"groupInventory\" from instructor_inventory where slug = '<slug>'"`) against Convex (`httpGetPublicInventoryBySlug` via the dashboard or a `convex run instructors:getPublicInventoryBySlug '{"slug":"<slug>"}'` against the deployment). For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
 * **7 partial (△ with one skipped field) rows** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia.
 * **1 full-skip (△ with both fields skipped) row** — `rakasa` had both `oneOnOneInventory` and `groupInventory` skipped because both Convex values were non-zero (`oneOnOneInventory=1`, `groupInventory=0`); the Supabase mirror values were out of date.
 * **1 not-found (?) row** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
@@ -150,7 +150,9 @@ After both fixes, deploy succeeded and T3 ran clean.
 ### Secrets exposed in this session's chat transcript
 
 The following values appeared in the chat log via user input and
-`convex env list` and should be rotated post-session:
+`convex env list` and should be rotated post-session. Per AGENTS.md
+Secret Protection Policy, rotate via the vendor dashboard (NOT by
+pasting the new value into chat):
 
 * `CONVEX_HTTP_KEY` — already updated to current value; consider
   rotating again to invalidate the chat-exposed historical value.
@@ -160,8 +162,37 @@ The following values appeared in the chat log via user input and
   `CONVEX_TRIGGER_CALLBACK_SECRET`, `CONVEX_WEBHOOK_SECRET`,
   `DAILY_API_KEY`, `DAILY_WEBHOOK_SECRET`, `RESEND_API_KEY`,
   `CLERK_JWT_ISSUER_DOMAIN(S)`, `TURNSTILE_SECRET_KEY`.
-* Update Vercel env vars for `apps/marketing` (and any other app that
-  calls the HTTP actions) to match any new values.
+* `CLERK_*` — DO NOT TOUCH per AGENTS.md Clerk Changes Policy. The
+  session-exposed values remain valid; if compromise is suspected,
+  follow Clerk's documented incident response, not this checklist.
+
+### Post-rotation propagation (non-Vercel surfaces)
+
+`CONVEX_HTTP_KEY` and other rotated secrets are NOT only consumed by
+Vercel app code. After rotating at the Convex / B2 / Resend / Daily
+dashboard, also sync the new value to:
+
+* **Trigger.dev project** (`TRIGGER_PROJECT_REF` in `trigger.config.ts`).
+  Trigger tasks (`transfer-daily-recording-to-b2`,
+  `send-recording-retention-warning-page`, etc.) read `CONVEX_HTTP_KEY`
+  + `CONVEX_TRIGGER_CALLBACK_SECRET` from the Trigger project's env
+  vars, set via `trigger.config.ts syncEnvVars`. Sync happens on
+  `npx trigger.dev deploy` (CI or local); verify the new value reaches
+  Trigger by checking the dashboard's Environment Variables page for
+  the prod env after the next deploy. If rotation happens between
+  Trigger deploys, recordings + retention callbacks will 401 until
+  the next deploy.
+* **Cloudflare Worker env vars** (`apps/edge-functions`, Workers-only,
+  not pinned to Node 24). If rotated values are consumed by
+  Workers, update via `wrangler secret put` (or dashboard).
+* **Convex deployment env** (`convex env set --prod <name> <value>` —
+  requires fresh deploy key per Convex's anti-stale-key policy; the
+  same gotcha that caused the `CONVEX_DEPLOY_KEY` rotation in T3).
+
+Operators following only the Vercel update path will leave Trigger
+workers, edge Workers, and Convex deployment env holding the old
+keys, which manifests as 401 responses in recording-pipeline +
+retention-email tasks within the next cron tick.
 
 ## Known limitations
 
