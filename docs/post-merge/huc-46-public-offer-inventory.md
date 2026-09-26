@@ -108,7 +108,7 @@ summary line `14 succeeded (8 with skipped fields)` matches: 14 = 6 clean +
 
 Reconciled counts from `/tmp/huc46-t3.log`:
 
-* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can query both databases directly (`supabase db query --linked -c "select instructor_slug, one_on_one_inventory, group_inventory from instructor_inventory where instructor_slug = '<slug>'"`) against Convex (`httpGetPublicInventoryBySlug` via the dashboard or a `convex run instructors:getPublicInventoryBySlug '{"slug":"<slug>"}'` against the deployment). For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
+* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can query both databases directly. For the Supabase comparison query, use the committed SQL file `packages/db/scripts/query_instructor_inventory.sql` (created for this purpose) and invoke via `supabase db query --linked -f packages/db/scripts/query_instructor_inventory.sql` (per AGENTS.md operational policy, the `-f` form is preferred; `-c` is not supported by `supabase db query`). The query reads `select instructor_slug, one_on_one_inventory, group_inventory from instructor_inventory where instructor_slug = '<slug>'` filtered to the slug of interest. For Convex, use `httpGetPublicInventoryBySlug` via the dashboard or `convex run instructors:getPublicInventoryBySlug '{"slug":"<slug>"}'` against the deployment. For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
 * **7 partial (△ with one skipped field) rows** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia.
 * **1 full-skip (△ with both fields skipped) row** — `rakasa` had both `oneOnOneInventory` and `groupInventory` skipped because Convex already held different, non-zero values. The script log lists `oneOnOneInventory=1` and `groupInventory=0` as the **legacy Supabase** values that were not applied (per the script's own annotation: "legacy oneOnOneInventory=1, groupInventory=0 NOT applied"); the actual Convex values for rakasa are not surfaced in the per-row script output and would need a separate `convex run instructors:getPublicInventoryBySlug '{"slug":"rakasa"}'` against the deployment to retrieve.
 * **1 not-found (?) row** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
@@ -259,7 +259,21 @@ migrate–narrow close-out):
     is the route's expected 404 for instructors that are not publicly
     visible — it is NOT an error and must be preserved post-Phase 3.)
 * **Delete `apps/marketing/lib/supabase-inventory.ts`** (no remaining
-  importers after the route strip above).
+  importers after the test rewrite below).
+* **Rewrite `apps/marketing/app/api/instructor/inventory/route.test.ts`**
+  to remove the `supabase-inventory` import + `vi.mock("@/lib/supabase-inventory")`
+  mock block (currently lines 16–18 and 22 of the test file) AND the
+  three Phase 1 cases asserting `X-Inventory-Source: supabase |
+  supabase-empty | convex-supabase-mixed` (lines 133, 161, 189).
+  The retained test file imports `@/lib/supabase-inventory` for the
+  mock helper `getInstructorInventory`, so the deletion of
+  `supabase-inventory.ts` requires the test to be rewritten first;
+  following the checklist in the wrong order leaves an unresolved
+  import that breaks the test typecheck (Greptile P1, PR #882
+  round 3: the original draft said "no remaining importers after
+  the route strip above" — that was inaccurate; `route.test.ts` is
+  also an importer). The PR #883 implementation already performs
+  this rewrite; see `feat/marketing-inventory-phase3-narrow`.
 * **Delete `apps/marketing/app/api/admin/inventory/route.ts`** after
   confirming zero callers in the marketing app; the Convex-backed
   `/admin/inventory` page is the replacement surface (per Greptile
