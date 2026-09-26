@@ -107,20 +107,22 @@ Totals: 6 clean + 8 partial + 1 not-found = 15 rows. The script's summary line
 
 Reconciled counts from `/tmp/huc46-t3.log`:
 
-* **6 fully clean patches** — both `oneOnOneInventory` and `groupInventory` matched Supabase, no change needed: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley.
-* **8 partial patches** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied clean: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia. One of these (`rakasa`) had both fields skipped because both Convex values were non-zero.
-* **1 not-found** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
+* **6 clean (✓) rows** — script ran to completion with zero skipped fields: amanda-kiefer, cameron-nissen, jordan-jardine, kimea-zizzari, malina-dowling, oliver-titley. Each of these emitted `✓` after the script's per-row `recordResult` call; the script's ✓ is "operation completed without skip", NOT "no change needed". Some of these wrote fields that were previously unset in Convex (the backfill correctly initialised them from Supabase); others were already equal in both systems. The script does not distinguish "matched" from "initialised" in its per-row output — operators who need that granularity can re-run with `DRY_RUN=1 FORCE=1` against a snapshot (Supabase value vs Convex value) to diff. For this verification, "no skipped fields" is sufficient evidence the row is now consistent.
+* **7 partial (△ with one skipped field) rows** — `oneOnOneInventory` skipped (Convex had newer non-zero value, e.g. live data from Kajabi purchases that landed after the last Supabase write); `groupInventory` applied: andrea-sipl, ash-kirk, jeszika-le-vye, keven-mallqui, kim-myatt, neil-gray, nino-vecia.
+* **1 full-skip (△ with both fields skipped) row** — `rakasa` had both `oneOnOneInventory` and `groupInventory` skipped because both Convex values were non-zero (`oneOnOneInventory=1`, `groupInventory=0`); the Supabase mirror values were out of date.
+* **1 not-found (?) row** — `lily-ghost` is not in Convex. Operator confirmed: this slug has never been an instructor. The Supabase row is stale test/junk data; Phase 3 will drop the table entirely.
 
-Sums to 14 succeeded (6 clean + 8 partial) + 1 failed = 15 total = matches the script summary line `Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)`.
+Sums to 14 succeeded (6 clean + 7 partial + 1 full-skip) + 1 failed = 15 total. Matches the script summary line `Done: 14 succeeded (8 with skipped fields), 1 failed (1 not-found)` where the 8 "rows with skipped fields" = 7 partial rows + 1 full-skip row (rakasa).
 
 Decision: **Convex values are authoritative**. Supabase has not been the source of truth for months. No `FORCE` re-application needed; the legacy Supabase values for skipped slugs are out of date.
 
 ### T4 — `FORCE_ALL=1 DRY_RUN=1` ⏭ skipped
 
-Not run. The 8 partial-patch rows in T3 are exactly the data integrity
-case that `FORCE_ALL` would re-mirror from Supabase — which would
-overwrite live, newer Convex values with stale Supabase data. The
-operator's decision was to accept the current state.
+Not run. The 8 rows with skipped fields in T3 (7 partial + 1 full-skip)
+are exactly the data integrity case that `FORCE_ALL` would re-mirror
+from Supabase — which would overwrite live, newer Convex values with
+stale Supabase data. The operator's decision was to accept the current
+state.
 
 ### T5 — `X-Inventory-Source: convex-error` in marketing access log ⏭ operator-only
 
