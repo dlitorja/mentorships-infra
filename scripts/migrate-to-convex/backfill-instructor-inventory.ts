@@ -582,31 +582,47 @@ export async function runBackfill(
   // fallback is dropped. If any instructor's Convex inventory is
   // null/undefined for any field, the script exits non-zero so the
   // operator can run ZERO_FILL_NULLS=1 first (or manually zero-fill).
+  //
+  // Greptile P1 round 23 (local review of 1037f1aa): a previous
+  // version of this check skipped the Convex field inspection for
+  // any slug that ALSO had a Supabase row — reasoning that the
+  // backfill script would cover it. That was wrong: the backfill
+  // script reads Supabase values, but if those Supabase values are
+  // themselves null and ZERO_FILL_NULLS=1 is NOT set, the script
+  // posts `null` to Convex and the endpoint's skip-if-already-
+  // touched guard may not initialize either. The check therefore
+  // inspects Convex fields for every public instructor regardless
+  // of Supabase coverage. If a slug has both a Supabase row AND
+  // non-null Convex fields, it's logged as "covered by backfill";
+  // if it has any null Convex field, it goes into `missing`.
   if (runtime.verifyPublicCoverage) {
     const publicInstructors = await fetchPublicInstructors(runtime);
     const slugSet = new Set(rows.map((r) => r.instructor_slug));
     const missing: Array<{ slug: string; missingFields: string[] }> = [];
+    const coveredByBackfill: string[] = [];
+    const coveredByConvex: string[] = [];
     for (const inst of publicInstructors) {
-      if (slugSet.has(inst.slug)) {
-        // Script covers this slug via Supabase; treat the backfill
-        // pass as having set both fields (or skipped per phase 1
-        // log). If Supabase values themselves are null, ZERO_FILL_NULLS
-        // is the fix.
-        continue;
-      }
       const missingFields: string[] = [];
       if (inst.oneOnOneInventory === null) missingFields.push("oneOnOneInventory");
       if (inst.groupInventory === null) missingFields.push("groupInventory");
       if (missingFields.length > 0) {
         missing.push({ slug: inst.slug, missingFields });
+        continue;
+      }
+      if (slugSet.has(inst.slug)) {
+        coveredByBackfill.push(inst.slug);
+      } else {
+        coveredByConvex.push(inst.slug);
       }
     }
     console.log(
       `\n[VERIFY_PUBLIC_COVERAGE=1] Coverage check on ${publicInstructors.length} public-listed instructor(s):`
     );
-    console.log(`  - ${slugSet.size} have a Supabase inventory row (covered by the backfill script)`);
     console.log(
-      `  - ${publicInstructors.length - slugSet.size} do NOT have a Supabase row and MUST be verified manually`
+      `  - ${coveredByBackfill.length} have BOTH a Supabase inventory row AND non-null Convex fields (covered by the backfill script)`
+    );
+    console.log(
+      `  - ${coveredByConvex.length} have non-null Convex fields but NO Supabase row (already covered by another path)`
     );
     if (missing.length === 0) {
       console.log(
