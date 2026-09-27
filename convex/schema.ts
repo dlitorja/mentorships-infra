@@ -452,7 +452,15 @@ export default defineSchema({
     // rows remain valid.
     b2Key: v.optional(v.string()),
   }).index("by_noteId", ["noteId"])
-    .index("by_b2Key", ["b2Key"]),
+    .index("by_b2Key", ["b2Key"])
+    // PR workspace-storage-3a (post-migration cleanup): the daily
+    // `cleanupMigratedConvexStorageBlobs` cron probes this table
+    // for live references to a `storageId` before deleting the
+    // underlying Convex Storage blob. Adding the index keeps the
+    // probe O(1) instead of a full table scan, matching the
+    // pattern of `by_storageId` on `workspaceImages` /
+    // `instructorResources` / `workspaceMessages`.
+    .index("by_storageId", ["storageId"]),
 
   workspaceLinks: defineTable({
     workspaceId: v.id("workspaces"),
@@ -618,6 +626,22 @@ export default defineSchema({
     // the ledger. PR 3 retires the field once the cutover
     // flag flips.
     scheduledBackfillAt: v.optional(v.number()),
+    // PR workspace-storage-3a (post-migration Convex-storage
+    // cleanup): set by the daily
+    // `cleanupMigratedConvexStorageBlobs` cron when it
+    // deletes the Convex Storage blob at `storageId` after
+    // confirming there are no live references in
+    // workspaceMessages / workspaceImages /
+    // workspaceNoteComments / instructorResources. Acts as
+    // both an idempotency guard (the cron filter excludes
+    // rows with this field set) and an observability marker
+    // (operators can query the ledger for "when was this
+    // blob deleted"). The `storageId` column itself stays on
+    // the ledger until a future PR (after one full
+    // WORKSPACE_RETENTION_MS cycle), so a rollback window
+    // remains open. This field is NOT cleared on rollback —
+    // it is informational.
+    convexStorageBlobsDeletedAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
@@ -646,7 +670,20 @@ export default defineSchema({
     // rows whose `storageId === undefined` (those have no
     // blob to migrate) and the `migratedAt / cancelledAt`
     // carve-outs.
-    .index("by_b2Key_uploadedAt", ["b2Key", "uploadedAt"]),
+    .index("by_b2Key_uploadedAt", ["b2Key", "uploadedAt"])
+    // PR workspace-storage-3a (post-migration Convex-storage
+    // cleanup): the cleanup cron selects rows where
+    // `migratedAt !== undefined && migratedAt < NOW - 7
+    // days && b2Key !== undefined && storageId !== undefined
+    // && cancelledAt === undefined &&
+    // convexStorageBlobsDeletedAt === undefined`. Convex
+    // indexes require equality on leftmost columns; the
+    // range query `q.gte("migratedAt", threshold)` excludes
+    // rows where `migratedAt` is undefined (Convex sorts
+    // undefined below any number). Range on `uploadedAt`
+    // orders by upload age for stable pagination. Post-filter
+    // drops the B2 / cancelled / already-deleted carve-outs.
+    .index("by_migratedAt_uploadedAt", ["migratedAt", "uploadedAt"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
