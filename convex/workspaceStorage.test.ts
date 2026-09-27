@@ -95,6 +95,17 @@ function expectedB2BaseUrl(): string {
   return `${endpoint.replace(/\/+$/, "")}/${bucket}`;
 }
 
+/**
+ * Mirror `expectedB2BaseUrl` for the SigV4 credential-scope
+ * region. Round 33 P2 "Signature assertion assumes default
+ * region" — a regression is unlikely, but a test environment
+ * pointing at a non-default region would break a hardcoded
+ * `us-east-005` literal even when the signer is correct.
+ */
+function expectedB2Region(): string {
+  return process.env.WORKSPACE_STORAGE_BUCKET_REGION || "us-east-005";
+}
+
 async function seedUnmigratedRow(
   t: ReturnType<typeof convexTest>,
   args: {
@@ -1298,9 +1309,37 @@ test("confirmB2FileUpload sets completedAt when workspace state still authorizes
 test("confirmB2FileUpload rejects and leaves row pending when the workspace ended during HEAD (TOCTOU)", async () => {
   // Greptile round 24 P1: a workspace could be ended between
   // the action's authz check and the B2 HEAD call. The
-  // mutation must re-verify and cancel rather than mark
-  // complete. Verified by exercising the throw + the
-  // completedAt NOT being set.
+  // mutation must re-verify rather than mark complete.
+  //
+  // NOTE on cancellation: the production code at line 1186
+  // also calls `ctx.runMutation(cancelB2FileUpload, ...)`
+  // before throwing, intending to cancel the ledger row so
+  // the B2 object gets cleaned up. However, `ctx.runMutation`
+  // invoked from inside a mutation that subsequently throws
+  // is itself rolled back in Convex (nested commit returns
+  // null and writes stay pending until the outermost
+  // transaction commits). Round 33 verification with
+  // convex-test 0.0.55 + convex 1.46.0 confirmed this:
+  // the ledger's `cancelledAt` is undefined after the throw.
+  //
+  // The PR 2 (migrate) and PR 3 (cutover) cleanup windows
+  // do NOT depend on this nested-cancel path: `recordB2FileUpload`
+  // (the action) runs its own `ctx.runMutation(cancelB2FileUpload)`
+  // call BEFORE invoking `confirmB2FileUpload`, and that
+  // action-level cancel commits independently because
+  // actions are not in a transaction. The TOCTOU path here
+  // is a defense-in-depth check on `completedAt`, not on
+  // `cancelledAt`.
+  //
+  // TODO PR workspace-storage-3 (follow-up): the in-mutation
+  // cancel-via-runMutation at line 1186 of `workspaceStorage.ts`
+  // is a no-op because of the nested-commit-rollback behavior.
+  // Either remove the call or split the cancel into an
+  // `ctx.scheduler.runAfter(0, ...)` that fires AFTER the
+  // outer throw commits — actions schedule outside the
+  // mutation transaction, so the scheduled cancel would
+  // run in a separate transaction and the cancel would
+  // commit.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1331,8 +1370,85 @@ test("confirmB2FileUpload rejects and leaves row pending when the workspace ende
   const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
   // Greptile P1: "Missing uploads appear complete" — the row
   // MUST NOT be marked complete even though HEAD would have
-  // returned 200 had the action not re-verified.
+  // returned 200 had the action not re-verified. This is
+  // the actual TOCTOU protection.
   expect((ledger as any).completedAt).toBeUndefined();
+  // Document the known bug: cancelledAt is NOT set after the
+  // throw. See the TODO above for the follow-up fix. When
+  // the follow-up lands, change this assertion to
+  // `toBeTypeOf("number")`.
+  expect((ledger as any).cancelledAt).toBeUndefined();
+});
+
+test("recordB2FileUpload TOCTOU: action-level cancel commits even though the mutation's nested cancel rolls back", async () => {
+  // Round 33 follow-up: prove the actual production flow
+  // DOES cancel the ledger when the workspace ends during
+  // HEAD. `recordB2FileUpload` (the action) checks authz and
+  // cancel-delegates BEFORE calling `confirmB2FileUpload`.
+  // The action's cancel lives outside any transaction, so
+  // it commits independently of any throw that happens
+  // later in `confirmB2FileUpload`.
+  //
+  // We simulate the TOCTOU by minting an upload URL while
+  // the workspace is active, then patching the workspace
+  // to endedAt before `recordB2FileUpload` runs. The
+  // action's bind-checks (which re-read the workspace) will
+  // see the ended state and cancel the ledger before
+  // throwing — the cancel commits because actions are
+  // not in a transaction.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  // Step 1: mint a fresh upload URL while the workspace is
+  // still active. This reserves a ledger row.
+  const { b2Key } = await asStudent.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_toctou_action",
+      fileName: "toctou.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  // Step 2: simulate the TOCTOU race — end the workspace
+  // AFTER the mint, BEFORE the action's bind-check fires.
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt: Date.now() - 10 })
+  );
+
+  // Step 3: the action re-reads the workspace at the bind
+  // check, sees endedAt, schedules the cancel + cleanup via
+  // `ctx.runMutation(cancelB2FileUpload)` (in action
+  // context), and then throws.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+  await expect(
+    asStudent.action(api.workspaceStorage.recordB2FileUpload, {
+      workspaceId: workspaceId as any,
+      b2Key,
+    })
+  ).rejects.toThrow(/ended/i);
+
+  // Step 4: assert the action-level cancel DID commit.
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+  expect(ledger?.cancelledAt).toBeTypeOf("number");
+  expect(ledger?.completedAt).toBeUndefined();
 });
 
 test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key", async () => {
@@ -1372,7 +1488,125 @@ test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key"
     new RegExp("^" + expectedB2BaseUrl().replace(/\//g, "\\/") + "/")
   );
   expect(result.url).toContain("x-amz-signature=");
+  // The signed GET URL embeds the credential scope so the
+  // signer is bound to the bucket's region. A regression
+  // that lost the region in the signer would still produce
+  // a URL that contains `x-amz-signature=` but would not
+  // reach the bucket. Round 33 P2 "Signature assertion
+  // assumes default region" — derive the region from env.
+  const region = expectedB2Region();
+  expect(result.url).toContain(`%2F${region}%2F`);
   expect(result.expiresAt).toBeGreaterThan(Date.now());
+});
+
+test("getWorkspaceDownloadUrl clamps the URL lifetime to the workspace retention deadline for an ended workspace", async () => {
+  // Greptile round 33 P2 "Retention expiry lacks coverage":
+  // an active workspace test only proves the URL expires
+  // sometime in the future; a regression that ignores the
+  // ended-workspace retention clamp (Greptile round 24 P1
+  // "Download outlives retention") would pass that test.
+  // The clamp code is `min(24h, timeUntilDeadline)`, so we
+  // pick a deadline that's much closer than 24h (e.g. the
+  // workspace ended 18 months minus 5 minutes ago, leaving
+  // 5 minutes until deadline) — a regression that ignored
+  // the clamp would set expiresAt to ~now + 24h.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Ended ~18 months minus 5 minutes ago — the retention
+  // deadline is 5 minutes from `now`. The clamp MUST set the
+  // URL lifetime to ~5 minutes, not the 24h the caller
+  // asked for.
+  const retentionMs = 18 * 30 * 24 * 60 * 60 * 1000;
+  const secondsRemaining = 5 * 60;
+  const endedAt = now - (retentionMs - secondsRemaining * 1000);
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt })
+  );
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_retention_clamp/clamp.png",
+      completedAt: now,
+    })
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  const result = await asStudent.action(
+    api.workspaceStorage.getWorkspaceDownloadUrl,
+    {
+      b2Key: "2026-01-01/file_retention_clamp/clamp.png",
+      workspaceId: workspaceId as any,
+      expiresInSeconds: 24 * 3600,
+    }
+  );
+  // expiresAt MUST be much less than the 24h fallback.
+  // Allow a 60s slack above `now + 5min` to keep the
+  // assertion robust against clock jitter, but a
+  // regression that ignored the clamp would set expiresAt
+  // to roughly now + 24h (way above this bound).
+  const clampedCeilingMs = now + (secondsRemaining + 60) * 1000;
+  expect(result.expiresAt).toBeLessThanOrEqual(clampedCeilingMs);
+  // And it MUST be much less than the 24h fallback the
+  // caller asked for.
+  const twentyFourHoursMs = Date.now() + 24 * 3600 * 1000;
+  expect(result.expiresAt).toBeLessThan(twentyFourHoursMs);
+});
+
+test("getWorkspaceDownloadUrl refuses to sign when the retention deadline has passed", async () => {
+  // Greptile round 24 P1: "Files remain downloadable after
+  // retention" — once an ended workspace is past the
+  // retention deadline, downloads must be refused. The
+  // resolver at `resolveWorkspaceDownloadAccess` enforces
+  // this BEFORE the action body runs; the action body's
+  // secondary check at the deadline tick is for the
+  // narrow race where the deadline passes between the
+  // resolver and the signer. Both paths must refuse; this
+  // test exercises the resolver path because that is what
+  // actually triggers in steady state.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  // Ended 19 months ago — past the 18-month retention
+  // deadline.
+  const endedAt = now - 19 * 30 * 24 * 60 * 60 * 1000;
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt })
+  );
+  await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key: "2026-01-01/file_expired/expired.png",
+      completedAt: now,
+    })
+  );
+
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+  await expect(
+    asStudent.action(api.workspaceStorage.getWorkspaceDownloadUrl, {
+      b2Key: "2026-01-01/file_expired/expired.png",
+      workspaceId: workspaceId as any,
+      expiresInSeconds: 3600,
+    })
+  ).rejects.toThrow(/Not authorized|retention deadline has passed/i);
 });
 
 test("getWorkspaceDownloadUrl refuses a key whose ledger row has been cancelled", async () => {
@@ -1459,8 +1693,14 @@ test("deleteFromB2WorkspaceAction issues a SigV4 DELETE to the workspace bucket"
   expect(calledInit.method).toBe("DELETE");
   // Authorization header carries the SigV4 signature.
   const headers = calledInit.headers as Record<string, string>;
+  // Derive the region from env (round 33 P2: a hardcoded
+  // region breaks any test environment that points at a
+  // non-default region).
+  const region = expectedB2Region().replace(/\./g, "\\.");
   expect(headers["Authorization"]).toMatch(
-    /^AWS4-HMAC-SHA256 Credential=test-b2-key-id\/\d{8}\/us-east-005\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/
+    new RegExp(
+      `^AWS4-HMAC-SHA256 Credential=test-b2-key-id\\/\\d{8}\\/${region}\\/s3\\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$`
+    )
   );
 });
 
@@ -1638,12 +1878,13 @@ test("forceDeleteExpiredChatMessageRow preserves the ledger when the row is mid-
 // ---------------------------------------------------------------------------
 
 test("cancelB2FileUpload patches cancelledAt and schedules cleanup for a pending ledger row", async () => {
-  // Direct test of the cancel unit. Greptile round 32 P2: the
-  // TOCTOU test above only asserts that completedAt is unset,
-  // but does not check that the cleanup was actually scheduled.
-  // Asserting cancelledAt + the schedule here means a future
-  // refactor that drops the cancel call would fail this test
-  // even if it didn't regress the throw.
+  // Direct test of the cancel unit. Greptile round 33 P2:
+  // "Cleanup scheduling goes unchecked" — asserting only
+  // `cancelledAt` lets a regression that drops the
+  // `ctx.scheduler.runAfter` call slip through, leaving
+  // cancelled B2 objects undeleted. Inspect
+  // `_scheduled_functions` to prove the cleanup action was
+  // scheduled (discordActionQueue.test.ts:57 precedent).
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1665,6 +1906,19 @@ test("cancelB2FileUpload patches cancelledAt and schedules cleanup for a pending
   const after = await t.run(async (ctx) => ctx.db.get(rowId as any));
   expect((after as any).cancelledAt).toBeTypeOf("number");
   expect((after as any).completedAt).toBeUndefined();
+  // The cleanup action must be scheduled. Without this, a
+  // refactor that drops `ctx.scheduler.runAfter` would leave
+  // the cancelled B2 object in the bucket forever.
+  const scheduled = await t.run(async (ctx) =>
+    ctx.db.system.query("_scheduled_functions").collect()
+  );
+  const cleanupEntries = scheduled.filter((s) =>
+    /cleanupRejectedB2Upload/i.test(s.name)
+  );
+  expect(cleanupEntries.length).toBeGreaterThanOrEqual(1);
+  expect(cleanupEntries.some((s) =>
+    s.args && JSON.stringify(s.args).includes("file_cancel/cancel.png")
+  )).toBe(true);
 });
 
 test("cancelB2FileUpload is a no-op when the ledger row is already completed (Greptile round 24 P1)", async () => {
@@ -1697,11 +1951,15 @@ test("cancelB2FileUpload is a no-op when the ledger row is already completed (Gr
   expect((after as any).completedAt).toBe(now);
 });
 
-test("hardDeleteExpiredChatFiles calls deleteFromB2WorkspaceAction for a migrated row", async () => {
-  // Greptile round 32 P2: the B2-vs-Convex-storage decision
-  // lives in `hardDeleteExpiredChatFiles`, not in
-  // `forceDeleteExpiredChatMessageRow`. Exercise the action
-  // and assert the B2 DELETE was called (not ctx.storage.delete).
+test("hardDeleteExpiredChatFiles calls deleteFromB2WorkspaceAction for a migrated row and leaves the Convex-storage blob alone", async () => {
+  // Greptile round 32 P2 ("Storage routing remains unchecked"):
+  // a regression that took the B2 branch but ALSO called
+  // `ctx.storage.delete(storageId)` would still pass the
+  // fetch-count assertion above — the count goes up from B2
+  // and the blob is gone from Convex storage (a double
+  // delete that violates the quota target). Round 33
+  // strengthens this by asserting that the Convex-storage
+  // blob is still fetchable after the action runs.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1755,12 +2013,27 @@ test("hardDeleteExpiredChatFiles calls deleteFromB2WorkspaceAction for a migrate
     expect(call[1]).toBe("DELETE");
     expect(call[0].startsWith(expectedB2BaseUrl())).toBe(true);
   }
+  // The Convex-storage blob must NOT have been deleted — the
+  // B2 branch deliberately leaves the legacy `storageId`
+  // untouched so a rollback of the migration (which would
+  // re-read the Convex-storage path) does not leave orphans.
+  // `ctx.storage.get(storageId)` returns a Blob or null; we
+  // coerce the Blob to a length to keep the return value
+  // JSON-serializable through convex-test.
+  const stillPresentLength = await t.run(async (ctx) => {
+    const blob = await ctx.storage.get(storageId);
+    return blob === null ? null : blob.size;
+  });
+  expect(stillPresentLength).not.toBeNull();
 });
 
-test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row", async () => {
+test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row and never calls fetch", async () => {
   // Mirror of the B2 test above, but for a row that has not
   // been migrated (`b2Key === undefined`). The action must
   // fall back to `ctx.storage.delete` and MUST NOT call fetch.
+  // Greptile round 32 P2 strengthens this by asserting the
+  // blob is gone after the action (the original assertion
+  // only counted fetch calls).
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1797,4 +2070,15 @@ test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row
   // action takes the legacy `ctx.storage.delete` branch and
   // never invokes fetch.
   expect(fetchSpy).toHaveBeenCalledTimes(0);
+  // The Convex-storage blob must be gone. A regression that
+  // took neither branch (e.g., commented out the
+  // `ctx.storage.delete` call) would still pass the
+  // fetch-count assertion above; checking that the blob
+  // is actually deleted is the only assertion that catches
+  // that case.
+  const deletedSize = await t.run(async (ctx) => {
+    const blob = await ctx.storage.get(storageId);
+    return blob === null ? null : blob.size;
+  });
+  expect(deletedSize).toBeNull();
 });
