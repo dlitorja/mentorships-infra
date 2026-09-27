@@ -132,8 +132,12 @@ export const listCleanupCandidates = internalQuery({
   handler: async (ctx, args) => {
     const page = await ctx.db
       .query("fileUploads")
-      .withIndex("by_migratedAt_uploadedAt", (q) =>
-        q.gt("migratedAt", 0)
+      .withIndex(
+        "by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt",
+        (q) =>
+          q
+            .eq("convexStorageBlobsDeletedAt", undefined)
+            .gt("migratedAt", 0)
       )
       .paginate({ numItems: args.limit, cursor: args.cursor ?? "" });
     const filtered = page.page.filter(
@@ -158,32 +162,37 @@ export const listCleanupCandidates = internalQuery({
  * `storageId` — if any of the four slots is non-null, the blob
  * must stay alive.
  *
- * For `workspaceMessages`, the live-ref check INCLUDES soft-
- * deleted messages. A soft-deleted chat message can be admin-
- * restored for `CHAT_FILE_RETENTION_MS` (30 days); restoring it
- * must still surface a working download URL. The chat retention
- * cron (`hardDeleteExpiredChatFiles`) hard-deletes the message
- * row after that window closes, so once the row is gone our
- * cleanup can safely delete the legacy Convex Storage blob. If
- * the cron runs while chat retention is mid-cleanup
- * (`deletedAt = CLAIM_SENTINEL`), it sees the row and keeps the
- * blob alive — chat retention either finishes (blob deleted,
- * row deleted) or the sentinel watchdog releases the row back to
- * its original `deletedAt` for retry. Either outcome is safe.
- * (Greptile P1: "Restored files lose their blobs".)
+ * All four queries are intentionally UNFILTERED on `deletedAt`.
+ * The reasoning for each table:
+ *   - `workspaceMessages`: a soft-deleted message can be admin-
+ *     restored for `CHAT_FILE_RETENTION_MS` (30 days); the chat
+ *     retention cron hard-deletes the row after that window
+ *     closes. We include soft-deleted messages so the blob stays
+ *     alive until chat retention removes the row. (Greptile P1:
+ *     "Restored files lose their blobs".)
+ *   - `workspaceImages`: the gallery image's Convex URL may be
+ *     embedded directly in `workspaceNotes.content` — that URL
+ *     is not indexable, so we cannot tell from a query whether
+ *     an active note still references a soft-deleted image.
+ *     Including soft-deleted rows is conservative and matches
+ *     the principle that a soft-deleted row's blob stays alive
+ *     until the row is hard-deleted. (Greptile P1: "Notes lose
+ *     embedded images".) The schema does not currently hard-
+ *     delete gallery images, so soft-deleted image blobs stay
+ *     alive forever by design — PR 3a only cleans orphan blobs.
+ *   - `instructorResources`: \`storageId\` is required and the
+ *     delete mutation hard-deletes the row. Including soft-
+ *     deleted rows is harmless (there are none in practice)
+ *     and removes a redundant filter.
+ *   - `workspaceNoteComments`: a soft-deleted comment's image
+ *     may still be visible to the note author via the note's
+ *     rendered markdown (the comment's content is text, but the
+ *     attached image's URL is rendered alongside). Including
+ *     soft-deleted rows is conservative; PR 3a leaves their
+ *     blobs alone by design.
  *
- * For `workspaceImages` / `instructorResources` /
- * `workspaceNoteComments`, the live-ref check EXCLUDES soft-
- * deleted rows. These tables do not have a separate admin-
- * restore window (their soft-delete is permanent), so a soft-
- * deleted row's blob is not at risk of being needed again.
- *
- * All four queries use the `by_storageId` index added in
- * PR 3a (workspaceNoteComments.index("by_storageId")). The
- * `q.eq(field("deletedAt"), undefined)` filter on the three
- * non-chat tables selects rows whose soft-delete is unset
- * (Convex indexes undefined values together, so the equality
- * matches absent fields).
+ * All four queries use the \`by_storageId\` index added in
+ * PR 3a (workspaceNoteComments.index("by_storageId")).
  */
 export const findLiveStorageReferencesForCleanup = internalQuery({
   args: { storageId: v.id("_storage") },
@@ -199,16 +208,11 @@ export const findLiveStorageReferencesForCleanup = internalQuery({
     const image = await ctx.db
       .query("workspaceImages")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .first();
     const resource = await ctx.db
       .query("instructorResources")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .first();
-    // Intentionally NO `deletedAt === undefined` filter: see
-    // the function-level comment for the rationale on chat
-    // message restore coordination with chat retention.
     const chatMessage = await ctx.db
       .query("workspaceMessages")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
@@ -216,7 +220,6 @@ export const findLiveStorageReferencesForCleanup = internalQuery({
     const noteComment = await ctx.db
       .query("workspaceNoteComments")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .first();
     return {
       imageId: image ? image._id : null,

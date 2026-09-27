@@ -683,7 +683,20 @@ export default defineSchema({
     // undefined below any number). Range on `uploadedAt`
     // orders by upload age for stable pagination. Post-filter
     // drops the B2 / cancelled / already-deleted carve-outs.
-    .index("by_migratedAt_uploadedAt", ["migratedAt", "uploadedAt"]),
+    .index("by_migratedAt_uploadedAt", ["migratedAt", "uploadedAt"])
+    // PR workspace-storage-3a (post-migration cleanup): the
+    // daily `cleanupMigratedConvexStorageBlobs` cron
+    // excludes stamped rows from the index scan so a backlog
+    // of cleaned-up rows cannot starve later eligible rows
+    // of batch reads. The query uses
+    // `q.eq("convexStorageBlobsDeletedAt", undefined).gt(
+    // "migratedAt", 0)` so the equality filter on the
+    // leftmost column narrows the scan before the range
+    // filter on `migratedAt` runs. Convex indexes undefined
+    // values together so `q.eq(field, undefined)` matches
+    // rows whose field is absent.
+    .index("by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt",
+      ["convexStorageBlobsDeletedAt", "migratedAt", "uploadedAt"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

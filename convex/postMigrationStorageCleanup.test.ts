@@ -367,7 +367,7 @@ test("findLiveStorageReferencesForCleanup detects workspaceNoteComments ref", as
   expect(refs.chatMessageId).toBeNull();
 });
 
-test("findLiveStorageReferencesForCleanup ignores soft-deleted rows", async () => {
+test("findLiveStorageReferencesForCleanup keeps blob when any image row references it (Greptile P1: notes lose embedded images)", async () => {
   const t = convexTest({ schema, modules });
   const workspaceId = await seedWorkspace(t, { ownerId: "u_owner_1" });
   const { storageId } = await seedMigratedRow(t, {
@@ -392,7 +392,12 @@ test("findLiveStorageReferencesForCleanup ignores soft-deleted rows", async () =
       .findLiveStorageReferencesForCleanup,
     { storageId }
   );
-  expect(refs.imageId).toBeNull();
+  // PR 3a revision: the live-ref check for workspaceImages no
+  // longer filters on deletedAt. A soft-deleted gallery image's
+  // Convex URL may be embedded in workspaceNotes.content, which
+  // is not indexable. Keeping the blob alive while ANY image row
+  // references the storageId is the conservative choice.
+  expect(refs.imageId).not.toBeNull();
 });
 
 test("cleanupMigratedConvexStorageBlobs deletes blob + stamps ledger when no refs", async () => {
