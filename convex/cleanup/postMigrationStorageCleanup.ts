@@ -6,65 +6,112 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { BACKFILL_GRACE_MS } from "../workspaceConstants";
+import type { Doc } from "../_generated/dataModel";
+import { CHAT_FILE_RETENTION_MS } from "../workspaceConstants";
 
 /**
  * PR workspace-storage-3a (post-migration Convex-storage cleanup):
  * daily cron that deletes the Convex Storage blob at `storageId`
  * for `fileUploads` rows whose `migratedAt` settled more than
- * `BACKFILL_GRACE_MS` (7 days) ago AND that have no live references
- * in `workspaceMessages` / `workspaceImages` /
+ * `CHAT_FILE_RETENTION_MS` (30 days) ago AND that have no live
+ * references in `workspaceMessages` / `workspaceImages` /
  * `workspaceNoteComments` / `instructorResources`.
  *
  * Why: Convex Storage is on the free-plan tier (1 GB total). PR 2
  * (migrate) copies every legacy blob to B2 but does NOT delete the
  * original. PR 3a's cron frees the Convex Storage bytes once the
- * B2 copy has been verified + retained for a grace window (matches
- * `BACKFILL_GRACE_MS` so a fresh migration is not at risk of being
- * cleaned up before users see the new path).
+ * B2 copy has been verified + retained for a grace window.
+ *
+ * The threshold is `CHAT_FILE_RETENTION_MS` (not the smaller
+ * `BACKFILL_GRACE_MS`) because `workspaceMessages` has a 30-day
+ * admin-restore window: a soft-deleted chat file can be restored
+ * up to 30 days after deletion. The chat retention cron
+ * (`hardDeleteExpiredChatFiles`) hard-deletes the row after that
+ * window closes, after which no restore is possible. Picking a
+ * smaller threshold would let our cron delete the legacy Convex
+ * blob while a chat message still references it via the soft-
+ * deleted row, exposing a 404 download URL if an admin restores
+ * the message. (Greptile P1: "Restored files lose their blobs".)
+ *
+ * For the non-chat referencing tables (workspaceImages,
+ * workspaceNoteComments, instructorResources) there is no soft-
+ * delete grace period — they hard-delete directly, so the 30-day
+ * threshold is safe but conservative. PR 3c may tighten this once
+ * the cutover flag flips and B2 becomes the source of truth.
  *
  * Safety:
- *   - The `by_migratedAt_uploadedAt` index on `fileUploads` plus the
- *     `migratedAt >= now - 7d` range query excludes un-migrated rows
- *     and rows whose migration is still settling.
+ *   - The `by_migratedAt_uploadedAt` index on `fileUploads` plus
+ *     the `q.gt("migratedAt", 0)` range query excludes un-migrated
+ *     rows and rows whose migration is still settling. The post-
+ *     filter then applies the real age threshold
+ *     `migratedAt < threshold` because Convex indexes cannot
+ *     express a `<` filter directly.
  *   - The post-filter drops `cancelledAt !== undefined` rows
- *     (rejected uploads — already cleaned up by their own path).
- *   - The live-ref check across the four referencing tables mirrors
- *     `chatFileRetention.findLiveStorageReferences` so a gallery
- *     image, an active resource, a non-deleted chat message, or a
- *     non-deleted note comment keeps the blob alive.
- *   - The `convexStorageBlobsDeletedAt` field is set as an
- *     idempotency guard — the candidate query excludes rows with
- *     it set, so re-runs are no-ops.
+ *     (rejected uploads — already cleaned up by their own path)
+ *     and `convexStorageBlobsDeletedAt !== undefined` rows
+ *     (already cleaned by a previous tick — idempotency guard).
+ *   - The live-ref check across the four referencing tables
+ *     mirrors `chatFileRetention.findLiveStorageReferences` so a
+ *     gallery image, an active resource, a non-deleted chat
+ *     message, or a non-deleted note comment keeps the blob
+ *     alive. The `q.eq(field("deletedAt"), undefined)` filter
+ *     treats soft-deleted rows as not-live, which is correct:
+ *     once the chat retention cron hard-deletes them, the row
+ *     is gone; until then, the soft-delete window has not
+ *     expired and the blob must stay alive in case of restore.
+ *   - The ledger field `convexStorageBlobsDeletedAt` is written
+ *     AFTER `ctx.storage.delete` succeeds. A failed delete does
+ *     NOT stamp the row, so the next tick re-runs the cleanup
+ *     for that row. (Greptile P1: "Failed deletes cannot retry".)
+ *   - Pagination terminates on `page.cursor === null` (end of
+ *     index), NOT on `page.rows.length === 0` (filtered-empty
+ *     page). Stamped rows remain at the front of the index; if
+ *     we broke on empty filtered pages, we would never advance
+ *     past them. (Greptile P1: "Empty pages stop cleanup".)
+ *   - `MAX_BATCHES_PER_TICK` caps the number of index pages a
+ *     single tick can read, so a sparse-data backlog cannot
+ *     exhaust the action runtime budget.
  *
  * `ctx.storage.delete` is best-effort and idempotent: if the blob
- * is already gone (e.g., another sweep raced), the call is a no-op
- * and we still mark the ledger so future runs skip the row.
+ * is already gone (e.g., a prior tick raced), the call no-ops and
+ * the row is still stamped.
  *
  * Cron runs daily (`convex/crons.ts`); the index makes the
  * candidate lookup cheap. We page in batches of 50 rows so a
- * large backlog drains in a single tick but each tick's runtime
- * stays bounded.
+ * large backlog drains across a bounded number of ticks while
+ * each tick's runtime stays bounded.
  */
 
 const BATCH_SIZE = 50;
 
 /**
- * Soft upper bound on a single cron tick — runtime budgets are
- * generous but not infinite, so we cap a tick at ~12k rows so a
- * sudden spike (e.g. backfill just landed) cannot exhaust the
- * tick budget. PR 3b / 3c will tune this once we observe real
- * B2 migration throughput.
+ * Soft upper bound on candidates processed in a single cron tick.
+ * Runtime budgets are generous but not infinite, so we cap a tick
+ * at ~12k candidates so a sudden spike (e.g. backfill just landed)
+ * cannot exhaust the tick budget. PR 3b / 3c will tune this once
+ * we observe real B2 migration throughput.
  */
 const MAX_CANDIDATES_PER_TICK = 12_000;
 
 /**
+ * Hard upper bound on index pages read in a single cron tick.
+ * After the candidate query's post-filter drops stamped rows, the
+ * orchestrator may need to scan many more pages than there are
+ * candidates. This cap protects against a sparse-data backlog
+ * (e.g. 100k migrated rows but only 100 candidates) exhausting
+ * the action runtime budget before reaching later eligible rows.
+ * 250 batches × 50 rows per batch = 12,500 index rows per tick.
+ */
+const MAX_BATCHES_PER_TICK = 250;
+
+/**
  * Returns up to `limit` `fileUploads` rows whose `migratedAt` is
- * set and at least `BACKFILL_GRACE_MS` old AND whose B2 copy has
- * been finalized (`b2Key` and `completedAt` set) AND that have
- * not been cleaned up by a previous tick (`convexStorageBlobsDeletedAt`
- * is undefined). Cancellation rows are excluded; they were
- * already cleaned up by the `cancelB2FileUpload` path.
+ * set and at least `CHAT_FILE_RETENTION_MS` old AND whose B2 copy
+ * has been finalized (`b2Key` and `completedAt` set) AND that
+ * have not been cleaned up by a previous tick
+ * (`convexStorageBlobsDeletedAt` is undefined). Cancellation rows
+ * are excluded; they were already cleaned up by the
+ * `cancelB2FileUpload` path.
  *
  * Uses the `by_migratedAt_uploadedAt` index so the cross-workspace
  * scan does not exceed Convex's read budget. The `q.gt("migratedAt",
@@ -107,16 +154,36 @@ export const listCleanupCandidates = internalQuery({
 });
 
 /**
- * Mirrors `chatFileRetention.findLiveStorageReferences` plus
- * `workspaceNoteComments`. Returns the IDs of any non-deleted
- * rows that still reference this `storageId` — if any of the
- * four slots is non-null, the blob must stay alive.
+ * Returns the IDs of any rows that still reference this
+ * `storageId` — if any of the four slots is non-null, the blob
+ * must stay alive.
+ *
+ * For `workspaceMessages`, the live-ref check INCLUDES soft-
+ * deleted messages. A soft-deleted chat message can be admin-
+ * restored for `CHAT_FILE_RETENTION_MS` (30 days); restoring it
+ * must still surface a working download URL. The chat retention
+ * cron (`hardDeleteExpiredChatFiles`) hard-deletes the message
+ * row after that window closes, so once the row is gone our
+ * cleanup can safely delete the legacy Convex Storage blob. If
+ * the cron runs while chat retention is mid-cleanup
+ * (`deletedAt = CLAIM_SENTINEL`), it sees the row and keeps the
+ * blob alive — chat retention either finishes (blob deleted,
+ * row deleted) or the sentinel watchdog releases the row back to
+ * its original `deletedAt` for retry. Either outcome is safe.
+ * (Greptile P1: "Restored files lose their blobs".)
+ *
+ * For `workspaceImages` / `instructorResources` /
+ * `workspaceNoteComments`, the live-ref check EXCLUDES soft-
+ * deleted rows. These tables do not have a separate admin-
+ * restore window (their soft-delete is permanent), so a soft-
+ * deleted row's blob is not at risk of being needed again.
  *
  * All four queries use the `by_storageId` index added in
  * PR 3a (workspaceNoteComments.index("by_storageId")). The
- * filter `q.eq(field("deletedAt"), undefined)` selects rows
- * whose soft-delete is unset (Convex indexes undefined
- * values together, so the equality matches absent fields).
+ * `q.eq(field("deletedAt"), undefined)` filter on the three
+ * non-chat tables selects rows whose soft-delete is unset
+ * (Convex indexes undefined values together, so the equality
+ * matches absent fields).
  */
 export const findLiveStorageReferencesForCleanup = internalQuery({
   args: { storageId: v.id("_storage") },
@@ -139,10 +206,12 @@ export const findLiveStorageReferencesForCleanup = internalQuery({
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .first();
+    // Intentionally NO `deletedAt === undefined` filter: see
+    // the function-level comment for the rationale on chat
+    // message restore coordination with chat retention.
     const chatMessage = await ctx.db
       .query("workspaceMessages")
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .first();
     const noteComment = await ctx.db
       .query("workspaceNoteComments")
@@ -162,9 +231,11 @@ export const findLiveStorageReferencesForCleanup = internalQuery({
  * Atomically marks a row as cleaned-up. Idempotent: a second call
  * with the same `fileUploadId` returns `{ marked: false }` so the
  * orchestrator does not double-count. The CAS predicate
- * (`convexStorageBlobsDeletedAt === undefined`) prevents a
- * concurrent sweep tick from double-stamping a row whose blob
- * was just deleted.
+ * (`convexStorageBlobsDeletedAt === undefined`) catches a
+ * concurrent tick that already stamped the row.
+ *
+ * Called AFTER `ctx.storage.delete` succeeds so a failed delete
+ * leaves the row un-stamped and the next tick retries.
  */
 export const markConvexStorageBlobDeleted = internalMutation({
   args: {
@@ -207,37 +278,45 @@ export const cleanupMigratedConvexStorageBlobs = internalAction({
     skippedOrphan: number;
     errors: string[];
   }> => {
-    const threshold = Date.now() - BACKFILL_GRACE_MS;
+    const threshold = Date.now() - CHAT_FILE_RETENTION_MS;
 
     let totalScanned = 0;
     let totalDeletedBlobs = 0;
     let totalSkippedLiveRefs = 0;
     let totalSkippedAlreadyDeleted = 0;
     let totalSkippedOrphan = 0;
+    let batchesProcessed = 0;
     const errors: string[] = [];
 
     let cursor: string | null = null;
-    while (totalScanned < MAX_CANDIDATES_PER_TICK) {
+    while (
+      totalScanned < MAX_CANDIDATES_PER_TICK &&
+      batchesProcessed < MAX_BATCHES_PER_TICK
+    ) {
       const page: {
-        rows: Array<{
-          _id: Id<"fileUploads">;
-          storageId: Id<"_storage">;
-          b2Key: string | undefined;
-          migratedAt: number | undefined;
-        }>;
+        rows: Doc<"fileUploads">[];
         cursor: string | null;
       } = await ctx.runQuery(
         internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
         { threshold, limit: BATCH_SIZE, cursor }
       );
-      if (page.rows.length === 0) break;
+      batchesProcessed++;
       totalScanned += page.rows.length;
 
       for (const row of page.rows) {
+        // The candidate query's post-filter guarantees
+        // `storageId !== undefined`, but the schema field is
+        // optional so TS sees it as `Id | undefined`. Narrow
+        // before using it in calls that require a strict Id.
+        const storageId = row.storageId;
+        if (storageId === undefined) {
+          totalSkippedOrphan++;
+          continue;
+        }
         const refs = await ctx.runQuery(
           internal.cleanup.postMigrationStorageCleanup
             .findLiveStorageReferencesForCleanup,
-          { storageId: row.storageId }
+          { storageId }
         );
         if (
           refs.imageId !== null ||
@@ -248,38 +327,33 @@ export const cleanupMigratedConvexStorageBlobs = internalAction({
           totalSkippedLiveRefs++;
           continue;
         }
-        // CAS-mark before deleting so a concurrent tick sees the
-        // candidate row filtered out at the next iteration. The
-        // candidate query's post-filter will catch this on the
-        // next page-load even without the CAS, but the CAS gives
-        // us a stricter no-double-delete guarantee when two ticks
-        // race on the same row.
+        // `ctx.storage.delete` is action-only and best-effort:
+        // if the blob is already gone (orphan ledger row, or a
+        // concurrent tick beat us), the call no-ops. If it
+        // throws, we leave the row un-stamped so the next tick
+        // retries. (Greptile P1: "Failed deletes cannot retry".)
+        try {
+          await ctx.storage.delete(storageId);
+        } catch (e) {
+          errors.push(
+            `Failed to delete storage ${storageId} for ledger ${row._id}: ${(e as Error).message}`
+          );
+          continue;
+        }
         const stamp = await ctx.runMutation(
           internal.cleanup.postMigrationStorageCleanup
             .markConvexStorageBlobDeleted,
           { fileUploadId: row._id, deletedAt: Date.now() }
         );
         if (!stamp.marked) {
+          // A concurrent tick already stamped this row. The blob
+          // is gone (idempotent delete) and the ledger is set —
+          // count it as already-handled to keep our observability
+          // accurate.
           totalSkippedAlreadyDeleted++;
           continue;
         }
-        // `ctx.storage.delete` is action-only and best-effort: if
-        // the blob is already gone (orphan ledger row, or a
-        // concurrent tick beat us), the call no-ops. We still
-        // keep the CAS mark so future ticks skip the row.
-        try {
-          await ctx.storage.delete(row.storageId);
-          totalDeletedBlobs++;
-        } catch (e) {
-          // Convex Storage `delete` does not throw in practice
-          // (the API is best-effort), but we surface any error so
-          // operators can investigate. The CAS mark stays so the
-          // row is not retried on the next tick — a future PR can
-          // clear the mark if manual intervention is needed.
-          errors.push(
-            `Failed to delete storage ${row.storageId} for ledger ${row._id}: ${(e as Error).message}`
-          );
-        }
+        totalDeletedBlobs++;
       }
 
       cursor = page.cursor;

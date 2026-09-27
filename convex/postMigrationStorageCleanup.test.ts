@@ -32,7 +32,9 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-const BACKFILL_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const CLEANUP_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const MIGRATED_AT_PAST = 35 * 24 * 60 * 60 * 1000;
+const MIGRATED_AT_RECENT = 5 * 24 * 60 * 60 * 1000;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -98,20 +100,20 @@ test("listCleanupCandidates drops rows inside the grace window", async () => {
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_old/old.png",
   });
   const recentRow = await seedMigratedRow(t, {
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 1 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_RECENT,
     b2Key: "2026-01-01/file_recent/recent.png",
   });
   const result = await t.query(
     internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
     {
-      threshold: now - BACKFILL_GRACE_MS,
+      threshold: now - CLEANUP_AGE_MS,
       limit: 50,
       cursor: null,
     }
@@ -137,15 +139,15 @@ test("listCleanupCandidates drops rows without a B2 copy", async () => {
       uploaderId: "u_uploader_1",
       uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
       storageId,
-      migratedAt: now - 10 * 24 * 60 * 60 * 1000,
-      completedAt: now - 10 * 24 * 60 * 60 * 1000,
+      migratedAt: now - MIGRATED_AT_PAST,
+      completedAt: now - MIGRATED_AT_PAST,
       // b2Key intentionally undefined
     })
   );
   const result = await t.query(
     internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
     {
-      threshold: now - BACKFILL_GRACE_MS,
+      threshold: now - CLEANUP_AGE_MS,
       limit: 50,
       cursor: null,
     }
@@ -161,14 +163,14 @@ test("listCleanupCandidates drops cancelled rows", async () => {
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_cancelled/cancelled.png",
-    cancelledAt: now - 1 * 24 * 60 * 60 * 1000,
+    cancelledAt: now - MIGRATED_AT_RECENT,
   });
   const result = await t.query(
     internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
     {
-      threshold: now - BACKFILL_GRACE_MS,
+      threshold: now - CLEANUP_AGE_MS,
       limit: 50,
       cursor: null,
     }
@@ -184,14 +186,14 @@ test("listCleanupCandidates drops rows already marked deleted", async () => {
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_already/already.png",
-    convexStorageBlobsDeletedAt: now - 1 * 24 * 60 * 60 * 1000,
+    convexStorageBlobsDeletedAt: now - MIGRATED_AT_RECENT,
   });
   const result = await t.query(
     internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
     {
-      threshold: now - BACKFILL_GRACE_MS,
+      threshold: now - CLEANUP_AGE_MS,
       limit: 50,
       cursor: null,
     }
@@ -212,7 +214,7 @@ test("listCleanupCandidates drops rows missing completedAt", async () => {
       uploaderId: "u_uploader_1",
       uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
       storageId,
-      migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+      migratedAt: now - MIGRATED_AT_PAST,
       b2Key: "2026-01-01/file_unfinalized/unfinalized.png",
       // completedAt intentionally undefined — migration has
       // the lock but the finalize step has not run yet.
@@ -221,7 +223,7 @@ test("listCleanupCandidates drops rows missing completedAt", async () => {
   const result = await t.query(
     internal.cleanup.postMigrationStorageCleanup.listCleanupCandidates,
     {
-      threshold: now - BACKFILL_GRACE_MS,
+      threshold: now - CLEANUP_AGE_MS,
       limit: 50,
       cursor: null,
     }
@@ -236,7 +238,7 @@ test("findLiveStorageReferencesForCleanup detects workspaceImages ref", async ()
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: Date.now() - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_image/image.png",
   });
   await t.run(async (ctx) => {
@@ -266,7 +268,7 @@ test("findLiveStorageReferencesForCleanup detects instructorResources ref", asyn
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: Date.now() - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_resource/resource.png",
   });
   let instructorId = "";
@@ -302,7 +304,7 @@ test("findLiveStorageReferencesForCleanup detects workspaceMessages ref", async 
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: Date.now() - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_msg/msg.png",
   });
   await t.run(async (ctx) => {
@@ -333,7 +335,7 @@ test("findLiveStorageReferencesForCleanup detects workspaceNoteComments ref", as
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: Date.now() - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_note/note.png",
   });
   let noteId = "";
@@ -372,7 +374,7 @@ test("findLiveStorageReferencesForCleanup ignores soft-deleted rows", async () =
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: Date.now() - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: Date.now() - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_deleted/deleted.png",
   });
   await t.run(async (ctx) => {
@@ -401,7 +403,7 @@ test("cleanupMigratedConvexStorageBlobs deletes blob + stamps ledger when no ref
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_orphan/orphan.png",
     seedBlobBytes: "to-be-deleted",
   });
@@ -428,7 +430,7 @@ test("cleanupMigratedConvexStorageBlobs skips when workspaceImages ref exists", 
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_keep_image/keep.png",
   });
   await t.run(async (ctx) => {
@@ -462,7 +464,7 @@ test("cleanupMigratedConvexStorageBlobs skips when workspaceNoteComments ref exi
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_keep_note/keep.png",
   });
   let noteId = "";
@@ -505,7 +507,7 @@ test("cleanupMigratedConvexStorageBlobs is idempotent across runs", async () => 
     workspaceId,
     uploaderId: "u_uploader_1",
     uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-    migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
     b2Key: "2026-01-01/file_idem/idem.png",
   });
   const first = await t.action(
@@ -535,7 +537,7 @@ test("cleanupMigratedConvexStorageBlobs drains batches", async () => {
       workspaceId,
       uploaderId: "u_uploader_1",
       uploadedAt: now - 30 * 24 * 60 * 60 * 1000,
-      migratedAt: now - 10 * 24 * 60 * 60 * 1000,
+      migratedAt: now - MIGRATED_AT_PAST,
       b2Key: `2026-01-01/file_batch_${i}/b${i}.png`,
     });
   }
@@ -546,4 +548,84 @@ test("cleanupMigratedConvexStorageBlobs drains batches", async () => {
   );
   expect(result.scanned).toBe(5);
   expect(result.deletedBlobs).toBe(5);
+});
+
+test("cleanupMigratedConvexStorageBlobs continues past stamped rows (Greptile P1: empty pages)", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const workspaceId = await seedWorkspace(t, { ownerId: "u_owner_1" });
+  // Seed 60 stamped rows (already cleaned by prior ticks) plus 1
+  // eligible candidate. With BATCH_SIZE=50, page 1 returns 0
+  // filtered rows but cursor advances; page 2 returns the 1
+  // candidate. The orchestrator must NOT exit on the empty first
+  // page.
+  for (let i = 0; i < 60; i++) {
+    await seedMigratedRow(t, {
+      workspaceId,
+      uploaderId: "u_uploader_1",
+      uploadedAt: now - MIGRATED_AT_PAST - 24 * 60 * 60 * 1000,
+      migratedAt: now - MIGRATED_AT_PAST,
+      b2Key: `2026-01-01/file_stamped_${i}/s${i}.png`,
+      convexStorageBlobsDeletedAt: now - 1 * 24 * 60 * 60 * 1000,
+    });
+  }
+  const { rowId, storageId } = await seedMigratedRow(t, {
+    workspaceId,
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - MIGRATED_AT_PAST - 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
+    b2Key: "2026-01-01/file_late_candidate/late.png",
+  });
+  const result = await t.action(
+    internal.cleanup.postMigrationStorageCleanup
+      .cleanupMigratedConvexStorageBlobs,
+    {}
+  );
+  expect(result.scanned).toBe(1);
+  expect(result.deletedBlobs).toBe(1);
+  expect(result.errors).toEqual([]);
+  const row = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect(row?.convexStorageBlobsDeletedAt).toBeTypeOf("number");
+  const blobExists = await t.action(async (ctx) => (await ctx.storage.get(storageId as Id<"_storage">)) !== null);
+  expect(blobExists).toBe(false);
+});
+
+test("cleanupMigratedConvexStorageBlobs keeps blob when chat restore window still open (Greptile P1: restored files lose blobs)", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const workspaceId = await seedWorkspace(t, { ownerId: "u_owner_1" });
+  // Migrated 35 days ago — past the 30-day cleanup threshold. But
+  // the referencing chat message was soft-deleted only 5 days ago,
+  // so admin restore is still possible for another 25 days. The
+  // cron must NOT delete the blob while restore is possible.
+  const { rowId, storageId } = await seedMigratedRow(t, {
+    workspaceId,
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - MIGRATED_AT_PAST - 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
+    b2Key: "2026-01-01/file_recently_soft_deleted/sd.png",
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_owner_1",
+      content: "shared an image",
+      type: "image",
+      storageId,
+      b2Key: "2026-01-01/file_recently_soft_deleted/sd.png",
+      deletedAt: now - MIGRATED_AT_RECENT,
+    });
+  });
+  const result = await t.action(
+    internal.cleanup.postMigrationStorageCleanup
+      .cleanupMigratedConvexStorageBlobs,
+    {}
+  );
+  expect(result.scanned).toBe(1);
+  expect(result.deletedBlobs).toBe(0);
+  expect(result.skippedLiveRefs).toBe(1);
+  const row = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect(row?.convexStorageBlobsDeletedAt).toBeUndefined();
+  const blobExists = await t.action(async (ctx) => (await ctx.storage.get(storageId as Id<"_storage">)) !== null);
+  expect(blobExists).toBe(true);
 });
