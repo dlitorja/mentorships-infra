@@ -705,6 +705,16 @@ export default defineSchema({
     // (operators can query the ledger for "when was this
     // cancelled upload's B2 object cleaned up").
     trashedAt: v.optional(v.number()),
+    // PR workspace-storage-3c: written by the
+    // `cleanupExpiredWorkspaceB2Uploads` cron after a successful
+    // `deleteFromB2WorkspaceAction` (B2 DELETE returned 2xx or
+    // 404). Acts as both an idempotency guard (the cron filter
+    // excludes rows with this field set) and an observability
+    // marker (operators can query the ledger for "when was
+    // this upload past its 18-month retention window and
+    // cleaned up"). The retention window itself is enforced on
+    // the bucket side by `scripts/set-b2-bucket-lifecycle.ts`.
+    retentionDeletedAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
@@ -747,7 +757,30 @@ export default defineSchema({
     // values together so `q.eq(field, undefined)` matches
     // rows whose field is absent.
     .index("by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt",
-      ["convexStorageBlobsDeletedAt", "migratedAt", "uploadedAt"]),
+      ["convexStorageBlobsDeletedAt", "migratedAt", "uploadedAt"])
+    // PR workspace-storage-3c: the daily
+    // `cleanupExpiredWorkspaceB2Uploads` cron scans for
+    // completed uploads past the 18-month retention deadline.
+    // The index excludes stamped rows so a backlog of cleaned-
+    // up rows cannot starve later eligible rows of batch reads
+    // (same idempotency-via-index pattern as the 3a cleanup).
+    // Query uses
+    // `q.eq("retentionDeletedAt", undefined).gt("completedAt", 0)`
+    // so the equality filter narrows the scan before the range
+    // filter on `completedAt` runs.
+    .index("by_retentionDeletedAt_completedAt",
+      ["retentionDeletedAt", "completedAt"])
+    // PR workspace-storage-3c: the weekly
+    // `cleanupOrphanB2Objects` cron scans for cancelled uploads
+    // whose B2 object was never deleted (the immediate
+    // `cleanupRejectedB2Upload` action hit a permanent failure
+    // it gave up on, or the crons were paused mid-cleanup).
+    // Same idempotency-via-index pattern as the retention and
+    // 3a cleanups — stamped rows are excluded from the scan.
+    // Query uses
+    // `q.eq("trashedAt", undefined).gt("cancelledAt", 0)`.
+    .index("by_trashedAt_cancelledAt_uploadedAt",
+      ["trashedAt", "cancelledAt", "uploadedAt"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
