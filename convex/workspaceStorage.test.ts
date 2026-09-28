@@ -1521,6 +1521,14 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   // actually called (`fetchSpy` was invoked): the
   // pre-cancel path throws before HEAD, so a HEAD call
   // proves the catch handler was the cancel source.
+  //
+  // Greptile round 4 P2 follow-up: instead of a fixed
+  // `setTimeout(50)` (which assumes the pre-check completes
+  // within that window), the HEAD mock signals when it is
+  // called and we `await` that signal before patching the
+  // workspace. The test is now deterministic — it waits
+  // for HEAD to actually be in flight, regardless of how
+  // long the pre-check takes.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1543,12 +1551,20 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   );
 
   // Step 2: stall the HEAD fetch so we can end the workspace
-  // while HEAD is "in flight".
+  // while HEAD is "in flight". The mock signals when HEAD
+  // starts so the test can synchronize the workspace patch
+  // with the actual HEAD call (rather than guessing a
+  // timeout).
   let resolveHead: () => void = () => {};
   const headStalled = new Promise<void>((resolve) => {
     resolveHead = resolve;
   });
+  let headStartedResolve: () => void = () => {};
+  const headStarted = new Promise<void>((resolve) => {
+    headStartedResolve = resolve;
+  });
   const fetchSpy = vi.fn(async () => {
+    headStartedResolve();
     await headStalled;
     return { ok: true, status: 200, text: async () => "" } as Response;
   });
@@ -1566,34 +1582,30 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
     }
   );
 
-  // Step 4: end the workspace while HEAD is stalled. Yield
-  // a microtask so the action's pre-check has definitely
-  // completed and HEAD is now awaiting. The 50ms timeout is
-  // generous — the pre-check completes in microseconds
-  // within convex-test, and HEAD is then awaited for the
-  // stall promise to resolve.
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Step 4: wait for HEAD to actually be called (deterministic
+  // — no fixed timeout). Once HEAD is in flight, the
+  // pre-check has already passed and the pre-cancel path
+  // cannot take over.
+  await headStarted;
+
+  // Step 5: end the workspace while HEAD is in flight. The
+  // mutation's re-check will see `endedAt` and throw TOCTOU.
   await t.run(async (ctx) =>
     ctx.db.patch(workspaceId as any, { endedAt: Date.now() })
   );
 
-  // Step 5: release the HEAD. The mutation's re-check now
-  // sees the ended workspace and throws TOCTOU. The action's
-  // catch handler commits the cancel.
+  // Step 6: release the HEAD. The catch handler now commits
+  // the cancel.
   resolveHead();
 
   await expect(actionPromise).rejects.toThrow(/ended/i);
 
-  // Step 6: assert HEAD was actually called. If the
-  // pre-cancel path had taken over (workspace ended before
-  // the pre-check read it), HEAD would never have been
-  // called and the catch handler would not have run.
-  // A HEAD call proves the action's pre-check passed (saw
-  // workspace as active) and the catch handler was the
-  // cancel source.
+  // Step 7: assert HEAD was actually called (defense in
+  // depth — a regression that short-circuits before HEAD
+  // would fail this assertion).
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-  // Step 7: assert the catch handler committed
+  // Step 8: assert the catch handler committed
   // `cancelledAt`. This is the production timing race in
   // miniature.
   const ledger = await t.run(async (ctx) =>
