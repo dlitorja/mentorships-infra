@@ -45,11 +45,17 @@ export async function GET(): Promise<NextResponse> {
 
       // The total footprint is informational; quota enforcement is
       // per-instructor and runs separately in `createUpload`. The limit
-      // reported here is the union of quota-bearing assignments so the
-      // editor can see whether their current scope has any caps.
+      // reported here is the union of quota-bearing SPECIFIC assignments
+      // so the editor can see whether their current scope has any caps.
+      // Open assignments are deliberately excluded: they have no per-
+      // instructor quota by design, so including them would incorrectly
+      // report 'unlimited' even when a specific assignment in the same
+      // mix has a real cap.
       let limitBytes = 0;
       let hasUnlimited = false;
       for (const assignment of assignments) {
+        // Skip open assignments — they have no quota.
+        if (assignment.instructorId === undefined) continue;
         const quota = assignment.storageQuotaBytes;
         if (quota === undefined || quota === null) {
           hasUnlimited = true;

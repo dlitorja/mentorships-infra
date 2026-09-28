@@ -21,7 +21,7 @@ interface Upload {
 // B2 multipart state be cleaned up (rather than orphaned forever). After
 // this window, revoked editors must abort and the row stays in
 // `uploading` state for admin cleanup.
-const OWNER_FINISH_GRACE_MS = 5 * 60 * 1000;
+const OWNER_FINISH_GRACE_MS = 60 * 1000;
 
 function getStringProperty(error: unknown, key: string): string | undefined {
   if (typeof error !== "object" || error === null) return undefined;
