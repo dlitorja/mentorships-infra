@@ -51,17 +51,26 @@ export async function GET(): Promise<NextResponse> {
       // instructor quota by design, so including them would incorrectly
       // report 'unlimited' even when a specific assignment in the same
       // mix has a real cap.
+      //
+      // Special case: when there are NO specific assignments (open-
+      // only), the limit is 'unlimited' because the editor can upload
+      // to any instructor with no cap.
       let limitBytes = 0;
       let hasUnlimited = false;
+      let hasSpecific = false;
       for (const assignment of assignments) {
-        // Skip open assignments — they have no quota.
         if (assignment.instructorId === undefined) continue;
+        hasSpecific = true;
         const quota = assignment.storageQuotaBytes;
         if (quota === undefined || quota === null) {
           hasUnlimited = true;
         } else {
           limitBytes += quota;
         }
+      }
+      if (!hasSpecific) {
+        hasUnlimited = true;
+        limitBytes = 0;
       }
 
       return NextResponse.json({
