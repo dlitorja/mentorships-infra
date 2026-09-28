@@ -1138,6 +1138,17 @@ test("getVideoEditorTotalStorageStats: returns editor's true historical usage re
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    // HUC-58: seed the denormalized counter directly because the rows
+    // above were inserted via `ctx.db.insert` rather than the public
+    // `createUpload` mutation (which would have incremented the
+    // counter atomically). The counter is what `getVideoEditorTotalStorageStats`
+    // reads; this setup mirrors the post-backfill state.
+    await ctx.db.insert("videoEditorStorageStats", {
+      videoEditorId: editorId,
+      usedBytes: 2 * uploadSize,
+      fileCount: 2,
+      lastUpdatedAt: Date.now(),
+    });
   });
 
   const editorClient = t.withIdentity({ subject: editorId });

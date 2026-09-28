@@ -22,10 +22,15 @@ export interface StorageUsage {
   // when every assignment was revoked — the dashboard renders a 'No
   // access' state instead of dividing by zero.
   hasAccess?: boolean;
-  // True when the storage scan was bounded by the single-page scan
-  // cap (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The dashboard surfaces
-  // a 'partial' badge so editors don't take an undercount as exact.
-  truncated?: boolean;
+  // Timestamp the underlying counter was last updated (HUC-58). The
+  // dashboard surfaces a "stale" badge if older than 24 h so admins
+  // can see if the hourly backfill is keeping up. The previous
+  // `truncated` flag was removed when the bounded scan was replaced
+  // with a constant-time counter read.
+  lastUpdatedAt?: number | null;
+  // Pre-computed staleness flag (server-side Date.now() comparison).
+  // Keeps `StorageUsage` a pure function of props.
+  isStale?: boolean;
 }
 
 export interface UploadInitiateResponse {

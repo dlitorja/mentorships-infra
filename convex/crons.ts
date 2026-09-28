@@ -51,6 +51,13 @@ import { internal } from "./_generated/api";
  *   `workspaceNoteComments` / `instructorResources`. See
  *   `convex/cleanup/postMigrationStorageCleanup.ts`. PR
  *   workspace-storage-3a.
+ * - backfill-video-editor-storage-counter: Runs hourly, re-aggregates
+ *   `instructorUploads` rows into the denormalized
+ *   `videoEditorStorageStats` counter. The first run after the
+ *   schema change seeds every editor; subsequent runs are no-ops
+ *   because the mutation is idempotent. See
+ *   `convex/actions/backfillVideoEditorStorageCounter.ts`. HUC-58
+ *   follow-up to PR #887.
  */
 const crons = cronJobs();
 
@@ -142,6 +149,13 @@ crons.interval(
   "cleanup-migrated-convex-storage-blobs",
   { hours: 24 },
   internal.cleanup.postMigrationStorageCleanup.cleanupMigratedConvexStorageBlobs,
+  {}
+);
+
+crons.interval(
+  "backfill-video-editor-storage-counter",
+  { hours: 1 },
+  internal.actions.backfillVideoEditorStorageCounter.runBackfillVideoEditorStorageCounter,
   {}
 );
 

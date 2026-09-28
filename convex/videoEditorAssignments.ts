@@ -105,25 +105,21 @@ async function computeVideoEditorOpenStorageStats(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string
 ): Promise<StorageStats> {
-  // Bounded single-page scan to keep the admin editor list query from
-  // exceeding Convex read limits when an editor has thousands of
-  // historical rows. The aggregate counter follow-up (HUC-58) will
-  // replace this with a constant-time read once shipped.
-  const page = await ctx.db
-    .query("instructorUploads")
-    .withIndex("by_uploadedById", (q) => q.eq("uploadedById", videoEditorId))
-    .paginate({ numItems: 1000, cursor: null });
+  // HUC-58: read the denormalized counter directly. Replaces the
+  // bounded paginated scan that capped reads at 1000 records. The
+  // counter is updated atomically by the create/delete/softDelete
+  // mutations and backfilled by `backfillVideoEditorStorageCounter`.
+  const counter = await ctx.db
+    .query("videoEditorStorageStats")
+    .withIndex("by_videoEditorId", (q) =>
+      q.eq("videoEditorId", videoEditorId)
+    )
+    .first();
 
-  let usedBytes = 0;
-  let fileCount = 0;
-  for (const upload of page.page) {
-    if (isActiveUpload(upload)) {
-      usedBytes += upload.size;
-      fileCount += 1;
-    }
-  }
-
-  return { usedBytes, fileCount };
+  return {
+    usedBytes: counter?.usedBytes ?? 0,
+    fileCount: counter?.fileCount ?? 0,
+  };
 }
 
 /**

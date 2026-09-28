@@ -93,11 +93,19 @@ export async function GET(): Promise<NextResponse> {
         // editor has no active assignments at all (open revoked and
         // no specific). False when they have at least one assignment.
         hasAccess: assignments.length > 0,
-        // Surface to the client so the UI can warn when the editor's
-        // history exceeded the single-page scan cap
-        // (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The proper fix is a
-        // denormalized counter on `users` (tracked as Linear HUC-58).
-        truncated: stats.truncated ?? false,
+        // HUC-58: surface the counter's last-update timestamp so the
+        // UI can warn if the hourly backfill hasn't run recently.
+        // The previous `truncated` flag was removed because the
+        // bounded scan was replaced with a constant-time counter
+        // read.
+        lastUpdatedAt: stats.lastUpdatedAt ?? null,
+        // Pre-compute staleness on the server so the StorageUsage
+        // component can stay a pure function of props (no Date.now()
+        // inside the component).
+        isStale:
+          stats.lastUpdatedAt !== null &&
+          stats.lastUpdatedAt !== undefined &&
+          Date.now() - stats.lastUpdatedAt > 24 * 60 * 60 * 1000,
       });
     }
 

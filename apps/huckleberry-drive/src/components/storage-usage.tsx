@@ -9,7 +9,7 @@ interface StorageUsageProps {
   fileCount: number;
   instructorCount?: number;
   hasAccess?: boolean;
-  truncated?: boolean;
+  isStale?: boolean;
 }
 
 export function StorageUsage({
@@ -18,7 +18,7 @@ export function StorageUsage({
   fileCount,
   instructorCount,
   hasAccess = true,
-  truncated = false,
+  isStale = false,
 }: StorageUsageProps): React.ReactElement {
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -33,6 +33,11 @@ export function StorageUsage({
   // do not render a percentage (would be NaN% or Infinity%). Show a
   // 'No access' state instead.
   const isNoAccess = !hasAccess;
+
+  // HUC-58: surface a "stale" badge when the counter hasn't been
+  // updated in 24 h. The staleness is pre-computed server-side (the
+  // route handler compares `lastUpdatedAt` against `Date.now()`) so
+  // this component stays a pure function of props.
 
   // Avoid divide-by-zero when limitBytes is 0 but the editor still has
   // SOME access (e.g. revoked-then-restored edge case). Treat 0 limit
@@ -49,12 +54,12 @@ export function StorageUsage({
         <h3 className="font-semibold text-slate-200">Storage Usage</h3>
         <span className="text-sm text-slate-500 ml-auto">
           {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
-          {truncated && (
+          {isStale && (
             <span
               className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-300 border border-yellow-800"
-              title="Storage total only reflects the first 1,000 historical records. The exact figure requires a denormalized counter (tracked as Linear HUC-58)."
+              title="The storage counter has not been updated in 24 hours. The hourly backfill may have stalled."
             >
-              partial
+              stale
             </span>
           )}
         </span>

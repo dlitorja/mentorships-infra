@@ -4,6 +4,7 @@ import type { GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { applyCounterDelta } from "./storageCounter";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -433,6 +434,15 @@ export const createUpload = mutation({
       legacyId: args.id,
       uploadedById: args.uploadedById ?? undefined,
     });
+    // HUC-58: increment the video editor's denormalized storage
+    // counter atomically with the row insert. `pending` is an active
+    // status, so the counter gains `size` bytes and 1 file.
+    await applyCounterDelta(ctx, {
+      uploadedById: args.uploadedById,
+      size: args.size,
+      fromStatus: undefined,
+      toStatus: "pending",
+    });
     return await ctx.db
       .query("instructorUploads")
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
@@ -451,10 +461,20 @@ export const updateUploadStarted = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       b2UploadId: args.b2UploadId,
       status: "uploading",
       updatedAt: Date.now(),
+    });
+    // HUC-58: pending → uploading is active → active, no counter
+    // delta. Kept explicit so future transitions to/from this state
+    // are easy to extend.
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "uploading",
     });
     return await ctx.db.get(upload._id);
   },
@@ -472,11 +492,21 @@ export const markUploadForCleanup = mutation({
       .first();
     if (!upload) return null;
     await requireDeleteAccess(ctx, upload);
+    const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       b2UploadId: args.b2UploadId,
       status: "deleting",
       deleteAttemptCount: 0,
       updatedAt: Date.now(),
+    });
+    // HUC-58: active → deleting decrements the counter (deleting is
+    // not counted). Idempotent on re-entry (deleting → deleting is
+    // a no-op).
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "deleting",
     });
     await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
       uploadId: args.id,
@@ -500,11 +530,20 @@ export const completeUpload = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       b2FileId: args.b2FileId,
       status: "completed",
       transferStatus: "pending",
       updatedAt: Date.now(),
+    });
+    // HUC-58: pending/uploading → completed is active → active, no
+    // counter delta. The size was already counted at createUpload.
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "completed",
     });
     return await ctx.db.get(upload._id);
   },
@@ -519,10 +558,19 @@ export const softDeleteUpload = mutation({
       .first();
     if (!upload) return null;
     await requireDeleteAccess(ctx, upload);
+    const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       status: "deleted",
       deletedAt: Date.now(),
       updatedAt: Date.now(),
+    });
+    // HUC-58: any → deleted decrements the counter. Idempotent on
+    // re-entry (deleted → deleted is a no-op).
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "deleted",
     });
     return await ctx.db.get(upload._id);
   },
@@ -541,11 +589,23 @@ export const deleteUpload = mutation({
       return { error: "already_deleted" };
     }
     await requireDeleteAccess(ctx, upload);
+    const previousStatus = upload.status;
 
     await ctx.db.patch(upload._id, {
       status: "deleting",
       deleteAttemptCount: 0,
       updatedAt: Date.now(),
+    });
+
+    // HUC-58: active → deleting decrements the counter. The early-
+    // return paths above only fire when the row is already in a
+    // terminal state, so we always reach here with previousStatus in
+    // {pending, uploading, completed, archived, failed}.
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "deleting",
     });
 
     if (!upload.filename && !upload.s3Key && !upload.b2FileId && !upload.b2UploadId) {
@@ -1243,29 +1303,26 @@ export const getVideoEditorTotalStorageStats = query({
   handler: async (ctx, args) => {
     await requireAdminOrSelfVideoEditor(ctx, args.videoEditorId);
 
-    // Single-page paginated scan — bounded at TOTAL_STORAGE_STATS_PAGE_SIZE
-    // so the read budget cannot grow unboundedly for long-lived editors.
-    // The aggregate counter follow-up will replace this with a constant-time
-    // denormalized read once shipped.
-    const page = await ctx.db
-      .query("instructorUploads")
-      .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
-      .paginate({ numItems: TOTAL_STORAGE_STATS_PAGE_SIZE, cursor: null });
-
-    let usedBytes = 0;
-    let fileCount = 0;
-    for (const upload of page.page) {
-      if (upload.status !== "deleted" && upload.status !== "deleting") {
-        usedBytes += upload.size;
-        fileCount += 1;
-      }
-    }
+    // HUC-58: read the denormalized counter directly. The counter
+    // is updated atomically by createUpload / deleteUpload /
+    // softDeleteUpload / markUploadForCleanup / restoreUpload and
+    // backfilled by the `backfillVideoEditorStorageCounter` cron.
+    // O(1) reads regardless of historical record count — replaces
+    // the bounded scan that capped TOTAL_STORAGE_STATS_PAGE_SIZE.
+    const counter = await ctx.db
+      .query("videoEditorStorageStats")
+      .withIndex("by_videoEditorId", (q) =>
+        q.eq("videoEditorId", args.videoEditorId)
+      )
+      .first();
 
     return {
-      usedBytes,
-      fileCount,
-      truncated: !page.isDone,
-      scannedRecords: page.page.length,
+      usedBytes: counter?.usedBytes ?? 0,
+      fileCount: counter?.fileCount ?? 0,
+      // `truncated` and `scannedRecords` are removed because they no
+      // longer apply. The dashboard UI no longer surfaces a "partial"
+      // badge (HUC-58 follow-up, schema-change PR).
+      lastUpdatedAt: counter?.lastUpdatedAt ?? null,
     };
   },
 });
@@ -1312,10 +1369,21 @@ export const restoreUpload = mutation({
       return { error: "grace_period_expired" };
     }
 
+    const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       status: "completed",
       deletedAt: undefined,
       updatedAt: Date.now(),
+    });
+
+    // HUC-58: deleted → completed re-increments the counter (deleted
+    // is not counted, completed is). This handles the case where an
+    // admin restores a soft-deleted upload within the grace window.
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "completed",
     });
 
     return { success: true };
@@ -1332,10 +1400,20 @@ export const hardDeleteUpload = mutation({
 
     if (!upload) return { error: "not_found" };
     await requireAdminDeleteAccess(ctx);
+    const previousStatus = upload.status;
 
     await ctx.db.patch(upload._id, {
       status: "deleting",
       updatedAt: Date.now(),
+    });
+
+    // HUC-58: active → deleting decrements the counter. Idempotent
+    // if the row was already in `deleting`.
+    await applyCounterDelta(ctx, {
+      uploadedById: upload.uploadedById,
+      size: upload.size,
+      fromStatus: previousStatus,
+      toStatus: "deleting",
     });
 
     if (!upload.filename && !upload.s3Key && !upload.b2FileId && !upload.b2UploadId) {
