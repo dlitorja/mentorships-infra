@@ -38,6 +38,26 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
     instructorIds = [dbUser.userId];
   }
 
+  // For video editors with an open assignment, getAccessibleInstructorIds
+  // returns null (all access). Expand to every invited instructor so the
+  // dashboard switcher can pick any of them.
+  if (role === "video_editor" && instructorIds.length === 0) {
+    const token = await getToken({ template: "convex" }) ?? undefined;
+    const openAssignment = await fetchQuery(
+      api.videoEditorAssignments.getVideoEditorOpenAssignment,
+      { videoEditorId: dbUser.userId },
+      { token }
+    );
+    if (openAssignment) {
+      const allInstructors = await fetchQuery(
+        api.users.getUsersByRole,
+        { role: "instructor" },
+        { token }
+      ) as Array<{ userId: string }>;
+      instructorIds = allInstructors.map((u) => u.userId);
+    }
+  }
+
   // Resolve instructor names so the video editor selector shows useful labels.
   let instructors: InstructorInfo[] = [];
   if (instructorIds.length > 0) {

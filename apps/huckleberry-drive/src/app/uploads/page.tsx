@@ -9,13 +9,15 @@ interface User {
   _id: string;
   userId: string;
   email: string;
-  role: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
 }
 
 interface Assignment {
   _id: string;
   videoEditorId: string;
-  instructorId: string;
+  instructorId?: string;
 }
 
 export default async function UploadsPage(): Promise<React.ReactElement> {
@@ -37,21 +39,55 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
 
   if (dbUser?.role === "video_editor") {
-    // Use the canonical Convex userId for assignment lookup. For split-ID users
-    // (platform userId differs from huckleberry-drive Clerk ID), the clerkId
-    // fallback resolves the account but assignments are keyed by the canonical
-    // userId.
-    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: dbUser.userId }, { token }) as Assignment[];
-    const instructorIds = assignments.map((a) => a.instructorId);
+    const assignments = await fetchQuery(
+      api.videoEditorAssignments.getVideoEditorAssignments,
+      { videoEditorId: dbUser.userId },
+      { token }
+    ) as Assignment[];
+    const hasOpenAssignment = assignments.some((a) => a.instructorId === undefined);
 
-    if (instructorIds.length > 0) {
-      const instructorUsers = await fetchQuery(api.users.getUsersByClerkIds, { userIds: instructorIds }, { token }) as User[];
+    if (hasOpenAssignment) {
+      const instructorUsers = await fetchQuery(
+        api.users.getUsersByRole,
+        { role: "instructor" },
+        { token }
+      ) as User[];
 
-      instructors = instructorUsers.map((u) => ({
-        id: u.userId,
-        name: null,
-        email: u.email || "",
-      }));
+      instructors = instructorUsers
+        .map((u) => ({
+          id: u.userId,
+          name: [u.firstName, u.lastName].filter(Boolean).join(" ") || null,
+          email: u.email || "",
+        }))
+        .sort((a, b) => {
+          const an = (a.name || a.email).toLowerCase();
+          const bn = (b.name || b.email).toLowerCase();
+          return an.localeCompare(bn);
+        });
+    } else {
+      const instructorIds = assignments
+        .map((a) => a.instructorId)
+        .filter((id): id is string => id !== undefined);
+
+      if (instructorIds.length > 0) {
+        const instructorUsers = await fetchQuery(
+          api.users.getUsersByUserIds,
+          { userIds: instructorIds },
+          { token }
+        ) as User[];
+
+        instructors = instructorUsers
+          .map((u) => ({
+            id: u.userId,
+            name: [u.firstName, u.lastName].filter(Boolean).join(" ") || null,
+            email: u.email || "",
+          }))
+          .sort((a, b) => {
+            const an = (a.name || a.email).toLowerCase();
+            const bn = (b.name || b.email).toLowerCase();
+            return an.localeCompare(bn);
+          });
+      }
     }
   }
 

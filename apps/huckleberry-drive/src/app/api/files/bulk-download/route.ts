@@ -38,8 +38,7 @@ function canAccessUpload(
   if (upload.instructorId === dbUser.userId) return true;
   if (
     dbUser.role === "video_editor" &&
-    accessibleInstructorIds !== null &&
-    accessibleInstructorIds.includes(upload.instructorId)
+    (accessibleInstructorIds === null || accessibleInstructorIds.includes(upload.instructorId))
   ) {
     return true;
   }

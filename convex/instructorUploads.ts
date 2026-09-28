@@ -192,13 +192,20 @@ async function hasActiveVideoEditorAssignment(
   videoEditorId: string,
   instructorId: string
 ): Promise<boolean> {
-  const assignment = await ctx.db
+  const specific = await ctx.db
     .query("videoEditorAssignments")
     .withIndex("by_videoEditorId_instructorId", (q) =>
       q.eq("videoEditorId", videoEditorId).eq("instructorId", instructorId)
     )
     .first();
-  return !!assignment;
+  if (specific) {
+    return true;
+  }
+  const allAssignments = await ctx.db
+    .query("videoEditorAssignments")
+    .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", videoEditorId))
+    .collect();
+  return allAssignments.some((a) => a.instructorId === undefined);
 }
 
 async function requireDeleteAccess(
@@ -273,19 +280,20 @@ export const createUpload = mutation({
       if (!args.uploadedById || args.uploadedById !== caller.userId) {
         throw new Error("Video editor uploads must be performed under their own identity");
       }
-      const assignment = await ctx.db
+      const assignments = await ctx.db
         .query("videoEditorAssignments")
-        .withIndex("by_videoEditorId_instructorId", (q) =>
-          q.eq("videoEditorId", caller.userId).eq("instructorId", args.instructorId)
-        )
-        .first();
-      if (!assignment) {
+        .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", caller.userId))
+        .collect();
+      const specificAssignment = assignments.find(
+        (a) => a.instructorId === args.instructorId
+      );
+      const openAssignment = assignments.find((a) => a.instructorId === undefined);
+      if (!specificAssignment && !openAssignment) {
         throw new Error("You are not assigned to this instructor");
       }
-      // PR-quotas: enforce a per-editor per-instructor quota when one is set.
-      // The route does a pre-check for friendly UX; this is the authoritative
-      // OCC-protected enforcement.
-      const quota = assignment.storageQuotaBytes;
+      // PR-quotas: enforce a per-editor per-instructor quota when one is set
+      // on a specific assignment. Open assignments have no quota.
+      const quota = specificAssignment?.storageQuotaBytes;
       if (quota !== undefined) {
         const editorUsed = await getVideoEditorStorageUsed(
           ctx,

@@ -26,7 +26,9 @@ export async function GET(): Promise<NextResponse> {
         );
 
         for (const assignment of assignments) {
-          instructorIds.add(assignment.assignment.instructorId);
+          if (assignment.assignment.instructorId !== undefined) {
+            instructorIds.add(assignment.assignment.instructorId);
+          }
         }
 
         return { editor, assignments };
@@ -48,7 +50,9 @@ export async function GET(): Promise<NextResponse> {
       editor,
       assignments: assignments.map((a) => ({
         assignment: a.assignment,
-        instructor: instructorById.get(a.assignment.instructorId) ?? null,
+        instructor: a.assignment.instructorId !== undefined
+          ? instructorById.get(a.assignment.instructorId) ?? null
+          : null,
         usedBytes: a.usedBytes,
         fileCount: a.fileCount,
       })),

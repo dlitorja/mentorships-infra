@@ -85,18 +85,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           { token: convexToken }
         );
         if (!assignmentWithStorage?.assignment) {
-          return NextResponse.json(
-            { error: "You are not assigned to this instructor" },
-            { status: 403 }
+          const openAssignment = await fetchQuery(
+            api.videoEditorAssignments.getVideoEditorOpenAssignment,
+            { videoEditorId: dbUser.userId },
+            { token: convexToken }
           );
-        }
-        const quota = assignmentWithStorage.assignment.storageQuotaBytes;
-        if (quota !== undefined && quota !== null) {
-          if (assignmentWithStorage.usedBytes + size > quota) {
+          if (!openAssignment) {
             return NextResponse.json(
-              { error: "Video editor storage quota exceeded for this instructor" },
+              { error: "You are not assigned to this instructor" },
               { status: 403 }
             );
+          }
+        } else {
+          const quota = assignmentWithStorage.assignment.storageQuotaBytes;
+          if (quota !== undefined && quota !== null) {
+            if (assignmentWithStorage.usedBytes + size > quota) {
+              return NextResponse.json(
+                { error: "Video editor storage quota exceeded for this instructor" },
+                { status: 403 }
+              );
+            }
           }
         }
       }

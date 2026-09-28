@@ -154,6 +154,14 @@ export const getVideoEditorAssignmentsWithStorage = query({
 
     const results = [];
     for (const assignment of assignments) {
+      if (assignment.instructorId === undefined) {
+        results.push({
+          assignment,
+          usedBytes: 0,
+          fileCount: 0,
+        });
+        continue;
+      }
       const stats = await computeVideoEditorStorageStats(
         ctx,
         assignment.videoEditorId,
@@ -183,7 +191,7 @@ export const getVideoEditorAssignmentWithStorage = query({
       )
       .first();
 
-    if (!assignment) {
+    if (!assignment || assignment.instructorId === undefined) {
       return null;
     }
 
@@ -212,6 +220,18 @@ export const getVideoEditorStorageStats = query({
   },
 });
 
+export const getVideoEditorOpenAssignment = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
+    const assignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    return assignments.find((a) => a.instructorId === undefined) ?? null;
+  },
+});
+
 export const getAssignedInstructorIds = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
@@ -220,7 +240,9 @@ export const getAssignedInstructorIds = query({
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
       .collect();
-    return assignments.map((a: Doc<"videoEditorAssignments">) => a.instructorId);
+    return assignments
+      .map((a: Doc<"videoEditorAssignments">) => a.instructorId)
+      .filter((id): id is string => id !== undefined);
   },
 });
 
@@ -231,13 +253,13 @@ export const isVideoEditorAssignedToInstructor = query({
   },
   handler: async (ctx, args) => {
     await requireAdminOrSelf(ctx, args.videoEditorId);
-    const assignment = await ctx.db
+    const assignments = await ctx.db
       .query("videoEditorAssignments")
-      .withIndex("by_videoEditorId_instructorId", (q) =>
-        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
-      )
-      .first();
-    return !!assignment;
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    return assignments.some(
+      (a) => a.instructorId === undefined || a.instructorId === args.instructorId
+    );
   },
 });
 
@@ -332,7 +354,7 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
 export const createVideoEditorAssignment = mutation({
   args: {
     videoEditorId: v.string(),
-    instructorId: v.string(),
+    instructorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -351,16 +373,6 @@ export const createVideoEditorAssignment = mutation({
       throw new Error("Forbidden: only admins can manage assignments");
     }
 
-    const existing = await ctx.db
-      .query("videoEditorAssignments")
-      .withIndex("by_videoEditorId_instructorId", (q) =>
-        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
-      )
-      .first();
-    if (existing) {
-      return { action: "exists", id: existing._id };
-    }
-
     const editor = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.videoEditorId))
@@ -369,12 +381,30 @@ export const createVideoEditorAssignment = mutation({
       throw new Error("Invalid video editor");
     }
 
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
-      .first();
-    if (!instructor) {
-      throw new Error("Invalid instructor");
+    let existing;
+    if (args.instructorId !== undefined) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (!instructor) {
+        throw new Error("Invalid instructor");
+      }
+      existing = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId_instructorId", (q) =>
+          q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId as string)
+        )
+        .first();
+    } else {
+      const openAssignments = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+        .collect();
+      existing = openAssignments.find((a) => a.instructorId === undefined);
+    }
+    if (existing) {
+      return { action: "exists", id: existing._id };
     }
 
     const id = await ctx.db.insert("videoEditorAssignments", {
@@ -384,5 +414,37 @@ export const createVideoEditorAssignment = mutation({
       assignedBy: callerByClerkId.userId,
     });
     return { action: "created", id };
+  },
+});
+
+export const removeVideoEditorOpenAssignment = mutation({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    const callerByClerkId = caller ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!callerByClerkId || callerByClerkId.role !== "admin") {
+      throw new Error("Forbidden: only admins can manage assignments");
+    }
+
+    const openAssignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    const openRow = openAssignments.find((a) => a.instructorId === undefined);
+    if (!openRow) {
+      return { action: "not_found" as const };
+    }
+    await ctx.db.delete(openRow._id);
+    return { action: "deleted" as const, id: openRow._id };
   },
 });

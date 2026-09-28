@@ -487,7 +487,8 @@ export async function extendShare(
 export interface VideoEditorAssignmentRow {
   _id: string;
   videoEditorId: string;
-  instructorId: string;
+  // Open assignment when undefined: video editor can upload to any instructor.
+  instructorId?: string;
   assignedAt?: number;
   assignedBy?: string;
   storageQuotaBytes?: number;
@@ -538,11 +539,19 @@ export async function updateVideoEditorAssignmentQuota(
 
 export async function createVideoEditorAssignment(
   videoEditorId: string,
-  instructorId: string
+  instructorId?: string
 ): Promise<{ success: boolean; action: "created" | "exists"; id: string }> {
   return fetchApi<{ success: boolean; action: "created" | "exists"; id: string }>("/api/admin/video-editors/assignments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ videoEditorId, instructorId }),
+  });
+}
+
+export async function removeVideoEditorOpenAssignment(
+  videoEditorId: string
+): Promise<{ success: boolean; action: "deleted" | "not_found" }> {
+  return fetchApi<{ success: boolean; action: "deleted" | "not_found" }>(`/api/admin/video-editors/${videoEditorId}/open-assignment`, {
+    method: "DELETE",
   });
 }

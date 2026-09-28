@@ -104,7 +104,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     } else {
       if (instructorId) {
         const accessibleIds = await getAccessibleInstructorIds();
-        if (!accessibleIds || !accessibleIds.includes(instructorId)) {
+        if (accessibleIds !== null && !accessibleIds.includes(instructorId)) {
           return NextResponse.json({ error: "Not authorized to access this instructor's files" }, { status: 403 });
         }
         result = await fetchQuery(api.instructorUploads.getAllUploads, {
