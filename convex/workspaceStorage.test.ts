@@ -2432,3 +2432,90 @@ test("getWorkspaceDownloadUrl refuses when WORKSPACE_STORAGE_USE_B2 is unset (PR
     }
   }
 });
+
+test("resolveWorkspaceB2FileUploadsForKeys refuses past-retention workspace (Greptile P1 #12)", async () => {
+  // Greptile P1 round 4 #12 — "Downloads bypass retention
+  // deadline": the action path (`getWorkspaceDownloadUrl`)
+  // checks `endedAt + WORKSPACE_RETENTION_MS` via
+  // `resolveWorkspaceDownloadAccess`, but the read-side
+  // resolver (`resolveWorkspaceB2FileUploadsForKeys`)
+  // short-circuited before this round. Without the guard,
+  // a member who knows a `b2Key` could keep downloading a
+  // file that the retention cron should have swept.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    // Seed a workspace ended 19 months ago — past the 18-month
+    // retention window. No `WORKSPACE_RETENTION_MS` import in
+    // tests; the resolver compares `Date.now() - endedAt`,
+    // so subtract 19 * 30 days to land past the window.
+    const nineteenMonthsAgo = Date.now() - 19 * 30 * 24 * 60 * 60 * 1000;
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_12",
+      instructorUserId: "u_instructor_pr1_12",
+      endedAt: nineteenMonthsAgo,
+    });
+    // Reserve a B2 key for this workspace so the ledger
+    // check (which fires AFTER the retention check) would
+    // otherwise succeed. The guard must short-circuit first.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        uploaderId: "u_student_pr1_12",
+        uploadedAt: Date.now() - 1000,
+        b2Key: "2026-01-01/file_pr1_12/past.png",
+        completedAt: Date.now() - 1000,
+        contentType: "image/png",
+      });
+    });
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_12/past.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(false);
+    expect(out[0]).toEqual({
+      b2Key: "2026-01-01/file_pr1_12/past.png",
+      ok: false,
+      error: "workspace_past_retention",
+    });
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys refuses deleted workspace (Greptile P1 #12)", async () => {
+  // Same guard, but for `deletedAt`. A soft-deleted workspace
+  // is rejected uniformly across all keys, regardless of
+  // whether any ledger rows remain.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_12b",
+      instructorUserId: "u_instructor_pr1_12b",
+      deletedAt: Date.now() - 1000,
+    });
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_12b/deleted.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(false);
+    expect(out[0]).toEqual({
+      b2Key: "2026-01-01/file_pr1_12b/deleted.png",
+      ok: false,
+      error: "workspace_deleted",
+    });
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});

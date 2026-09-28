@@ -103,7 +103,7 @@ export function useNoteEditor({
       // that the just-loaded content may carry. Pre-PR-3c notes
       // have no `b2Key` and fall through to render whatever's in
       // `src` (which may be expired).
-      void resolveB2KeyImageSrcs(editor);
+      void resolveB2KeyImageSrcs(editor, selectedNoteIdRef.current);
     },
   });
 
@@ -135,7 +135,7 @@ export function useNoteEditor({
         // note's URLs may have been resolved already, but the
         // new note may carry pre-PR-3c `data-b2-key` attributes
         // waiting for a signed URL).
-        void resolveB2KeyImageSrcs(editor);
+        void resolveB2KeyImageSrcs(editor, selectedNote._id);
       }
     } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
@@ -270,15 +270,29 @@ export function useNoteEditor({
   // mount) and the note-switch effect. Per-image errors
   // (cancelled / never-completed ledger) are swallowed so one
   // bad row doesn't blank the whole note.
+  //
+  // Greptile P1 round 4 #13 ("Image loading moves the cursor"):
+  // the earlier implementation called `setNodeSelection(pos)`
+  // BEFORE `updateAttributes("image", { src: url })`, which
+  // jumped the user's caret to the image node. If the user
+  // started editing elsewhere while the download was in
+  // flight, their caret moved mid-keystroke. Use a raw
+  // `tr.setNodeMarkup(pos, undefined, attrs)` transaction
+  // instead — `setNodeMarkup` mutates only the node attrs,
+  // NOT the selection, so the caret stays put. Also guard the
+  // whole pass with `selectedNoteIdRef.current` so if the user
+  // switched notes during the await, we don't write into a
+  // stale editor document.
   const resolveB2KeyImageSrcs = async (
-    editorInstance: NonNullable<ReturnType<typeof useEditor>>
+    editorInstance: NonNullable<ReturnType<typeof useEditor>>,
+    noteIdAtCall: Id<'workspaceNotes'> | null
   ): Promise<void> => {
-    const pending: Array<{ b2Key: string }> = [];
-    editorInstance.state.doc.descendants((node) => {
+    const pending: Array<{ b2Key: string; pos: number }> = [];
+    editorInstance.state.doc.descendants((node, pos) => {
       if (node.type.name !== "image") return;
       const b2Key = node.attrs.b2Key as string | null | undefined;
       if (typeof b2Key === "string" && b2Key.length > 0) {
-        pending.push({ b2Key });
+        pending.push({ b2Key, pos });
       }
     });
     if (pending.length === 0) return;
@@ -298,23 +312,39 @@ export function useNoteEditor({
       })
     );
 
+    // Same-note guard: bail out if the user switched notes
+    // while the awaits were in flight. Without this, we'd
+    // mutate the new note's doc with the old note's image
+    // URLs (Greptile P1 #13 — "pending request also has no
+    // check that the same note is still open").
+    if (selectedNoteIdRef.current !== noteIdAtCall) return;
+    if (editorRef.current !== editorInstance) return;
+
+    // Group updates into a single transaction so the editor
+    // emits exactly one render cycle, instead of one per
+    // image (which would flash the caret). `setNodeMarkup`
+    // on `tr` does NOT change the selection — the caret
+    // stays where the user left it.
+    const tr = editorInstance.state.tr;
+    let changed = false;
     for (const { b2Key, url } of resolved) {
       if (!url) continue;
-      editorInstance.state.doc.descendants((node, pos) => {
+      for (const { pos } of pending) {
+        const node = editorInstance.state.doc.nodeAt(pos);
         if (
+          node &&
           node.type.name === "image" &&
-          (node.attrs.b2Key as string | null) === b2Key &&
-          (node.attrs.src as string) !== url
+          node.attrs.b2Key === b2Key &&
+          node.attrs.src !== url
         ) {
-          editorInstance
-            .chain()
-            .setNodeSelection(pos)
-            .updateAttributes("image", { src: url })
-            .run();
-          return false;
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
+          changed = true;
+          break;
         }
-        return true;
-      });
+      }
+    }
+    if (changed) {
+      editorInstance.view.dispatch(tr);
     }
   };
 

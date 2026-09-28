@@ -254,7 +254,8 @@ export const resolveB2FileUploadForKey = internalQuery({
  *   - `{ url, expiresAt }` for keys whose ledger row is
  *     completed, not cancelled, and belongs to the supplied
  *     workspace;
- *   - `{ error: "missing" | "cancelled" | "wrong_workspace" }`
+ *   - `{ error: "missing" | "cancelled" | "wrong_workspace" |
+ *           "workspace_deleted" | "workspace_past_retention" }`
  *     for keys that should NOT produce a renderable URL.
  *
  * Signing is pure crypto (HMAC-SHA256) and runs inline in this
@@ -263,6 +264,17 @@ export const resolveB2FileUploadForKey = internalQuery({
  * consistent for its TTL window; clients can refresh via
  * `getWorkspaceDownloadUrl` action when a longer-lived URL is
  * needed (download ZIP export, share outside the app).
+ *
+ * Retention deadline (Greptile P1 round 4 #12): if the
+ * workspace has `deletedAt` set OR has been ended for more than
+ * `WORKSPACE_RETENTION_MS`, refuse to mint a URL for ANY key
+ * in this workspace. The retention cron will hard-delete the
+ * ledger row + the B2 object; until then we must NOT sign a
+ * GET URL because a member who knows a key could otherwise
+ * keep downloading files that should have expired. The action
+ * path (`getWorkspaceDownloadUrl`) already enforces this via
+ * `resolveWorkspaceDownloadAccess`; this query path closes the
+ * gap for the read queries that bypass that action.
  */
 export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
   args: {
@@ -276,7 +288,12 @@ export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
       | {
           b2Key: string;
           ok: false;
-          error: "missing" | "cancelled" | "wrong_workspace";
+          error:
+            | "missing"
+            | "cancelled"
+            | "wrong_workspace"
+            | "workspace_deleted"
+            | "workspace_past_retention";
         }
     >
   > => {
@@ -286,9 +303,40 @@ export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
       | {
           b2Key: string;
           ok: false;
-          error: "missing" | "cancelled" | "wrong_workspace";
+          error:
+            | "missing"
+            | "cancelled"
+            | "wrong_workspace"
+            | "workspace_deleted"
+            | "workspace_past_retention";
         }
     > = [];
+    // Single workspace read — once per call, shared by every
+    // key in this batch. The retention deadline check fires
+    // BEFORE any per-key ledger lookups so a past-deadline
+    // workspace short-circuits with a uniform error code.
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_deleted" });
+      }
+      return out;
+    }
+    if (workspace.deletedAt !== undefined) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_deleted" });
+      }
+      return out;
+    }
+    if (
+      workspace.endedAt !== undefined &&
+      Date.now() - workspace.endedAt > WORKSPACE_RETENTION_MS
+    ) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_past_retention" });
+      }
+      return out;
+    }
     // Dedup the input so we don't sign the same key twice for a
     // gallery page that references the same image in two rows.
     const seen = new Set<string>();
