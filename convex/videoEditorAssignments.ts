@@ -89,6 +89,33 @@ async function computeVideoEditorStorageStats(
 }
 
 /**
+ * Sum usage across every instructor that this video editor uploaded to.
+ * Used by the admin UI for an "open" assignment row (where the assignment
+ * itself has no `instructorId`), so the storage accounting reflects the
+ * editor's actual footprint instead of reporting zero.
+ */
+async function computeVideoEditorOpenStorageStats(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string
+): Promise<StorageStats> {
+  const uploads = await ctx.db
+    .query("instructorUploads")
+    .withIndex("by_uploadedById", (q) => q.eq("uploadedById", videoEditorId))
+    .collect();
+
+  let usedBytes = 0;
+  let fileCount = 0;
+  for (const upload of uploads) {
+    if (isActiveUpload(upload)) {
+      usedBytes += upload.size;
+      fileCount += 1;
+    }
+  }
+
+  return { usedBytes, fileCount };
+}
+
+/**
  * Migrates a video editor assignment from legacy system.
  * Updates existing assignment if found by videoEditorId and instructorId, otherwise creates new.
  */
@@ -154,19 +181,19 @@ export const getVideoEditorAssignmentsWithStorage = query({
 
     const results = [];
     for (const assignment of assignments) {
+      let stats: StorageStats;
       if (assignment.instructorId === undefined) {
-        results.push({
-          assignment,
-          usedBytes: 0,
-          fileCount: 0,
-        });
-        continue;
+        // Open assignment: sum across every instructor this editor uploaded
+        // to. The open row itself has no instructorId, but the storage
+        // accounting should reflect the editor's actual footprint.
+        stats = await computeVideoEditorOpenStorageStats(ctx, assignment.videoEditorId);
+      } else {
+        stats = await computeVideoEditorStorageStats(
+          ctx,
+          assignment.videoEditorId,
+          assignment.instructorId
+        );
       }
-      const stats = await computeVideoEditorStorageStats(
-        ctx,
-        assignment.videoEditorId,
-        assignment.instructorId
-      );
       results.push({
         assignment,
         usedBytes: stats.usedBytes,

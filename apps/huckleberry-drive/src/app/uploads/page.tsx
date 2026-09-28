@@ -48,7 +48,7 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
 
     if (hasOpenAssignment) {
       const instructorUsers = await fetchQuery(
-        api.users.getUsersByRole,
+        api.users.getActiveUsersByRole,
         { role: "instructor" },
         { token }
       ) as User[];

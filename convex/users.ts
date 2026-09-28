@@ -124,6 +124,28 @@ export const getUsersByRole = query({
   },
 });
 
+/**
+ * Same as `getUsersByRole` but excludes soft-deleted users (`deletedAt` set).
+ * Used by open-access video editor flows where the dropdown lists every
+ * invited instructor — soft-deleted accounts must not be selectable.
+ */
+export const getActiveUsersByRole = query({
+  args: { role: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const all = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) =>
+        q.eq("role", args.role as Doc<"users">["role"])
+      )
+      .collect();
+    return all.filter((u) => u.deletedAt === undefined);
+  },
+});
+
 /** Returns the currently authenticated user based on their auth identity. */
 export const getCurrentUser = query({
   handler: async (ctx) => {

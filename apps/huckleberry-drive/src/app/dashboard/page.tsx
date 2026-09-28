@@ -50,7 +50,7 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
     );
     if (openAssignment) {
       const allInstructors = await fetchQuery(
-        api.users.getUsersByRole,
+        api.users.getActiveUsersByRole,
         { role: "instructor" },
         { token }
       ) as Array<{ userId: string }>;
