@@ -333,20 +333,31 @@ export const createUpload = mutation({
     // route aborts the B2 multipart session if the mutation rejects, so
     // there is no orphaned state.
     //
+    // Admins uploading under their own user ID are exempt for the same
+    // reason — admin uploads target the admin's own user ID without
+    // needing an instructor profile.
+    //
     // Also reject soft-deleted instructors: an admin may have
     // decommissioned the user but the profile row still exists. Without
     // this check, the mutation would accept an upload targeting a
     // deleted instructor.
-    const isInstructorSelfUpload =
-      caller.role === "instructor" &&
-      args.instructorId === caller.userId;
-    if (!isInstructorSelfUpload) {
+    const isSelfUpload =
+      (caller.role === "instructor" && args.instructorId === caller.userId) ||
+      (caller.role === "admin" && args.instructorId === caller.userId);
+    if (!isSelfUpload) {
       const targetInstructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
         .first();
       if (!targetInstructor) {
         throw new Error("Target instructor not found");
+      }
+      // The instructors profile itself may be soft-deleted. Profile
+      // deletion is independent of users.deletedAt (an admin may
+      // decommission the instructor profile while leaving the user
+      // row). Both must be checked.
+      if (targetInstructor.deletedAt !== undefined) {
+        throw new Error("Target instructor profile is no longer active");
       }
       const targetUser = await ctx.db
         .query("users")

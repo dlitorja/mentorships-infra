@@ -1412,3 +1412,53 @@ test("createUpload: rejects former instructor (role removed) even with open acce
     })
   ).rejects.toThrow("Target is no longer an instructor");
 });
+
+test("createUpload: rejects soft-deleted instructor profile even with open access", async () => {
+  // The instructors profile row itself may be soft-deleted while the
+  // users row retains role='instructor'. The upload mutation must
+  // check both: profile.deletedAt AND users.deletedAt AND
+  // users.role. Profile deletion is independent from user deletion.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_profile_deleted_1";
+  const instructorId = "instructor_profile_deleted_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_profile_deleted_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_profile_deleted_1@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor_profile_deleted_1@example.com",
+      name: "Profile-Deleted Instructor",
+      deletedAt: Date.now() - 1000,
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: undefined,
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  await expect(
+    editorClient.mutation(api.instructorUploads.createUpload, {
+      id: "upload_to_profile_deleted_1",
+      instructorId,
+      filename: "key/upload_to_profile_deleted_1",
+      originalName: "upload_to_profile_deleted_1.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("Target instructor profile is no longer active");
+});
