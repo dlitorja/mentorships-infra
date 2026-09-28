@@ -32,6 +32,16 @@ const modules = import.meta.glob("./**/*.ts");
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+// PR workspace-storage-3c: every B2 action refuses to run unless
+// `WORKSPACE_STORAGE_USE_B2 === "true"`. The test env permanently
+// opts in so the existing B2 mint/confirm/download tests still
+// exercise the real action bodies (they would otherwise fail the
+// `requireB2Enabled` gate before reaching the authz logic). A
+// separate `B2 gate` test block below asserts the inverse —
+// that the gate refuses when the env var is unset — to keep the
+// cutover behavior under test.
+process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.B2_KEY_ID;
@@ -2341,4 +2351,79 @@ test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row
     return blob === null ? null : blob.size;
   });
   expect(deletedSize).toBeNull();
+});
+
+/**
+ * PR workspace-storage-3c (cutover flag): when the env var is
+ * unset, every B2 action refuses with a deterministic error so
+ * an operator can flip a single knob to disable B2 during a
+ * rollback or investigation. This block exercises both the
+ * mint (presigned PUT) and the download (signed GET) action;
+ * `recordB2FileUpload` shares the same `requireB2Enabled`
+ * helper at the top of the file, so testing one branch in
+ * each side is sufficient for the gate.
+ */
+test("generateWorkspaceUploadUrl refuses when WORKSPACE_STORAGE_USE_B2 is unset (PR 3c gate)", async () => {
+  stubB2Credentials();
+  // Disable the cutover flag for this test only — the top-of-file
+  // assignment sets it to "true" globally so the rest of the
+  // suite still exercises the action bodies.
+  const original = process.env.WORKSPACE_STORAGE_USE_B2;
+  process.env.WORKSPACE_STORAGE_USE_B2 = "false";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId, instructorId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_gate",
+      instructorUserId: "u_instructor_gate",
+    });
+    const asInstructor = t.withIdentity({ subject: "u_instructor_gate" });
+    await expect(
+      asInstructor.action(
+        api.workspaceStorage.generateWorkspaceUploadUrl,
+        {
+          workspaceId: workspaceId as Id<"workspaces">,
+          fileId: "test-file-id-1",
+          fileName: "x.png",
+          contentType: "image/png",
+          size: 1024,
+        }
+      )
+    ).rejects.toThrow(/B2 storage is disabled/);
+  } finally {
+    if (original === undefined) {
+      delete process.env.WORKSPACE_STORAGE_USE_B2;
+    } else {
+      process.env.WORKSPACE_STORAGE_USE_B2 = original;
+    }
+  }
+});
+
+test("getWorkspaceDownloadUrl refuses when WORKSPACE_STORAGE_USE_B2 is unset (PR 3c gate)", async () => {
+  stubB2Credentials();
+  const original = process.env.WORKSPACE_STORAGE_USE_B2;
+  process.env.WORKSPACE_STORAGE_USE_B2 = "false";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId, instructorId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_gate2",
+      instructorUserId: "u_instructor_gate2",
+    });
+    const asStudent = t.withIdentity({ subject: "u_student_gate2" });
+    await expect(
+      asStudent.action(
+        api.workspaceStorage.getWorkspaceDownloadUrl,
+        {
+          workspaceId: workspaceId as Id<"workspaces">,
+          b2Key: "2026-01-01/file_cross/cross.png",
+          expiresInSeconds: 3600,
+        }
+      )
+    ).rejects.toThrow(/B2 storage is disabled/);
+  } finally {
+    if (original === undefined) {
+      delete process.env.WORKSPACE_STORAGE_USE_B2;
+    } else {
+      process.env.WORKSPACE_STORAGE_USE_B2 = original;
+    }
+  }
 });
