@@ -3,33 +3,40 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 
-interface BatchResult {
-  rowsScanned: number;
-  editorsWritten: number;
-  editorsUnchanged: number;
+interface UploadsPage {
+  rows: Array<{
+    _id: string;
+    uploadedById?: string;
+    size: number;
+    status: string;
+  }>;
   isDone: boolean;
   nextCursor: string | null;
 }
 
+interface BatchResult {
+  written: number;
+  unchanged: number;
+}
+
 /**
- * Cron-driven backfill that walks every `instructorUploads` row in
- * bounded batches and writes the per-editor aggregate to
- * `videoEditorStorageStats`. HUC-58.
+ * Cron-driven backfill for the HUC-58 denormalized storage counter.
  *
- * The batch size is set in
- * `convex/mutations/backfillVideoEditorStorageCounter.ts` so it
- * stays under Convex's per-mutation read limit (32k reads / mutation).
+ * Strategy: paginate `instructorUploads` via an internal query (so
+ * each page stays under Convex's per-mutation read limit), accumulate
+ * the per-editor aggregate in the action's memory across all pages,
+ * then write the full aggregate in one mutation call at the end.
  *
- * The walk is resumable: each batch returns a `nextCursor` that the
- * action follows until the table is exhausted. The mutation is
- * idempotent (skips writes when the value is unchanged), so a cron
- * run that gets interrupted mid-walk can be re-driven without
- * double-counting.
+ * Why accumulate in the action: if the mutation overwrote the
+ * counter per page, an editor whose uploads span two pages would end
+ * up with only the second page's subtotal (round-24 Greptile P1 #2).
+ * Accumulating across pages guarantees the final value matches the
+ * pre-counter scan.
  *
- * The MAX_ITERATIONS bound prevents runaway loops if the index
- * cursor were ever to repeat.
+ * The walk is resumable via cursor. The MAX_ITERATIONS bound
+ * prevents runaway loops if the cursor were ever to repeat.
  */
-const MAX_ITERATIONS = 1000;
+const MAX_ITERATIONS = 10_000;
 
 export const runBackfillVideoEditorStorageCounter = internalAction({
   args: {},
@@ -37,28 +44,52 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
     let cursor: string | null = null;
     let iterations = 0;
     let totalRowsScanned = 0;
-    let totalEditorsWritten = 0;
-    let totalEditorsUnchanged = 0;
-    let isDone = false;
+    const aggregate = new Map<string, { usedBytes: number; fileCount: number }>();
+
     do {
-      const result = (await ctx.runMutation(
-        internal.mutations.backfillVideoEditorStorageCounter.backfillVideoEditorStorageCounterBatch,
+      const page = (await ctx.runQuery(
+        internal.mutations.backfillVideoEditorStorageCounter.getUploadsPage,
         { cursor }
-      )) as BatchResult;
+      )) as UploadsPage;
       iterations += 1;
-      totalRowsScanned += result.rowsScanned;
-      totalEditorsWritten += result.editorsWritten;
-      totalEditorsUnchanged += result.editorsUnchanged;
-      isDone = result.isDone;
-      cursor = result.nextCursor;
-      if (isDone) break;
+      totalRowsScanned += page.rows.length;
+      for (const row of page.rows) {
+        if (!row.uploadedById) continue;
+        if (row.status === "deleted" || row.status === "deleting") continue;
+        const existing = aggregate.get(row.uploadedById);
+        if (existing) {
+          existing.usedBytes += row.size;
+          existing.fileCount += 1;
+        } else {
+          aggregate.set(row.uploadedById, { usedBytes: row.size, fileCount: 1 });
+        }
+      }
+      cursor = page.nextCursor;
+      if (page.isDone) break;
     } while (cursor !== null && iterations < MAX_ITERATIONS);
+
+    // Write the full aggregate in one mutation. Convex mutations can
+    // accept up to a few MB of args; for tens of thousands of editors
+    // (extreme scale) this stays well under the limit.
+    const entries = Array.from(aggregate.entries()).map(
+      ([videoEditorId, agg]) => ({
+        videoEditorId,
+        usedBytes: agg.usedBytes,
+        fileCount: agg.fileCount,
+      })
+    );
+    const result = (await ctx.runMutation(
+      internal.mutations.backfillVideoEditorStorageCounter.setVideoEditorStorageCounterBatch,
+      { entries }
+    )) as BatchResult;
+
     return {
       iterations,
       totalRowsScanned,
-      totalEditorsWritten,
-      totalEditorsUnchanged,
-      reachedMaxIterations: !isDone,
+      editorsInAggregate: entries.length,
+      editorsWritten: result.written,
+      editorsUnchanged: result.unchanged,
+      reachedMaxIterations: !cursor && iterations >= MAX_ITERATIONS,
     };
   },
 });
