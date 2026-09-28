@@ -114,30 +114,23 @@ async function computeVideoEditorOpenStorageStats(
   }
 
   // Fallback for the gap between deploy and the first cron run.
-  // Queries cannot write the counter row inline (no `db.insert` on
-  // `GenericDatabaseReader`); the hourly cron will populate it.
-  // Until then we walk the uploads table in 4k-row pages so we
-  // never silently under-count (round-25 Greptile P1 #2).
+  // Queries can issue at most ONE paginated query per function
+  // execution, so we use a single `.collect()` (round-26 Greptile
+  // P1 #1). Bounded by the per-query document-read limit (~32k).
+  const rows = await ctx.db
+    .query("instructorUploads")
+    .withIndex("by_uploadedById", (q) =>
+      q.eq("uploadedById", videoEditorId)
+    )
+    .collect();
+
   let usedBytes = 0;
   let fileCount = 0;
-  let cursor: string | null = null;
-  let isDone = false;
-  for (let i = 0; i < 1000 && !isDone; i += 1) {
-    const page = await ctx.db
-      .query("instructorUploads")
-      .withIndex("by_uploadedById", (q) =>
-        q.eq("uploadedById", videoEditorId)
-      )
-      .paginate({ cursor, numItems: 4_000 });
-    for (const upload of page.page) {
-      if (isActiveUpload(upload)) {
-        usedBytes += upload.size;
-        fileCount += 1;
-      }
+  for (const upload of rows) {
+    if (isActiveUpload(upload)) {
+      usedBytes += upload.size;
+      fileCount += 1;
     }
-    isDone = page.isDone;
-    cursor = page.isDone ? null : page.continueCursor;
-    if (cursor === null) break;
   }
   return { usedBytes, fileCount };
 }
