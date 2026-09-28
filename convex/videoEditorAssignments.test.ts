@@ -1462,3 +1462,45 @@ test("createUpload: rejects soft-deleted instructor profile even with open acces
     })
   ).rejects.toThrow("Target instructor profile is no longer active");
 });
+
+test("getActiveUsersByRole: excludes soft-deleted instructor profiles", async () => {
+  // Round-21 Greptile P2 #3: getActiveUsersByRole now filters out
+  // instructors whose profile.deletedAt is set, in addition to
+  // users.deletedAt and the role check. createUpload also rejects
+  // these profiles, so the dropdown must not surface them.
+  const t = convexTest(schema, modules);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "active_instructor_1",
+      email: "active_instructor_1@example.com",
+      clerkId: "active_instructor_1",
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: "active_instructor_1",
+      email: "active_instructor_1@example.com",
+      name: "Active Instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: "deleted_profile_instructor_1",
+      email: "deleted_profile_instructor_1@example.com",
+      clerkId: "deleted_profile_instructor_1",
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: "deleted_profile_instructor_1",
+      email: "deleted_profile_instructor_1@example.com",
+      name: "Deleted-Profile Instructor",
+      deletedAt: Date.now() - 1000,
+    });
+  });
+
+  const client = t.withIdentity({ subject: "active_instructor_1" });
+  const active = (await client.query(api.users.getActiveUsersByRole, {
+    role: "instructor",
+  })) as Array<{ userId: string }>;
+  const ids = active.map((u) => u.userId);
+  expect(ids).toContain("active_instructor_1");
+  expect(ids).not.toContain("deleted_profile_instructor_1");
+});

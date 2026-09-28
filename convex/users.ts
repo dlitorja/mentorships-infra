@@ -156,13 +156,21 @@ export const getActiveUsersByRole = query({
     if (args.role !== "instructor") {
       return active;
     }
+    // Round-21 Greptile P2 #3: also exclude profiles whose own
+    // deletedAt is set. Profile deletion is independent from user
+    // deletion: an admin may decommission the instructor profile
+    // while leaving the users row intact with role='instructor'.
+    // createUpload also rejects uploads to such profiles, so the
+    // dropdown / switcher must not surface them.
     const withProfile = await Promise.all(
       active.map(async (u) => {
         const profile = await ctx.db
           .query("instructors")
           .withIndex("by_userId", (q) => q.eq("userId", u.userId))
           .first();
-        return profile ? u : null;
+        if (!profile) return null;
+        if (profile.deletedAt !== undefined) return null;
+        return u;
       })
     );
     return withProfile.filter((u): u is NonNullable<typeof u> => u !== null);

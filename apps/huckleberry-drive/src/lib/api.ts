@@ -18,6 +18,14 @@ export interface StorageUsage {
   limitBytes: number | null;
   fileCount: number;
   instructorCount?: number;
+  // True when the editor has at least one active assignment. False
+  // when every assignment was revoked — the dashboard renders a 'No
+  // access' state instead of dividing by zero.
+  hasAccess?: boolean;
+  // True when the storage scan was bounded by the single-page scan
+  // cap (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The dashboard surfaces
+  // a 'partial' badge so editors don't take an undercount as exact.
+  truncated?: boolean;
 }
 
 export interface UploadInitiateResponse {
