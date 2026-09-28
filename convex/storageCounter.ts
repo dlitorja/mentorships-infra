@@ -31,6 +31,14 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
  * the row crossed the active/deletion boundary, and patches the
  * counter row accordingly. Creates the row if absent.
  *
+ * First-creation behavior: when the counter row does not exist AND
+ * the editor has historical uploads, this function performs a
+ * full-aggregate scan and seeds the counter with the correct total
+ * rather than just the single-row delta. This prevents the
+ * "first change hides historical uploads" race where a single
+ * delta on a fresh counter understates usage. (Round-25 Greptile
+ * P1 #4.)
+ *
  * Active statuses (counted): `pending`, `uploading`, `completed`,
  * `archived`, `failed`. Inactive (not counted): `deleted`, `deleting`.
  *
@@ -50,10 +58,7 @@ export async function applyCounterDelta(
   if (!args.uploadedById) return;
   const wasActive = isActiveStatus(args.fromStatus);
   const isActive = isActiveStatus(args.toStatus);
-  if (wasActive === isActive) return;
 
-  const deltaBytes = isActive ? args.size : -args.size;
-  const deltaCount = isActive ? 1 : -1;
   const uploadedById = args.uploadedById;
 
   const existing = await ctx.db
@@ -63,20 +68,75 @@ export async function applyCounterDelta(
     )
     .first();
 
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      usedBytes: Math.max(0, existing.usedBytes + deltaBytes),
-      fileCount: Math.max(0, existing.fileCount + deltaCount),
-      lastUpdatedAt: Date.now(),
-    });
-  } else {
+  // First-creation seed: when the counter row does not exist, the
+  // editor has historical rows. The row that triggered this
+  // mutation has already been inserted/patched before applyCounterDelta
+  // runs (see instructorUploads.createUpload/softDeleteUpload/etc.),
+  // so the aggregate over all rows reflects the post-mutation state.
+  // Use it directly; do NOT add the delta on top, or we would
+  // double-count (round-25 Greptile P1 #4 follow-up).
+  if (!existing) {
+    const aggregate = await computeFullAggregate(ctx, uploadedById);
     await ctx.db.insert("videoEditorStorageStats", {
       videoEditorId: uploadedById,
-      usedBytes: Math.max(0, deltaBytes),
-      fileCount: Math.max(0, deltaCount),
+      usedBytes: aggregate.usedBytes,
+      fileCount: aggregate.fileCount,
       lastUpdatedAt: Date.now(),
     });
+    return;
   }
+
+  if (wasActive === isActive) return;
+
+  const deltaBytes = isActive ? args.size : -args.size;
+  const deltaCount = isActive ? 1 : -1;
+
+  await ctx.db.patch(existing._id, {
+    usedBytes: Math.max(0, existing.usedBytes + deltaBytes),
+    fileCount: Math.max(0, existing.fileCount + deltaCount),
+    lastUpdatedAt: Date.now(),
+  });
+}
+
+/**
+ * Walk all of an editor's `instructorUploads` rows and aggregate
+ * active bytes per `uploadedById`. Used by `applyCounterDelta` on
+ * first creation when the editor has historical rows. Loops until
+ * the table is exhausted so we always produce a complete aggregate
+ * even for editors with thousands of rows.
+ */
+async function computeFullAggregate(
+  ctx: MutationCtx,
+  videoEditorId: string
+): Promise<{
+  usedBytes: number;
+  fileCount: number;
+  totalRows: number;
+}> {
+  let usedBytes = 0;
+  let fileCount = 0;
+  let totalRows = 0;
+  let cursor: string | null = null;
+  let isDone = false;
+  // Bound the loop so a corrupted index can't run forever.
+  for (let i = 0; i < 1000 && !isDone; i += 1) {
+    const page = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_uploadedById", (q) =>
+        q.eq("uploadedById", videoEditorId)
+      )
+      .paginate({ cursor, numItems: 4_000 });
+    for (const row of page.page) {
+      totalRows += 1;
+      if (row.status === "deleted" || row.status === "deleting") continue;
+      usedBytes += row.size;
+      fileCount += 1;
+    }
+    isDone = page.isDone;
+    cursor = page.isDone ? null : page.continueCursor;
+    if (cursor === null) break;
+  }
+  return { usedBytes, fileCount, totalRows };
 }
 
 function isActiveStatus(status: string | undefined): boolean {

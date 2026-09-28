@@ -44,11 +44,19 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
         fileCount: v.number(),
       })
     ),
+    // Timestamp recorded by the action BEFORE it started scanning
+    // uploads. Used to prevent the action from overwriting a
+    // counter that a concurrent mutation has touched during the
+    // scan (round-25 Greptile P1 #3): if `existing.lastUpdatedAt >
+    // scanStartTime`, the mutation has fresher data than the scan,
+    // so we skip the write.
+    scanStartTime: v.number(),
   },
   handler: async (ctx, args) => {
     const lastUpdatedAt = Date.now();
     let written = 0;
     let unchanged = 0;
+    let skippedByMutation = 0;
     for (const entry of args.entries) {
       const existing = await ctx.db
         .query("videoEditorStorageStats")
@@ -57,6 +65,13 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
         )
         .first();
       if (existing) {
+        // If a mutation has touched this counter since the scan
+        // started, the mutation's value is fresher than the scan's.
+        // Skip the write to avoid clobbering it.
+        if (existing.lastUpdatedAt > args.scanStartTime) {
+          skippedByMutation += 1;
+          continue;
+        }
         if (
           existing.usedBytes === entry.usedBytes &&
           existing.fileCount === entry.fileCount
@@ -86,7 +101,7 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
       }
       written += 1;
     }
-    return { written, unchanged };
+    return { written, unchanged, skippedByMutation };
   },
 });
 

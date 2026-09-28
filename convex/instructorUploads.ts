@@ -1318,24 +1318,34 @@ export const getVideoEditorTotalStorageStats = query({
     // scan the uploads table directly. Queries cannot write to the
     // counter table (no `db.insert` on `GenericDatabaseReader`), so
     // we cannot self-heal the row inline. The hourly cron will write
-    // the counter on its next pass. Until then the editor sees the
-    // exact pre-counter behaviour, but no worse — the scan is
-    // bounded by the per-query document-read limit (~32k reads).
-    const page = await ctx.db
-      .query("instructorUploads")
-      .withIndex("by_uploadedById", (q) =>
-        q.eq("uploadedById", args.videoEditorId)
-      )
-      .paginate({ numItems: 32_000, cursor: null });
-
+    // the counter on its next pass. Until then we walk the full
+    // uploads table for this editor in 4k-row pages so the fallback
+    // never silently under-counts (round-25 Greptile P1 #2). The
+    // walk is bounded at 1000 iterations (= 4M rows) as a safety
+    // limit; in practice the per-editor upload count is far smaller.
     let usedBytes = 0;
     let fileCount = 0;
-    for (const upload of page.page) {
-      if (upload.status === "deleted" || upload.status === "deleting") {
-        continue;
+    let cursor: string | null = null;
+    let isDone = false;
+    let walkedAny = false;
+    for (let i = 0; i < 1000 && !isDone; i += 1) {
+      const page = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_uploadedById", (q) =>
+          q.eq("uploadedById", args.videoEditorId)
+        )
+        .paginate({ cursor, numItems: 4_000 });
+      for (const upload of page.page) {
+        if (upload.status === "deleted" || upload.status === "deleting") {
+          continue;
+        }
+        usedBytes += upload.size;
+        fileCount += 1;
       }
-      usedBytes += upload.size;
-      fileCount += 1;
+      walkedAny = walkedAny || page.page.length > 0;
+      isDone = page.isDone;
+      cursor = page.isDone ? null : page.continueCursor;
+      if (cursor === null) break;
     }
     return {
       usedBytes,

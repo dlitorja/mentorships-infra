@@ -17,6 +17,7 @@ interface UploadsPage {
 interface BatchResult {
   written: number;
   unchanged: number;
+  skippedByMutation: number;
 }
 
 /**
@@ -41,6 +42,12 @@ const MAX_ITERATIONS = 10_000;
 export const runBackfillVideoEditorStorageCounter = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Capture the scan start time BEFORE walking uploads. Any
+    // mutation that updates a counter after this timestamp has
+    // fresher data than our scan; the write below will skip those
+    // rows. (Round-25 Greptile P1 #3.)
+    const scanStartTime = Date.now();
+
     let cursor: string | null = null;
     let iterations = 0;
     let totalRowsScanned = 0;
@@ -80,7 +87,7 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
     );
     const result = (await ctx.runMutation(
       internal.mutations.backfillVideoEditorStorageCounter.setVideoEditorStorageCounterBatch,
-      { entries }
+      { entries, scanStartTime }
     )) as BatchResult;
 
     return {
@@ -89,6 +96,7 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
       editorsInAggregate: entries.length,
       editorsWritten: result.written,
       editorsUnchanged: result.unchanged,
+      editorsSkippedByMutation: result.skippedByMutation ?? 0,
       reachedMaxIterations: !cursor && iterations >= MAX_ITERATIONS,
     };
   },

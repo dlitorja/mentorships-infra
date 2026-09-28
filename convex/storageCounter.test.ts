@@ -550,6 +550,7 @@ test("counter: full backfill scan aggregates active rows correctly", async () =>
           usedBytes: a.usedBytes,
           fileCount: a.fileCount,
         })),
+        scanStartTime: Date.now() - 1000,
       }
     );
   });
@@ -644,6 +645,7 @@ test("counter: unchanged totals still refresh lastUpdatedAt (no false stale)", a
           usedBytes: a.usedBytes,
           fileCount: a.fileCount,
         })),
+        scanStartTime: Date.now() - 1000,
       }
     );
   });
@@ -748,6 +750,7 @@ test("counter: cross-page accumulation preserves the full editor total", async (
             fileCount: a.fileCount,
           })
         ),
+        scanStartTime: Date.now() - 1000,
       }
     );
   });
@@ -766,5 +769,197 @@ test("counter: cross-page accumulation preserves the full editor total", async (
     // sum.
     expect(counter?.usedBytes).toBe(55 * 1024 * 1024);
     expect(counter?.fileCount).toBe(10);
+  });
+});
+
+test("counter: first change seeds with full historical aggregate, not just the delta", async () => {
+  // Round-25 Greptile P1 #4: when applyCounterDelta runs for the
+  // first time on an editor with historical uploads, it must
+  // compute the full aggregate from existing rows and seed the
+  // counter with that total (adjusted by the delta), not just
+  // insert a counter from the single delta's contribution.
+  const t = convexTest(schema, modules);
+
+  const editorId = "first_change_editor_1";
+  const instructorId = "first_change_instructor_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "first_change_editor_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "first_change_instructor_1@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "first_change_instructor_1@example.com",
+      name: "First Change Instructor",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+      storageQuotaBytes: 1024 * 1024 * 1024,
+    });
+    // Pre-seed 3 historical completed uploads (300 MB total) for
+    // the editor. The counter is intentionally MISSING (the test
+    // simulates "first deploy, no counter row yet").
+    for (let i = 0; i < 3; i += 1) {
+      await ctx.db.insert("instructorUploads", {
+        legacyId: `historical_${i}`,
+        instructorId,
+        filename: `key/historical_${i}`,
+        originalName: `historical_${i}.mp4`,
+        contentType: "video/mp4",
+        size: 100 * 1024 * 1024,
+        status: "completed",
+        uploadedById: editorId,
+        createdAt: Date.now() - (3 - i) * 1000,
+        updatedAt: Date.now() - (3 - i) * 1000,
+      });
+    }
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  // The first mutation after deploy. This triggers applyCounterDelta
+  // for the first time on this editor (counter is missing). It must
+  // seed the counter with 300 MB + 50 MB = 350 MB / 4 files, NOT
+  // just 50 MB / 1 file from the delta alone.
+  await editorClient.mutation(api.instructorUploads.createUpload, {
+    id: "first_change_upload_1",
+    instructorId,
+    filename: "key/first_change_upload_1",
+    originalName: "first_change_upload_1.mp4",
+    contentType: "video/mp4",
+    size: 50 * 1024 * 1024,
+    uploadedById: editorId,
+  });
+
+  await t.run(async (ctx) => {
+    const counter = await ctx.db
+      .query("videoEditorStorageStats")
+      .withIndex("by_videoEditorId", (q) =>
+        q.eq("videoEditorId", editorId)
+      )
+      .first();
+    expect(counter).toBeDefined();
+    // 300 MB historical + 50 MB new = 350 MB / 4 files.
+    expect(counter?.usedBytes).toBe(350 * 1024 * 1024);
+    expect(counter?.fileCount).toBe(4);
+  });
+});
+
+test("counter: cron write skips counters touched by mutation during scan", async () => {
+  // Round-25 Greptile P1 #3: if a mutation runs after the cron's
+  // scanStartTime but before the cron's write, the mutation has
+  // fresher data and must not be overwritten.
+  const t = convexTest(schema, modules);
+
+  const editorId = "race_editor_1";
+  const instructorId = "race_instructor_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "race_editor_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "race_instructor_1@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "race_instructor_1@example.com",
+      name: "Race Instructor",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+      storageQuotaBytes: 1024 * 1024 * 1024,
+    });
+    // Pre-seed an upload and a counter row representing the state
+    // BEFORE the scan started. The mutation (next test step) will
+    // touch the counter with a fresher timestamp.
+    await ctx.db.insert("instructorUploads", {
+      legacyId: "race_upload_1",
+      instructorId,
+      filename: "key/race_upload_1",
+      originalName: "race_upload_1.mp4",
+      contentType: "video/mp4",
+      size: 100 * 1024 * 1024,
+      status: "completed",
+      uploadedById: editorId,
+      createdAt: Date.now() - 5000,
+      updatedAt: Date.now() - 5000,
+    });
+    await ctx.db.insert("videoEditorStorageStats", {
+      videoEditorId: editorId,
+      usedBytes: 100 * 1024 * 1024,
+      fileCount: 1,
+      lastUpdatedAt: Date.now() - 5000, // BEFORE scanStartTime
+    });
+  });
+
+  // Mutation runs: this would set lastUpdatedAt to a value AFTER
+  // scanStartTime. The cron's write must NOT overwrite it.
+  const editorClient = t.withIdentity({ subject: editorId });
+  await editorClient.mutation(api.instructorUploads.createUpload, {
+    id: "race_upload_2",
+    instructorId,
+    filename: "key/race_upload_2",
+    originalName: "race_upload_2.mp4",
+    contentType: "video/mp4",
+    size: 50 * 1024 * 1024,
+    uploadedById: editorId,
+  });
+
+  // Simulate a cron run whose scanStartTime is BEFORE the mutation.
+  const scanStartTime = Date.now() - 1000;
+  await t.run(async (ctx) => {
+    // Build the (stale) aggregate the cron would have computed from
+    // a scan at scanStartTime: just the historical 100 MB upload.
+    await ctx.runMutation(
+      internal.mutations.backfillVideoEditorStorageCounter.setVideoEditorStorageCounterBatch,
+      {
+        entries: [
+          {
+            videoEditorId: editorId,
+            usedBytes: 100 * 1024 * 1024,
+            fileCount: 1,
+          },
+        ],
+        scanStartTime,
+      }
+    );
+  });
+
+  await t.run(async (ctx) => {
+    const counter = await ctx.db
+      .query("videoEditorStorageStats")
+      .withIndex("by_videoEditorId", (q) =>
+        q.eq("videoEditorId", editorId)
+      )
+      .first();
+    expect(counter).toBeDefined();
+    // The mutation's value (150 MB / 2 files, with a fresher
+    // lastUpdatedAt) must be preserved. The cron's stale write
+    // must be skipped.
+    expect(counter?.usedBytes).toBe(150 * 1024 * 1024);
+    expect(counter?.fileCount).toBe(2);
+    // lastUpdatedAt must reflect the mutation's timestamp (more
+    // recent than scanStartTime + the cron's Date.now()).
+    expect(counter!.lastUpdatedAt).toBeGreaterThan(scanStartTime);
   });
 });
