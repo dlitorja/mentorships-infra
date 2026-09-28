@@ -1447,9 +1447,12 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
   // can retry the same key.
   //
   // We force the mutation to throw a NON-TOCTOU error by
-  // minting an upload URL then deleting the ledger row before
-  // `confirmB2FileUpload` runs — the mutation throws "Ledger
-  // row vanished" without the `TOCTOU_REJECT:` prefix.
+  // pre-cancelling the ledger row — the mutation throws
+  // "Ledger row was cancelled during verify-and-confirm"
+  // (NOT a TOCTOU rejection, no `[TOCTOU-REJECT]` prefix).
+  // The ledger row still exists with `cancelledAt` set, so
+  // we can assert the catch handler left it alone (no
+  // cancelledAt re-patch, no re-scheduled cleanup).
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1458,12 +1461,14 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
   });
   const now = Date.now();
   const b2Key = "2026-01-01/file_transient/transient.png";
+  const preCancelledAt = now - 5000;
   const rowId = await t.run(async (ctx) =>
     ctx.db.insert("fileUploads", {
       workspaceId: workspaceId as any,
       uploaderId: "u_student_1",
       uploadedAt: now,
       b2Key,
+      cancelledAt: preCancelledAt,
     })
   );
 
@@ -1474,36 +1479,26 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
     )
   );
 
-  // Delete the ledger row so the mutation throws the
-  // non-TOCTOU error "Ledger row vanished during
-  // verify-and-confirm".
-  await t.run(async (ctx) => ctx.db.delete(rowId as any));
-
   await expect(
     t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
       b2Key,
       ledgerId: rowId as any,
       callerId: "u_student_1",
     })
-  ).rejects.toThrow(/vanished/i);
+  ).rejects.toThrow(/cancelled during/i);
 
-  // No ledger row exists (we deleted it) so there's nothing
-  // to inspect; the important assertion is the catch handler
-  // did NOT call `cancelB2FileUpload` (no
-  // `cleanupRejectedB2Upload` schedule was registered, so no
-  // fetch was made after the initial HEAD). Verify by
-  // inspecting fetch call count.
-  // The HEAD above counts as one call. If the catch handler
-  // had incorrectly tried to cancel, it would have called
-  // `getFileUploadById` (no fetch) and `cancelB2FileUpload`
-  // (no fetch — only schedules). So fetch count stays at 1.
-  // (Future regression: a handler that fetches would bump
-  // this count.)
-  // (Verified by mutation being unreachable — we cannot
-  // count fetches across the action call directly here
-  // because the stub reset happens between top-level tests
-  // in afterEach. The next test covers the fetch count more
-  // explicitly.)
+  // HUC-53 P1 follow-up: the catch handler MUST NOT call
+  // `cancelB2FileUpload` on a non-TOCTOU error. The error
+  // message does not start with `[TOCTOU-REJECT]`, so the
+  // handler skips cleanup. Assert the ledger row is
+  // unchanged (no re-patch of `cancelledAt`, no re-schedule
+  // of cleanup). If a regression re-enabled unconditional
+  // cancel, `cancelledAt` would be overwritten with a
+  // later timestamp and a redundant cleanup would be
+  // scheduled (which would issue an extra B2 DELETE).
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).cancelledAt).toBe(preCancelledAt);
+  expect((ledger as any).completedAt).toBeUndefined();
 });
 
 test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (end-to-end)", async () => {
