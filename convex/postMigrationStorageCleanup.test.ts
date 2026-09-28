@@ -530,6 +530,56 @@ test("cleanupMigratedConvexStorageBlobs is idempotent across runs", async () => 
   expect(second.scanned).toBe(0);
 });
 
+test("cleanupMigratedConvexStorageBlobs re-checks refs immediately before delete (Greptile P1: new messages can lose files)", async () => {
+  const t = convexTest({ schema, modules });
+  const now = Date.now();
+  const workspaceId = await seedWorkspace(t, { ownerId: "u_owner_1" });
+  // Eligible row, no refs at candidate-query time. The TOCTOU
+  // window exists between the orchestrator's first refs check
+  // and the actual `ctx.storage.delete` call. To exercise the
+  // re-check, we insert a ref AFTER the candidate query would
+  // have completed but BEFORE the orchestrator's delete phase.
+  // convex-test runs actions atomically from the test driver's
+  // view, so we can't inject a write between the two checks
+  // directly — instead, we exercise the safety invariant: any
+  // live ref present at cleanup time keeps the blob alive. The
+  // re-check is a defense-in-depth measure that closes the
+  // window from "minutes" to "milliseconds" but cannot close it
+  // entirely from PR 3a (PR 3b adds a write-side invariant).
+  const { rowId, storageId } = await seedMigratedRow(t, {
+    workspaceId,
+    uploaderId: "u_uploader_1",
+    uploadedAt: now - MIGRATED_AT_PAST - 24 * 60 * 60 * 1000,
+    migratedAt: now - MIGRATED_AT_PAST,
+    b2Key: "2026-01-01/file_toctou/sd.png",
+  });
+  // Insert a chat message ref — simulates the worst-case TOCTOU
+  // scenario where a ref appears between the orchestrator's
+  // first check and its re-check. Both checks must reject.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceMessages", {
+      workspaceId: workspaceId as any,
+      userId: "u_owner_1",
+      content: "shared an image",
+      type: "image",
+      storageId,
+      b2Key: "2026-01-01/file_toctou/sd.png",
+    });
+  });
+  const result = await t.action(
+    internal.cleanup.postMigrationStorageCleanup
+      .cleanupMigratedConvexStorageBlobs,
+    {}
+  );
+  expect(result.scanned).toBe(1);
+  expect(result.deletedBlobs).toBe(0);
+  expect(result.skippedLiveRefs).toBe(1);
+  const row = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect(row?.convexStorageBlobsDeletedAt).toBeUndefined();
+  const blobExists = await t.action(async (ctx) => (await ctx.storage.get(storageId as Id<"_storage">)) !== null);
+  expect(blobExists).toBe(true);
+});
+
 test("cleanupMigratedConvexStorageBlobs drains batches", async () => {
   const t = convexTest({ schema, modules });
   const now = Date.now();

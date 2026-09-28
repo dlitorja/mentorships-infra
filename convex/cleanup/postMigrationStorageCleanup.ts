@@ -40,8 +40,12 @@ import { CHAT_FILE_RETENTION_MS } from "../workspaceConstants";
  * the cutover flag flips and B2 becomes the source of truth.
  *
  * Safety:
- *   - The `by_migratedAt_uploadedAt` index on `fileUploads` plus
- *     the `q.gt("migratedAt", 0)` range query excludes un-migrated
+ *   - The
+ *     `by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt` index
+ *     on `fileUploads` excludes already-stamped rows from the scan
+ *     entirely (so a backlog of cleaned-up rows cannot starve later
+ *     eligible candidates of batch reads). The
+ *     `q.gt("migratedAt", 0)` range filter excludes un-migrated
  *     rows and rows whose migration is still settling. The post-
  *     filter then applies the real age threshold
  *     `migratedAt < threshold` because Convex indexes cannot
@@ -113,13 +117,15 @@ const MAX_BATCHES_PER_TICK = 250;
  * are excluded; they were already cleaned up by the
  * `cancelB2FileUpload` path.
  *
- * Uses the `by_migratedAt_uploadedAt` index so the cross-workspace
- * scan does not exceed Convex's read budget. The `q.gt("migratedAt",
- * 0)` filter excludes rows where `migratedAt` is undefined (Convex
- * indexes store undefined as null, which sorts below all positive
- * numbers). The post-filter then drops the `b2Key` / `storageId`
- * / `cancelledAt` / `convexStorageBlobsDeletedAt` carve-outs and
- * applies the real age threshold `migratedAt < threshold` (the
+ * Uses the
+ * `by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt` index so
+ * stamped rows are excluded from the index scan entirely (otherwise
+ * each tick would burn through its batch budget on already-cleaned
+ * rows and never reach later eligible candidates). The equality on
+ * the leftmost column narrows the scan before the range on
+ * `migratedAt` runs. The post-filter then drops the `b2Key` /
+ * `storageId` / `cancelledAt` carve-outs and applies the real age
+ * threshold `migratedAt < threshold` (the
  * index cannot express a `<` filter directly because Convex
  * indexes require equality on leftmost columns).
  */
@@ -326,6 +332,33 @@ export const cleanupMigratedConvexStorageBlobs = internalAction({
           refs.resourceId !== null ||
           refs.chatMessageId !== null ||
           refs.noteCommentId !== null
+        ) {
+          totalSkippedLiveRefs++;
+          continue;
+        }
+        // Re-check live refs immediately before delete to narrow
+        // the TOCTOU window (Greptile P1 round 30: "New messages
+        // can lose files"). A workspaceMessages.create mutation
+        // could insert a row referencing this storageId between
+        // the candidate check above and the delete below; the
+        // create mutations don't coordinate with this action,
+        // so the window cannot be closed entirely from PR 3a.
+        // Re-checking at delete time cuts the exposure from
+        // "minutes" (candidate query -> iterate -> delete) to
+        // "milliseconds" (re-check -> delete). A definitive fix
+        // is a write-side invariant in PR 3b: refuse to set
+        // workspaceMessages.storageId to a storageId whose
+        // fileUploads row is stamped or migration-pending.
+        const refsAtDelete = await ctx.runQuery(
+          internal.cleanup.postMigrationStorageCleanup
+            .findLiveStorageReferencesForCleanup,
+          { storageId }
+        );
+        if (
+          refsAtDelete.imageId !== null ||
+          refsAtDelete.resourceId !== null ||
+          refsAtDelete.chatMessageId !== null ||
+          refsAtDelete.noteCommentId !== null
         ) {
           totalSkippedLiveRefs++;
           continue;

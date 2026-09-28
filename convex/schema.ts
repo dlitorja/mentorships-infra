@@ -671,19 +671,6 @@ export default defineSchema({
     // blob to migrate) and the `migratedAt / cancelledAt`
     // carve-outs.
     .index("by_b2Key_uploadedAt", ["b2Key", "uploadedAt"])
-    // PR workspace-storage-3a (post-migration Convex-storage
-    // cleanup): the cleanup cron selects rows where
-    // `migratedAt !== undefined && migratedAt < NOW - 7
-    // days && b2Key !== undefined && storageId !== undefined
-    // && cancelledAt === undefined &&
-    // convexStorageBlobsDeletedAt === undefined`. Convex
-    // indexes require equality on leftmost columns; the
-    // range query `q.gte("migratedAt", threshold)` excludes
-    // rows where `migratedAt` is undefined (Convex sorts
-    // undefined below any number). Range on `uploadedAt`
-    // orders by upload age for stable pagination. Post-filter
-    // drops the B2 / cancelled / already-deleted carve-outs.
-    .index("by_migratedAt_uploadedAt", ["migratedAt", "uploadedAt"])
     // PR workspace-storage-3a (post-migration cleanup): the
     // daily `cleanupMigratedConvexStorageBlobs` cron
     // excludes stamped rows from the index scan so a backlog
