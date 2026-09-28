@@ -264,18 +264,18 @@ async function requireDeleteAccess(
   }
 
   // Cleanup fallback: a video editor may always delete an upload they own
-  // if it is still in-progress (pending/uploading) AND no B2 multipart
-  // session exists. This covers cleanup of upload rows whose multipart
-  // either never started or has already been aborted elsewhere. For
-  // in-flight multipart uploads (`b2UploadId` set), the editor MUST go
-  // through /api/uploads/abort so the B2 multipart state is cleaned up
-  // before the row is marked deleted — otherwise storage would remain
-  // in use after the row disappears from active usage.
+  // if it is still in-progress (pending/uploading). This is the cleanup
+  // path for the /api/uploads/abort route — which aborts the B2
+  // multipart first and then calls softDeleteUpload. Without this
+  // fallback, revoking an editor's open access mid-multipart-upload
+  // would leave the Convex row stuck in 'uploading' (B2 was aborted,
+  // but the row could not be marked deleted). The grace window is not
+  // enforced here because deletion never adds new data to storage; it
+  // is purely a cleanup.
   if (
     caller.role === "video_editor" &&
     upload.uploadedById === caller.userId &&
-    (upload.status === "pending" || upload.status === "uploading") &&
-    upload.b2UploadId === undefined
+    (upload.status === "pending" || upload.status === "uploading")
   ) {
     return;
   }

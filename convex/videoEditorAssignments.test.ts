@@ -1151,12 +1151,13 @@ test("getVideoEditorTotalStorageStats: returns editor's true historical usage re
   expect(stats.fileCount).toBe(2);
 });
 
-test("requireDeleteAccess: video editor can clean up own in-progress upload with no multipart session", async () => {
-  // The route-level abort fallback lets the editor abort a B2 multipart,
-  // but `softDeleteUpload` also accepts a cleanup path for in-progress
-  // rows that have no `b2UploadId` (multipart never started or was
-  // already aborted elsewhere). For rows WITH a `b2UploadId` the editor
-  // MUST go through /api/uploads/abort so B2 cleanup happens.
+test("requireDeleteAccess: video editor can clean up own in-progress upload after open access revoked", async () => {
+  // The route-level abort fallback lets the editor abort the B2
+  // multipart state, then `softDeleteUpload` accepts the cleanup path
+  // for in-progress rows (regardless of whether b2UploadId is set) so
+  // the row can be marked deleted. Without this fallback, revoking an
+  // editor's open access mid-multipart-upload would leave the Convex
+  // row stuck in 'uploading'.
   const t = convexTest(schema, modules);
 
   const editorId = "editor_cleanup_1";
@@ -1180,8 +1181,7 @@ test("requireDeleteAccess: video editor can clean up own in-progress upload with
       email: "instructor_cleanup_1@example.com",
       name: "Instructor Cleanup 1",
     });
-    // No assignments — open access was revoked. No b2UploadId either,
-    // so the cleanup fallback allows this soft-delete.
+    // No assignments — open access was revoked.
     await ctx.db.insert("instructorUploads", {
       legacyId: "cleanup_upload_1",
       instructorId,
@@ -1191,6 +1191,7 @@ test("requireDeleteAccess: video editor can clean up own in-progress upload with
       size: 100 * 1024 * 1024,
       status: "uploading",
       uploadedById: editorId,
+      b2UploadId: "test-upload-id",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -1211,59 +1212,6 @@ test("requireDeleteAccess: video editor can clean up own in-progress upload with
       .first()
   );
   expect(after?.status).toBe("deleted");
-});
-
-test("requireDeleteAccess: video editor cannot bypass multipart cleanup via direct soft-delete", async () => {
-  // For an in-progress upload row WITH a b2UploadId (B2 multipart session
-  // active), the editor must use /api/uploads/abort — which aborts the
-  // multipart and then soft-deletes the row. A direct softDeleteUpload
-  // call would mark the row deleted but leave the B2 multipart session
-  // in use. The mutation rejects this to prevent storage leakage.
-  const t = convexTest(schema, modules);
-
-  const editorId = "editor_cleanup_2";
-  const instructorId = "instructor_cleanup_2";
-
-  await t.run(async (ctx) => {
-    await ctx.db.insert("users", {
-      userId: editorId,
-      email: "editor_cleanup_2@example.com",
-      clerkId: editorId,
-      role: "video_editor",
-    });
-    await ctx.db.insert("users", {
-      userId: instructorId,
-      email: "instructor_cleanup_2@example.com",
-      clerkId: instructorId,
-      role: "instructor",
-    });
-    await ctx.db.insert("instructors", {
-      userId: instructorId,
-      email: "instructor_cleanup_2@example.com",
-      name: "Instructor Cleanup 2",
-    });
-    await ctx.db.insert("instructorUploads", {
-      legacyId: "cleanup_upload_with_b2",
-      instructorId,
-      filename: "key/cleanup_upload_with_b2",
-      originalName: "cleanup_upload_with_b2.mp4",
-      contentType: "video/mp4",
-      size: 100 * 1024 * 1024,
-      status: "uploading",
-      uploadedById: editorId,
-      b2UploadId: "live-b2-upload-id",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  });
-
-  const editorClient = t.withIdentity({ subject: editorId });
-
-  await expect(
-    editorClient.mutation(api.instructorUploads.softDeleteUpload, {
-      id: "cleanup_upload_with_b2",
-    })
-  ).rejects.toThrow("Forbidden");
 });
 
 test("requireDeleteAccess: video editor cannot delete own completed upload without assignment", async () => {
