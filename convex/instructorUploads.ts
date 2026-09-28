@@ -312,18 +312,30 @@ export const createUpload = mutation({
       throw new Error("Unauthorized: authentication required");
     }
 
-    // Validate that the target instructor exists before accepting the
-    // upload. Without this, an editor with open access could submit an
-    // arbitrary or stale `instructorId` and create a file row + B2 object
-    // with no real instructor behind it. The page-side dropdown filters
-    // instructors, but a server-side validation is required because the
-    // client cannot be trusted.
-    const targetInstructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
-      .first();
-    if (!targetInstructor) {
-      throw new Error("Target instructor not found");
+    // Validate that the target instructor exists before accepting an
+    // editor's upload. Without this, an editor with open access could
+    // submit an arbitrary or stale `instructorId` and create a file row
+    // + B2 object with no real instructor behind it. The page-side
+    // dropdown filters instructors, but server-side validation is
+    // required because the client cannot be trusted.
+    //
+    // Instructors uploading to their own storage are exempt: an admin
+    // may grant an existing user the `instructor` role without
+    // creating a profile row yet, and we should not block that
+    // instructor from working in the meantime. The /api/uploads/initiate
+    // route aborts the B2 multipart session if the mutation rejects, so
+    // there is no orphaned state.
+    const isInstructorSelfUpload =
+      caller.role === "instructor" &&
+      args.instructorId === caller.userId;
+    if (!isInstructorSelfUpload) {
+      const targetInstructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (!targetInstructor) {
+        throw new Error("Target instructor not found");
+      }
     }
 
     // Caps are enforced based on the authenticated caller's role, not the
@@ -1166,6 +1178,17 @@ export const getTotalStorageStats = query({
 });
 
 /**
+ * Maximum records read in a single page of getVideoEditorTotalStorageStats.
+ * Bounds the dashboard read budget so a long-lived editor with thousands of
+ * historical rows cannot exceed Convex's per-query document read limit. The
+ * proper long-term fix is a denormalized counter on the `users` table for
+ * video editors, atomically updated on upload create/complete/delete —
+ * tracked as a Linear follow-up. Until that ships, this query caps the scan
+ * and flags truncation so the UI can show an "approximate" indicator.
+ */
+const TOTAL_STORAGE_STATS_PAGE_SIZE = 1000;
+
+/**
  * Sum active usage for one video editor across every instructor they
  * uploaded to. Used by /api/storage-usage for the editor's dashboard so
  * the displayed bytes match what's still in B2 even when open access has
@@ -1182,20 +1205,31 @@ export const getVideoEditorTotalStorageStats = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
     await requireAdminOrSelfVideoEditor(ctx, args.videoEditorId);
-    const uploads = await ctx.db
+
+    // Single-page paginated scan — bounded at TOTAL_STORAGE_STATS_PAGE_SIZE
+    // so the read budget cannot grow unboundedly for long-lived editors.
+    // The aggregate counter follow-up will replace this with a constant-time
+    // denormalized read once shipped.
+    const page = await ctx.db
       .query("instructorUploads")
       .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
-      .collect();
+      .paginate({ numItems: TOTAL_STORAGE_STATS_PAGE_SIZE, cursor: null });
 
     let usedBytes = 0;
     let fileCount = 0;
-    for (const upload of uploads) {
+    for (const upload of page.page) {
       if (upload.status !== "deleted" && upload.status !== "deleting") {
         usedBytes += upload.size;
         fileCount += 1;
       }
     }
-    return { usedBytes, fileCount };
+
+    return {
+      usedBytes,
+      fileCount,
+      truncated: !page.isDone,
+      scannedRecords: page.page.length,
+    };
   },
 });
 
