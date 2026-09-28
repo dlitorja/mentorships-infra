@@ -62,6 +62,11 @@ export async function GET(): Promise<NextResponse> {
         usedBytes: stats.usedBytes,
         limitBytes: hasUnlimited ? null : limitBytes,
         fileCount: stats.fileCount,
+        // Surface to the client so the UI can warn when the editor's
+        // history exceeded the single-page scan cap
+        // (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The proper fix is a
+        // denormalized counter on `users` (tracked as Linear HUC-58).
+        truncated: stats.truncated ?? false,
       });
     }
 

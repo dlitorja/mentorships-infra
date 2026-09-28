@@ -325,6 +325,11 @@ export const createUpload = mutation({
     // instructor from working in the meantime. The /api/uploads/initiate
     // route aborts the B2 multipart session if the mutation rejects, so
     // there is no orphaned state.
+    //
+    // Also reject soft-deleted instructors: an admin may have
+    // decommissioned the user but the profile row still exists. Without
+    // this check, the mutation would accept an upload targeting a
+    // deleted instructor.
     const isInstructorSelfUpload =
       caller.role === "instructor" &&
       args.instructorId === caller.userId;
@@ -335,6 +340,13 @@ export const createUpload = mutation({
         .first();
       if (!targetInstructor) {
         throw new Error("Target instructor not found");
+      }
+      const targetUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (targetUser?.deletedAt !== undefined) {
+        throw new Error("Target instructor is no longer active");
       }
     }
 

@@ -1363,3 +1363,54 @@ test("setVideoEditorAssignmentQuota: rejects open assignments", async () => {
     })
   ).rejects.toThrow("Cannot set quota on open assignments");
 });
+
+test("createUpload: rejects soft-deleted instructor even with open access", async () => {
+  // An admin may soft-delete an instructor (users.deletedAt set) but
+  // the instructors profile row remains. Without this check, an editor
+  // with open access could target a soft-deleted instructor and create
+  // a file row + B2 object for a decommissioned user.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_deleted_1";
+  const deletedInstructorId = "instructor_deleted_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_deleted_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: deletedInstructorId,
+      email: "instructor_deleted_1@example.com",
+      clerkId: deletedInstructorId,
+      role: "instructor",
+      deletedAt: Date.now() - 1000,
+    });
+    await ctx.db.insert("instructors", {
+      userId: deletedInstructorId,
+      email: "instructor_deleted_1@example.com",
+      name: "Deleted Instructor 1",
+    });
+    // Open access assignment exists.
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: undefined,
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  await expect(
+    editorClient.mutation(api.instructorUploads.createUpload, {
+      id: "upload_to_deleted_1",
+      instructorId: deletedInstructorId,
+      filename: "key/upload_to_deleted_1",
+      originalName: "upload_to_deleted_1.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("Target instructor is no longer active");
+});
