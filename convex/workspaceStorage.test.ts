@@ -2519,3 +2519,103 @@ test("resolveWorkspaceB2FileUploadsForKeys refuses deleted workspace (Greptile P
     delete process.env.WORKSPACE_STORAGE_USE_B2;
   }
 });
+
+test("resolveWorkspaceB2FileUploadsForKeys clamps URL TTL to retention deadline (Greptile P1 #14)", async () => {
+  // Greptile P1 round 5 #14 — "Download URLs outlive retention":
+  // before this fix the read-side resolver signed a fresh URL
+  // with the full `WORKSPACE_B2_URL_TTL_SECONDS` (1 hour) even
+  // when the workspace's retention deadline was only a few
+  // minutes away. The URL would still be valid after the
+  // deadline, so a member could keep downloading B2 blobs that
+  // the retention cron was about to sweep.
+  //
+  // We seed a workspace ended `WORKSPACE_RETENTION_MS - 5 min`
+  // ago so only 5 minutes of retention are left. The resolver
+  // clamps the 1-hour requested TTL down to that remaining
+  // window — which must be well under one hour.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    // Mirror the production constant so the assertion holds
+    // even if the production value changes.
+    const RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
+    const fiveMinutesMs = 5 * 60 * 1000;
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_14",
+      instructorUserId: "u_instructor_pr1_14",
+      endedAt: Date.now() - (RETENTION_MS - fiveMinutesMs),
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        b2Key: "2026-01-01/file_pr1_14/clamped.png",
+        contentType: "image/png",
+        uploaderId: "u_student_pr1_14",
+        uploadedAt: Date.now() - 60 * 1000,
+        completedAt: Date.now() - 60 * 1000,
+      });
+    });
+    const beforeMs = Date.now();
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_14/clamped.png"],
+        expiresInSeconds: 3600,
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(true);
+    if (!out[0].ok) throw new Error("expected ok result");
+    const expiresInMs = out[0].expiresAt - beforeMs;
+    // Should be roughly 5 minutes (the remaining retention),
+    // clamped by the helper's 60s floor. Anything near the
+    // requested 1h would mean the clamp is broken.
+    expect(expiresInMs).toBeLessThan(10 * 60 * 1000);
+    expect(expiresInMs).toBeGreaterThanOrEqual(60 * 1000);
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys uses 1h TTL for active (un-ended) workspace (Greptile P1 #14 regression)", async () => {
+  // Same fix but the positive case: an active workspace with
+  // no `endedAt` keeps the full one-hour TTL so live UI
+  // galleries don't churn re-resolves every minute.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_14b",
+      instructorUserId: "u_instructor_pr1_14b",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        b2Key: "2026-01-01/file_pr1_14b/active.png",
+        contentType: "image/png",
+        uploaderId: "u_student_pr1_14b",
+        uploadedAt: Date.now() - 60 * 1000,
+        completedAt: Date.now() - 60 * 1000,
+      });
+    });
+    const beforeMs = Date.now();
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_14b/active.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(true);
+    if (!out[0].ok) throw new Error("expected ok result");
+    const expiresInMs = out[0].expiresAt - beforeMs;
+    expect(expiresInMs).toBeGreaterThan(55 * 60 * 1000);
+    expect(expiresInMs).toBeLessThanOrEqual(60 * 60 * 1000 + 1000);
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});

@@ -283,22 +283,30 @@ export function useNoteEditor({
   // whole pass with `selectedNoteIdRef.current` so if the user
   // switched notes during the await, we don't write into a
   // stale editor document.
+  //
+  // Greptile P1 #15 (round 5 review of 8a87e73d): we look up
+  // images by `b2Key` AFTER the await, NOT by position. The
+  // user may have inserted text before an image while the
+  // download requests were in flight, shifting the image's
+  // position — checking `nodeAt(pos)` would then miss it and
+  // leave its URL stale until reload. Re-scanning by `b2Key`
+  // is position-independent and survives concurrent edits.
   const resolveB2KeyImageSrcs = async (
     editorInstance: NonNullable<ReturnType<typeof useEditor>>,
     noteIdAtCall: Id<'workspaceNotes'> | null
   ): Promise<void> => {
-    const pending: Array<{ b2Key: string; pos: number }> = [];
-    editorInstance.state.doc.descendants((node, pos) => {
+    const b2Keys = new Set<string>();
+    editorInstance.state.doc.descendants((node) => {
       if (node.type.name !== "image") return;
       const b2Key = node.attrs.b2Key as string | null | undefined;
       if (typeof b2Key === "string" && b2Key.length > 0) {
-        pending.push({ b2Key, pos });
+        b2Keys.add(b2Key);
       }
     });
-    if (pending.length === 0) return;
+    if (b2Keys.size === 0) return;
 
     const resolved = await Promise.all(
-      pending.map(async ({ b2Key }) => {
+      Array.from(b2Keys).map(async (b2Key) => {
         try {
           const { url } = await resolveDownloadUrl.mutateAsync({
             workspaceId,
@@ -320,29 +328,29 @@ export function useNoteEditor({
     if (selectedNoteIdRef.current !== noteIdAtCall) return;
     if (editorRef.current !== editorInstance) return;
 
-    // Group updates into a single transaction so the editor
-    // emits exactly one render cycle, instead of one per
-    // image (which would flash the caret). `setNodeMarkup`
-    // on `tr` does NOT change the selection — the caret
-    // stays where the user left it.
+    const urlByKey = new Map<string, string>();
+    for (const { b2Key, url } of resolved) {
+      if (url) urlByKey.set(b2Key, url);
+    }
+    if (urlByKey.size === 0) return;
+
+    // Re-scan the doc AFTER the await, keying by `b2Key` so
+    // concurrent edits that shifted image positions still
+    // get their URLs updated. Group into one transaction so
+    // the editor emits a single render cycle; `setNodeMarkup`
+    // on `tr` does NOT change the selection.
     const tr = editorInstance.state.tr;
     let changed = false;
-    for (const { b2Key, url } of resolved) {
-      if (!url) continue;
-      for (const { pos } of pending) {
-        const node = editorInstance.state.doc.nodeAt(pos);
-        if (
-          node &&
-          node.type.name === "image" &&
-          node.attrs.b2Key === b2Key &&
-          node.attrs.src !== url
-        ) {
-          tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
-          changed = true;
-          break;
-        }
-      }
-    }
+    editorInstance.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "image") return;
+      const b2Key = node.attrs.b2Key as string | null | undefined;
+      if (typeof b2Key !== "string" || b2Key.length === 0) return;
+      const url = urlByKey.get(b2Key);
+      if (!url) return;
+      if (node.attrs.src === url) return;
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
+      changed = true;
+    });
     if (changed) {
       editorInstance.view.dispatch(tr);
     }

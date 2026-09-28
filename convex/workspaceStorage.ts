@@ -297,7 +297,6 @@ export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
         }
     >
   > => {
-    const ttl = args.expiresInSeconds ?? WORKSPACE_B2_URL_TTL_SECONDS;
     const out: Array<
       | { b2Key: string; ok: true; url: string; expiresAt: number }
       | {
@@ -328,15 +327,30 @@ export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
       }
       return out;
     }
-    if (
-      workspace.endedAt !== undefined &&
-      Date.now() - workspace.endedAt > WORKSPACE_RETENTION_MS
-    ) {
+    // Greptile P1 #14 (round 5 review of 8a87e73d): clamp the
+    // URL TTL so a presigned URL minted shortly before the
+    // retention deadline cannot outlive it and keep downloading
+    // after the B2 blob is swept. The download action already
+    // clamps via `clampWorkspaceDownloadExpiresInSeconds`; the
+    // read path must do the same. Active workspaces (no
+    // `endedAt`) keep the full one-hour default.
+    const remainingRetentionSeconds =
+      workspace.endedAt !== undefined
+        ? Math.max(
+            0,
+            Math.floor((WORKSPACE_RETENTION_MS - (Date.now() - workspace.endedAt)) / 1000)
+          )
+        : Number.POSITIVE_INFINITY;
+    if (remainingRetentionSeconds === 0) {
       for (const key of new Set(args.b2Keys)) {
         out.push({ b2Key: key, ok: false, error: "workspace_past_retention" });
       }
       return out;
     }
+    const ttl = clampWorkspaceDownloadExpiresInSeconds(
+      args.expiresInSeconds,
+      remainingRetentionSeconds
+    );
     // Dedup the input so we don't sign the same key twice for a
     // gallery page that references the same image in two rows.
     const seen = new Set<string>();
