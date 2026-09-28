@@ -1502,15 +1502,25 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
 });
 
 test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (end-to-end)", async () => {
-  // Greptile round 1 P2 follow-up: exercise the production
+  // Greptile round 2 P2 follow-up: exercise the production
   // entry point (`recordB2FileUpload`) with a HEAD delay so
   // the workspace can end DURING HEAD — not before the
-  // action's pre-check (covered by the existing test at
-  // line 1442) and not after the mutation (covered by the
-  // catch-handler test above). This test simulates the
-  // production timing race by stalling the HEAD fetch,
-  // patching the workspace to endedAt, then resolving the
-  // HEAD.
+  // action's pre-check (covered by the test at line 1505)
+  // and not after the mutation (covered by the catch-handler
+  // test above). This test simulates the production timing
+  // race by stalling the HEAD fetch, patching the workspace
+  // to endedAt, then resolving the HEAD.
+  //
+  // Greptile round 3 P2 follow-up: the timing race could
+  // allow the action's pre-check (which reads workspace
+  // state) to see the ended state and fire the pre-cancel
+  // path before HEAD is reached. In that case the catch
+  // handler never runs and `cancelledAt` would be set by
+  // the pre-cancel path — the test would pass without
+  // exercising the catch handler. We assert HEAD was
+  // actually called (`fetchSpy` was invoked): the
+  // pre-cancel path throws before HEAD, so a HEAD call
+  // proves the catch handler was the cancel source.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1538,13 +1548,11 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   const headStalled = new Promise<void>((resolve) => {
     resolveHead = resolve;
   });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => {
-      await headStalled;
-      return { ok: true, status: 200, text: async () => "" } as Response;
-    })
-  );
+  const fetchSpy = vi.fn(async () => {
+    await headStalled;
+    return { ok: true, status: 200, text: async () => "" } as Response;
+  });
+  vi.stubGlobal("fetch", fetchSpy);
 
   // Step 3: kick off the action. Its pre-check (workspace +
   // authorization) reads the workspace as active, then it
@@ -1560,7 +1568,10 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
 
   // Step 4: end the workspace while HEAD is stalled. Yield
   // a microtask so the action's pre-check has definitely
-  // completed and HEAD is now awaiting.
+  // completed and HEAD is now awaiting. The 50ms timeout is
+  // generous — the pre-check completes in microseconds
+  // within convex-test, and HEAD is then awaited for the
+  // stall promise to resolve.
   await new Promise((resolve) => setTimeout(resolve, 50));
   await t.run(async (ctx) =>
     ctx.db.patch(workspaceId as any, { endedAt: Date.now() })
@@ -1573,7 +1584,16 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
 
   await expect(actionPromise).rejects.toThrow(/ended/i);
 
-  // Step 6: assert the action-level cancel committed
+  // Step 6: assert HEAD was actually called. If the
+  // pre-cancel path had taken over (workspace ended before
+  // the pre-check read it), HEAD would never have been
+  // called and the catch handler would not have run.
+  // A HEAD call proves the action's pre-check passed (saw
+  // workspace as active) and the catch handler was the
+  // cancel source.
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+  // Step 7: assert the catch handler committed
   // `cancelledAt`. This is the production timing race in
   // miniature.
   const ledger = await t.run(async (ctx) =>
