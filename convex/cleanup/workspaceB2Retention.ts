@@ -7,7 +7,6 @@ import {
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { WORKSPACE_RETENTION_MS } from "../workspaceConstants";
-import { deleteFromB2WorkspaceAction } from "../workspaceStorage";
 
 /**
  * PR workspace-storage-3c (Greptile round 4 P1 fix — confidence
@@ -237,9 +236,12 @@ export const cleanupExpiredWorkspaceB2Uploads = internalAction({
         }
 
         try {
-          await ctx.runAction(deleteFromB2WorkspaceAction, {
-            b2Key: row.b2Key,
-          });
+          await ctx.runAction(
+            internal.workspaceStorage.deleteFromB2WorkspaceAction,
+            {
+              b2Key: row.b2Key,
+            }
+          );
           const stamped = await ctx.runMutation(
             internal.cleanup.workspaceB2Retention.markRetentionDeleted,
             { fileUploadId: row._id, deletedAt: Date.now() }

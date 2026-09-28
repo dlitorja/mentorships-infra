@@ -6,7 +6,6 @@ import {
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { deleteFromB2WorkspaceAction } from "../workspaceStorage";
 
 /**
  * PR workspace-storage-3c: weekly safety-net sweep that deletes
@@ -203,9 +202,12 @@ export const cleanupOrphanB2Objects = internalAction({
         }
 
         try {
-          await ctx.runAction(deleteFromB2WorkspaceAction, {
-            b2Key: row.b2Key,
-          });
+          await ctx.runAction(
+            internal.workspaceStorage.deleteFromB2WorkspaceAction,
+            {
+              b2Key: row.b2Key,
+            }
+          );
           const stamped = await ctx.runMutation(
             internal.cleanup.workspaceB2OrphanSweep.markB2OrphanTrashed,
             { fileUploadId: row._id, deletedAt: Date.now() }
