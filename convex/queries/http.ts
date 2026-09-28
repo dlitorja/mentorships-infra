@@ -1,4 +1,5 @@
 import { query } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 
@@ -139,6 +140,30 @@ export const getWorkspaceExportData = query({
       images.map(async (img) => {
         let imageUrl = img.imageUrl;
         let contentType: string | undefined;
+        // PR workspace-storage-3c (Greptile P1 "Exports omit B2
+        // images"): resolve B2 keys via the shared
+        // `resolveWorkspaceB2FileUploadsForKeys` internal query
+        // so the export trigger task receives a real signed URL
+        // (not the b2Key literal, which it used to embed as
+        // `imageUrl` and then fail to fetch).
+        if (img.b2Key !== undefined) {
+          const [resolved] = await ctx.runQuery(
+            internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+            { workspaceId, b2Keys: [img.b2Key] }
+          );
+          if (resolved.ok) {
+            imageUrl = resolved.url;
+          } else {
+            imageUrl = "";
+          }
+          return {
+            imageUrl,
+            b2Key: img.b2Key,
+            contentType,
+            createdBy: img.createdBy,
+            createdAt: img._creationTime,
+          };
+        }
         if (img.storageId) {
           const [url, metadata] = await Promise.all([
             ctx.storage.getUrl(img.storageId as Id<"_storage">),

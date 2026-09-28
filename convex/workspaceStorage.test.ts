@@ -32,6 +32,16 @@ const modules = import.meta.glob("./**/*.ts");
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+// PR workspace-storage-3c: every B2 action refuses to run unless
+// `WORKSPACE_STORAGE_USE_B2 === "true"`. The test env permanently
+// opts in so the existing B2 mint/confirm/download tests still
+// exercise the real action bodies (they would otherwise fail the
+// `requireB2Enabled` gate before reaching the authz logic). A
+// separate `B2 gate` test block below asserts the inverse —
+// that the gate refuses when the env var is unset — to keep the
+// cutover behavior under test.
+process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.B2_KEY_ID;
@@ -948,6 +958,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
     b2Key: "2026-01-01/file_x/x.png",
     uploaderId: "u_student_1",
     uploadedAt: now,
+    contentType: "image/png",
   });
 
   await expect(
@@ -956,6 +967,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
       b2Key: "2026-01-01/file_x/x.png",
       uploaderId: "u_student_1",
       uploadedAt: now + 1,
+      contentType: "image/png",
     })
   ).rejects.toThrow(/already reserved/i);
 });
@@ -975,6 +987,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       b2Key: `2026-01-01/file_${i}/${i}.png`,
       uploaderId: "u_student_1",
       uploadedAt: now,
+      contentType: "image/png",
     });
   }
   await expect(
@@ -983,6 +996,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       b2Key: "2026-01-01/file_21/21.png",
       uploaderId: "u_student_1",
       uploadedAt: now,
+      contentType: "image/png",
     })
   ).rejects.toThrow(/too many pending uploads/i);
 });
@@ -1028,6 +1042,7 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
     b2Key: "2026-01-01/file_fresh/fresh.png",
     uploaderId: "u_student_1",
     uploadedAt: now,
+    contentType: "image/png",
   });
 });
 
@@ -2341,4 +2356,266 @@ test("hardDeleteExpiredChatFiles uses ctx.storage.delete for a pre-migration row
     return blob === null ? null : blob.size;
   });
   expect(deletedSize).toBeNull();
+});
+
+/**
+ * PR workspace-storage-3c (cutover flag): when the env var is
+ * unset, every B2 action refuses with a deterministic error so
+ * an operator can flip a single knob to disable B2 during a
+ * rollback or investigation. This block exercises both the
+ * mint (presigned PUT) and the download (signed GET) action;
+ * `recordB2FileUpload` shares the same `requireB2Enabled`
+ * helper at the top of the file, so testing one branch in
+ * each side is sufficient for the gate.
+ */
+test("generateWorkspaceUploadUrl refuses when WORKSPACE_STORAGE_USE_B2 is unset (PR 3c gate)", async () => {
+  stubB2Credentials();
+  // Disable the cutover flag for this test only — the top-of-file
+  // assignment sets it to "true" globally so the rest of the
+  // suite still exercises the action bodies.
+  const original = process.env.WORKSPACE_STORAGE_USE_B2;
+  process.env.WORKSPACE_STORAGE_USE_B2 = "false";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId, instructorId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_gate",
+      instructorUserId: "u_instructor_gate",
+    });
+    const asInstructor = t.withIdentity({ subject: "u_instructor_gate" });
+    await expect(
+      asInstructor.action(
+        api.workspaceStorage.generateWorkspaceUploadUrl,
+        {
+          workspaceId: workspaceId as Id<"workspaces">,
+          fileId: "test-file-id-1",
+          fileName: "x.png",
+          contentType: "image/png",
+          size: 1024,
+        }
+      )
+    ).rejects.toThrow(/B2 storage is disabled/);
+  } finally {
+    if (original === undefined) {
+      delete process.env.WORKSPACE_STORAGE_USE_B2;
+    } else {
+      process.env.WORKSPACE_STORAGE_USE_B2 = original;
+    }
+  }
+});
+
+test("getWorkspaceDownloadUrl refuses when WORKSPACE_STORAGE_USE_B2 is unset (PR 3c gate)", async () => {
+  stubB2Credentials();
+  const original = process.env.WORKSPACE_STORAGE_USE_B2;
+  process.env.WORKSPACE_STORAGE_USE_B2 = "false";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId, instructorId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_gate2",
+      instructorUserId: "u_instructor_gate2",
+    });
+    const asStudent = t.withIdentity({ subject: "u_student_gate2" });
+    await expect(
+      asStudent.action(
+        api.workspaceStorage.getWorkspaceDownloadUrl,
+        {
+          workspaceId: workspaceId as Id<"workspaces">,
+          b2Key: "2026-01-01/file_cross/cross.png",
+          expiresInSeconds: 3600,
+        }
+      )
+    ).rejects.toThrow(/B2 storage is disabled/);
+  } finally {
+    if (original === undefined) {
+      delete process.env.WORKSPACE_STORAGE_USE_B2;
+    } else {
+      process.env.WORKSPACE_STORAGE_USE_B2 = original;
+    }
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys refuses past-retention workspace (Greptile P1 #12)", async () => {
+  // Greptile P1 round 4 #12 — "Downloads bypass retention
+  // deadline": the action path (`getWorkspaceDownloadUrl`)
+  // checks `endedAt + WORKSPACE_RETENTION_MS` via
+  // `resolveWorkspaceDownloadAccess`, but the read-side
+  // resolver (`resolveWorkspaceB2FileUploadsForKeys`)
+  // short-circuited before this round. Without the guard,
+  // a member who knows a `b2Key` could keep downloading a
+  // file that the retention cron should have swept.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    // Seed a workspace ended 19 months ago — past the 18-month
+    // retention window. No `WORKSPACE_RETENTION_MS` import in
+    // tests; the resolver compares `Date.now() - endedAt`,
+    // so subtract 19 * 30 days to land past the window.
+    const nineteenMonthsAgo = Date.now() - 19 * 30 * 24 * 60 * 60 * 1000;
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_12",
+      instructorUserId: "u_instructor_pr1_12",
+      endedAt: nineteenMonthsAgo,
+    });
+    // Reserve a B2 key for this workspace so the ledger
+    // check (which fires AFTER the retention check) would
+    // otherwise succeed. The guard must short-circuit first.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        uploaderId: "u_student_pr1_12",
+        uploadedAt: Date.now() - 1000,
+        b2Key: "2026-01-01/file_pr1_12/past.png",
+        completedAt: Date.now() - 1000,
+        contentType: "image/png",
+      });
+    });
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_12/past.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(false);
+    expect(out[0]).toEqual({
+      b2Key: "2026-01-01/file_pr1_12/past.png",
+      ok: false,
+      error: "workspace_past_retention",
+    });
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys refuses deleted workspace (Greptile P1 #12)", async () => {
+  // Same guard, but for `deletedAt`. A soft-deleted workspace
+  // is rejected uniformly across all keys, regardless of
+  // whether any ledger rows remain.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_12b",
+      instructorUserId: "u_instructor_pr1_12b",
+      deletedAt: Date.now() - 1000,
+    });
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_12b/deleted.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(false);
+    expect(out[0]).toEqual({
+      b2Key: "2026-01-01/file_pr1_12b/deleted.png",
+      ok: false,
+      error: "workspace_deleted",
+    });
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys clamps URL TTL to retention deadline (Greptile P1 #14)", async () => {
+  // Greptile P1 round 5 #14 — "Download URLs outlive retention":
+  // before this fix the read-side resolver signed a fresh URL
+  // with the full `WORKSPACE_B2_URL_TTL_SECONDS` (1 hour) even
+  // when the workspace's retention deadline was only a few
+  // minutes away. The URL would still be valid after the
+  // deadline, so a member could keep downloading B2 blobs that
+  // the retention cron was about to sweep.
+  //
+  // We seed a workspace ended `WORKSPACE_RETENTION_MS - 5 min`
+  // ago so only 5 minutes of retention are left. The resolver
+  // clamps the 1-hour requested TTL down to that remaining
+  // window — which must be well under one hour.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    // Mirror the production constant so the assertion holds
+    // even if the production value changes.
+    const RETENTION_MS = 18 * 30 * 24 * 60 * 60 * 1000;
+    const fiveMinutesMs = 5 * 60 * 1000;
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_14",
+      instructorUserId: "u_instructor_pr1_14",
+      endedAt: Date.now() - (RETENTION_MS - fiveMinutesMs),
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        b2Key: "2026-01-01/file_pr1_14/clamped.png",
+        contentType: "image/png",
+        uploaderId: "u_student_pr1_14",
+        uploadedAt: Date.now() - 60 * 1000,
+        completedAt: Date.now() - 60 * 1000,
+      });
+    });
+    const beforeMs = Date.now();
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_14/clamped.png"],
+        expiresInSeconds: 3600,
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(true);
+    if (!out[0].ok) throw new Error("expected ok result");
+    const expiresInMs = out[0].expiresAt - beforeMs;
+    // Should be roughly 5 minutes (the remaining retention),
+    // clamped by the helper's 60s floor. Anything near the
+    // requested 1h would mean the clamp is broken.
+    expect(expiresInMs).toBeLessThan(10 * 60 * 1000);
+    expect(expiresInMs).toBeGreaterThanOrEqual(60 * 1000);
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
+});
+
+test("resolveWorkspaceB2FileUploadsForKeys uses 1h TTL for active (un-ended) workspace (Greptile P1 #14 regression)", async () => {
+  // Same fix but the positive case: an active workspace with
+  // no `endedAt` keeps the full one-hour TTL so live UI
+  // galleries don't churn re-resolves every minute.
+  stubB2Credentials();
+  process.env.WORKSPACE_STORAGE_USE_B2 = "true";
+  try {
+    const t = convexTest({ schema, modules });
+    const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+      studentUserId: "u_student_pr1_14b",
+      instructorUserId: "u_instructor_pr1_14b",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("fileUploads", {
+        workspaceId: workspaceId as any,
+        b2Key: "2026-01-01/file_pr1_14b/active.png",
+        contentType: "image/png",
+        uploaderId: "u_student_pr1_14b",
+        uploadedAt: Date.now() - 60 * 1000,
+        completedAt: Date.now() - 60 * 1000,
+      });
+    });
+    const beforeMs = Date.now();
+    const out = await t.query(
+      internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+      {
+        workspaceId: workspaceId as Id<"workspaces">,
+        b2Keys: ["2026-01-01/file_pr1_14b/active.png"],
+      }
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].ok).toBe(true);
+    if (!out[0].ok) throw new Error("expected ok result");
+    const expiresInMs = out[0].expiresAt - beforeMs;
+    expect(expiresInMs).toBeGreaterThan(55 * 60 * 1000);
+    expect(expiresInMs).toBeLessThanOrEqual(60 * 60 * 1000 + 1000);
+  } finally {
+    delete process.env.WORKSPACE_STORAGE_USE_B2;
+  }
 });

@@ -2,8 +2,19 @@
 
 import { useState } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotesPaginated, InstructorResource } from '@/lib/queries/convex/use-workspaces';
-import { uploadFileForChat } from '@/lib/workspace-image-upload';
+import {
+  useInstructorResources,
+  useUploadInstructorResource,
+  useDeleteInstructorResource,
+  useShareResourceToChat,
+  useEmbedResourceInNote,
+  useUpdateInstructorResource,
+  useWorkspaceNotesPaginated,
+  useGenerateWorkspaceUploadUrl,
+  useRecordB2FileUpload,
+  InstructorResource,
+} from '@/lib/queries/convex/use-workspaces';
+import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -12,8 +23,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useDropzone } from 'react-dropzone';
 import { Loader2, Upload, FileText, ImageIcon, Share2, Trash2, Tag, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/convex/_generated/api';
-import { useConvexAction } from '@convex-dev/react-query';
 
 interface WorkspaceResourcesProps {
   workspaceId: Id<'workspaces'>;
@@ -47,7 +56,8 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
   // note-side `useUpdateWorkspaceNote` so the toggle behavior matches
   // the Notes tab exactly.
   const updateResource = useUpdateInstructorResource();
-  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
+  const generateUploadUrl = useGenerateWorkspaceUploadUrl();
+  const recordB2FileUpload = useRecordB2FileUpload();
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<Id<'instructorResources'> | null>(null);
   const [embedNoteId, setEmbedNoteId] = useState<Id<'instructorResources'> | null>(null);
@@ -74,10 +84,11 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
       setUploadingCount(c => c + 1);
       try {
         const type = file.type.startsWith('image/') ? 'image' : 'file';
-        const uploadResult = await uploadFileForChat(
+        const uploadResult = await uploadFileToB2(
           workspaceId,
           file,
-          (args) => (generateUploadUrl as (args: { workspaceId: Id<'workspaces'> }) => Promise<string>)(args)
+          generateUploadUrl.mutateAsync,
+          recordB2FileUpload.mutateAsync
         );
 
         if (!uploadResult.success) {
@@ -87,7 +98,7 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
 
         await uploadResource.mutateAsync({
           workspaceId,
-          storageId: uploadResult.storageId as Id<"_storage">,
+          b2Key: uploadResult.b2Key,
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           size: file.size,

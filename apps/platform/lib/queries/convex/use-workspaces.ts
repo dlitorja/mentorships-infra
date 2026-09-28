@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { convexQuery, useConvexAction, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { type UsePaginatedQueryReturnType } from "convex/react";
@@ -371,7 +372,16 @@ export interface NoteComment {
   authorDisplayName: string;
   createdAt: number;
   deletedAt?: number;
+  // PR workspace-storage-3c: legacy Convex storage id (pre-PR-3c
+  // rows). New B2-backed rows leave this undefined and instead
+  // expose `attachmentUrl` (server-side signed URL via the
+  // workspaceStorage resolver).
   storageId?: string;
+  // PR workspace-storage-3c round 4 (P1 #5 fix): server-side
+  // pre-signed URL for B2-backed comment attachments. May be
+  // `null` if the B2 row is missing/cancelled/wrong-workspace;
+  // UI should treat `null` as "attachment unavailable".
+  attachmentUrl?: string | null;
 }
 
 /**
@@ -507,19 +517,83 @@ export function useCreateWorkspaceFileMessage() {
 }
 
 /**
- * PR #B: records the binding between a freshly uploaded storage
- * blob and the caller + workspace in the `fileUploads` ledger.
- * The chat upload flow calls this after the upload completes and
- * before `createWorkspaceImageAndMessage` /
- * `createWorkspaceFileMessage`, which verify the binding exists
- * (Greptile Security P1 — without the ledger, a participant
- * could pass someone else's storage id to the create mutations
- * and cause the retention cron to delete that unrelated blob).
+ * PR workspace-storage-3c: B2 equivalent of the deleted
+ * `useRecordFileUpload`. The chat upload flow calls this AFTER the
+ * browser PUT to B2 succeeds and BEFORE passing the `b2Key` to
+ * `createWorkspaceImageAndMessage` /
+ * `createWorkspaceFileMessage`, which verify the ledger binding
+ * exists (Greptile Security P1 — without the ledger, a
+ * participant could pass someone else's `b2Key` and cause the
+ * retention cron to delete that unrelated blob).
+ *
+ * The `recordB2FileUpload` server-side action writes a ledger
+ * row and waits for the b2 object's ETag, so the `b2Key` is
+ * confirmed present in B2 before the chat mutation accepts it.
  */
-export function useRecordFileUpload() {
+export function useRecordB2FileUpload() {
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.recordFileUpload),
+    mutationFn: useConvexAction(api.workspaceStorage.recordB2FileUpload),
   });
+}
+
+/**
+ * PR workspace-storage-3c: B2 equivalent of the deleted
+ * `useGenerateWorkspaceImageUploadUrl`. Calls the workspaceStorage
+ * action (not the legacy `workspaceActions` one) so the chat and
+ * gallery flows go through the B2 path exclusively.
+ */
+export function useGenerateWorkspaceUploadUrl() {
+  return useMutation({
+    mutationFn: useConvexAction(api.workspaceStorage.generateWorkspaceUploadUrl),
+  });
+}
+
+/**
+ * PR workspace-storage-3c: B2 download resolver. Resolves a
+ * `b2Key` to a signed GET URL for image rendering.
+ */
+export function useGetWorkspaceDownloadUrl() {
+  return useMutation({
+    mutationFn: useConvexAction(api.workspaceStorage.getWorkspaceDownloadUrl),
+  });
+}
+
+/**
+ * PR workspace-storage-3c (Greptile round 4 fix — confidence 0/5):
+ * server-side URL resolution. The read queries
+ * (`getInstructorResources`, `getSharedResourcesForActiveSession`,
+ * `getWorkspaceImages`, `getWorkspaceImagesPaginated`,
+ * `getWorkspaceExportData`) now call
+ * `resolveWorkspaceB2FileUploadsForKeys` internally and return
+ * the populated `imageUrl` / `url` / `attachmentUrl` directly.
+ * These hooks are kept as thin pass-throughs so existing call
+ * sites (`apps/platform/components/workspace/images.tsx`,
+ * `apps/platform/components/workspace/resources.tsx`,
+ * `apps/platform/components/workspace/chat/components/ChatMessageList.tsx`)
+ * don't change shape, but they no longer issue a per-row action
+ * call. If a future read query returns a row with an empty
+ * `imageUrl` AND a non-undefined `b2Key`, the row was a
+ * cancelled / unconfirmed upload — fall back to `null` and let
+ * the caller render a broken-image placeholder.
+ */
+export function useWorkspaceImageUrl(
+  _workspaceId: Id<"workspaces">,
+  row: { imageUrl: string; b2Key?: string | undefined }
+): string | null {
+  return row.imageUrl || null;
+}
+
+export function useBatchWorkspaceImageUrls<T extends { _id: string; imageUrl: string; b2Key?: string | undefined }>(
+  _workspaceId: Id<"workspaces">,
+  rows: T[]
+): Map<string, string | null> {
+  return useMemo(() => {
+    const out = new Map<string, string | null>();
+    for (const row of rows) {
+      out.set(row._id, row.imageUrl || null);
+    }
+    return out;
+  }, [rows]);
 }
 
 /**
@@ -721,7 +795,13 @@ export interface InstructorResource {
   _creationTime: number;
   instructorId: Id<"instructors">;
   workspaceId: Id<"workspaces">;
-  storageId: Id<"_storage">;
+  // PR workspace-storage-3c: `storageId` is soft-deprecated (now
+  // optional in the schema). Legacy rows have a Convex storage id;
+  // new B2 rows leave this undefined and populate `b2Key`.
+  storageId?: Id<"_storage">;
+  // PR workspace-storage-3c: B2 key when the upload went through
+  // the new path. Required for rows created after the cutover.
+  b2Key?: string;
   fileName: string;
   contentType: string;
   size: number;

@@ -4,7 +4,12 @@ import { useState, useRef, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '@/convex/_generated/dataModel';
 import { toast } from 'sonner';
-import { createImagePreviews, uploadImageForChat, uploadFileForChat, type UploadError } from '@/lib/workspace-image-upload';
+import {
+  createB2ImagePreviews,
+  uploadFileToB2,
+  type B2UploadResponse,
+  type B2UploadError,
+} from '@/lib/b2-workspace-upload';
 import {
   MAX_CHAT_FILE_BYTES,
   MAX_IMAGE_BYTES,
@@ -26,14 +31,21 @@ interface UseChatAttachmentsOptions {
   remainingFileSlots: number;
   createImageAndMessage: ReturnType<typeof import('@/lib/queries/convex/use-workspaces').useCreateWorkspaceImageAndMessage>;
   createFileMessage: ReturnType<typeof import('@/lib/queries/convex/use-workspaces').useCreateWorkspaceFileMessage>;
-  generateUploadUrl: (...args: any[]) => Promise<string>;
-  // PR #B: binds the freshly uploaded storage id to the caller in
-  // the `fileUploads` ledger so the create mutations can verify the
-  // caller actually uploaded the blob (Greptile Security P1).
-  // Required here because the chat retention cron will delete the
-  // blob; non-chat upload paths pass `undefined`.
-  recordFileUpload?: (
-    args: { workspaceId: Id<'workspaces'>; storageId: Id<'_storage'> }
+  // PR workspace-storage-3c: was a Convex storage upload-URL
+  // action; now a B2 mint action + a B2 record action. The B2
+  // helper (`uploadFileToB2`) calls both, so the chat flow has
+  // one fewer round-trip than the legacy flow.
+  generateUploadUrl: (
+    args: {
+      workspaceId: Id<'workspaces'>;
+      fileId: string;
+      fileName: string;
+      contentType: string;
+      size: number;
+    }
+  ) => Promise<{ uploadUrl: string; b2Key: string; fileId: string }>;
+  recordB2FileUpload: (
+    args: { workspaceId: Id<'workspaces'>; b2Key: string }
   ) => Promise<unknown>;
 }
 
@@ -48,7 +60,7 @@ export function useChatAttachments({
   createImageAndMessage,
   createFileMessage,
   generateUploadUrl,
-  recordFileUpload,
+  recordB2FileUpload,
 }: UseChatAttachmentsOptions) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -95,7 +107,7 @@ export function useChatAttachments({
         availableImageSlots -= 1;
       }
 
-      const previews = await createImagePreviews(validImages);
+      const previews = await createB2ImagePreviews(validImages);
       newAttachments.push(...validImages.map((file, index) => ({
         file,
         isImage: true,
@@ -149,14 +161,17 @@ export function useChatAttachments({
   };
 
   const uploadAttachment = async (attachment: PendingAttachment): Promise<PendingAttachment | null> => {
-    const uploadResult = attachment.isImage
-      ? await uploadImageForChat(workspaceId, attachment.file, generateUploadUrl, recordFileUpload)
-      : await uploadFileForChat(workspaceId, attachment.file, generateUploadUrl, recordFileUpload);
+    const uploadResult: B2UploadResponse = await uploadFileToB2(
+      workspaceId,
+      attachment.file,
+      generateUploadUrl,
+      recordB2FileUpload
+    );
 
     if (!uploadResult.success) {
       return {
         ...attachment,
-        error: (uploadResult as UploadError).error,
+        error: (uploadResult as B2UploadError).error,
       };
     }
 
@@ -164,7 +179,7 @@ export function useChatAttachments({
       if (attachment.isImage) {
         await createImageAndMessage.mutateAsync({
           workspaceId,
-          storageId: uploadResult.storageId,
+          b2Key: uploadResult.b2Key,
           // PR #4b: tag both the image and the message row to the
           // active session.
           sessionId: activeSessionId ?? undefined,
@@ -172,7 +187,7 @@ export function useChatAttachments({
       } else {
         await createFileMessage.mutateAsync({
           workspaceId,
-          storageId: uploadResult.storageId as Id<'_storage'>,
+          b2Key: uploadResult.b2Key,
           fileName: attachment.file.name,
           sessionId: activeSessionId ?? undefined,
         });

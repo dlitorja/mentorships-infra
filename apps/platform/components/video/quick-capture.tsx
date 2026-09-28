@@ -18,11 +18,11 @@ import {
   useCreateWorkspaceNote,
   useCreateWorkspaceLink,
   useCreateWorkspaceImage,
+  useGenerateWorkspaceUploadUrl,
+  useRecordB2FileUpload,
 } from "@/lib/queries/convex/use-workspaces";
-import { useConvexAction } from "@convex-dev/react-query";
-import { api } from "@/convex/_generated/api";
 import { useQuickCaptureShortcut } from "@/lib/hooks/use-quick-capture-shortcut";
-import { uploadImageForChat, type UploadError } from "@/lib/workspace-image-upload";
+import { uploadFileToB2, type B2UploadError } from "@/lib/b2-workspace-upload";
 import { MAX_IMAGE_BYTES } from "@/lib/workspace-constants";
 import { clsx } from "clsx";
 import { toast } from "sonner";
@@ -137,9 +137,8 @@ function QuickCaptureBody({
   const createNote = useCreateWorkspaceNote();
   const createLink = useCreateWorkspaceLink();
   const createImage = useCreateWorkspaceImage();
-  const generateUploadUrl = useConvexAction(
-    api.workspaceActions.generateWorkspaceImageUploadUrl
-  );
+  const generateUploadUrl = useGenerateWorkspaceUploadUrl();
+  const recordB2FileUpload = useRecordB2FileUpload();
 
   const isPending = useMemo(
     () =>
@@ -219,19 +218,20 @@ function QuickCaptureBody({
             disabled={isPending}
             onClose={onClose}
             uploadImage={async (file) => {
-              const result = await uploadImageForChat(
+              const result = await uploadFileToB2(
                 workspaceId as Id<"workspaces">,
                 file,
-                generateUploadUrl
+                generateUploadUrl.mutateAsync,
+                recordB2FileUpload.mutateAsync
               );
               if (!result.success) {
                 throw new Error(
-                  (result as UploadError).error || "Upload failed"
+                  (result as B2UploadError).error || "Upload failed"
                 );
               }
               await createImage.mutateAsync({
                 workspaceId: workspaceId as Id<"workspaces">,
-                storageId: result.storageId,
+                b2Key: result.b2Key,
                 imageUrl: "",
                 sessionId,
               });

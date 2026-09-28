@@ -4,9 +4,15 @@ import { useState } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { useWorkspace, useWorkspaceFileCounts, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useRecordFileUpload } from '@/lib/queries/convex/use-workspaces';
-import { useConvexAction } from '@convex-dev/react-query';
-import { api } from '@/convex/_generated/api';
+import {
+  useWorkspace,
+  useWorkspaceFileCounts,
+  useCreateWorkspaceMessage,
+  useCreateWorkspaceImageAndMessage,
+  useCreateWorkspaceFileMessage,
+  useRecordB2FileUpload,
+  useGenerateWorkspaceUploadUrl,
+} from '@/lib/queries/convex/use-workspaces';
 import { ChatImageLightbox } from '../chat-lightbox';
 import { WORKSPACE_IMAGE_CAPS, WORKSPACE_FILE_CAPS } from '@/lib/workspace-constants';
 import { useChatMessages } from './hooks/use-chat-messages';
@@ -39,8 +45,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
   const createFileMessage = useCreateWorkspaceFileMessage();
-  const recordFileUpload = useRecordFileUpload();
-  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
+  const recordB2FileUpload = useRecordB2FileUpload();
+  const generateUploadUrl = useGenerateWorkspaceUploadUrl();
 
   const isAdmin = role === 'admin';
   const currentCount = isAdmin
@@ -83,8 +89,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     remainingFileSlots,
     createImageAndMessage,
     createFileMessage,
-    generateUploadUrl,
-    recordFileUpload: recordFileUpload.mutateAsync,
+    generateUploadUrl: generateUploadUrl.mutateAsync,
+    recordB2FileUpload: recordB2FileUpload.mutateAsync,
   });
 
   const handleSendMessage = async () => {

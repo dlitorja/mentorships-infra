@@ -51,6 +51,24 @@ import { internal } from "./_generated/api";
  *   `workspaceNoteComments` / `instructorResources`. See
  *   `convex/cleanup/postMigrationStorageCleanup.ts`. PR
  *   workspace-storage-3a.
+ * - cleanup-expired-workspace-b2-uploads: Runs daily at 03:00 UTC,
+ *   deletes the B2 object + stamps the ledger for `fileUploads`
+ *   rows whose `completedAt` is older than `WORKSPACE_RETENTION_MS`
+ *   (18 months) AND that have no live references in the four
+ *   referencing tables. This cron is the SOLE source of truth
+ *   for retention — no B2 lifecycle rule is applied (PR
+ *   workspace-storage-3c round 4 removed
+ *   `scripts/set-b2-bucket-lifecycle.ts` because B2's rule
+ *   operates on objects, not references, and could delete a
+ *   referenced object before this cron had a chance to read its
+ *   live references). See `convex/cleanup/workspaceB2Retention.ts`.
+ * - cleanup-orphan-b2-objects: Runs weekly on Sunday at 04:00 UTC,
+ *   retries B2 DELETE for cancelled `fileUploads` rows whose
+ *   immediate `cleanupRejectedB2Upload` hit a permanent failure
+ *   (and stopped trying) OR whose crons were paused mid-cleanup.
+ *   Same live-reference check as the retention cron. See
+ *   `convex/cleanup/workspaceB2OrphanSweep.ts`. PR
+ *   workspace-storage-3c.
  * - backfill-video-editor-storage-counter: Runs hourly, re-aggregates
  *   `instructorUploads` rows into the denormalized
  *   `videoEditorStorageStats` counter. The first run after the
@@ -149,6 +167,20 @@ crons.interval(
   "cleanup-migrated-convex-storage-blobs",
   { hours: 24 },
   internal.cleanup.postMigrationStorageCleanup.cleanupMigratedConvexStorageBlobs,
+  {}
+);
+
+crons.cron(
+  "cleanup-expired-workspace-b2-uploads",
+  "0 3 * * *",
+  internal.cleanup.workspaceB2Retention.cleanupExpiredWorkspaceB2Uploads,
+  {}
+);
+
+crons.cron(
+  "cleanup-orphan-b2-objects",
+  "0 4 * * 0",
+  internal.cleanup.workspaceB2OrphanSweep.cleanupOrphanB2Objects,
   {}
 );
 
