@@ -125,9 +125,12 @@ export const getUsersByRole = query({
 });
 
 /**
- * Same as `getUsersByRole` but excludes soft-deleted users (`deletedAt` set).
- * Used by open-access video editor flows where the dropdown lists every
- * invited instructor — soft-deleted accounts must not be selectable.
+ * Same as `getUsersByRole` but excludes soft-deleted users (`deletedAt` set)
+ * AND users without a matching instructors profile row. Used by open-access
+ * video editor flows where the dropdown lists every invited instructor —
+ * soft-deleted accounts and accounts without a profile row must not be
+ * selectable, because createUpload requires a profile to be present
+ * (unless the caller is uploading to their own storage).
  */
 export const getActiveUsersByRole = query({
   args: { role: v.string() },
@@ -142,7 +145,16 @@ export const getActiveUsersByRole = query({
         q.eq("role", args.role as Doc<"users">["role"])
       )
       .collect();
-    return all.filter((u) => u.deletedAt === undefined);
+    const active = all.filter((u) => u.deletedAt === undefined);
+
+    // For the instructor role, additionally require an instructors profile
+    // row. createUpload rejects editor uploads to a user without a profile.
+    if (args.role !== "instructor") {
+      return active;
+    }
+    const profiles = await ctx.db.query("instructors").collect();
+    const profileUserIds = new Set(profiles.map((p) => p.userId));
+    return active.filter((u) => profileUserIds.has(u.userId));
   },
 });
 
