@@ -149,12 +149,23 @@ export const getActiveUsersByRole = query({
 
     // For the instructor role, additionally require an instructors profile
     // row. createUpload rejects editor uploads to a user without a profile.
+    // Use the by_userId index for each lookup instead of a full-table
+    // collect, so the read budget scales with the number of active
+    // instructors (typically <100) rather than the entire instructors
+    // table (which can grow as soft-deleted profiles accumulate).
     if (args.role !== "instructor") {
       return active;
     }
-    const profiles = await ctx.db.query("instructors").collect();
-    const profileUserIds = new Set(profiles.map((p) => p.userId));
-    return active.filter((u) => profileUserIds.has(u.userId));
+    const withProfile = await Promise.all(
+      active.map(async (u) => {
+        const profile = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", u.userId))
+          .first();
+        return profile ? u : null;
+      })
+    );
+    return withProfile.filter((u): u is NonNullable<typeof u> => u !== null);
   },
 });
 
