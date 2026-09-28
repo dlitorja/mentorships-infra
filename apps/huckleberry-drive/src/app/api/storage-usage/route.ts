@@ -52,9 +52,10 @@ export async function GET(): Promise<NextResponse> {
       // report 'unlimited' even when a specific assignment in the same
       // mix has a real cap.
       //
-      // Special case: when there are NO specific assignments (open-
-      // only), the limit is 'unlimited' because the editor can upload
-      // to any instructor with no cap.
+      // Special case: when there are NO assignments at all (open access
+      // was revoked and no specific remains), report limitBytes: 0
+      // rather than 'unlimited' — the editor can no longer start any
+      // upload, so showing 'unlimited' is misleading.
       let limitBytes = 0;
       let hasUnlimited = false;
       let hasSpecific = false;
@@ -68,7 +69,16 @@ export async function GET(): Promise<NextResponse> {
           limitBytes += quota;
         }
       }
-      if (!hasSpecific) {
+      // Open-only (open access still active): unlimited.
+      // No assignments at all (revoked, no specific): zero capacity.
+      let noAssignmentsAtAll = false;
+      if (!hasSpecific && !assignments.some((a) => a.instructorId === undefined)) {
+        noAssignmentsAtAll = true;
+      }
+      if (noAssignmentsAtAll) {
+        hasUnlimited = false;
+        limitBytes = 0;
+      } else if (!hasSpecific) {
         hasUnlimited = true;
         limitBytes = 0;
       }

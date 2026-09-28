@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -104,7 +105,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     } else {
       if (instructorId) {
         const accessibleIds = await getAccessibleInstructorIds();
-        if (accessibleIds !== null && !accessibleIds.includes(instructorId)) {
+        if (accessibleIds === null) {
+          // Open access: the editor may access any ACTIVE instructor's
+          // files. Without this narrowing, an editor could supply the
+          // ID of a soft-deleted or role-removed instructor and read
+          // their files. The same check is applied to bulk-download
+          // and the page selectors; this is the read-path equivalent.
+          const { getToken } = await auth();
+          const token = await getToken({ template: "convex" }) ?? undefined;
+          const activeInstructors = await fetchQuery(
+            api.users.getActiveUsersByRole,
+            { role: "instructor" },
+            { token }
+          ) as Array<{ userId: string }>;
+          if (!activeInstructors.some((u) => u.userId === instructorId)) {
+            return NextResponse.json({ error: "Not authorized to access this instructor's files" }, { status: 403 });
+          }
+        } else if (!accessibleIds.includes(instructorId)) {
           return NextResponse.json({ error: "Not authorized to access this instructor's files" }, { status: 403 });
         }
         result = await fetchQuery(api.instructorUploads.getAllUploads, {
