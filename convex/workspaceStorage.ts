@@ -17,6 +17,7 @@ import {
   MAX_IMAGE_BYTES,
   SCHEDULE_BACKFILL_DEDUP_MS,
   STALE_MIGRATION_LOCK_MS,
+  WORKSPACE_B2_URL_TTL_SECONDS,
   WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
@@ -38,6 +39,24 @@ const MAX_PENDING_UPLOADS_PER_WORKSPACE = 20;
 // `ctx.runMutation` failure from `confirmB2FileUpload` would
 // trigger cleanup of an otherwise valid upload.
 const TOCTOU_REJECT_MARKER = "[TOCTOU-REJECT] ";
+
+/**
+ * PR workspace-storage-3c: cutover flag. The B2 actions refuse to
+ * do work when the env var is unset so the operator can flip the
+ * flag in one place to disable the B2 path entirely during a
+ * rollback or an investigation. The companion legacy action
+ * (`workspaceActions.generateWorkspaceImageUploadUrl`) is gated by
+ * the SAME flag in the inverse direction — when the flag is set,
+ * the legacy action refuses, so the two paths cannot both be
+ * active at once.
+ */
+function requireB2Enabled(actionName: string): void {
+  if (process.env.WORKSPACE_STORAGE_USE_B2 !== "true") {
+    throw new Error(
+      `${actionName}: B2 storage is disabled. Set WORKSPACE_STORAGE_USE_B2=true to enable.`
+    );
+  }
+}
 
 /**
  * Workspace storage migration (PR 1 of 3, widen).
@@ -224,6 +243,150 @@ export const resolveB2FileUploadForKey = internalQuery({
 });
 
 /**
+ * PR workspace-storage-3c (server-side resolution): batch
+ * resolver for B2 keys. The read-side queries
+ * (`getInstructorResources`, `getSharedResourcesForActiveSession`,
+ * `getWorkspaceMessages`, `getNoteComments`,
+ * `getWorkspaceExportData`, `getWorkspaceImagesPaginated`, …)
+ * gather every `b2Key` from the result set and call this once
+ * per workspace read, instead of round-tripping per row. Returns
+ * one entry per requested key:
+ *   - `{ url, expiresAt }` for keys whose ledger row is
+ *     completed, not cancelled, and belongs to the supplied
+ *     workspace;
+ *   - `{ error: "missing" | "cancelled" | "wrong_workspace" |
+ *           "workspace_deleted" | "workspace_past_retention" }`
+ *     for keys that should NOT produce a renderable URL.
+ *
+ * Signing is pure crypto (HMAC-SHA256) and runs inline in this
+ * query (no network IO). The `expiresInSeconds` is clamped to
+ * `WORKSPACE_B2_URL_TTL_SECONDS` so a single query result is
+ * consistent for its TTL window; clients can refresh via
+ * `getWorkspaceDownloadUrl` action when a longer-lived URL is
+ * needed (download ZIP export, share outside the app).
+ *
+ * Retention deadline (Greptile P1 round 4 #12): if the
+ * workspace has `deletedAt` set OR has been ended for more than
+ * `WORKSPACE_RETENTION_MS`, refuse to mint a URL for ANY key
+ * in this workspace. The retention cron will hard-delete the
+ * ledger row + the B2 object; until then we must NOT sign a
+ * GET URL because a member who knows a key could otherwise
+ * keep downloading files that should have expired. The action
+ * path (`getWorkspaceDownloadUrl`) already enforces this via
+ * `resolveWorkspaceDownloadAccess`; this query path closes the
+ * gap for the read queries that bypass that action.
+ */
+export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    b2Keys: v.array(v.string()),
+    expiresInSeconds: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<
+    Array<
+      | { b2Key: string; ok: true; url: string; expiresAt: number }
+      | {
+          b2Key: string;
+          ok: false;
+          error:
+            | "missing"
+            | "cancelled"
+            | "wrong_workspace"
+            | "workspace_deleted"
+            | "workspace_past_retention";
+        }
+    >
+  > => {
+    const out: Array<
+      | { b2Key: string; ok: true; url: string; expiresAt: number }
+      | {
+          b2Key: string;
+          ok: false;
+          error:
+            | "missing"
+            | "cancelled"
+            | "wrong_workspace"
+            | "workspace_deleted"
+            | "workspace_past_retention";
+        }
+    > = [];
+    // Single workspace read — once per call, shared by every
+    // key in this batch. The retention deadline check fires
+    // BEFORE any per-key ledger lookups so a past-deadline
+    // workspace short-circuits with a uniform error code.
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_deleted" });
+      }
+      return out;
+    }
+    if (workspace.deletedAt !== undefined) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_deleted" });
+      }
+      return out;
+    }
+    // Greptile P1 #14 (round 5 review of 8a87e73d): clamp the
+    // URL TTL so a presigned URL minted shortly before the
+    // retention deadline cannot outlive it and keep downloading
+    // after the B2 blob is swept. The download action already
+    // clamps via `clampWorkspaceDownloadExpiresInSeconds`; the
+    // read path must do the same. Active workspaces (no
+    // `endedAt`) keep the full one-hour default.
+    const remainingRetentionSeconds =
+      workspace.endedAt !== undefined
+        ? Math.max(
+            0,
+            Math.floor((WORKSPACE_RETENTION_MS - (Date.now() - workspace.endedAt)) / 1000)
+          )
+        : Number.POSITIVE_INFINITY;
+    if (remainingRetentionSeconds === 0) {
+      for (const key of new Set(args.b2Keys)) {
+        out.push({ b2Key: key, ok: false, error: "workspace_past_retention" });
+      }
+      return out;
+    }
+    const ttl = clampWorkspaceDownloadExpiresInSeconds(
+      args.expiresInSeconds,
+      remainingRetentionSeconds
+    );
+    // Dedup the input so we don't sign the same key twice for a
+    // gallery page that references the same image in two rows.
+    const seen = new Set<string>();
+    for (const key of args.b2Keys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ledger = await ctx.db
+        .query("fileUploads")
+        .withIndex("by_b2Key", (q) => q.eq("b2Key", key))
+        .first();
+      if (!ledger) {
+        out.push({ b2Key: key, ok: false, error: "missing" });
+        continue;
+      }
+      if (ledger.workspaceId !== args.workspaceId) {
+        out.push({ b2Key: key, ok: false, error: "wrong_workspace" });
+        continue;
+      }
+      if (ledger.cancelledAt !== undefined) {
+        out.push({ b2Key: key, ok: false, error: "cancelled" });
+        continue;
+      }
+      if (ledger.completedAt === undefined) {
+        // Not yet completed — refuse to sign. The UI will fall
+        // back to a loading state until the row is confirmed.
+        out.push({ b2Key: key, ok: false, error: "missing" });
+        continue;
+      }
+      const signed = await mintB2PresignedGetUrl({ key, expiresInSeconds: ttl });
+      out.push({ b2Key: key, ok: true, url: signed.url, expiresAt: signed.expiresAt });
+    }
+    return out;
+  },
+});
+
+/**
  * Internal query: resolve the caller's role for downloading a
  * workspace B2 object. Same role rules as upload, but ended
  * workspaces are still readable during their 18-month retention
@@ -333,6 +496,7 @@ export const reserveB2FileUploadLedger = internalMutation({
     b2Key: v.string(),
     uploaderId: v.string(),
     uploadedAt: v.number(),
+    contentType: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -385,6 +549,14 @@ export const reserveB2FileUploadLedger = internalMutation({
       workspaceId: args.workspaceId,
       uploadedAt: args.uploadedAt,
       b2Key: args.b2Key,
+      // PR workspace-storage-3c (Greptile P1 "Image limits can be
+      // bypassed"): persist the content type so the image-create
+      // mutations can verify the upload was actually an image
+      // before consuming an image slot. The B2 PUT signature
+      // scopes B2 to accept only PUTs whose `Content-Type`
+      // matches, so this field reflects the actually-uploaded
+      // blob's content type.
+      contentType: args.contentType,
     });
   },
 });
@@ -422,6 +594,7 @@ export const generateWorkspaceUploadUrl = action({
     ctx,
     args
   ): Promise<{ uploadUrl: string; b2Key: string; fileId: string }> => {
+    requireB2Enabled("generateWorkspaceUploadUrl");
     if (!Number.isFinite(args.size) || args.size <= 0) {
       throw new Error("Invalid file size");
     }
@@ -484,6 +657,7 @@ export const generateWorkspaceUploadUrl = action({
       workspaceId: args.workspaceId,
       b2Key,
       uploaderId: identity.subject,
+      contentType: args.contentType,
       uploadedAt: Date.now(),
     });
 
@@ -508,6 +682,7 @@ export const getWorkspaceDownloadUrl = action({
     ctx,
     args
   ): Promise<{ url: string; expiresAt: number }> => {
+    requireB2Enabled("getWorkspaceDownloadUrl");
     // Use the download-specific resolver that allows ended
     // workspaces during their retention window (Greptile P1).
     const access: {
@@ -583,8 +758,8 @@ export const getWorkspaceDownloadUrl = action({
         deadlineSeconds = Math.min(maxLifetimeSeconds, secondsUntilDeadline);
       }
     }
-    const expiresInSeconds = Math.min(
-      Math.max(args.expiresInSeconds ?? 3600, 60),
+    const expiresInSeconds = clampWorkspaceDownloadExpiresInSeconds(
+      args.expiresInSeconds,
       deadlineSeconds
     );
 
@@ -612,6 +787,7 @@ export const recordB2FileUpload = action({
     b2Key: v.string(),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    requireB2Enabled("recordB2FileUpload");
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
@@ -2479,7 +2655,39 @@ async function mintB2PresignedPutUrl(params: {
   return url.toString();
 }
 
-async function mintB2PresignedGetUrl(params: {
+/**
+ * PR workspace-storage-3c: clamp a caller-requested `expiresInSeconds`
+ * against the action's documented 60 s .. 24 h band AND against
+ * the workspace retention deadline. Mirrors the inline math
+ * `getWorkspaceDownloadUrl` used to do (so this is a no-op
+ * behaviour change for the action), but extracted so the read-side
+ * internal query can reuse the same policy without duplicating
+ * it. `defaultSeconds` is the value used when the caller passes
+ * `undefined`.
+ */
+export function clampWorkspaceDownloadExpiresInSeconds(
+  requested: number | undefined,
+  deadlineSeconds: number,
+  defaultSeconds: number = WORKSPACE_B2_URL_TTL_SECONDS
+): number {
+  const min = 60;
+  const max = 24 * 60 * 60;
+  return Math.min(
+    Math.max(requested ?? defaultSeconds, min),
+    Math.min(deadlineSeconds, max)
+  );
+}
+
+/**
+ * PR workspace-storage-3c: exported so read-side queries can sign
+ * URLs inline (the underlying crypto is pure HMAC-SHA256 — no
+ * network IO, query-safe). Action-side callers
+ * (`getWorkspaceDownloadUrl`, `cleanup/postMigrationStorageCleanup`,
+ * `cleanup/workspaceB2Retention`) continue to use this same
+ * helper. Always clamp `expiresInSeconds` via
+ * `clampWorkspaceDownloadExpiresInSeconds` before passing through.
+ */
+export async function mintB2PresignedGetUrl(params: {
   key: string;
   expiresInSeconds: number;
 }): Promise<{ url: string; expiresAt: number }> {

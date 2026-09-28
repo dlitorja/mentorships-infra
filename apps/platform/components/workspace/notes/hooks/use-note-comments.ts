@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Id } from '@/convex/_generated/dataModel';
-import { uploadFileForChat } from '@/lib/workspace-image-upload';
+import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 
 type UseCreateNoteComment = {
-  mutateAsync: (args: { noteId: Id<'workspaceNotes'>; content: string; storageId?: string }) => Promise<unknown>;
+  // PR workspace-storage-3c: B2 rows pass `b2Key` instead of
+  // `storageId`. Apps/web is not in scope for notes (apps/platform
+  // only — see AGENTS.md naming).
+  mutateAsync: (args: { noteId: Id<'workspaceNotes'>; content: string; b2Key?: string }) => Promise<unknown>;
   isPending: boolean;
 };
 
@@ -20,7 +23,15 @@ interface UseNoteCommentsOptions {
   selectedNoteId: Id<'workspaceNotes'> | null;
   createComment: UseCreateNoteComment;
   deleteComment: UseDeleteNoteComment;
-  generateUploadUrl: (...args: any[]) => Promise<string>;
+  // PR workspace-storage-3c: B2 mint + record actions.
+  generateUploadUrl: (args: {
+    workspaceId: Id<'workspaces'>;
+    fileId: string;
+    fileName: string;
+    contentType: string;
+    size: number;
+  }) => Promise<{ uploadUrl: string; b2Key: string; fileId: string }>;
+  recordB2FileUpload: (args: { workspaceId: Id<'workspaces'>; b2Key: string }) => Promise<unknown>;
 }
 
 export function useNoteComments({
@@ -29,6 +40,7 @@ export function useNoteComments({
   createComment,
   deleteComment,
   generateUploadUrl,
+  recordB2FileUpload,
 }: UseNoteCommentsOptions) {
   const [newComment, setNewComment] = useState('');
   const [commentAttachment, setCommentAttachment] = useState<File | null>(null);
@@ -39,24 +51,29 @@ export function useNoteComments({
     if (!newComment.trim() && !commentAttachment || !selectedNoteId) return;
 
     try {
-      let storageId: string | undefined;
+      let b2Key: string | undefined;
 
       if (commentAttachment) {
         setIsUploadingCommentAttachment(true);
-        const uploadResult = await uploadFileForChat(workspaceId, commentAttachment, generateUploadUrl);
+        const uploadResult = await uploadFileToB2(
+          workspaceId,
+          commentAttachment,
+          generateUploadUrl,
+          recordB2FileUpload
+        );
         setIsUploadingCommentAttachment(false);
 
         if (!uploadResult.success) {
           toast.error(uploadResult.error || 'Upload failed');
           return;
         }
-        storageId = uploadResult.storageId;
+        b2Key = uploadResult.b2Key;
       }
 
       await createComment.mutateAsync({
         noteId: selectedNoteId,
         content: newComment.trim(),
-        storageId,
+        b2Key,
       });
       setNewComment('');
       setCommentAttachment(null);

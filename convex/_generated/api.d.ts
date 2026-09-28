@@ -25,6 +25,8 @@ import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
 import type * as cleanup_chatFileRetention from "../cleanup/chatFileRetention.js";
 import type * as cleanup_postMigrationStorageCleanup from "../cleanup/postMigrationStorageCleanup.js";
+import type * as cleanup_workspaceB2OrphanSweep from "../cleanup/workspaceB2OrphanSweep.js";
+import type * as cleanup_workspaceB2Retention from "../cleanup/workspaceB2Retention.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
@@ -99,6 +101,8 @@ declare const fullApi: ApiFromModules<{
   cleanup: typeof cleanup;
   "cleanup/chatFileRetention": typeof cleanup_chatFileRetention;
   "cleanup/postMigrationStorageCleanup": typeof cleanup_postMigrationStorageCleanup;
+  "cleanup/workspaceB2OrphanSweep": typeof cleanup_workspaceB2OrphanSweep;
+  "cleanup/workspaceB2Retention": typeof cleanup_workspaceB2Retention;
   clerkDeletion: typeof clerkDeletion;
   contacts: typeof contacts;
   crons: typeof crons;

@@ -5,9 +5,19 @@ import Image from 'next/image';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
-import { useWorkspaceImagesPaginated, useWorkspace, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports, type WorkspaceImage } from '@/lib/queries/convex/use-workspaces';
-import { useConvexAction } from '@convex-dev/react-query';
-import { api } from '@/convex/_generated/api';
+import {
+  useWorkspaceImagesPaginated,
+  useWorkspace,
+  useCreateWorkspaceImage,
+  useDeleteWorkspaceImage,
+  useCreateWorkspaceExport,
+  useCancelWorkspaceExport,
+  useWorkspaceExports,
+  useGenerateWorkspaceUploadUrl,
+  useRecordB2FileUpload,
+  useBatchWorkspaceImageUrls,
+  type WorkspaceImage,
+} from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
+import { validateB2Files, createB2ImagePreviews, uploadFileToB2, type B2UploadError } from '@/lib/b2-workspace-upload';
 import { WORKSPACE_IMAGE_CAPS, PER_UPLOAD_CAP } from '@/lib/workspace-constants';
 
 
@@ -72,7 +82,8 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
   const cancelExport = useCancelWorkspaceExport();
-  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
+  const generateUploadUrl = useGenerateWorkspaceUploadUrl();
+  const recordB2FileUpload = useRecordB2FileUpload();
 
   const isAdmin = role === 'admin';
   const currentCount = isAdmin
@@ -133,7 +144,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       return;
     }
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
-    const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
+    const { valid, invalid } = validateB2Files(files, availableSlots, isAdmin);
 
     for (const { file, error } of invalid) {
       toast.error(`${file.name}: ${error}`);
@@ -141,7 +152,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
     if (valid.length === 0) return;
 
-    const previews = await createImagePreviews(valid);
+    const previews = await createB2ImagePreviews(valid);
     setPreviewImages((prev) => [...prev, ...previews]);
     setImageFiles((prev) => [...prev, ...valid]);
   }, [remainingSlots, isAdmin, imageFiles.length, isLoadingWorkspace]);
@@ -164,25 +175,29 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       const previewIndex = i;
       setUploadProgress({ current: i + 1, total: imageFiles.length });
 
-      const result = await uploadSingleImage(
+      const result = await uploadFileToB2(
         workspaceId,
         file,
-        generateUploadUrl,
-        (args) =>
-          createImage.mutateAsync({
-            workspaceId: args.workspaceId,
-            storageId: args.storageId,
-            imageUrl: args.imageUrl,
-            // PR #4b: tag uploads to the active call when present.
-            sessionId: activeSessionId ?? undefined,
-          })
+        generateUploadUrl.mutateAsync,
+        recordB2FileUpload.mutateAsync
       );
 
-      if (!result.success) {
+      if (result.success) {
+        await createImage.mutateAsync({
+          workspaceId,
+          b2Key: result.b2Key,
+          // PR workspace-storage-3c: B2 rows store `imageUrl: ""`
+          // server-side; the resolver hook `useBatchWorkspaceImageUrls`
+          // swaps it for a signed GET URL at render time.
+          imageUrl: "",
+          // PR #4b: tag uploads to the active call when present.
+          sessionId: activeSessionId ?? undefined,
+        });
+      } else {
         newFailedUploads.push({
           file,
           preview: previewImagesCopy[previewIndex],
-          error: (result as UploadError).error,
+          error: (result as B2UploadError).error,
         });
       }
     }
@@ -204,20 +219,20 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   };
 
   const handleRetryUpload = async (failedUpload: FailedUpload, index: number): Promise<void> => {
-    const result = await uploadSingleImage(
+    const result = await uploadFileToB2(
       workspaceId,
       failedUpload.file,
-      generateUploadUrl,
-      (args) =>
-        createImage.mutateAsync({
-          workspaceId: args.workspaceId,
-          storageId: args.storageId,
-          imageUrl: args.imageUrl,
-          sessionId: activeSessionId ?? undefined,
-        })
+      generateUploadUrl.mutateAsync,
+      recordB2FileUpload.mutateAsync
     );
 
     if (result.success) {
+      await createImage.mutateAsync({
+        workspaceId,
+        b2Key: result.b2Key,
+        imageUrl: "",
+        sessionId: activeSessionId ?? undefined,
+      });
       setFailedUploads((prev) => prev.filter((_, i) => i !== index));
       setPreviewImages((prev) => prev.filter((_, i) => i !== index));
       setImageFiles((prev) => prev.filter((_, i) => i !== index));
@@ -238,21 +253,22 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
-      const result = await uploadSingleImage(
+      const result = await uploadFileToB2(
         workspaceId,
         failed[i].file,
-        generateUploadUrl,
-        (args) =>
-          createImage.mutateAsync({
-            workspaceId: args.workspaceId,
-            storageId: args.storageId,
-            imageUrl: args.imageUrl,
-            sessionId: activeSessionId ?? undefined,
-          })
+        generateUploadUrl.mutateAsync,
+        recordB2FileUpload.mutateAsync
       );
 
-      if (!result.success) {
-        stillFailed.push({ ...failed[i], error: (result as UploadError).error });
+      if (result.success) {
+        await createImage.mutateAsync({
+          workspaceId,
+          b2Key: result.b2Key,
+          imageUrl: "",
+          sessionId: activeSessionId ?? undefined,
+        });
+      } else {
+        stillFailed.push({ ...failed[i], error: (result as B2UploadError).error });
       }
     }
 
@@ -299,29 +315,29 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       if (!file) return;
       e.preventDefault();
 
-      const result = await uploadSingleImage(
+      const result = await uploadFileToB2(
         workspaceId,
         file,
-        generateUploadUrl,
-        (args) =>
-          createImage.mutateAsync({
-            workspaceId: args.workspaceId,
-            storageId: args.storageId,
-            imageUrl: args.imageUrl,
-            sessionId: activeSessionId,
-          })
+        generateUploadUrl.mutateAsync,
+        recordB2FileUpload.mutateAsync
       );
 
       if (!result.success) {
-        toast.error((result as UploadError).error || "Upload failed");
+        toast.error((result as B2UploadError).error || "Upload failed");
         return;
       }
+      await createImage.mutateAsync({
+        workspaceId,
+        b2Key: result.b2Key,
+        imageUrl: "",
+        sessionId: activeSessionId,
+      });
       toast.success("Clipboard image saved to this call");
     };
 
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [activeSessionId, workspaceId, generateUploadUrl, createImage, remainingSlots, isLoadingWorkspace]);
+  }, [activeSessionId, workspaceId, generateUploadUrl, recordB2FileUpload, createImage, remainingSlots, isLoadingWorkspace]);
 
   const removeImage = (index: number) => {
     setPreviewImages((prev) => prev.filter((_, i) => i !== index));
@@ -340,6 +356,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   });
 
   const activeImages = useMemo<WorkspaceImage[]>(() => images || [], [images]);
+  const resolvedUrls = useBatchWorkspaceImageUrls(workspaceId, activeImages);
 
   useEffect(() => {
     setSelectedImageIds((prev) => {
@@ -779,6 +796,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {activeImages.map((img: WorkspaceImage) => {
               const isSelected = selectedImageIds.has(img._id);
+              const resolvedUrl = resolvedUrls.get(img._id) ?? null;
               return (
                 <div
                   key={img._id}
@@ -794,20 +812,26 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                       if (isSelectionMode) {
                         toggleImageSelection(img._id);
                       } else {
-                        setSelectedImage(img.imageUrl);
+                        setSelectedImage(resolvedUrl);
                       }
                     }}
                     aria-label={isSelectionMode ? `Toggle selection for image uploaded by ${uploaderLabel(img)}` : "Open workspace image preview"}
                   >
-                    <Image
-                      src={img.imageUrl}
-                      alt="Workspace image"
-                      fill
-                      unoptimized
-                      loading="lazy"
-                      sizes="(max-width: 768px) 50vw, 25vw"
-                      className="object-cover"
-                    />
+                    {resolvedUrl ? (
+                      <Image
+                        src={resolvedUrl}
+                        alt="Workspace image"
+                        fill
+                        unoptimized
+                        loading="lazy"
+                        sizes="(max-width: 768px) 50vw, 25vw"
+                        className="object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                      </div>
+                    )}
                   </button>
                   <div className="absolute top-2 left-2 z-10 rounded bg-white/90 p-1 shadow">
                     <Checkbox

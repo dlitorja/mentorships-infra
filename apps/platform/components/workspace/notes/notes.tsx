@@ -3,8 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Id } from '@/convex/_generated/dataModel';
 import { Loader2 } from 'lucide-react';
-import { api } from '@/convex/_generated/api';
-import { useConvexAction } from '@convex-dev/react-query';
 import {
   useWorkspaceNotesPaginated,
   useWorkspaceNoteById,
@@ -16,6 +14,9 @@ import {
   useCreateNoteComment,
   useDeleteNoteComment,
   useLiveSessionNote,
+  useGenerateWorkspaceUploadUrl,
+  useRecordB2FileUpload,
+  useGetWorkspaceDownloadUrl,
 } from '@/lib/queries/convex/use-workspaces';
 import { useNoteAutosave } from './hooks/use-note-autosave';
 import { useNoteAutosaveBackup } from './hooks/use-note-autosave-backup';
@@ -75,7 +76,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
   const embedImageInNote = useEmbedImageInNote();
-  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
+  const generateUploadUrl = useGenerateWorkspaceUploadUrl();
+  const recordB2FileUpload = useRecordB2FileUpload();
+  const getDownloadUrl = useGetWorkspaceDownloadUrl();
 
   const { autosavesRef, scheduleAutosave, clearAutosave, flushAllAutosaves } = useNoteAutosave(updateNote);
   const {
@@ -109,7 +112,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     selectedNoteId,
     workspaceId,
     embedImageInNote,
-    generateUploadUrl,
+    generateUploadUrl: generateUploadUrl.mutateAsync,
+    recordB2FileUpload: recordB2FileUpload.mutateAsync,
+    resolveDownloadUrl: getDownloadUrl,
     updateNoteImageUrls,
     scheduleAutosave,
     setIsDragOver,
@@ -140,7 +145,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     selectedNoteId,
     createComment,
     deleteComment,
-    generateUploadUrl,
+    generateUploadUrl: generateUploadUrl.mutateAsync,
+    recordB2FileUpload: recordB2FileUpload.mutateAsync,
   });
 
   const {

@@ -450,16 +450,32 @@ export default defineSchema({
     // `workspaceStorage.generateWorkspaceUploadUrl` instead of the
     // legacy Convex storage path. Optional so pre-#workspace-storage-1
     // rows remain valid.
+    // PR workspace-storage-3c (narrow): `storageId` is RETAINED
+    // (soft-deprecated). The
+    // `cleanupMigratedConvexStorageBlobs` cron (PR 3a) and the
+    // `propagateMigratedB2KeyToMessages` helper (PR 2) query it
+    // via the `by_storageId` index. Removing the column would
+    // break those paths for any in-flight migration. A follow-up
+    // PR drops the column (and the index) once the PR 2 backlog
+    // has fully cleared in production.
+    // The validator stays `v.string()` (not `v.id("_storage")`)
+    // for symmetry with the args validators in `convex/workspaces.ts`
+    // — clients send string ids to Convex, and the `by_storageId`
+    // index matches on the stored value regardless of the runtime
+    // type. Tightening the validator to `v.id("_storage")` would
+    // break pre-PR-3c rows whose value was a Convex-storage id
+    // without going through the strict validator, and the cleanup
+    // cron only needs string equality for its lookup.
     b2Key: v.optional(v.string()),
   }).index("by_noteId", ["noteId"])
     .index("by_b2Key", ["b2Key"])
     // PR workspace-storage-3a (post-migration cleanup): the daily
     // `cleanupMigratedConvexStorageBlobs` cron probes this table
     // for live references to a `storageId` before deleting the
-    // underlying Convex Storage blob. Adding the index keeps the
-    // probe O(1) instead of a full table scan, matching the
-    // pattern of `by_storageId` on `workspaceImages` /
-    // `instructorResources` / `workspaceMessages`.
+    // underlying Convex Storage blob. The index keeps the probe
+    // O(1) instead of a full table scan, matching the pattern of
+    // `by_storageId` on `workspaceImages` / `instructorResources`
+    // / `workspaceMessages`. Retained in PR 3c (soft-deprecated).
     .index("by_storageId", ["storageId"]),
 
   workspaceLinks: defineTable({
@@ -476,26 +492,44 @@ export default defineSchema({
   workspaceImages: defineTable({
     workspaceId: v.id("workspaces"),
     imageUrl: v.string(),
-    storageId: v.optional(v.string()),
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
     sessionId: v.optional(v.id("sessions")),
+    // PR workspace-storage-3c (narrow): the legacy `storageId`
+    // column is RETAINED (soft-deprecated). See the matching
+    // comment on `workspaceNoteComments` for the rationale —
+    // the validator stays `v.string()` for symmetry with the
+    // args validators in `convex/workspaces.ts`.
+    storageId: v.optional(v.string()),
     // PR workspace-storage-1 (widen): B2 key when upload went
-    // through the new path. Optional for backwards compat.
+    // through the new path. Required for new rows after PR 3c
+    // flips the cutover flag — the legacy Convex-storage path
+    // (which used `storageId`) is removed.
     b2Key: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
-    // PR #B: lets the chat-file retention cron detect when the blob is
-    // still referenced by the gallery row that was inserted alongside
-    // the chat message in `createWorkspaceImageAndMessage`.
+    // PR #B: lets the chat-file retention cron detect when the
+    // blob is still referenced by the gallery row that was
+    // inserted alongside the chat message in
+    // `createWorkspaceImageAndMessage`. Retained in PR 3c
+    // (soft-deprecated) so the PR 3a cleanup cron's live-ref
+    // check still works for pre-PR-3c rows.
     .index("by_storageId", ["storageId"])
     .index("by_b2Key", ["b2Key"]),
 
   instructorResources: defineTable({
     instructorId: v.id("instructors"),
     workspaceId: v.id("workspaces"),
-    storageId: v.id("_storage"),
+    // PR workspace-storage-3c (narrow): the legacy `storageId`
+    // column is RETAINED on this table (soft-deprecated). The
+    // validator stays `v.id("_storage")` (NOT `v.string()`) —
+    // breaking this would invalidate every existing
+    // `by_storageId` index entry. New uploads after PR 3c use
+    // `b2Key` instead and do not write `storageId`. A follow-up
+    // PR migrates the column to `v.optional(v.string())` once the
+    // PR 2 backlog has cleared.
+    storageId: v.optional(v.id("_storage")),
     fileName: v.string(),
     contentType: v.string(),
     size: v.number(),
@@ -509,13 +543,21 @@ export default defineSchema({
     // pre-#5 rows stay valid; pre-#5 resources do not appear in the
     // subpanel (matches the documented pre-#4b links limitation).
     sessionId: v.optional(v.id("sessions")),
+    // PR workspace-storage-1 (widen): B2 key when upload went
+    // through the new path. Required for new rows after PR 3c
+    // flips the cutover flag.
+    b2Key: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     // PR #B: lets the chat-file retention cron detect when the blob is
     // still referenced by a non-deleted resource row.
-    .index("by_storageId", ["storageId"]),
+    .index("by_storageId", ["storageId"])
+    // PR workspace-storage-1: parallel index for the B2 ledger
+    // lookup in `assertB2FileUploadOwnedByCaller` (used by
+    // `shareResourceToChat` / `embedResourceInNote`).
+    .index("by_b2Key", ["b2Key"]),
 
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),
@@ -528,21 +570,23 @@ export default defineSchema({
     // this replaces Daily's in-call chat. The Conversations subpanel
     // for the live call can be filtered through `by_workspaceId_sessionId`.
     sessionId: v.optional(v.id("sessions")),
-    // PR #B: explicit storage id written by trusted
-    // `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
-    // mutations. The retention cron reads this field directly
-    // instead of parsing the storage URL out of `content` so a
-    // workspace participant who calls the public
-    // `createWorkspaceMessage` mutation with arbitrary
-    // `content` + `type: "file"|"image"` cannot trick the cron
-    // into deleting an unrelated storage blob (Greptile Security
-    // P1). Optional so pre-#B rows remain valid; the cron falls
-    // back to parsing `content` only when this field is undefined,
-    // which is the pre-#B invariant.
+    // PR workspace-storage-3c (narrow): the legacy `storageId`
+    // column is RETAINED on this table (soft-deprecated). The
+    // `hardDeleteExpiredChatFiles` cron (PR 3b) reads it as
+    // the trusted key, the `propagateMigratedB2KeyToMessages`
+    // helper (PR 2) uses the `by_storageId` index to patch
+    // b2Key onto matching rows, and the
+    // `cleanupMigratedConvexStorageBlobs` cron (PR 3a) uses it
+    // as a live-reference check before deleting the legacy
+    // Convex Storage blob. Removing the column would break all
+    // three paths for any in-flight migration. A follow-up PR
+    // drops the column (and the index) once the PR 2 backlog
+    // has fully cleared in production.
     storageId: v.optional(v.id("_storage")),
     // PR workspace-storage-1 (widen): B2 key when upload went
-    // through the new path. Optional for backwards compat; PR 3
-    // makes it required for new rows.
+    // through the new path. Required for new rows after PR 3c
+    // flips the cutover flag — the legacy Convex-storage path
+    // (which used `storageId`) is removed.
     b2Key: v.optional(v.string()),
     // Soft-delete timestamp. When set, the message (and its underlying
     // Convex storage blob for `type: "file"` / `"image"`) is hidden from
@@ -569,31 +613,55 @@ export default defineSchema({
     // PR #B chat-file retention: locate soft-deleted messages past their
     // retention window without scanning the entire table.
     .index("by_deletedAt", ["deletedAt"])
+    // PR workspace-storage-1 (round 4): lets the chat-file
+    // retention cron (`hardDeleteExpiredChatFiles`) and the
+    // PR 2 `propagateMigratedB2KeyToMessages` helper find
+    // messages that share a legacy `storageId`. Retained in
+    // PR 3c (soft-deprecated): see the column comment.
+    .index("by_storageId", ["storageId"])
     // PR workspace-storage-1: lets PR 2 migration locate migrated rows.
-    .index("by_b2Key", ["b2Key"])
-    // PR workspace-storage-2 (Greptile round 27 P1): lets the
-    // migration action propagate `b2Key` onto any chat row that
-    // shares a `storageId` with the migrated ledger row, so
-    // chat-retention cleanup takes the B2 branch instead of
-    // leaving an orphan B2 object.
-    .index("by_storageId", ["storageId"]),
+    .index("by_b2Key", ["b2Key"]),
 
   // PR #B upload-binding ledger: every storage blob that is referenced
   // by `createWorkspaceImageAndMessage` / `createWorkspaceFileMessage`
   // must have a row here that ties it to the caller and the workspace.
-  // The client records the binding via `recordFileUpload` immediately
-  // after the upload completes; the create mutations verify the row
-  // before writing the chat message (Greptile Security P1 — without
-  // this, a workspace participant could pass someone else's storage
-  // id and cause the retention cron to delete that unrelated blob
-  // after the 30-day window). One row per upload (rejected on a
-  // duplicate `storageId` so a single blob cannot be claimed twice).
+  // The client records the binding via `recordB2FileUpload`
+  // immediately after the B2 upload completes; the create mutations
+  // verify the row before writing the chat message (Greptile Security
+  // P1 — without this, a workspace participant could pass someone
+  // else's `b2Key` and cause the retention cron to delete an unrelated
+  // B2 object). One row per upload (rejected on a duplicate `b2Key`
+  // so a single object cannot be claimed twice).
   fileUploads: defineTable({
+    // PR workspace-storage-3c (narrow): the legacy `storageId`
+    // column is RETAINED on this ledger (and on the 3
+    // referencing tables — see their comments). It is soft-
+    // deprecated: no mutation writes to it after the cutover
+    // flag flips. The PR-3a `cleanupMigratedConvexStorageBlobs`
+    // cron reads `storageId` to call `ctx.storage.delete` for
+    // any migrated rows that have not yet been cleaned up
+    // (rows where `convexStorageBlobsDeletedAt === undefined`).
+    // A follow-up PR drops the column once every migrated row
+    // has been cleaned up (after one full `WORKSPACE_RETENTION_MS`
+    // cycle post-PR-2) — at that point the PR 2 backlog has
+    // fully cleared and no live reference to a `storageId`
+    // can exist.
     storageId: v.optional(v.id("_storage")),
     b2Key: v.optional(v.string()),
     uploaderId: v.string(),
     workspaceId: v.id("workspaces"),
     uploadedAt: v.number(),
+    // PR workspace-storage-3c (Greptile round 4 fix — confidence
+    // 0/5, "Image limits can be bypassed"): the content type the
+    // caller supplied when minting the presigned PUT URL. The
+    // B2 PUT signature scopes B2 to accept PUTs whose
+    // `Content-Type` header matches this value, so the field
+    // reflects the actually-uploaded blob's content type. Used
+    // by `createWorkspaceImage` and `embedImageInNote` to reject
+    // non-image uploads from consuming an image slot.
+    // Optional (legacy Convex-storage rows pre-date this column
+    // and have `b2Key === undefined` so they are not affected).
+    contentType: v.optional(v.string()),
     // PR workspace-storage-1 (round 4): completion timestamp. The
     // download action needs the ledger row to look up the
     // workspace that owns a `b2Key`, so on bind we mark the row
@@ -629,24 +697,49 @@ export default defineSchema({
     // PR workspace-storage-3a (post-migration Convex-storage
     // cleanup): set by the daily
     // `cleanupMigratedConvexStorageBlobs` cron when it
-    // deletes the Convex Storage blob at `storageId` after
-    // confirming there are no live references in
+    // deletes the Convex Storage blob at the row's `storageId`
+    // after confirming there are no live references in
     // workspaceMessages / workspaceImages /
     // workspaceNoteComments / instructorResources. Acts as
     // both an idempotency guard (the cron filter excludes
+    // rows with this field set) and an observability marker.
+    // The `storageId` column on this ledger is retained in
+    // PR 3c solely so this cron can continue to read it; see
+    // the column comment above.
+    convexStorageBlobsDeletedAt: v.optional(v.number()),
+    // PR workspace-storage-3c (narrow): set by the daily
+    // `cleanupExpiredWorkspaceB2Uploads` cron when it deletes
+    // a cancelled B2 object (the object the caller PUT before
+    // `verifyAndConfirmB2Upload` rejected the binding). Acts
+    // as both an idempotency guard (the cron filter excludes
     // rows with this field set) and an observability marker
     // (operators can query the ledger for "when was this
-    // blob deleted"). The `storageId` column itself stays on
-    // the ledger until a future PR (after one full
-    // WORKSPACE_RETENTION_MS cycle), so a rollback window
-    // remains open. This field is NOT cleared on rollback —
-    // it is informational.
-    convexStorageBlobsDeletedAt: v.optional(v.number()),
+    // cancelled upload's B2 object cleaned up").
+    trashedAt: v.optional(v.number()),
+    // PR workspace-storage-3c: written by the
+    // `cleanupExpiredWorkspaceB2Uploads` cron after a successful
+    // `deleteFromB2WorkspaceAction` (B2 DELETE returned 2xx or
+    // 404). Acts as both an idempotency guard (the cron filter
+    // excludes rows with this field set) and an observability
+    // marker (operators can query the ledger for "when was
+    // this upload past its 18-month retention window and
+    // cleaned up"). PR workspace-storage-3c round 4
+    // (Greptile P1 "Lifecycle deletes referenced objects"):
+    // the retention window is enforced solely by the daily
+    // Convex cron. The companion B2 lifecycle rule
+    // (`scripts/set-b2-bucket-lifecycle.ts`, removed in PR 3c
+    // round 4) used to delete objects in bulk regardless of
+    // whether a live reference still pointed at them — a
+    // race-condition window where a referenced object could
+    // be deleted before the cron read its references.
+    retentionDeletedAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_workspaceId", ["workspaceId"])
-    // PR workspace-storage-1: B2 path uses this index instead of
-    // `by_storageId`. The legacy Convex-storage path is unchanged.
+    // PR workspace-storage-1: B2 path uses this index. The
+    // legacy Convex-storage `by_storageId` index is retained
+    // alongside `by_b2Key` because the `storageId` column is
+    // retained on the ledger (see the column comment).
     .index("by_b2Key", ["b2Key"])
     // PR workspace-storage-1 (round 2): bounded index for the
     // "count pending uploads for this caller in this workspace"
@@ -661,15 +754,14 @@ export default defineSchema({
       "uploadedAt",
     ])
     // PR workspace-storage-2: the migration scan selects rows
-    // where `storageId !== undefined && b2Key === undefined &&
-    // uploadedAt < NOW - 7 days` across every workspace. Convex
-    // indexes require equality on leftmost columns, so the
-    // cross-workspace scan keys on `b2Key` (NULL bucket
-    // matches legacy rows that have not yet been migrated to
-    // B2) and ranges on `uploadedAt`. The post-filter drops
-    // rows whose `storageId === undefined` (those have no
-    // blob to migrate) and the `migratedAt / cancelledAt`
-    // carve-outs.
+    // where `b2Key === undefined && uploadedAt < NOW - 7 days`
+    // across every workspace. Convex indexes require equality
+    // on leftmost columns, so the cross-workspace scan keys
+    // on `b2Key` (NULL bucket matches legacy rows that have
+    // not yet been migrated to B2) and ranges on `uploadedAt`.
+    // The post-filter drops rows whose `storageId === undefined`
+    // (those have no blob to migrate) and the
+    // `migratedAt / cancelledAt` carve-outs.
     .index("by_b2Key_uploadedAt", ["b2Key", "uploadedAt"])
     // PR workspace-storage-3a (post-migration cleanup): the
     // daily `cleanupMigratedConvexStorageBlobs` cron
@@ -683,7 +775,30 @@ export default defineSchema({
     // values together so `q.eq(field, undefined)` matches
     // rows whose field is absent.
     .index("by_convexStorageBlobsDeletedAt_migratedAt_uploadedAt",
-      ["convexStorageBlobsDeletedAt", "migratedAt", "uploadedAt"]),
+      ["convexStorageBlobsDeletedAt", "migratedAt", "uploadedAt"])
+    // PR workspace-storage-3c: the daily
+    // `cleanupExpiredWorkspaceB2Uploads` cron scans for
+    // completed uploads past the 18-month retention deadline.
+    // The index excludes stamped rows so a backlog of cleaned-
+    // up rows cannot starve later eligible rows of batch reads
+    // (same idempotency-via-index pattern as the 3a cleanup).
+    // Query uses
+    // `q.eq("retentionDeletedAt", undefined).gt("completedAt", 0)`
+    // so the equality filter narrows the scan before the range
+    // filter on `completedAt` runs.
+    .index("by_retentionDeletedAt_completedAt",
+      ["retentionDeletedAt", "completedAt"])
+    // PR workspace-storage-3c: the weekly
+    // `cleanupOrphanB2Objects` cron scans for cancelled uploads
+    // whose B2 object was never deleted (the immediate
+    // `cleanupRejectedB2Upload` action hit a permanent failure
+    // it gave up on, or the crons were paused mid-cleanup).
+    // Same idempotency-via-index pattern as the retention and
+    // 3a cleanups — stamped rows are excluded from the scan.
+    // Query uses
+    // `q.eq("trashedAt", undefined).gt("cancelledAt", 0)`.
+    .index("by_trashedAt_cancelledAt_uploadedAt",
+      ["trashedAt", "cancelledAt", "uploadedAt"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

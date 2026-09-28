@@ -122,3 +122,17 @@ export const STALE_MIGRATION_LOCK_MS = 60 * 60 * 1000;
  * internal query read budget under Convex's 8KB doc limit.
  */
 export const BACKFILL_BATCH_SIZE = 50;
+
+/**
+ * PR workspace-storage-3c (server-side resolution): default TTL
+ * for B2 signed GET URLs minted by the read-side
+ * `resolveWorkspaceB2FileUploadsForKeys` query. Picked 1 hour
+ * to balance round-trip churn (every page render) against
+ * expiry risk (a long-lived browser tab). Long enough for a
+ * gallery / chat / notes scroll session; short enough that a
+ * leaked URL is only useful for an hour. Action callers
+ * (`getWorkspaceDownloadUrl`, ZIP exports) can request longer
+ * TTLs and they are clamped by
+ * `clampWorkspaceDownloadExpiresInSeconds`.
+ */
+export const WORKSPACE_B2_URL_TTL_SECONDS = 60 * 60;

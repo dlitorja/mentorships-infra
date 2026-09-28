@@ -70,10 +70,14 @@ export function NoteComments({
                 )}
               </div>
               {comment.content && <p className="mt-1">{comment.content}</p>}
-              {comment.storageId && (
+              {(comment.attachmentUrl ?? comment.storageId) && (
                 <div className="mt-2">
                   <a
-                    href={`${process.env.NEXT_PUBLIC_CONVEX_URL}/api/storage/${comment.storageId}`}
+                    href={
+                      comment.attachmentUrl
+                        ? comment.attachmentUrl
+                        : `${process.env.NEXT_PUBLIC_CONVEX_URL}/api/storage/${comment.storageId}`
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 text-xs text-primary bg-muted/50 rounded p-1.5 hover:underline"
