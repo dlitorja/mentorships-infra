@@ -29,6 +29,11 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
       clerkId: instructorId,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor@example.com",
+      name: "Instructor One",
+    });
     await ctx.db.insert("users", {
       userId: editorId,
       email: "editor@example.com",
@@ -159,6 +164,11 @@ test("video editor quotas: no quota means no extra restriction", async () => {
       clerkId: instructorId,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor2@example.com",
+      name: "Instructor Two",
+    });
     await ctx.db.insert("users", {
       userId: editorId,
       email: "editor2@example.com",
@@ -197,6 +207,11 @@ test("video editor uploads: no default instructor cap applies to delegated or se
       email: "instructor4@example.com",
       clerkId: instructorId,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor4@example.com",
+      name: "Instructor Four",
     });
     await ctx.db.insert("users", {
       userId: editorId,
@@ -263,6 +278,11 @@ test("createUpload: instructors have no storage cap", async () => {
       clerkId: instructorId,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor5@example.com",
+      name: "Instructor Five",
+    });
     // Seed an instructor-owned upload well above the old 50GB cap.
     await ctx.db.insert("instructorUploads", {
       instructorId,
@@ -303,6 +323,11 @@ test("createUpload: video editor cannot spoof uploadedById to bypass quotas", as
       email: "instructor6@example.com",
       clerkId: instructorId,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor6@example.com",
+      name: "Instructor Six",
     });
     await ctx.db.insert("users", {
       userId: editorId,
@@ -349,11 +374,21 @@ test("createUpload: instructor cannot upload to another instructor's storage", a
       clerkId: instructorId,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor7@example.com",
+      name: "Instructor Seven",
+    });
     await ctx.db.insert("users", {
       userId: otherInstructorId,
       email: "instructor8@example.com",
       clerkId: otherInstructorId,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: otherInstructorId,
+      email: "instructor8@example.com",
+      name: "Instructor Eight",
     });
   });
 
@@ -381,6 +416,11 @@ test("createUpload: video editor cannot upload to an unassigned instructor", asy
       email: "instructor9@example.com",
       clerkId: instructorId,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor9@example.com",
+      name: "Instructor Nine",
     });
     await ctx.db.insert("users", {
       userId: editorId,
@@ -769,7 +809,6 @@ test("createUpload: open assignment allows uploads to any instructor without quo
   const editorId = "editor_open_7";
   const instructorA = "instructor_open_7a";
   const instructorB = "instructor_open_7b";
-  const hugeQuota = 1024 * 1024 * 1024; // 1 GB
 
   await t.run(async (ctx) => {
     await ctx.db.insert("users", {
@@ -784,11 +823,21 @@ test("createUpload: open assignment allows uploads to any instructor without quo
       clerkId: instructorA,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: instructorA,
+      email: "instructor_open_7a@example.com",
+      name: "Instructor Open 7a",
+    });
     await ctx.db.insert("users", {
       userId: instructorB,
       email: "instructor_open_7b@example.com",
       clerkId: instructorB,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorB,
+      email: "instructor_open_7b@example.com",
+      name: "Instructor Open 7b",
     });
     // Open assignment only — no per-instructor quota applies.
     await ctx.db.insert("videoEditorAssignments", {
@@ -862,11 +911,21 @@ test("createUpload: specific quota still enforced when editor has both open and 
       clerkId: specificInstructor,
       role: "instructor",
     });
+    await ctx.db.insert("instructors", {
+      userId: specificInstructor,
+      email: "instructor_open_8@example.com",
+      name: "Instructor Open 8",
+    });
     await ctx.db.insert("users", {
       userId: otherInstructor,
       email: "instructor_open_8_other@example.com",
       clerkId: otherInstructor,
       role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: otherInstructor,
+      email: "instructor_open_8_other@example.com",
+      name: "Instructor Open 8 Other",
     });
     // Open assignment first.
     await ctx.db.insert("videoEditorAssignments", {
@@ -957,4 +1016,247 @@ test("isVideoEditorAssignedToInstructor: open row matches any instructor", async
       { videoEditorId: editorId, instructorId: instructorB }
     )
   ).toBe(true);
+});
+
+/**
+ * Tests for Greptile findings on PR #887 round 2:
+ *
+ *   - createUpload rejects nonexistent `instructorId` so an editor with
+ *     open access cannot smuggle a stale or arbitrary target through
+ *     (P1 #2).
+ *   - getVideoEditorAssignmentsWithStorage reports zero usage for a
+ *     specific assignment when an open assignment coexists, preventing
+ *     /api/storage-usage from double-counting the same files
+ *     (P1 #4).
+ *   - computeVideoEditorOpenStorageStats correctly aggregates across
+ *     more than one page of uploads for a long-lived editor
+ *     (P2 #3).
+ */
+
+test("createUpload: rejects unknown instructorId even with open access", async () => {
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_open_10";
+  const ghostInstructorId = "instructor_does_not_exist";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_open_10@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    // Open access, but the target instructor is not in the `instructors`
+    // table — the page-side dropdown would not show them, but a
+    // hand-crafted POST must be rejected server-side.
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  await expect(
+    editorClient.mutation(api.instructorUploads.createUpload, {
+      id: "open_ghost_upload",
+      instructorId: ghostInstructorId,
+      filename: "key/open_ghost_upload",
+      originalName: "open_ghost_upload.mp4",
+      contentType: "video/mp4",
+      size: 100 * 1024 * 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("Target instructor not found");
+});
+
+test("getVideoEditorAssignmentsWithStorage: mixed open + specific does not double-count", async () => {
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_open_11";
+  const specificInstructor = "instructor_open_11";
+  const otherInstructor = "instructor_open_11_other";
+  const uploadSize = 50 * 1024 * 1024; // 50 MB
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_open_11@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: specificInstructor,
+      email: "instructor_open_11@example.com",
+      clerkId: specificInstructor,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: specificInstructor,
+      email: "instructor_open_11@example.com",
+      name: "Instructor Open 11",
+    });
+    await ctx.db.insert("users", {
+      userId: otherInstructor,
+      email: "instructor_open_11_other@example.com",
+      clerkId: otherInstructor,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: otherInstructor,
+      email: "instructor_open_11_other@example.com",
+      name: "Instructor Open 11 Other",
+    });
+    // Open + specific coexist.
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      assignedAt: Date.now(),
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: specificInstructor,
+      assignedAt: Date.now(),
+      storageQuotaBytes: 100 * 1024 * 1024,
+    });
+    // Three uploads across two instructors.
+    await ctx.db.insert("instructorUploads", {
+      instructorId: specificInstructor,
+      filename: "key/a",
+      originalName: "a.mp4",
+      contentType: "video/mp4",
+      size: uploadSize,
+      status: "completed",
+      uploadedById: editorId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("instructorUploads", {
+      instructorId: otherInstructor,
+      filename: "key/b",
+      originalName: "b.mp4",
+      contentType: "video/mp4",
+      size: uploadSize,
+      status: "completed",
+      uploadedById: editorId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("instructorUploads", {
+      instructorId: specificInstructor,
+      filename: "key/c",
+      originalName: "c.mp4",
+      contentType: "video/mp4",
+      size: uploadSize,
+      status: "completed",
+      uploadedById: editorId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  const adminId = "admin_open_11";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin_open_11@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  const rows = await adminClient.query(
+    api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+    { videoEditorId: editorId }
+  );
+  const openRow = rows.find((r) => r.assignment.instructorId === undefined);
+  const specificRow = rows.find((r) => r.assignment.instructorId === specificInstructor);
+  expect(openRow).toBeDefined();
+  expect(specificRow).toBeDefined();
+
+  // Open row: 3 uploads × 50 MB = 150 MB across two instructors.
+  expect(openRow!.usedBytes).toBe(3 * uploadSize);
+  expect(openRow!.fileCount).toBe(3);
+
+  // Specific row: must be zero (subsumed by open), otherwise the storage
+  // total in /api/storage-usage would double-count the 100 MB on
+  // specificInstructor (two 50 MB uploads there).
+  expect(specificRow!.usedBytes).toBe(0);
+  expect(specificRow!.fileCount).toBe(0);
+});
+
+test("computeVideoEditorOpenStorageStats: aggregates across many pages", async () => {
+  // Insert 250 uploads so the pagination loop runs >2 pages (numItems=100).
+  // This proves the totals match even when the history spans more than
+  // one query page.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_open_12";
+  const targetInstructor = "instructor_open_12";
+  const uploadSize = 1024; // 1 KB
+  const total = 250;
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_open_12@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: targetInstructor,
+      email: "instructor_open_12@example.com",
+      clerkId: targetInstructor,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: targetInstructor,
+      email: "instructor_open_12@example.com",
+      name: "Instructor Open 12",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      assignedAt: Date.now(),
+    });
+
+    const now = Date.now();
+    for (let i = 0; i < total; i++) {
+      const status = i % 5 === 0 ? "deleted" : "completed";
+      await ctx.db.insert("instructorUploads", {
+        instructorId: targetInstructor,
+        filename: `key/bulk_${i}`,
+        originalName: `bulk_${i}.mp4`,
+        contentType: "video/mp4",
+        size: uploadSize,
+        status,
+        uploadedById: editorId,
+        createdAt: now + i,
+        updatedAt: now + i,
+      });
+    }
+  });
+
+  const adminId = "admin_open_12";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin_open_12@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  const rows = await adminClient.query(
+    api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+    { videoEditorId: editorId }
+  );
+  const openRow = rows.find((r) => r.assignment.instructorId === undefined);
+  expect(openRow).toBeDefined();
+
+  // 250 total - 50 deleted (every 5th) = 200 active uploads × 1 KB = 200 KB.
+  expect(openRow!.fileCount).toBe(200);
+  expect(openRow!.usedBytes).toBe(200 * uploadSize);
 });

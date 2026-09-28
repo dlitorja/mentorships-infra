@@ -265,6 +265,20 @@ export const createUpload = mutation({
       throw new Error("Unauthorized: authentication required");
     }
 
+    // Validate that the target instructor exists before accepting the
+    // upload. Without this, an editor with open access could submit an
+    // arbitrary or stale `instructorId` and create a file row + B2 object
+    // with no real instructor behind it. The page-side dropdown filters
+    // instructors, but a server-side validation is required because the
+    // client cannot be trusted.
+    const targetInstructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+      .first();
+    if (!targetInstructor) {
+      throw new Error("Target instructor not found");
+    }
+
     // Caps are enforced based on the authenticated caller's role, not the
     // caller-supplied uploadedById, so spoofed identities cannot bypass
     // storage limits. Instructors have no storage cap; only video editors

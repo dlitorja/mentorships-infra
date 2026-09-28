@@ -12,7 +12,16 @@ interface Upload {
   uploadedById?: string;
   status?: string;
   b2UploadId?: string;
+  createdAt?: number;
 }
+
+// Time-bounded grace window during which an uploader can complete an
+// in-progress multipart upload after their access has been revoked. Bounds
+// the abuse window for revoked-then-finalize while still letting the
+// B2 multipart state be cleaned up (rather than orphaned forever). After
+// this window, revoked editors must abort and the row stays in
+// `uploading` state for admin cleanup.
+const OWNER_FINISH_GRACE_MS = 5 * 60 * 1000;
 
 function getStringProperty(error: unknown, key: string): string | undefined {
   if (typeof error !== "object" || error === null) return undefined;
@@ -64,16 +73,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const hasAccess = await canAccessInstructorData(upload.instructorId);
     // Fallback: if the uploader is the caller and the upload is still in a
-    // non-terminal state, allow them to finish an in-progress multipart
-    // upload that started under open access that has since been revoked.
-    // Without this, revoking open access mid-upload strands the B2 multipart
-    // state and the editor cannot clean up the dangling session.
+    // non-terminal state AND was started within the grace window, allow
+    // them to finish an in-progress multipart upload after their access
+    // has been revoked. The grace window bounds the abuse path for a
+    // revoked-then-finalize race while still letting the B2 multipart
+    // state be cleaned up (rather than orphaned forever). After the
+    // window expires, revoked editors must abort and the row stays in
+    // `uploading` state for admin cleanup.
     const inProgressStatuses = new Set(["pending", "uploading"]);
     const isInProgress = upload.status ? inProgressStatuses.has(upload.status) : true;
+    const isWithinGraceWindow =
+      upload.createdAt !== undefined &&
+      Date.now() - upload.createdAt < OWNER_FINISH_GRACE_MS;
     let isOwnerFinishingOwnUpload = false;
     if (
       upload.uploadedById !== undefined &&
-      isInProgress
+      isInProgress &&
+      isWithinGraceWindow
     ) {
       const dbUser = await getCurrentUser();
       if (dbUser && upload.uploadedById === dbUser.userId) {
