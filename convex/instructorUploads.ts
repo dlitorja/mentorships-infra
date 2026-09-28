@@ -1275,17 +1275,6 @@ export const getTotalStorageStats = query({
 });
 
 /**
- * Maximum records read in a single page of getVideoEditorTotalStorageStats.
- * Bounds the dashboard read budget so a long-lived editor with thousands of
- * historical rows cannot exceed Convex's per-query document read limit. The
- * proper long-term fix is a denormalized counter on the `users` table for
- * video editors, atomically updated on upload create/complete/delete —
- * tracked as a Linear follow-up. Until that ships, this query caps the scan
- * and flags truncation so the UI can show an "approximate" indicator.
- */
-const TOTAL_STORAGE_STATS_PAGE_SIZE = 1000;
-
-/**
  * Sum active usage for one video editor across every instructor they
  * uploaded to. Used by /api/storage-usage for the editor's dashboard so
  * the displayed bytes match what's still in B2 even when open access has
@@ -1297,18 +1286,19 @@ const TOTAL_STORAGE_STATS_PAGE_SIZE = 1000;
  * Authorization: callers may only read their own usage, unless they are
  * an admin. Without this check the public query would expose any
  * editor's total storage footprint to any signed-in caller.
+ *
+ * HUC-58: read the denormalized counter. If the row is missing (editor
+ * has historical uploads but no counter row yet, i.e. the cron backfill
+ * hasn't run for them), self-heal by computing from the uploads table
+ * and writing the counter inline. This guarantees the dashboard does
+ * not under-report on first deploy, before the hourly cron has caught
+ * up.
  */
 export const getVideoEditorTotalStorageStats = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
     await requireAdminOrSelfVideoEditor(ctx, args.videoEditorId);
 
-    // HUC-58: read the denormalized counter directly. The counter
-    // is updated atomically by createUpload / deleteUpload /
-    // softDeleteUpload / markUploadForCleanup / restoreUpload and
-    // backfilled by the `backfillVideoEditorStorageCounter` cron.
-    // O(1) reads regardless of historical record count — replaces
-    // the bounded scan that capped TOTAL_STORAGE_STATS_PAGE_SIZE.
     const counter = await ctx.db
       .query("videoEditorStorageStats")
       .withIndex("by_videoEditorId", (q) =>
@@ -1316,13 +1306,41 @@ export const getVideoEditorTotalStorageStats = query({
       )
       .first();
 
+    if (counter) {
+      return {
+        usedBytes: counter.usedBytes,
+        fileCount: counter.fileCount,
+        lastUpdatedAt: counter.lastUpdatedAt,
+      };
+    }
+
+    // Fallback for the gap between deploy and the first cron run:
+    // scan the uploads table directly. Queries cannot write to the
+    // counter table (no `db.insert` on `GenericDatabaseReader`), so
+    // we cannot self-heal the row inline. The hourly cron will write
+    // the counter on its next pass. Until then the editor sees the
+    // exact pre-counter behaviour, but no worse — the scan is
+    // bounded by the per-query document-read limit (~32k reads).
+    const page = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_uploadedById", (q) =>
+        q.eq("uploadedById", args.videoEditorId)
+      )
+      .paginate({ numItems: 32_000, cursor: null });
+
+    let usedBytes = 0;
+    let fileCount = 0;
+    for (const upload of page.page) {
+      if (upload.status === "deleted" || upload.status === "deleting") {
+        continue;
+      }
+      usedBytes += upload.size;
+      fileCount += 1;
+    }
     return {
-      usedBytes: counter?.usedBytes ?? 0,
-      fileCount: counter?.fileCount ?? 0,
-      // `truncated` and `scannedRecords` are removed because they no
-      // longer apply. The dashboard UI no longer surfaces a "partial"
-      // badge (HUC-58 follow-up, schema-change PR).
-      lastUpdatedAt: counter?.lastUpdatedAt ?? null,
+      usedBytes,
+      fileCount,
+      lastUpdatedAt: null,
     };
   },
 });

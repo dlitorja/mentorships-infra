@@ -404,10 +404,10 @@ test("counter: idempotent re-application of the same transition is a no-op", asy
 });
 
 test("counter: full backfill scan aggregates active rows correctly", async () => {
-  // Exercises `backfillVideoEditorStorageCounterFull` directly via
+  // Exercises `backfillVideoEditorStorageCounterBatch` directly via
   // the internal mutation API. Three editors with mixed statuses;
   // verify the counter matches the expected aggregate after a
-  // full-scan backfill.
+  // full-scan backfill (single batch, no cursor).
   const t = convexTest(schema, modules);
 
   const editorA = "backfill_editor_a";
@@ -522,8 +522,8 @@ test("counter: full backfill scan aggregates active rows correctly", async () =>
 
   await t.run(async (ctx) => {
     await ctx.runMutation(
-      internal.mutations.backfillVideoEditorStorageCounter.backfillVideoEditorStorageCounterFull,
-      {}
+      internal.mutations.backfillVideoEditorStorageCounter.backfillVideoEditorStorageCounterBatch,
+      { cursor: null }
     );
   });
 

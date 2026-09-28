@@ -101,8 +101,13 @@ export async function GET(): Promise<NextResponse> {
         lastUpdatedAt: stats.lastUpdatedAt ?? null,
         // Pre-compute staleness on the server so the StorageUsage
         // component can stay a pure function of props (no Date.now()
-        // inside the component).
+        // inside the component). The "stale" badge is only
+        // meaningful when there is usage to track — an editor
+        // with fileCount === 0 has nothing for the backfill to
+        // refresh, so a long-quiescent counter at zero should not
+        // be flagged (round-23 Greptile P2 #1).
         isStale:
+          stats.fileCount > 0 &&
           stats.lastUpdatedAt !== null &&
           stats.lastUpdatedAt !== undefined &&
           Date.now() - stats.lastUpdatedAt > 24 * 60 * 60 * 1000,

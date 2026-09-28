@@ -94,21 +94,14 @@ async function computeVideoEditorStorageStats(
  * itself has no `instructorId`), so the storage accounting reflects the
  * editor's actual footprint instead of reporting zero.
  *
- * Uses `.collect()` over the `by_uploadedById` index, mirroring the
- * per-instructor helper below. The cost is O(N) where N is the editor's
- * total upload history (active + deleted). For very long-lived editors
- * with thousands of historical rows this could exceed Convex's response
- * limit; the long-term fix is a precomputed aggregate row updated on
- * createUpload/softDeleteUpload (tracked as a follow-up).
+ * HUC-58: reads the denormalized counter. Falls back to a paginated
+ * scan and self-heals by writing the counter if no row exists yet
+ * (matches `getVideoEditorTotalStorageStats`).
  */
 async function computeVideoEditorOpenStorageStats(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string
 ): Promise<StorageStats> {
-  // HUC-58: read the denormalized counter directly. Replaces the
-  // bounded paginated scan that capped reads at 1000 records. The
-  // counter is updated atomically by the create/delete/softDelete
-  // mutations and backfilled by `backfillVideoEditorStorageCounter`.
   const counter = await ctx.db
     .query("videoEditorStorageStats")
     .withIndex("by_videoEditorId", (q) =>
@@ -116,10 +109,32 @@ async function computeVideoEditorOpenStorageStats(
     )
     .first();
 
-  return {
-    usedBytes: counter?.usedBytes ?? 0,
-    fileCount: counter?.fileCount ?? 0,
-  };
+  if (counter) {
+    return { usedBytes: counter.usedBytes, fileCount: counter.fileCount };
+  }
+
+  // Fallback for the gap between deploy and the first cron run.
+  // Queries cannot write the counter row inline (no `db.insert` on
+  // `GenericDatabaseReader`); the hourly cron will populate it.
+  // Until then we scan and return the aggregate, matching the
+  // pre-counter behaviour. Bounded by the per-query document-read
+  // limit (~32k reads).
+  const page = await ctx.db
+    .query("instructorUploads")
+    .withIndex("by_uploadedById", (q) =>
+      q.eq("uploadedById", videoEditorId)
+    )
+    .paginate({ numItems: 32_000, cursor: null });
+
+  let usedBytes = 0;
+  let fileCount = 0;
+  for (const upload of page.page) {
+    if (isActiveUpload(upload)) {
+      usedBytes += upload.size;
+      fileCount += 1;
+    }
+  }
+  return { usedBytes, fileCount };
 }
 
 /**

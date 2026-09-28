@@ -3,37 +3,62 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 
-interface BackfillResult {
+interface BatchResult {
   rowsScanned: number;
   editorsWritten: number;
+  editorsUnchanged: number;
+  isDone: boolean;
+  nextCursor: string | null;
 }
 
 /**
- * Cron entry point for the HUC-58 denormalized storage counter
- * backfill. Calls `backfillVideoEditorStorageCounterFull` which
- * scans every `instructorUploads` row in a single transaction,
- * aggregates active bytes per `uploadedById`, and writes the
- * results to `videoEditorStorageStats`.
+ * Cron-driven backfill that walks every `instructorUploads` row in
+ * bounded batches and writes the per-editor aggregate to
+ * `videoEditorStorageStats`. HUC-58.
  *
- * The full-scan approach is intentional:
- *   - One transaction means atomic snapshot consistency.
- *   - One read pass means O(N) total cost, not O(N × editors).
- *   - Idempotent: re-running rewrites the same values.
+ * The batch size is set in
+ * `convex/mutations/backfillVideoEditorStorageCounter.ts` so it
+ * stays under Convex's per-mutation read limit (32k reads / mutation).
  *
- * The cron runs hourly. For typical prod scale (tens of thousands
- * of rows, hundreds of editors), the full scan completes in well
- * under the action timeout. The mutation is bounded by Convex's
- * per-mutation row-read limit (currently 32k reads per mutation);
- * for larger scales the action could be split into paginated
- * batches, but that adds complexity without current need.
+ * The walk is resumable: each batch returns a `nextCursor` that the
+ * action follows until the table is exhausted. The mutation is
+ * idempotent (skips writes when the value is unchanged), so a cron
+ * run that gets interrupted mid-walk can be re-driven without
+ * double-counting.
+ *
+ * The MAX_ITERATIONS bound prevents runaway loops if the index
+ * cursor were ever to repeat.
  */
+const MAX_ITERATIONS = 1000;
+
 export const runBackfillVideoEditorStorageCounter = internalAction({
   args: {},
-  handler: async (ctx): Promise<BackfillResult> => {
-    const result = await ctx.runMutation(
-      internal.mutations.backfillVideoEditorStorageCounter.backfillVideoEditorStorageCounterFull,
-      {}
-    );
-    return result;
+  handler: async (ctx) => {
+    let cursor: string | null = null;
+    let iterations = 0;
+    let totalRowsScanned = 0;
+    let totalEditorsWritten = 0;
+    let totalEditorsUnchanged = 0;
+    let isDone = false;
+    do {
+      const result = (await ctx.runMutation(
+        internal.mutations.backfillVideoEditorStorageCounter.backfillVideoEditorStorageCounterBatch,
+        { cursor }
+      )) as BatchResult;
+      iterations += 1;
+      totalRowsScanned += result.rowsScanned;
+      totalEditorsWritten += result.editorsWritten;
+      totalEditorsUnchanged += result.editorsUnchanged;
+      isDone = result.isDone;
+      cursor = result.nextCursor;
+      if (isDone) break;
+    } while (cursor !== null && iterations < MAX_ITERATIONS);
+    return {
+      iterations,
+      totalRowsScanned,
+      totalEditorsWritten,
+      totalEditorsUnchanged,
+      reachedMaxIterations: !isDone,
+    };
   },
 });
