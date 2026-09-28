@@ -40,6 +40,24 @@ const MAX_PENDING_UPLOADS_PER_WORKSPACE = 20;
 const TOCTOU_REJECT_MARKER = "[TOCTOU-REJECT] ";
 
 /**
+ * PR workspace-storage-3c: cutover flag. The B2 actions refuse to
+ * do work when the env var is unset so the operator can flip the
+ * flag in one place to disable the B2 path entirely during a
+ * rollback or an investigation. The companion legacy action
+ * (`workspaceActions.generateWorkspaceImageUploadUrl`) is gated by
+ * the SAME flag in the inverse direction — when the flag is set,
+ * the legacy action refuses, so the two paths cannot both be
+ * active at once.
+ */
+function requireB2Enabled(actionName: string): void {
+  if (process.env.WORKSPACE_STORAGE_USE_B2 !== "true") {
+    throw new Error(
+      `${actionName}: B2 storage is disabled. Set WORKSPACE_STORAGE_USE_B2=true to enable.`
+    );
+  }
+}
+
+/**
  * Workspace storage migration (PR 1 of 3, widen).
  *
  * Uploads flow directly from the browser to a separate B2 bucket
@@ -422,6 +440,7 @@ export const generateWorkspaceUploadUrl = action({
     ctx,
     args
   ): Promise<{ uploadUrl: string; b2Key: string; fileId: string }> => {
+    requireB2Enabled("generateWorkspaceUploadUrl");
     if (!Number.isFinite(args.size) || args.size <= 0) {
       throw new Error("Invalid file size");
     }
@@ -508,6 +527,7 @@ export const getWorkspaceDownloadUrl = action({
     ctx,
     args
   ): Promise<{ url: string; expiresAt: number }> => {
+    requireB2Enabled("getWorkspaceDownloadUrl");
     // Use the download-specific resolver that allows ended
     // workspaces during their retention window (Greptile P1).
     const access: {
@@ -612,6 +632,7 @@ export const recordB2FileUpload = action({
     b2Key: v.string(),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    requireB2Enabled("recordB2FileUpload");
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
