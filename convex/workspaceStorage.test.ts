@@ -1311,35 +1311,23 @@ test("confirmB2FileUpload rejects and leaves row pending when the workspace ende
   // the action's authz check and the B2 HEAD call. The
   // mutation must re-verify rather than mark complete.
   //
-  // NOTE on cancellation: the production code at line 1186
-  // also calls `ctx.runMutation(cancelB2FileUpload, ...)`
-  // before throwing, intending to cancel the ledger row so
-  // the B2 object gets cleaned up. However, `ctx.runMutation`
-  // invoked from inside a mutation that subsequently throws
-  // is itself rolled back in Convex (nested commit returns
-  // null and writes stay pending until the outermost
-  // transaction commits). Round 33 verification with
-  // convex-test 0.0.55 + convex 1.46.0 confirmed this:
-  // the ledger's `cancelledAt` is undefined after the throw.
+  // HUC-53 / Greptile P1 r25: the cancel + cleanup that
+  // previously lived inside `confirmB2FileUpload` was a
+  // no-op — `ctx.runMutation` (or `ctx.scheduler.runAfter`)
+  // from inside a mutation that subsequently throws is part
+  // of the same transaction and gets rolled back when the
+  // throw fires. The cancel + scheduled cleanup now live in
+  // the action caller (`verifyAndConfirmB2Upload`'s catch
+  // handler), which is not in a transaction, so the writes
+  // commit independently of the throw.
   //
-  // The PR 2 (migrate) and PR 3 (cutover) cleanup windows
-  // do NOT depend on this nested-cancel path: `recordB2FileUpload`
-  // (the action) runs its own `ctx.runMutation(cancelB2FileUpload)`
-  // call BEFORE invoking `confirmB2FileUpload`, and that
-  // action-level cancel commits independently because
-  // actions are not in a transaction. The TOCTOU path here
-  // is a defense-in-depth check on `completedAt`, not on
-  // `cancelledAt`.
-  //
-  // TODO PR workspace-storage-3 (follow-up): the in-mutation
-  // cancel-via-runMutation at line 1186 of `workspaceStorage.ts`
-  // is a no-op because of the nested-commit-rollback behavior.
-  // Either remove the call or split the cancel into an
-  // `ctx.scheduler.runAfter(0, ...)` that fires AFTER the
-  // outer throw commits — actions schedule outside the
-  // mutation transaction, so the scheduled cancel would
-  // run in a separate transaction and the cancel would
-  // commit.
+  // This test exercises the mutation IN ISOLATION (no
+  // wrapping action) so `cancelledAt` MUST stay undefined —
+  // the mutation has no caller to delegate to. The
+  // `verifyAndConfirmB2Upload catches TOCTOU throw and
+  // cancels` test below exercises the full production flow
+  // through `verifyAndConfirmB2Upload` and asserts the
+  // action's catch handler DOES commit `cancelledAt`.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1373,11 +1361,283 @@ test("confirmB2FileUpload rejects and leaves row pending when the workspace ende
   // returned 200 had the action not re-verified. This is
   // the actual TOCTOU protection.
   expect((ledger as any).completedAt).toBeUndefined();
-  // Document the known bug: cancelledAt is NOT set after the
-  // throw. See the TODO above for the follow-up fix. When
-  // the follow-up lands, change this assertion to
-  // `toBeTypeOf("number")`.
+  // The mutation alone cannot cancel: nested writes are
+  // rolled back when the throw fires. The cancel is the
+  // action caller's responsibility — see the next test.
   expect((ledger as any).cancelledAt).toBeUndefined();
+
+  // Greptile round 1 P1 follow-up: the throw carries the
+  // TOCTOU reject marker so the action caller can
+  // distinguish a TOCTOU rejection (cleanup) from a
+  // transient error (no cleanup).
+  await expect(
+    t.mutation(internal.workspaceStorage.confirmB2FileUpload, {
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+    })
+  ).rejects.toThrow(/\[TOCTOU-REJECT\]/);
+});
+
+test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC-53 fix)", async () => {
+  // HUC-53 / Greptile P1 r25 follow-up: confirm the
+  // production flow (`verifyAndConfirmB2Upload` action)
+  // DOES commit `cancelledAt` when `confirmB2FileUpload`
+  // throws due to a TOCTOU race.
+  //
+  // Setup: simulate the workspace ending BETWEEN the
+  // action's pre-cancel (which only fires when the action
+  // itself detects the ended state) and the mutation's
+  // re-check. We pre-end the workspace BEFORE the action
+  // runs, then call `verifyAndConfirmB2Upload` directly
+  // (which does not have a pre-cancel — only
+  // `recordB2FileUpload` does). The mutation throws, the
+  // action's catch handler calls `cancelB2FileUpload`,
+  // then the action rethrows.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const b2Key = "2026-01-01/file_toctou_action_catch/catch.png";
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key,
+    })
+  );
+  // End the workspace so the mutation's re-check throws.
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt: now + 1 })
+  );
+
+  // Mock the B2 HEAD to succeed; otherwise the action would
+  // throw on HEAD (not on the mutation's re-check).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+
+  await expect(
+    t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
+      b2Key,
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+    })
+  ).rejects.toThrow(/ended during/i);
+
+  // HUC-53 fix: the action's catch handler committed
+  // `cancelledAt` even though the mutation's nested cancel
+  // (had it been inlined) would have been rolled back.
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).cancelledAt).toBeTypeOf("number");
+  expect((ledger as any).completedAt).toBeUndefined();
+});
+
+test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors (Greptile round 1 P1)", async () => {
+  // Greptile round 1 P1: the catch handler must distinguish a
+  // TOCTOU rejection (workspace state changed during HEAD) from
+  // a transient DB / Convex error. The former must trigger
+  // cleanup; the latter must propagate untouched so the caller
+  // can retry the same key.
+  //
+  // We force the mutation to throw a NON-TOCTOU error by
+  // pre-cancelling the ledger row — the mutation throws
+  // "Ledger row was cancelled during verify-and-confirm"
+  // (NOT a TOCTOU rejection, no `[TOCTOU-REJECT]` prefix).
+  // The ledger row still exists with `cancelledAt` set, so
+  // we can assert the catch handler left it alone (no
+  // cancelledAt re-patch, no re-scheduled cleanup).
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const b2Key = "2026-01-01/file_transient/transient.png";
+  const preCancelledAt = now - 5000;
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key,
+      cancelledAt: preCancelledAt,
+    })
+  );
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+
+  await expect(
+    t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
+      b2Key,
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+    })
+  ).rejects.toThrow(/cancelled during/i);
+
+  // HUC-53 P1 follow-up: the catch handler MUST NOT call
+  // `cancelB2FileUpload` on a non-TOCTOU error. The error
+  // message does not start with `[TOCTOU-REJECT]`, so the
+  // handler skips cleanup. Assert the ledger row is
+  // unchanged (no re-patch of `cancelledAt`, no re-schedule
+  // of cleanup). If a regression re-enabled unconditional
+  // cancel, `cancelledAt` would be overwritten with a
+  // later timestamp and a redundant cleanup would be
+  // scheduled (which would issue an extra B2 DELETE).
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).cancelledAt).toBe(preCancelledAt);
+  expect((ledger as any).completedAt).toBeUndefined();
+});
+
+test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (end-to-end)", async () => {
+  // Greptile round 2 P2 follow-up: exercise the production
+  // entry point (`recordB2FileUpload`) with a HEAD delay so
+  // the workspace can end DURING HEAD — not before the
+  // action's pre-check (covered by the test at line 1505)
+  // and not after the mutation (covered by the catch-handler
+  // test above). This test simulates the production timing
+  // race by stalling the HEAD fetch, patching the workspace
+  // to endedAt, then resolving the HEAD.
+  //
+  // Greptile round 3 P2 follow-up: the timing race could
+  // allow the action's pre-check (which reads workspace
+  // state) to see the ended state and fire the pre-cancel
+  // path before HEAD is reached. In that case the catch
+  // handler never runs and `cancelledAt` would be set by
+  // the pre-cancel path — the test would pass without
+  // exercising the catch handler. We assert HEAD was
+  // actually called (`fetchSpy` was invoked): the
+  // pre-cancel path throws before HEAD, so a HEAD call
+  // proves the catch handler was the cancel source.
+  //
+  // Greptile round 4 P2 follow-up: instead of a fixed
+  // `setTimeout(50)` (which assumes the pre-check completes
+  // within that window), the HEAD mock signals when it is
+  // called and we `await` that signal before patching the
+  // workspace. The test is now deterministic — it waits
+  // for HEAD to actually be in flight, regardless of how
+  // long the pre-check takes.
+  //
+  // Greptile round 5 P2 follow-up: the unbounded
+  // `await headStarted` could hang forever if a regression
+  // causes the pre-check to throw BEFORE HEAD (the action
+  // would throw with a different message, but the test
+  // would still hang on the headStarted wait). Race the
+  // wait against a 5s timeout so the failure mode is a
+  // clear assertion error rather than a vitest timeout.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const asStudent = t.withIdentity({ subject: "u_student_1" });
+
+  // Step 1: mint a fresh upload URL while the workspace is
+  // active.
+  const { b2Key } = await asStudent.action(
+    api.workspaceStorage.generateWorkspaceUploadUrl,
+    {
+      workspaceId: workspaceId as any,
+      fileId: "file_toctou_head_e2e",
+      fileName: "toctou_head_e2e.png",
+      contentType: "image/png",
+      size: 1024,
+    }
+  );
+
+  // Step 2: stall the HEAD fetch so we can end the workspace
+  // while HEAD is "in flight". The mock signals when HEAD
+  // starts so the test can synchronize the workspace patch
+  // with the actual HEAD call (rather than guessing a
+  // timeout).
+  let resolveHead: () => void = () => {};
+  const headStalled = new Promise<void>((resolve) => {
+    resolveHead = resolve;
+  });
+  let headStartedResolve: () => void = () => {};
+  const headStarted = new Promise<void>((resolve) => {
+    headStartedResolve = resolve;
+  });
+  const fetchSpy = vi.fn(async () => {
+    headStartedResolve();
+    await headStalled;
+    return { ok: true, status: 200, text: async () => "" } as Response;
+  });
+  vi.stubGlobal("fetch", fetchSpy);
+
+  // Step 3: kick off the action. Its pre-check (workspace +
+  // authorization) reads the workspace as active, then it
+  // calls `verifyAndConfirmB2Upload`, which calls HEAD and
+  // gets stuck on the stall.
+  const actionPromise = asStudent.action(
+    api.workspaceStorage.recordB2FileUpload,
+    {
+      workspaceId: workspaceId as any,
+      b2Key,
+    }
+  );
+
+  // Step 4: wait for HEAD to actually be called (deterministic
+  // — no fixed timeout). Race against a 5s timeout so a
+  // regression that throws BEFORE HEAD fails this test with
+  // a clear "HEAD was never called" message instead of
+  // hanging until vitest's global timeout.
+  await Promise.race([
+    headStarted,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              "HEAD was never called within 5s — the action's pre-check must have thrown before reaching verifyAndConfirmB2Upload"
+            )
+          ),
+        5000
+      )
+    ),
+  ]);
+
+  // Step 5: end the workspace while HEAD is in flight. The
+  // mutation's re-check will see `endedAt` and throw TOCTOU.
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt: Date.now() })
+  );
+
+  // Step 6: release the HEAD. The catch handler now commits
+  // the cancel.
+  resolveHead();
+
+  await expect(actionPromise).rejects.toThrow(/ended/i);
+
+  // Step 7: assert HEAD was actually called (defense in
+  // depth — a regression that short-circuits before HEAD
+  // would fail this assertion).
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+  // Step 8: assert the catch handler committed
+  // `cancelledAt`. This is the production timing race in
+  // miniature.
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+  expect(ledger?.cancelledAt).toBeTypeOf("number");
+  expect(ledger?.completedAt).toBeUndefined();
 });
 
 test("recordB2FileUpload TOCTOU: action-level cancel commits even though the mutation's nested cancel rolls back", async () => {

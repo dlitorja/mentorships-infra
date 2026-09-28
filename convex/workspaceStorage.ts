@@ -27,6 +27,18 @@ import {
 // URLs to inflate B2 storage costs (Greptile P1).
 const MAX_PENDING_UPLOADS_PER_WORKSPACE = 20;
 
+// HUC-53: sentinel marker prepended to TOCTOU rejection errors
+// thrown by `confirmB2FileUpload`. The action caller
+// (`verifyAndConfirmB2Upload`) inspects the message prefix to
+// decide whether to schedule a B2 cleanup (TOCTOU → cleanup) or
+// to propagate the error untouched (transient DB / Convex error
+// → do NOT cleanup; caller may retry the same key).
+//
+// Greptile round 1 P1: without the marker, a transient
+// `ctx.runMutation` failure from `confirmB2FileUpload` would
+// trigger cleanup of an otherwise valid upload.
+const TOCTOU_REJECT_MARKER = "[TOCTOU-REJECT] ";
+
 /**
  * Workspace storage migration (PR 1 of 3, widen).
  *
@@ -1075,10 +1087,49 @@ export const verifyAndConfirmB2Upload = internalAction({
       );
     }
 
-    await ctx.runMutation(internal.workspaceStorage.confirmB2FileUpload, {
-      ledgerId: args.ledgerId,
-      callerId: args.callerId,
-    });
+    // HUC-53 fix: `confirmB2FileUpload` (mutation) re-verifies
+    // workspace state + authorization and throws if anything
+    // changed during HEAD (TOCTOU defense). The mutation
+    // intentionally does NOT cancel the ledger inline — a
+    // nested `ctx.runMutation(cancelB2FileUpload)` is rolled
+    // back when the throw fires because nested writes only
+    // commit when the outer transaction commits. This action
+    // is not in a transaction, so we catch the throw here and
+    // commit the cancel ourselves.
+    //
+    // Greptile round 1 P1: only cancel when the throw is a
+    // TOCTOU rejection (tagged with `TOCTOU_REJECT:`). A
+    // transient DB / Convex error from the mutation must NOT
+    // trigger cleanup — the caller may retry the same key and
+    // the upload is otherwise valid. `confirmB2FileUpload`
+    // tags its three TOCTOU rejection reasons with this
+    // marker (see the throw site below); all other throws
+    // propagate without cleanup.
+    try {
+      await ctx.runMutation(internal.workspaceStorage.confirmB2FileUpload, {
+        ledgerId: args.ledgerId,
+        callerId: args.callerId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith(TOCTOU_REJECT_MARKER)) {
+        const ledger = await ctx.runQuery(
+          internal.workspaceStorage.getFileUploadById,
+          { id: args.ledgerId }
+        );
+        // Only cancel if the ledger still has a `b2Key` and has
+        // not been completed by a concurrent caller. Both checks
+        // are belt-and-suspenders: `cancelB2FileUpload` already
+        // short-circuits when `completedAt` is set, and a ledger
+        // row without `b2Key` would have no B2 object to delete.
+        if (ledger && ledger.b2Key !== undefined) {
+          await ctx.runMutation(internal.workspaceStorage.cancelB2FileUpload, {
+            b2Key: ledger.b2Key,
+          });
+        }
+      }
+      throw err;
+    }
   },
 });
 
@@ -1118,12 +1169,15 @@ export const confirmB2FileUpload = internalMutation({
     // Re-verify workspace state. The action saw the workspace
     // moments ago but HEAD may have taken seconds; the workspace
     // could now be deleted or ended. If the re-check fails,
-    // delegate the cancel + cleanup to `cancelB2FileUpload` via
-    // `ctx.runMutation` so the cancellation and the cleanup
-    // schedule commit independently of this mutation's throw
-    // (Greptile P1 r25: "Rejected upload cleanup rolls back" —
-    // patching `cancelledAt` and calling `ctx.scheduler.runAfter`
-    // in the same throwing mutation rolls back both writes).
+    // throw — the caller (`verifyAndConfirmB2Upload`, an action)
+    // catches the throw and calls `cancelB2FileUpload` itself.
+    // (HUC-53 / Greptile P1 r25: "Rejected upload cleanup rolls
+    // back" — patching `cancelledAt` or calling `ctx.runMutation`
+    // here would be rolled back when the throw fires because
+    // nested writes only commit when the outer transaction
+    // commits. Round 33 verification with convex-test 0.0.55 +
+    // convex 1.46.0 confirmed `cancelledAt` stayed undefined
+    // after the throw.)
     const workspace: Doc<"workspaces"> | null = await ctx.db.get(
       row.workspaceId
     );
@@ -1177,18 +1231,20 @@ export const confirmB2FileUpload = internalMutation({
     }
 
     if (authFailedReason !== null) {
-      // Cancel + schedule cleanup in a separate transaction so
-      // both writes survive this throw (see Greptile P1 r25).
-      // `cancelB2FileUpload` also skips if `completedAt` is set
-      // (concurrent completion race); for the failed-recheck
-      // branches the row is still in pending state, so the
-      // cleanup will be scheduled.
-      if (row.b2Key !== undefined) {
-        await ctx.runMutation(internal.workspaceStorage.cancelB2FileUpload, {
-          b2Key: row.b2Key,
-        });
-      }
-      throw new Error(authFailedReason);
+      // HUC-53 fix: the cancel + cleanup previously inlined here
+      // was a no-op — `ctx.runMutation` (or `ctx.scheduler.runAfter`)
+      // invoked from inside a mutation that subsequently throws is
+      // part of the same transaction and gets rolled back when
+      // the throw fires. The cancel + scheduled cleanup now live
+      // in the action caller (`verifyAndConfirmB2Upload`'s catch
+      // handler), which is not in a transaction, so the writes
+      // commit independently of this throw.
+      //
+      // Tag the throw with `TOCTOU_REJECT_MARKER` so the action
+      // caller can distinguish this rejection (which MUST trigger
+      // cleanup) from a transient DB / Convex error (which must
+      // NOT — the caller can retry the same key).
+      throw new Error(`${TOCTOU_REJECT_MARKER}${authFailedReason}`);
     }
 
     await ctx.db.patch(args.ledgerId, { completedAt: Date.now() });
@@ -1216,11 +1272,19 @@ export const getWorkspaceEndedAt = internalQuery({
 
 /**
  * Internal mutation: mark a `fileUploads` row cancelled and
- * schedule a B2 cleanup. Runs as a separate transaction so its
- * writes (cancelledAt + scheduled cleanup action) commit
- * independently of any outer mutation's throw (Greptile P1:
- * "scheduling + throw in the same outer mutation rolls back
- * the schedule").
+ * schedule a B2 cleanup. Called from actions (not from other
+ * mutations) so its writes commit independently of any
+ * outer-throw behavior. Specifically, the only callers are
+ * `recordB2FileUpload` (action) and `verifyAndConfirmB2Upload`'s
+ * catch handler (action) — neither is in a transaction, so the
+ * patch + scheduled `cleanupRejectedB2Upload` action commit
+ * independently of the surrounding throw.
+ *
+ * HUC-53 / Greptile P1: this function is intentionally NEVER
+ * called from inside another mutation. A nested
+ * `ctx.runMutation(cancelB2FileUpload)` from a mutation that
+ * subsequently throws is rolled back because nested writes only
+ * commit when the outer transaction commits.
  */
 export const cancelB2FileUpload = internalMutation({
   args: { b2Key: v.string() },
