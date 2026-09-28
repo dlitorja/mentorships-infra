@@ -1311,35 +1311,23 @@ test("confirmB2FileUpload rejects and leaves row pending when the workspace ende
   // the action's authz check and the B2 HEAD call. The
   // mutation must re-verify rather than mark complete.
   //
-  // NOTE on cancellation: the production code at line 1186
-  // also calls `ctx.runMutation(cancelB2FileUpload, ...)`
-  // before throwing, intending to cancel the ledger row so
-  // the B2 object gets cleaned up. However, `ctx.runMutation`
-  // invoked from inside a mutation that subsequently throws
-  // is itself rolled back in Convex (nested commit returns
-  // null and writes stay pending until the outermost
-  // transaction commits). Round 33 verification with
-  // convex-test 0.0.55 + convex 1.46.0 confirmed this:
-  // the ledger's `cancelledAt` is undefined after the throw.
+  // HUC-53 / Greptile P1 r25: the cancel + cleanup that
+  // previously lived inside `confirmB2FileUpload` was a
+  // no-op — `ctx.runMutation` (or `ctx.scheduler.runAfter`)
+  // from inside a mutation that subsequently throws is part
+  // of the same transaction and gets rolled back when the
+  // throw fires. The cancel + scheduled cleanup now live in
+  // the action caller (`verifyAndConfirmB2Upload`'s catch
+  // handler), which is not in a transaction, so the writes
+  // commit independently of the throw.
   //
-  // The PR 2 (migrate) and PR 3 (cutover) cleanup windows
-  // do NOT depend on this nested-cancel path: `recordB2FileUpload`
-  // (the action) runs its own `ctx.runMutation(cancelB2FileUpload)`
-  // call BEFORE invoking `confirmB2FileUpload`, and that
-  // action-level cancel commits independently because
-  // actions are not in a transaction. The TOCTOU path here
-  // is a defense-in-depth check on `completedAt`, not on
-  // `cancelledAt`.
-  //
-  // TODO PR workspace-storage-3 (follow-up): the in-mutation
-  // cancel-via-runMutation at line 1186 of `workspaceStorage.ts`
-  // is a no-op because of the nested-commit-rollback behavior.
-  // Either remove the call or split the cancel into an
-  // `ctx.scheduler.runAfter(0, ...)` that fires AFTER the
-  // outer throw commits — actions schedule outside the
-  // mutation transaction, so the scheduled cancel would
-  // run in a separate transaction and the cancel would
-  // commit.
+  // This test exercises the mutation IN ISOLATION (no
+  // wrapping action) so `cancelledAt` MUST stay undefined —
+  // the mutation has no caller to delegate to. The
+  // `verifyAndConfirmB2Upload catches TOCTOU throw and
+  // cancels` test below exercises the full production flow
+  // through `verifyAndConfirmB2Upload` and asserts the
+  // action's catch handler DOES commit `cancelledAt`.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1373,11 +1361,71 @@ test("confirmB2FileUpload rejects and leaves row pending when the workspace ende
   // returned 200 had the action not re-verified. This is
   // the actual TOCTOU protection.
   expect((ledger as any).completedAt).toBeUndefined();
-  // Document the known bug: cancelledAt is NOT set after the
-  // throw. See the TODO above for the follow-up fix. When
-  // the follow-up lands, change this assertion to
-  // `toBeTypeOf("number")`.
+  // The mutation alone cannot cancel: nested writes are
+  // rolled back when the throw fires. The cancel is the
+  // action caller's responsibility — see the next test.
   expect((ledger as any).cancelledAt).toBeUndefined();
+});
+
+test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC-53 fix)", async () => {
+  // HUC-53 / Greptile P1 r25 follow-up: confirm the
+  // production flow (`verifyAndConfirmB2Upload` action)
+  // DOES commit `cancelledAt` when `confirmB2FileUpload`
+  // throws due to a TOCTOU race.
+  //
+  // Setup: simulate the workspace ending BETWEEN the
+  // action's pre-cancel (which only fires when the action
+  // itself detects the ended state) and the mutation's
+  // re-check. We pre-end the workspace BEFORE the action
+  // runs, then call `verifyAndConfirmB2Upload` directly
+  // (which does not have a pre-cancel — only
+  // `recordB2FileUpload` does). The mutation throws, the
+  // action's catch handler calls `cancelB2FileUpload`,
+  // then the action rethrows.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const b2Key = "2026-01-01/file_toctou_action_catch/catch.png";
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key,
+    })
+  );
+  // End the workspace so the mutation's re-check throws.
+  await t.run(async (ctx) =>
+    ctx.db.patch(workspaceId as any, { endedAt: now + 1 })
+  );
+
+  // Mock the B2 HEAD to succeed; otherwise the action would
+  // throw on HEAD (not on the mutation's re-check).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({ ok: true, status: 200, text: async () => "" }) as Response
+    )
+  );
+
+  await expect(
+    t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
+      b2Key,
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+    })
+  ).rejects.toThrow(/ended during/i);
+
+  // HUC-53 fix: the action's catch handler committed
+  // `cancelledAt` even though the mutation's nested cancel
+  // (had it been inlined) would have been rolled back.
+  const ledger = await t.run(async (ctx) => ctx.db.get(rowId as any));
+  expect((ledger as any).cancelledAt).toBeTypeOf("number");
+  expect((ledger as any).completedAt).toBeUndefined();
 });
 
 test("recordB2FileUpload TOCTOU: action-level cancel commits even though the mutation's nested cancel rolls back", async () => {
