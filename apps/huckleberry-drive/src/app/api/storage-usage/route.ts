@@ -87,6 +87,12 @@ export async function GET(): Promise<NextResponse> {
         usedBytes: stats.usedBytes,
         limitBytes: hasUnlimited ? null : limitBytes,
         fileCount: stats.fileCount,
+        // Surface the no-access state explicitly so the dashboard can
+        // render a 'No access' message instead of dividing by zero
+        // (which would produce NaN% or Infinity%). True when the
+        // editor has no active assignments at all (open revoked and
+        // no specific). False when they have at least one assignment.
+        hasAccess: assignments.length > 0,
         // Surface to the client so the UI can warn when the editor's
         // history exceeded the single-page scan cap
         // (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The proper fix is a
