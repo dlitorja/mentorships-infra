@@ -1070,7 +1070,7 @@ test("createUpload: rejects unknown instructorId even with open access", async (
   ).rejects.toThrow("Target instructor not found");
 });
 
-test("getVideoEditorAssignmentsWithStorage: mixed open + specific does not double-count", async () => {
+test("getVideoEditorAssignmentsWithStorage: mixed open + specific returns per-row stats (consumer de-duplicates)", async () => {
   const t = convexTest(schema, modules);
 
   const editorId = "editor_open_11";
@@ -1166,6 +1166,10 @@ test("getVideoEditorAssignmentsWithStorage: mixed open + specific does not doubl
 
   const adminClient = t.withIdentity({ subject: adminId });
 
+  // The query returns per-row stats so the admin table can show
+  // per-instructor usage even when an open row coexists. Aggregate
+  // consumers (e.g. /api/storage-usage) are responsible for de-duplicating
+  // when an open row is present.
   const rows = await adminClient.query(
     api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
     { videoEditorId: editorId }
@@ -1179,17 +1183,19 @@ test("getVideoEditorAssignmentsWithStorage: mixed open + specific does not doubl
   expect(openRow!.usedBytes).toBe(3 * uploadSize);
   expect(openRow!.fileCount).toBe(3);
 
-  // Specific row: must be zero (subsumed by open), otherwise the storage
-  // total in /api/storage-usage would double-count the 100 MB on
-  // specificInstructor (two 50 MB uploads there).
-  expect(specificRow!.usedBytes).toBe(0);
-  expect(specificRow!.fileCount).toBe(0);
+  // Specific row: 2 uploads × 50 MB = 100 MB on specificInstructor.
+  // This is the per-instructor figure admins need to review quotas. The
+  // fact that the same 100 MB is also visible in the open row is fine —
+  // /api/storage-usage skips specific rows when open is present.
+  expect(specificRow!.usedBytes).toBe(2 * uploadSize);
+  expect(specificRow!.fileCount).toBe(2);
 });
 
-test("computeVideoEditorOpenStorageStats: aggregates across many pages", async () => {
-  // Insert 250 uploads so the pagination loop runs >2 pages (numItems=100).
-  // This proves the totals match even when the history spans more than
-  // one query page.
+test("computeVideoEditorOpenStorageStats: aggregates large upload history correctly", async () => {
+  // Insert 250 uploads to verify the totals are correct even when the
+  // editor has a long history (the active-upload filter is applied across
+  // the full result set). Long-term scaling for editors with thousands
+  // of rows is tracked as a follow-up (precomputed aggregate row).
   const t = convexTest(schema, modules);
 
   const editorId = "editor_open_12";

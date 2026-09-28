@@ -94,26 +94,25 @@ async function computeVideoEditorStorageStats(
  * itself has no `instructorId`), so the storage accounting reflects the
  * editor's actual footprint instead of reporting zero.
  *
- * Uses paginate() with a single page to bound the per-call response size
- * (Convex limits one .paginate() call per function, so we cannot loop).
- * Editors with more than `numItems` active+deleted upload history rows
- * would be silently truncated; this is acceptable for the admin storage
- * panel where editors with thousands of historical uploads are rare and
- * the worst case is a slightly stale total. Long-term fix: maintain a
- * precomputed aggregate row updated on createUpload/softDeleteUpload.
+ * Uses `.collect()` over the `by_uploadedById` index, mirroring the
+ * per-instructor helper below. The cost is O(N) where N is the editor's
+ * total upload history (active + deleted). For very long-lived editors
+ * with thousands of historical rows this could exceed Convex's response
+ * limit; the long-term fix is a precomputed aggregate row updated on
+ * createUpload/softDeleteUpload (tracked as a follow-up).
  */
 async function computeVideoEditorOpenStorageStats(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string
 ): Promise<StorageStats> {
-  const page = await ctx.db
+  const uploads = await ctx.db
     .query("instructorUploads")
     .withIndex("by_uploadedById", (q) => q.eq("uploadedById", videoEditorId))
-    .paginate({ numItems: 500 });
+    .collect();
 
   let usedBytes = 0;
   let fileCount = 0;
-  for (const upload of page.page) {
+  for (const upload of uploads) {
     if (isActiveUpload(upload)) {
       usedBytes += upload.size;
       fileCount += 1;
@@ -187,14 +186,12 @@ export const getVideoEditorAssignmentsWithStorage = query({
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
       .collect();
 
-    // When the editor has both an open assignment and one or more specific
-    // assignments, the open row is authoritative: it sums the editor's
-    // total footprint. The specific rows are kept in the schema for quota
-    // enforcement (which still runs against the per-instructor index on
-    // `createUpload`) but reporting them here would double-count bytes and
-    // files because the same upload already appears in the open totals.
-    const hasOpenAssignment = assignments.some((a) => a.instructorId === undefined);
-
+    // Each row's stats are returned independently so the admin table can
+    // show per-instructor usage (for quota review) even when an open row
+    // coexists. Aggregate consumers (e.g. /api/storage-usage) MUST
+    // de-duplicate when an open row is present: the open row already
+    // counts every instructor's uploads, so summing it alongside the
+    // specific rows would double-count.
     const results = [];
     for (const assignment of assignments) {
       let stats: StorageStats;
@@ -203,10 +200,6 @@ export const getVideoEditorAssignmentsWithStorage = query({
         // to. The open row itself has no instructorId, but the storage
         // accounting should reflect the editor's actual footprint.
         stats = await computeVideoEditorOpenStorageStats(ctx, assignment.videoEditorId);
-      } else if (hasOpenAssignment) {
-        // Specific row is subsumed by the open row's totals — report zero
-        // so /api/storage-usage does not double-count these bytes.
-        stats = { usedBytes: 0, fileCount: 0 };
       } else {
         stats = await computeVideoEditorStorageStats(
           ctx,
