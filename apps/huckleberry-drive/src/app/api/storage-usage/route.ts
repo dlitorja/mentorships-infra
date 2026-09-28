@@ -26,35 +26,31 @@ export async function GET(): Promise<NextResponse> {
     }
 
     if (dbUser.role === "video_editor") {
-      const assignments = await fetchQuery(
-        api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+      // Use the editor's total active footprint from `by_uploadedById` so
+      // the dashboard reflects what's still in B2 even when open access
+      // has been revoked (per-assignment views would otherwise underreport
+      // because specific rows do not cover uploads under a now-revoked
+      // open row).
+      const stats = await fetchQuery(
+        api.instructorUploads.getVideoEditorTotalStorageStats,
         { videoEditorId: dbUser.userId },
         { token: convexToken }
       );
 
-      // De-duplicate when an open assignment coexists with specific rows:
-      // the open row is authoritative (it counts every instructor the
-      // editor uploaded to). If we summed both, every upload under a
-      // specific instructor would be counted twice. The per-row stats are
-      // still surfaced through the admin video-editors page for quota
-      // review; this aggregation step is for the editor's own dashboard.
-      const hasOpenAssignment = assignments.some(
-        (a) => a.assignment.instructorId === undefined
+      const assignments = await fetchQuery(
+        api.videoEditorAssignments.getVideoEditorAssignments,
+        { videoEditorId: dbUser.userId },
+        { token: convexToken }
       );
 
-      let usedBytes = 0;
-      let fileCount = 0;
+      // The total footprint is informational; quota enforcement is
+      // per-instructor and runs separately in `createUpload`. The limit
+      // reported here is the union of quota-bearing assignments so the
+      // editor can see whether their current scope has any caps.
       let limitBytes = 0;
       let hasUnlimited = false;
-
       for (const assignment of assignments) {
-        if (hasOpenAssignment && assignment.assignment.instructorId !== undefined) {
-          // Skip — open row already counted these uploads.
-          continue;
-        }
-        usedBytes += assignment.usedBytes;
-        fileCount += assignment.fileCount;
-        const quota = assignment.assignment.storageQuotaBytes;
+        const quota = assignment.storageQuotaBytes;
         if (quota === undefined || quota === null) {
           hasUnlimited = true;
         } else {
@@ -63,9 +59,9 @@ export async function GET(): Promise<NextResponse> {
       }
 
       return NextResponse.json({
-        usedBytes,
+        usedBytes: stats.usedBytes,
         limitBytes: hasUnlimited ? null : limitBytes,
-        fileCount,
+        fileCount: stats.fileCount,
       });
     }
 

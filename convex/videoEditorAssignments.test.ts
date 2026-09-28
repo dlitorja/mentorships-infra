@@ -1070,199 +1070,195 @@ test("createUpload: rejects unknown instructorId even with open access", async (
   ).rejects.toThrow("Target instructor not found");
 });
 
-test("getVideoEditorAssignmentsWithStorage: mixed open + specific returns per-row stats (consumer de-duplicates)", async () => {
+test("getVideoEditorTotalStorageStats: returns editor's true historical usage regardless of current assignments", async () => {
+  // After open access is revoked, the editor's per-row view collapses to
+  // 0 (the open row is deleted and specific rows cover only their own
+  // instructor). The dashboard should still show the files that are still
+  // in B2 — i.e. the editor's true historical footprint via
+  // `by_uploadedById`.
   const t = convexTest(schema, modules);
 
-  const editorId = "editor_open_11";
-  const specificInstructor = "instructor_open_11";
-  const otherInstructor = "instructor_open_11_other";
-  const uploadSize = 50 * 1024 * 1024; // 50 MB
+  const editorId = "editor_total_1";
+  const instructorA = "instructor_total_1a";
+  const instructorB = "instructor_total_1b";
+  const uploadSize = 25 * 1024 * 1024; // 25 MB
 
   await t.run(async (ctx) => {
     await ctx.db.insert("users", {
       userId: editorId,
-      email: "editor_open_11@example.com",
+      email: "editor_total_1@example.com",
       clerkId: editorId,
       role: "video_editor",
     });
     await ctx.db.insert("users", {
-      userId: specificInstructor,
-      email: "instructor_open_11@example.com",
-      clerkId: specificInstructor,
+      userId: instructorA,
+      email: "instructor_total_1a@example.com",
+      clerkId: instructorA,
       role: "instructor",
     });
     await ctx.db.insert("instructors", {
-      userId: specificInstructor,
-      email: "instructor_open_11@example.com",
-      name: "Instructor Open 11",
+      userId: instructorA,
+      email: "instructor_total_1a@example.com",
+      name: "Instructor Total 1a",
     });
     await ctx.db.insert("users", {
-      userId: otherInstructor,
-      email: "instructor_open_11_other@example.com",
-      clerkId: otherInstructor,
+      userId: instructorB,
+      email: "instructor_total_1b@example.com",
+      clerkId: instructorB,
       role: "instructor",
     });
     await ctx.db.insert("instructors", {
-      userId: otherInstructor,
-      email: "instructor_open_11_other@example.com",
-      name: "Instructor Open 11 Other",
+      userId: instructorB,
+      email: "instructor_total_1b@example.com",
+      name: "Instructor Total 1b",
     });
-    // Open + specific coexist.
-    await ctx.db.insert("videoEditorAssignments", {
-      videoEditorId: editorId,
-      assignedAt: Date.now(),
-    });
-    await ctx.db.insert("videoEditorAssignments", {
-      videoEditorId: editorId,
-      instructorId: specificInstructor,
-      assignedAt: Date.now(),
-      storageQuotaBytes: 100 * 1024 * 1024,
-    });
-    // Three uploads across two instructors.
-    await ctx.db.insert("instructorUploads", {
-      instructorId: specificInstructor,
-      filename: "key/a",
-      originalName: "a.mp4",
-      contentType: "video/mp4",
-      size: uploadSize,
-      status: "completed",
-      uploadedById: editorId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    await ctx.db.insert("instructorUploads", {
-      instructorId: otherInstructor,
-      filename: "key/b",
-      originalName: "b.mp4",
-      contentType: "video/mp4",
-      size: uploadSize,
-      status: "completed",
-      uploadedById: editorId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    await ctx.db.insert("instructorUploads", {
-      instructorId: specificInstructor,
-      filename: "key/c",
-      originalName: "c.mp4",
-      contentType: "video/mp4",
-      size: uploadSize,
-      status: "completed",
-      uploadedById: editorId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-  });
-
-  const adminId = "admin_open_11";
-  await t.run(async (ctx) => {
-    await ctx.db.insert("users", {
-      userId: adminId,
-      email: "admin_open_11@example.com",
-      clerkId: adminId,
-      role: "admin",
-    });
-  });
-
-  const adminClient = t.withIdentity({ subject: adminId });
-
-  // The query returns per-row stats so the admin table can show
-  // per-instructor usage even when an open row coexists. Aggregate
-  // consumers (e.g. /api/storage-usage) are responsible for de-duplicating
-  // when an open row is present.
-  const rows = await adminClient.query(
-    api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
-    { videoEditorId: editorId }
-  );
-  const openRow = rows.find((r) => r.assignment.instructorId === undefined);
-  const specificRow = rows.find((r) => r.assignment.instructorId === specificInstructor);
-  expect(openRow).toBeDefined();
-  expect(specificRow).toBeDefined();
-
-  // Open row: 3 uploads × 50 MB = 150 MB across two instructors.
-  expect(openRow!.usedBytes).toBe(3 * uploadSize);
-  expect(openRow!.fileCount).toBe(3);
-
-  // Specific row: 2 uploads × 50 MB = 100 MB on specificInstructor.
-  // This is the per-instructor figure admins need to review quotas. The
-  // fact that the same 100 MB is also visible in the open row is fine —
-  // /api/storage-usage skips specific rows when open is present.
-  expect(specificRow!.usedBytes).toBe(2 * uploadSize);
-  expect(specificRow!.fileCount).toBe(2);
-});
-
-test("computeVideoEditorOpenStorageStats: aggregates large upload history correctly", async () => {
-  // Insert 250 uploads to verify the totals are correct even when the
-  // editor has a long history (the active-upload filter is applied across
-  // the full result set). Long-term scaling for editors with thousands
-  // of rows is tracked as a follow-up (precomputed aggregate row).
-  const t = convexTest(schema, modules);
-
-  const editorId = "editor_open_12";
-  const targetInstructor = "instructor_open_12";
-  const uploadSize = 1024; // 1 KB
-  const total = 250;
-
-  await t.run(async (ctx) => {
-    await ctx.db.insert("users", {
-      userId: editorId,
-      email: "editor_open_12@example.com",
-      clerkId: editorId,
-      role: "video_editor",
-    });
-    await ctx.db.insert("users", {
-      userId: targetInstructor,
-      email: "instructor_open_12@example.com",
-      clerkId: targetInstructor,
-      role: "instructor",
-    });
-    await ctx.db.insert("instructors", {
-      userId: targetInstructor,
-      email: "instructor_open_12@example.com",
-      name: "Instructor Open 12",
-    });
-    await ctx.db.insert("videoEditorAssignments", {
-      videoEditorId: editorId,
-      assignedAt: Date.now(),
-    });
-
-    const now = Date.now();
-    for (let i = 0; i < total; i++) {
-      const status = i % 5 === 0 ? "deleted" : "completed";
+    // Two uploads across two instructors, no specific assignment.
+    for (const instructorId of [instructorA, instructorB]) {
       await ctx.db.insert("instructorUploads", {
-        instructorId: targetInstructor,
-        filename: `key/bulk_${i}`,
-        originalName: `bulk_${i}.mp4`,
+        instructorId,
+        filename: `key/historical_${instructorId}`,
+        originalName: `historical_${instructorId}.mp4`,
         contentType: "video/mp4",
         size: uploadSize,
-        status,
+        status: "completed",
         uploadedById: editorId,
-        createdAt: now + i,
-        updatedAt: now + i,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
     }
-  });
-
-  const adminId = "admin_open_12";
-  await t.run(async (ctx) => {
-    await ctx.db.insert("users", {
-      userId: adminId,
-      email: "admin_open_12@example.com",
-      clerkId: adminId,
-      role: "admin",
+    // One deleted upload that should NOT be counted.
+    await ctx.db.insert("instructorUploads", {
+      instructorId: instructorA,
+      filename: "key/historical_deleted",
+      originalName: "historical_deleted.mp4",
+      contentType: "video/mp4",
+      size: 999 * 1024 * 1024,
+      status: "deleted",
+      uploadedById: editorId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
   });
 
-  const adminClient = t.withIdentity({ subject: adminId });
+  const editorClient = t.withIdentity({ subject: editorId });
 
-  const rows = await adminClient.query(
-    api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+  const stats = await editorClient.query(
+    api.instructorUploads.getVideoEditorTotalStorageStats,
     { videoEditorId: editorId }
   );
-  const openRow = rows.find((r) => r.assignment.instructorId === undefined);
-  expect(openRow).toBeDefined();
+  // 2 active × 25 MB = 50 MB. The 999 MB deleted row must be excluded.
+  expect(stats.usedBytes).toBe(2 * uploadSize);
+  expect(stats.fileCount).toBe(2);
+});
 
-  // 250 total - 50 deleted (every 5th) = 200 active uploads × 1 KB = 200 KB.
-  expect(openRow!.fileCount).toBe(200);
-  expect(openRow!.usedBytes).toBe(200 * uploadSize);
+test("requireDeleteAccess: video editor can delete own in-progress upload after open access revoked", async () => {
+  // The route-level abort fallback lets the editor abort the B2
+  // multipart state, but `softDeleteUpload` would still reject without a
+  // matching fallback here. Verify the cleanup fallback on the mutation.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_cleanup_1";
+  const instructorId = "instructor_cleanup_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_cleanup_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_cleanup_1@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor_cleanup_1@example.com",
+      name: "Instructor Cleanup 1",
+    });
+    // No assignments — open access was revoked.
+    await ctx.db.insert("instructorUploads", {
+      legacyId: "cleanup_upload_1",
+      instructorId,
+      filename: "key/cleanup_upload_1",
+      originalName: "cleanup_upload_1.mp4",
+      contentType: "video/mp4",
+      size: 100 * 1024 * 1024,
+      status: "uploading",
+      uploadedById: editorId,
+      b2UploadId: "test-upload-id",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  // Should succeed even though the editor has no active assignment.
+  await expect(
+    editorClient.mutation(api.instructorUploads.softDeleteUpload, {
+      id: "cleanup_upload_1",
+    })
+  ).resolves.toBeDefined();
+
+  const after = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", "cleanup_upload_1"))
+      .first()
+  );
+  expect(after?.status).toBe("deleted");
+});
+
+test("requireDeleteAccess: video editor cannot delete own completed upload without assignment", async () => {
+  // After open access is revoked, the editor must NOT be able to delete
+  // already-completed files via the cleanup fallback — that would allow
+  // the editor to wipe data they no longer have any right to manage.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_cleanup_2";
+  const instructorId = "instructor_cleanup_2";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_cleanup_2@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: instructorId,
+      email: "instructor_cleanup_2@example.com",
+      clerkId: instructorId,
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: instructorId,
+      email: "instructor_cleanup_2@example.com",
+      name: "Instructor Cleanup 2",
+    });
+    await ctx.db.insert("instructorUploads", {
+      legacyId: "cleanup_completed_1",
+      instructorId,
+      filename: "key/cleanup_completed_1",
+      originalName: "cleanup_completed_1.mp4",
+      contentType: "video/mp4",
+      size: 100 * 1024 * 1024,
+      status: "completed",
+      uploadedById: editorId,
+      b2FileId: "b2-file-id",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  await expect(
+    editorClient.mutation(api.instructorUploads.softDeleteUpload, {
+      id: "cleanup_completed_1",
+    })
+  ).rejects.toThrow("Forbidden");
 });

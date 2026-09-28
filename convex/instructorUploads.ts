@@ -233,6 +233,21 @@ async function requireDeleteAccess(
     return;
   }
 
+  // Cleanup fallback: a video editor may always delete an upload they own
+  // if it is still in-progress (pending/uploading). This lets the editor
+  // finish aborting a multipart upload after their open access has been
+  // revoked — without it, the route-level abort would succeed on the B2
+  // side but the soft-delete would reject here, leaving the upload row
+  // stuck in `uploading`. The grace window is not enforced here because
+  // deletion never adds new data to storage; it is purely a cleanup.
+  if (
+    caller.role === "video_editor" &&
+    upload.uploadedById === caller.userId &&
+    (upload.status === "pending" || upload.status === "uploading")
+  ) {
+    return;
+  }
+
   throw new Error("Forbidden: you can only delete uploads you own or are assigned to");
 }
 
@@ -1115,6 +1130,35 @@ export const getTotalStorageStats = query({
       activeBytes,
       instructorCount: instructors.size,
     };
+  },
+});
+
+/**
+ * Sum active usage for one video editor across every instructor they
+ * uploaded to. Used by /api/storage-usage for the editor's dashboard so
+ * the displayed bytes match what's still in B2 even when open access has
+ * been revoked (the per-assignment view in
+ * `getVideoEditorAssignmentsWithStorage` would otherwise underreport
+ * because specific rows do not cover uploads under a now-revoked open
+ * row).
+ */
+export const getVideoEditorTotalStorageStats = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    const uploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
+      .collect();
+
+    let usedBytes = 0;
+    let fileCount = 0;
+    for (const upload of uploads) {
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        usedBytes += upload.size;
+        fileCount += 1;
+      }
+    }
+    return { usedBytes, fileCount };
   },
 });
 
