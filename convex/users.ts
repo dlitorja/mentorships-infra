@@ -124,6 +124,59 @@ export const getUsersByRole = query({
   },
 });
 
+/**
+ * Same as `getUsersByRole` but excludes soft-deleted users (`deletedAt` set)
+ * AND users without a matching instructors profile row. Used by open-access
+ * video editor flows where the dropdown lists every invited instructor —
+ * soft-deleted accounts and accounts without a profile row must not be
+ * selectable, because createUpload requires a profile to be present
+ * (unless the caller is uploading to their own storage).
+ */
+export const getActiveUsersByRole = query({
+  args: { role: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const all = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) =>
+        q.eq("role", args.role as Doc<"users">["role"])
+      )
+      .collect();
+    const active = all.filter((u) => u.deletedAt === undefined);
+
+    // For the instructor role, additionally require an instructors profile
+    // row. createUpload rejects editor uploads to a user without a profile.
+    // Use the by_userId index for each lookup instead of a full-table
+    // collect, so the read budget scales with the number of active
+    // instructors (typically <100) rather than the entire instructors
+    // table (which can grow as soft-deleted profiles accumulate).
+    if (args.role !== "instructor") {
+      return active;
+    }
+    // Round-21 Greptile P2 #3: also exclude profiles whose own
+    // deletedAt is set. Profile deletion is independent from user
+    // deletion: an admin may decommission the instructor profile
+    // while leaving the users row intact with role='instructor'.
+    // createUpload also rejects uploads to such profiles, so the
+    // dropdown / switcher must not surface them.
+    const withProfile = await Promise.all(
+      active.map(async (u) => {
+        const profile = await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", u.userId))
+          .first();
+        if (!profile) return null;
+        if (profile.deletedAt !== undefined) return null;
+        return u;
+      })
+    );
+    return withProfile.filter((u): u is NonNullable<typeof u> => u !== null);
+  },
+});
+
 /** Returns the currently authenticated user based on their auth identity. */
 export const getCurrentUser = query({
   handler: async (ctx) => {

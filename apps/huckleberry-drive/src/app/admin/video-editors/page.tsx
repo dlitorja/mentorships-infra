@@ -14,6 +14,7 @@ import {
   getAdminInstructors,
   updateVideoEditorAssignmentQuota,
   createVideoEditorAssignment,
+  removeVideoEditorOpenAssignment,
   type VideoEditorWithAssignments,
   type VideoEditorAssignmentWithStorage,
   type InstructorOption,
@@ -171,6 +172,9 @@ function QuotaInput({
           throw new Error("Enter a valid non-negative number of GB");
         }
       }
+      if (assignment.assignment.instructorId === undefined) {
+        throw new Error("Open assignments cannot have a per-instructor quota");
+      }
       await updateVideoEditorAssignmentQuota(
         assignment.assignment.videoEditorId,
         assignment.assignment.instructorId,
@@ -214,6 +218,112 @@ function QuotaInput({
       {error && (
         <span className="text-xs text-red-400">{error}</span>
       )}
+    </div>
+  );
+}
+
+function OpenAccessRow({
+  assignment,
+  onRevoked,
+}: {
+  assignment: VideoEditorAssignmentWithStorage;
+  onRevoked: (message?: string) => void;
+}): React.ReactElement {
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRevoke = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Revoke open access? The editor will only be able to upload to instructors listed in the table below."
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setIsRevoking(true);
+    try {
+      await removeVideoEditorOpenAssignment(assignment.assignment.videoEditorId);
+      onRevoked("Open access revoked");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke open access");
+    } finally {
+      setIsRevoking(false);
+    }
+  }, [assignment.assignment.videoEditorId, onRevoked]);
+
+  return (
+    <div className="px-6 py-4 border-b border-slate-700 bg-emerald-500/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
+          Open access
+        </span>
+        <span className="text-sm text-slate-300">
+          Can upload to any instructor (no quota)
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {error && <span className="text-xs text-red-400">{error}</span>}
+        <button
+          onClick={handleRevoke}
+          disabled={isRevoking}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
+        >
+          {isRevoking ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : null}
+          Revoke
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GrantOpenAccessButton({
+  videoEditorId,
+  onGranted,
+}: {
+  videoEditorId: string;
+  onGranted: (message?: string) => void;
+}): React.ReactElement {
+  const [isGranting, setIsGranting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGrant = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Grant open access? This editor will be able to upload to any instructor without an explicit assignment."
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setIsGranting(true);
+    try {
+      await createVideoEditorAssignment(videoEditorId);
+      onGranted("Open access granted");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to grant open access");
+    } finally {
+      setIsGranting(false);
+    }
+  }, [videoEditorId, onGranted]);
+
+  return (
+    <div className="flex items-center gap-2">
+      {error && <span className="text-xs text-red-400">{error}</span>}
+      <button
+        onClick={handleGrant}
+        disabled={isGranting}
+        className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+      >
+        {isGranting ? (
+          <Loader2 className="w-3 h-3 animate-spin" />
+        ) : (
+          <Plus className="w-3 h-3" />
+        )}
+        Grant open access
+      </button>
     </div>
   );
 }
@@ -314,61 +424,92 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
                 <p className="text-sm text-slate-400">{editor.email}</p>
               </div>
 
-              {assignments.length === 0 ? (
-                <div className="px-6 py-4 text-sm text-slate-500">
-                  No instructor assignments.
-                </div>
-              ) : (
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-700">
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                        Instructor
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                        Used
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                        Files
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                        Quota
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50">
-                    {assignments.map((assignment) => (
-                      <tr
-                        key={assignment.assignment._id}
-                        className="hover:bg-slate-800/30 transition-colors"
-                      >
-                        <td className="px-6 py-4 text-sm text-slate-300">
-                          {getInstructorName(assignment.instructor)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-300">
-                          {formatBytes(assignment.usedBytes)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-300">
-                          {assignment.fileCount}
-                        </td>
-                        <td className="px-6 py-4">
-                          <QuotaInput
-                            assignment={assignment}
-                            onSaved={handleSaved}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <AddAssignmentForm
-                videoEditorId={editor.userId}
-                assignedInstructorIds={assignments.map((a) => a.assignment.instructorId)}
-                instructors={instructors}
-                instructorsError={instructorsError}
-                onAdded={handleSaved}
-              />
+              {(() => {
+                const openAssignment = assignments.find(
+                  (a) => a.assignment.instructorId === undefined
+                );
+                const specificAssignments = assignments.filter(
+                  (a) => a.assignment.instructorId !== undefined
+                );
+
+                return (
+                  <>
+                    {openAssignment && (
+                      <OpenAccessRow
+                        assignment={openAssignment}
+                        onRevoked={handleSaved}
+                      />
+                    )}
+                    {specificAssignments.length === 0 ? (
+                      <div className="px-6 py-4 text-sm text-slate-500">
+                        {openAssignment
+                          ? "No specific instructor assignments. The editor has open access."
+                          : "No instructor assignments."}
+                      </div>
+                    ) : (
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-700">
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Instructor
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Used
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Files
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                              Quota
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700/50">
+                          {specificAssignments.map((assignment) => (
+                            <tr
+                              key={assignment.assignment._id}
+                              className="hover:bg-slate-800/30 transition-colors"
+                            >
+                              <td className="px-6 py-4 text-sm text-slate-300">
+                                {getInstructorName(assignment.instructor)}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-slate-300">
+                                {formatBytes(assignment.usedBytes)}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-slate-300">
+                                {assignment.fileCount}
+                              </td>
+                              <td className="px-6 py-4">
+                                <QuotaInput
+                                  assignment={assignment}
+                                  onSaved={handleSaved}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    <div className="px-6 py-4 border-t border-slate-700 bg-slate-800/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <AddAssignmentForm
+                        videoEditorId={editor.userId}
+                        assignedInstructorIds={specificAssignments
+                          .map((a) => a.assignment.instructorId)
+                          .filter((id): id is string => id !== undefined)}
+                        instructors={instructors}
+                        instructorsError={instructorsError}
+                        onAdded={handleSaved}
+                      />
+                      {!openAssignment && (
+                        <GrantOpenAccessButton
+                          videoEditorId={editor.userId}
+                          onGranted={handleSaved}
+                        />
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           ))}
         </div>

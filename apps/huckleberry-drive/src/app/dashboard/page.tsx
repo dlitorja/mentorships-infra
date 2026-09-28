@@ -38,6 +38,30 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
     instructorIds = [dbUser.userId];
   }
 
+  // For video editors with an open assignment, the editor can upload to ANY
+  // instructor — including those they have no specific assignment for. The
+  // dashboard switcher must therefore list every invited instructor when
+  // open access is present, regardless of whether specific assignments also
+  // exist. Without this, an editor with both open and specific assignments
+  // would see only the specific ones in the dashboard even though they
+  // can upload to the others.
+  if (role === "video_editor") {
+    const token = await getToken({ template: "convex" }) ?? undefined;
+    const openAssignment = await fetchQuery(
+      api.videoEditorAssignments.getVideoEditorOpenAssignment,
+      { videoEditorId: dbUser.userId },
+      { token }
+    );
+    if (openAssignment) {
+      const allInstructors = await fetchQuery(
+        api.users.getActiveUsersByRole,
+        { role: "instructor" },
+        { token }
+      ) as Array<{ userId: string }>;
+      instructorIds = allInstructors.map((u) => u.userId);
+    }
+  }
+
   // Resolve instructor names so the video editor selector shows useful labels.
   let instructors: InstructorInfo[] = [];
   if (instructorIds.length > 0) {

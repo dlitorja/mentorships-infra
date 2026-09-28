@@ -8,6 +8,8 @@ interface StorageUsageProps {
   limitBytes: number | null;
   fileCount: number;
   instructorCount?: number;
+  hasAccess?: boolean;
+  truncated?: boolean;
 }
 
 export function StorageUsage({
@@ -15,6 +17,8 @@ export function StorageUsage({
   limitBytes,
   fileCount,
   instructorCount,
+  hasAccess = true,
+  truncated = false,
 }: StorageUsageProps): React.ReactElement {
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -25,6 +29,18 @@ export function StorageUsage({
   };
 
   const isUnlimited = limitBytes === null;
+  // Round-21 Greptile P2 #1: when the editor has no active assignment,
+  // do not render a percentage (would be NaN% or Infinity%). Show a
+  // 'No access' state instead.
+  const isNoAccess = !hasAccess;
+
+  // Avoid divide-by-zero when limitBytes is 0 but the editor still has
+  // SOME access (e.g. revoked-then-restored edge case). Treat 0 limit
+  // as exhausted.
+  const safePercent = (n: number, total: number): number => {
+    if (total <= 0) return 100;
+    return (n / total) * 100;
+  };
 
   return (
     <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
@@ -33,11 +49,24 @@ export function StorageUsage({
         <h3 className="font-semibold text-slate-200">Storage Usage</h3>
         <span className="text-sm text-slate-500 ml-auto">
           {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
+          {truncated && (
+            <span
+              className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-300 border border-yellow-800"
+              title="Storage total only reflects the first 1,000 historical records. The exact figure requires a denormalized counter (tracked as Linear HUC-58)."
+            >
+              partial
+            </span>
+          )}
         </span>
       </div>
 
       <div className="space-y-2">
-        {isUnlimited ? (
+        {isNoAccess ? (
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-400">{formatBytes(usedBytes)} used</span>
+            <span className="text-slate-500">No active assignments</span>
+          </div>
+        ) : isUnlimited ? (
           <div className="flex justify-between text-sm">
             <span className="text-slate-400">{formatBytes(usedBytes)} used</span>
           </div>
@@ -49,23 +78,32 @@ export function StorageUsage({
         )}
 
         <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-          {isUnlimited ? (
+          {isNoAccess ? (
+            <div className="h-full bg-slate-700 w-full flex items-center justify-center text-xs text-slate-400">
+              —
+            </div>
+          ) : isUnlimited ? (
             <div className="h-full bg-slate-600 w-full" />
           ) : (
             <div
               className={`h-full transition-all duration-500 ${
-                (usedBytes / limitBytes!) >= 0.95
+                safePercent(usedBytes, limitBytes!) >= 95
                   ? "bg-red-500"
-                  : (usedBytes / limitBytes!) > 0.8
+                  : safePercent(usedBytes, limitBytes!) > 80
                   ? "bg-yellow-500"
                   : "bg-emerald-500"
               }`}
-              style={{ width: `${Math.min((usedBytes / limitBytes!) * 100, 100)}%` }}
+              style={{ width: `${Math.min(safePercent(usedBytes, limitBytes!), 100)}%` }}
             />
           )}
         </div>
 
-        {isUnlimited ? (
+        {isNoAccess ? (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>No access</span>
+            <span>Contact an admin</span>
+          </div>
+        ) : isUnlimited ? (
           <div className="flex justify-between text-xs text-slate-500">
             <span>Storage tracked</span>
             <span>Unlimited</span>
@@ -75,14 +113,14 @@ export function StorageUsage({
             <span>0%</span>
             <span
               className={
-                (usedBytes / limitBytes!) >= 0.95
+                safePercent(usedBytes, limitBytes!) >= 95
                   ? "text-red-400 font-medium"
-                  : (usedBytes / limitBytes!) > 0.8
+                  : safePercent(usedBytes, limitBytes!) > 80
                   ? "text-yellow-400 font-medium"
                   : ""
               }
             >
-              {((usedBytes / limitBytes!) * 100).toFixed(1)}% used
+              {safePercent(usedBytes, limitBytes!).toFixed(1)}% used
             </span>
             <span>100%</span>
           </div>

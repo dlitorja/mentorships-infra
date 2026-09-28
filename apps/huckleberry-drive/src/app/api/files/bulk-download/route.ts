@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { tasks } from "@trigger.dev/sdk";
 import { fetchQuery } from "convex/nextjs";
@@ -28,20 +29,38 @@ interface User {
   role: string;
 }
 
+// Cache of active instructor IDs for the lifetime of a single open-
+// access authorization check. Avoids a per-file fetch when the bulk
+// download contains many files.
+async function loadActiveInstructorIds(): Promise<Set<string>> {
+  const { getToken } = await auth();
+  const token = await getToken({ template: "convex" }) ?? undefined;
+  const activeInstructors = await fetchQuery(
+    api.users.getActiveUsersByRole,
+    { role: "instructor" },
+    { token }
+  ) as Array<{ userId: string }>;
+  return new Set(activeInstructors.map((u) => u.userId));
+}
+
 function canAccessUpload(
   upload: Upload,
   dbUser: User,
-  accessibleInstructorIds: string[] | null
+  accessibleInstructorIds: string[] | null,
+  activeInstructorIds?: Set<string>
 ): boolean {
   if (dbUser.role === "admin") return true;
   if (upload.uploadedById === dbUser.userId) return true;
   if (upload.instructorId === dbUser.userId) return true;
-  if (
-    dbUser.role === "video_editor" &&
-    accessibleInstructorIds !== null &&
-    accessibleInstructorIds.includes(upload.instructorId)
-  ) {
-    return true;
+  if (dbUser.role === "video_editor") {
+    if (accessibleInstructorIds !== null) {
+      return accessibleInstructorIds.includes(upload.instructorId);
+    }
+    // Open access: only ACTIVE instructors' files are reachable.
+    // Without this narrowing, an open-access editor could supply a
+    // file ID belonging to a soft-deleted or role-removed instructor
+    // and download its B2 object. Mirrors the check in /api/files.
+    return activeInstructorIds?.has(upload.instructorId) ?? false;
   }
   return false;
 }
@@ -75,6 +94,14 @@ export async function POST(
 
     const uploadById = new Map(uploads.map((u) => [u._id, u]));
 
+    // Resolve the active-instructor set once for open-access checks.
+    // If the editor has no active assignments at all, the set is empty
+    // and canAccessUpload will reject every file.
+    const activeInstructorIds =
+      dbUser.role === "video_editor" && accessibleInstructorIds === null
+        ? await loadActiveInstructorIds()
+        : undefined;
+
     const files: BulkDownloadFile[] = [];
 
     for (const fileId of fileIds) {
@@ -98,7 +125,7 @@ export async function POST(
         );
       }
 
-      if (!canAccessUpload(upload, dbUser, accessibleInstructorIds)) {
+      if (!canAccessUpload(upload, dbUser, accessibleInstructorIds, activeInstructorIds)) {
         return NextResponse.json(
           { error: "Not authorized to download this file" },
           { status: 403 }

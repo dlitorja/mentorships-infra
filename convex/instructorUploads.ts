@@ -166,6 +166,36 @@ async function getAuthenticatedUser(
     .first();
 }
 
+/**
+ * Authorization check for editor-scoped queries. Callers may only read
+ * data about themselves, unless they are an admin. Without this,
+ * public queries that take a videoEditorId argument would let any
+ * signed-in caller read another editor's storage footprint.
+ */
+async function requireAdminOrSelfVideoEditor(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string
+): Promise<void> {
+  const caller = await getAuthenticatedUser(ctx);
+  if (!caller) {
+    throw new Error("Unauthorized: authentication required");
+  }
+
+  // The caller may authenticate with a Clerk ID that differs from the
+  // canonical users.userId used to key assignments. Allow access when the
+  // caller's userId or clerkId matches the requested videoEditorId.
+  if (
+    caller.userId === videoEditorId ||
+    caller.clerkId === videoEditorId
+  ) {
+    return;
+  }
+
+  if (caller.role !== "admin") {
+    throw new Error("Forbidden: only the editor or an admin can read this data");
+  }
+}
+
 async function getVideoEditorStorageUsed(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string,
@@ -192,13 +222,20 @@ async function hasActiveVideoEditorAssignment(
   videoEditorId: string,
   instructorId: string
 ): Promise<boolean> {
-  const assignment = await ctx.db
+  const specific = await ctx.db
     .query("videoEditorAssignments")
     .withIndex("by_videoEditorId_instructorId", (q) =>
       q.eq("videoEditorId", videoEditorId).eq("instructorId", instructorId)
     )
     .first();
-  return !!assignment;
+  if (specific) {
+    return true;
+  }
+  const allAssignments = await ctx.db
+    .query("videoEditorAssignments")
+    .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", videoEditorId))
+    .collect();
+  return allAssignments.some((a) => a.instructorId === undefined);
 }
 
 async function requireDeleteAccess(
@@ -222,6 +259,30 @@ async function requireDeleteAccess(
     caller.role === "video_editor" &&
     upload.uploadedById === caller.userId &&
     (await hasActiveVideoEditorAssignment(ctx, caller.userId, upload.instructorId))
+  ) {
+    return;
+  }
+
+  // Cleanup fallback: a video editor may always delete an upload they own
+  // if it is still in-progress (pending/uploading). This is the cleanup
+  // path for /api/uploads/abort, which aborts the B2 multipart first
+  // and then calls softDeleteUpload. Without this fallback, revoking an
+  // editor's open access mid-multipart-upload would leave the Convex
+  // row stuck in 'uploading' (B2 was aborted, but the row could not be
+  // marked deleted). The grace window is not enforced here because
+  // deletion never adds new data to storage; it is purely a cleanup.
+  //
+  // Note: softDeleteUpload is reachable from any caller with a valid
+  // Convex auth identity (mutation-level). Only /api/uploads/abort
+  // actually invokes it, and the route always aborts B2 first. If an
+  // admin tool or another internal client calls softDeleteUpload
+  // directly on an in-progress row without first aborting B2, that
+  // caller is responsible for cleaning up multipart state separately.
+  // This is documented as a known property in the public docs.
+  if (
+    caller.role === "video_editor" &&
+    upload.uploadedById === caller.userId &&
+    (upload.status === "pending" || upload.status === "uploading")
   ) {
     return;
   }
@@ -258,6 +319,62 @@ export const createUpload = mutation({
       throw new Error("Unauthorized: authentication required");
     }
 
+    // Validate that the target instructor exists before accepting an
+    // editor's upload. Without this, an editor with open access could
+    // submit an arbitrary or stale `instructorId` and create a file row
+    // + B2 object with no real instructor behind it. The page-side
+    // dropdown filters instructors, but server-side validation is
+    // required because the client cannot be trusted.
+    //
+    // Instructors uploading to their own storage are exempt: an admin
+    // may grant an existing user the `instructor` role without
+    // creating a profile row yet, and we should not block that
+    // instructor from working in the meantime. The /api/uploads/initiate
+    // route aborts the B2 multipart session if the mutation rejects, so
+    // there is no orphaned state.
+    //
+    // Admins uploading under their own user ID are exempt for the same
+    // reason — admin uploads target the admin's own user ID without
+    // needing an instructor profile.
+    //
+    // Also reject soft-deleted instructors: an admin may have
+    // decommissioned the user but the profile row still exists. Without
+    // this check, the mutation would accept an upload targeting a
+    // deleted instructor.
+    const isSelfUpload =
+      (caller.role === "instructor" && args.instructorId === caller.userId) ||
+      (caller.role === "admin" && args.instructorId === caller.userId);
+    if (!isSelfUpload) {
+      const targetInstructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (!targetInstructor) {
+        throw new Error("Target instructor not found");
+      }
+      // The instructors profile itself may be soft-deleted. Profile
+      // deletion is independent of users.deletedAt (an admin may
+      // decommission the instructor profile while leaving the user
+      // row). Both must be checked.
+      if (targetInstructor.deletedAt !== undefined) {
+        throw new Error("Target instructor profile is no longer active");
+      }
+      const targetUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (targetUser?.deletedAt !== undefined) {
+        throw new Error("Target instructor is no longer active");
+      }
+      // Role changes can leave an instructors profile row intact while
+      // demoting the user out of the instructor role. Without this check,
+      // an editor with open access could submit a former-instructor's
+      // userId and create a file in a non-instructor's storage.
+      if (targetUser?.role !== "instructor") {
+        throw new Error("Target is no longer an instructor");
+      }
+    }
+
     // Caps are enforced based on the authenticated caller's role, not the
     // caller-supplied uploadedById, so spoofed identities cannot bypass
     // storage limits. Instructors have no storage cap; only video editors
@@ -273,19 +390,20 @@ export const createUpload = mutation({
       if (!args.uploadedById || args.uploadedById !== caller.userId) {
         throw new Error("Video editor uploads must be performed under their own identity");
       }
-      const assignment = await ctx.db
+      const assignments = await ctx.db
         .query("videoEditorAssignments")
-        .withIndex("by_videoEditorId_instructorId", (q) =>
-          q.eq("videoEditorId", caller.userId).eq("instructorId", args.instructorId)
-        )
-        .first();
-      if (!assignment) {
+        .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", caller.userId))
+        .collect();
+      const specificAssignment = assignments.find(
+        (a) => a.instructorId === args.instructorId
+      );
+      const openAssignment = assignments.find((a) => a.instructorId === undefined);
+      if (!specificAssignment && !openAssignment) {
         throw new Error("You are not assigned to this instructor");
       }
-      // PR-quotas: enforce a per-editor per-instructor quota when one is set.
-      // The route does a pre-check for friendly UX; this is the authoritative
-      // OCC-protected enforcement.
-      const quota = assignment.storageQuotaBytes;
+      // PR-quotas: enforce a per-editor per-instructor quota when one is set
+      // on a specific assignment. Open assignments have no quota.
+      const quota = specificAssignment?.storageQuotaBytes;
       if (quota !== undefined) {
         const editorUsed = await getVideoEditorStorageUsed(
           ctx,
@@ -1092,6 +1210,62 @@ export const getTotalStorageStats = query({
       activeFiles,
       activeBytes,
       instructorCount: instructors.size,
+    };
+  },
+});
+
+/**
+ * Maximum records read in a single page of getVideoEditorTotalStorageStats.
+ * Bounds the dashboard read budget so a long-lived editor with thousands of
+ * historical rows cannot exceed Convex's per-query document read limit. The
+ * proper long-term fix is a denormalized counter on the `users` table for
+ * video editors, atomically updated on upload create/complete/delete —
+ * tracked as a Linear follow-up. Until that ships, this query caps the scan
+ * and flags truncation so the UI can show an "approximate" indicator.
+ */
+const TOTAL_STORAGE_STATS_PAGE_SIZE = 1000;
+
+/**
+ * Sum active usage for one video editor across every instructor they
+ * uploaded to. Used by /api/storage-usage for the editor's dashboard so
+ * the displayed bytes match what's still in B2 even when open access has
+ * been revoked (the per-assignment view in
+ * `getVideoEditorAssignmentsWithStorage` would otherwise underreport
+ * because specific rows do not cover uploads under a now-revoked open
+ * row).
+ *
+ * Authorization: callers may only read their own usage, unless they are
+ * an admin. Without this check the public query would expose any
+ * editor's total storage footprint to any signed-in caller.
+ */
+export const getVideoEditorTotalStorageStats = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdminOrSelfVideoEditor(ctx, args.videoEditorId);
+
+    // Single-page paginated scan — bounded at TOTAL_STORAGE_STATS_PAGE_SIZE
+    // so the read budget cannot grow unboundedly for long-lived editors.
+    // The aggregate counter follow-up will replace this with a constant-time
+    // denormalized read once shipped.
+    const page = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
+      .paginate({ numItems: TOTAL_STORAGE_STATS_PAGE_SIZE, cursor: null });
+
+    let usedBytes = 0;
+    let fileCount = 0;
+    for (const upload of page.page) {
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        usedBytes += upload.size;
+        fileCount += 1;
+      }
+    }
+
+    return {
+      usedBytes,
+      fileCount,
+      truncated: !page.isDone,
+      scannedRecords: page.page.length,
     };
   },
 });

@@ -7,10 +7,12 @@ import { z } from "zod";
 
 const assignmentSchema = z.object({
   videoEditorId: z.string().trim().min(1),
-  instructorId: z.string().trim().min(1),
+  instructorId: z.string().trim().min(1).optional(),
 });
 
-const patchSchema = assignmentSchema.extend({
+const patchSchema = z.object({
+  videoEditorId: z.string().trim().min(1),
+  instructorId: z.string().trim().min(1),
   storageQuotaBytes: z.number().nonnegative().nullish(),
 });
 

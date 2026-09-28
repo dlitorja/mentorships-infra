@@ -103,6 +103,14 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
   }
 
   if (dbUser.role === "video_editor") {
+    const openAssignment = await fetchQuery(
+      api.videoEditorAssignments.getVideoEditorOpenAssignment,
+      { videoEditorId: canonicalUserId },
+      { token }
+    );
+    if (openAssignment) {
+      return null;
+    }
     return await fetchQuery(api.videoEditorAssignments.getAssignedInstructorIds, { videoEditorId: canonicalUserId }, { token }) as string[];
   }
 

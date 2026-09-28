@@ -89,6 +89,44 @@ async function computeVideoEditorStorageStats(
 }
 
 /**
+ * Sum usage across every instructor that this video editor uploaded to.
+ * Used by the admin UI for an "open" assignment row (where the assignment
+ * itself has no `instructorId`), so the storage accounting reflects the
+ * editor's actual footprint instead of reporting zero.
+ *
+ * Uses `.collect()` over the `by_uploadedById` index, mirroring the
+ * per-instructor helper below. The cost is O(N) where N is the editor's
+ * total upload history (active + deleted). For very long-lived editors
+ * with thousands of historical rows this could exceed Convex's response
+ * limit; the long-term fix is a precomputed aggregate row updated on
+ * createUpload/softDeleteUpload (tracked as a follow-up).
+ */
+async function computeVideoEditorOpenStorageStats(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string
+): Promise<StorageStats> {
+  // Bounded single-page scan to keep the admin editor list query from
+  // exceeding Convex read limits when an editor has thousands of
+  // historical rows. The aggregate counter follow-up (HUC-58) will
+  // replace this with a constant-time read once shipped.
+  const page = await ctx.db
+    .query("instructorUploads")
+    .withIndex("by_uploadedById", (q) => q.eq("uploadedById", videoEditorId))
+    .paginate({ numItems: 1000, cursor: null });
+
+  let usedBytes = 0;
+  let fileCount = 0;
+  for (const upload of page.page) {
+    if (isActiveUpload(upload)) {
+      usedBytes += upload.size;
+      fileCount += 1;
+    }
+  }
+
+  return { usedBytes, fileCount };
+}
+
+/**
  * Migrates a video editor assignment from legacy system.
  * Updates existing assignment if found by videoEditorId and instructorId, otherwise creates new.
  */
@@ -152,13 +190,27 @@ export const getVideoEditorAssignmentsWithStorage = query({
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
       .collect();
 
+    // Each row's stats are returned independently so the admin table can
+    // show per-instructor usage (for quota review) even when an open row
+    // coexists. Aggregate consumers (e.g. /api/storage-usage) MUST
+    // de-duplicate when an open row is present: the open row already
+    // counts every instructor's uploads, so summing it alongside the
+    // specific rows would double-count.
     const results = [];
     for (const assignment of assignments) {
-      const stats = await computeVideoEditorStorageStats(
-        ctx,
-        assignment.videoEditorId,
-        assignment.instructorId
-      );
+      let stats: StorageStats;
+      if (assignment.instructorId === undefined) {
+        // Open assignment: sum across every instructor this editor uploaded
+        // to. The open row itself has no instructorId, but the storage
+        // accounting should reflect the editor's actual footprint.
+        stats = await computeVideoEditorOpenStorageStats(ctx, assignment.videoEditorId);
+      } else {
+        stats = await computeVideoEditorStorageStats(
+          ctx,
+          assignment.videoEditorId,
+          assignment.instructorId
+        );
+      }
       results.push({
         assignment,
         usedBytes: stats.usedBytes,
@@ -183,7 +235,7 @@ export const getVideoEditorAssignmentWithStorage = query({
       )
       .first();
 
-    if (!assignment) {
+    if (!assignment || assignment.instructorId === undefined) {
       return null;
     }
 
@@ -212,6 +264,18 @@ export const getVideoEditorStorageStats = query({
   },
 });
 
+export const getVideoEditorOpenAssignment = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
+    const assignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    return assignments.find((a) => a.instructorId === undefined) ?? null;
+  },
+});
+
 export const getAssignedInstructorIds = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
@@ -220,7 +284,9 @@ export const getAssignedInstructorIds = query({
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
       .collect();
-    return assignments.map((a: Doc<"videoEditorAssignments">) => a.instructorId);
+    return assignments
+      .map((a: Doc<"videoEditorAssignments">) => a.instructorId)
+      .filter((id): id is string => id !== undefined);
   },
 });
 
@@ -231,13 +297,13 @@ export const isVideoEditorAssignedToInstructor = query({
   },
   handler: async (ctx, args) => {
     await requireAdminOrSelf(ctx, args.videoEditorId);
-    const assignment = await ctx.db
+    const assignments = await ctx.db
       .query("videoEditorAssignments")
-      .withIndex("by_videoEditorId_instructorId", (q) =>
-        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
-      )
-      .first();
-    return !!assignment;
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    return assignments.some(
+      (a) => a.instructorId === undefined || a.instructorId === args.instructorId
+    );
   },
 });
 
@@ -266,6 +332,13 @@ export const setVideoEditorAssignmentQuota = mutation({
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) {
       throw new Error("Assignment not found");
+    }
+    // Quotas only apply to specific (per-instructor) assignments. Open
+    // assignments deliberately have no per-instructor quota, so allowing
+    // an admin to set one would create a misleading limit (uploads would
+    // ignore it, but the dashboard would display it).
+    if (assignment.instructorId === undefined) {
+      throw new Error("Cannot set quota on open assignments");
     }
 
     const updates: Record<string, unknown> = {};
@@ -332,7 +405,7 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
 export const createVideoEditorAssignment = mutation({
   args: {
     videoEditorId: v.string(),
-    instructorId: v.string(),
+    instructorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -351,16 +424,6 @@ export const createVideoEditorAssignment = mutation({
       throw new Error("Forbidden: only admins can manage assignments");
     }
 
-    const existing = await ctx.db
-      .query("videoEditorAssignments")
-      .withIndex("by_videoEditorId_instructorId", (q) =>
-        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
-      )
-      .first();
-    if (existing) {
-      return { action: "exists", id: existing._id };
-    }
-
     const editor = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.videoEditorId))
@@ -369,12 +432,30 @@ export const createVideoEditorAssignment = mutation({
       throw new Error("Invalid video editor");
     }
 
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
-      .first();
-    if (!instructor) {
-      throw new Error("Invalid instructor");
+    let existing;
+    if (args.instructorId !== undefined) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+        .first();
+      if (!instructor) {
+        throw new Error("Invalid instructor");
+      }
+      existing = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId_instructorId", (q) =>
+          q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId as string)
+        )
+        .first();
+    } else {
+      const openAssignments = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+        .collect();
+      existing = openAssignments.find((a) => a.instructorId === undefined);
+    }
+    if (existing) {
+      return { action: "exists", id: existing._id };
     }
 
     const id = await ctx.db.insert("videoEditorAssignments", {
@@ -384,5 +465,37 @@ export const createVideoEditorAssignment = mutation({
       assignedBy: callerByClerkId.userId,
     });
     return { action: "created", id };
+  },
+});
+
+export const removeVideoEditorOpenAssignment = mutation({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    const callerByClerkId = caller ?? await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first();
+    if (!callerByClerkId || callerByClerkId.role !== "admin") {
+      throw new Error("Forbidden: only admins can manage assignments");
+    }
+
+    const openAssignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    const openRow = openAssignments.find((a) => a.instructorId === undefined);
+    if (!openRow) {
+      return { action: "not_found" as const };
+    }
+    await ctx.db.delete(openRow._id);
+    return { action: "deleted" as const, id: openRow._id };
   },
 });

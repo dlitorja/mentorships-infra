@@ -982,7 +982,9 @@ export default defineSchema({
 
   videoEditorAssignments: defineTable({
     videoEditorId: v.string(),
-    instructorId: v.string(),
+    // Open assignment when undefined: the video editor can upload to any
+    // instructor. Specific assignment when set: scoped to that instructor.
+    instructorId: v.optional(v.string()),
     assignedAt: v.optional(v.number()),
     assignedBy: v.optional(v.string()),
     storageQuotaBytes: v.optional(v.number()),

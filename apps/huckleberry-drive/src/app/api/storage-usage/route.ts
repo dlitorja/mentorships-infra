@@ -26,32 +26,78 @@ export async function GET(): Promise<NextResponse> {
     }
 
     if (dbUser.role === "video_editor") {
-      const assignments = await fetchQuery(
-        api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+      // Use the editor's total active footprint from `by_uploadedById` so
+      // the dashboard reflects what's still in B2 even when open access
+      // has been revoked (per-assignment views would otherwise underreport
+      // because specific rows do not cover uploads under a now-revoked
+      // open row).
+      const stats = await fetchQuery(
+        api.instructorUploads.getVideoEditorTotalStorageStats,
         { videoEditorId: dbUser.userId },
         { token: convexToken }
       );
 
-      let usedBytes = 0;
-      let fileCount = 0;
+      const assignments = await fetchQuery(
+        api.videoEditorAssignments.getVideoEditorAssignments,
+        { videoEditorId: dbUser.userId },
+        { token: convexToken }
+      );
+
+      // The total footprint is informational; quota enforcement is
+      // per-instructor and runs separately in `createUpload`. The limit
+      // reported here is the union of quota-bearing SPECIFIC assignments
+      // so the editor can see whether their current scope has any caps.
+      // Open assignments are deliberately excluded: they have no per-
+      // instructor quota by design, so including them would incorrectly
+      // report 'unlimited' even when a specific assignment in the same
+      // mix has a real cap.
+      //
+      // Special case: when there are NO assignments at all (open access
+      // was revoked and no specific remains), report limitBytes: 0
+      // rather than 'unlimited' — the editor can no longer start any
+      // upload, so showing 'unlimited' is misleading.
       let limitBytes = 0;
       let hasUnlimited = false;
-
+      let hasSpecific = false;
       for (const assignment of assignments) {
-        usedBytes += assignment.usedBytes;
-        fileCount += assignment.fileCount;
-        const quota = assignment.assignment.storageQuotaBytes;
+        if (assignment.instructorId === undefined) continue;
+        hasSpecific = true;
+        const quota = assignment.storageQuotaBytes;
         if (quota === undefined || quota === null) {
           hasUnlimited = true;
         } else {
           limitBytes += quota;
         }
       }
+      // Open-only (open access still active): unlimited.
+      // No assignments at all (revoked, no specific): zero capacity.
+      let noAssignmentsAtAll = false;
+      if (!hasSpecific && !assignments.some((a) => a.instructorId === undefined)) {
+        noAssignmentsAtAll = true;
+      }
+      if (noAssignmentsAtAll) {
+        hasUnlimited = false;
+        limitBytes = 0;
+      } else if (!hasSpecific) {
+        hasUnlimited = true;
+        limitBytes = 0;
+      }
 
       return NextResponse.json({
-        usedBytes,
+        usedBytes: stats.usedBytes,
         limitBytes: hasUnlimited ? null : limitBytes,
-        fileCount,
+        fileCount: stats.fileCount,
+        // Surface the no-access state explicitly so the dashboard can
+        // render a 'No access' message instead of dividing by zero
+        // (which would produce NaN% or Infinity%). True when the
+        // editor has no active assignments at all (open revoked and
+        // no specific). False when they have at least one assignment.
+        hasAccess: assignments.length > 0,
+        // Surface to the client so the UI can warn when the editor's
+        // history exceeded the single-page scan cap
+        // (TOTAL_STORAGE_STATS_PAGE_SIZE = 1000). The proper fix is a
+        // denormalized counter on `users` (tracked as Linear HUC-58).
+        truncated: stats.truncated ?? false,
       });
     }
 

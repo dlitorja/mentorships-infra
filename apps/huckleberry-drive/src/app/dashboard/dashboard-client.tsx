@@ -430,6 +430,8 @@ export function DashboardClient({
           limitBytes={storageUsage.limitBytes}
           fileCount={storageUsage.fileCount}
           instructorCount={storageUsage.instructorCount}
+          hasAccess={storageUsage.hasAccess ?? true}
+          truncated={storageUsage.truncated ?? false}
         />
       )}
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { requireInstructor, canAccessInstructorData, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, canAccessInstructorData, getAccessibleInstructorIds, getCurrentUser, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { completeMultipartUpload, type UploadPart } from "@mentorships/storage";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -9,8 +9,19 @@ import { api } from "@/convex/_generated/api";
 interface Upload {
   _id: string;
   instructorId: string;
+  uploadedById?: string;
+  status?: string;
   b2UploadId?: string;
+  createdAt?: number;
 }
+
+// Time-bounded grace window during which an uploader can complete an
+// in-progress multipart upload after their access has been revoked. Bounds
+// the abuse window for revoked-then-finalize while still letting the
+// B2 multipart state be cleaned up (rather than orphaned forever). After
+// this window, revoked editors must abort and the row stays in
+// `uploading` state for admin cleanup.
+const OWNER_FINISH_GRACE_MS = 60 * 1000;
 
 function getStringProperty(error: unknown, key: string): string | undefined {
   if (typeof error !== "object" || error === null) return undefined;
@@ -61,7 +72,56 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const hasAccess = await canAccessInstructorData(upload.instructorId);
-    if (!hasAccess) {
+    // Fallback: if the uploader is the caller and the upload is still in a
+    // non-terminal state AND was started within the grace window, allow
+    // them to finish an in-progress multipart upload after their access
+    // has been revoked. The grace window bounds the abuse path for a
+    // revoked-then-finalize race while still letting the B2 multipart
+    // state be cleaned up (rather than orphaned forever). After the
+    // window expires, revoked editors must abort and the row stays in
+    // `uploading` state for admin cleanup.
+    //
+    // SECURITY: even within the grace window, the original uploader
+    // must still have SOME active assignment (open or specific). If
+    // every assignment has been revoked, the editor cannot finish even
+    // their own upload — they must abort. This closes the round-21
+    // Greptile P1: "Revoked access still permits completion". The grace
+    // now only handles transient races, not full revocation.
+    const inProgressStatuses = new Set(["pending", "uploading"]);
+    const isInProgress = upload.status ? inProgressStatuses.has(upload.status) : true;
+    const isWithinGraceWindow =
+      upload.createdAt !== undefined &&
+      Date.now() - upload.createdAt < OWNER_FINISH_GRACE_MS;
+    let isOwnerFinishingOwnUpload = false;
+    if (
+      upload.uploadedById !== undefined &&
+      isInProgress &&
+      isWithinGraceWindow
+    ) {
+      const dbUser = await getCurrentUser();
+      if (dbUser && upload.uploadedById === dbUser.userId) {
+        // Confirm the editor still has SOME access (open or specific)
+        // at complete time. If all assignments have been revoked,
+        // deny — they must abort instead of finishing an upload they
+        // can no longer authorize. `accessible === null` means open
+        // access still active (positive); an empty array means all
+        // specific assignments removed (negative). We accept either
+        // form as "has some access".
+        if (dbUser.role === "video_editor") {
+          const accessible = await getAccessibleInstructorIds();
+          const hasSomeAccess =
+            accessible === null || accessible.length > 0;
+          if (!hasSomeAccess) {
+            return NextResponse.json(
+              { error: "All assignments have been revoked — abort the upload" },
+              { status: 403 }
+            );
+          }
+        }
+        isOwnerFinishingOwnUpload = true;
+      }
+    }
+    if (!hasAccess && !isOwnerFinishingOwnUpload) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 

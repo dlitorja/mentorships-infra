@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { requireInstructor, canAccessInstructorData, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, canAccessInstructorData, getCurrentUser, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { abortMultipartUpload } from "@mentorships/storage";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -11,6 +11,8 @@ interface Upload {
   legacyId?: string;
   instructorId: string;
   filename: string;
+  uploadedById?: string;
+  status?: string;
   b2UploadId?: string;
 }
 
@@ -43,7 +45,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const hasAccess = await canAccessInstructorData(upload.instructorId);
-    if (!hasAccess) {
+    // Fallback: if the uploader is the caller and the upload is still in a
+    // non-terminal state, allow them to abort an in-progress multipart
+    // upload that started under open access that has since been revoked.
+    // Without this, revoking open access mid-upload strands the B2 multipart
+    // state and the editor cannot clean up the dangling session.
+    const inProgressStatuses = new Set(["pending", "uploading"]);
+    const isInProgress = upload.status ? inProgressStatuses.has(upload.status) : true;
+    let isOwnerFinishingOwnUpload = false;
+    if (upload.uploadedById !== undefined && isInProgress) {
+      const dbUser = await getCurrentUser();
+      if (dbUser && upload.uploadedById === dbUser.userId) {
+        isOwnerFinishingOwnUpload = true;
+      }
+    }
+    if (!hasAccess && !isOwnerFinishingOwnUpload) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
