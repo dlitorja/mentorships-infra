@@ -1529,6 +1529,14 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   // workspace. The test is now deterministic — it waits
   // for HEAD to actually be in flight, regardless of how
   // long the pre-check takes.
+  //
+  // Greptile round 5 P2 follow-up: the unbounded
+  // `await headStarted` could hang forever if a regression
+  // causes the pre-check to throw BEFORE HEAD (the action
+  // would throw with a different message, but the test
+  // would still hang on the headStarted wait). Race the
+  // wait against a 5s timeout so the failure mode is a
+  // clear assertion error rather than a vitest timeout.
   stubB2Credentials();
   const t = convexTest({ schema, modules });
   const { workspaceId } = await seedWorkspaceWithInstructor(t, {
@@ -1583,10 +1591,24 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   );
 
   // Step 4: wait for HEAD to actually be called (deterministic
-  // — no fixed timeout). Once HEAD is in flight, the
-  // pre-check has already passed and the pre-cancel path
-  // cannot take over.
-  await headStarted;
+  // — no fixed timeout). Race against a 5s timeout so a
+  // regression that throws BEFORE HEAD fails this test with
+  // a clear "HEAD was never called" message instead of
+  // hanging until vitest's global timeout.
+  await Promise.race([
+    headStarted,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              "HEAD was never called within 5s — the action's pre-check must have thrown before reaching verifyAndConfirmB2Upload"
+            )
+          ),
+        5000
+      )
+    ),
+  ]);
 
   // Step 5: end the workspace while HEAD is in flight. The
   // mutation's re-check will see `endedAt` and throw TOCTOU.
