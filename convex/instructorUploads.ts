@@ -166,6 +166,36 @@ async function getAuthenticatedUser(
     .first();
 }
 
+/**
+ * Authorization check for editor-scoped queries. Callers may only read
+ * data about themselves, unless they are an admin. Without this,
+ * public queries that take a videoEditorId argument would let any
+ * signed-in caller read another editor's storage footprint.
+ */
+async function requireAdminOrSelfVideoEditor(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string
+): Promise<void> {
+  const caller = await getAuthenticatedUser(ctx);
+  if (!caller) {
+    throw new Error("Unauthorized: authentication required");
+  }
+
+  // The caller may authenticate with a Clerk ID that differs from the
+  // canonical users.userId used to key assignments. Allow access when the
+  // caller's userId or clerkId matches the requested videoEditorId.
+  if (
+    caller.userId === videoEditorId ||
+    caller.clerkId === videoEditorId
+  ) {
+    return;
+  }
+
+  if (caller.role !== "admin") {
+    throw new Error("Forbidden: only the editor or an admin can read this data");
+  }
+}
+
 async function getVideoEditorStorageUsed(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string,
@@ -1141,10 +1171,15 @@ export const getTotalStorageStats = query({
  * `getVideoEditorAssignmentsWithStorage` would otherwise underreport
  * because specific rows do not cover uploads under a now-revoked open
  * row).
+ *
+ * Authorization: callers may only read their own usage, unless they are
+ * an admin. Without this check the public query would expose any
+ * editor's total storage footprint to any signed-in caller.
  */
 export const getVideoEditorTotalStorageStats = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
+    await requireAdminOrSelfVideoEditor(ctx, args.videoEditorId);
     const uploads = await ctx.db
       .query("instructorUploads")
       .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
