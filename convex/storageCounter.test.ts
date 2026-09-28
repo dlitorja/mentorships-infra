@@ -675,6 +675,10 @@ test("counter: cross-page accumulation preserves the full editor total", async (
 
   const editorId = "cross_page_editor_1";
   const instructorId = "cross_page_instructor_1";
+  const ROW_COUNT = 5500;
+  const ROW_SIZE = 1024 * 1024; // 1 MB each
+  const expectedBytes = ROW_COUNT * ROW_SIZE;
+  let pagesProcessed = 0;
 
   await t.run(async (ctx) => {
     await ctx.db.insert("users", {
@@ -694,15 +698,16 @@ test("counter: cross-page accumulation preserves the full editor total", async (
       email: "cross_page_instructor_1@example.com",
       name: "Cross Page Instructor",
     });
-    // Insert 10 active uploads for the same editor; the action
-    // would walk them in any order across pages and accumulate.
-    for (let i = 0; i < 10; i += 1) {
+    // Insert enough active uploads to span two pages (PAGE_SIZE =
+    // 5000). 5500 rows exercises the cross-page accumulation path
+    // that a single-page test cannot. Round-27 Greptile P2 #1.
+    for (let i = 0; i < ROW_COUNT; i += 1) {
       await ctx.db.insert("instructorUploads", {
         instructorId,
         filename: `key/cross_page_${i}`,
         originalName: `cross_page_${i}.mp4`,
         contentType: "video/mp4",
-        size: (i + 1) * 1024 * 1024, // 1 MB, 2 MB, ..., 10 MB = 55 MB total
+        size: ROW_SIZE,
         status: "completed",
         uploadedById: editorId,
         createdAt: Date.now() + i,
@@ -711,11 +716,13 @@ test("counter: cross-page accumulation preserves the full editor total", async (
     }
   });
 
-  // Simulate the action's accumulation by walking getUploadsPage in
-  // a loop with a smaller page size. We can't easily change PAGE_SIZE
-  // at runtime, so we use the helper directly: a single page returns
-  // all 10 rows (well under PAGE_SIZE = 5000), but the accumulator
-  // shape is what we're testing.
+  // Walk the action's accumulation path with a small batch size to
+  // actually span multiple pages. We use the production
+  // `getUploadsPage` query (PAGE_SIZE = 5000), which means the
+  // 5500-row table returns two pages: 5000 + 500. If the
+  // accumulator only wrote the last page's subtotal the final
+  // counter would be 500 MB / 500 files instead of the full
+  // 5500 MB / 5500 files.
   await t.run(async (ctx) => {
     const aggregate = new Map<string, { usedBytes: number; fileCount: number }>();
     let cursor: string | null = null;
@@ -725,6 +732,7 @@ test("counter: cross-page accumulation preserves the full editor total", async (
         internal.mutations.backfillVideoEditorStorageCounter.getUploadsPage,
         { cursor }
       );
+      pagesProcessed += 1;
       for (const row of page.rows) {
         if (!row.uploadedById) continue;
         if (row.status === "deleted" || row.status === "deleting") continue;
@@ -763,12 +771,14 @@ test("counter: cross-page accumulation preserves the full editor total", async (
       )
       .first();
     expect(counter).toBeDefined();
-    // 1+2+3+...+10 = 55 MB total, 10 files. If the per-page write
+    // 5500 rows × 1 MB = 5500 MB total. If the per-page write
     // were active, the final value would reflect only the last
-    // page's subtotal. The accumulator pattern guarantees the full
-    // sum.
-    expect(counter?.usedBytes).toBe(55 * 1024 * 1024);
-    expect(counter?.fileCount).toBe(10);
+    // page's subtotal (500 MB / 500 files). The accumulator
+    // pattern guarantees the full sum.
+    expect(counter?.usedBytes).toBe(expectedBytes);
+    expect(counter?.fileCount).toBe(ROW_COUNT);
+    // Sanity-check that the walk actually spanned two pages.
+    expect(pagesProcessed).toBeGreaterThan(1);
   });
 });
 
