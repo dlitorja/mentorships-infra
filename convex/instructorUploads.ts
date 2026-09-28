@@ -348,6 +348,13 @@ export const createUpload = mutation({
       if (targetUser?.deletedAt !== undefined) {
         throw new Error("Target instructor is no longer active");
       }
+      // Role changes can leave an instructors profile row intact while
+      // demoting the user out of the instructor role. Without this check,
+      // an editor with open access could submit a former-instructor's
+      // userId and create a file in a non-instructor's storage.
+      if (targetUser?.role !== "instructor") {
+        throw new Error("Target is no longer an instructor");
+      }
     }
 
     // Caps are enforced based on the authenticated caller's role, not the

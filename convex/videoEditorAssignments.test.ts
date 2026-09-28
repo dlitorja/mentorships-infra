@@ -1362,3 +1362,53 @@ test("createUpload: rejects soft-deleted instructor even with open access", asyn
     })
   ).rejects.toThrow("Target instructor is no longer active");
 });
+
+test("createUpload: rejects former instructor (role removed) even with open access", async () => {
+  // When a user's role is removed from 'instructor', their instructors
+  // profile row remains. Without this check, an editor with open access
+  // could submit that user's ID directly and create a file in a non-
+  // instructor's storage, even though the instructor selector excludes
+  // the user.
+  const t = convexTest(schema, modules);
+
+  const editorId = "editor_demoted_1";
+  const demotedInstructorId = "instructor_demoted_1";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_demoted_1@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: demotedInstructorId,
+      email: "instructor_demoted_1@example.com",
+      clerkId: demotedInstructorId,
+      role: "student",
+    });
+    await ctx.db.insert("instructors", {
+      userId: demotedInstructorId,
+      email: "instructor_demoted_1@example.com",
+      name: "Demoted Instructor 1",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: undefined,
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  await expect(
+    editorClient.mutation(api.instructorUploads.createUpload, {
+      id: "upload_to_demoted_1",
+      instructorId: demotedInstructorId,
+      filename: "key/upload_to_demoted_1",
+      originalName: "upload_to_demoted_1.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("Target is no longer an instructor");
+});
