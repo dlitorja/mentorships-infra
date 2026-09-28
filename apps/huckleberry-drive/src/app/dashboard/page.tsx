@@ -38,10 +38,14 @@ export default async function DashboardPage(): Promise<React.ReactElement> {
     instructorIds = [dbUser.userId];
   }
 
-  // For video editors with an open assignment, getAccessibleInstructorIds
-  // returns null (all access). Expand to every invited instructor so the
-  // dashboard switcher can pick any of them.
-  if (role === "video_editor" && instructorIds.length === 0) {
+  // For video editors with an open assignment, the editor can upload to ANY
+  // instructor — including those they have no specific assignment for. The
+  // dashboard switcher must therefore list every invited instructor when
+  // open access is present, regardless of whether specific assignments also
+  // exist. Without this, an editor with both open and specific assignments
+  // would see only the specific ones in the dashboard even though they
+  // can upload to the others.
+  if (role === "video_editor") {
     const token = await getToken({ template: "convex" }) ?? undefined;
     const openAssignment = await fetchQuery(
       api.videoEditorAssignments.getVideoEditorOpenAssignment,
