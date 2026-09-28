@@ -958,6 +958,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
     b2Key: "2026-01-01/file_x/x.png",
     uploaderId: "u_student_1",
     uploadedAt: now,
+    contentType: "image/png",
   });
 
   await expect(
@@ -966,6 +967,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
       b2Key: "2026-01-01/file_x/x.png",
       uploaderId: "u_student_1",
       uploadedAt: now + 1,
+      contentType: "image/png",
     })
   ).rejects.toThrow(/already reserved/i);
 });
@@ -985,6 +987,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       b2Key: `2026-01-01/file_${i}/${i}.png`,
       uploaderId: "u_student_1",
       uploadedAt: now,
+      contentType: "image/png",
     });
   }
   await expect(
@@ -993,6 +996,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       b2Key: "2026-01-01/file_21/21.png",
       uploaderId: "u_student_1",
       uploadedAt: now,
+      contentType: "image/png",
     })
   ).rejects.toThrow(/too many pending uploads/i);
 });
@@ -1038,6 +1042,7 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
     b2Key: "2026-01-01/file_fresh/fresh.png",
     uploaderId: "u_student_1",
     uploadedAt: now,
+    contentType: "image/png",
   });
 });
 

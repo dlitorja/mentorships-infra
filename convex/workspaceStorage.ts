@@ -17,6 +17,7 @@ import {
   MAX_IMAGE_BYTES,
   SCHEDULE_BACKFILL_DEDUP_MS,
   STALE_MIGRATION_LOCK_MS,
+  WORKSPACE_B2_URL_TTL_SECONDS,
   WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
@@ -242,6 +243,88 @@ export const resolveB2FileUploadForKey = internalQuery({
 });
 
 /**
+ * PR workspace-storage-3c (server-side resolution): batch
+ * resolver for B2 keys. The read-side queries
+ * (`getInstructorResources`, `getSharedResourcesForActiveSession`,
+ * `getWorkspaceMessages`, `getNoteComments`,
+ * `getWorkspaceExportData`, `getWorkspaceImagesPaginated`, …)
+ * gather every `b2Key` from the result set and call this once
+ * per workspace read, instead of round-tripping per row. Returns
+ * one entry per requested key:
+ *   - `{ url, expiresAt }` for keys whose ledger row is
+ *     completed, not cancelled, and belongs to the supplied
+ *     workspace;
+ *   - `{ error: "missing" | "cancelled" | "wrong_workspace" }`
+ *     for keys that should NOT produce a renderable URL.
+ *
+ * Signing is pure crypto (HMAC-SHA256) and runs inline in this
+ * query (no network IO). The `expiresInSeconds` is clamped to
+ * `WORKSPACE_B2_URL_TTL_SECONDS` so a single query result is
+ * consistent for its TTL window; clients can refresh via
+ * `getWorkspaceDownloadUrl` action when a longer-lived URL is
+ * needed (download ZIP export, share outside the app).
+ */
+export const resolveWorkspaceB2FileUploadsForKeys = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    b2Keys: v.array(v.string()),
+    expiresInSeconds: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<
+    Array<
+      | { b2Key: string; ok: true; url: string; expiresAt: number }
+      | {
+          b2Key: string;
+          ok: false;
+          error: "missing" | "cancelled" | "wrong_workspace";
+        }
+    >
+  > => {
+    const ttl = args.expiresInSeconds ?? WORKSPACE_B2_URL_TTL_SECONDS;
+    const out: Array<
+      | { b2Key: string; ok: true; url: string; expiresAt: number }
+      | {
+          b2Key: string;
+          ok: false;
+          error: "missing" | "cancelled" | "wrong_workspace";
+        }
+    > = [];
+    // Dedup the input so we don't sign the same key twice for a
+    // gallery page that references the same image in two rows.
+    const seen = new Set<string>();
+    for (const key of args.b2Keys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ledger = await ctx.db
+        .query("fileUploads")
+        .withIndex("by_b2Key", (q) => q.eq("b2Key", key))
+        .first();
+      if (!ledger) {
+        out.push({ b2Key: key, ok: false, error: "missing" });
+        continue;
+      }
+      if (ledger.workspaceId !== args.workspaceId) {
+        out.push({ b2Key: key, ok: false, error: "wrong_workspace" });
+        continue;
+      }
+      if (ledger.cancelledAt !== undefined) {
+        out.push({ b2Key: key, ok: false, error: "cancelled" });
+        continue;
+      }
+      if (ledger.completedAt === undefined) {
+        // Not yet completed — refuse to sign. The UI will fall
+        // back to a loading state until the row is confirmed.
+        out.push({ b2Key: key, ok: false, error: "missing" });
+        continue;
+      }
+      const signed = await mintB2PresignedGetUrl({ key, expiresInSeconds: ttl });
+      out.push({ b2Key: key, ok: true, url: signed.url, expiresAt: signed.expiresAt });
+    }
+    return out;
+  },
+});
+
+/**
  * Internal query: resolve the caller's role for downloading a
  * workspace B2 object. Same role rules as upload, but ended
  * workspaces are still readable during their 18-month retention
@@ -351,6 +434,7 @@ export const reserveB2FileUploadLedger = internalMutation({
     b2Key: v.string(),
     uploaderId: v.string(),
     uploadedAt: v.number(),
+    contentType: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -403,6 +487,14 @@ export const reserveB2FileUploadLedger = internalMutation({
       workspaceId: args.workspaceId,
       uploadedAt: args.uploadedAt,
       b2Key: args.b2Key,
+      // PR workspace-storage-3c (Greptile P1 "Image limits can be
+      // bypassed"): persist the content type so the image-create
+      // mutations can verify the upload was actually an image
+      // before consuming an image slot. The B2 PUT signature
+      // scopes B2 to accept only PUTs whose `Content-Type`
+      // matches, so this field reflects the actually-uploaded
+      // blob's content type.
+      contentType: args.contentType,
     });
   },
 });
@@ -503,6 +595,7 @@ export const generateWorkspaceUploadUrl = action({
       workspaceId: args.workspaceId,
       b2Key,
       uploaderId: identity.subject,
+      contentType: args.contentType,
       uploadedAt: Date.now(),
     });
 
@@ -603,8 +696,8 @@ export const getWorkspaceDownloadUrl = action({
         deadlineSeconds = Math.min(maxLifetimeSeconds, secondsUntilDeadline);
       }
     }
-    const expiresInSeconds = Math.min(
-      Math.max(args.expiresInSeconds ?? 3600, 60),
+    const expiresInSeconds = clampWorkspaceDownloadExpiresInSeconds(
+      args.expiresInSeconds,
       deadlineSeconds
     );
 
@@ -2500,7 +2593,39 @@ async function mintB2PresignedPutUrl(params: {
   return url.toString();
 }
 
-async function mintB2PresignedGetUrl(params: {
+/**
+ * PR workspace-storage-3c: clamp a caller-requested `expiresInSeconds`
+ * against the action's documented 60 s .. 24 h band AND against
+ * the workspace retention deadline. Mirrors the inline math
+ * `getWorkspaceDownloadUrl` used to do (so this is a no-op
+ * behaviour change for the action), but extracted so the read-side
+ * internal query can reuse the same policy without duplicating
+ * it. `defaultSeconds` is the value used when the caller passes
+ * `undefined`.
+ */
+export function clampWorkspaceDownloadExpiresInSeconds(
+  requested: number | undefined,
+  deadlineSeconds: number,
+  defaultSeconds: number = WORKSPACE_B2_URL_TTL_SECONDS
+): number {
+  const min = 60;
+  const max = 24 * 60 * 60;
+  return Math.min(
+    Math.max(requested ?? defaultSeconds, min),
+    Math.min(deadlineSeconds, max)
+  );
+}
+
+/**
+ * PR workspace-storage-3c: exported so read-side queries can sign
+ * URLs inline (the underlying crypto is pure HMAC-SHA256 — no
+ * network IO, query-safe). Action-side callers
+ * (`getWorkspaceDownloadUrl`, `cleanup/postMigrationStorageCleanup`,
+ * `cleanup/workspaceB2Retention`) continue to use this same
+ * helper. Always clamp `expiresInSeconds` via
+ * `clampWorkspaceDownloadExpiresInSeconds` before passing through.
+ */
+export async function mintB2PresignedGetUrl(params: {
   key: string;
   expiresInSeconds: number;
 }): Promise<{ url: string; expiresAt: number }> {

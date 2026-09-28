@@ -4,12 +4,12 @@ import { useRef, useEffect } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { toast } from 'sonner';
 import { Id, type Doc } from '@/convex/_generated/dataModel';
 import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_IMAGE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
+import { NoteImage } from '../extensions/note-image';
 
 type UseEmbedImageInNote = {
   mutateAsync: (args: { noteId: Id<'workspaceNotes'>; b2Key: string }) => Promise<string | undefined>;
@@ -67,7 +67,13 @@ export function useNoteEditor({
       Placeholder.configure({
         placeholder: 'Start writing your note...',
       }),
-      Image.configure({
+      // PR workspace-storage-3c (Greptile P1 "Saved note images
+      // expire"): use the custom NoteImage extension that carries
+      // a `b2Key` attribute. Pre-3c persisted a 1-hour signed
+      // URL directly into `src`, so reloads on a long-lived note
+      // showed broken images. The b2Key stays valid for the
+      // 18-month retention window — resolve on load.
+      NoteImage.configure({
         inline: false,
         allowBase64: false,
         HTMLAttributes: {
@@ -93,6 +99,11 @@ export function useNoteEditor({
     },
     onCreate: ({ editor }) => {
       updateNoteImageUrls(editor);
+      // PR workspace-storage-3c: resolve any `b2Key` attributes
+      // that the just-loaded content may carry. Pre-PR-3c notes
+      // have no `b2Key` and fall through to render whatever's in
+      // `src` (which may be expired).
+      void resolveB2KeyImageSrcs(editor);
     },
   });
 
@@ -119,6 +130,12 @@ export function useNoteEditor({
         // `onUpdate` doesn't fire — rescan image URLs explicitly so
         // the lightbox list reflects the newly-selected note.
         updateNoteImageUrls(editor);
+        // PR workspace-storage-3c: re-resolve any `b2Key`
+        // attributes on the newly-loaded note (the previous
+        // note's URLs may have been resolved already, but the
+        // new note may carry pre-PR-3c `data-b2-key` attributes
+        // waiting for a signed URL).
+        void resolveB2KeyImageSrcs(editor);
       }
     } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
@@ -177,14 +194,15 @@ export function useNoteEditor({
         b2Key: uploadResult.b2Key,
       });
 
-      // PR workspace-storage-3c: the mutation returns the
-      // `b2Key` (the row's imageUrl is left empty for B2 rows).
-      // Resolve to a signed GET URL so Tiptap Image renders
-      // the upload immediately. The note's imageUrl field is
-      // also patched to empty in this PR, so any reload will
-      // re-resolve via `useWorkspaceImageUrl` in the
-      // NoteEditor component.
-      let imageUrl = b2Key;
+      // PR workspace-storage-3c (Greptile P1 "Saved note images
+      // expire"): the `src` attribute stays ephemeral (1-hour
+      // signed URL); the `b2Key` attribute is the source of truth
+      // and survives the 18-month retention window. On load the
+      // editor's `resolveB2KeyImageSrcs` re-mints the signed URL
+      // from `b2Key`. The image node carries both attrs, so the
+      // Tiptap HTML serializer persists `data-b2-key` in the
+      // autosaved content.
+      let imageUrl = '';
       if (b2Key) {
         try {
           const { url } = await resolveDownloadUrl.mutateAsync({
@@ -194,16 +212,31 @@ export function useNoteEditor({
           });
           imageUrl = url;
         } catch {
-          // Fall back to the raw b2Key so the editor still
-          // shows something (the renderer will display broken
-          // image, but at least the source is set).
+          // Leave `src` empty; the renderer shows a broken-image
+          // placeholder until the next reload resolves the
+          // b2Key. This is preferable to embedding a b2Key
+          // literal as the src, which the browser can't fetch.
+          imageUrl = '';
         }
       }
 
       toast.success('Image inserted', { id: toastId });
 
-      if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
-        currentEditor.chain().focus().setImage({ src: imageUrl }).run();
+      if (currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
+        // Set the `src` first via `setImage`, then patch the
+        // `b2Key` attribute via `updateAttributes`. Tiptap's
+        // built-in `setImage` command only accepts `src` /
+        // `alt` / `title`; the custom `b2Key` attribute lives
+        // on the same Image node and is the long-lived handle
+        // that survives the 1-hour signed-URL expiry. On load
+        // the editor's `resolveB2KeyImageSrcs` re-mints a
+        // fresh `src` from `b2Key`.
+        currentEditor
+          .chain()
+          .focus()
+          .setImage({ src: imageUrl })
+          .updateAttributes('image', { b2Key })
+          .run();
       }
     } catch (error) {
       console.error('Failed to embed image:', error);
@@ -226,6 +259,62 @@ export function useNoteEditor({
     const file = e.dataTransfer.files?.[0];
     if (file) {
       void handleDottedLineDrop(file);
+    }
+  };
+
+  // PR workspace-storage-3c (Greptile P1 "Saved note images
+  // expire"): walks the editor's doc, finds every image node
+  // with a non-null `b2Key` attribute, resolves it to a fresh
+  // signed GET URL via `getWorkspaceDownloadUrl`, and patches
+  // the node's `src`. Called from `onCreate` (initial editor
+  // mount) and the note-switch effect. Per-image errors
+  // (cancelled / never-completed ledger) are swallowed so one
+  // bad row doesn't blank the whole note.
+  const resolveB2KeyImageSrcs = async (
+    editorInstance: NonNullable<ReturnType<typeof useEditor>>
+  ): Promise<void> => {
+    const pending: Array<{ b2Key: string }> = [];
+    editorInstance.state.doc.descendants((node) => {
+      if (node.type.name !== "image") return;
+      const b2Key = node.attrs.b2Key as string | null | undefined;
+      if (typeof b2Key === "string" && b2Key.length > 0) {
+        pending.push({ b2Key });
+      }
+    });
+    if (pending.length === 0) return;
+
+    const resolved = await Promise.all(
+      pending.map(async ({ b2Key }) => {
+        try {
+          const { url } = await resolveDownloadUrl.mutateAsync({
+            workspaceId,
+            b2Key,
+            expiresInSeconds: 3600,
+          });
+          return { b2Key, url };
+        } catch {
+          return { b2Key, url: null };
+        }
+      })
+    );
+
+    for (const { b2Key, url } of resolved) {
+      if (!url) continue;
+      editorInstance.state.doc.descendants((node, pos) => {
+        if (
+          node.type.name === "image" &&
+          (node.attrs.b2Key as string | null) === b2Key &&
+          (node.attrs.src as string) !== url
+        ) {
+          editorInstance
+            .chain()
+            .setNodeSelection(pos)
+            .updateAttributes("image", { src: url })
+            .run();
+          return false;
+        }
+        return true;
+      });
     }
   };
 

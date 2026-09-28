@@ -10,25 +10,22 @@ import { WORKSPACE_RETENTION_MS } from "../workspaceConstants";
 import { deleteFromB2WorkspaceAction } from "../workspaceStorage";
 
 /**
- * PR workspace-storage-3c: hard-delete `fileUploads` rows whose
- * upload completed more than `WORKSPACE_RETENTION_MS` (18 months)
- * ago AND have no live references in `workspaceMessages` /
- * `workspaceImages` / `workspaceNoteComments` /
- * `instructorResources`. The companion B2 lifecycle rule
- * (see `scripts/set-b2-bucket-lifecycle.ts`) enforces the same
- * 18-month window on the bucket side for objects that the
- * ledger has lost track of (e.g. rows that were hard-deleted by
- * an operator path that did not call this cron).
- *
- * Why a cron AND a lifecycle rule:
- *   - The lifecycle rule sweeps bucket objects in bulk once per
- *     day without holding the Convex-side ledger in lockstep.
- *     It's a safety net for rows whose Convex bookkeeping was
- *     lost (operator intervention, schema migration bugs).
- *   - This cron is the source of truth: it deletes the ledger
- *     row in addition to the B2 object, so the gallery /
- *     chat / notes tabs do not show a `imageUrl: ""` ghost for
- *     a tombstoned upload.
+ * PR workspace-storage-3c (Greptile round 4 P1 fix — confidence
+ * 0/5, "Lifecycle deletes referenced objects"): hard-delete
+ * `fileUploads` rows whose upload completed more than
+ * `WORKSPACE_RETENTION_MS` (18 months) ago AND have no live
+ * references in `workspaceMessages` / `workspaceImages` /
+ * `workspaceNoteComments` / `instructorResources`. This cron is
+ * the SOLE source of truth for retention enforcement — the
+ * earlier companion B2 lifecycle rule
+ * (`scripts/set-b2-bucket-lifecycle.ts`, removed in PR 3c
+ * round 4) is intentionally NOT applied. B2's lifecycle rule
+ * operates on objects, not references, so a row whose
+ * `completedAt` is past the retention window could be deleted
+ * before the cron has had a chance to read its live references
+ * — leaving the gallery / chat / notes tab pointing at a
+ * missing object. Trusting the cron alone trades a small
+ * storage-cost growth for guaranteed correctness.
  *
  * Retention math: 18 months past the original upload's
  * `completedAt`. NOT past `endedAt` of the workspace (the chat

@@ -70,12 +70,9 @@ Same for chat messages: `useWorkspaceFileUrl(row)` that:
 - Lists B2 bucket objects, diffs against `fileUploads` ledger rows + workspaceImages/Messages/NoteComments `b2Key` references
 - Deletes orphans (objects in B2 not referenced anywhere)
 
-### 4. B2 lifecycle script
+### 4. (removed) B2 lifecycle script
 
-**`scripts/set-b2-bucket-lifecycle.ts`**
-- Sends `PutLifecycleConfiguration` to `s3.{region}.backblazeb2.com/<bucket>`
-- Pair rule: `Expiration.Days: N` + `ExpiredObjectDeleteMarker: true`
-- Pin N to chat file retention days
+**`scripts/set-b2-bucket-lifecycle.ts`** — REMOVED in PR 3c round 4 (Greptile P1 "Lifecycle deletes referenced objects"). The Convex daily `cleanupExpiredWorkspaceB2Uploads` cron is the SOLE source of truth for retention. A bucket-wide lifecycle rule operates on objects, not references — a row whose `completedAt` is past the 18-month window could be deleted before the cron had a chance to read its live references. The trade-off: if the cron fails for several days, B2 storage cost grows; correctness is preserved (no dangling references).
 
 ### 5. Tests
 
@@ -138,5 +135,5 @@ Same for chat messages: `useWorkspaceFileUrl(row)` that:
 - `AGENTS.md` — Linear + schema-change + Greptile + secret-protection policies
 - `convex/_generated/ai/guidelines.md` — Convex ^1.44.0 guidelines (must-read before any convex/ edits)
 - `convex/cleanup/postMigrationStorageCleanup.ts` — template for new cleanup action
-- `scripts/set-b2-bucket-cors.ts` — template for new lifecycle script
+- `scripts/set-b2-bucket-cors.ts` — template for new bucket config script (lifecycle script was removed; see §4)
 - `apps/platform/lib/b2-workspace-upload.ts` — B2 helper (already exists, contains `uploadFileToB2`, `resolveB2DownloadUrl`, `validateB2Files`, `createB2ImagePreviews`, `generateB2FileId`)

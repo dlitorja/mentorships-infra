@@ -55,10 +55,13 @@ import { internal } from "./_generated/api";
  *   deletes the B2 object + stamps the ledger for `fileUploads`
  *   rows whose `completedAt` is older than `WORKSPACE_RETENTION_MS`
  *   (18 months) AND that have no live references in the four
- *   referencing tables. Pairs with the B2 lifecycle rule
- *   (`scripts/set-b2-bucket-lifecycle.ts`). See
- *   `convex/cleanup/workspaceB2Retention.ts`. PR
- *   workspace-storage-3c.
+ *   referencing tables. This cron is the SOLE source of truth
+ *   for retention — no B2 lifecycle rule is applied (PR
+ *   workspace-storage-3c round 4 removed
+ *   `scripts/set-b2-bucket-lifecycle.ts` because B2's rule
+ *   operates on objects, not references, and could delete a
+ *   referenced object before this cron had a chance to read its
+ *   live references). See `convex/cleanup/workspaceB2Retention.ts`.
  * - cleanup-orphan-b2-objects: Runs weekly on Sunday at 04:00 UTC,
  *   retries B2 DELETE for cancelled `fileUploads` rows whose
  *   immediate `cleanupRejectedB2Upload` hit a permanent failure

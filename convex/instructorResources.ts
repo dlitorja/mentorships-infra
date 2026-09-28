@@ -1,4 +1,5 @@
 import { query, mutation, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -133,15 +134,39 @@ export const getInstructorResources = query({
       return [];
     }
 
+    // PR workspace-storage-3c (Greptile P1 "Resource image previews
+    // disappear"): resolve every B2 key server-side via the
+    // workspace-scoped internal query so the client gets a usable
+    // URL on first read instead of receiving `url: null` for B2
+    // rows. Legacy `storageId` rows keep using `ctx.storage.getUrl`.
+    const b2Keys = filtered
+      .map((r) => r.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        {
+          workspaceId: args.workspaceId,
+          b2Keys,
+        }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const enriched = await Promise.all(
       filtered.map(async (r) => {
-        // PR workspace-storage-3c: legacy rows expose a Convex
-        // storage id; new B2 rows leave `storageId` undefined and
-        // rely on the UI resolver hook to mint a signed GET URL.
-        const url = r.storageId ? await ctx.storage.getUrl(r.storageId) : null;
+        let url: string | null = null;
+        if (r.storageId) {
+          url = await ctx.storage.getUrl(r.storageId);
+        } else if (r.b2Key) {
+          url = urlMap.get(r.b2Key) ?? null;
+        }
         return {
           ...r,
-          url: url ?? null,
+          url,
         };
       })
     );
@@ -545,14 +570,39 @@ export const getSharedResourcesForActiveSession = query({
       .collect();
 
     const filtered = rows.filter((r) => r.deletedAt === undefined);
+
+    // PR workspace-storage-3c (Greptile P1 "Resource image previews
+    // disappear"): same server-side resolution as
+    // `getInstructorResources`. The session subpanel is rendered
+    // immediately on session-join, so resolving URLs server-side
+    // here prevents the brief blank-tile flash.
+    const b2Keys = filtered
+      .map((r) => r.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        {
+          workspaceId: args.workspaceId,
+          b2Keys,
+        }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const enriched = await Promise.all(
-      filtered.map(async (r) => ({
-        ...r,
-        // PR workspace-storage-3c: legacy rows have a Convex storage
-        // id; new B2 rows leave `storageId` undefined and rely on
-        // the UI resolver hook. Only resolve the legacy URL here.
-        url: r.storageId ? (await ctx.storage.getUrl(r.storageId)) ?? null : null,
-      }))
+      filtered.map(async (r) => {
+        let url: string | null = null;
+        if (r.storageId) {
+          url = (await ctx.storage.getUrl(r.storageId)) ?? null;
+        } else if (r.b2Key) {
+          url = urlMap.get(r.b2Key) ?? null;
+        }
+        return { ...r, url };
+      })
     );
     return enriched.sort((a, b) => b._creationTime - a._creationTime);
   },

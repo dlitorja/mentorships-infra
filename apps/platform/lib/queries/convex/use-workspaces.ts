@@ -372,7 +372,16 @@ export interface NoteComment {
   authorDisplayName: string;
   createdAt: number;
   deletedAt?: number;
+  // PR workspace-storage-3c: legacy Convex storage id (pre-PR-3c
+  // rows). New B2-backed rows leave this undefined and instead
+  // expose `attachmentUrl` (server-side signed URL via the
+  // workspaceStorage resolver).
   storageId?: string;
+  // PR workspace-storage-3c round 4 (P1 #5 fix): server-side
+  // pre-signed URL for B2-backed comment attachments. May be
+  // `null` if the B2 row is missing/cancelled/wrong-workspace;
+  // UI should treat `null` as "attachment unavailable".
+  attachmentUrl?: string | null;
 }
 
 /**
@@ -550,104 +559,40 @@ export function useGetWorkspaceDownloadUrl() {
 }
 
 /**
- * PR workspace-storage-3c: Resolve a single workspace image
- * (either legacy `imageUrl` or B2 `b2Key`) to a render-ready
- * URL. Legacy rows return `imageUrl` immediately; B2 rows
- * lazily mint a signed GET URL via `getWorkspaceDownloadUrl`.
- *
- * Returns `null` while the B2 URL is in flight (use a loading
- * placeholder) and the resolved URL once available.
+ * PR workspace-storage-3c (Greptile round 4 fix — confidence 0/5):
+ * server-side URL resolution. The read queries
+ * (`getInstructorResources`, `getSharedResourcesForActiveSession`,
+ * `getWorkspaceImages`, `getWorkspaceImagesPaginated`,
+ * `getWorkspaceExportData`) now call
+ * `resolveWorkspaceB2FileUploadsForKeys` internally and return
+ * the populated `imageUrl` / `url` / `attachmentUrl` directly.
+ * These hooks are kept as thin pass-throughs so existing call
+ * sites (`apps/platform/components/workspace/images.tsx`,
+ * `apps/platform/components/workspace/resources.tsx`,
+ * `apps/platform/components/workspace/chat/components/ChatMessageList.tsx`)
+ * don't change shape, but they no longer issue a per-row action
+ * call. If a future read query returns a row with an empty
+ * `imageUrl` AND a non-undefined `b2Key`, the row was a
+ * cancelled / unconfirmed upload — fall back to `null` and let
+ * the caller render a broken-image placeholder.
  */
 export function useWorkspaceImageUrl(
-  workspaceId: Id<"workspaces">,
+  _workspaceId: Id<"workspaces">,
   row: { imageUrl: string; b2Key?: string | undefined }
 ): string | null {
-  const getUrl = useGetWorkspaceDownloadUrl();
-  const fetchedKey = useRef<string | null>(null);
-  const cachedUrl = useRef<string | null>(null);
-
-  const needsFetch = row.b2Key !== undefined && row.imageUrl === "";
-  const fetch = async () => {
-    if (!row.b2Key) return;
-    if (fetchedKey.current === row.b2Key) return;
-    fetchedKey.current = row.b2Key;
-    try {
-      const { url } = await getUrl.mutateAsync({
-        workspaceId,
-        b2Key: row.b2Key,
-        expiresInSeconds: 3600,
-      });
-      cachedUrl.current = url;
-    } catch {
-      fetchedKey.current = null;
-    }
-  };
-
-  useEffect(() => {
-    if (!needsFetch) return;
-    void fetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsFetch, row.b2Key]);
-
-  if (!needsFetch) return row.imageUrl || null;
-  return cachedUrl.current;
+  return row.imageUrl || null;
 }
 
-/**
- * PR workspace-storage-3c: Batch resolver for a list of rows.
- * Returns `{ rowId → url }` map. B2 rows are resolved in one
- * batch (sequential awaits, since the action takes one key at
- * a time). Legacy rows pass through immediately.
- */
 export function useBatchWorkspaceImageUrls<T extends { _id: string; imageUrl: string; b2Key?: string | undefined }>(
-  workspaceId: Id<"workspaces">,
+  _workspaceId: Id<"workspaces">,
   rows: T[]
 ): Map<string, string | null> {
-  const getUrl = useGetWorkspaceDownloadUrl();
-  const cache = useRef<Map<string, string | null>>(new Map());
-
-  const b2Rows = useMemo(
-    () => rows.filter((r) => r.b2Key !== undefined && r.imageUrl === ""),
-    [rows]
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      for (const row of b2Rows) {
-        if (!row.b2Key) continue;
-        if (cache.current.has(row._id)) continue;
-        try {
-          const { url } = await getUrl.mutateAsync({
-            workspaceId,
-            b2Key: row.b2Key,
-            expiresInSeconds: 3600,
-          });
-          if (!cancelled) cache.current.set(row._id, url);
-        } catch {
-          if (!cancelled) cache.current.set(row._id, null);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [b2Rows.length, workspaceId]);
-
   return useMemo(() => {
     const out = new Map<string, string | null>();
     for (const row of rows) {
-      if (row.b2Key !== undefined && row.imageUrl === "") {
-        out.set(row._id, cache.current.get(row._id) ?? null);
-      } else {
-        out.set(row._id, row.imageUrl || null);
-      }
+      out.set(row._id, row.imageUrl || null);
     }
     return out;
-    // `cache.current` is a stable ref mutated by the effect above.
-    // We only re-read it when `rows` changes (because the resolver
-    // hook re-runs `mutateAsync` for each new b2Key in `b2Rows`).
   }, [rows]);
 }
 

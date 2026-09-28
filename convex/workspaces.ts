@@ -303,7 +303,7 @@ export async function assertB2FileUploadOwnedByCaller(
     b2Key: string;
     callerId: string;
   }
-): Promise<void> {
+): Promise<Doc<"fileUploads">> {
   const row = await ctx.db
     .query("fileUploads")
     .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
@@ -333,6 +333,7 @@ export async function assertB2FileUploadOwnedByCaller(
       "B2 key upload has not been confirmed. Re-upload and try again."
     );
   }
+  return row;
 }
 
 /**
@@ -1419,6 +1420,27 @@ export const getNoteComments = query({
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .order("asc")
       .collect();
+
+    // PR workspace-storage-3c (Greptile P1 "Comment attachments
+    // disappear"): resolve each comment attachment's B2 key
+    // server-side. Pre-3c UI used `comment.imageUrl` directly
+    // (which is empty for B2 rows), so attachments rendered as
+    // broken images / missing buttons. Resolve once per query,
+    // re-use the map across all comments.
+    const b2Keys = comments
+      .map((c) => c.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: note.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       workspace,
@@ -1427,6 +1449,12 @@ export const getNoteComments = query({
     return comments.map((comment) => ({
       ...comment,
       authorDisplayName: authorDisplayNames.get(comment.createdBy) ?? "Student",
+      // B2 attachments expose the resolved URL via
+      // `attachmentUrl` (separate from the legacy `imageUrl`
+      // field which apps/web used and is empty for B2 rows).
+      attachmentUrl: comment.b2Key
+        ? urlMap.get(comment.b2Key) ?? null
+        : null,
     }));
   },
 });
@@ -1470,12 +1498,22 @@ export const embedImageInNote = mutation({
     // participant cannot pass an unrelated `b2Key` (Greptile
     // Security P1). The ledger row is created when
     // `workspaceStorage.recordB2FileUpload` runs (after the PUT
-    // succeeds).
-    await assertB2FileUploadOwnedByCaller(ctx, {
+    // succeeds). The returned row also lets us verify the
+    // content type is actually an image (Greptile P1 round 4:
+    // "Image limits can be bypassed").
+    const ledger = await assertB2FileUploadOwnedByCaller(ctx, {
       workspaceId: note.workspaceId,
       b2Key: args.b2Key,
       callerId: user.subject,
     });
+    if (
+      ledger.contentType !== undefined &&
+      !ledger.contentType.toLowerCase().startsWith("image/")
+    ) {
+      throw new Error(
+        "Only image files can be embedded in notes. Use the file share for other types."
+      );
+    }
 
     const isAdmin = role === "admin";
     const currentCount = isAdmin
@@ -1712,18 +1750,30 @@ export const getWorkspaceImages = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
+    // PR workspace-storage-3c (Greptile P1 "Gallery URLs never
+    // appear"): resolve every B2 key server-side in a single
+    // batched internal query. Legacy rows still call
+    // `ctx.storage.getUrl`. The 1-hour TTL matches the gallery's
+    // scroll-session lifetime; the UI hook refreshes proactively
+    // when the cached URL is within 5 minutes of expiry.
+    const b2Keys = images
+      .map((img) => img.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: args.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
-        // PR workspace-storage-3c: B2 rows pass through with
-        // `imageUrl: ""` (placeholder) and the `b2Key` populated;
-        // the UI resolver hook (`useWorkspaceImageUrl`) detects
-        // `b2Key !== undefined` and resolves via
-        // `getWorkspaceDownloadUrl`. Legacy Convex-storage rows
-        // still call `ctx.storage.getUrl` so apps/web's gallery
-        // keeps working until its rows are migrated by the daily
-        // PR 2 cron.
         if (img.b2Key !== undefined) {
-          return { ...img, imageUrl: "" };
+          return { ...img, imageUrl: urlMap.get(img.b2Key) ?? "" };
         }
         let imageUrl = img.imageUrl;
         if (img.storageId) {
@@ -1883,18 +1933,32 @@ export const getWorkspaceImagesPaginated = query({
       }
     }
 
+    // PR workspace-storage-3c (Greptile P1 "Gallery URLs never
+    // appear"): resolve B2 keys server-side in one batched call so
+    // the first page render already has URLs. The same map is
+    // reused by the next page's resolution on subsequent paginate
+    // requests via the per-call scope here (callers re-issue this
+    // query on page change).
+    const b2Keys = visiblePage
+      .map((img) => img.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: args.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const imagesWithUrls = await Promise.all(
       visiblePage.map(async (img) => {
-        // PR workspace-storage-3c: B2 rows pass through with
-        // `imageUrl: ""` (placeholder) and the `b2Key` populated;
-        // the UI resolver hook detects `b2Key !== undefined` and
-        // resolves via `getWorkspaceDownloadUrl`. Legacy rows still
-        // call `ctx.storage.getUrl` so apps/web's paginated Images
-        // tab keeps working until its rows are migrated.
         if (img.b2Key !== undefined) {
           return {
             ...img,
-            imageUrl: "",
+            imageUrl: urlMap.get(img.b2Key) ?? "",
             uploaderRole: await resolveUploaderRole(img.createdBy),
           };
         }
@@ -1978,12 +2042,33 @@ export const createWorkspaceImage = mutation({
 
     // PR workspace-storage-3c: gate the B2 path on the upload
     // ledger (same security shape as `createWorkspaceImageAndMessage`).
+    let ledgerContentType: string | undefined;
     if (args.b2Key !== undefined) {
-      await assertB2FileUploadOwnedByCaller(ctx, {
+      const ledger = await assertB2FileUploadOwnedByCaller(ctx, {
         workspaceId: args.workspaceId,
         b2Key: args.b2Key,
         callerId: user.subject,
       });
+      ledgerContentType = ledger.contentType;
+    }
+
+    // PR workspace-storage-3c (Greptile round 4 P1, confidence
+    // 0/5, "Image limits can be bypassed"): a non-image upload
+    // (e.g. a PDF, video) was able to consume an image slot via
+    // the B2 path because the pre-3c mutation only enforced the
+    // cap, not the content type. The ledger now persists
+    // `contentType` (the value used to mint the B2 PUT
+    // signature, which B2 enforces on the actual PUT). Reject
+    // any non-image content type before counting toward the
+    // image cap.
+    if (
+      args.b2Key !== undefined &&
+      ledgerContentType !== undefined &&
+      !ledgerContentType.toLowerCase().startsWith("image/")
+    ) {
+      throw new Error(
+        "Only image files can be uploaded to the image gallery. Use the file share for other types."
+      );
     }
 
     const isStudent = role === "student";
@@ -2250,32 +2335,47 @@ export const getWorkspaceExportData = query({
       )
       .collect();
 
+    // PR workspace-storage-3c (Greptile P1 "Exports omit B2 images"):
+    // resolve every B2 key server-side. The export trigger task
+    // downloads each `imageUrl` via the wrapped Trigger.dev
+    // download host and zips them — passing a `b2Key` literal as
+    // the URL made the trigger's HTTP fetch return the key string
+    // instead of the actual image. Resolve here so the trigger
+    // receives a real signed URL.
+    const b2Keys = images
+      .map((img) => img.b2Key)
+      .filter((k): k is string => typeof k === "string");
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: args.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
-        // PR workspace-storage-3c: resolve B2 rows by passing the
-        // `b2Key` through (the export zips the URL — but since we
-        // cannot resolve B2 keys to URLs without an action call, we
-        // embed the b2Key and let the export trigger task resolve
-        // via getWorkspaceDownloadUrl). Legacy Convex-storage rows
-        // still call `ctx.storage.getUrl` so apps/web's export
-        // continues to work for un-migrated rows.
+        let imageUrl: string | undefined;
         if (img.b2Key !== undefined) {
-          return {
-            imageUrl: img.b2Key,
-            b2Key: img.b2Key,
-            createdBy: img.createdBy,
-            createdAt: img._creationTime,
-          };
+          imageUrl = urlMap.get(img.b2Key);
+        } else if (img.storageId) {
+          imageUrl = (await ctx.storage.getUrl(img.storageId as Id<"_storage">)) ?? undefined;
+        } else {
+          imageUrl = img.imageUrl;
         }
-        let imageUrl = img.imageUrl;
-        if (img.storageId) {
-          const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
-          if (url) {
-            imageUrl = url;
-          }
-        }
+        // The export trigger task requires a real URL; if the
+        // ledger lookup missed (cancelled / never-completed),
+        // surface `null` so the trigger task skips this image
+        // rather than embedding a broken entry. The trigger task
+        // reads `imageUrl` directly, so keep the field name
+        // stable across legacy + B2 rows.
         return {
-          imageUrl,
+          imageUrl: imageUrl ?? null,
+          b2Key: img.b2Key,
+          storageId: img.storageId,
           createdBy: img.createdBy,
           createdAt: img._creationTime,
         };
@@ -2432,17 +2532,74 @@ export const getWorkspaceMessages = query({
       .order("asc")
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .collect();
+
+    // PR workspace-storage-3c (Greptile P1 "Chat treats keys as
+    // URLs"): resolve each `image` / `file` message's B2 key
+    // server-side. Pre-3c the `content` field stored the literal
+    // `b2Key` for new rows, and the chat parser
+    // (`apps/platform/components/workspace/chat/utils.tsx:parseFileMessage`)
+    // returned `{ url: <b2Key literal> }`, which `<Image src=…>`
+    // then failed to fetch. Resolve here so the parser sees a
+    // real signed URL. Legacy Convex-storage rows fall through to
+    // the existing `ctx.storage.getUrl` path.
+    const b2Keys = messages
+      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
+      .map((m) => m.b2Key as string);
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: args.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       result.workspace,
       messages.map((message) => ({ userId: message.userId, role: message.senderRole }))
     );
-    return messages.map((message) => ({
-      ...message,
-      authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
-    }));
+    return await Promise.all(
+      messages.map(async (message) => {
+        const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+        return {
+          ...message,
+          imageUrl: message.type === "image" ? resolvedUrl : undefined,
+          fileUrl: message.type === "file" ? resolvedUrl : undefined,
+          authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
+        };
+      })
+    );
   },
 });
+
+/**
+ * PR workspace-storage-3c (Greptile P1 "Chat treats keys as URLs"):
+ * server-side URL resolver for chat messages. Returns the actual
+ * signed URL for B2 rows, the `ctx.storage` URL for legacy rows,
+ * or `undefined` for plain text messages.
+ */
+async function resolveChatMessageUrl(
+  ctx: QueryCtx,
+  message: Doc<"workspaceMessages">,
+  b2UrlMap: Map<string, string>
+): Promise<string | undefined> {
+  if (message.type !== "image" && message.type !== "file") return undefined;
+  if (typeof message.b2Key === "string") {
+    return b2UrlMap.get(message.b2Key);
+  }
+  if (message.storageId) {
+    return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
+  }
+  // Legacy rows stored the URL directly in `content` — keep that
+  // fallback so pre-PR-3c rows still render.
+  if (message.content.startsWith("http://") || message.content.startsWith("https://")) {
+    return message.content;
+  }
+  return undefined;
+}
 
 /**
  * Returns a paginated list of workspace messages, newest first.
@@ -2484,6 +2641,26 @@ export const getWorkspaceMessagesPaginated = query({
       )
       .order("desc")
       .paginate(args.paginationOpts);
+
+    // PR workspace-storage-3c (Greptile P1 "Chat treats keys as
+    // URLs"): same server-side resolution as
+    // `getWorkspaceMessages`. Run once per page so each
+    // `useInfiniteQuery` page-load pays the cost; previous pages
+    // remain cached with their already-resolved URLs.
+    const b2Keys = paginated.page
+      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
+      .map((m) => m.b2Key as string);
+    const urlMap = new Map<string, string>();
+    if (b2Keys.length > 0) {
+      const resolved = await ctx.runQuery(
+        internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+        { workspaceId: args.workspaceId, b2Keys }
+      );
+      for (const r of resolved) {
+        if (r.ok) urlMap.set(r.b2Key, r.url);
+      }
+    }
+
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       result.workspace,
@@ -2491,10 +2668,17 @@ export const getWorkspaceMessagesPaginated = query({
     );
     return {
       ...paginated,
-      page: paginated.page.map((message) => ({
-        ...message,
-        authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
-      })),
+      page: await Promise.all(
+        paginated.page.map(async (message) => {
+          const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+          return {
+            ...message,
+            imageUrl: message.type === "image" ? resolvedUrl : undefined,
+            fileUrl: message.type === "file" ? resolvedUrl : undefined,
+            authorDisplayName: authorDisplayNames.get(message.userId) ?? "Student",
+          };
+        })
+      ),
     };
   },
 });

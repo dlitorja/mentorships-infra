@@ -651,6 +651,17 @@ export default defineSchema({
     uploaderId: v.string(),
     workspaceId: v.id("workspaces"),
     uploadedAt: v.number(),
+    // PR workspace-storage-3c (Greptile round 4 fix — confidence
+    // 0/5, "Image limits can be bypassed"): the content type the
+    // caller supplied when minting the presigned PUT URL. The
+    // B2 PUT signature scopes B2 to accept PUTs whose
+    // `Content-Type` header matches this value, so the field
+    // reflects the actually-uploaded blob's content type. Used
+    // by `createWorkspaceImage` and `embedImageInNote` to reject
+    // non-image uploads from consuming an image slot.
+    // Optional (legacy Convex-storage rows pre-date this column
+    // and have `b2Key === undefined` so they are not affected).
+    contentType: v.optional(v.string()),
     // PR workspace-storage-1 (round 4): completion timestamp. The
     // download action needs the ledger row to look up the
     // workspace that owns a `b2Key`, so on bind we mark the row
@@ -712,8 +723,15 @@ export default defineSchema({
     // excludes rows with this field set) and an observability
     // marker (operators can query the ledger for "when was
     // this upload past its 18-month retention window and
-    // cleaned up"). The retention window itself is enforced on
-    // the bucket side by `scripts/set-b2-bucket-lifecycle.ts`.
+    // cleaned up"). PR workspace-storage-3c round 4
+    // (Greptile P1 "Lifecycle deletes referenced objects"):
+    // the retention window is enforced solely by the daily
+    // Convex cron. The companion B2 lifecycle rule
+    // (`scripts/set-b2-bucket-lifecycle.ts`, removed in PR 3c
+    // round 4) used to delete objects in bulk regardless of
+    // whether a live reference still pointed at them — a
+    // race-condition window where a referenced object could
+    // be deleted before the cron read its references.
     retentionDeletedAt: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
