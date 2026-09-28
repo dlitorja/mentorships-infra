@@ -521,7 +521,15 @@ export default defineSchema({
   instructorResources: defineTable({
     instructorId: v.id("instructors"),
     workspaceId: v.id("workspaces"),
-    storageId: v.id("_storage"),
+    // PR workspace-storage-3c (narrow): the legacy `storageId`
+    // column is RETAINED on this table (soft-deprecated). The
+    // validator stays `v.id("_storage")` (NOT `v.string()`) —
+    // breaking this would invalidate every existing
+    // `by_storageId` index entry. New uploads after PR 3c use
+    // `b2Key` instead and do not write `storageId`. A follow-up
+    // PR migrates the column to `v.optional(v.string())` once the
+    // PR 2 backlog has cleared.
+    storageId: v.optional(v.id("_storage")),
     fileName: v.string(),
     contentType: v.string(),
     size: v.number(),
@@ -535,13 +543,21 @@ export default defineSchema({
     // pre-#5 rows stay valid; pre-#5 resources do not appear in the
     // subpanel (matches the documented pre-#4b links limitation).
     sessionId: v.optional(v.id("sessions")),
+    // PR workspace-storage-1 (widen): B2 key when upload went
+    // through the new path. Required for new rows after PR 3c
+    // flips the cutover flag.
+    b2Key: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
     // PR #B: lets the chat-file retention cron detect when the blob is
     // still referenced by a non-deleted resource row.
-    .index("by_storageId", ["storageId"]),
+    .index("by_storageId", ["storageId"])
+    // PR workspace-storage-1: parallel index for the B2 ledger
+    // lookup in `assertB2FileUploadOwnedByCaller` (used by
+    // `shareResourceToChat` / `embedResourceInNote`).
+    .index("by_b2Key", ["b2Key"]),
 
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),

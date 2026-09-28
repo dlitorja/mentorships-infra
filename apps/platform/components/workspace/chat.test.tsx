@@ -34,7 +34,15 @@ vi.mock("@/lib/queries/convex/use-workspaces", () => ({
     mutateAsync: mockCreateFileMessage,
     isPending: false,
   }),
-  useRecordFileUpload: () => ({
+  useGenerateWorkspaceUploadUrl: () => ({
+    mutateAsync: vi.fn().mockResolvedValue({
+      uploadUrl: "https://b2.example/upload",
+      b2Key: "ws/ws_1/key_1",
+      expiresAt: Date.now() + 3_600_000,
+    }),
+    isPending: false,
+  }),
+  useRecordB2FileUpload: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
@@ -49,10 +57,10 @@ vi.mock("@convex-dev/react-query", () => ({
   convexQuery: () => ({ queryKey: ["mock"] }),
 }));
 
-vi.mock("@/lib/workspace-image-upload", () => ({
-  createImagePreviews: vi.fn(() => Promise.resolve([])),
-  uploadImageForChat: vi.fn(() => Promise.resolve({ success: true, storageId: "storage_1" })),
-  uploadFileForChat: vi.fn(() => Promise.resolve({ success: true, storageId: "storage_2" })),
+vi.mock("@/lib/b2-workspace-upload", () => ({
+  validateB2Files: vi.fn((_workspaceId, _files) => ({ validFiles: [], invalidFiles: [] })),
+  createB2ImagePreviews: vi.fn(() => Promise.resolve([])),
+  uploadFileToB2: vi.fn(() => Promise.resolve({ success: true, b2Key: "ws/ws_1/key_1" })),
 }));
 
 const mockMessages = [

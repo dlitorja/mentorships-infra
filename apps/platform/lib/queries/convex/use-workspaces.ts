@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
+import { useEffect, useMemo, useRef } from "react";
+import { convexQuery, useConvexAction, useConvexMutation, useConvexPaginatedQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { type UsePaginatedQueryReturnType } from "convex/react";
@@ -507,19 +508,147 @@ export function useCreateWorkspaceFileMessage() {
 }
 
 /**
- * PR #B: records the binding between a freshly uploaded storage
- * blob and the caller + workspace in the `fileUploads` ledger.
- * The chat upload flow calls this after the upload completes and
- * before `createWorkspaceImageAndMessage` /
- * `createWorkspaceFileMessage`, which verify the binding exists
- * (Greptile Security P1 — without the ledger, a participant
- * could pass someone else's storage id to the create mutations
- * and cause the retention cron to delete that unrelated blob).
+ * PR workspace-storage-3c: B2 equivalent of the deleted
+ * `useRecordFileUpload`. The chat upload flow calls this AFTER the
+ * browser PUT to B2 succeeds and BEFORE passing the `b2Key` to
+ * `createWorkspaceImageAndMessage` /
+ * `createWorkspaceFileMessage`, which verify the ledger binding
+ * exists (Greptile Security P1 — without the ledger, a
+ * participant could pass someone else's `b2Key` and cause the
+ * retention cron to delete that unrelated blob).
+ *
+ * The `recordB2FileUpload` server-side action writes a ledger
+ * row and waits for the b2 object's ETag, so the `b2Key` is
+ * confirmed present in B2 before the chat mutation accepts it.
  */
-export function useRecordFileUpload() {
+export function useRecordB2FileUpload() {
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.recordFileUpload),
+    mutationFn: useConvexAction(api.workspaceStorage.recordB2FileUpload),
   });
+}
+
+/**
+ * PR workspace-storage-3c: B2 equivalent of the deleted
+ * `useGenerateWorkspaceImageUploadUrl`. Calls the workspaceStorage
+ * action (not the legacy `workspaceActions` one) so the chat and
+ * gallery flows go through the B2 path exclusively.
+ */
+export function useGenerateWorkspaceUploadUrl() {
+  return useMutation({
+    mutationFn: useConvexAction(api.workspaceStorage.generateWorkspaceUploadUrl),
+  });
+}
+
+/**
+ * PR workspace-storage-3c: B2 download resolver. Resolves a
+ * `b2Key` to a signed GET URL for image rendering.
+ */
+export function useGetWorkspaceDownloadUrl() {
+  return useMutation({
+    mutationFn: useConvexAction(api.workspaceStorage.getWorkspaceDownloadUrl),
+  });
+}
+
+/**
+ * PR workspace-storage-3c: Resolve a single workspace image
+ * (either legacy `imageUrl` or B2 `b2Key`) to a render-ready
+ * URL. Legacy rows return `imageUrl` immediately; B2 rows
+ * lazily mint a signed GET URL via `getWorkspaceDownloadUrl`.
+ *
+ * Returns `null` while the B2 URL is in flight (use a loading
+ * placeholder) and the resolved URL once available.
+ */
+export function useWorkspaceImageUrl(
+  workspaceId: Id<"workspaces">,
+  row: { imageUrl: string; b2Key?: string | undefined }
+): string | null {
+  const getUrl = useGetWorkspaceDownloadUrl();
+  const fetchedKey = useRef<string | null>(null);
+  const cachedUrl = useRef<string | null>(null);
+
+  const needsFetch = row.b2Key !== undefined && row.imageUrl === "";
+  const fetch = async () => {
+    if (!row.b2Key) return;
+    if (fetchedKey.current === row.b2Key) return;
+    fetchedKey.current = row.b2Key;
+    try {
+      const { url } = await getUrl.mutateAsync({
+        workspaceId,
+        b2Key: row.b2Key,
+        expiresInSeconds: 3600,
+      });
+      cachedUrl.current = url;
+    } catch {
+      fetchedKey.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!needsFetch) return;
+    void fetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsFetch, row.b2Key]);
+
+  if (!needsFetch) return row.imageUrl || null;
+  return cachedUrl.current;
+}
+
+/**
+ * PR workspace-storage-3c: Batch resolver for a list of rows.
+ * Returns `{ rowId → url }` map. B2 rows are resolved in one
+ * batch (sequential awaits, since the action takes one key at
+ * a time). Legacy rows pass through immediately.
+ */
+export function useBatchWorkspaceImageUrls<T extends { _id: string; imageUrl: string; b2Key?: string | undefined }>(
+  workspaceId: Id<"workspaces">,
+  rows: T[]
+): Map<string, string | null> {
+  const getUrl = useGetWorkspaceDownloadUrl();
+  const cache = useRef<Map<string, string | null>>(new Map());
+
+  const b2Rows = useMemo(
+    () => rows.filter((r) => r.b2Key !== undefined && r.imageUrl === ""),
+    [rows]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const row of b2Rows) {
+        if (!row.b2Key) continue;
+        if (cache.current.has(row._id)) continue;
+        try {
+          const { url } = await getUrl.mutateAsync({
+            workspaceId,
+            b2Key: row.b2Key,
+            expiresInSeconds: 3600,
+          });
+          if (!cancelled) cache.current.set(row._id, url);
+        } catch {
+          if (!cancelled) cache.current.set(row._id, null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b2Rows.length, workspaceId]);
+
+  return useMemo(() => {
+    const out = new Map<string, string | null>();
+    for (const row of rows) {
+      if (row.b2Key !== undefined && row.imageUrl === "") {
+        out.set(row._id, cache.current.get(row._id) ?? null);
+      } else {
+        out.set(row._id, row.imageUrl || null);
+      }
+    }
+    return out;
+    // `cache.current` is a stable ref mutated by the effect above.
+    // We only re-read it when `rows` changes (because the resolver
+    // hook re-runs `mutateAsync` for each new b2Key in `b2Rows`).
+  }, [rows]);
 }
 
 /**
@@ -721,7 +850,13 @@ export interface InstructorResource {
   _creationTime: number;
   instructorId: Id<"instructors">;
   workspaceId: Id<"workspaces">;
-  storageId: Id<"_storage">;
+  // PR workspace-storage-3c: `storageId` is soft-deprecated (now
+  // optional in the schema). Legacy rows have a Convex storage id;
+  // new B2 rows leave this undefined and populate `b2Key`.
+  storageId?: Id<"_storage">;
+  // PR workspace-storage-3c: B2 key when the upload went through
+  // the new path. Required for rows created after the cutover.
+  b2Key?: string;
   fileName: string;
   contentType: string;
   size: number;

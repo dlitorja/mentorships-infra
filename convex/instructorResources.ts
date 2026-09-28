@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
+  assertB2FileUploadOwnedByCaller,
   assertParticipantForSession,
   assertSessionBelongsToWorkspace,
   countWorkspaceFilesByRole,
@@ -134,7 +135,10 @@ export const getInstructorResources = query({
 
     const enriched = await Promise.all(
       filtered.map(async (r) => {
-        const url = await ctx.storage.getUrl(r.storageId);
+        // PR workspace-storage-3c: legacy rows expose a Convex
+        // storage id; new B2 rows leave `storageId` undefined and
+        // rely on the UI resolver hook to mint a signed GET URL.
+        const url = r.storageId ? await ctx.storage.getUrl(r.storageId) : null;
         return {
           ...r,
           url: url ?? null,
@@ -146,11 +150,18 @@ export const getInstructorResources = query({
   },
 });
 
-/** Uploads a new instructor resource. Enforces image/file size and image cap limits. Requires instructor or admin role. */
+/** Uploads a new instructor resource. Enforces image/file size and image cap limits. Requires instructor or admin role.
+ *
+ * PR workspace-storage-3c: args switched from `storageId` to
+ * `b2Key` — the upload goes through `workspaceStorage.recordB2FileUpload`
+ * (which writes the upload ledger) before this mutation runs. Apps/web
+ * has no `uploadInstructorResource` consumer, so the rename is safe.
+ * The `storageId` column on `instructorResources` is soft-deprecated.
+ */
 export const uploadInstructorResource = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    storageId: v.id("_storage"),
+    b2Key: v.string(),
     fileName: v.string(),
     contentType: v.string(),
     size: v.number(),
@@ -189,6 +200,14 @@ export const uploadInstructorResource = mutation({
       throw new Error("You are not the instructor for this workspace");
     }
 
+    // PR workspace-storage-3c: gate the B2 path on the upload
+    // ledger (same security shape as the createWorkspace* mutations).
+    await assertB2FileUploadOwnedByCaller(ctx, {
+      workspaceId: args.workspaceId,
+      b2Key: args.b2Key,
+      callerId: user.subject,
+    });
+
     // PR #5: reject sessionIds that do not belong to this workspace.
     // Same shape as `createWorkspaceLink` (`workspaces.ts`) so a
     // caller cannot tag a freshly-uploaded resource to an unrelated
@@ -213,7 +232,7 @@ export const uploadInstructorResource = mutation({
     const resourceId = await ctx.db.insert("instructorResources", {
       instructorId: instructor._id,
       workspaceId: args.workspaceId,
-      storageId: args.storageId,
+      b2Key: args.b2Key,
       fileName: args.fileName,
       contentType: args.contentType,
       size: args.size,
@@ -279,9 +298,16 @@ export const shareResourceToChat = mutation({
 
     await assertSessionBelongsToWorkspace(ctx, args);
 
-    const fileUrl = await ctx.storage.getUrl(resource.storageId);
-    if (!fileUrl) {
-      throw new Error("Failed to get resource URL");
+    // PR workspace-storage-3c: legacy rows have a Convex storage
+    // id; new B2 rows carry `b2Key` instead. The chat-message
+    // content payload uses `fileUrl` for legacy and `b2Key` for B2
+    // (the chat UI resolver hook picks the right download path).
+    const useB2 = resource.b2Key !== undefined;
+    const fileUrl = useB2
+      ? resource.b2Key as string
+      : (resource.storageId ? await ctx.storage.getUrl(resource.storageId) : null);
+    if (!useB2 && !fileUrl) {
+      throw new Error("Resource has no upload binding");
     }
 
     if (resource.type === "image") {
@@ -296,8 +322,10 @@ export const shareResourceToChat = mutation({
 
       await ctx.db.insert("workspaceImages", {
         workspaceId: args.workspaceId,
-        imageUrl: fileUrl,
-        storageId: resource.storageId,
+        imageUrl: useB2 ? "" : (fileUrl as string),
+        ...(useB2
+          ? { b2Key: resource.b2Key }
+          : { storageId: resource.storageId as Id<"_storage"> }),
         createdBy: identity.subject,
       });
 
@@ -360,8 +388,16 @@ export const embedResourceInNote = mutation({
       throw new Error("Only image resources can be embedded in notes");
     }
 
-    const imageUrl = await ctx.storage.getUrl(resource.storageId);
-    if (!imageUrl) {
+    // PR workspace-storage-3c: write the new workspaceImages row in
+    // the same shape as `createWorkspaceImage` does. Legacy Convex-
+    // storage rows carry `storageId` + a resolved `imageUrl`; new
+    // B2 rows carry `b2Key` + `imageUrl: ""` (the UI resolver hook
+    // mints the signed GET URL on demand).
+    const useB2 = resource.b2Key !== undefined;
+    const imageUrl = useB2
+      ? ""
+      : (resource.storageId ? await ctx.storage.getUrl(resource.storageId) : null);
+    if (!useB2 && !imageUrl) {
       throw new Error("Failed to get image URL");
     }
 
@@ -376,8 +412,10 @@ export const embedResourceInNote = mutation({
 
     await ctx.db.insert("workspaceImages", {
       workspaceId: note.workspaceId,
-      imageUrl,
-      storageId: resource.storageId,
+      imageUrl: imageUrl ?? "",
+      ...(useB2
+        ? { b2Key: resource.b2Key }
+        : { storageId: resource.storageId as Id<"_storage"> }),
       createdBy: identity.subject,
     });
 
@@ -386,11 +424,11 @@ export const embedResourceInNote = mutation({
     });
 
     await ctx.db.patch(args.noteId, {
-      imageUrl,
+      imageUrl: imageUrl ?? "",
       updatedAt: Date.now(),
     });
 
-    return imageUrl;
+    return imageUrl ?? "";
   },
 });
 
@@ -510,7 +548,10 @@ export const getSharedResourcesForActiveSession = query({
     const enriched = await Promise.all(
       filtered.map(async (r) => ({
         ...r,
-        url: (await ctx.storage.getUrl(r.storageId)) ?? null,
+        // PR workspace-storage-3c: legacy rows have a Convex storage
+        // id; new B2 rows leave `storageId` undefined and rely on
+        // the UI resolver hook. Only resolve the legacy URL here.
+        url: r.storageId ? (await ctx.storage.getUrl(r.storageId)) ?? null : null,
       }))
     );
     return enriched.sort((a, b) => b._creationTime - a._creationTime);

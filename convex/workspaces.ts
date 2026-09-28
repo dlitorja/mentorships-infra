@@ -1294,12 +1294,22 @@ export const deleteWorkspaceNote = mutation({
   },
 });
 
-/** Creates a comment on a workspace note. Both instructors and students can comment. Requires auth and workspace access. */
+/**
+ * Creates a comment on a workspace note. Both instructors and
+ * students can comment. Requires auth and workspace access.
+ *
+ * PR workspace-storage-3c: args switched from `storageId` to
+ * `b2Key`. Notes are apps/platform-only (apps/web has no notes),
+ * so this rename is safe. The `storageId` column on
+ * `workspaceNoteComments` is soft-deprecated (kept for symmetry
+ * with `workspaceImages` / `workspaceMessages` until a follow-up
+ * PR drops it).
+ */
 export const createNoteComment = mutation({
   args: {
     noteId: v.id("workspaceNotes"),
     content: v.string(),
-    storageId: v.optional(v.string()),
+    b2Key: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -1322,12 +1332,20 @@ export const createNoteComment = mutation({
       throw new Error("Not authorized to comment on this note");
     }
 
+    if (args.b2Key !== undefined) {
+      await assertB2FileUploadOwnedByCaller(ctx, {
+        workspaceId: note.workspaceId,
+        b2Key: args.b2Key,
+        callerId: user.subject,
+      });
+    }
+
     const commentId = await ctx.db.insert("workspaceNoteComments", {
       noteId: args.noteId,
       content: args.content,
       createdBy: user.subject,
       createdAt: Date.now(),
-      storageId: args.storageId,
+      b2Key: args.b2Key,
     });
 
     return commentId;

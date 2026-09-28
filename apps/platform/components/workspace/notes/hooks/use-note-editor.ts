@@ -8,11 +8,11 @@ import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { toast } from 'sonner';
 import { Id, type Doc } from '@/convex/_generated/dataModel';
-import { uploadImageForChat } from '@/lib/workspace-image-upload';
+import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_IMAGE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 
 type UseEmbedImageInNote = {
-  mutateAsync: (args: { noteId: Id<'workspaceNotes'>; storageId: Id<'_storage'> }) => Promise<string | undefined>;
+  mutateAsync: (args: { noteId: Id<'workspaceNotes'>; b2Key: string }) => Promise<string | undefined>;
 };
 
 interface UseNoteEditorOptions {
@@ -20,7 +20,27 @@ interface UseNoteEditorOptions {
   selectedNoteId: Id<'workspaceNotes'> | null;
   workspaceId: Id<'workspaces'>;
   embedImageInNote: UseEmbedImageInNote;
-  generateUploadUrl: (...args: any[]) => Promise<string>;
+  // PR workspace-storage-3c: was a Convex storage upload-URL
+  // action returning a string URL; now a B2 mint action returning
+  // { uploadUrl, b2Key, fileId }.
+  generateUploadUrl: (args: {
+    workspaceId: Id<'workspaces'>;
+    fileId: string;
+    fileName: string;
+    contentType: string;
+    size: number;
+  }) => Promise<{ uploadUrl: string; b2Key: string; fileId: string }>;
+  recordB2FileUpload: (args: { workspaceId: Id<'workspaces'>; b2Key: string }) => Promise<unknown>;
+  // Resolves a `b2Key` to a signed GET URL for Tiptap Image
+  // rendering after the upload completes. Mirrors
+  // `useGetWorkspaceDownloadUrl` from use-workspaces.
+  resolveDownloadUrl: {
+    mutateAsync: (args: {
+      workspaceId: Id<'workspaces'>;
+      b2Key: string;
+      expiresInSeconds?: number;
+    }) => Promise<{ url: string; expiresAt: number }>;
+  };
   updateNoteImageUrls: (editor: import('@tiptap/react').Editor) => void;
   scheduleAutosave: (noteId: Id<'workspaceNotes'>, content: string) => void;
   setIsDragOver: (value: boolean) => void;
@@ -33,6 +53,8 @@ export function useNoteEditor({
   workspaceId,
   embedImageInNote,
   generateUploadUrl,
+  recordB2FileUpload,
+  resolveDownloadUrl,
   updateNoteImageUrls,
   scheduleAutosave,
   setIsDragOver,
@@ -138,10 +160,11 @@ export function useNoteEditor({
     const toastId = toast.loading('Uploading image...');
 
     try {
-      const uploadResult = await uploadImageForChat(
+      const uploadResult = await uploadFileToB2(
         workspaceId,
         file,
-        generateUploadUrl
+        generateUploadUrl,
+        recordB2FileUpload
       );
 
       if (!uploadResult.success) {
@@ -149,10 +172,33 @@ export function useNoteEditor({
         return;
       }
 
-      const imageUrl = await embedImageInNote.mutateAsync({
+      const b2Key = await embedImageInNote.mutateAsync({
         noteId: noteIdForUpload,
-        storageId: uploadResult.storageId as Id<'_storage'>,
+        b2Key: uploadResult.b2Key,
       });
+
+      // PR workspace-storage-3c: the mutation returns the
+      // `b2Key` (the row's imageUrl is left empty for B2 rows).
+      // Resolve to a signed GET URL so Tiptap Image renders
+      // the upload immediately. The note's imageUrl field is
+      // also patched to empty in this PR, so any reload will
+      // re-resolve via `useWorkspaceImageUrl` in the
+      // NoteEditor component.
+      let imageUrl = b2Key;
+      if (b2Key) {
+        try {
+          const { url } = await resolveDownloadUrl.mutateAsync({
+            workspaceId,
+            b2Key,
+            expiresInSeconds: 3600,
+          });
+          imageUrl = url;
+        } catch {
+          // Fall back to the raw b2Key so the editor still
+          // shows something (the renderer will display broken
+          // image, but at least the source is set).
+        }
+      }
 
       toast.success('Image inserted', { id: toastId });
 
