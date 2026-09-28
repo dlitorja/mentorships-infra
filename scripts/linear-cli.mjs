@@ -351,8 +351,11 @@ async function main() {
         }
         fields.priority = n;
       }
+      if (args.flags.labels !== undefined) {
+        fields.labels = args.flags.labels.split(",").map((s) => s.trim()).filter(Boolean);
+      }
       if (Object.keys(fields).length === 0) {
-        throw new Error("update-issue requires at least one --flag (state, title, description, assignee, priority, project, team)");
+        throw new Error("update-issue requires at least one --flag (state, title, description, assignee, priority, project, team, labels)");
       }
       result = await session.toolCall("save_issue", { id, ...fields });
       break;
@@ -368,12 +371,17 @@ async function main() {
         }
         priority = n;
       }
+      let labels;
+      if (args.flags.labels !== undefined) {
+        labels = args.flags.labels.split(",").map((s) => s.trim()).filter(Boolean);
+      }
       result = await session.toolCall("save_issue", {
         team: args.flags.team,
         title: args.flags.title,
         description: args.flags.description,
         project: args.flags.project,
         priority,
+        labels,
       });
       break;
     }
