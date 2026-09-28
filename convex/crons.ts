@@ -43,6 +43,14 @@ import { internal } from "./_generated/api";
  *   file/image messages that were soft-deleted more than
  *   `CHAT_FILE_RETENTION_DAYS` (30) ago. See
  *   `convex/cleanup/chatFileRetention.ts`. PR #B.
+ * - cleanup-migrated-convex-storage-blobs: Runs every 24 hours,
+ *   deletes the Convex Storage blob at `storageId` for
+ *   `fileUploads` rows whose migration settled more than
+ *   `BACKFILL_GRACE_MS` (7 days) ago and that have no live
+ *   references in `workspaceMessages` / `workspaceImages` /
+ *   `workspaceNoteComments` / `instructorResources`. See
+ *   `convex/cleanup/postMigrationStorageCleanup.ts`. PR
+ *   workspace-storage-3a.
  */
 const crons = cronJobs();
 
@@ -127,6 +135,13 @@ crons.interval(
   "hard-delete-expired-chat-files",
   { hours: 24 },
   internal.cleanup.chatFileRetention.hardDeleteExpiredChatFiles,
+  {}
+);
+
+crons.interval(
+  "cleanup-migrated-convex-storage-blobs",
+  { hours: 24 },
+  internal.cleanup.postMigrationStorageCleanup.cleanupMigratedConvexStorageBlobs,
   {}
 );
 
