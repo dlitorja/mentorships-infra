@@ -69,6 +69,13 @@ import { internal } from "./_generated/api";
  *   Same live-reference check as the retention cron. See
  *   `convex/cleanup/workspaceB2OrphanSweep.ts`. PR
  *   workspace-storage-3c.
+ * - backfill-video-editor-storage-counter: Runs hourly, re-aggregates
+ *   `instructorUploads` rows into the denormalized
+ *   `videoEditorStorageStats` counter. The first run after the
+ *   schema change seeds every editor; subsequent runs are no-ops
+ *   because the mutation is idempotent. See
+ *   `convex/actions/backfillVideoEditorStorageCounter.ts`. HUC-58
+ *   follow-up to PR #887.
  */
 const crons = cronJobs();
 
@@ -174,6 +181,13 @@ crons.cron(
   "cleanup-orphan-b2-objects",
   "0 4 * * 0",
   internal.cleanup.workspaceB2OrphanSweep.cleanupOrphanB2Objects,
+  {}
+);
+
+crons.interval(
+  "backfill-video-editor-storage-counter",
+  { hours: 1 },
+  internal.actions.backfillVideoEditorStorageCounter.runBackfillVideoEditorStorageCounter,
   {}
 );
 

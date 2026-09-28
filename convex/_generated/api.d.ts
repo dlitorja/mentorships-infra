@@ -9,6 +9,7 @@
  */
 
 import type * as actions_backfillDashboardRelevant from "../actions/backfillDashboardRelevant.js";
+import type * as actions_backfillVideoEditorStorageCounter from "../actions/backfillVideoEditorStorageCounter.js";
 import type * as actions_resendMetrics from "../actions/resendMetrics.js";
 import type * as actions_resendSuppressionList from "../actions/resendSuppressionList.js";
 import type * as adhocVideoActions from "../adhocVideoActions.js";
@@ -48,6 +49,7 @@ import type * as migrations from "../migrations.js";
 import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_backfillDashboardRelevant from "../mutations/backfillDashboardRelevant.js";
+import type * as mutations_backfillVideoEditorStorageCounter from "../mutations/backfillVideoEditorStorageCounter.js";
 import type * as mutations_dailyEmailMetrics from "../mutations/dailyEmailMetrics.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as mutations_reconcileRunState from "../mutations/reconcileRunState.js";
@@ -65,6 +67,7 @@ import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
 import type * as sessionPacks from "../sessionPacks.js";
 import type * as sessions from "../sessions.js";
+import type * as storageCounter from "../storageCounter.js";
 import type * as studentInvitations from "../studentInvitations.js";
 import type * as studentOnboarding from "../studentOnboarding.js";
 import type * as studentSessionCounts from "../studentSessionCounts.js";
@@ -85,6 +88,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "actions/backfillDashboardRelevant": typeof actions_backfillDashboardRelevant;
+  "actions/backfillVideoEditorStorageCounter": typeof actions_backfillVideoEditorStorageCounter;
   "actions/resendMetrics": typeof actions_resendMetrics;
   "actions/resendSuppressionList": typeof actions_resendSuppressionList;
   adhocVideoActions: typeof adhocVideoActions;
@@ -124,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/backfillDashboardRelevant": typeof mutations_backfillDashboardRelevant;
+  "mutations/backfillVideoEditorStorageCounter": typeof mutations_backfillVideoEditorStorageCounter;
   "mutations/dailyEmailMetrics": typeof mutations_dailyEmailMetrics;
   "mutations/http": typeof mutations_http;
   "mutations/reconcileRunState": typeof mutations_reconcileRunState;
@@ -141,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   sessionPacks: typeof sessionPacks;
   sessions: typeof sessions;
+  storageCounter: typeof storageCounter;
   studentInvitations: typeof studentInvitations;
   studentOnboarding: typeof studentOnboarding;
   studentSessionCounts: typeof studentSessionCounts;

@@ -94,35 +94,44 @@ async function computeVideoEditorStorageStats(
  * itself has no `instructorId`), so the storage accounting reflects the
  * editor's actual footprint instead of reporting zero.
  *
- * Uses `.collect()` over the `by_uploadedById` index, mirroring the
- * per-instructor helper below. The cost is O(N) where N is the editor's
- * total upload history (active + deleted). For very long-lived editors
- * with thousands of historical rows this could exceed Convex's response
- * limit; the long-term fix is a precomputed aggregate row updated on
- * createUpload/softDeleteUpload (tracked as a follow-up).
+ * HUC-58: reads the denormalized counter. Falls back to a paginated
+ * scan and self-heals by writing the counter if no row exists yet
+ * (matches `getVideoEditorTotalStorageStats`).
  */
 async function computeVideoEditorOpenStorageStats(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string
 ): Promise<StorageStats> {
-  // Bounded single-page scan to keep the admin editor list query from
-  // exceeding Convex read limits when an editor has thousands of
-  // historical rows. The aggregate counter follow-up (HUC-58) will
-  // replace this with a constant-time read once shipped.
-  const page = await ctx.db
+  const counter = await ctx.db
+    .query("videoEditorStorageStats")
+    .withIndex("by_videoEditorId", (q) =>
+      q.eq("videoEditorId", videoEditorId)
+    )
+    .first();
+
+  if (counter) {
+    return { usedBytes: counter.usedBytes, fileCount: counter.fileCount };
+  }
+
+  // Fallback for the gap between deploy and the first cron run.
+  // Queries can issue at most ONE paginated query per function
+  // execution, so we use a single `.collect()` (round-26 Greptile
+  // P1 #1). Bounded by the per-query document-read limit (~32k).
+  const rows = await ctx.db
     .query("instructorUploads")
-    .withIndex("by_uploadedById", (q) => q.eq("uploadedById", videoEditorId))
-    .paginate({ numItems: 1000, cursor: null });
+    .withIndex("by_uploadedById", (q) =>
+      q.eq("uploadedById", videoEditorId)
+    )
+    .collect();
 
   let usedBytes = 0;
   let fileCount = 0;
-  for (const upload of page.page) {
+  for (const upload of rows) {
     if (isActiveUpload(upload)) {
       usedBytes += upload.size;
       fileCount += 1;
     }
   }
-
   return { usedBytes, fileCount };
 }
 

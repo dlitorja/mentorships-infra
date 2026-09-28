@@ -1108,6 +1108,34 @@ export default defineSchema({
     .index("by_instructorId", ["instructorId"])
     .index("by_videoEditorId_instructorId", ["videoEditorId", "instructorId"]),
 
+  /**
+   * Denormalized aggregate of every active upload (`uploadedById` ===
+   * `videoEditorId`, `status` not in {`deleted`, `deleting`}). Atomically
+   * updated by mutations on `instructorUploads`:
+   *
+   *   - `createUpload` (status: pending) → +size, +1
+   *   - `markUploadForCleanup` (any active → deleting) → −size, −1
+   *   - `deleteUpload` (any active → deleting) → −size, −1
+   *   - `softDeleteUpload` (any active → deleted) → −size, −1
+   *
+   * Replaces the paginated scan that bounded `getVideoEditorTotalStorageStats`
+   * at TOTAL_STORAGE_STATS_PAGE_SIZE = 1000. Once the
+   * `backfillVideoEditorStorageCounter` cron has run, the counter is the
+   * source of truth and `getVideoEditorTotalStorageStats` returns in O(1)
+   * reads. HUC-58 follow-up to PR #887.
+   *
+   * Widen-migrate-narrow pattern: the table is added in this PR, mutations
+   * write to it from day one, and the cron backfills existing rows. The
+   * paginated scan is replaced in the same PR (narrow), so there is no
+   * window where reads depend on the counter without backfill coverage.
+   */
+  videoEditorStorageStats: defineTable({
+    videoEditorId: v.string(),
+    usedBytes: v.number(),
+    fileCount: v.number(),
+    lastUpdatedAt: v.number(),
+  }).index("by_videoEditorId", ["videoEditorId"]),
+
   instructorUploads: defineTable({
     instructorId: v.string(),
     filename: v.string(),
