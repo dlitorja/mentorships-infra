@@ -329,6 +329,13 @@ export const setVideoEditorAssignmentQuota = mutation({
     if (!assignment) {
       throw new Error("Assignment not found");
     }
+    // Quotas only apply to specific (per-instructor) assignments. Open
+    // assignments deliberately have no per-instructor quota, so allowing
+    // an admin to set one would create a misleading limit (uploads would
+    // ignore it, but the dashboard would display it).
+    if (assignment.instructorId === undefined) {
+      throw new Error("Cannot set quota on open assignments");
+    }
 
     const updates: Record<string, unknown> = {};
     if (args.storageQuotaBytes !== undefined) {

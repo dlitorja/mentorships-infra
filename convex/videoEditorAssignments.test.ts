@@ -1316,3 +1316,50 @@ test("requireDeleteAccess: video editor cannot delete own completed upload witho
     })
   ).rejects.toThrow("Forbidden");
 });
+
+test("setVideoEditorAssignmentQuota: rejects open assignments", async () => {
+  // Open assignments deliberately have no per-instructor quota, so
+  // allowing an admin to set one would create a misleading limit
+  // (uploads ignore it, but the dashboard would display it).
+  const t = convexTest(schema, modules);
+
+  const adminId = "admin_quota_open";
+  const editorId = "editor_quota_open";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      email: "admin_quota_open@example.com",
+      clerkId: adminId,
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      email: "editor_quota_open@example.com",
+      clerkId: editorId,
+      role: "video_editor",
+    });
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: undefined,
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminId });
+
+  // Get the open assignment id.
+  const openAssignmentId = await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", editorId))
+      .collect();
+    return rows[0]._id;
+  });
+
+  await expect(
+    adminClient.mutation(api.videoEditorAssignments.setVideoEditorAssignmentQuota, {
+      assignmentId: openAssignmentId,
+      storageQuotaBytes: 100 * 1024 * 1024,
+    })
+  ).rejects.toThrow("Cannot set quota on open assignments");
+});
