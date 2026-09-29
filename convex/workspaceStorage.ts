@@ -965,6 +965,12 @@ export const recordB2FileUpload = action({
         b2Key: args.b2Key,
         ledgerId: ledger._id,
         callerId,
+        // Greptile round 5 P1 (PR #896): the confirmation HEAD
+        // content-length guard never ran because this argument was
+        // missing. `ledger.size` is the declared size recorded at
+        // mint time; undefined on legacy pre-deployment rows, in
+        // which case the guard skips.
+        expectedSize: ledger.size,
       }
     );
 
