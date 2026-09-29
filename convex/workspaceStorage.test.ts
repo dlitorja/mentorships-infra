@@ -853,7 +853,7 @@ test("generateWorkspaceUploadUrl mints a presigned PUT and reserves a ledger row
   expect(result.uploadUrl).toMatch(
     new RegExp("^" + expectedB2BaseUrl().replace(/\//g, "\\/") + "/")
   );
-  expect(result.uploadUrl).toContain("x-amz-signature=");
+  expect(result.uploadUrl.toLowerCase()).toContain("x-amz-signature=");
   // The key path includes the instructor / student / workspace
   // ids so a B2 lifecycle rule can scope per-pair in PR 3.
   expect(result.b2Key).toContain(`instructors/${instructorId}/`);
@@ -1673,8 +1673,16 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
 
   // Step 7: assert HEAD was actually called (defense in
   // depth — a regression that short-circuits before HEAD
-  // would fail this assertion).
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  // would fail this assertion). Match both URL AND method so
+  // a scheduled cleanup DELETE with the same key doesn't
+  // satisfy the assertion (Greptile round 2 P2).
+  const headCalls = fetchSpy.mock.calls.filter(
+    ([url, init]) =>
+      typeof url === "string" &&
+      url.includes("file_toctou_head_e2e") &&
+      (init as RequestInit | undefined)?.method === "HEAD"
+  );
+  expect(headCalls.length).toBeGreaterThanOrEqual(1);
 
   // Step 8: assert the catch handler committed
   // `cancelledAt`. This is the production timing race in
@@ -1923,7 +1931,7 @@ test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key"
   expect(result.url).toMatch(
     new RegExp("^" + expectedB2BaseUrl().replace(/\//g, "\\/") + "/")
   );
-  expect(result.url).toContain("x-amz-signature=");
+  expect(result.url.toLowerCase()).toContain("x-amz-signature=");
   // The signed GET URL embeds the credential scope so the
   // signer is bound to the bucket's region. A regression
   // that lost the region in the signer would still produce
