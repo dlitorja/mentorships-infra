@@ -2551,7 +2551,6 @@ export const getWorkspaceMessages = query({
     const b2Keys = new Set<string>();
     for (const m of messages) {
       if (m.type !== "image" && m.type !== "file") continue;
-      if (m.storageId) continue;
       if (typeof m.b2Key === "string") {
         b2Keys.add(m.b2Key);
         continue;
@@ -2618,6 +2617,13 @@ export const getWorkspaceMessages = query({
  * the `b2Key` column on the row. The caller populates `b2UrlMap`
  * with both the column-stamped keys AND the content-extracted
  * keys so this lookup returns the resolved URL for either case.
+ *
+ * PR workspace-storage-3c follow-up (round 5 Greptile P1):
+ * migrated messages (PR 2's `propagateMigratedB2KeyToMessages`)
+ * carry both `storageId` AND `b2Key`. If the B2 ledger entry has
+ * not yet been recorded (migration partially applied), the b2Key
+ * lookup misses and we fall through to `ctx.storage.getUrl` so the
+ * attachment remains viewable.
  */
 async function resolveChatMessageUrl(
   ctx: QueryCtx,
@@ -2626,7 +2632,16 @@ async function resolveChatMessageUrl(
 ): Promise<string | undefined> {
   if (message.type !== "image" && message.type !== "file") return undefined;
   if (typeof message.b2Key === "string") {
-    return b2UrlMap.get(message.b2Key);
+    const resolved = b2UrlMap.get(message.b2Key);
+    if (resolved) return resolved;
+    // Migrated row whose B2 ledger entry isn't yet recorded —
+    // fall through to the legacy Convex-storage URL rather than
+    // rendering "Attachment unavailable" for a still-viewable
+    // message.
+    if (message.storageId) {
+      return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
+    }
+    return undefined;
   }
   if (message.storageId) {
     return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
@@ -2704,10 +2719,15 @@ export const getWorkspaceMessagesPaginated = query({
     // for legacy resource-share rows as `getWorkspaceMessages`
     // (the b2Key sits inside `content` for rows posted before the
     // follow-up fix to `shareResourceToChat`).
+    //
+    // PR workspace-storage-3c follow-up (round 5 Greptile P1):
+    // do NOT skip rows with `storageId` here — migrated messages
+    // (PR 2's `propagateMigratedB2KeyToMessages`) carry BOTH
+    // `storageId` and `b2Key`, and the resolver falls through to
+    // `ctx.storage.getUrl` if the B2 ledger lookup misses.
     const b2Keys = new Set<string>();
     for (const m of paginated.page) {
       if (m.type !== "image" && m.type !== "file") continue;
-      if (m.storageId) continue;
       if (typeof m.b2Key === "string") {
         b2Keys.add(m.b2Key);
         continue;
