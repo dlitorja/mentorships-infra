@@ -959,6 +959,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
     uploaderId: "u_student_1",
     uploadedAt: now,
     contentType: "image/png",
+    size: 1024,
   });
 
   await expect(
@@ -968,6 +969,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
       uploaderId: "u_student_1",
       uploadedAt: now + 1,
       contentType: "image/png",
+      size: 1024,
     })
   ).rejects.toThrow(/already reserved/i);
 });
@@ -988,6 +990,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       uploaderId: "u_student_1",
       uploadedAt: now,
       contentType: "image/png",
+      size: 1024,
     });
   }
   await expect(
@@ -997,6 +1000,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       uploaderId: "u_student_1",
       uploadedAt: now,
       contentType: "image/png",
+      size: 1024,
     })
   ).rejects.toThrow(/too many pending uploads/i);
 });
@@ -1043,6 +1047,7 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
     uploaderId: "u_student_1",
     uploadedAt: now,
     contentType: "image/png",
+    size: 1024,
   });
 });
 
@@ -1067,9 +1072,14 @@ test("recordB2FileUpload binds a freshly minted key after B2 HEAD succeeds", asy
     }
   );
 
-  // Mock B2 HEAD: object exists.
+  // Mock B2 HEAD: object exists with matching content-length.
   const fetchSpy = vi.fn(async () =>
-    ({ ok: true, status: 200, text: async () => "" }) as Response
+    ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+      headers: new Headers({ "content-length": "1024" }),
+    }) as unknown as Response
   );
   vi.stubGlobal("fetch", fetchSpy);
 
@@ -1422,6 +1432,7 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
       uploaderId: "u_student_1",
       uploadedAt: now,
       b2Key,
+      size: 1024,
     })
   );
   // End the workspace so the mutation's re-check throws.
@@ -1429,8 +1440,9 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
     ctx.db.patch(workspaceId as any, { endedAt: now + 1 })
   );
 
-  // Mock the B2 HEAD to succeed; otherwise the action would
-  // throw on HEAD (not on the mutation's re-check).
+  // Mock the B2 HEAD to succeed with matching content-length;
+  // otherwise the action would throw on HEAD (not on the
+  // mutation's re-check).
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -1443,6 +1455,7 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
       b2Key,
       ledgerId: rowId as any,
       callerId: "u_student_1",
+      expectedSize: 1024,
     })
   ).rejects.toThrow(/ended during/i);
 
@@ -1499,6 +1512,7 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
       b2Key,
       ledgerId: rowId as any,
       callerId: "u_student_1",
+      expectedSize: 1024,
     })
   ).rejects.toThrow(/cancelled during/i);
 

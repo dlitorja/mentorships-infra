@@ -340,6 +340,16 @@ export function useVideoCall(
     statusRef.current = "joining";
     setErrorMessage(null);
     setStatus("joining");
+    // Greptile round 6 P2: if the previous call dropped without a
+    // programmatic leave (e.g., Daily disconnected, network blip),
+    // `participantCount` and `remoteParticipantName` may still hold
+    // stale values from that call. Reset BEFORE daily.join() so a
+    // rejoin starts from a clean slate — the functional update
+    // below adds +1 for the local user without inheriting the
+    // dropped call's participant count. Remote observer events
+    // fired during the pending period accumulate on top.
+    setRemoteParticipantName(null);
+    setParticipantCount(0);
     try {
       const raw = await getVideoToken(roomName);
       const parsed = tokenResponseSchema.safeParse(raw);
