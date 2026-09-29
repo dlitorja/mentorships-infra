@@ -78,8 +78,8 @@
   {
     "slug": "rakasa",
     "field": "email",
-    "reason": "Profile's `wencke.shaper@gmail.com` is outdated per operator; canonical email is `rakasa.art@gmail.com` on `instructors`.",
-    "profileValue": "wencke.shaper@gmail.com"
+    "reason": "Profile's `wencke.schaper@gmail.com` is outdated per operator; canonical email is `rakasa.art@gmail.com` on `instructors`.",
+    "profileValue": "wencke.schaper@gmail.com"
   },
   {
     "slug": "neil-gray",
