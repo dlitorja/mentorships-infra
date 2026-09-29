@@ -2590,10 +2590,14 @@ export const getWorkspaceMessages = query({
     // "Retention denial bypassed"): compute the retention state
     // once so the chat resolver's storageId fallback can match
     // the B2 resolver's refusal for past-retention workspaces.
+    // Use `>=` (not `>`) so the boundary matches the B2 resolver's
+    // `Math.floor(remainingSeconds) === 0` check — when exactly
+    // at the deadline the B2 resolver rounds to zero and refuses;
+    // chat must agree.
     const isPastRetention =
       result.workspace.deletedAt !== undefined ||
       (result.workspace.endedAt !== undefined &&
-        Date.now() - result.workspace.endedAt > WORKSPACE_RETENTION_MS);
+        Date.now() - result.workspace.endedAt >= WORKSPACE_RETENTION_MS);
 
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
