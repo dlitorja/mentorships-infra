@@ -9,6 +9,7 @@ import {
 } from "@daily-co/daily-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
+import { useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -143,10 +144,17 @@ export function useVideoCall(
   });
 
   // PR platform-call-bugs: posts a system message to the workspace
-  // chat when a remote participant joins or leaves the Daily room.
-  // Wired into the `participant-joined` / `participant-left` event
-  // handlers below. Fire-and-forget — a transient Convex failure
-  // should not interrupt the join / leave flow.
+  // chat when the LOCAL user joins or leaves the Daily room. Observer
+  // events (`participant-joined` / `participant-left`) are NOT used
+  // here because (a) Daily does not fire `participant-joined` for the
+  // local user, so the first person's join would never be recorded,
+  // and (b) when the last person leaves there is no observer client
+  // left to record the departure. By writing from the joiner/leaver
+  // themselves — using Clerk's `user.fullName` as the actor — we
+  // cover both edges without risking duplicate messages (each
+  // participant writes their own event exactly once). Fire-and-
+  // forget: a transient Convex failure should not interrupt the
+  // join / leave flow.
   const recordCallPresenceMessage = useMutation({
     mutationFn: useConvexMutation(api.workspaces.recordCallPresenceMessage),
     // TanStack Query swallows errors from `mutate()` by default;
@@ -163,6 +171,11 @@ export function useVideoCall(
       });
     },
   });
+
+  // Resolve the local user's display name once Clerk has loaded.
+  // Used by `join()` / `leave()` success paths to author self-
+  // authored join / leave system messages.
+  const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
 
   // Capture the stable `mutateAsync` reference in a ref so the
   // unmount cleanup doesn't need `endCall` (the whole mutation
@@ -337,6 +350,33 @@ export function useVideoCall(
       setIsCameraOff(true);
       setJoinedSessionId(sessionId);
       didJoinRef.current = true;
+      // PR platform-call-bugs: initialize `participantCount` to 1
+      // on local join. Daily does not fire `participant-joined` for
+      // the local user, so without this the count would stay at 0
+      // until a remote joiner arrives — making the indicator chip
+      // hidden when the user is alone in the call. Remote joins
+      // still increment via the `participant-joined` event handler.
+      setParticipantCount(1);
+      // PR platform-call-bugs round 2: post a self-authored "joined
+      // the call" system message so workspace chat captures the
+      // first join even when nobody is observing yet. Only the
+      // joiner writes (not remote observers), so there's no risk
+      // of duplicate entries when both A and B are present.
+      if (clerkIsLoaded && clerkUser && workspaceId && sessionId) {
+        const actorName =
+          clerkUser.fullName?.trim() ||
+          clerkUser.firstName?.trim() ||
+          clerkUser.username?.trim() ||
+          "";
+        if (actorName.length > 0) {
+          recordCallPresenceMessage.mutate({
+            workspaceId,
+            sessionId,
+            kind: "joined",
+            systemActorName: actorName,
+          });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMessage(message);
@@ -426,6 +466,35 @@ export function useVideoCall(
       }
       didJoinRef.current = false;
       setJoinedSessionId(null);
+      // PR platform-call-bugs round 2: post a self-authored "left
+      // the call" system message so the last departure is recorded
+      // (no observer client remains to fire `participant-left`).
+      // Only the leaver writes; observers stay silent to avoid
+      // duplicates when multiple clients observe the same leave.
+      if (clerkIsLoaded && clerkUser && workspaceId && sessionId) {
+        const actorName =
+          clerkUser.fullName?.trim() ||
+          clerkUser.firstName?.trim() ||
+          clerkUser.username?.trim() ||
+          "";
+        if (actorName.length > 0) {
+          recordCallPresenceMessage.mutate({
+            workspaceId,
+            sessionId,
+            kind: "left",
+            systemActorName: actorName,
+          });
+        }
+      }
+      // PR platform-call-bugs: reset `participantCount` on local
+      // leave. Daily fires `participant-left` for the local
+      // user too, but `Math.max(prev - 1, 0)` is a no-op when
+      // we've already manually adjusted the count above (e.g.,
+      // remote decrements brought it to 1). Resetting here
+      // guarantees the indicator chip returns to its hidden
+      // state when the local user leaves an otherwise-empty
+      // room.
+      setParticipantCount(0);
       // Synchronously flip statusRef so a rapid rejoin after End Call
       // (e.g., user immediately clicks Join again) doesn't see a
       // stale `"leaving"` value before the `useEffect` mirror fires.
@@ -548,7 +617,10 @@ export function useVideoCall(
   // `session_id` (not `user_name`) so a mid-call `setUserName` does
   // not corrupt our tracking. The remote session id is mirrored to a
   // ref so the participant-left handler can compare against the
-  // latest value.
+  // latest value. Daily does NOT fire `participant-joined` for the
+  // local user on join, so we initialize the count to 1 from
+  // `join()`'s success path; remote joins / leaves increment and
+  // decrement via these handlers.
   useDailyEvent(
     "participant-joined",
     useCallback(
@@ -559,37 +631,28 @@ export function useVideoCall(
           local?: boolean;
         };
       }) => {
-        setParticipantCount((prev) => Math.max(prev + 1, 1));
-        if (!evt.participant.local && evt.participant.session_id) {
+        if (evt.participant.local) {
+          // Local join is handled in `join()`'s success path; this
+          // event is here for defensive counter bookkeeping if Daily
+          // ever starts firing it. Skip to avoid double-counting.
+          return;
+        }
+        setParticipantCount((prev) => prev + 1);
+        if (evt.participant.session_id) {
           remoteSessionIdRef.current = evt.participant.session_id;
           if (evt.participant.user_name) {
             setRemoteParticipantName(evt.participant.user_name);
           }
         }
-        // PR platform-call-bugs: post a system message to the
-        // workspace chat so both parties see who joined / left the
-        // call mid-session. Skip the local participant — the user
-        // doesn't need a "you joined the call" notice. Fire-and-
-        // forget: the mutation is idempotent against the local
-        // Daily session_id, and a transient Convex failure should
-        // not interrupt the join flow. We log the failure so the
-        // operator can grep for it.
-        if (
-          !evt.participant.local &&
-          workspaceId &&
-          sessionId &&
-          evt.participant.user_name &&
-          evt.participant.user_name.trim().length > 0
-        ) {
-          recordCallPresenceMessage.mutate({
-            workspaceId,
-            sessionId,
-            kind: "joined",
-            systemActorName: evt.participant.user_name,
-          });
-        }
+        // System-message writes live in `join()` / `leave()` so
+        // each participant authors their own event exactly once.
+        // Observers stay silent — otherwise two clients present
+        // in the same call would each write the same join/leave
+        // notice for every remote transition, doubling the chat
+        // history. See the round-2 comment on
+        // `recordCallPresenceMessage` above.
       },
-      [recordCallPresenceMessage, workspaceId, sessionId]
+      []
     )
   );
 
@@ -603,6 +666,13 @@ export function useVideoCall(
           local?: boolean;
         };
       }) => {
+        if (evt.participant.local) {
+          // Local leave is handled in `leave()`'s success path
+          // (which resets `participantCount` to 0 and posts the
+          // self-authored "left the call" system message). Skip
+          // here to avoid double-decrement.
+          return;
+        }
         setParticipantCount((prev) => Math.max(prev - 1, 0));
         // Only clear the remote name if the leaving participant's
         // session_id matches the one we recorded — name changes via
@@ -614,30 +684,10 @@ export function useVideoCall(
           remoteSessionIdRef.current = null;
           setRemoteParticipantName(null);
         }
-        // PR platform-call-bugs: mirror of the join branch above.
-        // Fire-and-forget; failures are logged via the mutation's
-        // default `onError` (TanStack Query wraps the call). Daily
-        // also fires `participant-left` for the local participant
-        // when the user explicitly leaves, but we skip those so the
-        // user doesn't see "you left the call" right after pressing
-        // End Call (the call overlay already communicates the
-        // transition).
-        if (
-          !evt.participant.local &&
-          workspaceId &&
-          sessionId &&
-          evt.participant.user_name &&
-          evt.participant.user_name.trim().length > 0
-        ) {
-          recordCallPresenceMessage.mutate({
-            workspaceId,
-            sessionId,
-            kind: "left",
-            systemActorName: evt.participant.user_name,
-          });
-        }
+        // System-message writes live in `join()` / `leave()` (see
+        // the comment in the `participant-joined` handler above).
       },
-      [recordCallPresenceMessage, workspaceId, sessionId]
+      []
     )
   );
 
