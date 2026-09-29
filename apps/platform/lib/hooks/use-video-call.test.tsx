@@ -195,8 +195,11 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
 
     // Daily would normally flip meetingState to "joined-meeting"
     // after join resolves, but we're not driving that effect here —
-    // the explicit `setParticipantCount(1)` inside the join success
-    // path is the regression guard we care about.
+    // the functional `setParticipantCount((prev) => prev + 1)`
+    // inside the join success path is the regression guard.
+    // Greptile round 5 P2: this update uses a functional form so a
+    // remote joiner who fired `participant-joined` during the local
+    // pending period is preserved (count becomes 2, not reset to 1).
     expect(ref.current!.participantCount).toBe(1);
   });
 

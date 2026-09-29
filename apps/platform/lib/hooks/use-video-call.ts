@@ -359,13 +359,17 @@ export function useVideoCall(
       setIsCameraOff(true);
       setJoinedSessionId(sessionId);
       didJoinRef.current = true;
-      // PR platform-call-bugs: initialize `participantCount` to 1
-      // on local join. Daily does not fire `participant-joined` for
-      // the local user, so without this the count would stay at 0
-      // until a remote joiner arrives — making the indicator chip
-      // hidden when the user is alone in the call. Remote joins
-      // still increment via the `participant-joined` event handler.
-      setParticipantCount(1);
+      // PR platform-call-bugs: account for the local user in the
+      // participant count. Daily does not fire `participant-joined`
+      // for the local user, so without this the indicator chip
+      // would stay at 0 until a remote joiner arrived. Use a
+      // functional update so any remote joiners whose
+      // `participant-joined` event already fired during the pending
+      // period are preserved (Greptile round 5 P2): if a remote
+      // joined while `daily.join()` was in flight, the observer
+      // already incremented the count; we add +1 for the local
+      // user without clobbering that increment.
+      setParticipantCount((prev) => prev + 1);
       // PR platform-call-bugs round 2: post a self-authored "joined
       // the call" system message so workspace chat captures the
       // first join even when nobody is observing yet. Only the

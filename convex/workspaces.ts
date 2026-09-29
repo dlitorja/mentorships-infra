@@ -2843,14 +2843,24 @@ export const recordCallPresenceMessage = mutation({
 
     // Greptile round 3 P1: resolve the actor's display name from
     // the server-side `users` row keyed by the caller's auth
-    // identity. Never trust a client-supplied name. If the user
-    // has no firstName/lastName on file, fall back to a generic
-    // label so we still emit a meaningful system notice rather
-    // than refusing the write.
-    const userRow = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", user.subject))
-      .first();
+    // identity. Never trust a client-supplied name.
+    //
+    // Greptile round 5 P2: Convex auth identities can resolve to
+    // either `users.clerkId` (newer flow) or `users.userId`
+    // (legacy flow / records where the Clerk ID differs from the
+    // userId — e.g. migrated rows that store a prefixed clerkId).
+    // Look up by both indexes and prefer the first hit. If neither
+    // matches, fall back to a generic label so we still emit a
+    // meaningful system notice rather than refusing the write.
+    const userRow =
+      (await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", user.subject))
+        .first()) ??
+      (await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", user.subject))
+        .first());
     const resolvedName =
       [userRow?.firstName, userRow?.lastName]
         .filter(Boolean)
