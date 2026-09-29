@@ -3,11 +3,11 @@ import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstructorDashboardContent } from "./InstructorDashboardContent";
+import { RetryButton } from "./retry-button";
 
 function InstructorDashboardSkeleton() {
   return (
@@ -62,9 +62,7 @@ export default async function InstructorDashboardPage() {
             <CardContent className="pt-6">
               <div className="text-center space-y-4">
                 <p className="text-muted-foreground">Unable to load students right now.</p>
-                <Button variant="outline" onClick={() => window.location.reload()}>
-                  Retry
-                </Button>
+                <RetryButton />
               </div>
             </CardContent>
           </Card>
