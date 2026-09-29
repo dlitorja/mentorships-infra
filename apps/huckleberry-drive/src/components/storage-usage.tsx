@@ -9,6 +9,12 @@ interface StorageUsageProps {
   fileCount: number;
   instructorCount?: number;
   hasAccess?: boolean;
+  // Counter is a "needs reconciliation" placeholder (lastUpdatedAt
+  // === 0). The next cron pass will overwrite with real values.
+  isRefreshing?: boolean;
+  // Counter hasn't been updated in >24h AND the editor has usage
+  // to track. Distinct from `isRefreshing`: a stalled backfill vs
+  // a freshly-seeded placeholder.
   isStale?: boolean;
 }
 
@@ -18,6 +24,7 @@ export function StorageUsage({
   fileCount,
   instructorCount,
   hasAccess = true,
+  isRefreshing = false,
   isStale = false,
 }: StorageUsageProps): React.ReactElement {
   const formatBytes = (bytes: number): string => {
@@ -54,9 +61,17 @@ export function StorageUsage({
         <h3 className="font-semibold text-slate-200">Storage Usage</h3>
         <span className="text-sm text-slate-500 ml-auto">
           {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
-          {isStale && (
+          {isRefreshing && (
             <span
               className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-300 border border-yellow-800"
+              title="Storage usage is being reconciled. The hourly backfill will refresh this value shortly."
+            >
+              refreshing
+            </span>
+          )}
+          {!isRefreshing && isStale && (
+            <span
+              className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/40 text-red-300 border border-red-800"
               title="The storage counter has not been updated in 24 hours. The hourly backfill may have stalled."
             >
               stale

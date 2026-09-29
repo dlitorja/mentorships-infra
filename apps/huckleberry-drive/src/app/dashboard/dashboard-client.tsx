@@ -431,6 +431,7 @@ export function DashboardClient({
           fileCount={storageUsage.fileCount}
           instructorCount={storageUsage.instructorCount}
           hasAccess={storageUsage.hasAccess ?? true}
+          isRefreshing={storageUsage.isRefreshing ?? false}
           isStale={storageUsage.isStale ?? false}
         />
       )}

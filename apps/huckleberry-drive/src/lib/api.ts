@@ -28,8 +28,15 @@ export interface StorageUsage {
   // `truncated` flag was removed when the bounded scan was replaced
   // with a constant-time counter read.
   lastUpdatedAt?: number | null;
+  // True when the counter is a "needs reconciliation" placeholder
+  // (lastUpdatedAt === 0), written by the inline seed when the
+  // aggregate scan could not complete. The next cron pass overwrites
+  // with the real aggregate + real timestamp.
+  isRefreshing?: boolean;
   // Pre-computed staleness flag (server-side Date.now() comparison).
-  // Keeps `StorageUsage` a pure function of props.
+  // Keeps `StorageUsage` a pure function of props. Distinct from
+  // `isRefreshing`: this fires for long-quiescent counters that the
+  // backfill hasn't updated in >24h AND have usage to track.
   isStale?: boolean;
 }
 

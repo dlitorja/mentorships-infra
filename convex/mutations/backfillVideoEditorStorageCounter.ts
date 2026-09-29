@@ -57,6 +57,28 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
     let written = 0;
     let unchanged = 0;
     let skippedByMutation = 0;
+    // Reconciliation counter: how many placeholders were
+    // reconciled this pass. Placeholders are 0/0 rows written by
+    // the inline seed when the aggregate scan could not complete.
+    // The cron overwrites them with its (possibly stale by one
+    // mutation) aggregate, which clears the placeholder sentinel.
+    // Mutations on a placeholder that happened DURING the cron's
+    // scan are protected by the `existing.lastUpdatedAt >
+    // scanStartTime` check below — they have set lastUpdatedAt to
+    // a non-zero value via the delta path (which preserves the
+    // sentinel), so the cron's stale aggregate is skipped.
+    //
+    // Trade-off acknowledged (round-32 Greptile P1): for editors
+    // whose historical row count permanently exceeds the inline
+    // mutation read budget, the placeholder persists between cron
+    // passes. Each cron pass overwrites the values with its fresh
+    // aggregate AND clears the sentinel, so the dashboard briefly
+    // shows the correct value after each cron run, then the next
+    // mutation reverts to the placeholder if the mutation path
+    // can't compute the full aggregate. The next mutation's delta
+    // math is on top of the cron's correct value, so the displayed
+    // value is always within one mutation's worth of accuracy.
+    let reconciledPlaceholders = 0;
     for (const entry of args.entries) {
       const existing = await ctx.db
         .query("videoEditorStorageStats")
@@ -65,6 +87,26 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
         )
         .first();
       if (existing) {
+        // Sentinel: this is a placeholder. Reconcile it — write
+        // the cron's aggregate with a real timestamp so the UI's
+        // "refreshing" badge clears. The check below protects
+        // against the race where a mutation during the cron's
+        // scan touched this placeholder with a fresher value.
+        if (existing.lastUpdatedAt === 0) {
+          // Mutation touched the placeholder DURING the cron's
+          // scan: skip — its value is fresher than the scan.
+          if (existing.lastUpdatedAt > args.scanStartTime) {
+            skippedByMutation += 1;
+            continue;
+          }
+          await ctx.db.patch(existing._id, {
+            usedBytes: entry.usedBytes,
+            fileCount: entry.fileCount,
+            lastUpdatedAt,
+          });
+          reconciledPlaceholders += 1;
+          continue;
+        }
         // If a mutation has touched this counter since the scan
         // started, the mutation's value is fresher than the scan's.
         // Skip the write to avoid clobbering it.
@@ -101,7 +143,12 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
       }
       written += 1;
     }
-    return { written, unchanged, skippedByMutation };
+    return {
+      written,
+      unchanged,
+      skippedByMutation,
+      reconciledPlaceholders,
+    };
   },
 });
 

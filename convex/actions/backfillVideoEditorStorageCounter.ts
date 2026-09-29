@@ -18,6 +18,7 @@ interface BatchResult {
   written: number;
   unchanged: number;
   skippedByMutation: number;
+  reconciledPlaceholders: number;
 }
 
 /**
@@ -97,6 +98,7 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
       editorsWritten: result.written,
       editorsUnchanged: result.unchanged,
       editorsSkippedByMutation: result.skippedByMutation ?? 0,
+      editorsReconciledPlaceholders: result.reconciledPlaceholders ?? 0,
       reachedMaxIterations: !cursor && iterations >= MAX_ITERATIONS,
     };
   },

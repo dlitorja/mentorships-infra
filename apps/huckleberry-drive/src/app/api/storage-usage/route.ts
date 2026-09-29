@@ -99,17 +99,29 @@ export async function GET(): Promise<NextResponse> {
         // bounded scan was replaced with a constant-time counter
         // read.
         lastUpdatedAt: stats.lastUpdatedAt ?? null,
-        // Pre-compute staleness on the server so the StorageUsage
-        // component can stay a pure function of props (no Date.now()
-        // inside the component). The "stale" badge is only
-        // meaningful when there is usage to track — an editor
-        // with fileCount === 0 has nothing for the backfill to
-        // refresh, so a long-quiescent counter at zero should not
-        // be flagged (round-23 Greptile P2 #1).
+        // Two distinct signals so the UI can render the right
+        // badge:
+        //   - `isRefreshing`: `lastUpdatedAt === 0` is a "needs
+        //     reconciliation" placeholder written by the inline
+        //     seed when the aggregate scan could not complete
+        //     (e.g. Convex read-budget exceeded). The next cron
+        //     pass overwrites with the real aggregate + real
+        //     timestamp. Known limitation: editors with NO active
+        //     uploads are skipped by the cron (it builds its list
+        //     only from active rows), so a placeholder for those
+        //     editors stays "refreshing" until they upload again.
+        //     The displayed value (0/0) is still correct.
+        //   - `isStale`: counter hasn't been updated in >24h AND
+        //     the editor has usage to track. An editor with
+        //     fileCount === 0 has nothing for the backfill to
+        //     refresh, so a long-quiescent counter at zero should
+        //     not be flagged (round-23 Greptile P2 #1).
+        isRefreshing: stats.lastUpdatedAt === 0,
         isStale:
           stats.fileCount > 0 &&
           stats.lastUpdatedAt !== null &&
           stats.lastUpdatedAt !== undefined &&
+          stats.lastUpdatedAt !== 0 &&
           Date.now() - stats.lastUpdatedAt > 24 * 60 * 60 * 1000,
       });
     }
