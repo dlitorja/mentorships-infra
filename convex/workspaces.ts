@@ -2547,9 +2547,14 @@ export const getWorkspaceMessages = query({
       .map((m) => m.b2Key as string);
     const urlMap = new Map<string, string>();
     if (b2Keys.length > 0) {
+      // 12-hour TTL: long enough to survive an open chat session
+      // without re-querying (the gallery stays at the 1-hour
+      // default, where a quick scroll session is the norm). Clamped
+      // to `min(retention, 24h)` server-side, so this is safe
+      // regardless of workspace retention.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys }
+        { workspaceId: args.workspaceId, b2Keys, expiresInSeconds: 12 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);
@@ -2652,9 +2657,14 @@ export const getWorkspaceMessagesPaginated = query({
       .map((m) => m.b2Key as string);
     const urlMap = new Map<string, string>();
     if (b2Keys.length > 0) {
+      // 12-hour TTL: long enough to survive an open chat session
+      // without re-querying (the gallery stays at the 1-hour
+      // default, where a quick scroll session is the norm). Clamped
+      // to `min(retention, 24h)` server-side, so this is safe
+      // regardless of workspace retention.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys }
+        { workspaceId: args.workspaceId, b2Keys, expiresInSeconds: 12 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);

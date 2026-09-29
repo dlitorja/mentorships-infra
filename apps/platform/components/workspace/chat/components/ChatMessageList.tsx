@@ -8,7 +8,7 @@ import { clsx } from 'clsx';
 import { Id } from '@/convex/_generated/dataModel';
 import { ShareLinkButton } from './ShareLinkButton';
 import { DeleteChatFileDialog } from './DeleteChatFileDialog';
-import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls } from '../utils';
+import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls, isLegacyUrlContent } from '../utils';
 import type { ChatMessageListProps, MessageList } from '../types';
 
 /**
@@ -113,15 +113,26 @@ export function ChatMessageList({
           const imageParsed = msg.type === 'image' ? parseImageMessage(msg.content) : null;
           // PR workspace-storage-3c follow-up: server-resolved signed
           // GET URLs from `getWorkspaceMessagesPaginated` take
-          // precedence over parsing `content` directly. Pre-PR-3c
-          // `content` was the URL itself, so legacy rows (no
-          // `imageUrl` / `fileUrl`) still render via the
-          // `parseXxxMessage(content)` path.
+          // precedence over parsing `content` directly. The legacy
+          // fallback only fires when `content` actually looks like a
+          // URL — pre-PR-3c rows stored the URL itself, but
+          // post-PR-3c rows store either a `b2Key` (image) or
+          // `${encodedFileName}|${b2Key}` (file). Treating a
+          // non-URL `content` as a URL would render the storage key
+          // straight into `<Image src=…>` / `<a href=…>`.
           const fileMessage = fileParsed
-            ? (msg.fileUrl ? { fileName: fileParsed.fileName, url: msg.fileUrl } : fileParsed)
+            ? (msg.fileUrl
+              ? { fileName: fileParsed.fileName, url: msg.fileUrl }
+              : isLegacyUrlContent(msg.content)
+                ? fileParsed
+                : null)
             : null;
           const imageMessage = imageParsed
-            ? (msg.imageUrl ? { fileName: imageParsed.fileName, url: msg.imageUrl } : imageParsed)
+            ? (msg.imageUrl
+              ? { fileName: imageParsed.fileName, url: msg.imageUrl }
+              : isLegacyUrlContent(msg.content)
+                ? imageParsed
+                : null)
             : null;
           const hasInlineImageFailed = failedInlineImages.has(msg._id);
           const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
@@ -272,6 +283,21 @@ export function ChatMessageList({
                       </Button>
                     )}
                   </div>
+                ) : (msg.type === 'image' || msg.type === 'file') ? (
+                  // PR workspace-storage-3c follow-up: image/file
+                  // message with no usable URL (server did not
+                  // resolve a signed URL AND the legacy
+                  // `content`-as-URL fallback was unsafe). Surface
+                  // a muted placeholder so we don't render the raw
+                  // `b2Key` text from `content` (which would
+                  // either look like a broken image link or
+                  // expose the storage key in the DOM).
+                  <p className={clsx(
+                    'italic text-xs',
+                    msg.userId === currentUserId ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                  )}>
+                    Attachment unavailable
+                  </p>
                 ) : (
                   <>
                     <p className="whitespace-pre-wrap">{renderMessageWithLinks(msg.content)}</p>
