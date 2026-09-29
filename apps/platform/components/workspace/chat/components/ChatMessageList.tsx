@@ -114,23 +114,24 @@ export function ChatMessageList({
           // PR workspace-storage-3c follow-up: server-resolved signed
           // GET URLs from `getWorkspaceMessagesPaginated` take
           // precedence over parsing `content` directly. The legacy
-          // fallback only fires when `content` actually looks like a
-          // URL — pre-PR-3c rows stored the URL itself, but
-          // post-PR-3c rows store either a `b2Key` (image) or
-          // `${encodedFileName}|${b2Key}` (file). Treating a
-          // non-URL `content` as a URL would render the storage key
+          // fallback only fires when the PARSED URL looks like one
+          // (not the whole `content`, which for legacy resource
+          // shares starts with the filename for files). Post-PR-3c
+          // rows store either a `b2Key` (image) or
+          // `${encodedFileName}|${b2Key}` (file); treating a non-URL
+          // `parsed.url` as a URL would render the storage key
           // straight into `<Image src=…>` / `<a href=…>`.
           const fileMessage = fileParsed
             ? (msg.fileUrl
               ? { fileName: fileParsed.fileName, url: msg.fileUrl }
-              : isLegacyUrlContent(msg.content)
+              : isLegacyUrlContent(fileParsed.url)
                 ? fileParsed
                 : null)
             : null;
           const imageMessage = imageParsed
             ? (msg.imageUrl
               ? { fileName: imageParsed.fileName, url: msg.imageUrl }
-              : isLegacyUrlContent(msg.content)
+              : isLegacyUrlContent(imageParsed.url)
                 ? imageParsed
                 : null)
             : null;
@@ -291,13 +292,35 @@ export function ChatMessageList({
                   // a muted placeholder so we don't render the raw
                   // `b2Key` text from `content` (which would
                   // either look like a broken image link or
-                  // expose the storage key in the DOM).
-                  <p className={clsx(
-                    'italic text-xs',
-                    msg.userId === currentUserId ? 'text-primary-foreground/70' : 'text-muted-foreground'
-                  )}>
-                    Attachment unavailable
-                  </p>
+                  // expose the storage key in the DOM). Keep the
+                  // delete affordance so authorized callers can
+                  // still clean up an attachment whose URL has
+                  // expired (server-side delete only needs the
+                  // message ID, not a working download URL).
+                  <div className="flex items-center gap-2">
+                    <p className={clsx(
+                      'italic text-xs flex-1',
+                      msg.userId === currentUserId ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                    )}>
+                      Attachment unavailable
+                    </p>
+                    {canDeleteMessage(msg) && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => setPendingDelete({
+                          messageId: msg._id,
+                          fileName: (imageParsed?.fileName ?? fileParsed?.fileName ?? 'Attachment'),
+                          fileUrl: '',
+                        })}
+                        aria-label="Delete attachment"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <p className="whitespace-pre-wrap">{renderMessageWithLinks(msg.content)}</p>

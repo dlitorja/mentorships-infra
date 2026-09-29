@@ -17,16 +17,16 @@ export function useLightboxImages(messages: MessageList | undefined) {
     for (const msg of messages ?? []) {
       // PR workspace-storage-3c follow-up: prefer the server-resolved
       // signed URL (`msg.imageUrl` / `msg.fileUrl`). The legacy
-      // `content`-as-URL fallback only fires when `content` looks
-      // like a URL — post-PR-3c rows store the `b2Key` literal
-      // (image) or `${fileName}|${b2Key}` (file), neither of which
-      // is a URL. Treating them as URLs would leak the storage key
-      // into `<img src=…>` and `<a href=…>`.
+      // fallback only fires when the PARSED URL looks like one —
+      // post-PR-3c rows store the `b2Key` literal (image) or
+      // `${fileName}|${b2Key}` (file), and for legacy resource
+      // shares the WHOLE `content` starts with the filename, not
+      // the URL.
       if (msg.type === 'image') {
         const parsed = parseImageMessage(msg.content);
         const url =
           msg.imageUrl ??
-          (isLegacyUrlContent(msg.content) ? parsed.url : '');
+          (isLegacyUrlContent(parsed.url) ? parsed.url : '');
         if (!url) continue;
         result.push({
           msg,
@@ -35,13 +35,9 @@ export function useLightboxImages(messages: MessageList | undefined) {
       } else if (msg.type === 'file' && !failedInlineImages.has(msg._id)) {
         const parsed = parseFileMessage(msg.content);
         if (!isImageFileName(parsed.fileName)) continue;
-        // Legacy file rows stored the URL directly in `content`
-        // (no `|` separator). `parsed.url` is then the entire
-        // `content` string. New rows store `${name}|${b2Key}` —
-        // `parsed.url` is the `b2Key` portion.
         const url =
           msg.fileUrl ??
-          (isLegacyUrlContent(msg.content) ? parsed.url : '');
+          (isLegacyUrlContent(parsed.url) ? parsed.url : '');
         if (!url) continue;
         result.push({
           msg,

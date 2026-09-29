@@ -73,6 +73,13 @@ export function DeleteChatFileDialog({
   const [step, setStep] = useState<'choose' | 'confirm-delete-only'>('choose');
   const [isWorking, setIsWorking] = useState(false);
   const deleteMessage = useDeleteWorkspaceFileMessage();
+  // PR workspace-storage-3c follow-up: when the attachment URL
+  // could not be resolved server-side (no `imageUrl` / `fileUrl`
+  // and the legacy content-as-URL fallback was unsafe), we pass
+  // an empty `fileUrl`. The "Download then delete" path is
+  // disabled because there is nothing to download; the user can
+  // still pick "Delete only" to clean up the unusable attachment.
+  const hasDownloadableUrl = !!fileUrl;
 
   const handleOpenChange = (next: boolean) => {
     if (isWorking) return;
@@ -158,7 +165,8 @@ export function DeleteChatFileDialog({
               <Button
                 type="button"
                 onClick={handleDownloadThenDelete}
-                disabled={isWorking}
+                disabled={isWorking || !hasDownloadableUrl}
+                title={hasDownloadableUrl ? undefined : 'No download URL is available for this attachment.'}
               >
                 {isWorking ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
