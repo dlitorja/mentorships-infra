@@ -1535,17 +1535,14 @@ test("getActiveUsersByRole: excludes soft-deleted instructor profiles", async ()
  *     - Short-circuit admin path before the second read.
  *     - Explicit "caller not in users table" error instead of generic
  *       "Forbidden" when both caller lookups miss.
- *     - Target resolution via both indexes for split-record matrices.
- *     - `_id`-based equality check for split-record sibling rows.
  *
  *   The previous resolver also accepted this case post-backfill — its
  *   `by_clerkId` fallthrough would find the real row, and the
  *   `callerByClerkId?.userId === userId` check would then match the
  *   canonical userId. The hardened resolver keeps the same acceptance
  *   behavior and additionally surfaces an explicit error when the
- *   caller is not in the users table, short-circuits admins before
- *   the second read, and removes a redundant target-row lookup that
- *   the previous version did not perform.
+ *   caller is not in the users table and short-circuits admins before
+ *   the second read.
  *
  * CAVEATS AND FOLLOW-UPS:
  *   - Production `drive.huckleberry.art` dashboard 500s for the
