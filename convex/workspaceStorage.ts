@@ -497,6 +497,10 @@ export const reserveB2FileUploadLedger = internalMutation({
     uploaderId: v.string(),
     uploadedAt: v.number(),
     contentType: v.string(),
+    // Optional so we can backfill from `presignWorkspaceUploadUrl`
+    // before a size limit is known. New B2-only paths always
+    // pass it; legacy callers may omit it.
+    size: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -1189,6 +1193,12 @@ export const verifyAndConfirmB2Upload = internalAction({
     b2Key: v.string(),
     ledgerId: v.id("fileUploads"),
     callerId: v.string(),
+    // Optional so ledger rows minted BEFORE this column was
+    // added (PR workspace-storage-3c round 6, Greptile P1) can
+    // still be confirmed. When undefined we skip the size
+    // guard — the upload limit was already enforced at mint
+    // time on the pre-deployment code path.
+    expectedSize: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<void> => {
     const creds = loadB2Credentials();
@@ -1261,6 +1271,38 @@ export const verifyAndConfirmB2Upload = internalAction({
       throw new Error(
         `B2 object ${args.b2Key} not found (status ${response.status}); refusing to mark upload complete.`
       );
+    }
+
+    // Greptile round 2 P1: defence-in-depth size check. The AWS
+    // SDK signs `content-length` into the canonical request so B2
+    // rejects mismatched bodies at PUT time (verified live: PUT 200
+    // bytes against a URL declaring 100 returns SignatureDoesNotMatch),
+    // but we also verify the object's actual size matches what the
+    // caller declared at mint time. A size mismatch means either
+    // the SDK's signing was bypassed (unlikely) or a malicious
+    // caller managed to PUT a different body (we refuse to mark
+    // the upload complete so the ledger doesn't reflect an
+    // object that exceeds the workspace upload limit).
+    //
+    // Skip when `expectedSize` is undefined — that's a legacy
+    // row minted BEFORE this column existed (PR workspace-
+    // storage-3c round 6, Greptile P1 "Pending uploads cannot
+    // be confirmed"). The upload limit was already enforced at
+    // mint time on the pre-deployment code path.
+    if (args.expectedSize !== undefined) {
+      const actualContentLengthHeader = response.headers.get("content-length");
+      const actualContentLength =
+        actualContentLengthHeader !== null
+          ? Number.parseInt(actualContentLengthHeader, 10)
+          : NaN;
+      if (
+        !Number.isFinite(actualContentLength) ||
+        actualContentLength !== args.expectedSize
+      ) {
+        throw new Error(
+          `B2 object ${args.b2Key} content-length ${actualContentLengthHeader ?? "missing"} does not match declared size ${args.expectedSize}; refusing to mark upload complete.`
+        );
+      }
     }
 
     // HUC-53 fix: `confirmB2FileUpload` (mutation) re-verifies

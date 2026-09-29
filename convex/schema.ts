@@ -662,6 +662,17 @@ export default defineSchema({
     // Optional (legacy Convex-storage rows pre-date this column
     // and have `b2Key === undefined` so they are not affected).
     contentType: v.optional(v.string()),
+    // PR workspace-storage-3c round 6 (Greptile P1 sec):
+    // byte count the caller declared when minting the presigned
+    // PUT URL. The AWS SDK signs `content-length` into the
+    // canonical request so B2 rejects mismatched bodies at PUT
+    // time (verified live: PUT 200 bytes against a URL declaring
+    // 100 returns SignatureDoesNotMatch), but the
+    // confirmation HEAD also reads this field and rejects if
+    // the object's actual content-length differs — defence in
+    // depth in case the signed constraint is bypassed. Optional
+    // because legacy Convex-storage rows pre-date this column.
+    size: v.optional(v.number()),
     // PR workspace-storage-1 (round 4): completion timestamp. The
     // download action needs the ledger row to look up the
     // workspace that owns a `b2Key`, so on bind we mark the row

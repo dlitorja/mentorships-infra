@@ -7,7 +7,10 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getB2Client, B2_BUCKET_NAME } from "./client";
+import {
+  getB2Client,
+  B2_BUCKET_NAME,
+} from "./client";
 
 export interface UploadInit {
   fileId: string;
