@@ -8,6 +8,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { signedWorkspaceUploadUrl } from "./lib/b2WorkspaceUpload";
 
 import {
   B2_BINDING_AGE_MS,
@@ -646,8 +647,16 @@ export const generateWorkspaceUploadUrl = action({
     // (Greptile P2: "Failed signing consumes upload slots"). If
     // signing throws (e.g. B2 credentials missing), no ledger
     // row exists and the cap is not affected.
-    const uploadUrl = await mintB2PresignedPutUrl({
-      key: b2Key,
+    //
+    // SDK-based presigner (Greptile round 4 P1): the hand-rolled
+    // `mintB2PresignedPutUrl` produced URLs B2 rejected with 403
+    // `AccessDenied` even with all signing headers correct.
+    // `signedWorkspaceUploadUrl` delegates to `@aws-sdk/s3-
+    // request-presigner`, which produces the canonical request B2
+    // accepts. Inlined in `convex/lib/` rather than imported from
+    // `@mentorships/storage` because the Convex bundler does not
+    // resolve workspace packages.
+    const uploadUrl = await signedWorkspaceUploadUrl(b2Key, {
       contentType: args.contentType,
       size: args.size,
     });
@@ -657,11 +666,17 @@ export const generateWorkspaceUploadUrl = action({
     // (`reserveB2FileUploadLedger`) so concurrent mint actions
     // cannot both pass the check and then both insert. Run AFTER
     // signing so a signing failure doesn't consume a slot.
+    //
+    // Persist the declared size on the ledger row so the
+    // confirmation HEAD can compare actual content-length against
+    // it (Greptile round 2 P1). Without this, every confirmation
+    // would skip the size guard.
     await ctx.runMutation(internal.workspaceStorage.reserveB2FileUploadLedger, {
       workspaceId: args.workspaceId,
       b2Key,
       uploaderId: identity.subject,
       contentType: args.contentType,
+      size: args.size,
       uploadedAt: Date.now(),
     });
 
@@ -2600,103 +2615,6 @@ function buildCanonicalQueryString(parts: Record<string, string>): string {
     )
     .join("&");
 }
-
-async function mintB2PresignedPutUrl(params: {
-  key: string;
-  contentType: string;
-  size: number;
-}): Promise<string> {
-  // PUT URL expiry matches `B2_BINDING_AGE_MS` (1h, see
-  // `workspaceConstants.ts`) so a caller can take up to an hour
-  // to upload a 500MB file on a slow connection. Once the URL
-  // is minted, the binding window is the same as the URL
-  // window — a confirmation beyond that window will reject
-  // with "key too old".
-  //
-// Known race: if the caller PUTs, then the confirmation
-  // rejects, the cleanup action deletes the B2 object within
-  // seconds, but the PUT URL remains valid for up to 1h. If the
-  // caller re-PUTs in that window, the object is re-created in
-  // B2 as an orphan (the ledger is `cancelledAt` so a
-  // subsequent confirmation will fail). PR 3 will add a
-  // lifecycle rule that sweeps orphans older than the binding
-  // window; PR 1 documents the race.
-  const creds = loadB2Credentials();
-  const endpoint = creds.endpoint.replace(/\/+$/, "");
-  const encodedKey = params.key
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
-  const url = new URL(`${endpoint}/${creds.bucket}/${encodedKey}`);
-
-  const host = url.host;
-  const canonicalUri = `/${creds.bucket}/${encodedKey}`;
-
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
-  const dateStamp = amzDate.slice(0, 8);
-
-  // Bind the PUT body length into the signature (Greptile P1):
-  // signing `content-length` makes the URL valid only for a PUT
-  // whose body matches the declared size. The browser's fetch PUT
-  // with a File body sends `Content-Length` matching the file
-  // size, so a caller cannot PUT a different-sized blob through
-  // this URL. Combined with the `x-amz-decoded-content-length`
-  // signed query parameter (a B2-specific belt), oversized PUTs
-  // are rejected before they reach storage.
-  const contentLength = String(params.size);
-  const signedHeaders = ["content-length", "host"];
-  const canonicalHeaders = `content-length:${contentLength}\nhost:${host}\n`;
-
-  const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
-  const payloadHash = "UNSIGNED-PAYLOAD";
-
-  const algorithm = "AWS4-HMAC-SHA256";
-  const credential = `${creds.accessKeyId}/${credentialScope}`;
-  const expires = "3600";
-
-  const canonicalQueryString = buildCanonicalQueryString({
-    "x-amz-algorithm": algorithm,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-credential": credential,
-    "x-amz-date": amzDate,
-    "x-amz-decoded-content-length": String(params.size),
-    "x-amz-expires": expires,
-    "x-amz-signedheaders": signedHeaders.join(";"),
-  });
-
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders.join(";"),
-    payloadHash,
-  ].join("\n");
-
-  const stringToSign = [
-    algorithm,
-    amzDate,
-    credentialScope,
-    await sha256Hex(canonicalRequest),
-  ].join("\n");
-
-  const encoder = new TextEncoder();
-  const kDate = await hmacSha256(
-    encoder.encode("AWS4" + creds.secretAccessKey),
-    dateStamp
-  );
-  const kRegion = await hmacSha256(kDate, creds.region);
-  const kService = await hmacSha256(kRegion, "s3");
-  const kSigning = await hmacSha256(kService, "aws4_request");
-  const signature = await hmacSha256(kSigning, stringToSign);
-  const sigHex = Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  url.search = `?${canonicalQueryString}&x-amz-signature=${sigHex}`;
-  return url.toString();
-}
-
 /**
  * PR workspace-storage-3c: clamp a caller-requested `expiresInSeconds`
  * against the action's documented 60 s .. 24 h band AND against
