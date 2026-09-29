@@ -14,32 +14,61 @@ function isActiveUpload(upload: Doc<"instructorUploads">): boolean {
 
 async function requireAdminOrSelf(
   ctx: GenericQueryCtx<DataModel>,
-  userId: string
+  requestedId: string
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Unauthorized");
   }
 
-  // The caller may authenticate with a Clerk ID that differs from the
-  // canonical users.userId used to key assignments. Allow access when the
-  // caller's userId matches the requested userId or the caller is an admin.
-  const caller = await ctx.db
-    .query("users")
-    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-    .first();
-  const callerByClerkId = caller ?? await ctx.db
-    .query("users")
-    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-    .first();
-
-  if (callerByClerkId?.userId === userId || callerByClerkId?.clerkId === userId) {
+  // Resolve the caller via both indexes. The Clerk `subject` may be stored
+  // as either `users.userId` (apps/platform writes Clerk IDs directly into
+  // userId) or `users.clerkId` (huckleberry-drive keeps the two distinct
+  // for onboarding splits).
+  const caller =
+    (await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first()) ??
+    (await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first());
+  if (!caller) {
+    throw new Error("Forbidden: caller is not in the users table");
+  }
+  if (caller.role === "admin") {
     return;
   }
 
-  if (!callerByClerkId || callerByClerkId.role !== "admin") {
-    throw new Error("Forbidden");
+  // Resolve the requested user via both indexes. The `requestedId` arg can
+  // be either a canonical userId or a Clerk ID — pages pass whichever
+  // `users.userId` came back from the layout's getCurrentUser, but the
+  // canonical ID differs from the Clerk ID for users with split records.
+  const target =
+    (await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", requestedId))
+      .first()) ??
+    (await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", requestedId))
+      .first());
+
+  // The caller IS the target if either resolves to the same row, or the
+  // arg matches one of the caller's own identifiers. The arg-match covers
+  // the case where the target lookup misses (e.g., a stale or orphaned
+  // ID); the row equality covers split-record edge cases where the caller
+  // and target live on different rows but share a Clerk account.
+  if (
+    (target && caller._id === target._id) ||
+    caller.userId === requestedId ||
+    caller.clerkId === requestedId
+  ) {
+    return;
   }
+
+  throw new Error("Forbidden");
 }
 
 async function requireAdmin(
