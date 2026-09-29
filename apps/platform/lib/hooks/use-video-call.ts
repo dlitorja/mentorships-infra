@@ -184,6 +184,19 @@ export function useVideoCall(
     endCallMutateRef.current = endCall.mutateAsync;
   }, [endCall.mutateAsync]);
 
+  // Greptile round 4 P1: the cleanup `useEffect` (line ~581) must
+  // NOT depend on `recordCallPresenceMessage` directly. When the
+  // joiner's "joined" mutation result lands, the mutation object
+  // reference changes, the effect re-runs, the cleanup tears
+  // down the live call and posts a spurious "left" notice.
+  // Mirror the existing `endCallMutateRef` pattern: capture the
+  // mutate function in a ref so the cleanup only re-registers when
+  // the Daily call instance changes.
+  const recordCallPresenceMutateRef = useRef(recordCallPresenceMessage.mutate);
+  useEffect(() => {
+    recordCallPresenceMutateRef.current = recordCallPresenceMessage.mutate;
+  }, [recordCallPresenceMessage.mutate]);
+
   // Track the latest remote participant's `session_id` (not name)
   // so we can clear `remoteParticipantName` correctly on leave —
   // independent of `setUserName` mid-call.
@@ -567,9 +580,11 @@ export function useVideoCall(
             });
           // Self-authored departure so the chat captures the user
           // leaving even when there is no observer client in the
-          // room to fire `participant-left`.
+          // room to fire `participant-left`. Called via a ref to
+          // avoid re-running this cleanup when the mutation's
+          // internal state changes (Greptile round 4 P1).
           if (wid) {
-            recordCallPresenceMessage.mutate({
+            recordCallPresenceMutateRef.current({
               workspaceId: wid,
               sessionId: sid,
               kind: "left",
@@ -578,7 +593,7 @@ export function useVideoCall(
         }
       }
     };
-  }, [daily, recordCallPresenceMessage]);
+  }, [daily]);
 
   const toggleMute = useCallback((): void => {
     const d = daily;

@@ -92,6 +92,12 @@ export async function GET(
       content: m.content,
       type: m.type,
       senderRole: m.senderRole,
+      // PR platform-call-bugs round 4 P2: forward systemEventKind
+      // so the admin Messages tab can render a "Joined call" /
+      // "Left call" badge for system rows (call-presence notices).
+      // Without this field the badge code path in page.tsx:270-276
+      // never matches.
+      systemEventKind: m.systemEventKind ?? null,
       createdAt: m._creationTime,
     }));
 
