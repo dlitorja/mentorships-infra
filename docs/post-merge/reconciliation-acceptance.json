@@ -51,7 +51,7 @@
     "reason": "Admin form writes to `instructors` only post-PR 3. Instructor has the newer canonical text (curly quotes + trailing whitespace); profile has the older text (straight quotes + LF newlines).",
     "profileValue": "Daniel wants to help you build your personal project. You know, the one you keep avoiding because it's scary. The one you keep overthinking because you care too much. The one you can't stop thinking about because deep down you know it's what you're meant to do... your dream. That one.\n\nLet's get started.\n\nDaniel began pursuing his own personal project a few years ago called Figure8. He is an Artist, Youtuber and Entrepreneur."
   },
-  {
+{
     "slug": "daniel-new",
     "field": "specialties",
     "reason": "Admin form writes to `instructors` only post-PR 3. Instructor has the curated canonical list.",
@@ -62,5 +62,46 @@
       "ink",
       "fantasy"
     ]
+  },
+  {
+    "slug": "nino-vecia",
+    "field": "portfolioImages",
+    "reason": "Profile's 5 paths include 4 legacy `/instructors/...` paths; instructor has those 4 plus 3 Convex URLs. No data lost on drop.",
+    "profileValue": [
+      "/instructors/nino-vecia/work-1.png",
+      "https://fine-bulldog-260.convex.cloud/api/storage/13982278-cce7-41e7-8479-ff79cbbd73e9",
+      "/instructors/nino-vecia/work-3.png",
+      "/instructors/nino-vecia/work-4.png",
+      "/instructors/nino-vecia/work-5.png"
+    ]
+  },
+  {
+    "slug": "rakasa",
+    "field": "email",
+    "reason": "Profile's `wencke.shaper@gmail.com` is outdated per operator; canonical email is `rakasa.art@gmail.com` on `instructors`.",
+    "profileValue": "wencke.shaper@gmail.com"
+  },
+  {
+    "slug": "neil-gray",
+    "field": "profileImageUrl",
+    "reason": "Profile's legacy local path is superseded by instructor's Convex storage URL. No data lost on drop.",
+    "profileValue": "/instructors/neil-gray/profile.jpg"
+  },
+  {
+    "slug": "daniel-new",
+    "field": "portfolioImageStorageIds",
+    "reason": "Profile's 10 IDs are a subset of instructor's 17 IDs. No data lost on drop.",
+    "profileValue": [
+      "kg2ce4k7m06z5865scgyhksw3x8cqz8x",
+      "kg2b15hdas842vmcd8p04swf2s8cqcrs",
+      "kg28z7w9689n66046aj1h0pbnn8cp3pj",
+      "kg22tcjaf45re583acbgtpk0n18cpr4n",
+      "kg2ekzwee9zwfkem0byhfmcw598cpdsn",
+      "kg2cv3ktn913x89jdsy5q7t94h8cqqm6",
+      "kg2agwnfbdymyssk61zwpxdc3h8cqz10",
+      "kg24f366vdnyg9cey89k7pzh4n8cpqkb",
+      "kg2b36m03kmnfanjs9ea0ywgp58cqg06",
+      "kg2c0b6wnjkhfkqg5nfhrq57a18cq9jd"
+    ]
   }
-]
+]  
