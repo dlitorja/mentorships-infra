@@ -2542,11 +2542,34 @@ export const getWorkspaceMessages = query({
     // then failed to fetch. Resolve here so the parser sees a
     // real signed URL. Legacy Convex-storage rows fall through to
     // the existing `ctx.storage.getUrl` path.
-    const b2Keys = messages
-      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
-      .map((m) => m.b2Key as string);
+    //
+    // PR workspace-storage-3c follow-up: legacy resource-share rows
+    // posted before the follow-up fix did not stamp `b2Key` on the
+    // message — the b2Key sits inside `content` as
+    // `${encodedFileName}|${b2Key}`. Extract those too so the
+    // resource-share chat messages still resolve server-side.
+    const b2Keys = new Set<string>();
+    for (const m of messages) {
+      if (m.type !== "image" && m.type !== "file") continue;
+      if (m.storageId) continue;
+      if (typeof m.b2Key === "string") {
+        b2Keys.add(m.b2Key);
+        continue;
+      }
+      const separatorIndex = m.content.indexOf("|");
+      const urlPortion =
+        separatorIndex >= 0 ? m.content.slice(separatorIndex + 1) : m.content;
+      if (
+        urlPortion.length > 0 &&
+        !urlPortion.startsWith("http://") &&
+        !urlPortion.startsWith("https://") &&
+        !urlPortion.startsWith("https:/")
+      ) {
+        b2Keys.add(urlPortion);
+      }
+    }
     const urlMap = new Map<string, string>();
-    if (b2Keys.length > 0) {
+    if (b2Keys.size > 0) {
       // 4-hour TTL: covers an active chat session (call + chat
       // co-attended) without re-querying, while keeping the
       // "leaked URL outlives permission change" window comparable
@@ -2556,7 +2579,7 @@ export const getWorkspaceMessages = query({
       // 1 hour. Clamped to `min(retention, 24h)` server-side.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys, expiresInSeconds: 4 * 60 * 60 }
+        { workspaceId: args.workspaceId, b2Keys: [...b2Keys], expiresInSeconds: 4 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);
@@ -2592,9 +2615,9 @@ export const getWorkspaceMessages = query({
  * `shareResourceToChat` (pre-PR-3c-fix) embed the resource's
  * `b2Key` inside `content` as
  * `${encodeURIComponent(fileName)}|${b2Key}` without stamping
- * the `b2Key` column on the row. New rows from PR-3c-follow-up
- * stamp `b2Key` directly, so this fallback only fires on legacy
- * rows that lack the column.
+ * the `b2Key` column on the row. The caller populates `b2UrlMap`
+ * with both the column-stamped keys AND the content-extracted
+ * keys so this lookup returns the resolved URL for either case.
  */
 async function resolveChatMessageUrl(
   ctx: QueryCtx,
@@ -2608,11 +2631,10 @@ async function resolveChatMessageUrl(
   if (message.storageId) {
     return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
   }
-  // Legacy resource share rows: extract the b2Key from the URL
-  // portion of `content` and resolve it. Only treat the URL
-  // portion as a b2Key when it does NOT look like an absolute
-  // URL — a `http(s)://...` URL is the legacy-Convex-storage path
-  // and we pass it through unchanged.
+  // Legacy resource share rows: extract the b2Key portion of
+  // `content` and look it up in the pre-populated `b2UrlMap`.
+  // Absolute-URL portions are the legacy-Convex-storage path and
+  // pass through unchanged.
   const separatorIndex = message.content.indexOf("|");
   const urlPortion =
     separatorIndex >= 0
@@ -2677,11 +2699,33 @@ export const getWorkspaceMessagesPaginated = query({
     // `getWorkspaceMessages`. Run once per page so each
     // `useInfiniteQuery` page-load pays the cost; previous pages
     // remain cached with their already-resolved URLs.
-    const b2Keys = paginated.page
-      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
-      .map((m) => m.b2Key as string);
+    //
+    // PR workspace-storage-3c follow-up: same content extraction
+    // for legacy resource-share rows as `getWorkspaceMessages`
+    // (the b2Key sits inside `content` for rows posted before the
+    // follow-up fix to `shareResourceToChat`).
+    const b2Keys = new Set<string>();
+    for (const m of paginated.page) {
+      if (m.type !== "image" && m.type !== "file") continue;
+      if (m.storageId) continue;
+      if (typeof m.b2Key === "string") {
+        b2Keys.add(m.b2Key);
+        continue;
+      }
+      const separatorIndex = m.content.indexOf("|");
+      const urlPortion =
+        separatorIndex >= 0 ? m.content.slice(separatorIndex + 1) : m.content;
+      if (
+        urlPortion.length > 0 &&
+        !urlPortion.startsWith("http://") &&
+        !urlPortion.startsWith("https://") &&
+        !urlPortion.startsWith("https:/")
+      ) {
+        b2Keys.add(urlPortion);
+      }
+    }
     const urlMap = new Map<string, string>();
-    if (b2Keys.length > 0) {
+    if (b2Keys.size > 0) {
       // 4-hour TTL: covers an active chat session (call + chat
       // co-attended) without re-querying, while keeping the
       // "leaked URL outlives permission change" window comparable
@@ -2691,7 +2735,7 @@ export const getWorkspaceMessagesPaginated = query({
       // 1 hour. Clamped to `min(retention, 24h)` server-side.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys, expiresInSeconds: 4 * 60 * 60 }
+        { workspaceId: args.workspaceId, b2Keys: [...b2Keys], expiresInSeconds: 4 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);
