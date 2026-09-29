@@ -95,15 +95,15 @@ export function StorageUsage({
       </div>
 
       <div className="space-y-2">
-        {isRefreshing ? (
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-400">— used</span>
-            <span className="text-slate-500">Reconciling in progress</span>
-          </div>
-        ) : isNoAccess ? (
+        {isNoAccess ? (
           <div className="flex justify-between text-sm">
             <span className="text-slate-400">{formatBytes(usedBytes)} used</span>
             <span className="text-slate-500">No active assignments</span>
+          </div>
+        ) : isRefreshing ? (
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-400">— used</span>
+            <span className="text-slate-500">Reconciling in progress</span>
           </div>
         ) : isUnlimited ? (
           <div className="flex justify-between text-sm">
@@ -117,11 +117,11 @@ export function StorageUsage({
         )}
 
         <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-          {isRefreshing ? (
+          {isNoAccess ? (
             <div className="h-full bg-slate-700 w-full flex items-center justify-center text-xs text-slate-400">
               —
             </div>
-          ) : isNoAccess ? (
+          ) : isRefreshing ? (
             <div className="h-full bg-slate-700 w-full flex items-center justify-center text-xs text-slate-400">
               —
             </div>
@@ -141,15 +141,15 @@ export function StorageUsage({
           )}
         </div>
 
-        {isRefreshing ? (
-          <div className="flex justify-between text-xs text-slate-500">
-            <span>Reconciling</span>
-            <span>Up to 1 hour</span>
-          </div>
-        ) : isNoAccess ? (
+        {isNoAccess ? (
           <div className="flex justify-between text-xs text-slate-500">
             <span>No access</span>
             <span>Contact an admin</span>
+          </div>
+        ) : isRefreshing ? (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Reconciling</span>
+            <span>Up to 1 hour</span>
           </div>
         ) : isUnlimited ? (
           <div className="flex justify-between text-xs text-slate-500">

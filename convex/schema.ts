@@ -1181,12 +1181,19 @@ export default defineSchema({
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_legacyId", ["legacyId"])
     .index("by_uploadedById", ["uploadedById"])
+    // PR-quotas: per-editor quota enforcement scoped to the assigned instructor.
+    .index("by_uploadedById_instructorId", ["uploadedById", "instructorId"])
+    // Round-34 Greptile P1: compound `by_uploadedById_status` so
+    // the `confirmPlaceholderZeroSweep` cron can probe for active
+    // uploads per editor with a narrow index range instead of
+    // scanning the full `by_uploadedById` range and applying a
+    // status filter (which exhausts the mutation's read budget on
+    // editors with large deleted-only histories).
+    .index("by_uploadedById_status", ["uploadedById", "status"])
     // PR1: indexed ordered listings for instructor + video-editor
     // dashboard queries (`getAllUploads`, `getVideoEditorUploads`).
     .index("by_instructorId_createdAt", ["instructorId", "createdAt"])
     .index("by_uploadedById_createdAt", ["uploadedById", "createdAt"])
-    // PR-quotas: per-editor quota enforcement scoped to the assigned instructor.
-    .index("by_uploadedById_instructorId", ["uploadedById", "instructorId"])
     // PR1: per-filename lookup for `findOrphanedFiles` so the admin
     // orphan-cleanup page does one indexed read per B2 key instead
     // of a full table `.collect()`.

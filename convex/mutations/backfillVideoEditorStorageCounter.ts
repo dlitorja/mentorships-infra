@@ -192,14 +192,34 @@ export const backfillVideoEditorStorageCounterStatus = internalQuery({
  *
  * Strategy: iterate `videoEditorStorageStats` rows where
  * `lastUpdatedAt === 0` (via the `by_placeholder` index), and for
- * each one check via `by_uploadedById` whether ANY active row
- * exists. If not, write 0/0 with `Date.now()` and clear the
- * sentinel + `placeholderTouchedAt`.
+ * each one probe the new compound index
+ * `by_uploadedById_status` for ANY active status. If all probes
+ * miss, write 0/0 with `Date.now()` and clear the sentinel +
+ * `placeholderTouchedAt`.
+ *
+ * Round-34 Greptile P1: the previous implementation used
+ * `by_uploadedById` + a status `.filter()`, which scans the
+ * entire per-editor index range and can exhaust the mutation's
+ * read budget on editors with many deleted rows. The compound
+ * `by_uploadedById_status` index narrows each probe to a single
+ * `(uploadedById, status)` pair; a `.first()` short-circuits on
+ * the first hit and the absence scan is bounded to the small set
+ * of active statuses (5 probes per editor, each cheap). Even an
+ * editor with thousands of deleted rows no longer threatens the
+ * sweep's read budget.
  *
  * This is bounded: at most one mutation per placeholder row, and
  * the placeholder set is small (only inserted when the inline
  * aggregate scan failed).
  */
+const ACTIVE_UPLOAD_STATUSES = [
+  "pending",
+  "uploading",
+  "completed",
+  "archived",
+  "failed",
+] as const;
+
 export const confirmPlaceholderZeroSweep = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -233,18 +253,21 @@ export const confirmPlaceholderZeroSweep = internalMutation({
         // strictly more accurate than any pending mutation
         // because no mutations CAN be pending without active
         // uploads being added.)
-        const hasActive = await ctx.db
-          .query("instructorUploads")
-          .withIndex("by_uploadedById", (q) =>
-            q.eq("uploadedById", row.videoEditorId)
-          )
-          .filter((q) =>
-            q.and(
-              q.neq(q.field("status"), "deleted"),
-              q.neq(q.field("status"), "deleting"),
+        let hasActive = false;
+        for (const status of ACTIVE_UPLOAD_STATUSES) {
+          const activeRow = await ctx.db
+            .query("instructorUploads")
+            .withIndex("by_uploadedById_status", (q) =>
+              q
+                .eq("uploadedById", row.videoEditorId)
+                .eq("status", status),
             )
-          )
-          .first();
+            .first();
+          if (activeRow) {
+            hasActive = true;
+            break;
+          }
+        }
         if (hasActive) continue;
 
         await ctx.db.patch(row._id, {

@@ -1533,6 +1533,119 @@ test(
 );
 
 test(
+  "counter: confirmPlaceholderZeroSweep uses by_uploadedById_status compound index and tolerates large deleted-row histories (round-34 Greptile P1)",
+  async () => {
+    // Round-34 Greptile P1: the previous implementation used
+    // `by_uploadedById` + a status `.filter()`, which scans the
+    // full per-editor index range and applies the filter in
+    // memory. An editor with thousands of deleted rows + 0 active
+    // rows exhausts the mutation's read budget.
+    //
+    // The fix uses the new compound `by_uploadedById_status`
+    // index with one `.first()` probe per active status. Each
+    // probe is bounded to the narrow `(uploadedById, status)`
+    // range. This test verifies two scenarios:
+    //   A) editor with many deleted rows + 1 active row → NOT
+    //      zeroed out (the active probe short-circuits).
+    //   B) editor with many deleted rows + 0 active rows →
+    //      zeroed out (all 5 active-status probes miss; total
+    //      reads = 5 per editor, not "all deleted rows").
+    const t = convexTest(schema, modules);
+    const editorA = "many_deleted_one_active";
+    const editorB = "many_deleted_zero_active";
+    const DELETED_COUNT = 50;
+
+    // Editor A: 50 deleted rows + 1 active row.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorA,
+        usedBytes: 0,
+        fileCount: 0,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: Date.now() - 60_000,
+      });
+      for (let i = 0; i < DELETED_COUNT; i += 1) {
+        await ctx.db.insert("instructorUploads", {
+          instructorId: `noise_instructor_${i}`,
+          filename: `key/${editorA}/${i}`,
+          originalName: `noise_${i}.mp4`,
+          contentType: "video/mp4",
+          size: 1024,
+          status: "deleted",
+          uploadedById: editorA,
+        });
+      }
+      await ctx.db.insert("instructorUploads", {
+        instructorId: "real_instructor",
+        filename: `key/${editorA}/active`,
+        originalName: "active.mp4",
+        contentType: "video/mp4",
+        size: 5 * 1024 * 1024,
+        status: "completed",
+        uploadedById: editorA,
+      });
+    });
+
+    // Editor B: 50 deleted rows, NO active rows.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorB,
+        usedBytes: 0,
+        fileCount: 0,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: Date.now() - 60_000,
+      });
+      for (let i = 0; i < DELETED_COUNT; i += 1) {
+        await ctx.db.insert("instructorUploads", {
+          instructorId: `noise_instructor_${i}`,
+          filename: `key/${editorB}/${i}`,
+          originalName: `noise_${i}.mp4`,
+          contentType: "video/mp4",
+          size: 1024,
+          status: "deleted",
+          uploadedById: editorB,
+        });
+      }
+    });
+
+    await t.run(async (ctx) => {
+      const result = await ctx.runMutation(
+        internal.mutations.backfillVideoEditorStorageCounter
+          .confirmPlaceholderZeroSweep,
+        {},
+      );
+      // Only editor B was confirmed (A has an active row).
+      expect(result.confirmedZeroPlaceholders).toBe(1);
+    });
+
+    await t.run(async (ctx) => {
+      const a = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", editorA),
+        )
+        .first();
+      // Editor A's placeholder was NOT clobbered — the
+      // `completed` probe found a row and the sweep skipped it.
+      expect(a?.lastUpdatedAt).toBe(0);
+      expect(a?.placeholderTouchedAt).toBeDefined();
+
+      const b = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", editorB),
+        )
+        .first();
+      // Editor B was confirmed to 0/0.
+      expect(b?.usedBytes).toBe(0);
+      expect(b?.fileCount).toBe(0);
+      expect(b?.lastUpdatedAt).toBeGreaterThan(0);
+      expect(b?.placeholderTouchedAt).toBeUndefined();
+    });
+  },
+);
+
+test(
   "counter: confirmPlaceholderZeroSweep clears placeholders whose editors have no active uploads (round-33 Greptile P2 #3)",
   async () => {
     // Round-33 Greptile P2 #3: editors with a placeholder
