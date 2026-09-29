@@ -5,6 +5,7 @@
 **Worktree:** `/tmp/ws-pr3c`
 **Base:** `3e2133ba` (PR 3b merged)
 **Target PR:** [#888](https://github.com/dlitorja/mentorships-infra/pull/888) — squash-merged to `main`
+**Follow-up:** [#891](https://github.com/dlitorja/mentorships-infra/pull/891) (canonical CORS ruleset for workspace bucket) — squash-merged to `main` 2026-09-29
 **Tracking:** HUC-57 (`schema-change` + `prod` + `verification`)
 
 ## Status: SHIPPED
@@ -94,6 +95,12 @@ T1–T5 all green.
 - `apps/web/components/workspace/images.tsx` still calls
   `generateWorkspaceImageUploadUrl` → action gated behind `WORKSPACE_STORAGE_USE_B2`
 - apps/web is the legacy client; apps/platform is the new one
+- **CORS unblocked**: PR #891 ships `scripts/set-b2-bucket-cors.ts` and
+  applies the canonical ruleset to the live `mentorship-workspace-storage`
+  bucket (PUT + GET + HEAD; covers `https://mentorships.huckleberry.art`,
+  apex wildcard, `*.vercel.app`, and localhost dev ports). When
+  apps/web migration is ready, no additional CORS work is required
+  — just flip `WORKSPACE_STORAGE_USE_B2=true` (tracked in HUC-60).
 
 ### C) Mutation args
 - `embedImageInNote` / `createWorkspaceImageAndMessage` /
