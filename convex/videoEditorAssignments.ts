@@ -41,30 +41,16 @@ async function requireAdminOrSelf(
     return;
   }
 
-  // Resolve the requested user via both indexes. The `requestedId` arg can
-  // be either a canonical userId or a Clerk ID — pages pass whichever
-  // `users.userId` came back from the layout's getCurrentUser, but the
-  // canonical ID differs from the Clerk ID for users with split records.
-  const target =
-    (await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", requestedId))
-      .first()) ??
-    (await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", requestedId))
-      .first());
-
-  // The caller IS the target if either resolves to the same row, or the
-  // arg matches one of the caller's own identifiers. The arg-match covers
-  // the case where the target lookup misses (e.g., a stale or orphaned
-  // ID); the row equality covers split-record edge cases where the caller
-  // and target live on different rows but share a Clerk account.
-  if (
-    (target && caller._id === target._id) ||
-    caller.userId === requestedId ||
-    caller.clerkId === requestedId
-  ) {
+  // The caller is the target if `requestedId` matches either of the
+  // caller's own identifiers (canonical `userId` or Clerk `clerkId`).
+  // The Clerk subject we resolved `caller` from can be either of those
+  // (the resolver above tries both indexes), so a match on either side
+  // means the caller is acting on their own data. A separate target-row
+  // lookup is intentionally omitted: target-by-`userId` finding the
+  // caller's row implies `caller.userId === requestedId`, and likewise
+  // for `clerkId` — both already covered by the arg-match below. Adding
+  // it would be up to two extra indexed reads on every non-admin call.
+  if (caller.userId === requestedId || caller.clerkId === requestedId) {
     return;
   }
 

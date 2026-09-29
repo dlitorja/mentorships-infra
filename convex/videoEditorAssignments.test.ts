@@ -1538,9 +1538,14 @@ test("getActiveUsersByRole: excludes soft-deleted instructor profiles", async ()
  *     - Target resolution via both indexes for split-record matrices.
  *     - `_id`-based equality check for split-record sibling rows.
  *
- *   Once the data backfill lands, this hardened resolver will be the
- *   path that lets the editor in — the previous one would have thrown
- *   "Forbidden" even after their clerkId was repaired.
+ *   The previous resolver also accepted this case post-backfill — its
+ *   `by_clerkId` fallthrough would find the real row, and the
+ *   `callerByClerkId?.userId === userId` check would then match the
+ *   canonical userId. The hardened resolver keeps the same acceptance
+ *   behavior and additionally surfaces an explicit error when the
+ *   caller is not in the users table, short-circuits admins before
+ *   the second read, and removes a redundant target-row lookup that
+ *   the previous version did not perform.
  *
  * CAVEATS AND FOLLOW-UPS:
  *   - Production `drive.huckleberry.art` dashboard 500s for the
@@ -1607,9 +1612,9 @@ test("requireAdminOrSelf: real video editor row coexists with a placeholder spli
   //   - Both rows coexist on `users`. The Clerk subject matches only
   //     the real row.
   //   - The hardened resolver MUST scope to the real row, not the
-  //     placeholder. (The original code happened to do this via
-  //     `by_userId` first + fallthrough, but the `_id` check in the
-  //     hardened version makes it explicit.)
+  //     placeholder. (The original code happened to do this via the
+  //     `by_userId` first + fallthrough, which also routed Clerk
+  //     subjects to the real row via `by_clerkId`.)
   const t = convexTest(schema, modules);
 
   const realUserId = "real_user_clerk_id"; // also serves as Clerk subject
@@ -1644,10 +1649,10 @@ test("requireAdminOrSelf: real video editor row coexists with a placeholder spli
   expect(openReal).toBeNull();
 
   // Passing the placeholder userId — must fail. The hardened
-  // resolver's `_id` check sees caller._id !== target._id, and
-  // caller.userId/caller.clerkId both don't equal placeholderUserId,
-  // so it 403s. Pins that the caller cannot act on the placeholder
-  // row's data via either the userId or Clerk ID.
+  // resolver's arg-match sees caller.userId !== placeholderUserId
+  // and caller.clerkId !== placeholderUserId, so it 403s. Pins
+  // that the caller cannot act on the placeholder row's data via
+  // either the userId or Clerk ID.
   await expect(
     client.query(
       api.videoEditorAssignments.getVideoEditorOpenAssignment,
