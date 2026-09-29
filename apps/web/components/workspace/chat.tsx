@@ -15,7 +15,12 @@ interface Message {
   workspaceId: Id<'workspaces'>;
   userId: string;
   content: string;
-  type: 'text' | 'image' | 'file';
+  // PR platform-call-bugs round 4 P1 (Greptile, apps/web follow-on):
+  // `system` rows are call-presence notices written by the video-call
+  // hook when the local user joins or leaves the Daily room. They
+  // are NOT authored by any user — render them as muted, centered
+  // notices without an avatar / bubble.
+  type: 'text' | 'image' | 'file' | 'system';
 }
 
 interface WorkspaceChatProps {
@@ -154,7 +159,27 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
         {messages && messages.length > 0 ? (
-          messages.map((msg: Message) => (
+          messages.map((msg: Message) => {
+            // PR platform-call-bugs round 4 P1 (Greptile): system
+            // rows are call-presence notices. Render them centered
+            // and muted so they are not mistaken for an ordinary
+            // chat message from `msg.userId`. The platform app
+            // uses the same convention in apps/platform/components/
+            // workspace/chat/components/ChatMessageList.tsx.
+            if (msg.type === 'system') {
+              return (
+                <div
+                  key={msg._id}
+                  className="flex justify-center"
+                  data-testid="chat-system-message"
+                >
+                  <div className="max-w-[80%] px-3 py-1.5 rounded-md bg-muted/50 text-xs text-muted-foreground italic">
+                    {msg.content}
+                  </div>
+                </div>
+              );
+            }
+            return (
             <div
               key={msg._id}
               className={clsx(
@@ -187,7 +212,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
                 </p>
               </div>
             </div>
-          ))
+            );
+          })
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
