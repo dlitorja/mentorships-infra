@@ -70,6 +70,7 @@ vi.mock("@daily-co/daily-react", () => ({
 
 const mutationRegistry = vi.hoisted(() => ({
   endCall: { mutateAsync: vi.fn() },
+  prepareCallPresenceMessage: { mutate: vi.fn() },
   recordCallPresenceMessage: { mutate: vi.fn() },
   callIndex: 0,
 }));
@@ -80,14 +81,16 @@ vi.mock("@tanstack/react-query", () => ({
     onSuccess?: () => void;
     onError?: (err: unknown) => void;
   }) => {
-    // `useMutation` is called twice in the hook: once for `endCall`
-    // and once for `recordCallPresenceMessage`. We can't easily
-    // distinguish them by `config.mutationFn` (it's a closure),
-    // so we cycle through the registry based on call index.
+    // PR platform-call-bugs round 7 P1+Security: the hook now
+    // uses THREE mutations (endCall, prepareCallPresenceMessage,
+    // recordCallPresenceMessage). Cycle 1/2/3 across the three
+    // registry entries based on call order. The order matches
+    // the hook's `useMutation` invocation order.
     mutationRegistry.callIndex += 1;
-    return mutationRegistry.callIndex % 2 === 1
-      ? mutationRegistry.endCall
-      : mutationRegistry.recordCallPresenceMessage;
+    const idx = (mutationRegistry.callIndex - 1) % 3;
+    if (idx === 0) return mutationRegistry.endCall;
+    if (idx === 1) return mutationRegistry.prepareCallPresenceMessage;
+    return mutationRegistry.recordCallPresenceMessage;
   },
   useQueryClient: () => ({
     invalidateQueries: vi.fn(),
@@ -180,6 +183,16 @@ beforeEach(() => {
   mocks.getVideoToken.mockResolvedValue({ token: "token_test" });
   mocks.meetingState.mockReturnValue("new");
   mutationRegistry.endCall.mutateAsync.mockResolvedValue({});
+  // PR platform-call-bugs round 7 P1+Security: the prepare
+  // mutation returns a nonce id; the record mutation is then
+  // invoked inside the prepare's onSuccess callback. Simulate
+  // the chain by having prepare's mock immediately call
+  // onSuccess with a fake nonce id and forward to record.
+  mutationRegistry.prepareCallPresenceMessage.mutate.mockImplementation(
+    (args: unknown, handlers?: { onSuccess?: (id: unknown) => void }) => {
+      handlers?.onSuccess?.("nonce_test_id");
+    }
+  );
   mutationRegistry.recordCallPresenceMessage.mutate.mockClear();
   cleanup();
 });
@@ -218,10 +231,21 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
     // from the caller's `users` row — the client does NOT supply
     // a `systemActorName`. A malicious participant cannot
     // impersonate someone else in chat via this mutation.
+    //
+    // PR platform-call-bugs round 7 P1+Security: the record
+    // mutation now also receives a `nonceId` minted by the
+    // prepare mutation. The mock above simulates the prepare →
+    // onSuccess(nonceId) → record chain, so we assert the nonce
+    // is forwarded.
+    expect(mutationRegistry.prepareCallPresenceMessage.mutate).toHaveBeenCalledWith(
+      { workspaceId: "ws_xyz", sessionId: "session_xyz", kind: "joined" },
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    );
     expect(mutationRegistry.recordCallPresenceMessage.mutate).toHaveBeenCalledWith({
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
       kind: "joined",
+      nonceId: "nonce_test_id",
     });
   });
 
@@ -236,10 +260,15 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
       await ref.current!.leave();
     });
 
+    expect(mutationRegistry.prepareCallPresenceMessage.mutate).toHaveBeenCalledWith(
+      { workspaceId: "ws_xyz", sessionId: "session_xyz", kind: "left" },
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    );
     expect(mutationRegistry.recordCallPresenceMessage.mutate).toHaveBeenCalledWith({
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
       kind: "left",
+      nonceId: "nonce_test_id",
     });
   });
 

@@ -50,9 +50,15 @@ vi.mock("@/components/video/consent-modal", () => ({
   ConsentModal: () => null,
 }));
 
+// PR platform-call-bugs round 7 P2: type the mocked `Button`
+// using the same `ButtonProps` interface the real component
+// exports from `@mentorships/ui`, so a future prop change in
+// the real `Button` surfaces as a TS error here rather than
+// silently swallowing the type with `any`.
+import type { ButtonProps } from "@mentorships/ui";
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: any) => {
-    return React.createElement("button", props, children);
+  Button: ({ children, ...props }: ButtonProps) => {
+    return React.createElement("button", props as React.ButtonHTMLAttributes<HTMLButtonElement>, children);
   },
 }));
 

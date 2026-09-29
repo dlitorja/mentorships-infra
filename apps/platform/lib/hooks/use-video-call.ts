@@ -156,6 +156,28 @@ export function useVideoCall(
   // value, so a malicious participant cannot impersonate someone
   // else. Fire-and-forget: a transient Convex failure should not
   // interrupt the join / leave flow.
+  //
+  // Greptile round 7 P1+Security: the mutation now requires a
+  // nonce minted by `prepareCallPresenceMessage`. Mint a fresh
+  // nonce immediately before each record call so the server can
+  // verify the caller actually performed the join / leave action.
+  // The prepare mutation is itself authorized (workspace
+  // participant + session-in-workspace), so a malicious caller
+  // cannot mint nonces for arbitrary workspaces either. Failures
+  // here are surfaced via `onError` so an operator can grep for
+  // "presence-prepare" failures.
+  const prepareCallPresenceMessage = useMutation({
+    mutationFn: useConvexMutation(api.workspaces.prepareCallPresenceMessage),
+    onError: (err) => {
+      void reportError({
+        source: "videoCall.prepareCallPresenceMessage",
+        error: err instanceof Error ? err : new Error(String(err)),
+        level: "warn",
+        message: "Failed to prepare participant-joined/left nonce",
+        context: { workspaceId, sessionId },
+      });
+    },
+  });
   const recordCallPresenceMessage = useMutation({
     mutationFn: useConvexMutation(api.workspaces.recordCallPresenceMessage),
     // TanStack Query swallows errors from `mutate()` by default;
@@ -196,6 +218,15 @@ export function useVideoCall(
   useEffect(() => {
     recordCallPresenceMutateRef.current = recordCallPresenceMessage.mutate;
   }, [recordCallPresenceMessage.mutate]);
+
+  // Greptile round 7 P1+Security: same ref-mirror pattern for the
+  // new `prepareCallPresenceMessage` mutation. The cleanup path
+  // uses this ref so it can mint a fresh nonce before recording a
+  // "left" notice on unmount.
+  const prepareCallPresenceMutateRef = useRef(prepareCallPresenceMessage.mutate);
+  useEffect(() => {
+    prepareCallPresenceMutateRef.current = prepareCallPresenceMessage.mutate;
+  }, [prepareCallPresenceMessage.mutate]);
 
   // Track the latest remote participant's `session_id` (not name)
   // so we can clear `remoteParticipantName` correctly on leave —
@@ -281,6 +312,15 @@ export function useVideoCall(
   // mid-call) because `hasProgrammaticallyLeft` stays false in that
   // path, surfacing the error UI via the existing `useVideoCall.join`
   // re-entrancy guard.
+  //
+  // PR platform-call-bugs round 7 P2: when the disconnect path
+  // fires (network drop, Daily lost the WebSocket mid-call), the
+  // chat is missing a "left" notice because the user did not
+  // call `leave()` programmatically. Mint a fresh nonce and
+  // post the "left" notice from this branch too so the chat
+  // accurately reflects the user's departure. The mutation is
+  // idempotent server-side (the nonce is consumed on use), so a
+  // rapid leave + unmount double-fire cannot write two notices.
   useEffect(() => {
     if (meetingState === "joined-meeting") {
       setStatus("joined");
@@ -288,9 +328,30 @@ export function useVideoCall(
       setStatus("joining");
     } else if (meetingState === "left-meeting") {
       if (hasProgrammaticallyLeft) return;
+      // Non-programmatic disconnect: surface a "left" notice via
+      // the prepare + record chain so the chat reflects the user's
+      // departure. The server-side nonce TTL (30s) and consumed
+      // flag prevent duplicate writes if the unmount cleanup
+      // also fires for the same session.
+      if (workspaceId && sessionId && didJoinRef.current) {
+        prepareCallPresenceMutateRef.current(
+          { workspaceId, sessionId, kind: "left" },
+          {
+            onSuccess: (nonceId) => {
+              recordCallPresenceMutateRef.current({
+                workspaceId,
+                sessionId,
+                kind: "left",
+                nonceId,
+              });
+            },
+          }
+        );
+        didJoinRef.current = false;
+      }
       setStatus("idle");
     }
-  }, [meetingState, hasProgrammaticallyLeft]);
+  }, [meetingState, hasProgrammaticallyLeft, workspaceId, sessionId]);
 
   // Reset per-session state when the session changes (e.g. switching
   // workspaces or after a previous call ended).
@@ -390,12 +451,28 @@ export function useVideoCall(
       // from the caller's `users` row — we no longer pass a client-
       // supplied `systemActorName`. This prevents a malicious
       // participant from impersonating someone else in chat.
+      //
+      // Greptile round 7 P1+Security: mint a fresh nonce first
+      // and pass its id to the record mutation. Without this the
+      // server rejects the record call. We chain the two via the
+      // prepare mutation's resolved id rather than awaiting the
+      // record itself so a transient server failure on the
+      // presence write does not roll back the just-successful
+      // join. `onError` above surfaces failures to observability.
       if (workspaceId && sessionId) {
-        recordCallPresenceMessage.mutate({
-          workspaceId,
-          sessionId,
-          kind: "joined",
-        });
+        prepareCallPresenceMessage.mutate(
+          { workspaceId, sessionId, kind: "joined" },
+          {
+            onSuccess: (nonceId) => {
+              recordCallPresenceMessage.mutate({
+                workspaceId,
+                sessionId,
+                kind: "joined",
+                nonceId,
+              });
+            },
+          }
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -418,7 +495,7 @@ export function useVideoCall(
       });
       throw err;
     }
-  }, [daily, enabled, recordCallPresenceMessage, roomName, sessionId, workspaceId]);
+  }, [daily, enabled, prepareCallPresenceMessage, recordCallPresenceMessage, roomName, sessionId, workspaceId]);
 
   const leave = useCallback(async (): Promise<void> => {
     if (!daily) return;
@@ -479,12 +556,19 @@ export function useVideoCall(
     // and sets `callEndedAt`, so the token endpoint returns null and
     // the request 403s.
     setHasProgrammaticallyLeft(true);
+    // PR platform-call-bugs round 7 P2: clear `didJoinRef.current`
+    // BEFORE awaiting `endCall.mutateAsync`. The unmount cleanup
+    // path (line ~601) checks this ref before posting a "left"
+    // notice — if it stayed true until after the await, a
+    // component unmount racing the in-flight leave() could double-
+    // post the notice. Setting it synchronously before the await
+    // closes the race window.
+    didJoinRef.current = false;
     try {
       await daily.leave();
       if (joinedSessionId) {
         await endCall.mutateAsync({ sessionId: joinedSessionId });
       }
-      didJoinRef.current = false;
       setJoinedSessionId(null);
       // PR platform-call-bugs round 2: post a self-authored "left
       // the call" system message so the last departure is recorded
@@ -496,12 +580,25 @@ export function useVideoCall(
       // from the caller's `users` row — we no longer pass a client-
       // supplied `systemActorName`. This prevents a malicious
       // participant from impersonating someone else in chat.
+      //
+      // Greptile round 7 P1+Security: mint a fresh nonce first
+      // and pass its id to the record mutation. Same chain as
+      // the join path above; fire-and-forget so a transient
+      // server failure does not interrupt the leave flow.
       if (workspaceId && sessionId) {
-        recordCallPresenceMessage.mutate({
-          workspaceId,
-          sessionId,
-          kind: "left",
-        });
+        prepareCallPresenceMessage.mutate(
+          { workspaceId, sessionId, kind: "left" },
+          {
+            onSuccess: (nonceId) => {
+              recordCallPresenceMessage.mutate({
+                workspaceId,
+                sessionId,
+                kind: "left",
+                nonceId,
+              });
+            },
+          }
+        );
       }
       // PR platform-call-bugs: reset `participantCount` on local
       // leave. Daily fires `participant-left` for the local
@@ -530,7 +627,7 @@ export function useVideoCall(
       setStatus("error");
       setErrorMessage(message);
     }
-  }, [daily, endCall, joinedSessionId, meetingState, recordCallPresenceMessage, sessionId, workspaceId]);
+  }, [daily, endCall, joinedSessionId, meetingState, prepareCallPresenceMessage, recordCallPresenceMessage, sessionId, workspaceId]);
 
   // Cleanup on unmount: leave + endCall if we joined. Captured
   // refs for `mutateAsync` and `invalidateQueries` so the cleanup
@@ -597,12 +694,25 @@ export function useVideoCall(
           // room to fire `participant-left`. Called via a ref to
           // avoid re-running this cleanup when the mutation's
           // internal state changes (Greptile round 4 P1).
+          //
+          // Greptile round 7 P1+Security: mint a fresh nonce
+          // before recording. The cleanup path uses both
+          // prepare + record refs so the unmount flow stays
+          // self-contained.
           if (wid) {
-            recordCallPresenceMutateRef.current({
-              workspaceId: wid,
-              sessionId: sid,
-              kind: "left",
-            });
+            prepareCallPresenceMutateRef.current(
+              { workspaceId: wid, sessionId: sid, kind: "left" },
+              {
+                onSuccess: (nonceId) => {
+                  recordCallPresenceMutateRef.current({
+                    workspaceId: wid,
+                    sessionId: sid,
+                    kind: "left",
+                    nonceId,
+                  });
+                },
+              }
+            );
           }
         }
       }

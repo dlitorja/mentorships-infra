@@ -559,6 +559,41 @@ export default defineSchema({
     // `shareResourceToChat` / `embedResourceInNote`).
     .index("by_b2Key", ["b2Key"]),
 
+  // PR platform-call-bugs round 7 P1+Security: short-lived
+  // nonce rows that gate `recordCallPresenceMessage`. The client
+  // must call `prepareCallPresenceMessage` first to mint a nonce
+  // bound to (workspaceId, sessionId, userId, kind) with a TTL;
+  // the subsequent `recordCallPresenceMessage` call must
+  // present the nonce and the server consumes it on use. This
+  // stops a malicious workspace participant from posting fake
+  // "joined" / "left" notices — they cannot mint a nonce
+  // without already being authorized by the prepare mutation,
+  // which itself only succeeds if the caller is a real
+  // workspace participant.
+  //
+  // Cleanup: a daily cron (`expireCallPresenceNonces` in
+  // `convex/mutations/expireCallPresenceNonces.ts`) marks stale
+  // rows as expired and the function ignores them on lookup.
+  callPresenceNonces: defineTable({
+    workspaceId: v.id("workspaces"),
+    sessionId: v.id("sessions"),
+    // `callerId` is the Convex auth subject (Clerk user ID).
+    // Stored so the nonce cannot be presented by a different
+    // caller than the one who minted it.
+    callerId: v.string(),
+    kind: v.union(v.literal("joined"), v.literal("left")),
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    consumed: v.boolean(),
+  })
+    // Look up by (session, caller, kind) — the keys the record
+    // mutation uses to find a valid nonce.
+    .index("by_session_caller_kind", ["sessionId", "callerId", "kind"])
+    // Cleanup cron scans by expiry.
+    .index("by_expiresAt", ["expiresAt"])
+    // Workspace-scoped admin/diagnostics queries.
+    .index("by_workspaceId", ["workspaceId"]),
+
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.string(),
