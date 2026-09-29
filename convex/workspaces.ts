@@ -2587,6 +2587,14 @@ export const getWorkspaceMessages = query({
  * server-side URL resolver for chat messages. Returns the actual
  * signed URL for B2 rows, the `ctx.storage` URL for legacy rows,
  * or `undefined` for plain text messages.
+ *
+ * PR workspace-storage-3c follow-up: resource shares posted via
+ * `shareResourceToChat` (pre-PR-3c-fix) embed the resource's
+ * `b2Key` inside `content` as
+ * `${encodeURIComponent(fileName)}|${b2Key}` without stamping
+ * the `b2Key` column on the row. New rows from PR-3c-follow-up
+ * stamp `b2Key` directly, so this fallback only fires on legacy
+ * rows that lack the column.
  */
 async function resolveChatMessageUrl(
   ctx: QueryCtx,
@@ -2600,10 +2608,25 @@ async function resolveChatMessageUrl(
   if (message.storageId) {
     return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
   }
-  // Legacy rows stored the URL directly in `content` — keep that
-  // fallback so pre-PR-3c rows still render.
-  if (message.content.startsWith("http://") || message.content.startsWith("https://")) {
-    return message.content;
+  // Legacy resource share rows: extract the b2Key from the URL
+  // portion of `content` and resolve it. Only treat the URL
+  // portion as a b2Key when it does NOT look like an absolute
+  // URL — a `http(s)://...` URL is the legacy-Convex-storage path
+  // and we pass it through unchanged.
+  const separatorIndex = message.content.indexOf("|");
+  const urlPortion =
+    separatorIndex >= 0
+      ? message.content.slice(separatorIndex + 1)
+      : message.content;
+  if (
+    urlPortion.startsWith("http://") ||
+    urlPortion.startsWith("https://") ||
+    urlPortion.startsWith("https:/")
+  ) {
+    return urlPortion;
+  }
+  if (urlPortion.length > 0) {
+    return b2UrlMap.get(urlPortion);
   }
   return undefined;
 }
