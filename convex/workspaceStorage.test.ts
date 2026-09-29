@@ -959,6 +959,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
     uploaderId: "u_student_1",
     uploadedAt: now,
     contentType: "image/png",
+    size: 1024,
   });
 
   await expect(
@@ -968,6 +969,7 @@ test("reserveB2FileUploadLedger rejects duplicate b2Key", async () => {
       uploaderId: "u_student_1",
       uploadedAt: now + 1,
       contentType: "image/png",
+      size: 1024,
     })
   ).rejects.toThrow(/already reserved/i);
 });
@@ -988,6 +990,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       uploaderId: "u_student_1",
       uploadedAt: now,
       contentType: "image/png",
+      size: 1024,
     });
   }
   await expect(
@@ -997,6 +1000,7 @@ test("reserveB2FileUploadLedger enforces MAX_PENDING_UPLOADS_PER_WORKSPACE per u
       uploaderId: "u_student_1",
       uploadedAt: now,
       contentType: "image/png",
+      size: 1024,
     })
   ).rejects.toThrow(/too many pending uploads/i);
 });
@@ -1043,6 +1047,7 @@ test("reserveB2FileUploadLedger excludes legacy Convex-storage rows from the B2 
     uploaderId: "u_student_1",
     uploadedAt: now,
     contentType: "image/png",
+    size: 1024,
   });
 });
 
@@ -1067,9 +1072,14 @@ test("recordB2FileUpload binds a freshly minted key after B2 HEAD succeeds", asy
     }
   );
 
-  // Mock B2 HEAD: object exists.
+  // Mock B2 HEAD: object exists with matching content-length.
   const fetchSpy = vi.fn(async () =>
-    ({ ok: true, status: 200, text: async () => "" }) as Response
+    ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+      headers: new Headers({ "content-length": "1024" }),
+    }) as unknown as Response
   );
   vi.stubGlobal("fetch", fetchSpy);
 
@@ -1112,7 +1122,7 @@ test("recordB2FileUpload rejects when B2 HEAD reports a missing object", async (
     }
   );
 
-  vi.stubGlobal(
+vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
       ({ ok: false, status: 404, text: async () => "NoSuchKey" }) as Response
@@ -1179,7 +1189,12 @@ test("recordB2FileUpload rejects a key whose binding window has expired (Greptil
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
   const asStudent = t.withIdentity({ subject: "u_student_1" });
@@ -1238,7 +1253,12 @@ test("recordB2FileUpload rejects a key bound to a different workspace (Greptile 
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
 
@@ -1422,6 +1442,7 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
       uploaderId: "u_student_1",
       uploadedAt: now,
       b2Key,
+      size: 1024,
     })
   );
   // End the workspace so the mutation's re-check throws.
@@ -1429,12 +1450,18 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
     ctx.db.patch(workspaceId as any, { endedAt: now + 1 })
   );
 
-  // Mock the B2 HEAD to succeed; otherwise the action would
-  // throw on HEAD (not on the mutation's re-check).
+  // Mock the B2 HEAD to succeed with matching content-length;
+  // otherwise the action would throw on HEAD (not on the
+  // mutation's re-check).
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
 
@@ -1443,6 +1470,7 @@ test("verifyAndConfirmB2Upload catches TOCTOU throw and commits cancelledAt (HUC
       b2Key,
       ledgerId: rowId as any,
       callerId: "u_student_1",
+      expectedSize: 1024,
     })
   ).rejects.toThrow(/ended during/i);
 
@@ -1490,7 +1518,12 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
 
@@ -1499,6 +1532,7 @@ test("verifyAndConfirmB2Upload catch handler does NOT cancel on transient errors
       b2Key,
       ledgerId: rowId as any,
       callerId: "u_student_1",
+      expectedSize: 1024,
     })
   ).rejects.toThrow(/cancelled during/i);
 
@@ -1655,6 +1689,123 @@ test("recordB2FileUpload TOCTOU during HEAD: catch handler commits cancelledAt (
   expect(ledger?.completedAt).toBeUndefined();
 });
 
+test("verifyAndConfirmB2Upload rejects when HEAD content-length does not match declared size (Greptile round 3 P2)", async () => {
+  // Greptile round 3 P2: all HEAD mocks in this file return a
+  // matching content-length, so a regression that removes the
+  // new size guard would still pass the suite. This test
+  // exercises the size-mismatch path end-to-end: the action
+  // must throw and the ledger row must NOT be marked
+  // `completedAt`.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const b2Key = "2026-01-01/file_size_mismatch/mismatch.png";
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key,
+      // Caller declared 1024 bytes.
+      size: 1024,
+    })
+  );
+
+  // Mock B2 HEAD: object exists but with a DIFFERENT
+  // content-length. B2's own PUT guard would reject a
+  // mismatched PUT body at write time, but we test what
+  // happens if a size mismatch is observed at confirm time
+  // (e.g. via a lifecycle rule or admin tool that PUTs a
+  // different blob under the same key). The action MUST
+  // refuse to mark the upload complete.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "2048" }),
+      }) as Response
+    )
+  );
+
+  await expect(
+    t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
+      b2Key,
+      ledgerId: rowId as any,
+      callerId: "u_student_1",
+      expectedSize: 1024,
+    })
+  ).rejects.toThrow(/content-length.*does not match/i);
+
+  // Assert the ledger row was NOT marked complete.
+  const ledger = await t.run(async (ctx) =>
+    ctx.db
+      .query("fileUploads")
+      .withIndex("by_b2Key", (q) => q.eq("b2Key", b2Key))
+      .first()
+  );
+  expect(ledger?.completedAt).toBeUndefined();
+});
+
+test("verifyAndConfirmB2Upload skips size guard when expectedSize is undefined (legacy ledger row, Greptile round 4 P1)", async () => {
+  // Greptile round 4 P1: legacy ledger rows minted BEFORE the
+  // `fileUploads.size` column was added have no `size`. The
+  // caller may still confirm a successful upload even though
+  // the action's size guard has nothing to compare against.
+  // Without this exemption, every pre-deployment upload would
+  // be unrecoverable. The upload limit was already enforced
+  // at mint time on the pre-deployment code path.
+  stubB2Credentials();
+  const t = convexTest({ schema, modules });
+  const { workspaceId } = await seedWorkspaceWithInstructor(t, {
+    studentUserId: "u_student_1",
+    instructorUserId: "u_instructor_1",
+  });
+  const now = Date.now();
+  const b2Key = "2026-01-01/file_legacy_no_size/legacy.png";
+  const rowId = await t.run(async (ctx) =>
+    ctx.db.insert("fileUploads", {
+      workspaceId: workspaceId as any,
+      uploaderId: "u_student_1",
+      uploadedAt: now,
+      b2Key,
+      // NO `size` field — simulates a pre-deployment ledger
+      // row that pre-dates the size column.
+    })
+  );
+
+  // Mock B2 HEAD: object exists. The size guard is skipped
+  // because `expectedSize` is undefined.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "512" }),
+      }) as Response
+    )
+  );
+
+  // Call without expectedSize — the action must NOT throw on
+  // the size guard even though the actual content-length (512)
+  // is arbitrary. (The downstream confirm mutation will run
+  // its own authorization checks.)
+  await t.action(internal.workspaceStorage.verifyAndConfirmB2Upload, {
+    b2Key,
+    ledgerId: rowId as any,
+    callerId: "u_student_1",
+    // expectedSize omitted on purpose.
+  });
+});
+
 test("recordB2FileUpload TOCTOU: action-level cancel commits even though the mutation's nested cancel rolls back", async () => {
   // Round 33 follow-up: prove the actual production flow
   // DOES cancel the ledger when the workspace ends during
@@ -1705,7 +1856,12 @@ test("recordB2FileUpload TOCTOU: action-level cancel commits even though the mut
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
   await expect(
@@ -1747,7 +1903,12 @@ test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key"
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
   const asStudent = t.withIdentity({ subject: "u_student_1" });
@@ -1815,7 +1976,12 @@ test("getWorkspaceDownloadUrl clamps the URL lifetime to the workspace retention
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      ({ ok: true, status: 200, text: async () => "" }) as Response
+      ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        headers: new Headers({ "content-length": "1024" }),
+      }) as Response
     )
   );
   const asStudent = t.withIdentity({ subject: "u_student_1" });

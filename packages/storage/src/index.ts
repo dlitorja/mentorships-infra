@@ -1,4 +1,8 @@
-export { getB2Client, B2_BUCKET_NAME, B2_BUCKET_REGION } from "./client";
+export {
+  getB2Client,
+  B2_BUCKET_NAME,
+  B2_BUCKET_REGION,
+} from "./client";
 
 export {
   initiateMultipartUpload,
