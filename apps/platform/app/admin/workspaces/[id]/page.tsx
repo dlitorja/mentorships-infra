@@ -37,8 +37,13 @@ type Message = {
   userId: string;
   content: string;
   type: string;
-  senderRole: string;
+  senderRole: string | null;
   createdAt: number;
+  // PR platform-call-bugs round 3: system rows (call-presence
+  // notices) carry a `systemEventKind` discriminator. The admin
+  // Messages tab renders these distinctly so they are not mistaken
+  // for ordinary chat messages from an "Unknown" author.
+  systemEventKind?: "joined" | "left" | null;
 };
 
 type AuditLog = {
@@ -243,14 +248,36 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {workspace.messages.map((message) => (
+                  {workspace.messages.map((message) => {
+                    // PR platform-call-bugs round 3: system rows
+                    // (call-presence notices) are not authored by
+                    // any user — render them as muted system events
+                    // with a kind badge instead of falling back to
+                    // "Unknown".
+                    const isSystem = message.type === "system";
+                    return (
                     <div
                       key={message.id}
                       className="border rounded-lg p-4"
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <div className="font-medium text-sm">
-                          {message.senderRole || "Unknown"}
+                        <div className="font-medium text-sm flex items-center gap-2">
+                          {isSystem ? (
+                            <>
+                              <Badge variant="outline">
+                                System
+                              </Badge>
+                              {message.systemEventKind ? (
+                                <Badge variant="secondary">
+                                  {message.systemEventKind === "joined"
+                                    ? "Joined call"
+                                    : "Left call"}
+                                </Badge>
+                              ) : null}
+                            </>
+                          ) : (
+                            message.senderRole || "Unknown"
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {formatTimestamp(message.createdAt)}
@@ -258,7 +285,8 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
                       </div>
                       <div className="text-sm">{message.content}</div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

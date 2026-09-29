@@ -40,10 +40,18 @@ export function ParticipantIndicator({
   }
 
   const remoteCount = participantCount - 1;
+  // Greptile round 3: off-by-one fix. When `participantCount === 2`
+  // (you + one remote), `remoteCount` is 1 — the chip used to display
+  // "Alex + 1 more", but there are no OTHER remotes beyond Alex.
+  // The correct rendering for a two-person call is just the remote's
+  // name. The "+ N more" suffix only applies when N >= 2 other
+  // remotes beyond the displayed one.
   const summary = remoteParticipantName
-    ? remoteCount > 0
-      ? `${remoteParticipantName} + ${remoteCount} more`
-      : remoteParticipantName
+    ? participantCount === 2
+      ? remoteParticipantName
+      : remoteCount > 1
+        ? `${remoteParticipantName} + ${remoteCount - 1} more`
+        : remoteParticipantName
     : participantCount === 1
       ? "Just you"
       : `${participantCount} in call`;

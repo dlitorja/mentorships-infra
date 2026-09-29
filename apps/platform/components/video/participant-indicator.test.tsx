@@ -66,7 +66,7 @@ describe("<ParticipantIndicator> (platform-call-bugs)", () => {
       participantCount: 4,
       remoteParticipantName: "Alex",
     });
-    expect(getByText("Alex + 3 more")).toBeTruthy();
+    expect(getByText("Alex + 2 more")).toBeTruthy();
   });
 
   it("falls back to '{count} in call' when remoteParticipantName is null and count > 1", () => {

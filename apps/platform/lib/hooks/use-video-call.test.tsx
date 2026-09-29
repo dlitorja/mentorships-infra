@@ -46,7 +46,6 @@ const mocks = vi.hoisted(() => ({
   useMutation: vi.fn(),
   useQueryClient: vi.fn(),
   useConvexMutation: vi.fn(),
-  useUser: vi.fn(),
   reportError: vi.fn(),
   getVideoToken: vi.fn(),
   dailyParticipantsJoinedHandlers: [] as Array<(evt: unknown) => void>,
@@ -76,7 +75,7 @@ const mutationRegistry = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useMutation: (config: {
+  useMutation: (_config: {
     mutationFn: unknown;
     onSuccess?: () => void;
     onError?: (err: unknown) => void;
@@ -97,10 +96,6 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("@convex-dev/react-query", () => ({
   useConvexMutation: (fn: unknown) => () => fn,
-}));
-
-vi.mock("@clerk/nextjs", () => ({
-  useUser: () => mocks.useUser(),
 }));
 
 vi.mock("sonner", () => ({
@@ -128,16 +123,8 @@ const renderHook = (
     workspaceId: string | null;
     sessionId: string | null;
     roomName: string | null;
-    clerkFullName: string | null;
-    clerkLoaded: boolean;
   }> = {}
 ) => {
-  mocks.useUser.mockReturnValue({
-    user: options.clerkFullName
-      ? { fullName: options.clerkFullName, firstName: null, username: null }
-      : null,
-    isLoaded: options.clerkLoaded ?? true,
-  });
   const ref = { current: null as ReturnType<typeof useVideoCall> | null };
   let rerenderFn: ((props?: object) => void) | null = null;
   const Probe = () => {
@@ -197,14 +184,9 @@ beforeEach(() => {
   cleanup();
 });
 
-const setMeetingState = (state: string) => {
-  mocks.useMeetingState.mockReturnValue(state);
-  mocks.meetingState.mockReturnValue(state);
-};
-
 describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
   it("initializes participantCount to 1 after local join() succeeds (Greptile P2 #1)", async () => {
-    const { ref } = renderHook({ clerkFullName: "Alex Student" });
+    const { ref } = renderHook();
     expect(ref.current!.participantCount).toBe(0);
 
     await act(async () => {
@@ -222,7 +204,6 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
     const { ref } = renderHook({
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
-      clerkFullName: "Alex Student",
     });
     expect(mutationRegistry.recordCallPresenceMessage.mutate).not.toHaveBeenCalled();
 
@@ -230,11 +211,14 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
       await ref.current!.join();
     });
 
+    // Greptile round 3: the actor name is resolved server-side
+    // from the caller's `users` row — the client does NOT supply
+    // a `systemActorName`. A malicious participant cannot
+    // impersonate someone else in chat via this mutation.
     expect(mutationRegistry.recordCallPresenceMessage.mutate).toHaveBeenCalledWith({
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
       kind: "joined",
-      systemActorName: "Alex Student",
     });
   });
 
@@ -242,7 +226,6 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
     const { ref, setMeetingState } = renderHook({
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
-      clerkFullName: "Alex Student",
     });
     setMeetingState("joined-meeting");
 
@@ -254,12 +237,11 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
       workspaceId: "ws_xyz",
       sessionId: "session_xyz",
       kind: "left",
-      systemActorName: "Alex Student",
     });
   });
 
   it("resets participantCount to 0 after local leave() succeeds (Greptile P2 #1)", async () => {
-    const { ref, setMeetingState } = renderHook({ clerkFullName: "Alex Student" });
+    const { ref, setMeetingState } = renderHook();
     await act(async () => {
       await ref.current!.join();
     });
@@ -273,7 +255,7 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
   });
 
   it("does NOT post a system message from a participant-joined observer event (avoids dup)", async () => {
-    renderHook({ clerkFullName: "Alex Student" });
+    renderHook();
     // Pretend a remote participant just joined.
     act(() => {
       mocks.dailyParticipantsJoinedHandlers.forEach((h) =>
@@ -290,7 +272,7 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
   });
 
   it("does NOT post a system message from a participant-left observer event (avoids dup)", async () => {
-    renderHook({ clerkFullName: "Alex Student" });
+    renderHook();
     act(() => {
       mocks.dailyParticipantsLeftHandlers.forEach((h) =>
         h({
@@ -306,7 +288,7 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
   });
 
   it("skips a participant-joined event whose local flag is true (defensive: Daily could start firing these)", async () => {
-    const { ref } = renderHook({ clerkFullName: "Alex Student" });
+    const { ref } = renderHook();
     await act(async () => {
       await ref.current!.join();
     });

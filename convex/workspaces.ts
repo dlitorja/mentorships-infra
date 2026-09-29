@@ -2786,13 +2786,20 @@ export const createWorkspaceMessage = mutation({
  * surfaces in the Chat tab as a muted, centered notice so both
  * parties see who joined / left the call mid-session.
  *
- * `userId` is the Convex auth identity of the caller (the local
- * participant who observed the event, used for auth + audit only);
- * `systemActorName` is the Daily `participant.user_name` of the
- * person who joined or left, surfaced in the rendered content
- * ("Alex joined the call"). `senderRole` is intentionally left
- * undefined — system messages are not role-tagged so the Chat
- * list's avatar / bubble styling skips them entirely.
+ * Security note (Greptile round 3 P1): the actor's display name is
+ * resolved server-side from the caller's `users` row, NOT taken
+ * from the client. A malicious participant cannot impersonate
+ * someone else by passing a forged name — the rendered content
+ * always reflects the caller's real `firstName`/`lastName`. The
+ * caller is also verified to be a participant of the workspace +
+ * session pair, so this mutation cannot be used to post a fake
+ * notice to a workspace the caller doesn't belong to.
+ *
+ * `userId` is the Convex auth identity of the caller (also used
+ * to look up the display name + auth/audit). `senderRole` is
+ * intentionally left undefined — system messages are not
+ * role-tagged so the Chat list's avatar / bubble styling skips
+ * them entirely.
  *
  * Idempotency: callers are expected to debounce on the local
  * `participant.session_id` (Daily fires `participant-joined` /
@@ -2806,7 +2813,6 @@ export const recordCallPresenceMessage = mutation({
     workspaceId: v.id("workspaces"),
     sessionId: v.id("sessions"),
     kind: v.union(v.literal("joined"), v.literal("left")),
-    systemActorName: v.string(),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -2835,11 +2841,28 @@ export const recordCallPresenceMessage = mutation({
     // against `workspace.instructorId` / `workspace.ownerId`.
     await assertSessionBelongsToWorkspace(ctx, args);
 
-    const trimmedName = args.systemActorName.trim();
+    // Greptile round 3 P1: resolve the actor's display name from
+    // the server-side `users` row keyed by the caller's auth
+    // identity. Never trust a client-supplied name. If the user
+    // has no firstName/lastName on file, fall back to a generic
+    // label so we still emit a meaningful system notice rather
+    // than refusing the write.
+    const userRow = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", user.subject))
+      .first();
+    const resolvedName =
+      [userRow?.firstName, userRow?.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      userRow?.email?.split("@")[0]?.trim() ||
+      "A participant";
+
     const content =
       args.kind === "joined"
-        ? `${trimmedName} joined the call`
-        : `${trimmedName} left the call`;
+        ? `${resolvedName} joined the call`
+        : `${resolvedName} left the call`;
 
     return await ctx.db.insert("workspaceMessages", {
       workspaceId: args.workspaceId,

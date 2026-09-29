@@ -9,7 +9,6 @@ import {
 } from "@daily-co/daily-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
-import { useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -150,11 +149,13 @@ export function useVideoCall(
   // local user, so the first person's join would never be recorded,
   // and (b) when the last person leaves there is no observer client
   // left to record the departure. By writing from the joiner/leaver
-  // themselves — using Clerk's `user.fullName` as the actor — we
-  // cover both edges without risking duplicate messages (each
-  // participant writes their own event exactly once). Fire-and-
-  // forget: a transient Convex failure should not interrupt the
-  // join / leave flow.
+  // themselves we cover both edges without risking duplicate
+  // messages (each participant writes their own event exactly once).
+  // Greptile round 3: the actor's display name is resolved server-
+  // side from the caller's `users` row, NOT from a client-supplied
+  // value, so a malicious participant cannot impersonate someone
+  // else. Fire-and-forget: a transient Convex failure should not
+  // interrupt the join / leave flow.
   const recordCallPresenceMessage = useMutation({
     mutationFn: useConvexMutation(api.workspaces.recordCallPresenceMessage),
     // TanStack Query swallows errors from `mutate()` by default;
@@ -171,11 +172,6 @@ export function useVideoCall(
       });
     },
   });
-
-  // Resolve the local user's display name once Clerk has loaded.
-  // Used by `join()` / `leave()` success paths to author self-
-  // authored join / leave system messages.
-  const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
 
   // Capture the stable `mutateAsync` reference in a ref so the
   // unmount cleanup doesn't need `endCall` (the whole mutation
@@ -362,20 +358,17 @@ export function useVideoCall(
       // first join even when nobody is observing yet. Only the
       // joiner writes (not remote observers), so there's no risk
       // of duplicate entries when both A and B are present.
-      if (clerkIsLoaded && clerkUser && workspaceId && sessionId) {
-        const actorName =
-          clerkUser.fullName?.trim() ||
-          clerkUser.firstName?.trim() ||
-          clerkUser.username?.trim() ||
-          "";
-        if (actorName.length > 0) {
-          recordCallPresenceMessage.mutate({
-            workspaceId,
-            sessionId,
-            kind: "joined",
-            systemActorName: actorName,
-          });
-        }
+      //
+      // Greptile round 3: the actor name is resolved server-side
+      // from the caller's `users` row — we no longer pass a client-
+      // supplied `systemActorName`. This prevents a malicious
+      // participant from impersonating someone else in chat.
+      if (workspaceId && sessionId) {
+        recordCallPresenceMessage.mutate({
+          workspaceId,
+          sessionId,
+          kind: "joined",
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -398,7 +391,7 @@ export function useVideoCall(
       });
       throw err;
     }
-  }, [daily, enabled, roomName, sessionId, workspaceId]);
+  }, [daily, enabled, recordCallPresenceMessage, roomName, sessionId, workspaceId]);
 
   const leave = useCallback(async (): Promise<void> => {
     if (!daily) return;
@@ -471,20 +464,17 @@ export function useVideoCall(
       // (no observer client remains to fire `participant-left`).
       // Only the leaver writes; observers stay silent to avoid
       // duplicates when multiple clients observe the same leave.
-      if (clerkIsLoaded && clerkUser && workspaceId && sessionId) {
-        const actorName =
-          clerkUser.fullName?.trim() ||
-          clerkUser.firstName?.trim() ||
-          clerkUser.username?.trim() ||
-          "";
-        if (actorName.length > 0) {
-          recordCallPresenceMessage.mutate({
-            workspaceId,
-            sessionId,
-            kind: "left",
-            systemActorName: actorName,
-          });
-        }
+      //
+      // Greptile round 3: the actor name is resolved server-side
+      // from the caller's `users` row — we no longer pass a client-
+      // supplied `systemActorName`. This prevents a malicious
+      // participant from impersonating someone else in chat.
+      if (workspaceId && sessionId) {
+        recordCallPresenceMessage.mutate({
+          workspaceId,
+          sessionId,
+          kind: "left",
+        });
       }
       // PR platform-call-bugs: reset `participantCount` on local
       // leave. Daily fires `participant-left` for the local
@@ -513,7 +503,7 @@ export function useVideoCall(
       setStatus("error");
       setErrorMessage(message);
     }
-  }, [daily, endCall, joinedSessionId, meetingState, sessionId, workspaceId]);
+  }, [daily, endCall, joinedSessionId, meetingState, recordCallPresenceMessage, sessionId, workspaceId]);
 
   // Cleanup on unmount: leave + endCall if we joined. Captured
   // refs for `mutateAsync` and `invalidateQueries` so the cleanup
@@ -543,6 +533,18 @@ export function useVideoCall(
   // `daily` only — `endCall` and `queryClient` are accessed via
   // refs so the cleanup only re-registers when the Daily call
   // instance changes (rare in practice).
+  //
+  // Greptile round 3 P1 (outside-diff): the unmount cleanup also
+  // writes a self-authored "left the call" system message when the
+  // user joined but the workspace is unmounting before they could
+  // hit the End Call button (e.g. workspace switch, page
+  // navigation, error-state auto-remount). Without this, the
+  // remote observer's `participant-left` handler used to be the
+  // only writer — and there may be no observer left in the room.
+  // Fire-and-forget; the workspace/session/role checks inside
+  // `recordCallPresenceMessage` will still run server-side, so a
+  // stale workspaceId/sessionId just rejects the write without
+  // crashing the unmount path.
   useEffect(() => {
     return () => {
       const d = daily;
@@ -550,6 +552,7 @@ export function useVideoCall(
       const ms = d.meetingState();
       if (ms === "joined-meeting") {
         const sid = latestSessionIdRef.current;
+        const wid = latestWorkspaceIdRef.current;
         d.leave().catch(() => {
           /* swallow — unmount path */
         });
@@ -562,10 +565,20 @@ export function useVideoCall(
             .catch(() => {
               /* swallow — unmount path */
             });
+          // Self-authored departure so the chat captures the user
+          // leaving even when there is no observer client in the
+          // room to fire `participant-left`.
+          if (wid) {
+            recordCallPresenceMessage.mutate({
+              workspaceId: wid,
+              sessionId: sid,
+              kind: "left",
+            });
+          }
         }
       }
     };
-  }, [daily]);
+  }, [daily, recordCallPresenceMessage]);
 
   const toggleMute = useCallback((): void => {
     const d = daily;
