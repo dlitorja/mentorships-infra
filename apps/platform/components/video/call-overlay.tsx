@@ -16,6 +16,7 @@ import {
 } from "@/lib/video/constants";
 import { VideoCall } from "@/components/video/video-call";
 import { CallStatusPill } from "@/components/video/call-status-pill";
+import { ParticipantIndicator } from "@/components/video/participant-indicator";
 import { WaitingRoom } from "@/components/video/waiting-room";
 import { TabContent } from "@/components/workspace/workspace-client-page";
 import { WorkspaceTabsList } from "@/components/workspace/workspace-tabs-list";
@@ -149,13 +150,14 @@ export function CallOverlay({
           <div
             className={`absolute ${insetClass} flex flex-col rounded-xl bg-background shadow-2xl overflow-hidden`}
           >
-            {/* Header: call status pill + waiting-room admit
-             * controls. The leave button lives on the existing
-             * `<VideoControls>` bar inside the video panel — we
-             * intentionally don't duplicate it here so the user has
-             * exactly one way to leave the call. */}
+            {/* Header: call status pill + participant indicator +
+             * waiting-room admit controls. The leave button lives
+             * on the existing `<VideoControls>` bar inside the video
+             * panel — we intentionally don't duplicate it here so
+             * the user has exactly one way to leave the call. */}
             <div className="flex items-center gap-3 px-4 py-2 border-b shrink-0">
               <CallStatusPill />
+              <ParticipantIndicator />
               <WaitingRoom role={role} />
             </div>
 

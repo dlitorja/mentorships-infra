@@ -2780,6 +2780,83 @@ export const createWorkspaceMessage = mutation({
 });
 
 /**
+ * PR platform-call-bugs: posts a system message to a workspace's
+ * chat on behalf of a participant-joined / -left event from the
+ * Daily.co video call. The row is NOT authored by a user — it
+ * surfaces in the Chat tab as a muted, centered notice so both
+ * parties see who joined / left the call mid-session.
+ *
+ * `userId` is the Convex auth identity of the caller (the local
+ * participant who observed the event, used for auth + audit only);
+ * `systemActorName` is the Daily `participant.user_name` of the
+ * person who joined or left, surfaced in the rendered content
+ * ("Alex joined the call"). `senderRole` is intentionally left
+ * undefined — system messages are not role-tagged so the Chat
+ * list's avatar / bubble styling skips them entirely.
+ *
+ * Idempotency: callers are expected to debounce on the local
+ * `participant.session_id` (Daily fires `participant-joined` /
+ * `participant-left` once per session id, so the mutation receives
+ * one event per participant transition). A future hardening pass
+ * can add a short-window dedupe via `(workspaceId, sessionId,
+ * sessionId)` if a flaky WebSocket causes duplicate events.
+ */
+export const recordCallPresenceMessage = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionId: v.id("sessions"),
+    kind: v.union(v.literal("joined"), v.literal("left")),
+    systemActorName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    // Sender-role resolution is intentionally skipped — system rows
+    // are NOT attributed to any user, and the Chat tab renders them
+    // without a sender name. We still need to verify the caller is a
+    // workspace participant so a malicious client can't post fake
+    // join / leave notices to a workspace they don't belong to.
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace. Same helper as the user-authored chat mutations
+    // — it cross-checks `session.instructorId` and `session.studentId`
+    // against `workspace.instructorId` / `workspace.ownerId`.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    const trimmedName = args.systemActorName.trim();
+    const content =
+      args.kind === "joined"
+        ? `${trimmedName} joined the call`
+        : `${trimmedName} left the call`;
+
+    return await ctx.db.insert("workspaceMessages", {
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+      content,
+      type: "system",
+      systemEventKind: args.kind,
+      sessionId: args.sessionId,
+      // senderRole intentionally omitted — system rows are not
+      // attributed to any role. The Chat tab uses the absence of
+      // senderRole + `type === "system"` to decide on the muted,
+      // centered rendering branch.
+    });
+  },
+});
+
+/**
  * Creates a downloadable file message in a workspace with role-based
  * file caps. Requires auth.
  *

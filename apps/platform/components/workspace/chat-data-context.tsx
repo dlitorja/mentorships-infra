@@ -9,7 +9,8 @@ export interface ChatMessageRow {
   workspaceId: Id<"workspaces">;
   userId: string;
   content: string;
-  type: "text" | "image" | "file";
+  type: "text" | "image" | "file" | "system";
+  systemEventKind?: "joined" | "left";
   senderRole?: "student" | "instructor" | "admin";
   authorDisplayName: string;
   sessionId?: Id<"sessions">;

@@ -230,4 +230,45 @@ describe("WorkspaceChat", () => {
       });
     });
   });
+
+  // PR platform-call-bugs: system messages are NOT user-authored —
+  // they describe a participant-joined / -left event from the
+  // Daily.co call and render as a muted, centered notice without
+  // an avatar / bubble / ShareLink affordance. This test pins the
+  // rendering branch so any regression to the user-authored
+  // message bubble surfaces as a CI failure.
+  it("renders system messages distinctly (centered, muted, no bubble)", () => {
+    mockUseWorkspaceMessagesPaginated.mockReturnValue({
+      results: [
+        {
+          _id: "msg_sys_1",
+          workspaceId: "ws_1",
+          userId: "user_2",
+          authorDisplayName: "Alex Instructor",
+          content: "Alex joined the call",
+          type: "system",
+          systemEventKind: "joined",
+          sessionId: "session_1",
+        },
+      ],
+      isLoading: false,
+      loadMore: vi.fn(),
+      status: "Exhausted",
+    });
+    renderWithProviders(
+      <WorkspaceChat workspaceId="ws_1" currentUserId="user_1" role="student" activeSessionId={null} />
+    );
+    // System row is rendered through the dedicated branch — verify
+    // the marker testid is present.
+    const systemRow = screen.getByTestId("chat-system-message");
+    expect(systemRow).toBeInTheDocument();
+    expect(systemRow.getAttribute("data-system-event-kind")).toBe("joined");
+    expect(systemRow.textContent).toContain("Alex joined the call");
+    // The user-authored bubble would surface "Alex Instructor" as
+    // an avatar name; the system branch must NOT, since system rows
+    // are not attributed to any user.
+    expect(screen.queryByText("Alex Instructor")).not.toBeInTheDocument();
+    // Sanity: the system row is centered (flex justify-center).
+    expect(systemRow.className).toContain("justify-center");
+  });
 });

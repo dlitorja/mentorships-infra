@@ -142,6 +142,28 @@ export function useVideoCall(
     },
   });
 
+  // PR platform-call-bugs: posts a system message to the workspace
+  // chat when a remote participant joins or leaves the Daily room.
+  // Wired into the `participant-joined` / `participant-left` event
+  // handlers below. Fire-and-forget — a transient Convex failure
+  // should not interrupt the join / leave flow.
+  const recordCallPresenceMessage = useMutation({
+    mutationFn: useConvexMutation(api.workspaces.recordCallPresenceMessage),
+    // TanStack Query swallows errors from `mutate()` by default;
+    // surface them via observability so the operator can grep for
+    // "presence-message" failures. The participant count + chat
+    // list stay correct either way.
+    onError: (err) => {
+      void reportError({
+        source: "videoCall.recordCallPresenceMessage",
+        error: err instanceof Error ? err : new Error(String(err)),
+        level: "warn",
+        message: "Failed to record participant-joined/left system message",
+        context: { workspaceId, sessionId },
+      });
+    },
+  });
+
   // Capture the stable `mutateAsync` reference in a ref so the
   // unmount cleanup doesn't need `endCall` (the whole mutation
   // object) in its dependency array. Otherwise the cleanup would
@@ -544,8 +566,30 @@ export function useVideoCall(
             setRemoteParticipantName(evt.participant.user_name);
           }
         }
+        // PR platform-call-bugs: post a system message to the
+        // workspace chat so both parties see who joined / left the
+        // call mid-session. Skip the local participant — the user
+        // doesn't need a "you joined the call" notice. Fire-and-
+        // forget: the mutation is idempotent against the local
+        // Daily session_id, and a transient Convex failure should
+        // not interrupt the join flow. We log the failure so the
+        // operator can grep for it.
+        if (
+          !evt.participant.local &&
+          workspaceId &&
+          sessionId &&
+          evt.participant.user_name &&
+          evt.participant.user_name.trim().length > 0
+        ) {
+          recordCallPresenceMessage.mutate({
+            workspaceId,
+            sessionId,
+            kind: "joined",
+            systemActorName: evt.participant.user_name,
+          });
+        }
       },
-      []
+      [recordCallPresenceMessage, workspaceId, sessionId]
     )
   );
 
@@ -553,7 +597,11 @@ export function useVideoCall(
     "participant-left",
     useCallback(
       (evt: {
-        participant: { session_id?: string; user_name?: string };
+        participant: {
+          session_id?: string;
+          user_name?: string;
+          local?: boolean;
+        };
       }) => {
         setParticipantCount((prev) => Math.max(prev - 1, 0));
         // Only clear the remote name if the leaving participant's
@@ -566,8 +614,30 @@ export function useVideoCall(
           remoteSessionIdRef.current = null;
           setRemoteParticipantName(null);
         }
+        // PR platform-call-bugs: mirror of the join branch above.
+        // Fire-and-forget; failures are logged via the mutation's
+        // default `onError` (TanStack Query wraps the call). Daily
+        // also fires `participant-left` for the local participant
+        // when the user explicitly leaves, but we skip those so the
+        // user doesn't see "you left the call" right after pressing
+        // End Call (the call overlay already communicates the
+        // transition).
+        if (
+          !evt.participant.local &&
+          workspaceId &&
+          sessionId &&
+          evt.participant.user_name &&
+          evt.participant.user_name.trim().length > 0
+        ) {
+          recordCallPresenceMessage.mutate({
+            workspaceId,
+            sessionId,
+            kind: "left",
+            systemActorName: evt.participant.user_name,
+          });
+        }
       },
-      []
+      [recordCallPresenceMessage, workspaceId, sessionId]
     )
   );
 

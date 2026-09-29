@@ -13,7 +13,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
-import { useVideoCallContext } from "@/lib/video/video-context";
+import { useIsInCall, useVideoCallContext } from "@/lib/video/video-context";
 import { startAdhocCall } from "@/lib/queries/api-client";
 
 export type StartAdhocButtonProps = {
@@ -50,6 +50,7 @@ export function StartAdhocButton({
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const { session, isSessionLoading, requestJoin } = useVideoCallContext();
+  const isInCall = useIsInCall();
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
@@ -104,9 +105,23 @@ export function StartAdhocButton({
   // connections), but hiding the affordance here means the user
   // never has to interpret that error in normal usage.
   //
+  // PR platform-call-bugs: also gate on `useIsInCall()` as a
+  // defense-in-depth check. The workspace action row is already
+  // hidden when `!isInCall === false` in `workspace-client-page.tsx`,
+  // but `status` can flicker to "idle" or "error" mid-call on a
+  // transient network blip, briefly unmounting the action row AND
+  // briefly returning `session === null` from a stale refetch. The
+  // composite check (`!isInCall && !session && !isSessionLoading`)
+  // closes both windows so the "Start video call" affordance is
+  // only ever visible when no call is in progress.
+  //
   // We render a disabled "Loading…" placeholder during the fetch so
   // the action row's layout stays stable instead of popping the
   // button in after the first paint.
+  if (isInCall) {
+    return null;
+  }
+
   if (isSessionLoading) {
     return (
       <Button

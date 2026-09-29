@@ -563,7 +563,30 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     userId: v.string(),
     content: v.string(),
-    type: v.union(v.literal("text"), v.literal("image"), v.literal("file")),
+    type: v.union(
+      v.literal("text"),
+      v.literal("image"),
+      v.literal("file"),
+      // PR platform-call-bugs: a system message posted by the
+      // workspace on behalf of an event (e.g. participant-joined /
+      // -left in a video call). The row is NOT authored by a user
+      // and the Chat tab renders it as a muted, centered notice
+      // without an avatar / bubble. See `recordCallPresenceMessage`
+      // in `convex/workspaces.ts` and the
+      // `participant-joined` / `participant-left` handlers in
+      // `apps/platform/lib/hooks/use-video-call.ts`.
+      v.literal("system")
+    ),
+    // PR platform-call-bugs: when `type === "system"`, this is the
+    // kind of event that triggered the row. `joined` / `left` come
+    // from the Daily `participant-joined` / `participant-left`
+    // events; the content string holds the rendered notice
+    // (e.g. "Alex joined the call"). The field is intentionally
+    // optional so existing rows are unaffected; the Chat tab only
+    // reads it for `type === "system"`.
+    systemEventKind: v.optional(
+      v.union(v.literal("joined"), v.literal("left"))
+    ),
     senderRole: v.optional(v.union(v.literal("instructor"), v.literal("student"), v.literal("admin"))),
     // Set when a chat message is posted while a video call is active
     // in the workspace. The Chat tab renders a banner that explains

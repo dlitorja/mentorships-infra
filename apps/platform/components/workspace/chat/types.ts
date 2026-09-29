@@ -8,7 +8,13 @@ export interface Message {
   workspaceId: Id<'workspaces'>;
   userId: string;
   content: string;
-  type: 'text' | 'image' | 'file';
+  type: 'text' | 'image' | 'file' | 'system';
+  // PR platform-call-bugs: when `type === 'system'`, this identifies
+  // the event that produced the notice (call participant joined /
+  // left). Used by `ChatMessageList` to render the appropriate label
+  // and to skip the avatar / bubble / ShareLink affordances that
+  // apply to user-authored messages.
+  systemEventKind?: 'joined' | 'left';
   senderRole?: 'student' | 'instructor' | 'admin';
   authorDisplayName: string;
   sessionId?: Id<'sessions'>;
