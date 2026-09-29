@@ -54,13 +54,27 @@ export function StorageUsage({
     return (n / total) * 100;
   };
 
+  // Round-33 Greptile P1 #2: when the counter is a placeholder
+  // (lastUpdatedAt === 0), the fileCount/bytes shown by the
+  // dashboard are delta-math on top of zero — they understate
+  // the editor's real usage until the hourly cron reconciles the
+  // placeholder. The "refreshing" badge is the right signal, but
+  // showing provisional numbers alongside it tells the editor
+  // they're trustworthy when they aren't. Hide the numbers and
+  // the progress bar; show only the badge plus a "—" row.
+  const showProvisionalNumbers = !isRefreshing;
+
   return (
     <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
       <div className="flex items-center gap-3 mb-4">
         <HardDrive className="w-5 h-5 text-emerald-500" />
         <h3 className="font-semibold text-slate-200">Storage Usage</h3>
         <span className="text-sm text-slate-500 ml-auto">
-          {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
+          {showProvisionalNumbers && (
+            <>
+              {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
+            </>
+          )}
           {isRefreshing && (
             <span
               className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-300 border border-yellow-800"
@@ -81,7 +95,12 @@ export function StorageUsage({
       </div>
 
       <div className="space-y-2">
-        {isNoAccess ? (
+        {isRefreshing ? (
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-400">— used</span>
+            <span className="text-slate-500">Reconciling in progress</span>
+          </div>
+        ) : isNoAccess ? (
           <div className="flex justify-between text-sm">
             <span className="text-slate-400">{formatBytes(usedBytes)} used</span>
             <span className="text-slate-500">No active assignments</span>
@@ -98,7 +117,11 @@ export function StorageUsage({
         )}
 
         <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-          {isNoAccess ? (
+          {isRefreshing ? (
+            <div className="h-full bg-slate-700 w-full flex items-center justify-center text-xs text-slate-400">
+              —
+            </div>
+          ) : isNoAccess ? (
             <div className="h-full bg-slate-700 w-full flex items-center justify-center text-xs text-slate-400">
               —
             </div>
@@ -118,7 +141,12 @@ export function StorageUsage({
           )}
         </div>
 
-        {isNoAccess ? (
+        {isRefreshing ? (
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Reconciling</span>
+            <span>Up to 1 hour</span>
+          </div>
+        ) : isNoAccess ? (
           <div className="flex justify-between text-xs text-slate-500">
             <span>No access</span>
             <span>Contact an admin</span>

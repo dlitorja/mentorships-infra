@@ -114,6 +114,7 @@ export async function applyCounterDelta(
     let usedBytes = 0;
     let fileCount = 0;
     let lastUpdatedAt: number = Date.now();
+    let placeholderTouchedAt: number | undefined = undefined;
     let aggregateSucceeded = false;
     try {
       const aggregate = await computeFullAggregate(ctx, uploadedById);
@@ -122,6 +123,7 @@ export async function applyCounterDelta(
       aggregateSucceeded = true;
     } catch (error) {
       lastUpdatedAt = 0;
+      placeholderTouchedAt = Date.now();
       console.error(
         "[storageCounter] inline aggregate scan failed; seeding 0/0 placeholder with lastUpdatedAt=0 sentinel, deferring real aggregate to backfill cron",
         {
@@ -136,15 +138,42 @@ export async function applyCounterDelta(
         usedBytes,
         fileCount,
         lastUpdatedAt,
+        placeholderTouchedAt,
       });
     } catch (insertError) {
-      // Most likely cause: another writer (the backfill cron, or a
-      // concurrent request) inserted a counter row between our
-      // `existing` check and our `insert`. That's fine — first
-      // writer wins, the counter row exists, and the read path no
-      // longer needs the paginated scan fallback.
+      // Re-query: if another writer (backfill cron, concurrent
+      // request) inserted a counter row between our `existing` check
+      // and our `insert`, the row is now present and we're done.
+      // (Round-33 Greptile P2 #4: the previous catch silently
+      // swallowed ALL insert failures — including genuine errors
+      // that leave the counter missing. We must distinguish the
+      // benign race from a real failure so the read path doesn't
+      // keep falling through to the expensive scan.)
+      const recheck = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", uploadedById)
+        )
+        .first();
+      if (recheck) {
+        console.error(
+          "[storageCounter] inline counter insert lost a race; another writer created the row",
+          {
+            videoEditorId: uploadedById,
+            aggregateSucceeded,
+          },
+        );
+        return;
+      }
+      // Genuine insert failure: re-throw so the parent mutation
+      // surfaces the error. The parent (e.g. completeUpload) has
+      // already written its source-of-truth row, but the alternative
+      // — silently swallowing and returning — leaves the editor's
+      // dashboard reading from a 500-prone paginated scan until the
+      // next cron pass surfaces the row. Better to fail loudly so
+      // we notice and fix the root cause.
       console.error(
-        "[storageCounter] inline counter insert failed (likely duplicate)",
+        "[storageCounter] inline counter insert failed for non-race reason; re-throwing",
         {
           videoEditorId: uploadedById,
           aggregateSucceeded,
@@ -154,6 +183,7 @@ export async function applyCounterDelta(
               : String(insertError),
         },
       );
+      throw insertError;
     }
     return;
   }
@@ -172,10 +202,21 @@ export async function applyCounterDelta(
   // acts as a 0/0 baseline), and the hourly backfill cron will
   // overwrite the whole row with the real aggregate + real
   // timestamp on its next pass.
+  //
+  // Race tracking: set `placeholderTouchedAt` so the cron's
+  // reconciliation check can detect that a mutation has touched
+  // this placeholder DURING its scan. Round-33 Greptile P1 #1:
+  // the previous race check relied on `lastUpdatedAt > scanStartTime`,
+  // which was unreachable because `lastUpdatedAt: 0` is never
+  // greater than any positive scanStartTime. Now the cron's
+  // `setVideoEditorStorageCounterBatch` compares
+  // `placeholderTouchedAt` against `scanStartTime` to skip rows a
+  // concurrent mutation just touched.
   await ctx.db.patch(existing._id, {
     usedBytes: Math.max(0, existing.usedBytes + deltaBytes),
     fileCount: Math.max(0, existing.fileCount + deltaCount),
     lastUpdatedAt: existing.lastUpdatedAt === 0 ? 0 : Date.now(),
+    placeholderTouchedAt: existing.lastUpdatedAt === 0 ? Date.now() : undefined,
   });
 }
 

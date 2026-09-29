@@ -63,10 +63,11 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
     // The cron overwrites them with its (possibly stale by one
     // mutation) aggregate, which clears the placeholder sentinel.
     // Mutations on a placeholder that happened DURING the cron's
-    // scan are protected by the `existing.lastUpdatedAt >
-    // scanStartTime` check below — they have set lastUpdatedAt to
-    // a non-zero value via the delta path (which preserves the
-    // sentinel), so the cron's stale aggregate is skipped.
+    // scan are protected by the `placeholderTouchedAt >
+    // scanStartTime` check below — every mutation that touches a
+    // placeholder sets `placeholderTouchedAt: Date.now()`, so the
+    // cron can reliably detect a concurrent touch even though
+    // `lastUpdatedAt` stays at the sentinel value 0.
     //
     // Trade-off acknowledged (round-32 Greptile P1): for editors
     // whose historical row count permanently exceeds the inline
@@ -94,8 +95,15 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
         // scan touched this placeholder with a fresher value.
         if (existing.lastUpdatedAt === 0) {
           // Mutation touched the placeholder DURING the cron's
-          // scan: skip — its value is fresher than the scan.
-          if (existing.lastUpdatedAt > args.scanStartTime) {
+          // scan: skip — its value is fresher than the scan. We
+          // use `placeholderTouchedAt` (set on every mutation
+          // that touches a placeholder) instead of `lastUpdatedAt`
+          // because the sentinel `0` is never greater than any
+          // positive scanStartTime. (round-33 Greptile P1 #1.)
+          if (
+            existing.placeholderTouchedAt !== undefined &&
+            existing.placeholderTouchedAt > args.scanStartTime
+          ) {
             skippedByMutation += 1;
             continue;
           }
@@ -103,6 +111,7 @@ export const setVideoEditorStorageCounterBatch = internalMutation({
             usedBytes: entry.usedBytes,
             fileCount: entry.fileCount,
             lastUpdatedAt,
+            placeholderTouchedAt: undefined,
           });
           reconciledPlaceholders += 1;
           continue;
@@ -168,5 +177,86 @@ export const backfillVideoEditorStorageCounterStatus = internalQuery({
       0
     );
     return { editorsWithCounter: totalEditors, lastUpdatedAt };
+  },
+});
+
+/**
+ * Round-33 Greptile P2 #3: confirm zero on placeholder counter
+ * rows whose editors have no active uploads. The main cron's
+ * `setVideoEditorStorageCounterBatch` only processes editors with
+ * at least one active upload (its `entries` come from a scan that
+ * skips `deleted`/`deleting` rows). An editor whose historical
+ * rows are ALL inactive can end up with a `lastUpdatedAt: 0`
+ * placeholder that no cron pass reconciles — the UI's "refreshing"
+ * badge then persists forever even though 0/0 is the correct value.
+ *
+ * Strategy: iterate `videoEditorStorageStats` rows where
+ * `lastUpdatedAt === 0` (via the `by_placeholder` index), and for
+ * each one check via `by_uploadedById` whether ANY active row
+ * exists. If not, write 0/0 with `Date.now()` and clear the
+ * sentinel + `placeholderTouchedAt`.
+ *
+ * This is bounded: at most one mutation per placeholder row, and
+ * the placeholder set is small (only inserted when the inline
+ * aggregate scan failed).
+ */
+export const confirmPlaceholderZeroSweep = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const lastUpdatedAt = Date.now();
+    let confirmedZeroPlaceholders = 0;
+
+    let cursor: string | null = null;
+    let isDone = false;
+    // Bound to a generous number of pages; placeholder rows are
+    // rare (only created on aggregate-scan failure) so this is
+    // almost always a single page in practice.
+    for (let i = 0; i < 1000 && !isDone; i += 1) {
+      const page = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_placeholder", (q) => q.eq("lastUpdatedAt", 0))
+        .paginate({ cursor, numItems: 200 });
+      isDone = page.isDone;
+      cursor = page.isDone ? null : page.continueCursor;
+
+      for (const row of page.page) {
+        // Skip rows that were touched by a mutation after the
+        // cron's scanStartTime — those mutations have fresher
+        // delta math than what we'd write here. Race-safe: the
+        // next cron pass will revisit them.
+        // (We don't have scanStartTime in this sweep; mutations
+        // since the previous cron pass are fine to clobber here
+        // because the subsequent cron's main scan will re-process
+        // editors with active uploads. The only way a placeholder
+        // survives here is if the editor has NO active uploads —
+        // and for those editors, 0/0 with a fresh timestamp is
+        // strictly more accurate than any pending mutation
+        // because no mutations CAN be pending without active
+        // uploads being added.)
+        const hasActive = await ctx.db
+          .query("instructorUploads")
+          .withIndex("by_uploadedById", (q) =>
+            q.eq("uploadedById", row.videoEditorId)
+          )
+          .filter((q) =>
+            q.and(
+              q.neq(q.field("status"), "deleted"),
+              q.neq(q.field("status"), "deleting"),
+            )
+          )
+          .first();
+        if (hasActive) continue;
+
+        await ctx.db.patch(row._id, {
+          usedBytes: 0,
+          fileCount: 0,
+          lastUpdatedAt,
+          placeholderTouchedAt: undefined,
+        });
+        confirmedZeroPlaceholders += 1;
+      }
+      if (cursor === null) break;
+    }
+    return { confirmedZeroPlaceholders };
   },
 });

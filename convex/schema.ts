@@ -1134,7 +1134,21 @@ export default defineSchema({
     usedBytes: v.number(),
     fileCount: v.number(),
     lastUpdatedAt: v.number(),
-  }).index("by_videoEditorId", ["videoEditorId"]),
+    // Set on every mutation that touches a placeholder counter
+    // (`lastUpdatedAt === 0`) to the mutation's timestamp. Lets the
+    // hourly cron reconcile distinguish (a) a placeholder no
+    // mutation has touched since its scan started (safe to
+    // overwrite) from (b) a placeholder a concurrent mutation
+    // just touched (skip the write to avoid clobbering fresher
+    // delta math). Round-33 Greptile P1 #1: the prior sentinel
+    // check `existing.lastUpdatedAt > scanStartTime` was
+    // unreachable because `lastUpdatedAt: 0` is never greater than
+    // any positive scanStartTime. New field is optional so
+    // existing rows (written before this PR) keep working — the
+    // cron treats undefined as "never touched".
+    placeholderTouchedAt: v.optional(v.number()),
+  }).index("by_videoEditorId", ["videoEditorId"])
+    .index("by_placeholder", ["lastUpdatedAt"]),
 
   instructorUploads: defineTable({
     instructorId: v.string(),

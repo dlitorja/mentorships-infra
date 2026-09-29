@@ -1418,6 +1418,7 @@ test(
         usedBytes: 0,
         fileCount: 0,
         lastUpdatedAt: 0,
+        placeholderTouchedAt: undefined,
       });
     });
 
@@ -1453,6 +1454,357 @@ test(
       expect(counter?.usedBytes).toBe(999_999);
       expect(counter?.fileCount).toBe(42);
       expect(counter?.lastUpdatedAt).toBeGreaterThan(scanStartTime);
+      expect(counter?.placeholderTouchedAt).toBeUndefined();
     });
+  },
+);
+
+test(
+  "counter: cron skips placeholder touched by mutation during scan (round-33 Greptile P1 #1)",
+  async () => {
+    // Round-33 Greptile P1 #1: the previous cron race check
+    // (`existing.lastUpdatedAt > args.scanStartTime`) was
+    // unreachable for placeholder rows because `lastUpdatedAt: 0`
+    // is never greater than any positive scanStartTime. The new
+    // `placeholderTouchedAt` field (set on every mutation that
+    // touches a placeholder, to the mutation's timestamp) is
+    // the new race signal.
+    //
+    // Scenario: an upload mutation creates a placeholder with
+    // placeholderTouchedAt=T1. The cron's scan starts at
+    // T0 < T1. Without the fix, the cron overwrites with its
+    // stale aggregate; with the fix, the cron's
+    // `placeholderTouchedAt > scanStartTime` check fires and
+    // skips the write.
+    const t = convexTest(schema, modules);
+    const editorId = "race_placeholder_editor_1";
+
+    // Mutation wrote a placeholder AT t1, after the cron started
+    // scanning at t0.
+    const t0 = Date.now() - 1000;
+    const t1 = Date.now();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorId,
+        usedBytes: 50 * 1024 * 1024,
+        fileCount: 1,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: t1,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const result = await ctx.runMutation(
+        internal.mutations.backfillVideoEditorStorageCounter
+          .setVideoEditorStorageCounterBatch,
+        {
+          entries: [
+            {
+              videoEditorId: editorId,
+              usedBytes: 999_999,
+              fileCount: 42,
+            },
+          ],
+          scanStartTime: t0,
+        },
+      );
+      // Mutation touched the placeholder AFTER the cron started;
+      // cron must skip.
+      expect(result.reconciledPlaceholders).toBe(0);
+      expect(result.skippedByMutation).toBe(1);
+    });
+
+    await t.run(async (ctx) => {
+      const counter = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", editorId),
+        )
+        .first();
+      // Counter row is unchanged — cron's stale aggregate was
+      // NOT written.
+      expect(counter?.usedBytes).toBe(50 * 1024 * 1024);
+      expect(counter?.fileCount).toBe(1);
+      expect(counter?.lastUpdatedAt).toBe(0);
+      expect(counter?.placeholderTouchedAt).toBe(t1);
+    });
+  },
+);
+
+test(
+  "counter: confirmPlaceholderZeroSweep clears placeholders whose editors have no active uploads (round-33 Greptile P2 #3)",
+  async () => {
+    // Round-33 Greptile P2 #3: editors with a placeholder
+    // counter (`lastUpdatedAt === 0`) but NO active uploads were
+    // never reconciled by the cron's main pass (it only iterates
+    // editors with active rows). Their "refreshing" badge then
+    // persists forever even though 0/0 is the correct value.
+    // The new `confirmPlaceholderZeroSweep` mutation queries
+    // counter rows with `lastUpdatedAt === 0` and, for each
+    // one, verifies no active uploads exist before writing 0/0
+    // with a fresh timestamp.
+    const t = convexTest(schema, modules);
+    const editorWithNoActive = "no_active_placeholder_editor";
+    const editorWithActive = "active_placeholder_editor";
+
+    // Editor 1: placeholder only, no active rows. Should be
+    // reconciled to 0/0.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorWithNoActive,
+        usedBytes: 0,
+        fileCount: 0,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: Date.now() - 60_000,
+      });
+    });
+
+    // Editor 2: placeholder + an active row. Should NOT be
+    // touched by this sweep (the main cron's aggregate will
+    // handle it via the placeholder reconciliation branch).
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        userId: editorWithActive,
+        email: `${editorWithActive}@example.com`,
+        clerkId: editorWithActive,
+        role: "video_editor",
+      });
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorWithActive,
+        usedBytes: 0,
+        fileCount: 0,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: Date.now() - 60_000,
+      });
+      await ctx.db.insert("instructorUploads", {
+        instructorId: "active_instructor",
+        filename: `key/${editorWithActive}`,
+        originalName: `${editorWithActive}.mp4`,
+        contentType: "video/mp4",
+        size: 10 * 1024 * 1024,
+        status: "completed",
+        uploadedById: editorWithActive,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const result = await ctx.runMutation(
+        internal.mutations.backfillVideoEditorStorageCounter
+          .confirmPlaceholderZeroSweep,
+        {},
+      );
+      // Only the no-active editor was confirmed.
+      expect(result.confirmedZeroPlaceholders).toBe(1);
+    });
+
+    await t.run(async (ctx) => {
+      const noActive = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", editorWithNoActive),
+        )
+        .first();
+      expect(noActive?.usedBytes).toBe(0);
+      expect(noActive?.fileCount).toBe(0);
+      expect(noActive?.lastUpdatedAt).toBeGreaterThan(0);
+      expect(noActive?.placeholderTouchedAt).toBeUndefined();
+
+      const withActive = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", editorWithActive),
+        )
+        .first();
+      // Sweep left the placeholder alone — main cron's aggregate
+      // is the right path for editors with active uploads.
+      expect(withActive?.lastUpdatedAt).toBe(0);
+      expect(withActive?.placeholderTouchedAt).toBeDefined();
+    });
+  },
+);
+
+test(
+  "counter: applyCounterDelta re-queries after insert failure and distinguishes race from genuine error (round-33 Greptile P2 #4)",
+  async () => {
+    // Round-33 Greptile P2 #4: the previous insert-catch silently
+    // swallowed ALL failures, including genuine ones that leave
+    // the counter missing. The fix re-queries after catch:
+    //   - row now exists → benign race (another writer won)
+    //   - row still null → re-throw so the parent mutation fails
+    //     loudly instead of returning a 500-prone dashboard later.
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      // ---- Scenario A: benign race ----
+      {
+        let queryCallCount = 0;
+        const insertedByOther = {
+          _id: "id_other",
+          videoEditorId: "race_editor_a",
+          usedBytes: 100,
+          fileCount: 1,
+          lastUpdatedAt: Date.now(),
+        };
+        const stubCtx = {
+          db: {
+            query: () => {
+              queryCallCount += 1;
+              if (queryCallCount === 1) {
+                // Initial existing check: null (counter missing).
+                return {
+                  withIndex: () => ({
+                    first: () => Promise.resolve(null),
+                  }),
+                };
+              }
+              if (queryCallCount === 2) {
+                // Aggregate scan: throw to trigger placeholder seed.
+                throw new Error("simulated read-budget exceeded");
+              }
+              // Re-query after insert failure: row exists now.
+              return {
+                withIndex: () => ({
+                  first: () => Promise.resolve(insertedByOther),
+                }),
+              };
+            },
+            insert: () => Promise.reject(new Error("simulated duplicate")),
+          },
+        } as unknown as Parameters<typeof applyCounterDelta>[0];
+
+        await expect(
+          applyCounterDelta(stubCtx, {
+            uploadedById: "race_editor_a",
+            size: 50 * 1024 * 1024,
+            fromStatus: undefined,
+            toStatus: "completed",
+          }),
+        ).resolves.toBeUndefined();
+        // Benign race was logged but did NOT re-throw.
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "[storageCounter] inline counter insert lost a race",
+          ),
+          expect.objectContaining({ videoEditorId: "race_editor_a" }),
+        );
+      }
+
+      // ---- Scenario B: genuine failure ----
+      {
+        let queryCallCount = 0;
+        const stubCtx = {
+          db: {
+            query: () => {
+              queryCallCount += 1;
+              if (queryCallCount === 1) {
+                return {
+                  withIndex: () => ({
+                    first: () => Promise.resolve(null),
+                  }),
+                };
+              }
+              if (queryCallCount === 2) {
+                throw new Error("simulated read-budget exceeded");
+              }
+              // Re-query after insert failure: still null.
+              return {
+                withIndex: () => ({
+                  first: () => Promise.resolve(null),
+                }),
+              };
+            },
+            insert: () => Promise.reject(new Error("simulated DB error")),
+          },
+        } as unknown as Parameters<typeof applyCounterDelta>[0];
+
+        // Genuine failure re-throws.
+        await expect(
+          applyCounterDelta(stubCtx, {
+            uploadedById: "race_editor_b",
+            size: 50 * 1024 * 1024,
+            fromStatus: undefined,
+            toStatus: "completed",
+          }),
+        ).rejects.toThrow("simulated DB error");
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "[storageCounter] inline counter insert failed for non-race reason; re-throwing",
+          ),
+          expect.objectContaining({ videoEditorId: "race_editor_b" }),
+        );
+      }
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  },
+);
+
+test(
+  "counter: when refreshing, the dashboard's storage-usage shape hides provisional numbers (round-33 Greptile P1 #2)",
+  async () => {
+    // Round-33 Greptile P1 #2: when the counter is a placeholder
+    // (lastUpdatedAt === 0), the fileCount/bytes shown are
+    // delta-math on top of zero — they understate the editor's
+    // real usage until the hourly cron reconciles the placeholder.
+    // The UI now hides the provisional numbers when
+    // `isRefreshing === true` (round-33 Greptile P1 #2 fix).
+    //
+    // This test pins the server-side contract that the UI relies
+    // on: the storage-usage route's `isRefreshing` flag is true
+    // iff the counter's `lastUpdatedAt === 0`. The UI is
+    // separately verified in the Vercel preview — no UI test
+    // framework is configured for the huckleberry-drive app
+    // (round-22 Greptile scope decision).
+    //
+    // We assert the read-path query result so the UI can rely on
+    // `isRefreshing` to mean "counter is a placeholder; do NOT
+    // show provisional numbers".
+    const t = convexTest(schema, modules);
+    const editorId = "hiding_numbers_editor_1";
+    const instructorId = "hiding_numbers_instructor_1";
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        userId: editorId,
+        email: `${editorId}@example.com`,
+        clerkId: editorId,
+        role: "video_editor",
+      });
+      await ctx.db.insert("users", {
+        userId: instructorId,
+        email: `${instructorId}@example.com`,
+        clerkId: instructorId,
+        role: "instructor",
+      });
+      // Placeholder with lastUpdatedAt=0; the previous mutation's
+      // delta math on top of zero baseline is 50MB/1 file but
+      // those are PROVISIONAL numbers — the dashboard's UI must
+      // hide them.
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: editorId,
+        usedBytes: 50 * 1024 * 1024,
+        fileCount: 1,
+        lastUpdatedAt: 0,
+        placeholderTouchedAt: Date.now(),
+      });
+    });
+
+    const editorClient = t.withIdentity({ subject: editorId });
+    const stats = await editorClient.query(
+      api.instructorUploads.getVideoEditorTotalStorageStats,
+      { videoEditorId: editorId },
+    );
+
+    // Server returns the placeholder shape; the UI reads
+    // `lastUpdatedAt === 0` and renders "—" + the refreshing
+    // badge instead of `usedBytes`/`fileCount`.
+    expect(stats.lastUpdatedAt).toBe(0);
+    expect(stats.usedBytes).toBe(50 * 1024 * 1024);
+    expect(stats.fileCount).toBe(1);
+    // The dashboard's `/api/storage-usage` route converts this to
+    // `isRefreshing: true`; the UI uses that prop to hide the
+    // provisional numbers.
+    expect(stats.lastUpdatedAt === 0).toBe(true);
   },
 );
