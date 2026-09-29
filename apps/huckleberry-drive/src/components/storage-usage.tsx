@@ -97,7 +97,7 @@ export function StorageUsage({
       <div className="space-y-2">
         {isNoAccess ? (
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">{formatBytes(usedBytes)} used</span>
+            <span className="text-slate-400">{isRefreshing ? "—" : formatBytes(usedBytes)} used</span>
             <span className="text-slate-500">No active assignments</span>
           </div>
         ) : isRefreshing ? (
