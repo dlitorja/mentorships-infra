@@ -18,6 +18,16 @@ export interface Message {
   senderRole?: 'student' | 'instructor' | 'admin';
   authorDisplayName: string;
   sessionId?: Id<'sessions'>;
+  // PR workspace-storage-3c follow-up: server-resolved signed GET
+  // URLs for B2-hosted attachments. Populated by
+  // `getWorkspaceMessagesPaginated` (and the non-paginated
+  // `getWorkspaceMessages`) via `resolveChatMessageUrl`. When set,
+  // the chat renderer uses these instead of treating `content` as
+  // a URL — pre-PR-3c `content` was the URL itself, so legacy rows
+  // (no `imageUrl` / `fileUrl`) still render via the legacy
+  // content-prefix fallback inside the renderer.
+  imageUrl?: string | undefined;
+  fileUrl?: string | undefined;
 }
 
 export type MessageList = Message[];

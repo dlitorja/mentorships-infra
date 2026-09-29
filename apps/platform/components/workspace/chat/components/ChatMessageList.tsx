@@ -8,7 +8,7 @@ import { clsx } from 'clsx';
 import { Id } from '@/convex/_generated/dataModel';
 import { ShareLinkButton } from './ShareLinkButton';
 import { DeleteChatFileDialog } from './DeleteChatFileDialog';
-import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls } from '../utils';
+import { parseFileMessage, parseImageMessage, renderMessageWithLinks, extractUrls, isLegacyUrlContent } from '../utils';
 import type { ChatMessageListProps, MessageList } from '../types';
 
 /**
@@ -109,8 +109,32 @@ export function ChatMessageList({
             );
           }
 
-          const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
-          const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+          const fileParsed = msg.type === 'file' ? parseFileMessage(msg.content) : null;
+          const imageParsed = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+          // PR workspace-storage-3c follow-up: server-resolved signed
+          // GET URLs from `getWorkspaceMessagesPaginated` take
+          // precedence over parsing `content` directly. The legacy
+          // fallback only fires when the PARSED URL looks like one
+          // (not the whole `content`, which for legacy resource
+          // shares starts with the filename for files). Post-PR-3c
+          // rows store either a `b2Key` (image) or
+          // `${encodedFileName}|${b2Key}` (file); treating a non-URL
+          // `parsed.url` as a URL would render the storage key
+          // straight into `<Image src=…>` / `<a href=…>`.
+          const fileMessage = fileParsed
+            ? (msg.fileUrl
+              ? { fileName: fileParsed.fileName, url: msg.fileUrl }
+              : isLegacyUrlContent(fileParsed.url)
+                ? fileParsed
+                : null)
+            : null;
+          const imageMessage = imageParsed
+            ? (msg.imageUrl
+              ? { fileName: imageParsed.fileName, url: msg.imageUrl }
+              : isLegacyUrlContent(imageParsed.url)
+                ? imageParsed
+                : null)
+            : null;
           const hasInlineImageFailed = failedInlineImages.has(msg._id);
           const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
           const displayImageMessage = imageMessage ?? fileImageMessage;
@@ -257,6 +281,43 @@ export function ChatMessageList({
                         aria-label={`Delete ${fileMessage.fileName}`}
                       >
                         <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                ) : (msg.type === 'image' || msg.type === 'file') ? (
+                  // PR workspace-storage-3c follow-up: image/file
+                  // message with no usable URL (server did not
+                  // resolve a signed URL AND the legacy
+                  // `content`-as-URL fallback was unsafe). Surface
+                  // a muted placeholder so we don't render the raw
+                  // `b2Key` text from `content` (which would
+                  // either look like a broken image link or
+                  // expose the storage key in the DOM). Keep the
+                  // delete affordance so authorized callers can
+                  // still clean up an attachment whose URL has
+                  // expired (server-side delete only needs the
+                  // message ID, not a working download URL).
+                  <div className="flex items-center gap-2">
+                    <p className={clsx(
+                      'italic text-xs flex-1',
+                      msg.userId === currentUserId ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                    )}>
+                      Attachment unavailable
+                    </p>
+                    {canDeleteMessage(msg) && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => setPendingDelete({
+                          messageId: msg._id,
+                          fileName: (imageParsed?.fileName ?? fileParsed?.fileName ?? 'Attachment'),
+                          fileUrl: '',
+                        })}
+                        aria-label="Delete attachment"
+                      >
+                        <Trash2 className="h-3 w-3" />
                       </Button>
                     )}
                   </div>

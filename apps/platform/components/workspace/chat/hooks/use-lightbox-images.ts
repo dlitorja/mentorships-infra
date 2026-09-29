@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { Id } from '@/convex/_generated/dataModel';
-import { downloadFile, parseFileMessage, parseImageMessage, isImageFileName } from '../utils';
+import { downloadFile, parseFileMessage, parseImageMessage, isImageFileName, isLegacyUrlContent } from '../utils';
 import type { MessageList, ImageMessageEntry, ChatImageDownloadItem } from '../types';
 
 export function useLightboxImages(messages: MessageList | undefined) {
@@ -15,13 +15,34 @@ export function useLightboxImages(messages: MessageList | undefined) {
   const imageMessages = useMemo<ImageMessageEntry[]>(() => {
     const result: ImageMessageEntry[] = [];
     for (const msg of messages ?? []) {
+      // PR workspace-storage-3c follow-up: prefer the server-resolved
+      // signed URL (`msg.imageUrl` / `msg.fileUrl`). The legacy
+      // fallback only fires when the PARSED URL looks like one —
+      // post-PR-3c rows store the `b2Key` literal (image) or
+      // `${fileName}|${b2Key}` (file), and for legacy resource
+      // shares the WHOLE `content` starts with the filename, not
+      // the URL.
       if (msg.type === 'image') {
-        result.push({ msg, parsed: parseImageMessage(msg.content) });
+        const parsed = parseImageMessage(msg.content);
+        const url =
+          msg.imageUrl ??
+          (isLegacyUrlContent(parsed.url) ? parsed.url : '');
+        if (!url) continue;
+        result.push({
+          msg,
+          parsed: url === parsed.url ? parsed : { fileName: parsed.fileName, url },
+        });
       } else if (msg.type === 'file' && !failedInlineImages.has(msg._id)) {
         const parsed = parseFileMessage(msg.content);
-        if (isImageFileName(parsed.fileName)) {
-          result.push({ msg, parsed });
-        }
+        if (!isImageFileName(parsed.fileName)) continue;
+        const url =
+          msg.fileUrl ??
+          (isLegacyUrlContent(parsed.url) ? parsed.url : '');
+        if (!url) continue;
+        result.push({
+          msg,
+          parsed: url === parsed.url ? parsed : { fileName: parsed.fileName, url },
+        });
       }
     }
     return result;

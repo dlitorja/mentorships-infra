@@ -358,16 +358,22 @@ export const shareResourceToChat = mutation({
         instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
       });
 
-      await ctx.db.insert("workspaceMessages", {
-        workspaceId: args.workspaceId,
-        userId: identity.subject,
-        content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
-        type: "image",
-        senderRole: role,
-        sessionId: args.sessionId,
-      });
-      return;
-    }
+await ctx.db.insert("workspaceMessages", {
+      workspaceId: args.workspaceId,
+      userId: identity.subject,
+      content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
+      type: "image",
+      // PR workspace-storage-3c follow-up: B2 resource shares now
+      // also stamp `b2Key` on the chat message so the chat query's
+      // server-side URL resolver can sign it without a content
+      // parse fallback. Legacy rows (no `b2Key`) still render via
+      // the resolver's content-extraction branch.
+      ...(useB2 ? { b2Key: resource.b2Key as string } : {}),
+      senderRole: role,
+      sessionId: args.sessionId,
+    });
+    return;
+  }
 
     if (role !== "admin") {
       const currentCount = await countWorkspaceFilesByRole(
@@ -386,6 +392,12 @@ export const shareResourceToChat = mutation({
       userId: identity.subject,
       content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
       type: "file",
+      // PR workspace-storage-3c follow-up: B2 resource shares now
+      // also stamp `b2Key` on the chat message so the chat query's
+      // server-side URL resolver can sign it without a content
+      // parse fallback. Legacy rows (no `b2Key`) still render via
+      // the resolver's content-extraction branch.
+      ...(useB2 ? { b2Key: resource.b2Key as string } : {}),
       senderRole: role,
       sessionId: args.sessionId,
     });

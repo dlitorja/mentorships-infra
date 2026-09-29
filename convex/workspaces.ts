@@ -12,6 +12,7 @@ import {
   MAX_WORKSPACE_FILE_BYTES,
   MAX_WORKSPACE_FILE_MB,
   MAX_BINDING_AGE_MS,
+  WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
@@ -2542,19 +2543,61 @@ export const getWorkspaceMessages = query({
     // then failed to fetch. Resolve here so the parser sees a
     // real signed URL. Legacy Convex-storage rows fall through to
     // the existing `ctx.storage.getUrl` path.
-    const b2Keys = messages
-      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
-      .map((m) => m.b2Key as string);
+    //
+    // PR workspace-storage-3c follow-up: legacy resource-share rows
+    // posted before the follow-up fix did not stamp `b2Key` on the
+    // message — the b2Key sits inside `content` as
+    // `${encodedFileName}|${b2Key}`. Extract those too so the
+    // resource-share chat messages still resolve server-side.
+    const b2Keys = new Set<string>();
+    for (const m of messages) {
+      if (m.type !== "image" && m.type !== "file") continue;
+      if (typeof m.b2Key === "string") {
+        b2Keys.add(m.b2Key);
+        continue;
+      }
+      const separatorIndex = m.content.indexOf("|");
+      const urlPortion =
+        separatorIndex >= 0 ? m.content.slice(separatorIndex + 1) : m.content;
+      if (
+        urlPortion.length > 0 &&
+        !urlPortion.startsWith("http://") &&
+        !urlPortion.startsWith("https://") &&
+        !urlPortion.startsWith("https:/")
+      ) {
+        b2Keys.add(urlPortion);
+      }
+    }
     const urlMap = new Map<string, string>();
-    if (b2Keys.length > 0) {
+    if (b2Keys.size > 0) {
+      // 4-hour TTL: covers an active chat session (call + chat
+      // co-attended) without re-querying, while keeping the
+      // "leaked URL outlives permission change" window comparable
+      // to the gallery's 1-hour default. A participant who loses
+      // workspace access mid-window still has at most 4 hours of
+      // read access via any URL they captured, vs the gallery's
+      // 1 hour. Clamped to `min(retention, 24h)` server-side.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys }
+        { workspaceId: args.workspaceId, b2Keys: [...b2Keys], expiresInSeconds: 4 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);
       }
     }
+
+    // PR workspace-storage-3c follow-up (round 6 Greptile P1
+    // "Retention denial bypassed"): compute the retention state
+    // once so the chat resolver's storageId fallback can match
+    // the B2 resolver's refusal for past-retention workspaces.
+    // Use `>=` (not `>`) so the boundary matches the B2 resolver's
+    // `Math.floor(remainingSeconds) === 0` check — when exactly
+    // at the deadline the B2 resolver rounds to zero and refuses;
+    // chat must agree.
+    const isPastRetention =
+      result.workspace.deletedAt !== undefined ||
+      (result.workspace.endedAt !== undefined &&
+        Date.now() - result.workspace.endedAt >= WORKSPACE_RETENTION_MS);
 
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
@@ -2563,7 +2606,7 @@ export const getWorkspaceMessages = query({
     );
     return await Promise.all(
       messages.map(async (message) => {
-        const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+        const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap, isPastRetention);
         return {
           ...message,
           imageUrl: message.type === "image" ? resolvedUrl : undefined,
@@ -2580,23 +2623,72 @@ export const getWorkspaceMessages = query({
  * server-side URL resolver for chat messages. Returns the actual
  * signed URL for B2 rows, the `ctx.storage` URL for legacy rows,
  * or `undefined` for plain text messages.
+ *
+ * PR workspace-storage-3c follow-up: resource shares posted via
+ * `shareResourceToChat` (pre-PR-3c-fix) embed the resource's
+ * `b2Key` inside `content` as
+ * `${encodeURIComponent(fileName)}|${b2Key}` without stamping
+ * the `b2Key` column on the row. The caller populates `b2UrlMap`
+ * with both the column-stamped keys AND the content-extracted
+ * keys so this lookup returns the resolved URL for either case.
+ *
+ * PR workspace-storage-3c follow-up (round 5 Greptile P1):
+ * migrated messages (PR 2's `propagateMigratedB2KeyToMessages`)
+ * carry both `storageId` AND `b2Key`. If the B2 ledger entry has
+ * not yet been recorded (migration partially applied), the b2Key
+ * lookup misses and we fall through to `ctx.storage.getUrl` so the
+ * attachment remains viewable.
+ *
+ * PR workspace-storage-3c follow-up (round 6 Greptile P1):
+ * the storageId fallback must respect retention. The B2 resolver
+ * refuses URLs once a workspace is past its 18-month retention
+ * window (workspace_past_retention / workspace_deleted); the
+ * chat resolver's storageId fallback would bypass that check by
+ * going straight to `ctx.storage.getUrl`. Gate the fallback on
+ * `isPastRetention` so retention denials propagate.
  */
 async function resolveChatMessageUrl(
   ctx: QueryCtx,
   message: Doc<"workspaceMessages">,
-  b2UrlMap: Map<string, string>
+  b2UrlMap: Map<string, string>,
+  isPastRetention: boolean
 ): Promise<string | undefined> {
   if (message.type !== "image" && message.type !== "file") return undefined;
   if (typeof message.b2Key === "string") {
-    return b2UrlMap.get(message.b2Key);
+    const resolved = b2UrlMap.get(message.b2Key);
+    if (resolved) return resolved;
+    // Migrated row whose B2 ledger entry isn't yet recorded —
+    // fall through to the legacy Convex-storage URL rather than
+    // rendering "Attachment unavailable" for a still-viewable
+    // message. Skipped past retention to match the B2 resolver's
+    // refusal (otherwise a captured legacy URL outlives the
+    // retention sweep).
+    if (message.storageId && !isPastRetention) {
+      return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
+    }
+    return undefined;
   }
-  if (message.storageId) {
+  if (message.storageId && !isPastRetention) {
     return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
   }
-  // Legacy rows stored the URL directly in `content` — keep that
-  // fallback so pre-PR-3c rows still render.
-  if (message.content.startsWith("http://") || message.content.startsWith("https://")) {
-    return message.content;
+  // Legacy resource share rows: extract the b2Key portion of
+  // `content` and look it up in the pre-populated `b2UrlMap`.
+  // Absolute-URL portions are the legacy-Convex-storage path and
+  // pass through unchanged.
+  const separatorIndex = message.content.indexOf("|");
+  const urlPortion =
+    separatorIndex >= 0
+      ? message.content.slice(separatorIndex + 1)
+      : message.content;
+  if (
+    urlPortion.startsWith("http://") ||
+    urlPortion.startsWith("https://") ||
+    urlPortion.startsWith("https:/")
+  ) {
+    return urlPortion;
+  }
+  if (urlPortion.length > 0) {
+    return b2UrlMap.get(urlPortion);
   }
   return undefined;
 }
@@ -2647,19 +2739,63 @@ export const getWorkspaceMessagesPaginated = query({
     // `getWorkspaceMessages`. Run once per page so each
     // `useInfiniteQuery` page-load pays the cost; previous pages
     // remain cached with their already-resolved URLs.
-    const b2Keys = paginated.page
-      .filter((m) => (m.type === "image" || m.type === "file") && typeof m.b2Key === "string")
-      .map((m) => m.b2Key as string);
+    //
+    // PR workspace-storage-3c follow-up: same content extraction
+    // for legacy resource-share rows as `getWorkspaceMessages`
+    // (the b2Key sits inside `content` for rows posted before the
+    // follow-up fix to `shareResourceToChat`).
+    //
+    // PR workspace-storage-3c follow-up (round 5 Greptile P1):
+    // do NOT skip rows with `storageId` here — migrated messages
+    // (PR 2's `propagateMigratedB2KeyToMessages`) carry BOTH
+    // `storageId` and `b2Key`, and the resolver falls through to
+    // `ctx.storage.getUrl` if the B2 ledger lookup misses.
+    const b2Keys = new Set<string>();
+    for (const m of paginated.page) {
+      if (m.type !== "image" && m.type !== "file") continue;
+      if (typeof m.b2Key === "string") {
+        b2Keys.add(m.b2Key);
+        continue;
+      }
+      const separatorIndex = m.content.indexOf("|");
+      const urlPortion =
+        separatorIndex >= 0 ? m.content.slice(separatorIndex + 1) : m.content;
+      if (
+        urlPortion.length > 0 &&
+        !urlPortion.startsWith("http://") &&
+        !urlPortion.startsWith("https://") &&
+        !urlPortion.startsWith("https:/")
+      ) {
+        b2Keys.add(urlPortion);
+      }
+    }
     const urlMap = new Map<string, string>();
-    if (b2Keys.length > 0) {
+    if (b2Keys.size > 0) {
+      // 4-hour TTL: covers an active chat session (call + chat
+      // co-attended) without re-querying, while keeping the
+      // "leaked URL outlives permission change" window comparable
+      // to the gallery's 1-hour default. A participant who loses
+      // workspace access mid-window still has at most 4 hours of
+      // read access via any URL they captured, vs the gallery's
+      // 1 hour. Clamped to `min(retention, 24h)` server-side.
       const resolved = await ctx.runQuery(
         internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-        { workspaceId: args.workspaceId, b2Keys }
+        { workspaceId: args.workspaceId, b2Keys: [...b2Keys], expiresInSeconds: 4 * 60 * 60 }
       );
       for (const r of resolved) {
         if (r.ok) urlMap.set(r.b2Key, r.url);
       }
     }
+
+    // PR workspace-storage-3c follow-up (round 6 Greptile P1
+    // "Retention denial bypassed"): match the B2 resolver's
+    // past-retention refusal in the chat query so the storageId
+    // fallback does not produce a URL for a workspace the B2
+    // resolver has already declined.
+    const isPastRetention =
+      result.workspace.deletedAt !== undefined ||
+      (result.workspace.endedAt !== undefined &&
+        Date.now() - result.workspace.endedAt > WORKSPACE_RETENTION_MS);
 
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
@@ -2670,7 +2806,7 @@ export const getWorkspaceMessagesPaginated = query({
       ...paginated,
       page: await Promise.all(
         paginated.page.map(async (message) => {
-          const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+          const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap, isPastRetention);
           return {
             ...message,
             imageUrl: message.type === "image" ? resolvedUrl : undefined,

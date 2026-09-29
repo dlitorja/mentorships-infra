@@ -40,6 +40,24 @@ export function parseImageMessage(content: string): ParsedFileMessage {
     : parsed;
 }
 
+/**
+ * PR workspace-storage-3c follow-up: legacy rows (pre-PR-3c) stored
+ * the full URL directly in `content`. Post-PR-3c rows store either
+ * the `b2Key` (for images) or `"${encodedFileName}|${b2Key}"` (for
+ * files), both of which are NOT URLs. Only treat `content` as a
+ * URL fallback when it actually looks like one — otherwise the
+ * `<Image src=…>` and `<a href=…>` paths would happily request the
+ * raw `b2Key` against the Next.js app and surface as a broken
+ * image / 404 link instead of an "attachment unavailable" state.
+ */
+export function isLegacyUrlContent(content: string): boolean {
+  return (
+    content.startsWith('http://') ||
+    content.startsWith('https://') ||
+    content.startsWith('https:/') // defensive: pre-PR-3c typos observed
+  );
+}
+
 export function isImageFileName(fileName: string): boolean {
   return /\.(avif|gif|jpe?g|png|webp)$/i.test(fileName);
 }
