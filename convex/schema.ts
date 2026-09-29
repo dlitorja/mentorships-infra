@@ -1145,7 +1145,21 @@ export default defineSchema({
     usedBytes: v.number(),
     fileCount: v.number(),
     lastUpdatedAt: v.number(),
-  }).index("by_videoEditorId", ["videoEditorId"]),
+    // Set on every mutation that touches a placeholder counter
+    // (`lastUpdatedAt === 0`) to the mutation's timestamp. Lets the
+    // hourly cron reconcile distinguish (a) a placeholder no
+    // mutation has touched since its scan started (safe to
+    // overwrite) from (b) a placeholder a concurrent mutation
+    // just touched (skip the write to avoid clobbering fresher
+    // delta math). Round-33 Greptile P1 #1: the prior sentinel
+    // check `existing.lastUpdatedAt > scanStartTime` was
+    // unreachable because `lastUpdatedAt: 0` is never greater than
+    // any positive scanStartTime. New field is optional so
+    // existing rows (written before this PR) keep working — the
+    // cron treats undefined as "never touched".
+    placeholderTouchedAt: v.optional(v.number()),
+  }).index("by_videoEditorId", ["videoEditorId"])
+    .index("by_placeholder", ["lastUpdatedAt"]),
 
   instructorUploads: defineTable({
     instructorId: v.string(),
@@ -1178,12 +1192,19 @@ export default defineSchema({
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_legacyId", ["legacyId"])
     .index("by_uploadedById", ["uploadedById"])
+    // PR-quotas: per-editor quota enforcement scoped to the assigned instructor.
+    .index("by_uploadedById_instructorId", ["uploadedById", "instructorId"])
+    // Round-34 Greptile P1: compound `by_uploadedById_status` so
+    // the `confirmPlaceholderZeroSweep` cron can probe for active
+    // uploads per editor with a narrow index range instead of
+    // scanning the full `by_uploadedById` range and applying a
+    // status filter (which exhausts the mutation's read budget on
+    // editors with large deleted-only histories).
+    .index("by_uploadedById_status", ["uploadedById", "status"])
     // PR1: indexed ordered listings for instructor + video-editor
     // dashboard queries (`getAllUploads`, `getVideoEditorUploads`).
     .index("by_instructorId_createdAt", ["instructorId", "createdAt"])
     .index("by_uploadedById_createdAt", ["uploadedById", "createdAt"])
-    // PR-quotas: per-editor quota enforcement scoped to the assigned instructor.
-    .index("by_uploadedById_instructorId", ["uploadedById", "instructorId"])
     // PR1: per-filename lookup for `findOrphanedFiles` so the admin
     // orphan-cleanup page does one indexed read per B2 key instead
     // of a full table `.collect()`.

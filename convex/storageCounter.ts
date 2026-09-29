@@ -75,14 +75,116 @@ export async function applyCounterDelta(
   // so the aggregate over all rows reflects the post-mutation state.
   // Use it directly; do NOT add the delta on top, or we would
   // double-count (round-25 Greptile P1 #4 follow-up).
+  //
+  // Defensive: the aggregate scan walks every `instructorUploads` row
+  // for this editor and can blow past Convex's per-mutation read
+  // budget for editors with many historical uploads. The resulting
+  // exception would propagate to the parent mutation (e.g.
+  // completeUpload) and surface as a 500 to the user, even though
+  // the source-of-truth row in `instructorUploads` was already
+  // written and B2 already accepted the multipart upload — i.e. the
+  // editor sees a confusing 500 for an upload that actually exists.
+  //
+  // We must guarantee a counter row exists so the read path
+  // (`getVideoEditorTotalStorageStats`) does not fall through to
+  // the paginated scan — which itself can blow the read budget and
+  // 500 the dashboard for the same editor.
+  //
+  // The hourly backfill cron (`backfillVideoEditorStorageCounter` in
+  // convex/actions/backfillVideoEditorStorageCounter.ts) is the safe
+  // owner of first-counter creation: it walks the same scan inside
+  // an action (not a mutation) with per-batch budget tracking, and
+  // is unaffected by user-facing request latency. If the inline
+  // aggregate insert throws here, we fall back to a 0/0 placeholder
+  // row whose `lastUpdatedAt: 0` sentinel marks it as
+  // "needs reconciliation"; the next cron pass (within an hour)
+  // writes the real aggregate with a real timestamp. The placeholder
+  // prevents the read path from looping on the same scan-failure
+  // AND signals to the UI (which checks `lastUpdatedAt`) that the
+  // row is a placeholder, not authoritative zero. The parent
+  // mutation must never fail for this reason.
+  //
+  // `lastUpdatedAt: 0` is a sentinel: real updates always use
+  // `Date.now()`. Consumers (the dashboard's storage-usage UI)
+  // MUST treat `lastUpdatedAt === 0` as "refreshing" / "loading"
+  // rather than as "fresh data showing zero usage" — otherwise the
+  // editor sees a misleading "0 bytes" right after a successful
+  // upload that the inline aggregate couldn't compute.
   if (!existing) {
-    const aggregate = await computeFullAggregate(ctx, uploadedById);
-    await ctx.db.insert("videoEditorStorageStats", {
-      videoEditorId: uploadedById,
-      usedBytes: aggregate.usedBytes,
-      fileCount: aggregate.fileCount,
-      lastUpdatedAt: Date.now(),
-    });
+    let usedBytes = 0;
+    let fileCount = 0;
+    let lastUpdatedAt: number = Date.now();
+    let placeholderTouchedAt: number | undefined = undefined;
+    let aggregateSucceeded = false;
+    try {
+      const aggregate = await computeFullAggregate(ctx, uploadedById);
+      usedBytes = aggregate.usedBytes;
+      fileCount = aggregate.fileCount;
+      aggregateSucceeded = true;
+    } catch (error) {
+      lastUpdatedAt = 0;
+      placeholderTouchedAt = Date.now();
+      console.error(
+        "[storageCounter] inline aggregate scan failed; seeding 0/0 placeholder with lastUpdatedAt=0 sentinel, deferring real aggregate to backfill cron",
+        {
+          videoEditorId: uploadedById,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+    try {
+      await ctx.db.insert("videoEditorStorageStats", {
+        videoEditorId: uploadedById,
+        usedBytes,
+        fileCount,
+        lastUpdatedAt,
+        placeholderTouchedAt,
+      });
+    } catch (insertError) {
+      // Re-query: if another writer (backfill cron, concurrent
+      // request) inserted a counter row between our `existing` check
+      // and our `insert`, the row is now present and we're done.
+      // (Round-33 Greptile P2 #4: the previous catch silently
+      // swallowed ALL insert failures — including genuine errors
+      // that leave the counter missing. We must distinguish the
+      // benign race from a real failure so the read path doesn't
+      // keep falling through to the expensive scan.)
+      const recheck = await ctx.db
+        .query("videoEditorStorageStats")
+        .withIndex("by_videoEditorId", (q) =>
+          q.eq("videoEditorId", uploadedById)
+        )
+        .first();
+      if (recheck) {
+        console.error(
+          "[storageCounter] inline counter insert lost a race; another writer created the row",
+          {
+            videoEditorId: uploadedById,
+            aggregateSucceeded,
+          },
+        );
+        return;
+      }
+      // Genuine insert failure: re-throw so the parent mutation
+      // surfaces the error. The parent (e.g. completeUpload) has
+      // already written its source-of-truth row, but the alternative
+      // — silently swallowing and returning — leaves the editor's
+      // dashboard reading from a 500-prone paginated scan until the
+      // next cron pass surfaces the row. Better to fail loudly so
+      // we notice and fix the root cause.
+      console.error(
+        "[storageCounter] inline counter insert failed for non-race reason; re-throwing",
+        {
+          videoEditorId: uploadedById,
+          aggregateSucceeded,
+          error:
+            insertError instanceof Error
+              ? insertError.message
+              : String(insertError),
+        },
+      );
+      throw insertError;
+    }
     return;
   }
 
@@ -91,21 +193,50 @@ export async function applyCounterDelta(
   const deltaBytes = isActive ? args.size : -args.size;
   const deltaCount = isActive ? 1 : -1;
 
+  // Sentinel preservation: if the existing row is a placeholder
+  // (lastUpdatedAt === 0, written by the first-creation seed when
+  // the inline aggregate scan could not complete), DO NOT replace
+  // the sentinel with Date.now() on a subsequent patch — that
+  // would lose the marker that tells the UI the counter is not
+  // authoritative. The delta math still applies (the placeholder
+  // acts as a 0/0 baseline), and the hourly backfill cron will
+  // overwrite the whole row with the real aggregate + real
+  // timestamp on its next pass.
+  //
+  // Race tracking: set `placeholderTouchedAt` so the cron's
+  // reconciliation check can detect that a mutation has touched
+  // this placeholder DURING its scan. Round-33 Greptile P1 #1:
+  // the previous race check relied on `lastUpdatedAt > scanStartTime`,
+  // which was unreachable because `lastUpdatedAt: 0` is never
+  // greater than any positive scanStartTime. Now the cron's
+  // `setVideoEditorStorageCounterBatch` compares
+  // `placeholderTouchedAt` against `scanStartTime` to skip rows a
+  // concurrent mutation just touched.
   await ctx.db.patch(existing._id, {
     usedBytes: Math.max(0, existing.usedBytes + deltaBytes),
     fileCount: Math.max(0, existing.fileCount + deltaCount),
-    lastUpdatedAt: Date.now(),
+    lastUpdatedAt: existing.lastUpdatedAt === 0 ? 0 : Date.now(),
+    placeholderTouchedAt: existing.lastUpdatedAt === 0 ? Date.now() : undefined,
   });
 }
 
+function isActiveStatus(status: string | undefined): boolean {
+  // `undefined` means "row didn't exist before this transition" (e.g.
+  // `createUpload`). Treat it as not-active so the delta math works:
+  // new active row → +size/+1, new inactive row → no-op.
+  if (status === undefined) return false;
+  return status !== "deleted" && status !== "deleting";
+}
+
 /**
- * Walk all of an editor's `instructorUploads` rows and aggregate
- * active bytes per `uploadedById`. Used by `applyCounterDelta` on
- * first creation when the editor has historical rows. Loops until
- * the table is exhausted so we always produce a complete aggregate
- * even for editors with thousands of rows.
+ * Compute the full aggregate over all `instructorUploads` rows for a
+ * given video editor. Walks every row including deleted/deleting
+ * (only counts active rows in the totals). Bounded to 1000 pages of
+ * 4k rows = 4M rows max — well above the largest expected editor
+ * history. Exported so test code can mock it via `vi.spyOn` to
+ * simulate a Convex read-budget failure in the inline seed path.
  */
-async function computeFullAggregate(
+export async function computeFullAggregate(
   ctx: MutationCtx,
   videoEditorId: string
 ): Promise<{
@@ -137,14 +268,6 @@ async function computeFullAggregate(
     if (cursor === null) break;
   }
   return { usedBytes, fileCount, totalRows };
-}
-
-function isActiveStatus(status: string | undefined): boolean {
-  // `undefined` means "row didn't exist before this transition" (e.g.
-  // `createUpload`). Treat it as not-active so the delta math works:
-  // new active row → +size/+1, new inactive row → no-op.
-  if (status === undefined) return false;
-  return status !== "deleted" && status !== "deleting";
 }
 
 /**

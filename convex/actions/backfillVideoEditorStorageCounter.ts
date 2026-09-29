@@ -18,6 +18,11 @@ interface BatchResult {
   written: number;
   unchanged: number;
   skippedByMutation: number;
+  reconciledPlaceholders: number;
+}
+
+interface PlaceholderConfirmationResult {
+  confirmedZeroPlaceholders: number;
 }
 
 /**
@@ -33,6 +38,15 @@ interface BatchResult {
  * up with only the second page's subtotal (round-24 Greptile P1 #2).
  * Accumulating across pages guarantees the final value matches the
  * pre-counter scan.
+ *
+ * Second sweep: editors with a placeholder counter (`lastUpdatedAt:
+ * 0`) but no active uploads were missed by the main scan (it only
+ * accumulates editors with active rows). Their placeholder would
+ * otherwise persist forever, leaving the "refreshing" badge visible
+ * indefinitely even though 0/0 is the correct value. The sweep
+ * queries counter rows with `lastUpdatedAt === 0`, confirms each has
+ * no active uploads via a separate index lookup, then writes 0/0
+ * with a real timestamp.
  *
  * The walk is resumable via cursor. The MAX_ITERATIONS bound
  * prevents runaway loops if the cursor were ever to repeat.
@@ -90,6 +104,13 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
       { entries, scanStartTime }
     )) as BatchResult;
 
+    // Second sweep: confirm zero on placeholders whose editors have
+    // no active uploads. (Round-33 Greptile P2 #3.)
+    const placeholderResult = (await ctx.runMutation(
+      internal.mutations.backfillVideoEditorStorageCounter.confirmPlaceholderZeroSweep,
+      {}
+    )) as PlaceholderConfirmationResult;
+
     return {
       iterations,
       totalRowsScanned,
@@ -97,6 +118,9 @@ export const runBackfillVideoEditorStorageCounter = internalAction({
       editorsWritten: result.written,
       editorsUnchanged: result.unchanged,
       editorsSkippedByMutation: result.skippedByMutation ?? 0,
+      editorsReconciledPlaceholders: result.reconciledPlaceholders ?? 0,
+      editorsConfirmedZeroPlaceholders:
+        placeholderResult.confirmedZeroPlaceholders,
       reachedMaxIterations: !cursor && iterations >= MAX_ITERATIONS,
     };
   },
