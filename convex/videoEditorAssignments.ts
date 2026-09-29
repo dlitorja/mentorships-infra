@@ -14,32 +14,47 @@ function isActiveUpload(upload: Doc<"instructorUploads">): boolean {
 
 async function requireAdminOrSelf(
   ctx: GenericQueryCtx<DataModel>,
-  userId: string
+  requestedId: string
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Unauthorized");
   }
 
-  // The caller may authenticate with a Clerk ID that differs from the
-  // canonical users.userId used to key assignments. Allow access when the
-  // caller's userId matches the requested userId or the caller is an admin.
-  const caller = await ctx.db
-    .query("users")
-    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-    .first();
-  const callerByClerkId = caller ?? await ctx.db
-    .query("users")
-    .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-    .first();
-
-  if (callerByClerkId?.userId === userId || callerByClerkId?.clerkId === userId) {
+  // Resolve the caller via both indexes. The Clerk `subject` may be stored
+  // as either `users.userId` (apps/platform writes Clerk IDs directly into
+  // userId) or `users.clerkId` (huckleberry-drive keeps the two distinct
+  // for onboarding splits).
+  const caller =
+    (await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first()) ??
+    (await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+      .first());
+  if (!caller) {
+    throw new Error("Forbidden: caller is not in the users table");
+  }
+  if (caller.role === "admin") {
     return;
   }
 
-  if (!callerByClerkId || callerByClerkId.role !== "admin") {
-    throw new Error("Forbidden");
+  // The caller is the target if `requestedId` matches either of the
+  // caller's own identifiers (canonical `userId` or Clerk `clerkId`).
+  // The Clerk subject we resolved `caller` from can be either of those
+  // (the resolver above tries both indexes), so a match on either side
+  // means the caller is acting on their own data. A separate target-row
+  // lookup is intentionally omitted: target-by-`userId` finding the
+  // caller's row implies `caller.userId === requestedId`, and likewise
+  // for `clerkId` — both already covered by the arg-match below. Adding
+  // it would be up to two extra indexed reads on every non-admin call.
+  if (caller.userId === requestedId || caller.clerkId === requestedId) {
+    return;
   }
+
+  throw new Error("Forbidden");
 }
 
 async function requireAdmin(
