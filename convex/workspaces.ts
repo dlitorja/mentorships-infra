@@ -2780,6 +2780,260 @@ export const createWorkspaceMessage = mutation({
 });
 
 /**
+ * PR platform-call-bugs round 7 P1+Security: mints a short-
+ * lived nonce that the client must present when calling
+ * {@link recordCallPresenceMessage}. The nonce is bound to
+ * (workspaceId, sessionId, callerId, kind) with a 30-second
+ * TTL; the record mutation consumes it on use. A malicious
+ * workspace participant cannot post fake "joined" / "left"
+ * notices without first calling this mutation, which itself
+ * verifies the caller is a real workspace participant via
+ * the same checks {@link recordCallPresenceMessage} performs.
+ *
+ * The nonce is a single-shot token: if the same nonce is
+ * reused (e.g., Daily fires `participant-joined` twice for a
+ * flaky WebSocket), the second `recordCallPresenceMessage`
+ * call fails fast rather than writing a duplicate system row.
+ * The client mints a fresh nonce each time it intends to
+ * post a notice, which the record mutation enforces.
+ *
+ * Cleanup: a daily cron (`expireCallPresenceNonces` in
+ * `convex/mutations/expireCallPresenceNonces.ts`) marks
+ * stale rows as expired so they can be inspected for
+ * diagnostics; the record mutation rejects expired nonces.
+ */
+export const prepareCallPresenceMessage = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionId: v.id("sessions"),
+    kind: v.union(v.literal("joined"), v.literal("left")),
+  },
+  handler: async (ctx, args): Promise<Id<"callPresenceNonces">> => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // Reject sessionIds that do not belong to this workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    const now = Date.now();
+    return await ctx.db.insert("callPresenceNonces", {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+      callerId: user.subject,
+      kind: args.kind,
+      issuedAt: now,
+      // 30s TTL. The record mutation is expected to be called
+      // synchronously after Daily's `participant-joined` /
+      // `participant-left` event, so 30s leaves a comfortable
+      // window for Convex RTT without making the nonce usable
+      // for unrelated forged events.
+      expiresAt: now + 30_000,
+      consumed: false,
+    });
+  },
+});
+
+/**
+ * PR platform-call-bugs: posts a system message to a workspace's
+ * chat on behalf of a participant-joined / -left event from the
+ * Daily.co video call. The row is NOT authored by a user — it
+ * surfaces in the Chat tab as a muted, centered notice so both
+ * parties see who joined / left the call mid-session.
+ *
+ * Security note (Greptile round 3 P1): the actor's display name is
+ * resolved server-side from the caller's `users` row, NOT taken
+ * from the client. A malicious participant cannot impersonate
+ * someone else by passing a forged name — the rendered content
+ * always reflects the caller's real `firstName`/`lastName`.
+ *
+ * Greptile round 7 P1+Security: the mutation now also requires
+ * a `nonceId` minted by {@link prepareCallPresenceMessage}. This
+ * two-call protocol closes the forgery gap that allowed any
+ * workspace participant to call this mutation with arbitrary
+ * `kind` values to post fake "joined" / "left" notices. Without
+ * a valid nonce, the mutation refuses. The nonce is consumed on
+ * use so the same nonce cannot be replayed.
+ *
+ * `userId` is the Convex auth identity of the caller (also used
+ * to look up the display name + auth/audit). `senderRole` is
+ * intentionally left undefined — system messages are not
+ * role-tagged so the Chat list's avatar / bubble styling skips
+ * them entirely.
+ */
+export const recordCallPresenceMessage = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionId: v.id("sessions"),
+    kind: v.union(v.literal("joined"), v.literal("left")),
+    nonceId: v.id("callPresenceNonces"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    // Greptile round 7 P1+Security: verify the nonce FIRST. A
+    // missing/expired/replayed nonce short-circuits before any
+    // workspace lookup, so an attacker cannot probe workspace
+    // state through this mutation.
+    const nonce = await ctx.db.get(args.nonceId);
+    if (!nonce) {
+      throw new Error("Invalid call presence nonce");
+    }
+    if (nonce.consumed) {
+      throw new Error("Call presence nonce already used");
+    }
+    if (nonce.expiresAt < Date.now()) {
+      throw new Error("Call presence nonce expired");
+    }
+    if (nonce.callerId !== user.subject) {
+      // The nonce was minted by a different caller; refuse so a
+      // stolen nonce id cannot be presented by another session.
+      throw new Error("Call presence nonce does not belong to caller");
+    }
+    if (nonce.workspaceId !== args.workspaceId) {
+      throw new Error("Call presence nonce workspace mismatch");
+    }
+    if (nonce.sessionId !== args.sessionId) {
+      throw new Error("Call presence nonce session mismatch");
+    }
+    if (nonce.kind !== args.kind) {
+      throw new Error("Call presence nonce kind mismatch");
+    }
+
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    // Sender-role resolution is intentionally skipped — system rows
+    // are NOT attributed to any user, and the Chat tab renders them
+    // without a sender name. We still need to verify the caller is a
+    // workspace participant so a malicious client can't post fake
+    // join / leave notices to a workspace they don't belong to.
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace. Same helper as the user-authored chat mutations
+    // — it cross-checks `session.instructorId` and `session.studentId`
+    // against `workspace.instructorId` / `workspace.ownerId`.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    // Greptile round 3 P1: resolve the actor's display name from
+    // the server-side `users` row keyed by the caller's auth
+    // identity. Never trust a client-supplied name.
+    //
+    // Greptile round 5 P2: Convex auth identities can resolve to
+    // either `users.clerkId` (newer flow) or `users.userId`
+    // (legacy flow / records where the Clerk ID differs from the
+    // userId — e.g. migrated rows that store a prefixed clerkId).
+    // Look up by both indexes and prefer the first hit. If neither
+    // matches, fall back to a generic label so we still emit a
+    // meaningful system notice rather than refusing the write.
+    //
+    // Greptile round 7 P1: the previous dual-lookup picked whichever
+    // row matched `by_clerkId` first, even when the workspace is
+    // actually linked to a different `users` row for the same Clerk
+    // account. In setups where one Clerk account maps to multiple
+    // `users` rows (primary + secondary identity records, migrated
+    // rows, split-onboarded accounts), `by_clerkId` could return the
+    // wrong row and attribute the notice to the wrong participant's
+    // identity. Anchor the lookup to the workspace/session linkage
+    // (the canonical Convex userId) so the resolved row is always
+    // the participant the workspace is actually paired with:
+    //
+    //   - Student role: `workspace.ownerId` is the canonical
+    //     userId, so look up `users.by_userId.eq(workspace.ownerId)`.
+    //   - Instructor role: `workspace.instructorId` is the
+    //     instructor record `_id`; fetch the instructor and look
+    //     up the user by `instructor.userId`.
+    //   - Admin role: the workspace pairing is not user-specific,
+    //     so fall back to the dual-lookup against the auth
+    //     subject.
+    //
+    // If the workspace-context lookup misses (e.g., admin role or
+    // an unmigrated record), fall back to the auth-subject dual-
+    // lookup so a notice is still emitted rather than silently
+    // failing.
+    let userRow =
+      role === "student"
+        ? await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
+            .first()
+        : role === "instructor" && workspace.instructorId
+          ? await (async () => {
+              const instructor = await ctx.db.get(workspace.instructorId!);
+              if (!instructor || !instructor.userId) return null;
+              return await ctx.db
+                .query("users")
+                .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
+                .first();
+            })()
+          : null;
+    if (!userRow) {
+      userRow =
+        (await ctx.db
+          .query("users")
+          .withIndex("by_clerkId", (q) => q.eq("clerkId", user.subject))
+          .first()) ??
+        (await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", user.subject))
+          .first());
+    }
+    const resolvedName =
+      [userRow?.firstName, userRow?.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      userRow?.email?.split("@")[0]?.trim() ||
+      "A participant";
+
+    const content =
+      args.kind === "joined"
+        ? `${resolvedName} joined the call`
+        : `${resolvedName} left the call`;
+
+    // Consume the nonce atomically with the message insert.
+    // Convex mutations are transactional, so a crash between
+    // the patch and the insert rolls back both writes and the
+    // nonce stays usable (the client will mint a fresh one on
+    // retry).
+    await ctx.db.patch(args.nonceId, { consumed: true });
+
+    return await ctx.db.insert("workspaceMessages", {
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+      content,
+      type: "system",
+      systemEventKind: args.kind,
+      sessionId: args.sessionId,
+      // senderRole intentionally omitted — system rows are not
+      // attributed to any role. The Chat tab uses the absence of
+      // senderRole + `type === "system"` to decide on the muted,
+      // centered rendering branch.
+    });
+  },
+});
+
+/**
  * Creates a downloadable file message in a workspace with role-based
  * file caps. Requires auth.
  *

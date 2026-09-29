@@ -87,6 +87,28 @@ export function ChatMessageList({
       )}
       {messages && messages.length > 0 ? (
         messages.map((msg) => {
+          // PR platform-call-bugs: system messages are rendered as
+          // a muted, centered notice without an avatar / bubble /
+          // share-link / delete affordance. They describe the
+          // participant-joined / -left event that produced them
+          // (e.g. "Alex joined the call") and surface in both the
+          // workspace Chat tab and the in-call Chat tab so both
+          // parties see who joined / left.
+          if (msg.type === 'system') {
+            return (
+              <div
+                key={msg._id}
+                className="flex justify-center"
+                data-testid="chat-system-message"
+                data-system-event-kind={msg.systemEventKind ?? ''}
+              >
+                <p className="text-xs italic text-muted-foreground">
+                  {msg.content}
+                </p>
+              </div>
+            );
+          }
+
           const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
           const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
           const hasInlineImageFailed = failedInlineImages.has(msg._id);

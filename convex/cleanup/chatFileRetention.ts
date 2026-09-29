@@ -82,7 +82,13 @@ type CandidateRow = {
   b2Key: string | undefined;
   content: string;
   deletedAt: number;
-  type: "text" | "image" | "file";
+  // PR platform-call-bugs: include "system" so retention cron
+  // iteration matches the updated `workspaceMessages.type` union.
+  // System rows never carry a storage blob (they are pure text),
+  // so they short-circuit in the deletion branches below — they
+  // can be removed like any other text row once `deletedAt` is
+  // set.
+  type: "text" | "image" | "file" | "system";
 };
 
 /**
