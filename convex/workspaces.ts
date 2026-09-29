@@ -12,6 +12,7 @@ import {
   MAX_WORKSPACE_FILE_BYTES,
   MAX_WORKSPACE_FILE_MB,
   MAX_BINDING_AGE_MS,
+  WORKSPACE_RETENTION_MS,
 } from "./workspaceConstants";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
@@ -2585,6 +2586,15 @@ export const getWorkspaceMessages = query({
       }
     }
 
+    // PR workspace-storage-3c follow-up (round 6 Greptile P1
+    // "Retention denial bypassed"): compute the retention state
+    // once so the chat resolver's storageId fallback can match
+    // the B2 resolver's refusal for past-retention workspaces.
+    const isPastRetention =
+      result.workspace.deletedAt !== undefined ||
+      (result.workspace.endedAt !== undefined &&
+        Date.now() - result.workspace.endedAt > WORKSPACE_RETENTION_MS);
+
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       result.workspace,
@@ -2592,7 +2602,7 @@ export const getWorkspaceMessages = query({
     );
     return await Promise.all(
       messages.map(async (message) => {
-        const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+        const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap, isPastRetention);
         return {
           ...message,
           imageUrl: message.type === "image" ? resolvedUrl : undefined,
@@ -2624,11 +2634,20 @@ export const getWorkspaceMessages = query({
  * not yet been recorded (migration partially applied), the b2Key
  * lookup misses and we fall through to `ctx.storage.getUrl` so the
  * attachment remains viewable.
+ *
+ * PR workspace-storage-3c follow-up (round 6 Greptile P1):
+ * the storageId fallback must respect retention. The B2 resolver
+ * refuses URLs once a workspace is past its 18-month retention
+ * window (workspace_past_retention / workspace_deleted); the
+ * chat resolver's storageId fallback would bypass that check by
+ * going straight to `ctx.storage.getUrl`. Gate the fallback on
+ * `isPastRetention` so retention denials propagate.
  */
 async function resolveChatMessageUrl(
   ctx: QueryCtx,
   message: Doc<"workspaceMessages">,
-  b2UrlMap: Map<string, string>
+  b2UrlMap: Map<string, string>,
+  isPastRetention: boolean
 ): Promise<string | undefined> {
   if (message.type !== "image" && message.type !== "file") return undefined;
   if (typeof message.b2Key === "string") {
@@ -2637,13 +2656,15 @@ async function resolveChatMessageUrl(
     // Migrated row whose B2 ledger entry isn't yet recorded —
     // fall through to the legacy Convex-storage URL rather than
     // rendering "Attachment unavailable" for a still-viewable
-    // message.
-    if (message.storageId) {
+    // message. Skipped past retention to match the B2 resolver's
+    // refusal (otherwise a captured legacy URL outlives the
+    // retention sweep).
+    if (message.storageId && !isPastRetention) {
       return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
     }
     return undefined;
   }
-  if (message.storageId) {
+  if (message.storageId && !isPastRetention) {
     return (await ctx.storage.getUrl(message.storageId as Id<"_storage">)) ?? undefined;
   }
   // Legacy resource share rows: extract the b2Key portion of
@@ -2762,6 +2783,16 @@ export const getWorkspaceMessagesPaginated = query({
       }
     }
 
+    // PR workspace-storage-3c follow-up (round 6 Greptile P1
+    // "Retention denial bypassed"): match the B2 resolver's
+    // past-retention refusal in the chat query so the storageId
+    // fallback does not produce a URL for a workspace the B2
+    // resolver has already declined.
+    const isPastRetention =
+      result.workspace.deletedAt !== undefined ||
+      (result.workspace.endedAt !== undefined &&
+        Date.now() - result.workspace.endedAt > WORKSPACE_RETENTION_MS);
+
     const authorDisplayNames = await resolveAuthorDisplayNames(
       ctx,
       result.workspace,
@@ -2771,7 +2802,7 @@ export const getWorkspaceMessagesPaginated = query({
       ...paginated,
       page: await Promise.all(
         paginated.page.map(async (message) => {
-          const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap);
+          const resolvedUrl = await resolveChatMessageUrl(ctx, message, urlMap, isPastRetention);
           return {
             ...message,
             imageUrl: message.type === "image" ? resolvedUrl : undefined,
