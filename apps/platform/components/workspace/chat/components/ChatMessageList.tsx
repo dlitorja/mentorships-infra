@@ -109,8 +109,20 @@ export function ChatMessageList({
             );
           }
 
-          const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
-          const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+          const fileParsed = msg.type === 'file' ? parseFileMessage(msg.content) : null;
+          const imageParsed = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+          // PR workspace-storage-3c follow-up: server-resolved signed
+          // GET URLs from `getWorkspaceMessagesPaginated` take
+          // precedence over parsing `content` directly. Pre-PR-3c
+          // `content` was the URL itself, so legacy rows (no
+          // `imageUrl` / `fileUrl`) still render via the
+          // `parseXxxMessage(content)` path.
+          const fileMessage = fileParsed
+            ? (msg.fileUrl ? { fileName: fileParsed.fileName, url: msg.fileUrl } : fileParsed)
+            : null;
+          const imageMessage = imageParsed
+            ? (msg.imageUrl ? { fileName: imageParsed.fileName, url: msg.imageUrl } : imageParsed)
+            : null;
           const hasInlineImageFailed = failedInlineImages.has(msg._id);
           const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
           const displayImageMessage = imageMessage ?? fileImageMessage;
