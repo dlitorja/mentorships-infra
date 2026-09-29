@@ -1519,29 +1519,50 @@ test("getActiveUsersByRole: excludes soft-deleted instructor profiles", async ()
 /**
  * Hardened `requireAdminOrSelf` — covers the failure modes that
  * intermittently surfaced as 500s on `drive.huckleberry.art/dashboard`
- * for video editors in late September 2026:
+ * for video editors in late September 2026.
  *
- *   1. The caller's Clerk `subject` matches `users.clerkId` only (not
- *      `users.userId`). The original lookup-first-by-userId path
- *      returned null and fell through to `Forbidden`. The hardened
- *      resolver resolves via BOTH indexes and matches by canonical
- *      `_id`, so the editor's own `getVideoEditorOpenAssignment` no
- *      longer 500s.
+ * SCOPE OF THIS PR (revised after Greptile P1):
+ *   The production /dashboard 500s traced to a DATA issue: the affected
+ *   video editor's `users` row has a non-Clerk `userId` and an empty
+ *   `clerkId` field. Both `by_userId` and `by_clerkId` lookups miss,
+ *   so the caller's Convex identity cannot be resolved from the Clerk
+ *   JWT alone. THIS PR DOES NOT FIX THAT CASE — repairing the missing
+ *   `clerkId` is a data backfill (see "Caveats and follow-ups" below).
  *
- *   2. The arg passed by the page (`videoEditorId`) is the caller's
- *      `clerkId` (when apps/platform wrote Clerk IDs directly into
- *      `users.userId`). The hardened check accepts the arg match
- *      against either `caller.userId` OR `caller.clerkId`.
+ *   What this PR DOES fix is the broader authz correctness gaps that
+ *   would surface even on fully-linked accounts:
+ *     - Caller resolution via both indexes (was: only `by_userId`).
+ *     - Short-circuit admin path before the second read.
+ *     - Explicit "caller not in users table" error instead of generic
+ *       "Forbidden" when both caller lookups miss.
+ *     - Target resolution via both indexes for split-record matrices.
+ *     - `_id`-based equality check for split-record sibling rows.
  *
- *   3. Split-record rows (same Clerk account, two `users` rows) — the
- *      hardened check uses `_id` equality so it doesn't accidentally
- *      accept a sibling split when only the Clerk ID matches.
+ *   Once the data backfill lands, this hardened resolver will be the
+ *   path that lets the editor in — the previous one would have thrown
+ *   "Forbidden" even after their clerkId was repaired.
  *
- *   4. Caller is genuinely absent from the users table — explicit
- *      "Forbidden: caller is not in the users table" message rather
- *      than a silent null deref.
+ * CAVEATS AND FOLLOW-UPS:
+ *   - Production `drive.huckleberry.art` dashboard 500s for the
+ *     affected video editor are NOT resolved by this PR. The
+ *     caller's row must be repaired (`setUserClerkId` mutation in
+ *     convex/users.ts:684) before the dashboard renders. Track as
+ *     Linear HUC-69 / data backfill script.
+ *   - The student split-record row in `adminOnboarding.ts:425` is
+ *     created with `clerkId: ""` by design — it is a placeholder
+ *     that gets claimed by the real user record on first sign-in.
+ *     When the split is unclaimed AND the user later signs in, both
+ *     rows coexist. The hardened resolver's `_id` check ensures the
+ *     caller is scoped to the real row, not the placeholder.
  *
- *   5. Admin can read any video editor's open assignment.
+ * TESTS IN THIS FILE:
+ *   1. Video editor whose Clerk subject matches clerkId only — the
+ *      OLD caller's row was correctly resolved (pre-fix bug #1).
+ *   2. Split-record siblings (real row + placeholder row with empty
+ *      clerkId) — pins the actual `adminOnboarding.ts` pattern.
+ *   3. Editor cannot read another editor's open assignment.
+ *   4. Caller whose Clerk subject maps to no row — explicit error.
+ *   5. Admin short-circuit.
  */
 test("requireAdminOrSelf: video editor whose Clerk subject matches clerkId only can read their own open assignment", async () => {
   const t = convexTest(schema, modules);
@@ -1550,9 +1571,14 @@ test("requireAdminOrSelf: video editor whose Clerk subject matches clerkId only 
   const editorClerkId = "editor_clerk_1";
 
   await t.run(async (ctx) => {
-    // User's userId is a canonical (non-Clerk) ID. Their clerkId is the
-    // Clerk subject. This is the apps/huckleberry-drive pattern: the
-    // Clerk account stays single but the Convex userId is distinct.
+    // User's userId is a canonical (non-Clerk) ID. Their clerkId is
+    // populated with the Clerk subject. Pre-fix, the resolver tried
+    // `by_userId(editorClerkId)` first and returned null (the row's
+    // userId is canonicalEditorId, not the Clerk ID). The fallthrough
+    // to `by_clerkId` happened but the resulting comparison still
+    // worked in this case (because clerkId matched). The post-fix
+    // resolver is more efficient (one read) and handles the inverted
+    // form too.
     await ctx.db.insert("users", {
       userId: canonicalEditorId,
       email: "editor_canonical_1@example.com",
@@ -1572,7 +1598,65 @@ test("requireAdminOrSelf: video editor whose Clerk subject matches clerkId only 
   expect(open).toBeNull();
 });
 
-test("requireAdminOrSelf: editor cannot read another editor's open assignment via just the userId match", async () => {
+test("requireAdminOrSelf: real video editor row coexists with a placeholder split row (empty clerkId) and the caller resolves to the real row", async () => {
+  // This pins the ACTUAL production split-record pattern:
+  //   - The student/admin-onboarding split creates a placeholder row
+  //     with `userId: "email:<email>"`, `clerkId: ""` (adminOnboarding.ts:425).
+  //   - When the user signs in via Clerk, a separate row is created
+  //     with the real Clerk ID.
+  //   - Both rows coexist on `users`. The Clerk subject matches only
+  //     the real row.
+  //   - The hardened resolver MUST scope to the real row, not the
+  //     placeholder. (The original code happened to do this via
+  //     `by_userId` first + fallthrough, but the `_id` check in the
+  //     hardened version makes it explicit.)
+  const t = convexTest(schema, modules);
+
+  const realUserId = "real_user_clerk_id"; // also serves as Clerk subject
+  const placeholderUserId = "email:foo@example.com";
+
+  await t.run(async (ctx) => {
+    // Real row: the one the Clerk subject matches.
+    await ctx.db.insert("users", {
+      userId: realUserId,
+      email: "foo@example.com",
+      clerkId: realUserId,
+      role: "video_editor",
+    });
+    // Placeholder row: the unclaimed split record with empty clerkId.
+    await ctx.db.insert("users", {
+      userId: placeholderUserId,
+      email: "foo@example.com",
+      clerkId: "",
+      role: "student",
+      onboardingAlias: "split-foo",
+    });
+  });
+
+  // Caller authenticates as the real Clerk account.
+  const client = t.withIdentity({ subject: realUserId });
+
+  // Passing the real userId — succeeds (caller IS the real row).
+  const openReal = await client.query(
+    api.videoEditorAssignments.getVideoEditorOpenAssignment,
+    { videoEditorId: realUserId }
+  );
+  expect(openReal).toBeNull();
+
+  // Passing the placeholder userId — must fail. The hardened
+  // resolver's `_id` check sees caller._id !== target._id, and
+  // caller.userId/caller.clerkId both don't equal placeholderUserId,
+  // so it 403s. Pins that the caller cannot act on the placeholder
+  // row's data via either the userId or Clerk ID.
+  await expect(
+    client.query(
+      api.videoEditorAssignments.getVideoEditorOpenAssignment,
+      { videoEditorId: placeholderUserId }
+    )
+  ).rejects.toThrow("Forbidden");
+});
+
+test("requireAdminOrSelf: editor cannot read another editor's open assignment", async () => {
   const t = convexTest(schema, modules);
 
   const editorAId = "editor_a";
@@ -1609,79 +1693,46 @@ test("requireAdminOrSelf: editor cannot read another editor's open assignment vi
   ).rejects.toThrow("Forbidden");
 });
 
-test("requireAdminOrSelf: split-record editor (canonical userId matches another row's userId) cannot read sibling's open assignment", async () => {
+test("requireAdminOrSelf: caller whose Clerk subject has no matching users row throws the explicit 'caller is not in the users table' error", async () => {
+  // THIS IS THE PRODUCTION FAILURE MODE. The video editor's
+  // `users` row has a canonical userId and an empty clerkId; the
+  // Clerk JWT's subject is a different ID. Both `by_userId` and
+  // `by_clerkId` lookups miss. The hardened resolver surfaces an
+  // explicit error rather than the generic "Forbidden" the old
+  // code produced.
+  //
+  // Tracking: the dashboard's layout-level `getCurrentUser` ALSO
+  // fails for this user (separate code path), so this PR alone
+  // does not unblock the dashboard. A data backfill to repair the
+  // affected row's clerkId (via `setUserClerkId` internal mutation
+  // in convex/users.ts:684) is the production fix. See Linear
+  // HUC-69 (to be opened).
   const t = convexTest(schema, modules);
 
-  // Simulates the onboardingAlias split: one Clerk account, two
-  // `users` rows. Row A has the canonical userId the page would pass.
-  // Row B is the same Clerk account on a different canonical ID.
-  // The editor is logged in via Clerk ID — the hardened check should
-  // resolve to the right row (the one whose clerkId matches) and
-  // refuse access to a sibling row that happens to share the Clerk ID.
-  const sharedClerk = "shared_clerk_id";
-  const canonicalA = "canonical_a";
-  const canonicalB = "canonical_b";
+  const canonicalUserId = "canonical_user_id";
+  const realClerkSubject = "real_clerk_subject_id";
 
   await t.run(async (ctx) => {
+    // Row has a non-Clerk userId and an empty clerkId — the data
+    // shape that the production user has.
     await ctx.db.insert("users", {
-      userId: canonicalA,
-      email: "a@example.com",
-      clerkId: sharedClerk,
+      userId: canonicalUserId,
+      email: "broken@example.com",
+      clerkId: "",
       role: "video_editor",
-      onboardingAlias: "split-a",
-    });
-    await ctx.db.insert("users", {
-      userId: canonicalB,
-      email: "b@example.com",
-      clerkId: sharedClerk,
-      role: "video_editor",
-      onboardingAlias: "split-b",
     });
   });
 
-  const client = t.withIdentity({ subject: sharedClerk });
-
-  // The page passes canonicalA — must succeed (the caller IS the row
-  // with userId=canonicalA).
-  const openA = await client.query(
-    api.videoEditorAssignments.getVideoEditorOpenAssignment,
-    { videoEditorId: canonicalA }
-  );
-  expect(openA).toBeNull();
-
-  // Passing canonicalB (the sibling row) — must fail. The hardened
-  // check sees caller._id !== target._id, and the Clerk subject
-  // doesn't equal canonicalB, so it 403s. This is the new behavior;
-  // the old check `callerByClerkId.userId === userId` would also
-  // 403 here (because the resolver's `first()` is non-deterministic
-  // between rows), so we pin the hardened check's `_id` semantics.
-  // We use rejects.toThrow with a generic Forbidden to allow either
-  // "Forbidden" or "Forbidden: caller is not in the users table".
-  await expect(
-    client.query(
-      api.videoEditorAssignments.getVideoEditorOpenAssignment,
-      { videoEditorId: canonicalB }
-    )
-  ).rejects.toThrow();
-});
-
-test("requireAdminOrSelf: caller whose Clerk subject has no matching users row is rejected with explicit error", async () => {
-  const t = convexTest(schema, modules);
-
-  // No users row inserted for this Clerk ID. The hardened check
-  // surfaces a clear error rather than letting the original code
-  // fall through to "Forbidden" with a confusing stack.
-  const orphanClerk = "orphan_clerk_id";
-  const client = t.withIdentity({ subject: orphanClerk });
+  const client = t.withIdentity({ subject: realClerkSubject });
 
   await expect(
     client.query(api.videoEditorAssignments.getVideoEditorOpenAssignment, {
-      videoEditorId: "any_id",
+      videoEditorId: canonicalUserId,
     })
-  ).rejects.toThrow("Forbidden");
+  ).rejects.toThrow("Forbidden: caller is not in the users table");
 });
 
-test("requireAdminOrSelf: admin can read any video editor's open assignment regardless of arg form", async () => {
+test("requireAdminOrSelf: admin can read any video editor's open assignment", async () => {
   const t = convexTest(schema, modules);
 
   const editorId = "editor_for_admin_test";
@@ -1712,9 +1763,6 @@ test("requireAdminOrSelf: admin can read any video editor's open assignment rega
   // pattern: clerkId differs from userId for the admin row).
   const adminClient = t.withIdentity({ subject: adminClerk });
 
-  // Pass the editor's canonical userId — this matches what the page
-  // passes (`dbUser.userId`) and is what the assignments index is
-  // keyed by.
   const open = await adminClient.query(
     api.videoEditorAssignments.getVideoEditorOpenAssignment,
     { videoEditorId: editorId }
