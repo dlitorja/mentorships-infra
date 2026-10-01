@@ -210,7 +210,7 @@ Fix: explicit `by_userId ?? by_clerkId` resolution, admin short-circuit before t
 
 Note: this PR does NOT unblock the production user — that requires the HUC-69 data backfill. The PR is the necessary-but-not-sufficient code fix; the data fix is what actually lets the editor in.
 
-Linear HUC-69 — data backfill (`setUserClerkId` on the affected row).
+Linear HUC-69 — data backfill (`setUserClerkId` on the affected row). The actual `setUserClerkId` mutation at `convex/users.ts:684` is `internalMutation`, accepts `{ userId, clerkId, actorId?, actorRole? }`, **unconditionally patches `clerkId`** (does not refuse to overwrite a non-empty value), and writes an audit log entry via `writeAuditLog` capturing `{ previousClerkId, newClerkId }` for every write. The safety net is the audit log, not a write-side guard — the backfill script must self-check `previousClerkId` before issuing the mutation.
 
 ### Greptile round-trip learnings (worth carrying forward)
 
@@ -223,3 +223,5 @@ Linear HUC-69 — data backfill (`setUserClerkId` on the affected row).
 4. **P1 scope honesty.** A P1 that says "this PR doesn't fix the production failure mode" is not blocking if the PR scopes itself honestly and tracks the actual fix in a Linear issue. Don't try to fix everything in one PR; do the part you can do well, and reference the rest.
 
 5. **Redundant code is a smell that survives review.** Greptile round-2 on PR #898 caught a target-row lookup that was unreachable — added by a reviewer-attentive hardening that didn't think through the short-circuit semantics. Defense: when adding a new branch, ask "is this reachable in any case the existing branches don't already cover?"
+
+6. **Doc drift is a real failure mode.** Doc claims like "refuses to overwrite non-empty clerkId" and "callPresenceNonces schema has nonceId, messageHash, by_meetingId_createdAt" can be confidently wrong if written without re-reading the actual code. After every PR that touches schema or signatures, grep the code for the names and re-write the doc claims from the live source. Don't paraphrase from memory of what was planned.
