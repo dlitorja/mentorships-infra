@@ -1940,6 +1940,17 @@ test("getWorkspaceDownloadUrl signs a GET URL for a completed, in-workspace key"
   // assumes default region" — derive the region from env.
   const region = expectedB2Region();
   expect(result.url).toContain(`%2F${region}%2F`);
+  // PR fix/chat-b2-get-sdk (Greptile P2 "B2 acceptance goes
+  // untested"): the URL must carry the SDK-specific query
+  // params that `@aws-sdk/s3-request-presigner` appends to a
+  // GetObject signing. A regression that swaps the SDK signer
+  // back for the hand-rolled SigV4 (`mintB2PresignedGetUrl`
+  // pre-PR #901) would lose these markers — the URL would
+  // still satisfy the `x-amz-signature=` and `%2F{region}%2F`
+  // assertions above (which is why we missed the original bug
+  // for two weeks) but would stop carrying `x-id=GetObject`.
+  expect(result.url).toContain("x-id=GetObject");
+  expect(result.url).toContain("x-amz-checksum-mode=ENABLED");
   expect(result.expiresAt).toBeGreaterThan(Date.now());
 });
 
