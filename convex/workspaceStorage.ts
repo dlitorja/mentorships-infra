@@ -8,7 +8,10 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { signedWorkspaceUploadUrl } from "./lib/b2WorkspaceUpload";
+import {
+  signedWorkspaceUploadUrl,
+  signedWorkspaceDownloadUrl,
+} from "./lib/b2WorkspaceUpload";
 
 import {
   B2_BINDING_AGE_MS,
@@ -2645,82 +2648,36 @@ export function clampWorkspaceDownloadExpiresInSeconds(
 }
 
 /**
- * PR workspace-storage-3c: exported so read-side queries can sign
- * URLs inline (the underlying crypto is pure HMAC-SHA256 — no
- * network IO, query-safe). Action-side callers
- * (`getWorkspaceDownloadUrl`, `cleanup/postMigrationStorageCleanup`,
- * `cleanup/workspaceB2Retention`) continue to use this same
- * helper. Always clamp `expiresInSeconds` via
+ * PR fix/chat-b2-get-sdk: delegates to `signedWorkspaceDownloadUrl`
+ * (`convex/lib/b2WorkspaceUpload.ts`), which uses the AWS SDK's
+ * `getSignedUrl(GetObjectCommand)` — the canonical request B2 accepts.
+ *
+ * The hand-rolled SigV4 implementation that lived here before
+ * produced URLs B2 rejected with 403 "bucket is not authorized",
+ * which surfaced as a 401 on chat image fetches (PR #899 deployed
+ * with this code path, then images stayed broken). Live verification:
+ * SDK-generated URL → 200; hand-rolled URL → 403, even with the same
+ * credentials and key.
+ *
+ * The `expiresAt` return value is reconstructed from
+ * `Date.now() + expiresInSeconds * 1000` (matching the hand-rolled
+ * shape) so existing callers (`resolveWorkspaceB2FileUploadsForKeys`,
+ * `getWorkspaceDownloadUrl`) and tests (`x-amz-signature=`,
+ * `%2F${region}%2F`, `expiresAt > now`) keep working unchanged.
+ *
+ * Always clamp `expiresInSeconds` via
  * `clampWorkspaceDownloadExpiresInSeconds` before passing through.
  */
 export async function mintB2PresignedGetUrl(params: {
   key: string;
   expiresInSeconds: number;
 }): Promise<{ url: string; expiresAt: number }> {
-  const creds = loadB2Credentials();
-  const endpoint = creds.endpoint.replace(/\/+$/, "");
-  const encodedKey = params.key
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
-  const url = new URL(`${endpoint}/${creds.bucket}/${encodedKey}`);
-
-  const host = url.host;
-  const canonicalUri = `/${creds.bucket}/${encodedKey}`;
-
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
-  const dateStamp = amzDate.slice(0, 8);
-
-  const signedHeaders = ["host"];
-  const canonicalHeaders = `host:${host}\n`;
-
-  const credentialScope = `${dateStamp}/${creds.region}/s3/aws4_request`;
-  const payloadHash = "UNSIGNED-PAYLOAD";
-
-  const algorithm = "AWS4-HMAC-SHA256";
-  const credential = `${creds.accessKeyId}/${credentialScope}`;
-
-  const canonicalQueryString = buildCanonicalQueryString({
-    "x-amz-algorithm": algorithm,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-credential": credential,
-    "x-amz-date": amzDate,
-    "x-amz-expires": String(params.expiresInSeconds),
-    "x-amz-signedheaders": signedHeaders.join(";"),
-  });
-
-  const canonicalRequest = [
-    "GET",
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders.join(";"),
-    payloadHash,
-  ].join("\n");
-
-  const stringToSign = [
-    algorithm,
-    amzDate,
-    credentialScope,
-    await sha256Hex(canonicalRequest),
-  ].join("\n");
-
-  const encoder = new TextEncoder();
-  const kDate = await hmacSha256(
-    encoder.encode("AWS4" + creds.secretAccessKey),
-    dateStamp
+  const url = await signedWorkspaceDownloadUrl(
+    params.key,
+    params.expiresInSeconds
   );
-  const kRegion = await hmacSha256(kDate, creds.region);
-  const kService = await hmacSha256(kRegion, "s3");
-  const kSigning = await hmacSha256(kService, "aws4_request");
-  const signature = await hmacSha256(kSigning, stringToSign);
-  const sigHex = Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  url.search = `?${canonicalQueryString}&x-amz-signature=${sigHex}`;
   return {
-    url: url.toString(),
+    url,
     expiresAt: Date.now() + params.expiresInSeconds * 1000,
   };
 }
