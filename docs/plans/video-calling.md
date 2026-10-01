@@ -224,6 +224,7 @@ Key behaviors:
 - **PR #617 (chat-tab silent-failure + Convex auth race fix) — shipped 2026-07-09.** Three independent root causes observed after PR #4b landed. (1) `@convex-dev/react-query` `subscribeInner` leaks sentinel-shaped ids through `enabled: false` on first render — fixed by switching `useLiveSessionNote` / `useNoteComments` to the library's `"skip"` arg pattern. (2) `convex/inCallNotifications.ts` reads (`getUnreadForUser` / `getUnreadForWorkspace`) threw via `requireIdentity` on first render before Clerk populated the auth token — switched to `getIdentity` (returns `null` on no auth) and early-return `[]` / `null`, matching the silent-empty contract that `getWorkspaceMessages` already uses; mutations still throw via `requireIdentityForMutation`. (3) `apps/platform/app/layout.tsx` had `<QueryProvider><ConvexClientProvider>`; `ConvexProviderWithClerk` `setAuth()` only runs post-render, so the first paint's `useConvexAuth().isAuthenticated` was false and `convexQueryClient.connect()` in `QueryProvider`'s `useEffect` ran AFTER the first render commit — missing `subscribeInner` "added" events. Swapped to `<ConvexClientProvider><QueryProvider>`. Gated the auth-driven invalidation logic on `useConvex()` so the build-time `skipClerk` branch doesn't crash on `useConvexAuth()` outside a `ConvexProvider`; the invalidator now lives in a dedicated `<AuthDrivenInvalidator>` child that only mounts when a `ConvexProvider` is above us. Adds Playwright regression spec `tests/e2e/chat-submit.spec.ts`. No Clerk props, env vars, or wiring modified — only the layout order of the two providers (user-approved).
 - **PR #11 (Phase 11 — vertical-stack desktop layout) — shipped.** See [PR #11 Delivery](#pr-11-delivery--vertical-stack-desktop-layout). Replaces the pre-#4c-4 desktop horizontal split (`chat | video`, 60/40 default) with a vertical stack (`video on top, active tab on bottom`, 60/40 default — 60% video / 40% tab content). The video panel stays visible across all workspace tabs (Chat / Notes / Images / Links / Resources) during a call, so users can navigate between tabs without ending the call. Persisted ratio moves to a new `localStorage` key (`video-call-split-ratio:v2`) so users who tuned the pre-Phase-11 horizontal split start at the new default rather than silently flipping the semantic. Phone (< 600px full-screen + drawer) and tablet (600–899px floating PiP) branches unchanged.
 - **PR #657 (leave-call confirmation) — shipped.** See [PR #657 Delivery](#pr-657-delivery--leave-call-confirmation). Closes the silent-mid-call-hangup hole caused by `<VideoCallProvider>` being keyed by `selectedWorkspaceId` — clicking a different workspace in the sidebar while a Daily call is active used to unmount the provider and silently end the call for both parties. Adds a `pendingSwitchTo` state + `requestSwitch(id)` guard that intercepts picker clicks while `useIsInCall()` is true and shows a Radix `<Dialog>` confirmation; on confirm, `onSelectWorkspace` triggers the existing unmount path (`daily.leave()` + `endCall`). Uses Radix `<Dialog>` (focus trap, Escape-to-dismiss, initial focus) instead of a custom `<div role="alertdialog">` — addresses CodeRabbit accessibility findings. Adds a `useEffect` that clears `pendingSwitchTo` when `isInCall` flips to false so the dialog does not stay open after a remote hangup / network drop.
+- **PR #894 (call-presence nonce protocol) — shipped.** See [PR #894 Delivery](#pr-894-delivery--call-presence-nonce-protocol). Closes a forgery hole in `recordCallPresenceMessage` — pre-#894, the mutation accepted any message whose `actor.userId` matched the workspace, so a forged client could post a "left" notice for any participant in any active meeting they knew the room name for. Greptile also surfaced a wrong-name bug (actor lookup fell back to the auth subject even when the workspace anchor disagreed). Replaces the single-call write with a nonce-based 2-call protocol: `prepareCallPresenceMessage` mints a nonce + returns `{ nonceId, messageHash }`; `recordCallPresenceMessage` requires + verifies + consumes the nonce. New `callPresenceNonces` schema table with `by_meetingId_createdAt` index for cleanup. Actor lookup now anchors to `workspace.ownerId` (student) / `instructor.userId` (instructor) before the auth-subject fallback. All four `use-video-call.ts` call sites (join / leave / cleanup / disconnect) updated. 7 new tests in `convex/callPresenceMessage.test.ts` pin the round-trip.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -1310,6 +1311,42 @@ Closes the silent-mid-call-hangup hole in `apps/platform/components/workspace/wo
 - **No new endpoints, no new Convex queries/mutations.**
 - **No new dependencies.** Uses the project's existing Radix-based `<Dialog>` from `apps/platform/components/ui/dialog.tsx`.
 - **Radix `<Dialog>` portals to `document.body`** — does not nest inside the existing `<CallOverlay />` markup (which also renders overlay surfaces during a call), so focus traps do not collide. The original PR description flagged the small-viewport risk and the Radix swap is what mitigates it.
+- **Naming.** No `mentor`/`mentee` words.
+
+
+## PR #894 Delivery — Call-Presence Nonce Protocol
+
+**Branch:** `fix/platform-call-bugs-and-features` (squashed into `c746a811`)
+**Status:** MERGED as `c746a811` on `main` (2026-09-29 13:11 UTC). All CI checks green at merge.
+
+### What shipped
+
+Two real bugs + two security-adjacent hardening fixes, surfaced by Greptile during the round-1 → round-7 review cycle on `fix/platform-call-bugs-and-features`:
+
+1. **Forgery in `recordCallPresenceMessage`** (P1, Security) — pre-#894, the mutation accepted any message whose `actor.userId` matched the workspace. A forged client could post a "left" notice for any participant in any active meeting they happened to know the room name for. This is now closed by a nonce-based 2-call protocol: `prepareCallPresenceMessage` mints a nonce + returns `{ nonceId, messageHash }`; `recordCallPresenceMessage` requires + verifies + consumes the nonce. The forged-client regression test is in `convex/callPresenceMessage.test.ts`.
+
+2. **Wrong-name bug in actor lookup** (P1) — the actor lookup fell back to `identity.subject` even when the workspace anchor disagreed, so a student in workspace A could attribute presence to workspace B's instructor. Now anchors to `workspace.ownerId` (student) / `instructor.userId` (instructor) before the auth-subject fallback. The fix is local to the workspace write paths and the four `use-video-call.ts` call sites.
+
+3. **Button mock typing** (P2) — `apps/platform/components/video/start-adhoc-button.test.tsx` mocked `Button` with `React.HTMLAttributes<HTMLButtonElement>` instead of `ButtonProps` from `@mentorships/ui`. Surfaced a typing gap when `Button`'s variant prop changed upstream.
+
+4. **Disconnect-without-leave** (P2) — `useVideoCall`'s `meetingState` effect did not post a self-authored "left" notice when the user closed the tab without clicking End Call. Now posts one on unmount/disconnect.
+
+5. **Cleanup race** (P2) — `didJoinRef.current = false` was set AFTER `await endCall.mutateAsync(...)`, so a fast second join could see stale `true`. Now flipped to `false` BEFORE the await.
+
+### Schema change (per AGENTS.md convention → Linear HUC-70)
+
+- New table `callPresenceNonces` (`nonceId`, `meetingId`, `actorUserId`, `payloadHash`, `createdAt`, `consumedAt?`). Index `by_meetingId_createdAt` for cleanup. WIDEN phase: new rows are inserted on `prepareCallPresenceMessage`. Cleanup cron (TBD) sweeps `consumedAt`-set rows older than 24h. NARROW phase (deferred): once the cron proves stable, the `consumedAt?` column becomes required.
+
+### Greptile round-7 final state
+
+- Round 1 → 7 covered: P1 forgery (round 1), P1 wrong-name (round 2), 3× P2 hygiene (rounds 3–6). Confidence 5/5 at round 7. CodeRabbit skip notice (repo <10 stars).
+- Verification: 7 new tests in `convex/callPresenceMessage.test.ts`; full suite 452/463 (11 pre-existing failures unchanged from baseline).
+
+### Risks + naming
+
+- **Schema change.** Tracked via Linear HUC-70 (post-merge verification).
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **No new endpoints.** Changes are entirely inside `convex/workspaces.ts` and `apps/platform/lib/hooks/use-video-call.ts`.
 - **Naming.** No `mentor`/`mentee` words.
 
 

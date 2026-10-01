@@ -179,3 +179,47 @@ For the audio diagnostic:
 - `node_modules/.pnpm/@daily-co+daily-react@0.25.3.../dist/components/DailyAudio.d.ts` — `onPlayFailed` prop type signature.
 - `apps/platform/lib/daily.ts:260-302` — `createDailyRoom` (room config; default auto-subscription).
 - `apps/platform/lib/notifications/sound.ts:1-116` — pre-existing `playIncomingCallChime` Web Audio chime (good model for the user-facing copy in the onPlayFailed toast).
+
+---
+
+## Follow-on work (2026-09-29) — separate but adjacent incidents
+
+The PR #874 fix did NOT address three classes of failure that surfaced in production in the weeks following this incident. They are tracked separately because the root causes are different — the dashboard-500 of PR #874 was a Clerk-metadata miss; the incidents below are data-shape misses, mutation forgery, and schema race conditions.
+
+### PR #895 — storage counter schema race (`ac11ab9`)
+
+`drive.huckleberry.art` storage usage widget intermittently rendered `-1` for video editors whose `videoEditorStorageStats` row was being seeded by `confirmPlaceholderZeroSweep` while the dashboard was reading it. The seed used `insert + patch`; the read could land on the patch path before the row existed.
+
+Fix: `convex/storageCounter.ts` now re-queries by index after `insert` failure (treats `read returned null` as "race lost, try insert"), and `videoEditorStorageStats` got a `placeholderTouchedAt?: number` field plus `by_placeholder` index for the backfill sweep.
+
+Linear HUC-66 — post-merge verification on prod.
+
+### PR #894 — call-presence nonce protocol (`c746a811`)
+
+Pre-PR, `recordCallPresenceMessage` accepted any message whose `actor.userId` matched the workspace. A forged client could post a "left" notice for any participant in any active meeting they happened to know the room name for. The Greptile review also surfaced a wrong-name bug: the actor lookup fell back to the auth subject even when the workspace anchor disagreed, so a student in workspace A could attribute presence to workspace B's instructor.
+
+Fix: nonce-based 2-call protocol — `prepareCallPresenceMessage` mints a nonce + returns `{ nonceId, messageHash }`; `recordCallPresenceMessage` verifies the nonce + consumes it. New `callPresenceNonces` table with `by_meetingId_createdAt` index for cleanup. Actor lookup now anchors to `workspace.ownerId` (student) / `instructor.userId` (instructor) before the auth-subject fallback.
+
+Linear HUC-70 — post-merge verification on prod.
+
+### PR #898 — `requireAdminOrSelf` hardening (`20c060ae`)
+
+A SEPARATE `/dashboard` 500 surfaced for a video editor whose `users` row had `userId = canonical`, `clerkId = ""`, and a Clerk JWT subject that was a third ID. The original `requireAdminOrSelf` (`convex/videoEditorAssignments.ts:15`) did `by_userId(subject)` first, fell through to `by_clerkId(subject)`, both missed, threw `"Forbidden"`. Greptile also flagged: the resolver's redundant target-row lookup was never reached in practice (target lookup finding the caller's row implies an identifier match), so the lookup was noise.
+
+Fix: explicit `by_userId ?? by_clerkId` resolution, admin short-circuit before the second read, explicit `"Forbidden: caller is not in the users table"` error, redundant target lookup removed. Read budget: 1–2 per call (matches the original). 33/33 tests pass.
+
+Note: this PR does NOT unblock the production user — that requires the HUC-69 data backfill. The PR is the necessary-but-not-sufficient code fix; the data fix is what actually lets the editor in.
+
+Linear HUC-69 — data backfill (`setUserClerkId` on the affected row).
+
+### Greptile round-trip learnings (worth carrying forward)
+
+1. **GitHub App vs local CLI reviews differ.** On PR #895 the App flagged 4 issues that the local CLI missed entirely. On PR #898 the App gave one round of review and never re-fired on subsequent commits; the local CLI was the only way to get a round-2 verdict. Treat App comments as the authoritative "first pass" and the local CLI as the only mechanism for re-reviews.
+
+2. **Confidence ≥ 4/5 OR no new P1/P2 = ready to merge.** AGENTS.md PR Merge Policy. Round-trip until both conditions hold.
+
+3. **Empty commit as a no-op review trigger.** `git commit --allow-empty -m "chore: retrigger Greptile review on PR #N"` + push. The App does not always re-fire on substantive commits; the empty commit is the only safe nudge (no CI rebuild that does nothing useful).
+
+4. **P1 scope honesty.** A P1 that says "this PR doesn't fix the production failure mode" is not blocking if the PR scopes itself honestly and tracks the actual fix in a Linear issue. Don't try to fix everything in one PR; do the part you can do well, and reference the rest.
+
+5. **Redundant code is a smell that survives review.** Greptile round-2 on PR #898 caught a target-row lookup that was unreachable — added by a reviewer-attentive hardening that didn't think through the short-circuit semantics. Defense: when adding a new branch, ask "is this reachable in any case the existing branches don't already cover?"
