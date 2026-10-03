@@ -232,32 +232,27 @@ export const createOrder = mutation({
 });
 
 /**
- * Updates fields on an existing order and returns the updated document.
+ * Marks an order as failed.
  *
- * Status validator excludes "paid" and "refunded" — those are terminal
- * payment states that must only be set by `completeOrder` / `refundOrder`
- * (service-key gated, called from verified webhook handlers).
+ * PUBLIC (no service key required). Used by the checkout routes when a
+ * Stripe/PayPal call throws — the order stays in the user's account as a
+ * historical record of an attempted purchase.
  *
- * Terminal-state guard: orders already in "paid" or "refunded" cannot be
- * rewritten from this path. Without it, a caller with an order ID could
- * mark a paid order as "failed"/"canceled" or alter its `totalAmount`
- * after fulfillment.
+ * Why only "failed": every legitimate caller (4 checkout routes × 2
+ * providers = 9 sites) passes `{id, status: "failed"}` and nothing else.
+ * Allowing any other status from a public mutation would let an
+ * unauthenticated caller with an order ID mark a pending order
+ * "canceled", bypassing the service-key gate on `cancelOrder`. To
+ * transition to "canceled", use `cancelOrder`. To transition to "paid"
+ * or "refunded", use `completeOrder` / `refundOrder` (both gated).
  *
- * `totalAmount` is no longer mutable here: no caller currently needs it
- * (all callers only set status: "failed" on checkout errors). Removing the
- * arg prevents any future caller from rewriting the financial record of a
- * completed order.
+ * Terminal-state guard: orders already in "paid" or "refunded" cannot
+ * be marked "failed" from this path.
  */
 export const updateOrder = mutation({
   args: {
     id: v.id("orders"),
-    status: v.optional(
-      v.union(
-        v.literal("pending"),
-        v.literal("failed"),
-        v.literal("canceled")
-      )
-    ),
+    status: v.optional(v.literal("failed")),
   },
   handler: async (ctx, args) => {
     const order = await ctx.db.get(args.id);
