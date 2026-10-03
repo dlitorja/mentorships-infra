@@ -14,6 +14,17 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+// Fail fast at module load if the privileged-mutation service key is missing.
+// The gated Convex mutations (completeOrder / refundOrder / migrateOrder /
+// deleteOrder) reject every call when this is unset, which would silently
+// break payment completion in prod. Better to surface a clear error here
+// than to ship a payment flow that fails closed on the first checkout.
+if (!process.env.CONVEX_HTTP_KEY) {
+  throw new Error(
+    "CONVEX_HTTP_KEY is not set; privileged Convex mutations (completeOrder, refundOrder, deleteOrder, migrateOrder) would fail closed. Configure it in the Inngest runtime env before deploying.",
+  );
+}
+
 /**
  * Processes a completed Stripe checkout session to fulfill a mentorship purchase.
  *
@@ -105,6 +116,7 @@ export const processStripeCheckout = inngest.createFunction(
 const completedOrder = await step.run("update-order", async () => {
       return await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -473,6 +485,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     const refundedOrder = await step.run("update-order-status", async () => {
       return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -560,6 +573,7 @@ export const processPayPalCheckout = inngest.createFunction(
     await step.run("update-order", async () => {
       await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -903,6 +917,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     const refundedOrder = await step.run("update-order-status", async () => {
       return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 

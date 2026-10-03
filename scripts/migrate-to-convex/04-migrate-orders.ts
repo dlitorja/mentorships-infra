@@ -101,6 +101,7 @@ async function migrateOrders(): Promise<void> {
         currency: order.currency,
         createdAt: order.createdAt.getTime(),
         updatedAt: order.updatedAt.getTime(),
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
 
       migrated++;

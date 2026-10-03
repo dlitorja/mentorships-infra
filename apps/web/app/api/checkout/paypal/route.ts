@@ -46,7 +46,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const order = await convex.mutation(api.orders.createOrder, {
       userId: "guest",
-      status: "pending",
       provider: "paypal",
       totalAmount: pack.price,
       currency: "usd",

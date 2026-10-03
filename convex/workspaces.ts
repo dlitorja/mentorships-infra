@@ -3497,7 +3497,7 @@ export const acknowledgeNotification = mutation({
 });
 
 /** Permanently deletes all notes, links, images, messages, and per-user aliases in a workspace and resets image counters. */
-export const deleteAllWorkspaceContent = mutation({
+export const deleteAllWorkspaceContent = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const notes = await ctx.db

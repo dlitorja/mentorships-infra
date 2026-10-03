@@ -348,7 +348,7 @@ test("deleteAllWorkspaceContent removes the workspace's alias rows", async () =>
   let rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
   expect(rows.length).toBe(2);
 
-  await t.mutation(api.workspaces.deleteAllWorkspaceContent, { workspaceId });
+  await t.mutation(internal.workspaces.deleteAllWorkspaceContent, { workspaceId });
 
   rows = await t.run(async (ctx) => ctx.db.query("workspaceAliases").collect());
   expect(rows.length).toBe(0);

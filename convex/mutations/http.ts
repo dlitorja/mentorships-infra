@@ -1,8 +1,8 @@
-import { mutation } from "../_generated/server";
+import { mutation, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
 /** Deletes all notes, links, images, messages, and per-user aliases belonging to a workspace and resets its image counts. */
-export const deleteAllWorkspaceContent = mutation({
+export const deleteAllWorkspaceContent = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const { workspaceId } = args;

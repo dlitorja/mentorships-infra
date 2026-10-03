@@ -11,7 +11,6 @@ import {
   getWorkspaceExport,
 } from "./queries/http";
 import {
-  deleteAllWorkspaceContent,
   createRetentionNotification,
   updateWorkspaceExportStatus,
 } from "./mutations/http";
@@ -83,7 +82,7 @@ export const httpDeleteAllWorkspaceContent = httpAction(async (ctx, request) => 
 
   const { workspaceId } = await request.json();
 
-  const result = await ctx.runMutation(deleteAllWorkspaceContent as any, { workspaceId: workspaceId as any });
+  const result = await ctx.runMutation(internal.mutations.http.deleteAllWorkspaceContent, { workspaceId: workspaceId as Id<"workspaces"> });
 
   return new Response(JSON.stringify({ deleted: result.deleted }), {
     headers: { "Content-Type": "application/json" },
@@ -648,14 +647,14 @@ const httpGetOrderByIdPublic = httpAction(async (ctx, request) => {
 const httpCompleteOrder = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(completeOrder as any, { id });
+  const result = await ctx.runMutation(completeOrder as any, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpRefundOrder = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(refundOrder as any, { id });
+  const result = await ctx.runMutation(refundOrder as any, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
