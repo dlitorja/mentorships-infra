@@ -30,8 +30,18 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           echo "Skipping convex codegen on pull_request: npx convex codegen uploads"
-          echo "functions to the deployment. PRs verify the committed convex/_generated/"
-          echo "tree against the source via the downstream typecheck jobs instead."
+          echo "functions to the configured deployment, which on PRs would mutate"
+          echo "the production Convex deployment during review. PRs verify the"
+          echo "committed convex/_generated/ tree against the source via the"
+          echo "downstream typecheck jobs (typecheck-convex and typecheck-apps)."
+          echo ""
+          echo "Trade-off: the typecheck jobs catch the most important staleness"
+          echo "case — when a PR references a function that isn't in api.d.ts,"
+          echo "tsc fails. They do NOT catch the inverse (api.d.ts exports a"
+          echo "function the source no longer defines); those are dead exports"
+          echo "that don't break tsc. A dev-deployment-based freshness check"
+          echo "would close this gap but requires a non-prod Convex deployment"
+          echo "that we don't have today; follow-up if/when one is provisioned."
       - name: Skip codegen (no deploy key)
         if: ${{ github.event_name != 'pull_request' && env.CONVEX_DEPLOY_KEY == '' }}
         run: |
