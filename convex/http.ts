@@ -16,7 +16,7 @@ import {
 } from "./mutations/http";
 import { decrementInventory, getInstructorNameById, incrementInventory, updateInstructor } from "./instructors";
 import { markNotifiedByInstructor } from "./waitlist";
-import { getOrderByIdPublic, completeOrder, refundOrder } from "./orders";
+import { getOrderPublicStatus, getOrderByIdInternal, completeOrder, refundOrder } from "./orders";
 import { createPayment, getPaymentByProviderId, refundPayment } from "./payments";
 import { getPublicProductById, getProductsByInstructorId } from "./products";
 import { createUser } from "./users";
@@ -637,10 +637,27 @@ export const httpNormalizeWaitlistEmails = httpAction(async (ctx, request) => {
  * `/api/mutation`. Each endpoint is protected by CONVEX_HTTP_KEY.
  */
 
-const httpGetOrderByIdPublic = httpAction(async (ctx, request) => {
+const httpGetOrderPublicStatus = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runQuery(getOrderByIdPublic as any, { id });
+  const result = await ctx.runQuery(getOrderPublicStatus as any, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+/**
+ * Authenticated wrapper for the internal-only `getOrderByIdInternal` query.
+ *
+ * Server-side payment processors (apps/web Inngest PayPal handler) need the
+ * full order document to populate the payment record — `totalAmount`,
+ * `currency`, and `userId` are not exposed by `getOrderPublicStatus` because
+ * they leak through the public unauthenticated path. This wrapper calls the
+ * internal query via `ctx.runQuery` and gates on the bearer token, so only
+ * callers with `CONVEX_HTTP_KEY` can fetch the full order.
+ */
+const httpGetOrderByIdInternal = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(getOrderByIdInternal as any, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -850,9 +867,15 @@ http.route({
 });
 
 http.route({
-  path: "/orders/get-by-id-public",
+  path: "/orders/get-public-status",
   method: "POST",
-  handler: httpGetOrderByIdPublic,
+  handler: httpGetOrderPublicStatus,
+});
+
+http.route({
+  path: "/orders/get-by-id-internal",
+  method: "POST",
+  handler: httpGetOrderByIdInternal,
 });
 
 http.route({

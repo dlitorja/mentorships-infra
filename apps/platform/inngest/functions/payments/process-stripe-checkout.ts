@@ -56,7 +56,7 @@ export const processStripeCheckout = inngest.createFunction(
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await convexServerCall<any>("/orders/get-by-id-public", {
+        foundOrder = await convexServerCall<any>("/orders/get-public-status", {
           id: orderId as Id<"orders">,
         });
         if (!foundOrder) {
