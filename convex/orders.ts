@@ -28,16 +28,15 @@ export const getOrderById = query({
   },
 });
 
-/** Fetches a single order by ID without requiring authentication. Internal use only. */
-export const getOrderByIdPublic = query({
-  args: { id: v.id("orders") },
-  handler: async (ctx, args) => {
-    // Public access: allow reading order by ID for success redirects
-    return await ctx.db.get(args.id);
-  },
-});
-
-/** Minimal public order status for client-facing success/cancel flows. */
+/** Minimal public order status for client-facing success/cancel flows.
+ *
+ * Returns only `{ status, provider }` — the two fields the cancel route,
+ * Stripe/PayPal success pages, and the Inngest payment processors need to
+ * decide what to do next. The previous `getOrderByIdPublic` query exposed
+ * the full order document (including `userId`, `packId`, `totalAmount`,
+ * `currency`, provider-specific IDs, etc.) to any unauthenticated caller
+ * who could guess an ID; this single replacement query closes that gap.
+ */
 export const getOrderPublicStatus = query({
   args: { id: v.id("orders") },
   handler: async (ctx, args) => {

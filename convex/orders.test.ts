@@ -195,3 +195,68 @@ test("migrateOrder throws when serviceKey is missing", async () => {
     }),
   ).rejects.toThrow(/Unauthorized/i);
 });
+
+// ---------------------------------------------------------------------------
+// getOrderPublicStatus: public-facing query must only expose { status, provider }
+// and nothing else (no userId / totalAmount / currency / _id / _creationTime).
+// ---------------------------------------------------------------------------
+
+test("getOrderPublicStatus returns null for a non-existent order", async () => {
+  const t = convexTest(schema, modules);
+  // Insert then immediately delete so we have a well-formed ID that the
+  // table no longer contains. Convex's v.id() validator rejects malformed
+  // IDs outright, so we can't just construct an arbitrary string.
+  const id = await t.run(async (ctx) => {
+    const inserted = await ctx.db.insert("orders", {
+      userId: "user_test",
+      provider: "stripe",
+      totalAmount: "100",
+      currency: "usd",
+      status: "pending",
+    });
+    await ctx.db.delete(inserted);
+    return inserted;
+  });
+
+  const result = await t.query(api.orders.getOrderPublicStatus, { id });
+  expect(result).toBeNull();
+});
+
+test("getOrderPublicStatus returns only { status, provider } for an existing order", async () => {
+  const t = convexTest(schema, modules);
+  const id = await t.run(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      userId: "user_test",
+      provider: "paypal",
+      totalAmount: "9999",
+      currency: "eur",
+      status: "pending",
+    });
+  });
+
+  const result = await t.query(api.orders.getOrderPublicStatus, { id });
+  expect(result).toEqual({ status: "pending", provider: "paypal" });
+});
+
+test("getOrderPublicStatus does not leak userId, totalAmount, currency, or system fields", async () => {
+  const t = convexTest(schema, modules);
+  const id = await t.run(async (ctx) => {
+    return await ctx.db.insert("orders", {
+      userId: "user_sensitive",
+      provider: "stripe",
+      totalAmount: "12345",
+      currency: "gbp",
+      status: "paid",
+    });
+  });
+
+  const result = await t.query(api.orders.getOrderPublicStatus, { id });
+  expect(result).not.toBeNull();
+  const keys = Object.keys(result as Record<string, unknown>).sort();
+  expect(keys).toEqual(["provider", "status"]);
+  expect((result as Record<string, unknown>).userId).toBeUndefined();
+  expect((result as Record<string, unknown>).totalAmount).toBeUndefined();
+  expect((result as Record<string, unknown>).currency).toBeUndefined();
+  expect((result as Record<string, unknown>)._id).toBeUndefined();
+  expect((result as Record<string, unknown>)._creationTime).toBeUndefined();
+});

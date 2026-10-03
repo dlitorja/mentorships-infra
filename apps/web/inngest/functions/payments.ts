@@ -5,6 +5,7 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
 import { reportInfo } from "@/lib/observability";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -74,7 +75,7 @@ export const processStripeCheckout = inngest.createFunction(
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+        foundOrder = await convex.query(api.orders.getOrderPublicStatus, {
           id: orderId as Id<"orders">,
         });
         if (!foundOrder) {
@@ -564,7 +565,7 @@ export const processPayPalCheckout = inngest.createFunction(
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+        foundOrder = await convexServerCall<any>("/orders/get-by-id-internal", {
           id: orderId as Id<"orders">,
         });
         if (!foundOrder) {

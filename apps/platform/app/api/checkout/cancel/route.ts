@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
       // Update order status to canceled only if it's still pending
       try {
         const convex = getConvexClient();
-        const order = await convex.query(api.orders.getOrderByIdPublic, { id: orderId as Id<"orders"> });
+        const order = await convex.query(api.orders.getOrderPublicStatus, { id: orderId as Id<"orders"> });
         // Require a valid signed cancel token and a recent timestamp (48h)
         const secret = process.env.CANCEL_TOKEN_SECRET;
         const withinWindow = ts ? Date.now() - Number(ts) < 48 * 3600 * 1000 : false;

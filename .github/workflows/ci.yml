@@ -20,17 +20,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-pnpm
-      - name: Convex codegen
-        if: ${{ env.CONVEX_DEPLOY_KEY != '' }}
+      - name: Convex codegen (push to main only)
+        if: ${{ github.event_name == 'push' && env.CONVEX_DEPLOY_KEY != '' }}
         run: npx convex codegen
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
+      - name: Skip codegen on PRs (avoid mutating prod deployment during review)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "Skipping convex codegen on pull_request: npx convex codegen uploads"
+          echo "functions to the deployment. PRs verify the committed convex/_generated/"
+          echo "tree against the source via the downstream typecheck jobs instead."
       - name: Skip codegen (no deploy key)
-        if: ${{ env.CONVEX_DEPLOY_KEY == '' }}
+        if: ${{ github.event_name != 'pull_request' && env.CONVEX_DEPLOY_KEY == '' }}
         run: |
           echo "Skipping convex codegen: missing CONVEX_DEPLOY_KEY"
       - name: Fail if codegen produced unstaged changes
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
           git status --porcelain
           if [ -n "$(git status --porcelain)" ]; then

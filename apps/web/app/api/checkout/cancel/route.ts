@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       // Update order status to canceled only if it's still pending
       try {
         const convex = getConvexClient();
-        const order = await convex.query(api.orders.getOrderByIdPublic, { id: orderId as Id<"orders"> });
+        const order = await convex.query(api.orders.getOrderPublicStatus, { id: orderId as Id<"orders"> });
         const secret = process.env.CANCEL_TOKEN_SECRET;
         const withinWindow = ts ? Date.now() - Number(ts) < 48 * 3600 * 1000 : false;
         const expected = secret && ts ? crypto.createHmac("sha256", secret).update(`${orderId}:${ts}`).digest("hex") : null;
