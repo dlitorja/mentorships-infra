@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
         const tokenValid = Boolean(expected && token && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token)));
 
         if (order && order.status === "pending" && tokenValid && withinWindow) {
-          await convex.mutation(api.orders.cancelOrder, { id: orderId as Id<"orders"> });
+          await convex.mutation(api.orders.cancelOrder, { id: orderId as Id<"orders">, serviceKey: process.env.CONVEX_HTTP_KEY ?? "" });
         } else if (order && order.status === "pending") {
           // Structured audit log on invalid attempts
           const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || undefined;

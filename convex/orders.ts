@@ -291,17 +291,20 @@ export const completeOrder = mutation({
 /**
  * Marks an order as canceled.
  *
- * Called from the public checkout-cancel route, which validates an HMAC-signed
- * cancel token before invoking this. Only transitions to "canceled".
+ * SERVER-ONLY: gated by the service key. The public checkout-cancel route
+ * validates an HMAC-signed cancel token AND passes the service key; the
+ * token check is at the route layer, the service-key check is at the
+ * mutation layer. Without the key, no caller (including the cancel route)
+ * could transition an order to "canceled".
  *
- * State guard: only orders currently in "pending" can be canceled. Without
- * this, a caller with an order ID could cancel an already-paid or
- * already-refunded order. The cancel route already enforces this externally;
- * the internal check is defense in depth.
+ * State guard: only orders currently in "pending" can be canceled.
+ * Terminal-state orders (paid/refunded) cannot be re-canceled here;
+ * use `refundOrder` for paid orders.
  */
 export const cancelOrder = mutation({
-  args: { id: v.id("orders") },
+  args: { id: v.id("orders"), serviceKey: v.string() },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
     const order = await ctx.db.get(args.id);
     if (!order) throw new Error("Order not found");
     if (order.status !== "pending") {
