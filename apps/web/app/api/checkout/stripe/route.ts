@@ -56,7 +56,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const order = await convex.mutation(api.orders.createOrder, {
       userId: "guest",
-      status: "pending",
       provider: "stripe",
       totalAmount: finalPrice,
       currency: "usd",

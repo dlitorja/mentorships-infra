@@ -2,6 +2,7 @@ import { mutation, internalMutation, internalAction } from "./_generated/server"
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { isAdminUser } from "./admin";
 
 async function deleteClerkUser(clerkUserId: string): Promise<void> {
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -23,6 +24,14 @@ async function deleteClerkUser(clerkUserId: string): Promise<void> {
   }
 }
 
+/**
+ * Queues a Clerk user for deletion (executed by the 5-min cron).
+ *
+ * ADMIN-ONLY: the caller must be an authenticated admin. Without this gate,
+ * anyone with the public Convex URL could queue arbitrary accounts for
+ * permanent deletion. The sole caller (admin instructor hard-delete route)
+ * uses the authenticated Convex client, so `ctx.auth` is populated.
+ */
 export const addPendingClerkDeletion = mutation({
   args: {
     clerkUserId: v.string(),
@@ -30,6 +39,11 @@ export const addPendingClerkDeletion = mutation({
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity || !(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Unauthorized: admin only");
+    }
+
     const existing = await ctx.db
       .query("pendingClerkDeletions")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))

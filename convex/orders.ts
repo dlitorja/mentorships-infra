@@ -1,5 +1,6 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { assertServiceKey } from "./lib/serviceAuth";
 
 /**
  * Internal lookup for a single order by ID. Same shape as the public
@@ -205,11 +206,17 @@ export const getOrdersForAdminInternal = internalQuery({
   },
 });
 
-/** Creates a new order with the given details. */
+/**
+ * Creates a new order with the given details.
+ *
+ * Orders are ALWAYS created as "pending" — the status arg was removed because
+ * it allowed anyone to mint orders directly in the "paid" state, bypassing
+ * Stripe/PayPal. Payment completion goes through `completeOrder`, which is
+ * gated by the service key and only called from verified webhook handlers.
+ */
 export const createOrder = mutation({
   args: {
     userId: v.string(),
-    status: v.optional(v.union(v.literal("pending"), v.literal("paid"), v.literal("refunded"), v.literal("failed"), v.literal("canceled"))),
     provider: v.union(v.literal("stripe"), v.literal("paypal")),
     totalAmount: v.string(),
     currency: v.optional(v.string()),
@@ -217,62 +224,129 @@ export const createOrder = mutation({
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("orders", {
       ...args,
-      status: args.status ?? "pending",
+      status: "pending",
       currency: args.currency ?? "usd",
     });
     return await ctx.db.get(id);
   },
 });
 
-/** Updates fields on an existing order and returns the updated document. */
+/**
+ * Marks an order as failed.
+ *
+ * PUBLIC (no service key required). Used by the checkout routes when a
+ * Stripe/PayPal call throws — the order stays in the user's account as a
+ * historical record of an attempted purchase.
+ *
+ * Why only "failed": every legitimate caller (4 checkout routes × 2
+ * providers = 9 sites) passes `{id, status: "failed"}` and nothing else.
+ * Allowing any other status from a public mutation would let an
+ * unauthenticated caller with an order ID mark a pending order
+ * "canceled", bypassing the service-key gate on `cancelOrder`. To
+ * transition to "canceled", use `cancelOrder`. To transition to "paid"
+ * or "refunded", use `completeOrder` / `refundOrder` (both gated).
+ *
+ * Terminal-state guard: orders already in "paid" or "refunded" cannot
+ * be marked "failed" from this path.
+ */
 export const updateOrder = mutation({
   args: {
     id: v.id("orders"),
-    status: v.optional(v.union(v.literal("pending"), v.literal("paid"), v.literal("refunded"), v.literal("failed"), v.literal("canceled"))),
-    totalAmount: v.optional(v.string()),
+    status: v.optional(v.literal("failed")),
   },
   handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.id);
+    if (!order) throw new Error("Order not found");
+    if (order.status === "paid" || order.status === "refunded") {
+      throw new Error(
+        `Cannot update order in terminal state "${order.status}"; use completeOrder/refundOrder for paid/refunded transitions.`,
+      );
+    }
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
   },
 });
 
-/** Marks an order as paid. */
+/**
+ * Marks an order as paid.
+ *
+ * SERVER-ONLY: gated by the service key. Called from verified Stripe/PayPal
+ * webhook handlers (Inngest) and the CONVEX_HTTP_KEY-protected HTTP actions.
+ */
 export const completeOrder = mutation({
-  args: { id: v.id("orders") },
+  args: { id: v.id("orders"), serviceKey: v.string() },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
     await ctx.db.patch(args.id, { status: "paid" });
     return await ctx.db.get(args.id);
   },
 });
 
-/** Marks an order as canceled. */
+/**
+ * Marks an order as canceled.
+ *
+ * SERVER-ONLY: gated by the service key. The public checkout-cancel route
+ * validates an HMAC-signed cancel token AND passes the service key; the
+ * token check is at the route layer, the service-key check is at the
+ * mutation layer. Without the key, no caller (including the cancel route)
+ * could transition an order to "canceled".
+ *
+ * State guard: only orders currently in "pending" can be canceled.
+ * Terminal-state orders (paid/refunded) cannot be re-canceled here;
+ * use `refundOrder` for paid orders.
+ */
 export const cancelOrder = mutation({
-  args: { id: v.id("orders") },
+  args: { id: v.id("orders"), serviceKey: v.string() },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
+    const order = await ctx.db.get(args.id);
+    if (!order) throw new Error("Order not found");
+    if (order.status !== "pending") {
+      throw new Error(
+        `Cannot cancel order in status "${order.status}"; only "pending" orders can be canceled.`,
+      );
+    }
     await ctx.db.patch(args.id, { status: "canceled" });
     return await ctx.db.get(args.id);
   },
 });
 
-/** Marks an order as refunded. */
+/**
+ * Marks an order as refunded.
+ *
+ * SERVER-ONLY: gated by the service key. Called from verified refund webhook
+ * handlers (Inngest) and the CONVEX_HTTP_KEY-protected HTTP actions.
+ */
 export const refundOrder = mutation({
-  args: { id: v.id("orders") },
+  args: { id: v.id("orders"), serviceKey: v.string() },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
     await ctx.db.patch(args.id, { status: "refunded" });
     return await ctx.db.get(args.id);
   },
 });
 
-/** Soft-deletes an order by setting its deletedAt timestamp. */
+/**
+ * Soft-deletes an order by setting its deletedAt timestamp.
+ *
+ * SERVER-ONLY: gated by the service key. No current callers; kept for admin
+ * tooling. Do not expose to clients without an admin check.
+ */
 export const deleteOrder = mutation({
-  args: { id: v.id("orders") },
+  args: { id: v.id("orders"), serviceKey: v.string() },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
 
+/**
+ * One-shot migration helper (scripts/migrate-to-convex/04-migrate-orders.ts).
+ *
+ * SERVER-ONLY: gated by the service key. Accepts historical statuses including
+ * "paid" because it replays real order history — never call this from clients.
+ */
 export const migrateOrder = mutation({
   args: {
     id: v.string(),
@@ -283,8 +357,10 @@ export const migrateOrder = mutation({
     currency: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
+    serviceKey: v.string(),
   },
   handler: async (ctx, args) => {
+    assertServiceKey(args.serviceKey);
     const existingById = await ctx.db
       .query("orders")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))

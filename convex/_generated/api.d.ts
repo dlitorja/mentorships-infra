@@ -44,6 +44,7 @@ import type * as instructorUploads from "../instructorUploads.js";
 import type * as instructors from "../instructors.js";
 import type * as legacyMappings from "../legacyMappings.js";
 import type * as lib_b2WorkspaceUpload from "../lib/b2WorkspaceUpload.js";
+import type * as lib_serviceAuth from "../lib/serviceAuth.js";
 import type * as lib_sessionWorkspace from "../lib/sessionWorkspace.js";
 import type * as migrationQueries from "../migrationQueries.js";
 import type * as migrations from "../migrations.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   instructors: typeof instructors;
   legacyMappings: typeof legacyMappings;
   "lib/b2WorkspaceUpload": typeof lib_b2WorkspaceUpload;
+  "lib/serviceAuth": typeof lib_serviceAuth;
   "lib/sessionWorkspace": typeof lib_sessionWorkspace;
   migrationQueries: typeof migrationQueries;
   migrations: typeof migrations;

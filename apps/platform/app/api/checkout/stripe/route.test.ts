@@ -73,8 +73,8 @@ describe("POST /api/checkout/stripe", () => {
     mockGetConvexClient.mockReturnValue(convexClient);
     convexClient.query.mockResolvedValue(pack);
     convexClient.mutation.mockImplementation((api: any, args: any) => {
-      if (args.status === "pending") return order;
-      if (args.status === "failed") return { ...order, status: "failed" };
+      if (args.provider) return order; // createOrder (no longer takes a status arg)
+      if (args.status === "failed") return { ...order, status: "failed" }; // updateOrder
       return null;
     });
     mockStripeCheckoutCreate.mockResolvedValue({

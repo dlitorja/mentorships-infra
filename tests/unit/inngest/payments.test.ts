@@ -2,6 +2,24 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Set up environment variables before imports
 process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
+// apps/web/inngest/functions/payments.ts throws at module load if this is
+// unset (the gated Convex mutations would fail closed otherwise). The value
+// is not validated here — ConvexHttpClient is mocked, so the key never
+// reaches the real server.
+process.env.CONVEX_HTTP_KEY = "test-convex-http-key";
+
+// Stub fetch so the post-payment `ensure-admin-student-workspace` step
+// (which now passes the inner env-var check above and fires) doesn't hit
+// the real network. Tests that don't reach that step are unaffected.
+vi.stubGlobal(
+  "fetch",
+  vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(""),
+  }),
+);
 
 // Mock the ConvexHttpClient with dynamic response and record mutation calls
 vi.mock("convex/browser", () => {
@@ -352,8 +370,13 @@ describe("Inngest Payment Functions", () => {
       const calls = convexMock.__getMutationCalls!();
       const sp = calls.find((c: any) => c.name === "sessionPacks.createSessionPack");
       const sr = calls.find((c: any) => c.name === "seatReservations.createSeatReservation");
+      const complete = calls.find((c: any) => c.name === "orders.completeOrder");
       expect(sp?.args.userId).toBe("email:guest@example.com");
       expect(sr?.args.userId).toBe("email:guest@example.com");
+      // The completeOrder mutation is service-key gated; the handler must
+      // pass the env var. If this stops being passed, the Convex mutation
+      // would fail closed and payments would silently break in prod.
+      expect(complete?.args.serviceKey).toBe("test-convex-http-key");
 
       convexMock.__clearMocks!();
     });

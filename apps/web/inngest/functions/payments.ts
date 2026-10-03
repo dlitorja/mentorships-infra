@@ -15,6 +15,26 @@ function getConvexClient() {
 }
 
 /**
+ * Asserts the privileged-mutation service key is configured.
+ *
+ * Called at the top of each payment handler. The gated Convex mutations
+ * (completeOrder / refundOrder / migrateOrder / deleteOrder) reject every
+ * call when CONVEX_HTTP_KEY is unset; without this guard, the failure would
+ * surface as a confusing runtime error inside the first checkout step.
+ *
+ * Per-handler (not module-load) so unrelated Inngest functions in the same
+ * route — sessions, notifications, onboarding — keep loading when this
+ * env var is missing.
+ */
+function assertConvexServiceKeyConfigured(): void {
+  if (!process.env.CONVEX_HTTP_KEY) {
+    throw new Error(
+      "CONVEX_HTTP_KEY is not set; privileged Convex mutations (completeOrder, refundOrder, deleteOrder, migrateOrder) would fail closed. Configure it in the Inngest runtime env before deploying.",
+    );
+  }
+}
+
+/**
  * Processes a completed Stripe checkout session to fulfill a mentorship purchase.
  *
  * Triggered by: `stripe/checkout.session.completed`
@@ -40,6 +60,7 @@ export const processStripeCheckout = inngest.createFunction(
   { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { sessionId, orderId, userId, packId, studentEmail } = event.data as {
       sessionId: string;
       orderId: string;
@@ -105,6 +126,7 @@ export const processStripeCheckout = inngest.createFunction(
 const completedOrder = await step.run("update-order", async () => {
       return await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -385,6 +407,7 @@ export const processStripeRefund = inngest.createFunction(
   { id: "process-stripe-refund", name: "Process Stripe Refund", retries: 3 },
   { event: "stripe/charge.refunded" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { paymentIntentId } = event.data;
     const convex = getConvexClient();
 
@@ -473,6 +496,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     const refundedOrder = await step.run("update-order-status", async () => {
       return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -527,6 +551,7 @@ export const processPayPalCheckout = inngest.createFunction(
   { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
   { event: "paypal/payment.capture.completed" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { captureId, orderId, packId, studentEmail } = event.data as {
       captureId: string;
       orderId: string;
@@ -560,6 +585,7 @@ export const processPayPalCheckout = inngest.createFunction(
     await step.run("update-order", async () => {
       await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
@@ -807,6 +833,7 @@ export const processPayPalRefund = inngest.createFunction(
   { id: "process-paypal-refund", name: "Process PayPal Refund", retries: 3 },
   { event: "paypal/payment.capture.refunded" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { captureId } = event.data;
     const convex = getConvexClient();
 
@@ -903,6 +930,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     const refundedOrder = await step.run("update-order-status", async () => {
       return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+        serviceKey: process.env.CONVEX_HTTP_KEY ?? "",
       });
     });
 
