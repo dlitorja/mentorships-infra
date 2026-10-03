@@ -370,8 +370,13 @@ describe("Inngest Payment Functions", () => {
       const calls = convexMock.__getMutationCalls!();
       const sp = calls.find((c: any) => c.name === "sessionPacks.createSessionPack");
       const sr = calls.find((c: any) => c.name === "seatReservations.createSeatReservation");
+      const complete = calls.find((c: any) => c.name === "orders.completeOrder");
       expect(sp?.args.userId).toBe("email:guest@example.com");
       expect(sr?.args.userId).toBe("email:guest@example.com");
+      // The completeOrder mutation is service-key gated; the handler must
+      // pass the env var. If this stops being passed, the Convex mutation
+      // would fail closed and payments would silently break in prod.
+      expect(complete?.args.serviceKey).toBe("test-convex-http-key");
 
       convexMock.__clearMocks!();
     });

@@ -234,10 +234,19 @@ export const createOrder = mutation({
 /**
  * Updates fields on an existing order and returns the updated document.
  *
- * The status validator deliberately excludes "paid" and "refunded": those are
- * terminal payment states that must only be set by `completeOrder` /
- * `refundOrder` (service-key gated, called from verified webhook handlers).
- * Checkout routes use this to mark orders "failed" on checkout errors.
+ * Status validator excludes "paid" and "refunded" — those are terminal
+ * payment states that must only be set by `completeOrder` / `refundOrder`
+ * (service-key gated, called from verified webhook handlers).
+ *
+ * Terminal-state guard: orders already in "paid" or "refunded" cannot be
+ * rewritten from this path. Without it, a caller with an order ID could
+ * mark a paid order as "failed"/"canceled" or alter its `totalAmount`
+ * after fulfillment.
+ *
+ * `totalAmount` is no longer mutable here: no caller currently needs it
+ * (all callers only set status: "failed" on checkout errors). Removing the
+ * arg prevents any future caller from rewriting the financial record of a
+ * completed order.
  */
 export const updateOrder = mutation({
   args: {
@@ -249,9 +258,15 @@ export const updateOrder = mutation({
         v.literal("canceled")
       )
     ),
-    totalAmount: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.id);
+    if (!order) throw new Error("Order not found");
+    if (order.status === "paid" || order.status === "refunded") {
+      throw new Error(
+        `Cannot update order in terminal state "${order.status}"; use completeOrder/refundOrder for paid/refunded transitions.`,
+      );
+    }
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
@@ -278,10 +293,22 @@ export const completeOrder = mutation({
  *
  * Called from the public checkout-cancel route, which validates an HMAC-signed
  * cancel token before invoking this. Only transitions to "canceled".
+ *
+ * State guard: only orders currently in "pending" can be canceled. Without
+ * this, a caller with an order ID could cancel an already-paid or
+ * already-refunded order. The cancel route already enforces this externally;
+ * the internal check is defense in depth.
  */
 export const cancelOrder = mutation({
   args: { id: v.id("orders") },
   handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.id);
+    if (!order) throw new Error("Order not found");
+    if (order.status !== "pending") {
+      throw new Error(
+        `Cannot cancel order in status "${order.status}"; only "pending" orders can be canceled.`,
+      );
+    }
     await ctx.db.patch(args.id, { status: "canceled" });
     return await ctx.db.get(args.id);
   },

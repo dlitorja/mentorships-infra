@@ -75,6 +75,19 @@ async function runConvexMutation(functionName: string, args: Record<string, unkn
 }
 
 async function migrateOrders(): Promise<void> {
+  // Fail fast if the service key isn't set. `migrateOrder` is service-key
+  // gated; without it, every row would reject (the per-row try/catch would
+  // log the failure and continue, masking the misconfiguration).
+  if (!process.env.CONVEX_HTTP_KEY) {
+    console.error(
+      "ERROR: CONVEX_HTTP_KEY is not set. The migrateOrder mutation is gated " +
+        "by this key. Export it before running this script:\n" +
+        "  export CONVEX_HTTP_KEY=...\n" +
+        "(use the value from Convex dashboard → Settings → API Keys)",
+    );
+    process.exit(1);
+  }
+
   console.log("Starting orders migration to Convex...\n");
 
   const db = getDb() as PostgresJsDatabase<typeof schema>;

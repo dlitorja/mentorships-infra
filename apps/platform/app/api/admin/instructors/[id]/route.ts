@@ -477,7 +477,22 @@ export async function DELETE(
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
                           } catch (pendingErr) {
-              console.error(`[admin] Failed to record pending Clerk deletion:`, pendingErr);
+              // addPendingClerkDeletion is admin-gated: if the operator's
+              // Convex users.role !== "admin" (despite requireRoleForApi
+              // passing at the route layer), the queue rejects. Surface
+              // that case loudly so the operator notices the Clerk account
+              // was NOT queued for retry before the instructor row was
+              // hard-deleted below.
+              const pendingMsg =
+                pendingErr instanceof Error ? pendingErr.message : String(pendingErr);
+              const isAdminMismatch =
+                pendingMsg.includes("admin") || pendingMsg.includes("Unauthorized");
+              console.error(
+                isAdminMismatch
+                  ? "[admin] Pending Clerk deletion queue rejected: operator is admin at the route layer but the Convex users.role is not 'admin' (addPendingClerkDeletion gated). The Clerk account will NOT be retried; reconcile roles before further hard-deletes."
+                  : `[admin] Failed to record pending Clerk deletion:`,
+                pendingErr,
+              );
             }
           }
         }

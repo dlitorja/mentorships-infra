@@ -14,15 +14,24 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
-// Fail fast at module load if the privileged-mutation service key is missing.
-// The gated Convex mutations (completeOrder / refundOrder / migrateOrder /
-// deleteOrder) reject every call when this is unset, which would silently
-// break payment completion in prod. Better to surface a clear error here
-// than to ship a payment flow that fails closed on the first checkout.
-if (!process.env.CONVEX_HTTP_KEY) {
-  throw new Error(
-    "CONVEX_HTTP_KEY is not set; privileged Convex mutations (completeOrder, refundOrder, deleteOrder, migrateOrder) would fail closed. Configure it in the Inngest runtime env before deploying.",
-  );
+/**
+ * Asserts the privileged-mutation service key is configured.
+ *
+ * Called at the top of each payment handler. The gated Convex mutations
+ * (completeOrder / refundOrder / migrateOrder / deleteOrder) reject every
+ * call when CONVEX_HTTP_KEY is unset; without this guard, the failure would
+ * surface as a confusing runtime error inside the first checkout step.
+ *
+ * Per-handler (not module-load) so unrelated Inngest functions in the same
+ * route — sessions, notifications, onboarding — keep loading when this
+ * env var is missing.
+ */
+function assertConvexServiceKeyConfigured(): void {
+  if (!process.env.CONVEX_HTTP_KEY) {
+    throw new Error(
+      "CONVEX_HTTP_KEY is not set; privileged Convex mutations (completeOrder, refundOrder, deleteOrder, migrateOrder) would fail closed. Configure it in the Inngest runtime env before deploying.",
+    );
+  }
 }
 
 /**
@@ -51,6 +60,7 @@ export const processStripeCheckout = inngest.createFunction(
   { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { sessionId, orderId, userId, packId, studentEmail } = event.data as {
       sessionId: string;
       orderId: string;
@@ -397,6 +407,7 @@ export const processStripeRefund = inngest.createFunction(
   { id: "process-stripe-refund", name: "Process Stripe Refund", retries: 3 },
   { event: "stripe/charge.refunded" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { paymentIntentId } = event.data;
     const convex = getConvexClient();
 
@@ -540,6 +551,7 @@ export const processPayPalCheckout = inngest.createFunction(
   { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
   { event: "paypal/payment.capture.completed" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { captureId, orderId, packId, studentEmail } = event.data as {
       captureId: string;
       orderId: string;
@@ -821,6 +833,7 @@ export const processPayPalRefund = inngest.createFunction(
   { id: "process-paypal-refund", name: "Process PayPal Refund", retries: 3 },
   { event: "paypal/payment.capture.refunded" },
   async ({ event, step }) => {
+    assertConvexServiceKeyConfigured();
     const { captureId } = event.data;
     const convex = getConvexClient();
 
