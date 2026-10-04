@@ -7,7 +7,7 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const NOW = Date.UTC(2026, 8, 6, 12, 0, 0);
+const NOW = Date.now();
 const ADMIN_CLERK_ID = "user_admin_email_health";
 
 async function seedAdmin(t: ReturnType<typeof convexTest<typeof schema>>): Promise<void> {
