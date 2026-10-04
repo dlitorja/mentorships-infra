@@ -1924,9 +1924,9 @@ export const httpServerVerifiedSyncClerkProfile = httpAction(async (ctx, request
 export const httpBootstrapAdminRole = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  let userId: string, actorId: string | undefined;
+  let userId: string, actorId: string | undefined, email: string | undefined;
   try {
-    ({ userId, actorId } = await request.json());
+    ({ userId, actorId, email } = await request.json());
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
       status: 400,
@@ -1945,6 +1945,7 @@ export const httpBootstrapAdminRole = httpAction(async (ctx, request) => {
     const result = await ctx.runMutation(internal.users.bootstrapAdminRoleOnce, {
       userId,
       actorId: typeof actorId === "string" && actorId ? actorId : undefined,
+      email: typeof email === "string" ? email : undefined,
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },

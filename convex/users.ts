@@ -605,6 +605,14 @@ export const bootstrapAdminRoleOnce = internalMutation({
   args: {
     userId: v.string(),
     actorId: v.optional(v.string()),
+    // Greptile P1 #7 (PR #904): the HTTP route resolves the caller's
+    // primary email from the Clerk Backend API and passes it in. The
+    // mutation stores it on the row so the subsequent Clerk webhook
+    // `syncUser` (which looks up by `by_email`) finds and patches the
+    // row instead of inserting a duplicate. Empty string is allowed as
+    // a fallback when the Clerk lookup fails; the admin tooling will
+    // need to repair the email in that case.
+    email: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const byUserId = await ctx.db
@@ -628,13 +636,7 @@ export const bootstrapAdminRoleOnce = internalMutation({
 
     const id = await ctx.db.insert("users", {
       userId: args.userId,
-      // The schema requires a non-optional `email` column, so seed with
-      // an empty placeholder. A subsequent `syncUser` from the Clerk
-      // webhook will overwrite this with the real email. Bootstrap
-      // intentionally does not require the caller to know their email
-      // — the Clerk JWT carries it but the HTTP layer doesn't surface
-      // it to this mutation's arg list.
-      email: "",
+      email: args.email ?? "",
       clerkId: args.userId,
       role: "admin",
     } as Partial<Doc<"users">> as any);
@@ -646,7 +648,7 @@ export const bootstrapAdminRoleOnce = internalMutation({
       targetType: "user",
       targetId: args.userId,
       details: "First-time admin bootstrap via HTTP route",
-      metadata: { newRole: "admin" },
+      metadata: { newRole: "admin", email: args.email ?? null },
     });
 
     const inserted = await ctx.db.get(id);
@@ -1158,16 +1160,22 @@ export const updateUserRole = mutation({
       role: args.role,
     });
 
-    // Greptile P1 #1 (PR #904): if a linked `users` row exists for the same
-    // Clerk user via the `by_clerkId` index, patch it to the same role so
-    // a demoted admin cannot keep admin access through the linked row.
+    // Greptile P1 #1 + P1 #8 (PR #904): if a linked `users` row exists
+    // for the same Clerk user, patch it to the same role so a demoted
+    // admin cannot keep admin access through the linked row. Use
+    // `args.userId` for the `by_clerkId` lookup — NOT
+    // `targetUser.clerkId`. The linked-row concept is keyed by Clerk
+    // user ID, and in normal operation `userId === clerkId === subject`,
+    // so `args.userId` is the Clerk user ID of the target. Using the
+    // target row's stored `clerkId` instead could patch a different
+    // Clerk account entirely if the stored value is stale or wrong.
     // Linked rows are an edge case (`onboardingAlias` splits, support
-    // overlays) — in normal operation `userId === clerkId === subject` so
-    // `by_userId` and `by_clerkId` resolve to the same row and this
-    // patch is a no-op (filtered by `linked._id !== targetUser._id`).
+    // overlays); in normal operation the extra patch is a no-op
+    // because `by_userId` and `by_clerkId` resolve to the same row,
+    // filtered by `linked._id !== targetUser._id`.
     const linked = await ctx.db
       .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", targetUser.clerkId))
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
       .first();
     if (linked && linked._id !== targetUser._id) {
       await ctx.db.patch(linked._id, { role: args.role });

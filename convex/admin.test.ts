@@ -264,6 +264,69 @@ test("updateUserRole: demoting also patches a linked by_clerkId admin row (P1 #1
   expect(result.role).toBe("student");
 });
 
+test("updateUserRole: linked-row lookup uses args.userId, not target.clerkId (P1 #8)", async () => {
+  // Greptile P1 #8: the linked-row patch must look up by the Clerk
+  // user ID of the target (which is `args.userId` in normal
+  // operation), not by `targetUser.clerkId`. If `targetUser.clerkId`
+  // is stale or points at a different account, patching by it would
+  // demote the wrong user. Seed an unrelated row whose clerkId would
+  // be a false match for the old (buggy) lookup, and verify it is
+  // NOT patched.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_admin_actor_3";
+  const targetSubject = "user_target_with_wrong_clerkId";
+  const otherClerkAccount = "user_some_other_clerk_account";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminSubject,
+      clerkId: adminSubject,
+      email: "actor3@example.com",
+      role: "admin",
+    });
+    // Target row: userId === subject, but clerkId is set to an
+    // unrelated account (the stale-link case). This is the buggy
+    // setup: if the old code looked up by `targetUser.clerkId`, it
+    // would find the otherClerkAccount row and demote it.
+    await ctx.db.insert("users", {
+      userId: targetSubject,
+      clerkId: otherClerkAccount,
+      email: "target-wrong@example.com",
+      role: "admin",
+    });
+    // The unrelated row that the buggy lookup would have hit.
+    await ctx.db.insert("users", {
+      userId: otherClerkAccount,
+      clerkId: otherClerkAccount,
+      email: "other@example.com",
+      role: "admin",
+    });
+  });
+
+  await t
+    .withIdentity({ subject: adminSubject })
+    .mutation(api.users.updateUserRole, { userId: targetSubject, role: "student" });
+
+  // Target row is now student.
+  const targetAfter = await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", targetSubject))
+      .first();
+    return row?.role;
+  });
+  expect(targetAfter).toBe("student");
+
+  // The unrelated account's row is NOT demoted.
+  const otherAfter = await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", otherClerkAccount))
+      .first();
+    return row?.role;
+  });
+  expect(otherAfter).toBe("admin");
+});
+
 test("updateUserRole: refuses when caller is not admin", async () => {
   const t = convexTest(schema, modules);
   const studentSubject = "user_student_actor";
@@ -303,13 +366,19 @@ test("updateUserRole: refuses when caller is not admin", async () => {
 test("bootstrapAdminRoleOnce: inserts a new admin row when no users row exists", async () => {
   const t = convexTest(schema, modules);
   const subject = "user_first_time_admin";
+  const email = "first-time-admin@example.com";
   const result = await t.mutation(internal.users.bootstrapAdminRoleOnce, {
     userId: subject,
     actorId: subject,
+    email,
   });
   expect(result.role).toBe("admin");
   expect(result.userId).toBe(subject);
   expect(result.clerkId).toBe(subject);
+  // Greptile P1 #7 (PR #904): the email must be persisted so the
+  // subsequent Clerk-webhook `syncUser` (which looks up by `by_email`)
+  // finds the row instead of inserting a duplicate.
+  expect(result.email).toBe(email);
 
   const fetched = await t.run(async (ctx) => {
     return await ctx.db
@@ -318,6 +387,21 @@ test("bootstrapAdminRoleOnce: inserts a new admin row when no users row exists",
       .first();
   });
   expect(fetched?.role).toBe("admin");
+  expect(fetched?.email).toBe(email);
+});
+
+test("bootstrapAdminRoleOnce: falls back to empty email when none is provided", async () => {
+  // The Clerk lookup in the HTTP route can fail; the mutation must
+  // still bootstrap. An admin without a resolvable email will need
+  // the email repaired through the admin tooling, but the row exists.
+  const t = convexTest(schema, modules);
+  const subject = "user_no_email_admin";
+  const result = await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: subject,
+    actorId: subject,
+  });
+  expect(result.role).toBe("admin");
+  expect(result.email).toBe("");
 });
 
 test("bootstrapAdminRoleOnce: refuses when a by_userId row already exists", async () => {

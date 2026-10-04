@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 import { convexServerCall } from "@/lib/convex-server-call";
 
@@ -31,6 +31,12 @@ export const runtime = "nodejs";
  * write a non-admin role between the precondition check and the role
  * write, and the bootstrap would silently overwrite it.
  *
+ * Greptile P1 #7 (PR #904): bootstrap inserts the row with the user's
+ * real Clerk email (resolved from the Clerk Backend API on the server),
+ * not a placeholder. A subsequent `syncUser` from the Clerk webhook
+ * looks the user up by `by_email`, so the empty placeholder would
+ * produce a duplicate row.
+ *
  * Authentication on the Convex side is CONVEX_HTTP_KEY bearer.
  */
 export async function POST() {
@@ -42,9 +48,28 @@ export async function POST() {
     const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // Resolve the caller's primary email from Clerk so the bootstrap
+    // row matches the `by_email` lookup the Clerk webhook sync uses.
+    // Falls back to an empty string if Clerk cannot resolve one (the
+    // schema requires `email` non-optional); an admin without a
+    // resolvable email will still bootstrap, but their email will need
+    // to be repaired through the admin tooling.
+    let email = "";
+    try {
+      const client = await clerkClient();
+      const user = await client.users.getUser(userId);
+      const primary = user.emailAddresses.find(
+        (e) => e.id === user.primaryEmailAddressId
+      );
+      email = primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? "";
+    } catch {
+      // Fall through with empty email — the bootstrap row will be
+      // created, and an admin can repair the email via the admin UI.
+    }
+
     const updated = await convexServerCall<{ _id: string; role: string }>(
       "/users/bootstrap-admin-role",
-      { userId, actorId: userId }
+      { userId, actorId: userId, email }
     );
 
     return NextResponse.json({ success: true, user: { id: updated._id, role: updated.role } });
@@ -56,8 +81,12 @@ export async function POST() {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
     if (error instanceof Error) {
+      // Greptile P2 #6 (PR #904): `convexServerCall` wraps non-OK
+      // responses as `Convex HTTP <status> at <path>: <body>`, so the
+      // underlying `Refusing bootstrap: …` text appears mid-message.
+      // Match on a substring and surface a 409.
       const msg = error.message || "";
-      if (msg.startsWith("Refusing bootstrap")) {
+      if (msg.includes("Refusing bootstrap")) {
         return NextResponse.json({ error: msg }, { status: 409 });
       }
       const lower = msg.toLowerCase();
