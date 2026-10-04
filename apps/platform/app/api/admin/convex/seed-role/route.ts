@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
@@ -9,20 +10,55 @@ export const runtime = "nodejs";
 
 /**
  * POST /api/admin/convex/seed-role
- * Server-verified elevation of the current caller into Convex with role=admin.
- * Requires Clerk admin via requireRoleForApi("admin"). Authenticates
- * the server-to-Convex call with the CONVEX_HTTP_KEY bearer (R14).
+ * Server-verified bootstrap of the current caller into Convex with role=admin.
+ *
+ * Strict precondition: the caller must have NO existing Convex `users.role`
+ * row. This route exists ONLY for the first-time bootstrap of a brand-new
+ * Clerk admin (set up via the Clerk dashboard) — a brand-new admin has
+ * `publicMetadata.role === "admin"` in their Clerk JWT but no Convex row
+ * yet, so the normal Convex authoritative admin gate would chicken-and-egg
+ * the elevation.
+ *
+ * Why we can't just trust the Clerk JWT alone: a demoted admin (whose
+ * Convex `users.role` was changed to "student" by another admin) still has
+ * `publicMetadata.role === "admin"` in their Clerk JWT until the
+ * dashboard sync updates. Without the "no existing row" check, that
+ * demoted admin could call this route to re-elevate themselves. The
+ * "no existing row" precondition closes that hole: existing admins must
+ * be re-elevated through the proper admin path (`updateUserRole`), and
+ * brand-new admins legitimately fall into the bootstrap case.
+ *
+ * Authenticates the server-to-Convex call with the CONVEX_HTTP_KEY bearer
+ * (the only path that can write `role: "admin"`).
  */
 export async function POST() {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    await requireRoleForApi("admin");
+    await requireRoleForApi("admin", { skipConvexAdminCheck: true });
 
-    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
-
     const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // "No existing Convex row" precondition. Run BEFORE any role write —
+    // a 409 here is what stops a demoted admin from re-elevating through
+    // this bootstrap path.
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unable to mint Convex auth token" }, { status: 401 });
+    }
+    const existing = await fetchQuery(api.admin.getMyRole, {}, { token });
+    if (existing.role !== null) {
+      return NextResponse.json(
+        {
+          error:
+            "Convex users.role already set for this account; bootstrap is only allowed for first-time admins. Contact an existing Convex admin to change your role through the admin tooling.",
+        },
+        { status: 409 },
+      );
+    }
+
+    const convex = await getAuthenticatedConvexClient();
 
     await convex.mutation(api.users.syncUser, {});
 

@@ -82,6 +82,38 @@ async function hasInstructorRecord(userId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Authoritative admin role check against the Convex `users` table.
+ * Returns true iff `convex.admin.getMyRole` reports `role === "admin"`.
+ *
+ * Mirrors the role-sync trade-off documented on `requireRoleForApi`
+ * below: Clerk `publicMetadata.role` can be stale (the JWT lags the
+ * live Clerk API, and the Clerk → Convex sync is a separate pipeline),
+ * so the only reliable admin check is the one written to the Convex
+ * `users` table by `internal.users.setUserRoleTrusted`.
+ *
+ * Fails closed: a Convex outage, missing token, or any read error
+ * returns `false`. Admin traffic is low-frequency, and a
+ * recoverable outage is preferable to a privilege bypass.
+ */
+async function checkConvexAdminRole(userId: string): Promise<boolean> {
+  try {
+    const token = await getConvexAuthToken();
+    if (!token) return false;
+    const result = await fetchQuery(api.admin.getMyRole, {}, { token });
+    return result.role === "admin";
+  } catch (err) {
+    await reportError({
+      source: "auth-helpers.checkConvexAdminRole",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Convex admin role lookup failed during requireRoleForApi admin gate",
+      context: { userId },
+    });
+    return false;
+  }
+}
+
 export async function getConvexAuthToken(): Promise<string | null> {
   const clerkAuth = await auth();
   return clerkAuth.getToken({ template: "convex" });
@@ -205,7 +237,10 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
   return { id: userId, role };
 }
 
-export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
+export async function requireRoleForApi(
+  requiredRole: "admin" | "instructor",
+  options?: { skipConvexAdminCheck?: boolean },
+) {
   const { userId, sessionClaims } = await auth();
   if (!userId) {
     // Typed error so API handlers return 401
@@ -229,6 +264,26 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
   if (requiredRole === "admin" && role !== "admin") {
     // Typed error so API handlers return 403
     throw new ForbiddenError("Admin role required");
+  }
+
+  if (requiredRole === "admin" && role === "admin") {
+    // Authoritative Convex check: Clerk publicMetadata.role can lag the
+    // Clerk → Convex sync, and the only path that can elevate to admin
+    // is `internal.users.setUserRoleTrusted` (gated by an existing admin).
+    // If Convex says we're not admin, the JWT or Clerk API was stale —
+    // deny. Fails closed: any Convex read error denies the request, so a
+    // Convex outage cannot be used to bypass the admin gate.
+    //
+    // `options.skipConvexAdminCheck` is reserved for the bootstrap
+    // path (`/api/admin/convex/seed-role`) which intentionally seeds
+    // an admin whose Convex row does not yet exist — the Convex check
+    // would otherwise chicken-and-egg the elevation.
+    if (!options?.skipConvexAdminCheck) {
+      const convexSaysAdmin = await checkConvexAdminRole(userId);
+      if (!convexSaysAdmin) {
+        throw new ForbiddenError("Admin role required");
+      }
+    }
   }
 
   if (requiredRole === "instructor" && role !== "instructor" && role !== "admin") {

@@ -121,6 +121,33 @@ jobs:
           flags: unit
           name: unit-tests
 
+  convex-tests:
+    name: Convex Tests
+    runs-on: ubuntu-22.04
+    needs: [changes]
+    if: needs.changes.outputs.convex == 'true' || needs.changes.outputs.packages == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
+        # Explicitly blank out CONVEX_DEPLOY_KEY here. The tests run against
+        # an in-memory database via `convex-test` and do not require a live
+        # deployment. Leaving the production deploy key in the runner env
+        # would cause the postinstall script to push codegen against prod
+        # on push-to-develop runs and expose the key to test code on
+        # same-repo PRs. Mirror the `lint-and-typecheck` job's pattern.
+        env:
+          CONVEX_DEPLOY_KEY: ''
+          CONVEX_DEPLOYMENT: ''
+      # `pnpm test:convex` runs the `convex/*.test.ts` files via vitest's
+      # edge-runtime environment (see `convex/vitest.config.mjs`). These
+      # cover the Convex function surface (queries/mutations/actions) with
+      # `convex-test` — `pnpm test:unit` is jsdom-based and excludes
+      # `convex/`, so without this job a regression in a Convex function
+      # (e.g., the new `admin.getMyRole` query) would only be caught
+      # locally, not in CI.
+      - name: Run Convex tests
+        run: pnpm test:convex
+
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-22.04

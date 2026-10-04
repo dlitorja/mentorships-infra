@@ -477,19 +477,21 @@ export async function DELETE(
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
                           } catch (pendingErr) {
-              // addPendingClerkDeletion is admin-gated: if the operator's
-              // Convex users.role !== "admin" (despite requireRoleForApi
-              // passing at the route layer), the queue rejects. Surface
-              // that case loudly so the operator notices the Clerk account
-              // was NOT queued for retry before the instructor row was
-              // hard-deleted below.
+              // addPendingClerkDeletion is admin-gated: with the
+              // `requireRoleForApi("admin")` Convex authoritative check
+              // now in place, the role-mismatch case (route says admin,
+              // Convex doesn't) is no longer reachable at this layer.
+              // Keep the diagnostic so any remaining queue failures
+              // (Convex outage, transient error) are still surfaced
+              // before the instructor row is hard-deleted below — the
+              // Clerk account would not be retried without this queue.
               const pendingMsg =
                 pendingErr instanceof Error ? pendingErr.message : String(pendingErr);
               const isAdminMismatch =
                 pendingMsg.includes("admin") || pendingMsg.includes("Unauthorized");
               console.error(
                 isAdminMismatch
-                  ? "[admin] Pending Clerk deletion queue rejected: operator is admin at the route layer but the Convex users.role is not 'admin' (addPendingClerkDeletion gated). The Clerk account will NOT be retried; reconcile roles before further hard-deletes."
+                  ? "[admin] Pending Clerk deletion queue rejected (unexpected: route admin gate already verified Convex users.role === 'admin'). Investigate the source of the mismatch before further hard-deletes; the Clerk account will NOT be retried."
                   : `[admin] Failed to record pending Clerk deletion:`,
                 pendingErr,
               );
