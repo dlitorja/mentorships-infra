@@ -1,7 +1,10 @@
 import { auth, currentUser, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
 import { getOrCreateUser, UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 import type { users } from "@mentorships/db";
+import { reportError } from "./observability";
 
 export { UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError };
 
@@ -174,16 +177,55 @@ export async function requireRole(role: "student" | "instructor" | "admin"): Pro
 
 export async function requireRoleForApi(role: "student" | "instructor" | "admin"): Promise<DbUser> {
   const { userId } = await auth();
-  
+
   if (!userId) {
     throw new UnauthorizedError("Authentication required");
   }
-  
+
   const user = await getDbUser();
-  
+
   if (user.role !== role) {
     throw new ForbiddenError(`${role} access required`);
   }
-  
+
+  if (role === "admin") {
+    const convexSaysAdmin = await checkConvexAdminRole(userId);
+    if (!convexSaysAdmin) {
+      throw new ForbiddenError("Admin access required");
+    }
+  }
+
   return user;
+}
+
+/**
+ * Authoritative admin role check against the Convex `users` table.
+ *
+ * The Supabase-derived role (via `getDbUser`) is a sync of Clerk
+ * `publicMetadata.role` and lags the Clerk → Convex sync. Per AGENTS.md
+ * ("Convex is the source of truth"), admin gating must be confirmed on
+ * the Convex side — a stale Clerk metadata role would otherwise let a
+ * demoted user keep admin access. Fails closed: any Convex read error
+ * or non-`admin` role denies the request.
+ */
+async function checkConvexAdminRole(userId: string): Promise<boolean> {
+  try {
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) return false;
+    const result = await fetchQuery(api.admin.getMyRole, {}, { token });
+    return result.role === "admin";
+  } catch (err) {
+    // Greptile P2 #5 (PR #904): record the failure so staff can
+    // distinguish a Convex outage from a real role denial in
+    // observability dashboards. Still deny — fail-closed.
+    await reportError({
+      source: "auth-helpers.checkConvexAdminRole",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Convex admin role lookup failed during requireRoleForApi admin gate",
+      context: { userId },
+    });
+    return false;
+  }
 }

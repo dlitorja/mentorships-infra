@@ -31,6 +31,58 @@ export const isAdmin = internalQuery({
   },
 });
 
+/**
+ * Public helper: returns the signed-in caller's role as stored in
+ * the `users` table, or `null` if the caller isn't signed in or has
+ * no Convex user record yet.
+ *
+ * This is the authoritative source of truth for the role on the
+ * backend (AGENTS.md: Convex wins for instructor data; this extends
+ * the same precedence to roles). Clerk `publicMetadata.role` is a
+ * sync trigger only — role elevations flow through
+ * `internal.users.setUserRoleTrusted` (gated by an existing admin),
+ * and the client-side `syncUser` mutation refuses to set `role` to
+ * anything more privileged than what the caller already is.
+ *
+ * Used by the apps/web, apps/marketing, and apps/platform
+ * `requireRoleForApi("admin")` helpers to add a Convex-side
+ * authoritative check after the Clerk/Supabase fast path. Drift
+ * (Supabase role = admin, Convex role != admin) is treated as
+ * "deny" — a stale Clerk → Supabase sync should not leak into the
+ * admin surface. Returns the role verbatim (including the legacy
+ * `undefined` state) so callers can log / branch on drift if needed.
+ *
+ * Linked-account handling: in normal operation `syncUser` and
+ * `setUserRoleTrusted` set `userId === clerkId === identity.subject`
+ * so `by_userId` and `by_clerkId` resolve to the same row. A user
+ * can in principle have two separate `users` rows — a primary
+ * (e.g. `student`) keyed by `userId`, plus an admin-linked row keyed
+ * by `clerkId` — in which case the admin role lives on the second
+ * row. Mirror `isAdminUser`'s precedence: an `admin` role on
+ * EITHER index is treated as admin. Otherwise fall through to the
+ * first row's role (preferring `by_userId` so a primary student
+ * account is reflected).
+ */
+export const getMyRole = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { role: null as string | null };
+    const subject = identity.subject;
+    const byUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+    if (byUserId?.role === "admin") return { role: "admin" };
+    const byClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", subject))
+      .first();
+    if (byClerkId?.role === "admin") return { role: "admin" };
+    return { role: byUserId?.role ?? byClerkId?.role ?? null };
+  },
+});
+
 type InstructorWithEmail = {
   id: Id<"instructors">;
   userId: string | null;

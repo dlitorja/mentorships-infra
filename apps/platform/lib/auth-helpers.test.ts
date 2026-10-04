@@ -20,10 +20,16 @@ vi.mock("convex/nextjs", () => ({
 
 // Mock the generated API. The fallback uses
 // `api.instructors.getCurrentInstructor`; we just need a stable identity.
+// `api.admin.getMyRole` is the new authoritative admin role check (the
+// "Convex-wins" pattern) — stubbed so the helper can call it without
+// hitting the network.
 vi.mock("@/convex/_generated/api", () => ({
   api: {
     instructors: {
       getCurrentInstructor: "instructors.getCurrentInstructor",
+    },
+    admin: {
+      getMyRole: "admin.getMyRole",
     },
   },
 }));
@@ -373,6 +379,113 @@ describe("requireRoleForApi('instructor')", () => {
     await expect(requireRoleForApi("admin")).rejects.toBeInstanceOf(
       ForbiddenError,
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Convex authoritative admin gate (`requireRoleForApi('admin')`).
+  //
+  // The fast path is still Clerk publicMetadata.role — only when Clerk
+  // says "admin" do we additionally query Convex via api.admin.getMyRole.
+  // A stale Clerk claim is no longer enough; the Convex `users.role`
+  // table is the source of truth (AGENTS.md).
+  // ---------------------------------------------------------------------
+
+  it("returns admin when JWT already asserts admin AND Convex getMyRole says 'admin'", async () => {
+    setAuth({ userId: "user_a", publicMetadataRole: "admin" });
+    mockFetchQuery.mockResolvedValue({ role: "admin" });
+    const result = await requireRoleForApi("admin");
+    expect(result).toEqual({ id: "user_a", role: "admin" });
+    expect(mockFetchQuery).toHaveBeenCalledWith(
+      "admin.getMyRole",
+      {},
+      expect.objectContaining({ token: "convex-test-token" }),
+    );
+  });
+
+  it("throws ForbiddenError when JWT says 'admin' but Convex getMyRole says 'student' (drift)", async () => {
+    // Simulates a demoted admin: Clerk metadata still says admin (JWT
+    // hasn't refreshed yet) but the Convex users.role row has been
+    // patched by an existing admin. Without the Convex check, this
+    // would slip past the Clerk-only fast path.
+    setAuth({ userId: "user_a", publicMetadataRole: "admin" });
+    mockFetchQuery.mockResolvedValue({ role: "student" });
+    await expect(requireRoleForApi("admin")).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("throws ForbiddenError when JWT says 'admin' but Convex getMyRole returns null (no users row)", async () => {
+    // First-time sign-in with no Convex users row yet. The Clerk → Convex
+    // sync may still be in flight (apps/platform uses the Clerk webhook
+    // → Inngest → setUserRoleTrusted chain). Deny at this layer — the
+    // caller should retry after sync completes.
+    setAuth({ userId: "user_a", publicMetadataRole: "admin" });
+    mockFetchQuery.mockResolvedValue({ role: null });
+    await expect(requireRoleForApi("admin")).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("throws ForbiddenError and reports the failure when Convex getMyRole throws (fail closed)", async () => {
+    setAuth({ userId: "user_a", publicMetadataRole: "admin" });
+    mockFetchQuery.mockRejectedValue(new Error("convex outage"));
+    await expect(requireRoleForApi("admin")).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(mockReportError).toHaveBeenCalledOnce();
+    expect(mockReportError.mock.calls[0][0]).toMatchObject({
+      source: "auth-helpers.checkConvexAdminRole",
+      level: "warn",
+      message: expect.stringContaining("admin"),
+    });
+  });
+
+  it("does not call Convex getMyRole when requireRoleForApi is for 'instructor' (only admin gate)", async () => {
+    // The Convex roundtrip is gated to `role === "admin"` only — the
+    // student/instructor paths still use the existing Clerk + Convex
+    // instructor-row fallback. Verify the auth-helpers don't pay for the
+    // admin roundtrip on instructor calls.
+    setAuth({ userId: "user_a", publicMetadataRole: "instructor" });
+    const result = await requireRoleForApi("instructor");
+    expect(result).toEqual({ id: "user_a", role: "instructor" });
+    const callsToAdmin = mockFetchQuery.mock.calls.filter(
+      (call) => call[0] === "admin.getMyRole",
+    );
+    expect(callsToAdmin).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------
+  // Bootstrap escape hatch: `skipConvexAdminCheck: true` is reserved for
+  // `/api/admin/convex/seed-role`, the only legitimate path that elevates
+  // a brand-new Clerk admin into the Convex `users.role` table.
+  // ---------------------------------------------------------------------
+
+  it("skips the Convex admin check when skipConvexAdminCheck: true (bootstrap path)", async () => {
+    // Simulates a Clerk admin who has no Convex users.role row yet —
+    // without the escape hatch, requireRoleForApi would 403 and the
+    // seed-role route could never bootstrap them. The Clerk JWT claim
+    // alone is trusted because Clerk publicMetadata.role is itself
+    // gated by an existing admin at the Clerk dashboard level.
+    setAuth({ userId: "user_bootstrap", publicMetadataRole: "admin" });
+    const result = await requireRoleForApi("admin", {
+      skipConvexAdminCheck: true,
+    });
+    expect(result).toEqual({ id: "user_bootstrap", role: "admin" });
+    const callsToAdmin = mockFetchQuery.mock.calls.filter(
+      (call) => call[0] === "admin.getMyRole",
+    );
+    expect(callsToAdmin).toHaveLength(0);
+  });
+
+  it("still rejects when JWT does not assert admin even with skipConvexAdminCheck (Clerk gate is mandatory)", async () => {
+    // The escape hatch only skips the Convex check — the Clerk gate is
+    // never bypassed. A caller without `publicMetadata.role === "admin"`
+    // in the JWT must still 403.
+    setAuth({ userId: "user_bootstrap", publicMetadataRole: "student" });
+    await expect(
+      requireRoleForApi("admin", { skipConvexAdminCheck: true }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(mockFetchQuery).not.toHaveBeenCalled();
   });
 });
 

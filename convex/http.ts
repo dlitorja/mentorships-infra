@@ -1909,6 +1909,68 @@ export const httpServerVerifiedSyncClerkProfile = httpAction(async (ctx, request
   });
 });
 
+/**
+ * Greptile P1 #2 (PR #904): atomic first-time admin bootstrap.
+ *
+ * The seed-role HTTP route (`apps/platform/app/api/admin/convex/seed-role/route.ts`)
+ * calls this single endpoint. The atomicity lives in
+ * `internal.users.bootstrapAdminRoleOnce`; this endpoint is just a
+ * bearer-auth shim that surfaces precondition violations as 409
+ * Conflict (vs. 500) and shape errors as 400 Bad Request.
+ *
+ * Authentication: CONVEX_HTTP_KEY bearer header (same as the rest of
+ * the server-verified HTTP surface).
+ */
+export const httpBootstrapAdminRole = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let userId: string, actorId: string | undefined, email: string | undefined;
+  try {
+    ({ userId, actorId, email } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid userId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Greptile P1 #10 (PR #904): require a non-empty email so the
+  // bootstrap row matches the `by_email` lookup the Clerk webhook
+  // sync uses. The HTTP route resolves it from the Clerk Backend
+  // API; if it can't, it never calls this endpoint.
+  if (!email || typeof email !== "string" || email.trim() === "") {
+    return new Response(
+      JSON.stringify({ error: "Missing or invalid email; cannot bootstrap admin role without a resolvable Clerk email" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.users.bootstrapAdminRoleOnce, {
+      userId,
+      actorId: typeof actorId === "string" && actorId ? actorId : undefined,
+      email: email.trim().toLowerCase(),
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Precondition violations (existing row OR missing email) → 409.
+    const status = message.startsWith("Refusing bootstrap") ? 409 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 http.route({
   path: "/instructors/create-for-clerk-user",
   method: "POST",
@@ -1925,6 +1987,12 @@ http.route({
   path: "/users/set-role",
   method: "POST",
   handler: httpServerVerifiedSetUserRole,
+});
+
+http.route({
+  path: "/users/bootstrap-admin-role",
+  method: "POST",
+  handler: httpBootstrapAdminRole,
 });
 
 http.route({

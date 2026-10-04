@@ -574,6 +574,101 @@ export const setUserRoleTrusted = internalMutation({
   },
 });
 
+/**
+ * Greptile P1 #2 (PR #904): atomic first-time admin bootstrap.
+ *
+ * Replaces the multi-call dance the seed-role HTTP route used to do
+ * (fetchQuery precondition → `syncUser` insert → `/users/set-role`
+ * write). The old shape had a race: between the precondition read and
+ * the role write, another admin could create a row with a non-admin
+ * role, and the bootstrap would silently overwrite it to `admin`.
+ *
+ * This mutation performs the precondition check AND the role write
+ * inside one Convex transaction. Concurrent admins writing a
+ * non-admin role either commit first (this mutation then sees the
+ * existing row and aborts) or commit after (this mutation's insert
+ * blocks them).
+ *
+ * Greptile P2 #3: distinguishes "row absent" from "row present with
+ * role undefined". An existing row is rejected even if its role has
+ * not yet been set — bootstrap is only for genuinely first-time
+ * admins, and re-elevating a demoted admin must go through
+ * `setUserRoleTrusted` via the admin path.
+ *
+ * Caller contract: the HTTP route that invokes this MUST have
+ * already authenticated the caller as an admin via
+ * `requireRoleForApi("admin", { skipConvexAdminCheck: true })`. The
+ * precondition check here is the role-write precondition, NOT an
+ * authentication step.
+ */
+export const bootstrapAdminRoleOnce = internalMutation({
+  args: {
+    userId: v.string(),
+    actorId: v.optional(v.string()),
+    // Greptile P1 #7 (PR #904): the HTTP route resolves the caller's
+    // primary email from the Clerk Backend API and passes it in. The
+    // mutation stores it on the row so the subsequent Clerk webhook
+    // `syncUser` (which looks up by `by_email`) finds and patches the
+    // row instead of inserting a duplicate.
+    //
+    // Greptile P1 #10 (PR #904): the email is REQUIRED (non-empty).
+    // An empty-string fallback would leave the bootstrap row with
+    // `email=""`, and the later `syncUser` (looking up by email)
+    // would miss it and insert a duplicate row. The HTTP route must
+    // resolve the email from Clerk first; if it can't, it surfaces
+    // a 502 to the caller instead of attempting bootstrap with
+    // an empty email.
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!args.email || args.email.trim() === "") {
+      throw new Error(
+        "Refusing bootstrap: email is required to prevent a later syncUser from inserting a duplicate row. Resolve the caller's primary email from Clerk before retrying.",
+      );
+    }
+
+    const byUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (byUserId) {
+      throw new Error(
+        `Refusing bootstrap: a users row already exists for userId=${args.userId}. Re-elevation must go through the admin path (setUserRoleTrusted).`,
+      );
+    }
+    const byClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .first();
+    if (byClerkId) {
+      throw new Error(
+        `Refusing bootstrap: a users row already exists for clerkId=${args.userId}. Re-elevation must go through the admin path (setUserRoleTrusted).`,
+      );
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: args.email.trim().toLowerCase(),
+      clerkId: args.userId,
+      role: "admin",
+    } as Partial<Doc<"users">> as any);
+
+    await writeAuditLog(ctx, {
+      actorId: args.actorId ?? "system",
+      actorRole: "system",
+      action: "bootstrap_admin_role",
+      targetType: "user",
+      targetId: args.userId,
+      details: "First-time admin bootstrap via HTTP route",
+      metadata: { newRole: "admin", email: args.email },
+    });
+
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to bootstrap admin role");
+    return inserted;
+  },
+});
+
 export const createUserFromClerk = internalMutation({
   args: {
     userId: v.string(),
@@ -1076,6 +1171,28 @@ export const updateUserRole = mutation({
     await ctx.db.patch(targetUser._id, {
       role: args.role,
     });
+
+    // Greptile P1 #1 + P1 #8 + P1 #9 (PR #904): if linked `users` rows
+    // exist for the same Clerk user, patch EACH one (not just the
+    // first) so a demoted admin cannot keep admin access through any
+    // of them. Use `args.userId` for the `by_clerkId` lookup — NOT
+    // `targetUser.clerkId`. The linked-row concept is keyed by Clerk
+    // user ID, and in normal operation `userId === clerkId === subject`,
+    // so `args.userId` is the Clerk user ID of the target. Using the
+    // target row's stored `clerkId` instead could patch a different
+    // Clerk account entirely if the stored value is stale or wrong.
+    // Linked rows are an edge case (`onboardingAlias` splits, support
+    // overlays); in normal operation there are no extra rows beyond
+    // the target itself (filtered by `row._id !== targetUser._id`).
+    const linkedRows = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .collect();
+    for (const row of linkedRows) {
+      if (row._id !== targetUser._id) {
+        await ctx.db.patch(row._id, { role: args.role });
+      }
+    }
 
     return await ctx.db.get(targetUser._id);
   },
