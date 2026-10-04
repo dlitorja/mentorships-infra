@@ -169,7 +169,7 @@ Verify by re-running the failed query from §1 once it has been re-pointed at th
 
 ### 5.2 Linear verification issue
 
-Per AGENTS.md "Schema-changing PR convention": if PR 2+ touches `convex/schema.ts`, create a verification issue titled `Verify "<change>" on prod` in the `Post-Merge Verification` project with labels `schema-change`, `verification`, `prod`. The Convex migration PRs likely will NOT touch the schema (only consumers of `api.*`); if so, no issue is required.
+Per AGENTS.md "Post-merge verification convention": PR 2+ introduces an `auth-change` (Convex role gate), which falls under the broadened trigger set, so a verification issue is required regardless of whether `convex/schema.ts` is touched. Title: `Verify "<change>" on prod`, project `Schema Changes`, labels `auth-change`, `verification`, `prod`. The Convex migration PRs that only consume `api.*` (no auth-gate rewrite) still don't need an issue.
 
 PR 4 added 5 new functions to `convex/admin.ts` (no schema changes). Tracking issue: **HUC-35** (state `In Progress`).
 
@@ -601,7 +601,7 @@ The 7-PR arc is complete. Three outstanding follow-ups (no clear owner / target 
 
 - AGENTS.md → "Naming Conventions: NEVER use mentor/mentee" — `instructor`/`student` everywhere.
 - AGENTS.md → "Pull Request Merge Policy" — Greptile + CodeRabbit (skip if `<10` stars); squash merge.
-- AGENTS.md → "Schema-changing PR convention" — Linear verification issue.
+- AGENTS.md → "Post-merge verification convention" — Linear verification issue (broadened to auth/workflow/cross-app changes beyond schema-only).
 - AGENTS.md → "Clerk Changes Policy (Do Not Touch)" — PR 2 *did* change Clerk-related code (introduced `clerkClient()` calls and shifted admin auth from email allowlist to Clerk claims). The user explicitly approved this exception at the start of the arc, with the understanding that the marketing admin role model should mirror apps/platform. PRs 3–7 should not introduce additional Clerk changes.
 - AGENTS.md → "Convex is the source of truth for instructor data" — drives the migration.
 - Existing apps/platform admin patterns: `apps/platform/app/admin/{layout.tsx, client-admin-layout.tsx, error.tsx, page.tsx, instructors/page.tsx, orders/page.tsx}`.

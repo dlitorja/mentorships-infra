@@ -323,24 +323,32 @@ Move issues through `In Progress` → `Done` as work completes. Linear's GitHub 
 - Anything completable in the current session.
 - Roadmap items with no owner. They will rot; the doc alone is fine.
 
-## Schema-changing PR convention
+## Post-merge verification convention
 
-Any PR that modifies `convex/schema.ts` MUST have a corresponding verification issue in Linear. This is a **manual agent step at PR open time** — no CI automation.
+A PR that introduces risky, hard-to-revert, or cross-app changes SHOULD have a corresponding verification issue in Linear. This is a **manual agent step at PR open time** — no CI automation.
+
+The trigger is broader than just schema changes: anything that warrants an explicit Phase-1 verification window on prod. Specifically, file an issue if the PR does any of the following:
+
+- Modifies `convex/schema.ts` (schema drops / renames are the highest-blast-radius PR type and have caught us before — see `INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md` for the 4-PR arc that prompted this convention).
+- Touches auth, permission, or role-gate logic in any app (e.g. `requireRoleForApi`, `isAdminUser`, `getMyRole`, bootstrap paths, service-key checks).
+- Changes a Trigger.dev or Inngest task that talks to a long-lived production deployment (recording transfer, email send, daily call pipeline, payment webhook handler).
+- Alters a public Convex query or mutation consumed by more than one app (e.g. orders, users, bookings — anything in `convex/` whose change in shape or behavior ripples into multiple apps).
+- Touches a CI workflow that gates a deploy (`.github/workflows/*.yml`).
 
 Files under `convex/_generated/` regenerate on every `convex deploy`, including routine codegen (new queries, env var types). Treat `_generated/` diffs as codegen artifacts unless `convex/schema.ts` is also changed in the same PR.
 
-When opening a schema-touching PR, the agent:
+When opening such a PR, the agent:
 
-1. Ensures the `schema-change` label exists in the team (idempotent create — purple `#a855f7`).
+1. Ensures the `schema-change` label exists in the team (idempotent create — purple `#a855f7`). Add additional labels as appropriate (`auth-change`, `workflow-change`, etc.) — same idempotent-create pattern.
 2. Creates a verification issue:
    - Title: `Verify "<change summary>" on prod`
    - Project: `Schema Changes` (create once, idempotent, blue `#3b82f6`) — if no project fits, leave the issue without one; the `schema-change` label is what identifies it.
-   - Labels: `schema-change`, `verification`, `prod`.
+   - Labels: `schema-change` (always), plus any category-specific label; `verification`; `prod`.
    - State: `Backlog` initially; move to `In Progress` once the PR merges.
-   - Description: Phase 1 smoke tests appropriate to the change (modeled on T1–T5 from the instructorProfiles arc: confirm schema deployed, exercise the affected read path, exercise the affected write path on every app that writes the table).
+   - Description: Phase 1 smoke tests appropriate to the change. For schema: T1–T5 from the instructorProfiles arc (confirm schema deployed, exercise the affected read path, exercise the affected write path on every app that writes the table). For auth/role changes: exercise every code path that uses the new gate (admin API routes, public queries, service-key paths) with at least one user at each role; verify the linked-row update works when an admin has multiple `users` rows sharing one `clerkId`; verify the bootstrap path inserts exactly one row. For workflow changes: confirm the workflow ran end-to-end against prod (or the closest preview) and that downstream callbacks fired.
 3. Adds `Refs HUC-XX` to the PR description (auto-link via Linear's GitHub integration). **Use `Refs`, not `Fixes`** — `Fixes` auto-closes the issue when the PR merges, but the verification work is meant to happen *after* the merge.
 
-This convention exists because schema drops / renames are the highest-blast-radius PR type in this repo and have caught us before (see `INSTRUCTOR_PROFILES_CONSOLIDATION_PLAN.md` for the 4-PR arc that prompted it).
+This convention exists because the highest-blast-radius PR types in this repo (schema drops, auth-gate rewrites, cross-app behavior changes) need a real human verification window on prod before they can be considered done.
 
 ## HANDOFF.md vs Linear
 
