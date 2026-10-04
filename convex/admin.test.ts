@@ -447,18 +447,19 @@ test("bootstrapAdminRoleOnce: inserts a new admin row when no users row exists",
   expect(fetched?.email).toBe(email);
 });
 
-test("bootstrapAdminRoleOnce: falls back to empty email when none is provided", async () => {
-  // The Clerk lookup in the HTTP route can fail; the mutation must
-  // still bootstrap. An admin without a resolvable email will need
-  // the email repaired through the admin tooling, but the row exists.
+test("bootstrapAdminRoleOnce: refuses when email is empty (P1 #10)", async () => {
+  // Greptile P1 #10: an empty-email bootstrap row would be missed by
+  // the later `syncUser` (which looks up by email) and produce a
+  // duplicate row. The mutation now requires a non-empty email; the
+  // HTTP route surfaces a 502 if it cannot resolve one.
   const t = convexTest(schema, modules);
-  const subject = "user_no_email_admin";
-  const result = await t.mutation(internal.users.bootstrapAdminRoleOnce, {
-    userId: subject,
-    actorId: subject,
-  });
-  expect(result.role).toBe("admin");
-  expect(result.email).toBe("");
+  await expect(
+    t.mutation(internal.users.bootstrapAdminRoleOnce, {
+      userId: "user_no_email_target",
+      actorId: "user_no_email_target",
+      email: "",
+    })
+  ).rejects.toThrow(/email is required/);
 });
 
 test("bootstrapAdminRoleOnce: refuses when a by_userId row already exists", async () => {
@@ -476,6 +477,7 @@ test("bootstrapAdminRoleOnce: refuses when a by_userId row already exists", asyn
     t.mutation(internal.users.bootstrapAdminRoleOnce, {
       userId: subject,
       actorId: subject,
+      email: "existing@example.com",
     })
   ).rejects.toThrow(/Refusing bootstrap/);
 });
@@ -498,6 +500,7 @@ test("bootstrapAdminRoleOnce: refuses when a by_clerkId row already exists (link
     t.mutation(internal.users.bootstrapAdminRoleOnce, {
       userId: subject,
       actorId: subject,
+      email: "linked-existing@example.com",
     })
   ).rejects.toThrow(/Refusing bootstrap/);
 });
@@ -508,6 +511,7 @@ test("bootstrapAdminRoleOnce: writes an audit log row", async () => {
   await t.mutation(internal.users.bootstrapAdminRoleOnce, {
     userId: subject,
     actorId: subject,
+    email: "audit@example.com",
   });
   const audits = await t.run(async (ctx) => {
     return await ctx.db.query("auditLogs").collect();

@@ -609,12 +609,24 @@ export const bootstrapAdminRoleOnce = internalMutation({
     // primary email from the Clerk Backend API and passes it in. The
     // mutation stores it on the row so the subsequent Clerk webhook
     // `syncUser` (which looks up by `by_email`) finds and patches the
-    // row instead of inserting a duplicate. Empty string is allowed as
-    // a fallback when the Clerk lookup fails; the admin tooling will
-    // need to repair the email in that case.
-    email: v.optional(v.string()),
+    // row instead of inserting a duplicate.
+    //
+    // Greptile P1 #10 (PR #904): the email is REQUIRED (non-empty).
+    // An empty-string fallback would leave the bootstrap row with
+    // `email=""`, and the later `syncUser` (looking up by email)
+    // would miss it and insert a duplicate row. The HTTP route must
+    // resolve the email from Clerk first; if it can't, it surfaces
+    // a 502 to the caller instead of attempting bootstrap with
+    // an empty email.
+    email: v.string(),
   },
   handler: async (ctx, args) => {
+    if (!args.email || args.email.trim() === "") {
+      throw new Error(
+        "Refusing bootstrap: email is required to prevent a later syncUser from inserting a duplicate row. Resolve the caller's primary email from Clerk before retrying.",
+      );
+    }
+
     const byUserId = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
@@ -636,7 +648,7 @@ export const bootstrapAdminRoleOnce = internalMutation({
 
     const id = await ctx.db.insert("users", {
       userId: args.userId,
-      email: args.email ?? "",
+      email: args.email.trim().toLowerCase(),
       clerkId: args.userId,
       role: "admin",
     } as Partial<Doc<"users">> as any);
@@ -648,7 +660,7 @@ export const bootstrapAdminRoleOnce = internalMutation({
       targetType: "user",
       targetId: args.userId,
       details: "First-time admin bootstrap via HTTP route",
-      metadata: { newRole: "admin", email: args.email ?? null },
+      metadata: { newRole: "admin", email: args.email },
     });
 
     const inserted = await ctx.db.get(id);

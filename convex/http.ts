@@ -1940,19 +1940,29 @@ export const httpBootstrapAdminRole = httpAction(async (ctx, request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  // Greptile P1 #10 (PR #904): require a non-empty email so the
+  // bootstrap row matches the `by_email` lookup the Clerk webhook
+  // sync uses. The HTTP route resolves it from the Clerk Backend
+  // API; if it can't, it never calls this endpoint.
+  if (!email || typeof email !== "string" || email.trim() === "") {
+    return new Response(
+      JSON.stringify({ error: "Missing or invalid email; cannot bootstrap admin role without a resolvable Clerk email" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   try {
     const result = await ctx.runMutation(internal.users.bootstrapAdminRoleOnce, {
       userId,
       actorId: typeof actorId === "string" && actorId ? actorId : undefined,
-      email: typeof email === "string" ? email : undefined,
+      email: email.trim().toLowerCase(),
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Precondition violations (existing row) → 409; everything else → 500.
+    // Precondition violations (existing row OR missing email) → 409.
     const status = message.startsWith("Refusing bootstrap") ? 409 : 500;
     return new Response(JSON.stringify({ error: message }), {
       status,

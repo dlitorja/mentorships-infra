@@ -48,23 +48,30 @@ export async function POST() {
     const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Resolve the caller's primary email from Clerk so the bootstrap
-    // row matches the `by_email` lookup the Clerk webhook sync uses.
-    // Falls back to an empty string if Clerk cannot resolve one (the
-    // schema requires `email` non-optional); an admin without a
-    // resolvable email will still bootstrap, but their email will need
-    // to be repaired through the admin tooling.
-    let email = "";
+    // Greptile P1 #10 (PR #904): the bootstrap row's email MUST match
+    // the Clerk webhook sync's `by_email` lookup, otherwise `syncUser`
+    // will insert a duplicate row later. Resolve the caller's primary
+    // email from the Clerk Backend API; refuse bootstrap if Clerk
+    // cannot resolve one (don't fall back to an empty string).
+    let email: string | null = null;
     try {
       const client = await clerkClient();
       const user = await client.users.getUser(userId);
       const primary = user.emailAddresses.find(
         (e) => e.id === user.primaryEmailAddressId
       );
-      email = primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? "";
-    } catch {
-      // Fall through with empty email — the bootstrap row will be
-      // created, and an admin can repair the email via the admin UI.
+      email = primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
+    } catch (err) {
+      console.error("seed-role: failed to resolve Clerk email", err);
+    }
+    if (!email) {
+      return NextResponse.json(
+        {
+          error:
+            "Unable to resolve a primary email for this Clerk user; bootstrap requires an email so the subsequent Clerk webhook sync can find and patch the row instead of inserting a duplicate.",
+        },
+        { status: 502 },
+      );
     }
 
     const updated = await convexServerCall<{ _id: string; role: string }>(
