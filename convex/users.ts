@@ -372,9 +372,17 @@ export const syncUser = mutation({
     const email = identity.email;
     if (!email) throw new Error("User email not found in auth identity");
 
+    // Greptile P1 #11 (PR #904 follow-up): normalize the email
+    // before the by_email lookup. `bootstrapAdminRoleOnce` (and
+    // `migrateUser`) persist emails in lowercased+trimmed form so
+    // a `syncUser` lookup matches; without this, a mixed-case email
+    // (e.g. "Admin@Example.COM") would miss the bootstrap row and
+    // insert a duplicate row.
+    const normalizedEmail = email.trim().toLowerCase();
+
     const existingByEmail = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
 
     if (existingByEmail) {
@@ -431,7 +439,9 @@ export const syncUser = mutation({
 
     const id = await ctx.db.insert("users", {
       userId: identity.subject,
-      email: email,
+      // Greptile P1 #11 (PR #904 follow-up): insert with the
+      // normalized email so future lookups match.
+      email: normalizedEmail,
       clerkId: identity.subject,
       firstName: args.firstName,
       lastName: args.lastName,

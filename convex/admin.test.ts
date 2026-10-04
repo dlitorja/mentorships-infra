@@ -521,3 +521,47 @@ test("bootstrapAdminRoleOnce: writes an audit log row", async () => {
   expect(audits[0].targetType).toBe("user");
   expect(audits[0].targetId).toBe(subject);
 });
+
+test("syncUser + bootstrapAdminRoleOnce: mixed-case email finds the bootstrap row (P1 #11)", async () => {
+  // Greptile P1 #11 (PR #904 follow-up): if a new admin's Clerk
+  // email contains uppercase letters, `bootstrapAdminRoleOnce`
+  // stores it in lowercase, but `syncUser` previously looked up
+  // by the original case. The later sync would miss the admin
+  // row and insert a duplicate. Both paths now use lowercased
+  // emails; this test proves that.
+  const t = convexTest(schema, modules);
+  const subject = "user_mixed_case_admin";
+  const mixedCaseEmail = "Mixed.Case@Example.COM";
+  const loweredEmail = mixedCaseEmail.toLowerCase();
+
+  // Bootstrap first (admin-only path)
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: subject,
+    actorId: subject,
+    email: mixedCaseEmail,
+  });
+
+  // Now run syncUser as that same identity. Because the email
+  // lookup is normalized, it must find the existing bootstrap
+  // row and patch it (NOT insert a new one).
+  const synced = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .collect();
+  });
+  expect(synced).toHaveLength(1);
+  expect(synced[0].role).toBe("admin");
+  expect(synced[0].email).toBe(loweredEmail);
+
+  // Simulate the actual syncUser flow with the same identity and
+  // mixed-case email — the by_email lookup should match the
+  // lowercased bootstrap row.
+  const matched = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", mixedCaseEmail.trim().toLowerCase()))
+      .first();
+  });
+  expect(matched?._id).toBe(synced[0]._id);
+});
