@@ -1160,25 +1160,26 @@ export const updateUserRole = mutation({
       role: args.role,
     });
 
-    // Greptile P1 #1 + P1 #8 (PR #904): if a linked `users` row exists
-    // for the same Clerk user, patch it to the same role so a demoted
-    // admin cannot keep admin access through the linked row. Use
-    // `args.userId` for the `by_clerkId` lookup — NOT
+    // Greptile P1 #1 + P1 #8 + P1 #9 (PR #904): if linked `users` rows
+    // exist for the same Clerk user, patch EACH one (not just the
+    // first) so a demoted admin cannot keep admin access through any
+    // of them. Use `args.userId` for the `by_clerkId` lookup — NOT
     // `targetUser.clerkId`. The linked-row concept is keyed by Clerk
     // user ID, and in normal operation `userId === clerkId === subject`,
     // so `args.userId` is the Clerk user ID of the target. Using the
     // target row's stored `clerkId` instead could patch a different
     // Clerk account entirely if the stored value is stale or wrong.
     // Linked rows are an edge case (`onboardingAlias` splits, support
-    // overlays); in normal operation the extra patch is a no-op
-    // because `by_userId` and `by_clerkId` resolve to the same row,
-    // filtered by `linked._id !== targetUser._id`.
-    const linked = await ctx.db
+    // overlays); in normal operation there are no extra rows beyond
+    // the target itself (filtered by `row._id !== targetUser._id`).
+    const linkedRows = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
-      .first();
-    if (linked && linked._id !== targetUser._id) {
-      await ctx.db.patch(linked._id, { role: args.role });
+      .collect();
+    for (const row of linkedRows) {
+      if (row._id !== targetUser._id) {
+        await ctx.db.patch(row._id, { role: args.role });
+      }
     }
 
     return await ctx.db.get(targetUser._id);

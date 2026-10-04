@@ -327,6 +327,63 @@ test("updateUserRole: linked-row lookup uses args.userId, not target.clerkId (P1
   expect(otherAfter).toBe("admin");
 });
 
+test("updateUserRole: patches ALL linked rows on the same clerkId, not just the first (P1 #9)", async () => {
+  // Greptile P1 #9: the by_clerkId index can return multiple rows.
+  // Using `.first()` only patches one. The fix uses `.collect()` and
+  // patches every row except the target itself.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_admin_actor_4";
+  const targetSubject = "user_target_with_many_links";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminSubject,
+      clerkId: adminSubject,
+      email: "actor4@example.com",
+      role: "admin",
+    });
+    // Primary row.
+    await ctx.db.insert("users", {
+      userId: targetSubject,
+      clerkId: targetSubject,
+      email: "primary4@example.com",
+      role: "admin",
+    });
+    // Two linked rows with the same clerkId (admin + support overlay).
+    await ctx.db.insert("users", {
+      userId: "user_link_a",
+      clerkId: targetSubject,
+      email: "linkA@example.com",
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: "user_link_b",
+      clerkId: targetSubject,
+      email: "linkB@example.com",
+      role: "admin",
+    });
+  });
+
+  await t
+    .withIdentity({ subject: adminSubject })
+    .mutation(api.users.updateUserRole, { userId: targetSubject, role: "student" });
+
+  // All three rows (primary + 2 linked) must now be student.
+  const rolesAfter = await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", targetSubject))
+      .collect();
+    return rows.map((r) => r.role);
+  });
+  expect(rolesAfter).toEqual(["student", "student", "student"]);
+
+  // And getMyRole reflects the demotion.
+  const result = await t
+    .withIdentity({ subject: targetSubject })
+    .query(api.admin.getMyRole, {});
+  expect(result.role).toBe("student");
+});
+
 test("updateUserRole: refuses when caller is not admin", async () => {
   const t = convexTest(schema, modules);
   const studentSubject = "user_student_actor";
