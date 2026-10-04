@@ -574,6 +574,87 @@ export const setUserRoleTrusted = internalMutation({
   },
 });
 
+/**
+ * Greptile P1 #2 (PR #904): atomic first-time admin bootstrap.
+ *
+ * Replaces the multi-call dance the seed-role HTTP route used to do
+ * (fetchQuery precondition → `syncUser` insert → `/users/set-role`
+ * write). The old shape had a race: between the precondition read and
+ * the role write, another admin could create a row with a non-admin
+ * role, and the bootstrap would silently overwrite it to `admin`.
+ *
+ * This mutation performs the precondition check AND the role write
+ * inside one Convex transaction. Concurrent admins writing a
+ * non-admin role either commit first (this mutation then sees the
+ * existing row and aborts) or commit after (this mutation's insert
+ * blocks them).
+ *
+ * Greptile P2 #3: distinguishes "row absent" from "row present with
+ * role undefined". An existing row is rejected even if its role has
+ * not yet been set — bootstrap is only for genuinely first-time
+ * admins, and re-elevating a demoted admin must go through
+ * `setUserRoleTrusted` via the admin path.
+ *
+ * Caller contract: the HTTP route that invokes this MUST have
+ * already authenticated the caller as an admin via
+ * `requireRoleForApi("admin", { skipConvexAdminCheck: true })`. The
+ * precondition check here is the role-write precondition, NOT an
+ * authentication step.
+ */
+export const bootstrapAdminRoleOnce = internalMutation({
+  args: {
+    userId: v.string(),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const byUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (byUserId) {
+      throw new Error(
+        `Refusing bootstrap: a users row already exists for userId=${args.userId}. Re-elevation must go through the admin path (setUserRoleTrusted).`,
+      );
+    }
+    const byClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .first();
+    if (byClerkId) {
+      throw new Error(
+        `Refusing bootstrap: a users row already exists for clerkId=${args.userId}. Re-elevation must go through the admin path (setUserRoleTrusted).`,
+      );
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      // The schema requires a non-optional `email` column, so seed with
+      // an empty placeholder. A subsequent `syncUser` from the Clerk
+      // webhook will overwrite this with the real email. Bootstrap
+      // intentionally does not require the caller to know their email
+      // — the Clerk JWT carries it but the HTTP layer doesn't surface
+      // it to this mutation's arg list.
+      email: "",
+      clerkId: args.userId,
+      role: "admin",
+    } as Partial<Doc<"users">> as any);
+
+    await writeAuditLog(ctx, {
+      actorId: args.actorId ?? "system",
+      actorRole: "system",
+      action: "bootstrap_admin_role",
+      targetType: "user",
+      targetId: args.userId,
+      details: "First-time admin bootstrap via HTTP route",
+      metadata: { newRole: "admin" },
+    });
+
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to bootstrap admin role");
+    return inserted;
+  },
+});
+
 export const createUserFromClerk = internalMutation({
   args: {
     userId: v.string(),
@@ -1076,6 +1157,21 @@ export const updateUserRole = mutation({
     await ctx.db.patch(targetUser._id, {
       role: args.role,
     });
+
+    // Greptile P1 #1 (PR #904): if a linked `users` row exists for the same
+    // Clerk user via the `by_clerkId` index, patch it to the same role so
+    // a demoted admin cannot keep admin access through the linked row.
+    // Linked rows are an edge case (`onboardingAlias` splits, support
+    // overlays) — in normal operation `userId === clerkId === subject` so
+    // `by_userId` and `by_clerkId` resolve to the same row and this
+    // patch is a no-op (filtered by `linked._id !== targetUser._id`).
+    const linked = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", targetUser.clerkId))
+      .first();
+    if (linked && linked._id !== targetUser._id) {
+      await ctx.db.patch(linked._id, { role: args.role });
+    }
 
     return await ctx.db.get(targetUser._id);
   },

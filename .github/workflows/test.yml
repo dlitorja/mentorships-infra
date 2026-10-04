@@ -50,7 +50,13 @@ jobs:
             [drive]='^apps/huckleberry-drive/'
             [marketing]='^apps/marketing/'
             [packages]='^packages/'
-            [convex]='^convex/'
+            # Greptile P2 #4: trigger the convex-tests job when changes touch
+            # the test setup itself, not just `convex/`. A change to
+            # `package.json` (test:convex script), `pnpm-lock.yaml`
+            # (vitest/convex-test version), or this workflow file should
+            # also exercise the suite; otherwise a workflow regression
+            # could land silently.
+            [convex]='^(convex/|\.github/workflows/test\.yml$|package\.json$|pnpm-lock\.yaml$)'
           )
           for key in "${!patterns[@]}"; do
             if echo "$changed_files" | grep -qE "${patterns[$key]}"; then

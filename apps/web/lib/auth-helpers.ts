@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { UnauthorizedError, ForbiddenError } from "./errors";
+import { reportError } from "./observability";
 
 /**
  * Get a Convex-compatible JWT for the current Clerk session, or null
@@ -91,7 +92,17 @@ async function checkConvexAdminRole(userId: string): Promise<boolean> {
     if (!token) return false;
     const result = await fetchQuery(api.admin.getMyRole, {}, { token });
     return result.role === "admin";
-  } catch {
+  } catch (err) {
+    // Greptile P2 #5 (PR #904): record the failure so staff can
+    // distinguish a Convex outage from a real role denial in
+    // observability dashboards. Still deny — fail-closed.
+    await reportError({
+      source: "auth-helpers.checkConvexAdminRole",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Convex admin role lookup failed during requireRoleForApi admin gate",
+      context: { userId },
+    });
     return false;
   }
 }

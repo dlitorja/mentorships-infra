@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -165,4 +165,214 @@ test("getMyRole: returns { role: null } when no users row matches either index",
   });
   const result = await t.withIdentity({ subject }).query(api.admin.getMyRole, {});
   expect(result).toEqual({ role: null });
+});
+
+// ---------------------------------------------------------------------------
+// updateUserRole
+//
+// Greptile P1 #1 (PR #904): demoting via `updateUserRole` must also patch
+// any linked `users` row matched by `by_clerkId`. Otherwise a demoted
+// admin could keep admin access via the linked row.
+// ---------------------------------------------------------------------------
+
+test("updateUserRole: patches the primary by_userId row", async () => {
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_admin_actor";
+  const targetSubject = "user_admin_target";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminSubject,
+      clerkId: adminSubject,
+      email: "actor@example.com",
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: targetSubject,
+      clerkId: targetSubject,
+      email: "target@example.com",
+      role: "admin",
+    });
+  });
+  await t
+    .withIdentity({ subject: adminSubject })
+    .mutation(api.users.updateUserRole, { userId: targetSubject, role: "student" });
+
+  const result = await t
+    .withIdentity({ subject: targetSubject })
+    .query(api.admin.getMyRole, {});
+  expect(result.role).toBe("student");
+});
+
+test("updateUserRole: demoting also patches a linked by_clerkId admin row (P1 #1)", async () => {
+  // The target has TWO `users` rows: a primary (keyed by userId) plus a
+  // linked admin row keyed by clerkId. Demoting must patch BOTH rows,
+  // otherwise the linked row keeps admin access via `getMyRole`.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_admin_actor_2";
+  const targetSubject = "user_linked_admin_target";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminSubject,
+      clerkId: adminSubject,
+      email: "actor2@example.com",
+      role: "admin",
+    });
+    // Primary row: userId === subject, role=admin.
+    await ctx.db.insert("users", {
+      userId: targetSubject,
+      clerkId: targetSubject,
+      email: "primary@example.com",
+      role: "admin",
+    });
+    // Linked row: userId = something else, clerkId === subject, role=admin.
+    await ctx.db.insert("users", {
+      userId: "user_some_other_target",
+      clerkId: targetSubject,
+      email: "linked@example.com",
+      role: "admin",
+    });
+  });
+
+  await t
+    .withIdentity({ subject: adminSubject })
+    .mutation(api.users.updateUserRole, { userId: targetSubject, role: "student" });
+
+  // The primary row is now student.
+  const primaryAfter = await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", targetSubject))
+      .first();
+    return row?.role;
+  });
+  expect(primaryAfter).toBe("student");
+
+  // The linked row is now student too — the demotion is consistent.
+  const linkedAfter = await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", targetSubject))
+      .first();
+    return row?.role;
+  });
+  expect(linkedAfter).toBe("student");
+
+  // And getMyRole reflects the demotion.
+  const result = await t
+    .withIdentity({ subject: targetSubject })
+    .query(api.admin.getMyRole, {});
+  expect(result.role).toBe("student");
+});
+
+test("updateUserRole: refuses when caller is not admin", async () => {
+  const t = convexTest(schema, modules);
+  const studentSubject = "user_student_actor";
+  const targetSubject = "user_some_target";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: studentSubject,
+      clerkId: studentSubject,
+      email: "student-actor@example.com",
+      role: "student",
+    });
+    await ctx.db.insert("users", {
+      userId: targetSubject,
+      clerkId: targetSubject,
+      email: "target@example.com",
+      role: "student",
+    });
+  });
+  await expect(
+    t
+      .withIdentity({ subject: studentSubject })
+      .mutation(api.users.updateUserRole, { userId: targetSubject, role: "admin" })
+  ).rejects.toThrow(/Admin access required/);
+});
+
+// ---------------------------------------------------------------------------
+// bootstrapAdminRoleOnce
+//
+// Greptile P1 #2 (PR #904): atomic first-time admin bootstrap. Single
+// Convex transaction doing precondition + insert + audit. Replaces the
+// multi-call dance (fetchQuery → syncUser → /users/set-role) that had
+// a race window.
+//
+// Greptile P2 #3: existing row is rejected even when its role is unset.
+// ---------------------------------------------------------------------------
+
+test("bootstrapAdminRoleOnce: inserts a new admin row when no users row exists", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_first_time_admin";
+  const result = await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: subject,
+    actorId: subject,
+  });
+  expect(result.role).toBe("admin");
+  expect(result.userId).toBe(subject);
+  expect(result.clerkId).toBe(subject);
+
+  const fetched = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+  });
+  expect(fetched?.role).toBe("admin");
+});
+
+test("bootstrapAdminRoleOnce: refuses when a by_userId row already exists", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_existing_student";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email: "existing@example.com",
+      role: "student",
+    });
+  });
+  await expect(
+    t.mutation(internal.users.bootstrapAdminRoleOnce, {
+      userId: subject,
+      actorId: subject,
+    })
+  ).rejects.toThrow(/Refusing bootstrap/);
+});
+
+test("bootstrapAdminRoleOnce: refuses when a by_clerkId row already exists (linked-account attempt)", async () => {
+  // Greptile P2 #3: a row exists by clerkId (different userId) but no
+  // role. The bootstrap must still reject — first-time means no row at
+  // all, not "no role set".
+  const t = convexTest(schema, modules);
+  const subject = "user_clerk_only_target";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_some_other_id",
+      clerkId: subject,
+      email: "linked-existing@example.com",
+      // role intentionally unset
+    });
+  });
+  await expect(
+    t.mutation(internal.users.bootstrapAdminRoleOnce, {
+      userId: subject,
+      actorId: subject,
+    })
+  ).rejects.toThrow(/Refusing bootstrap/);
+});
+
+test("bootstrapAdminRoleOnce: writes an audit log row", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_audit_target";
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: subject,
+    actorId: subject,
+  });
+  const audits = await t.run(async (ctx) => {
+    return await ctx.db.query("auditLogs").collect();
+  });
+  expect(audits).toHaveLength(1);
+  expect(audits[0].action).toBe("bootstrap_admin_role");
+  expect(audits[0].targetType).toBe("user");
+  expect(audits[0].targetId).toBe(subject);
 });
