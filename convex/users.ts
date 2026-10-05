@@ -190,28 +190,32 @@ export const getCurrentUser = query({
     // if we look up the raw Clerk email, a mixed-case new user
     // would silently miss their row.
     //
-    // Greptile P1 #18 (PR #905): if a legacy mixed-case row and a
-    // new normalized row share an email, the legacy row is the
-    // caller's own row — return THAT, not the newer one belonging
-    // to a different account.
+    // Greptile P1 #18 + P1 #19 (PR #905): legacy mixed-case rows
+    // and a different-account normalized row may share an email.
+    // The legitimate user's row may not be the FIRST one returned
+    // by the by_email index — we must scan ALL matching rows for
+    // one owned by the caller before treating the email as a
+    // conflict.
     const normalizedEmail = email.trim().toLowerCase();
-    // Step 1: try the normalized lookup for a row owned by the caller.
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-      .first();
-    if (user && isOwnedByIdentity(user, identity.subject)) return user;
-    // Step 2: try the raw lookup for a row owned by the caller
-    // (legacy mixed-case row written before normalization).
-    if (normalizedEmail !== email) {
-      user = await ctx.db
+    const lookups: Array<Promise<Doc<"users">[]>> = [
+      ctx.db
         .query("users")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .first();
-      if (user && isOwnedByIdentity(user, identity.subject)) return user;
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect(),
+    ];
+    if (normalizedEmail !== email) {
+      lookups.push(
+        ctx.db
+          .query("users")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .collect(),
+      );
     }
-    // Step 3: a row matched by email but NOT owned — return null
-    // so we don't leak another account's profile.
+    for (const lookup of lookups) {
+      const rows = await lookup;
+      const owned = rows.find((row) => isOwnedByIdentity(row, identity.subject));
+      if (owned) return owned;
+    }
     return null;
   },
 });
@@ -449,47 +453,52 @@ export const syncUser = mutation({
     // after normalization). If not found, also try the raw email
     // (handles legacy rows written before normalization).
     //
-    // Greptile P1 #18 (PR #905): if a legacy mixed-case row AND a
-    // new normalized row share an email, the legacy row is the
-    // caller's own row — claim THAT, not the newer one belonging to
-    // a different account. We probe for an OWNED row first; only if
-    // no owned row exists do we treat an email match as a cross-
-    // account conflict.
-    let existingByEmail = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-      .first();
-    if (existingByEmail && !isOwnedByIdentity(existingByEmail, identity.subject)) {
-      existingByEmail = null;
-    }
-    if (!existingByEmail && normalizedEmail !== email) {
-      const raw = await ctx.db
+    // Greptile P1 #18 + P1 #19 (PR #905): legacy mixed-case rows
+    // and a different-account normalized row may share an email.
+    // The legitimate user's row may not be the FIRST one returned
+    // by the by_email index — we must scan ALL matching rows for
+    // one owned by the caller before treating the email as a
+    // conflict.
+    const ownedByNormalized = (
+      await ctx.db
         .query("users")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .first();
-      if (raw && isOwnedByIdentity(raw, identity.subject)) {
-        existingByEmail = raw;
-      }
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect()
+    ).find((row) => isOwnedByIdentity(row, identity.subject));
+    let existingByEmail: Doc<"users"> | null = ownedByNormalized ?? null;
+    if (!existingByEmail && normalizedEmail !== email) {
+      const ownedByRaw = (
+        await ctx.db
+          .query("users")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .collect()
+      ).find((row) => isOwnedByIdentity(row, identity.subject));
+      existingByEmail = ownedByRaw ?? null;
     }
 
     // No owned row by either lookup. If ANY row exists for this
     // email (normalized OR raw), the email is in use by another
     // account — refuse.
     if (!existingByEmail) {
-      let conflict = await ctx.db
+      const allNormalized = await ctx.db
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .first();
-      if (!conflict && normalizedEmail !== email) {
-        conflict = await ctx.db
-          .query("users")
-          .withIndex("by_email", (q) => q.eq("email", email))
-          .first();
-      }
-      if (conflict) {
+        .collect();
+      if (allNormalized.length > 0) {
         throw new Error(
           "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
         );
+      }
+      if (normalizedEmail !== email) {
+        const allRaw = await ctx.db
+          .query("users")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .collect();
+        if (allRaw.length > 0) {
+          throw new Error(
+            "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
+          );
+        }
       }
     }
 

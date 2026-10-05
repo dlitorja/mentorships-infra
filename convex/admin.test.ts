@@ -805,3 +805,52 @@ test("syncUser: legacy mixed-case row wins over newer normalized row for same em
   expect(other?.email).toBe(normalizedEmail);
   expect(other?.firstName).toBeUndefined();
 });
+
+test("syncUser: owner's row is found even if NOT first in by_email (P1 #19)", async () => {
+  // Greptile P1 #19 (PR #905): if multiple rows share the same
+  // email (legacy data), the caller's OWN row may not be the
+  // FIRST one returned by the by_email index. We must scan all
+  // matching rows for one owned by the caller, not just the
+  // first.
+  const t = convexTest(schema, modules);
+  const ownerSubject = "user_owner_second";
+  const otherSubject = "user_other_first";
+  const email = "shared@example.com";
+
+  // Seed the other row FIRST so it sorts ahead of the owner row.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: otherSubject,
+      email,
+      clerkId: otherSubject,
+      role: "student",
+    });
+    await ctx.db.insert("users", {
+      userId: ownerSubject,
+      email,
+      clerkId: ownerSubject,
+      role: "student",
+    });
+  });
+
+  // Owner's syncUser must find their row, not the other row.
+  await t
+    .withIdentity({ subject: ownerSubject, email })
+    .mutation(api.users.syncUser, { firstName: "Owner" });
+
+  const owner = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", ownerSubject))
+      .first();
+  });
+  expect(owner?.firstName).toBe("Owner");
+  // The other row is unchanged.
+  const other = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", otherSubject))
+      .first();
+  });
+  expect(other?.firstName).toBeUndefined();
+});
