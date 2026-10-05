@@ -522,46 +522,138 @@ test("bootstrapAdminRoleOnce: writes an audit log row", async () => {
   expect(audits[0].targetId).toBe(subject);
 });
 
-test("syncUser + bootstrapAdminRoleOnce: mixed-case email finds the bootstrap row (P1 #11)", async () => {
+test("syncUser + bootstrapAdminRoleOnce: mixed-case Clerk email finds the bootstrap row (P1 #11)", async () => {
   // Greptile P1 #11 (PR #904 follow-up): if a new admin's Clerk
   // email contains uppercase letters, `bootstrapAdminRoleOnce`
   // stores it in lowercase, but `syncUser` previously looked up
   // by the original case. The later sync would miss the admin
   // row and insert a duplicate. Both paths now use lowercased
-  // emails; this test proves that.
+  // emails; this test proves that by actually running syncUser
+  // (not just hand-rolling the lookup — Greptile P2 #1).
   const t = convexTest(schema, modules);
   const subject = "user_mixed_case_admin";
   const mixedCaseEmail = "Mixed.Case@Example.COM";
   const loweredEmail = mixedCaseEmail.toLowerCase();
 
-  // Bootstrap first (admin-only path)
+  // Bootstrap first (admin-only path) — uses lowercase email.
   await t.mutation(internal.users.bootstrapAdminRoleOnce, {
     userId: subject,
     actorId: subject,
     email: mixedCaseEmail,
   });
 
-  // Now run syncUser as that same identity. Because the email
-  // lookup is normalized, it must find the existing bootstrap
-  // row and patch it (NOT insert a new one).
-  const synced = await t.run(async (ctx) => {
+  // Now run syncUser as the same Clerk identity, but with a
+  // mixed-case email in identity.email (mirrors what Clerk
+  // actually sends). syncUser must find the bootstrap row, not
+  // insert a duplicate.
+  await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, { firstName: "Mixed" });
+
+  const rows = await t.run(async (ctx) => {
     return await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", subject))
       .collect();
   });
-  expect(synced).toHaveLength(1);
-  expect(synced[0].role).toBe("admin");
-  expect(synced[0].email).toBe(loweredEmail);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].role).toBe("admin");
+  expect(rows[0].email).toBe(loweredEmail);
+  expect(rows[0].firstName).toBe("Mixed");
+});
 
-  // Simulate the actual syncUser flow with the same identity and
-  // mixed-case email — the by_email lookup should match the
-  // lowercased bootstrap row.
-  const matched = await t.run(async (ctx) => {
+test("syncUser: refuses to merge when an existing row's clerkId differs (P1 #12 security)", async () => {
+  // Greptile P1 #12 (PR #905, security): if a new Clerk account's
+  // email normalizes to one already in the users table, syncUser
+  // must NOT silently merge it onto the existing row. Otherwise
+  // an attacker who creates a Clerk account with email
+  // `Admin@Example.com` could inherit an existing admin row.
+  // The mitigation refuses and surfaces the conflict.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_existing_admin";
+  const adminEmail = "admin@example.com";
+  const attackerSubject = "user_attacker_clerk";
+  const attackerEmail = "Admin@Example.COM"; // normalizes to admin@example.com
+
+  // Bootstrap an admin with a Clerk account that owns the email.
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: adminSubject,
+    actorId: adminSubject,
+    email: adminEmail,
+  });
+
+  // A different Clerk account (the attacker) tries to sync with
+  // an email that normalizes to the admin's row. syncUser must
+  // refuse, NOT overwrite the admin row's userId/clerkId.
+  await expect(
+    t
+      .withIdentity({ subject: attackerSubject, email: attackerEmail })
+      .mutation(api.users.syncUser, {})
+  ).rejects.toThrow(/Refusing to link/i);
+
+  // The admin row is unchanged.
+  const adminRow = await t.run(async (ctx) => {
     return await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", mixedCaseEmail.trim().toLowerCase()))
+      .withIndex("by_userId", (q) => q.eq("userId", adminSubject))
       .first();
   });
-  expect(matched?._id).toBe(synced[0]._id);
+  expect(adminRow?.clerkId).toBe(adminSubject);
+  expect(adminRow?.role).toBe("admin");
+});
+
+test("syncUser: legacy mixed-case migrated row is still findable (P1 #13)", async () => {
+  // Greptile P1 #13 (PR #905): rows written before normalization
+  // (mixed-case `email`) must still be reachable from syncUser
+  // so we don't duplicate them. syncUser falls back to a raw
+  // by_email lookup when the normalized lookup misses.
+  const t = convexTest(schema, modules);
+  const subject = "user_legacy_migrated";
+  const legacyEmail = "Legacy.User@Example.COM"; // raw, not lowercased
+
+  // Seed a row directly with a mixed-case email (simulates the
+  // pre-normalization state).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email: legacyEmail,
+      clerkId: subject,
+      role: "student",
+    });
+  });
+
+  // syncUser with the same identity should find the legacy row,
+  // NOT insert a new one. The resulting email stays as it was
+  // (legacy data; we don't mutate it).
+  await t
+    .withIdentity({ subject, email: legacyEmail })
+    .mutation(api.users.syncUser, {});
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .collect();
+  });
+  expect(rows).toHaveLength(1);
+});
+
+test("getCurrentUser: returns the row for a mixed-case Clerk email (P1 #14)", async () => {
+  // Greptile P1 #14 (PR #905): syncUser now writes emails in
+  // lowercase. getCurrentUser must look up the lowercased form
+  // or a new user with a mixed-case Clerk email would have an
+  // empty dashboard (calendar can't find them).
+  const t = convexTest(schema, modules);
+  const subject = "user_calendar_mixed_case";
+  const mixedCaseEmail = "Calendar.Mixed@Example.COM";
+
+  await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, {});
+
+  const got = await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .query(api.users.getCurrentUser, {});
+  expect(got).not.toBeNull();
+  expect(got?.userId).toBe(subject);
 });

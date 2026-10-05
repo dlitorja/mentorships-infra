@@ -185,10 +185,24 @@ export const getCurrentUser = query({
       return null;
     }
     const email = identity.email;
-    return await ctx.db
+    // Greptile P1 #14 (PR #905): the calendar (and other UI) calls
+    // getCurrentUser. `syncUser` now writes the email lowercased;
+    // if we look up the raw Clerk email, a mixed-case new user
+    // would silently miss their row. Normalize first, then fall
+    // back to the raw form for legacy rows written before
+    // normalization.
+    const normalizedEmail = email.trim().toLowerCase();
+    let user = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
+    if (!user && normalizedEmail !== email) {
+      user = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .first();
+    }
+    return user;
   },
 });
 
@@ -380,10 +394,34 @@ export const syncUser = mutation({
     // insert a duplicate row.
     const normalizedEmail = email.trim().toLowerCase();
 
-    const existingByEmail = await ctx.db
+    // Greptile P1 #12 (PR #905, security): account-linking refusal.
+    // Look up the row by NORMALIZED email first (handles rows written
+    // after normalization). If not found, also try the raw email
+    // (handles legacy rows written before normalization). Either
+    // way, the row MUST have clerkId === identity.subject for us
+    // to treat it as the caller's own row. A different clerkId
+    // means the email is in use by another account, and we refuse
+    // to silently merge them — see the incident mitigation at
+    // docs/reverts/incident-mitigation_846-20260920-instructor-linking-refusal-bdd7a01.md.
+    let existingByEmail = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
+    if (!existingByEmail && normalizedEmail !== email) {
+      existingByEmail = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", email))
+        .first();
+    }
+    if (
+      existingByEmail &&
+      existingByEmail.clerkId &&
+      existingByEmail.clerkId !== identity.subject
+    ) {
+      throw new Error(
+        "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
+      );
+    }
 
     if (existingByEmail) {
       const updates: Partial<Doc<"users">> = {
@@ -465,6 +503,13 @@ export const migrateUser = mutation({
     updatedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Greptile P1 #13 (PR #905): normalize the email on write so
+    // legacy rows written after this fix are findable by syncUser
+    // (which looks up lowercased). Rows written BEFORE this fix
+    // keep their mixed-case email; syncUser/getCurrentUser fall
+    // back to a raw lookup for those.
+    const normalizedEmail = args.email.trim().toLowerCase();
+
     const existingByUserId = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
@@ -472,7 +517,7 @@ export const migrateUser = mutation({
 
     if (existingByUserId) {
       const updates: Partial<Doc<"users">> = {
-        email: args.email,
+        email: normalizedEmail,
         role: args.role ?? existingByUserId.role,
         timeZone: args.timeZone ?? existingByUserId.timeZone,
       };
@@ -482,7 +527,7 @@ export const migrateUser = mutation({
 
     const id = await ctx.db.insert("users", {
       userId: args.userId,
-      email: args.email,
+      email: normalizedEmail,
       clerkId: `migrated_${args.userId}`,
       role: args.role ?? "student",
       timeZone: args.timeZone,
