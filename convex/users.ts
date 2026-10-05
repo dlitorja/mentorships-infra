@@ -202,6 +202,14 @@ export const getCurrentUser = query({
         .withIndex("by_email", (q) => q.eq("email", email))
         .first();
     }
+    if (!user) return null;
+    // Greptile P1 #15 (PR #905, security): a normalized email may
+    // collide with another account's row even though syncUser
+    // refused to link them. Return null in that case so we don't
+    // leak the other account's profile and role.
+    if (!isOwnedByIdentity(user, identity.subject)) {
+      return null;
+    }
     return user;
   },
 });
@@ -311,6 +319,39 @@ export const updateUser = mutation({
  */
 const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
 
+/**
+ * Greptile P1 #16 (PR #905): account-link check used by syncUser
+ * and getCurrentUser. A row belongs to the caller if EITHER:
+ *
+ *   - `clerkId === identity.subject` — proven Clerk link (the
+ *     normal case for rows written by syncUser/seed-role).
+ *   - `clerkId.startsWith("migrated_") && userId === identity.subject`
+ *     — a row written by the historical migration script that
+ *     carried the user's real Clerk userId as `userId` but
+ *     marked `clerkId` as "migrated_<userId>" until the user
+ *     authenticated for the first time. A subsequent syncUser
+ *     claim patches `clerkId` to the real subject so this branch
+ *     is one-shot.
+ *
+ * Anything else (clerkId set to someone else's ID, clerkId null,
+ * or clerkId a non-migrated string that doesn't match the subject)
+ * means the email is in use by another account — refuse.
+ */
+function isOwnedByIdentity(
+  row: Pick<Doc<"users">, "clerkId" | "userId">,
+  identitySubject: string,
+): boolean {
+  if (row.clerkId === identitySubject) return true;
+  if (
+    typeof row.clerkId === "string" &&
+    row.clerkId.startsWith("migrated_") &&
+    row.userId === identitySubject
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const setNotificationPreference = mutation({
   args: {
     key: v.string(),
@@ -398,10 +439,11 @@ export const syncUser = mutation({
     // Look up the row by NORMALIZED email first (handles rows written
     // after normalization). If not found, also try the raw email
     // (handles legacy rows written before normalization). Either
-    // way, the row MUST have clerkId === identity.subject for us
-    // to treat it as the caller's own row. A different clerkId
-    // means the email is in use by another account, and we refuse
-    // to silently merge them — see the incident mitigation at
+    // way, the row MUST belong to the caller (see
+    // isOwnedByIdentity) for us to treat it as the caller's own
+    // row. Anything else means the email is in use by another
+    // account — refuse to silently merge — see the incident
+    // mitigation at
     // docs/reverts/incident-mitigation_846-20260920-instructor-linking-refusal-bdd7a01.md.
     let existingByEmail = await ctx.db
       .query("users")
@@ -413,11 +455,7 @@ export const syncUser = mutation({
         .withIndex("by_email", (q) => q.eq("email", email))
         .first();
     }
-    if (
-      existingByEmail &&
-      existingByEmail.clerkId &&
-      existingByEmail.clerkId !== identity.subject
-    ) {
+    if (existingByEmail && !isOwnedByIdentity(existingByEmail, identity.subject)) {
       throw new Error(
         "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
       );
@@ -426,6 +464,11 @@ export const syncUser = mutation({
     if (existingByEmail) {
       const updates: Partial<Doc<"users">> = {
         userId: identity.subject,
+        // Greptile P1 #16 (PR #905): if we found a row via the
+        // migrated_* placeholder branch of isOwnedByIdentity, this
+        // patch upgrades clerkId to the real subject so future
+        // syncs take the fast path.
+        clerkId: identity.subject,
         firstName: args.firstName ?? existingByEmail.firstName,
         lastName: args.lastName ?? existingByEmail.lastName,
         timeZone: args.timeZone ?? existingByEmail.timeZone,
@@ -528,7 +571,16 @@ export const migrateUser = mutation({
     const id = await ctx.db.insert("users", {
       userId: args.userId,
       email: normalizedEmail,
-      clerkId: `migrated_${args.userId}`,
+      // Greptile P1 #16 (PR #905): use the real Clerk userId as
+      // clerkId instead of a "migrated_" prefix. The historical
+      // migration script ran before accounts linked to Convex
+      // through Clerk, so the prefix was a placeholder for
+      // "not yet linked to a live Clerk webhook". Accounts created
+      // here now go through syncUser immediately, so the prefix
+      // would just block isOwnedByIdentity's fast path. Existing
+      // rows still carrying the prefix are recognized by the
+      // migrated_* branch of isOwnedByIdentity.
+      clerkId: args.userId,
       role: args.role ?? "student",
       timeZone: args.timeZone,
       firstName: undefined,

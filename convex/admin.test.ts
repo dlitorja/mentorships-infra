@@ -657,3 +657,63 @@ test("getCurrentUser: returns the row for a mixed-case Clerk email (P1 #14)", as
   expect(got).not.toBeNull();
   expect(got?.userId).toBe(subject);
 });
+
+test("getCurrentUser: returns null when another account's row matches by email (P1 #15 security)", async () => {
+  // Greptile P1 #15 (PR #905, security): syncUser refuses to
+  // link when a found row's clerkId differs from the caller.
+  // getCurrentUser must also refuse to RETURN another account's
+  // row, otherwise the calendar would expose the other account's
+  // profile and role.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_getcurrent_admin";
+  const adminEmail = "admin@example.com";
+  const attackerSubject = "user_getcurrent_attacker";
+  const attackerEmail = "Admin@Example.COM";
+
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: adminSubject,
+    actorId: adminSubject,
+    email: adminEmail,
+  });
+
+  // Attacker is authenticated and asks "what's my user row?"
+  // Their email normalizes to the admin's row, but they don't
+  // own it. Must return null.
+  const got = await t
+    .withIdentity({ subject: attackerSubject, email: attackerEmail })
+    .query(api.users.getCurrentUser, {});
+  expect(got).toBeNull();
+});
+
+test("syncUser: claims a migrated_* placeholder row on first authentication (P1 #16)", async () => {
+  // Greptile P1 #16 (PR #905): the historical migration script
+  // wrote `clerkId = "migrated_<userId>"` for rows whose user
+  // already had a real Clerk userId in `userId`. The first sync
+  // for that user must claim the row (not refuse it), and
+  // upgrade clerkId to the real subject so subsequent syncs
+  // take the fast path.
+  const t = convexTest(schema, modules);
+  const subject = "user_legacy_migrated_claim";
+  const email = "legacy-claim@example.com";
+
+  // Seed a row in the historical migrated_* form.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email,
+      clerkId: `migrated_${subject}`,
+      role: "student",
+    });
+  });
+
+  await t.withIdentity({ subject, email }).mutation(api.users.syncUser, {});
+
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+  });
+  expect(row?.clerkId).toBe(subject);
+  expect(row?.role).toBe("student");
+});
