@@ -717,3 +717,91 @@ test("syncUser: claims a migrated_* placeholder row on first authentication (P1 
   expect(row?.clerkId).toBe(subject);
   expect(row?.role).toBe("student");
 });
+
+test("syncUser: claims a placeholder_* row created by admin createUser (P1 #17)", async () => {
+  // Greptile P1 #17 (PR #905): `createUser` writes
+  // `clerkId = "placeholder_<userId>"` when no Clerk link has
+  // been established yet. The first sync for that user must
+  // claim the row (not refuse it).
+  const t = convexTest(schema, modules);
+  const subject = "user_placeholder_claim";
+  const email = "placeholder-claim@example.com";
+
+  // Seed a row in createUser's placeholder form.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email,
+      clerkId: `placeholder_${subject}`,
+      role: "student",
+    });
+  });
+
+  await t.withIdentity({ subject, email }).mutation(api.users.syncUser, {});
+
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+  });
+  expect(row?.clerkId).toBe(subject);
+  expect(row?.role).toBe("student");
+});
+
+test("syncUser: legacy mixed-case row wins over newer normalized row for same email (P1 #18)", async () => {
+  // Greptile P1 #18 (PR #905): if a legacy user has a mixed-case
+  // email row AND a different account has a normalized row for
+  // the same address, the legitimate user's syncUser must claim
+  // their legacy row, not refuse with "already in use by another
+  // account". The probe-for-owned-row-first ordering handles
+  // this case.
+  const t = convexTest(schema, modules);
+  const legacySubject = "user_legacy_email_row";
+  const otherSubject = "user_other_normalized_row";
+  const mixedCaseEmail = "Mixed.Case@Example.COM";
+  const normalizedEmail = mixedCaseEmail.toLowerCase();
+
+  // Legacy row (mixed-case email, the legitimate user).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: legacySubject,
+      email: mixedCaseEmail,
+      clerkId: legacySubject,
+      role: "student",
+    });
+  });
+  // Other account's row (normalized email, a different user).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: otherSubject,
+      email: normalizedEmail,
+      clerkId: otherSubject,
+      role: "student",
+    });
+  });
+
+  // The legitimate user signs in with the mixed-case email.
+  // syncUser must find THEIR row (by the raw-email lookup)
+  // and patch it, not refuse.
+  await t
+    .withIdentity({ subject: legacySubject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, { firstName: "Legacy" });
+
+  const legacy = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", legacySubject))
+      .first();
+  });
+  expect(legacy?.firstName).toBe("Legacy");
+  // The other account's row is untouched.
+  const other = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", otherSubject))
+      .first();
+  });
+  expect(other?.email).toBe(normalizedEmail);
+  expect(other?.firstName).toBeUndefined();
+});

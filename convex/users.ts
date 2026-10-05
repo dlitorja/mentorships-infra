@@ -188,29 +188,31 @@ export const getCurrentUser = query({
     // Greptile P1 #14 (PR #905): the calendar (and other UI) calls
     // getCurrentUser. `syncUser` now writes the email lowercased;
     // if we look up the raw Clerk email, a mixed-case new user
-    // would silently miss their row. Normalize first, then fall
-    // back to the raw form for legacy rows written before
-    // normalization.
+    // would silently miss their row.
+    //
+    // Greptile P1 #18 (PR #905): if a legacy mixed-case row and a
+    // new normalized row share an email, the legacy row is the
+    // caller's own row — return THAT, not the newer one belonging
+    // to a different account.
     const normalizedEmail = email.trim().toLowerCase();
+    // Step 1: try the normalized lookup for a row owned by the caller.
     let user = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
-    if (!user && normalizedEmail !== email) {
+    if (user && isOwnedByIdentity(user, identity.subject)) return user;
+    // Step 2: try the raw lookup for a row owned by the caller
+    // (legacy mixed-case row written before normalization).
+    if (normalizedEmail !== email) {
       user = await ctx.db
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", email))
         .first();
+      if (user && isOwnedByIdentity(user, identity.subject)) return user;
     }
-    if (!user) return null;
-    // Greptile P1 #15 (PR #905, security): a normalized email may
-    // collide with another account's row even though syncUser
-    // refused to link them. Return null in that case so we don't
-    // leak the other account's profile and role.
-    if (!isOwnedByIdentity(user, identity.subject)) {
-      return null;
-    }
-    return user;
+    // Step 3: a row matched by email but NOT owned — return null
+    // so we don't leak another account's profile.
+    return null;
   },
 });
 
@@ -320,8 +322,9 @@ export const updateUser = mutation({
 const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
 
 /**
- * Greptile P1 #16 (PR #905): account-link check used by syncUser
- * and getCurrentUser. A row belongs to the caller if EITHER:
+ * Greptile P1 #16 + P1 #17 (PR #905): account-link check used by
+ * syncUser and getCurrentUser. A row belongs to the caller if
+ * ANY of:
  *
  *   - `clerkId === identity.subject` — proven Clerk link (the
  *     normal case for rows written by syncUser/seed-role).
@@ -332,10 +335,14 @@ const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
  *     authenticated for the first time. A subsequent syncUser
  *     claim patches `clerkId` to the real subject so this branch
  *     is one-shot.
+ *   - `clerkId.startsWith("placeholder_") && userId === identity.subject`
+ *     — `createUser` (admin-tooling path) writes
+ *     "placeholder_<userId>" as clerkId when no Clerk link has
+ *     been established yet. Same one-shot semantics.
  *
  * Anything else (clerkId set to someone else's ID, clerkId null,
- * or clerkId a non-migrated string that doesn't match the subject)
- * means the email is in use by another account — refuse.
+ * or clerkId a non-placeholder string that doesn't match the
+ * subject) means the email is in use by another account — refuse.
  */
 function isOwnedByIdentity(
   row: Pick<Doc<"users">, "clerkId" | "userId">,
@@ -344,8 +351,10 @@ function isOwnedByIdentity(
   if (row.clerkId === identitySubject) return true;
   if (
     typeof row.clerkId === "string" &&
-    row.clerkId.startsWith("migrated_") &&
-    row.userId === identitySubject
+    typeof row.userId === "string" &&
+    row.userId === identitySubject &&
+    (row.clerkId.startsWith("migrated_") ||
+      row.clerkId.startsWith("placeholder_"))
   ) {
     return true;
   }
@@ -438,35 +447,58 @@ export const syncUser = mutation({
     // Greptile P1 #12 (PR #905, security): account-linking refusal.
     // Look up the row by NORMALIZED email first (handles rows written
     // after normalization). If not found, also try the raw email
-    // (handles legacy rows written before normalization). Either
-    // way, the row MUST belong to the caller (see
-    // isOwnedByIdentity) for us to treat it as the caller's own
-    // row. Anything else means the email is in use by another
-    // account — refuse to silently merge — see the incident
-    // mitigation at
-    // docs/reverts/incident-mitigation_846-20260920-instructor-linking-refusal-bdd7a01.md.
+    // (handles legacy rows written before normalization).
+    //
+    // Greptile P1 #18 (PR #905): if a legacy mixed-case row AND a
+    // new normalized row share an email, the legacy row is the
+    // caller's own row — claim THAT, not the newer one belonging to
+    // a different account. We probe for an OWNED row first; only if
+    // no owned row exists do we treat an email match as a cross-
+    // account conflict.
     let existingByEmail = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
       .first();
+    if (existingByEmail && !isOwnedByIdentity(existingByEmail, identity.subject)) {
+      existingByEmail = null;
+    }
     if (!existingByEmail && normalizedEmail !== email) {
-      existingByEmail = await ctx.db
+      const raw = await ctx.db
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", email))
         .first();
+      if (raw && isOwnedByIdentity(raw, identity.subject)) {
+        existingByEmail = raw;
+      }
     }
-    if (existingByEmail && !isOwnedByIdentity(existingByEmail, identity.subject)) {
-      throw new Error(
-        "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
-      );
+
+    // No owned row by either lookup. If ANY row exists for this
+    // email (normalized OR raw), the email is in use by another
+    // account — refuse.
+    if (!existingByEmail) {
+      let conflict = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .first();
+      if (!conflict && normalizedEmail !== email) {
+        conflict = await ctx.db
+          .query("users")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .first();
+      }
+      if (conflict) {
+        throw new Error(
+          "Refusing to link: this email is already associated with a different Clerk account. Contact support if this is your account.",
+        );
+      }
     }
 
     if (existingByEmail) {
       const updates: Partial<Doc<"users">> = {
         userId: identity.subject,
         // Greptile P1 #16 (PR #905): if we found a row via the
-        // migrated_* placeholder branch of isOwnedByIdentity, this
-        // patch upgrades clerkId to the real subject so future
+        // migrated_* / placeholder_* branch of isOwnedByIdentity,
+        // this patch upgrades clerkId to the real subject so future
         // syncs take the fast path.
         clerkId: identity.subject,
         firstName: args.firstName ?? existingByEmail.firstName,
