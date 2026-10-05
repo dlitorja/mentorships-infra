@@ -521,3 +521,336 @@ test("bootstrapAdminRoleOnce: writes an audit log row", async () => {
   expect(audits[0].targetType).toBe("user");
   expect(audits[0].targetId).toBe(subject);
 });
+
+test("syncUser + bootstrapAdminRoleOnce: mixed-case Clerk email finds the bootstrap row (P1 #11)", async () => {
+  // Greptile P1 #11 (PR #904 follow-up): if a new admin's Clerk
+  // email contains uppercase letters, `bootstrapAdminRoleOnce`
+  // stores it in lowercase, but `syncUser` previously looked up
+  // by the original case. The later sync would miss the admin
+  // row and insert a duplicate. Both paths now use lowercased
+  // emails; this test proves that by actually running syncUser
+  // (not just hand-rolling the lookup — Greptile P2 #1).
+  const t = convexTest(schema, modules);
+  const subject = "user_mixed_case_admin";
+  const mixedCaseEmail = "Mixed.Case@Example.COM";
+  const loweredEmail = mixedCaseEmail.toLowerCase();
+
+  // Bootstrap first (admin-only path) — uses lowercase email.
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: subject,
+    actorId: subject,
+    email: mixedCaseEmail,
+  });
+
+  // Now run syncUser as the same Clerk identity, but with a
+  // mixed-case email in identity.email (mirrors what Clerk
+  // actually sends). syncUser must find the bootstrap row, not
+  // insert a duplicate.
+  await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, { firstName: "Mixed" });
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .collect();
+  });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].role).toBe("admin");
+  expect(rows[0].email).toBe(loweredEmail);
+  expect(rows[0].firstName).toBe("Mixed");
+});
+
+test("syncUser: refuses to merge when an existing row's clerkId differs (P1 #12 security)", async () => {
+  // Greptile P1 #12 (PR #905, security): if a new Clerk account's
+  // email normalizes to one already in the users table, syncUser
+  // must NOT silently merge it onto the existing row. Otherwise
+  // an attacker who creates a Clerk account with email
+  // `Admin@Example.com` could inherit an existing admin row.
+  // The mitigation refuses and surfaces the conflict.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_existing_admin";
+  const adminEmail = "admin@example.com";
+  const attackerSubject = "user_attacker_clerk";
+  const attackerEmail = "Admin@Example.COM"; // normalizes to admin@example.com
+
+  // Bootstrap an admin with a Clerk account that owns the email.
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: adminSubject,
+    actorId: adminSubject,
+    email: adminEmail,
+  });
+
+  // A different Clerk account (the attacker) tries to sync with
+  // an email that normalizes to the admin's row. syncUser must
+  // refuse, NOT overwrite the admin row's userId/clerkId.
+  await expect(
+    t
+      .withIdentity({ subject: attackerSubject, email: attackerEmail })
+      .mutation(api.users.syncUser, {})
+  ).rejects.toThrow(/Refusing to link/i);
+
+  // The admin row is unchanged.
+  const adminRow = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminSubject))
+      .first();
+  });
+  expect(adminRow?.clerkId).toBe(adminSubject);
+  expect(adminRow?.role).toBe("admin");
+});
+
+test("syncUser: legacy mixed-case migrated row is still findable (P1 #13)", async () => {
+  // Greptile P1 #13 (PR #905): rows written before normalization
+  // (mixed-case `email`) must still be reachable from syncUser
+  // so we don't duplicate them. syncUser falls back to a raw
+  // by_email lookup when the normalized lookup misses.
+  const t = convexTest(schema, modules);
+  const subject = "user_legacy_migrated";
+  const legacyEmail = "Legacy.User@Example.COM"; // raw, not lowercased
+
+  // Seed a row directly with a mixed-case email (simulates the
+  // pre-normalization state).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email: legacyEmail,
+      clerkId: subject,
+      role: "student",
+    });
+  });
+
+  // syncUser with the same identity should find the legacy row,
+  // NOT insert a new one. The resulting email stays as it was
+  // (legacy data; we don't mutate it).
+  await t
+    .withIdentity({ subject, email: legacyEmail })
+    .mutation(api.users.syncUser, {});
+
+  const rows = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .collect();
+  });
+  expect(rows).toHaveLength(1);
+});
+
+test("getCurrentUser: returns the row for a mixed-case Clerk email (P1 #14)", async () => {
+  // Greptile P1 #14 (PR #905): syncUser now writes emails in
+  // lowercase. getCurrentUser must look up the lowercased form
+  // or a new user with a mixed-case Clerk email would have an
+  // empty dashboard (calendar can't find them).
+  const t = convexTest(schema, modules);
+  const subject = "user_calendar_mixed_case";
+  const mixedCaseEmail = "Calendar.Mixed@Example.COM";
+
+  await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, {});
+
+  const got = await t
+    .withIdentity({ subject, email: mixedCaseEmail })
+    .query(api.users.getCurrentUser, {});
+  expect(got).not.toBeNull();
+  expect(got?.userId).toBe(subject);
+});
+
+test("getCurrentUser: returns null when another account's row matches by email (P1 #15 security)", async () => {
+  // Greptile P1 #15 (PR #905, security): syncUser refuses to
+  // link when a found row's clerkId differs from the caller.
+  // getCurrentUser must also refuse to RETURN another account's
+  // row, otherwise the calendar would expose the other account's
+  // profile and role.
+  const t = convexTest(schema, modules);
+  const adminSubject = "user_getcurrent_admin";
+  const adminEmail = "admin@example.com";
+  const attackerSubject = "user_getcurrent_attacker";
+  const attackerEmail = "Admin@Example.COM";
+
+  await t.mutation(internal.users.bootstrapAdminRoleOnce, {
+    userId: adminSubject,
+    actorId: adminSubject,
+    email: adminEmail,
+  });
+
+  // Attacker is authenticated and asks "what's my user row?"
+  // Their email normalizes to the admin's row, but they don't
+  // own it. Must return null.
+  const got = await t
+    .withIdentity({ subject: attackerSubject, email: attackerEmail })
+    .query(api.users.getCurrentUser, {});
+  expect(got).toBeNull();
+});
+
+test("syncUser: claims a migrated_* placeholder row on first authentication (P1 #16)", async () => {
+  // Greptile P1 #16 (PR #905): the historical migration script
+  // wrote `clerkId = "migrated_<userId>"` for rows whose user
+  // already had a real Clerk userId in `userId`. The first sync
+  // for that user must claim the row (not refuse it), and
+  // upgrade clerkId to the real subject so subsequent syncs
+  // take the fast path.
+  const t = convexTest(schema, modules);
+  const subject = "user_legacy_migrated_claim";
+  const email = "legacy-claim@example.com";
+
+  // Seed a row in the historical migrated_* form.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email,
+      clerkId: `migrated_${subject}`,
+      role: "student",
+    });
+  });
+
+  await t.withIdentity({ subject, email }).mutation(api.users.syncUser, {});
+
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+  });
+  expect(row?.clerkId).toBe(subject);
+  expect(row?.role).toBe("student");
+});
+
+test("syncUser: claims a placeholder_* row created by admin createUser (P1 #17)", async () => {
+  // Greptile P1 #17 (PR #905): `createUser` writes
+  // `clerkId = "placeholder_<userId>"` when no Clerk link has
+  // been established yet. The first sync for that user must
+  // claim the row (not refuse it).
+  const t = convexTest(schema, modules);
+  const subject = "user_placeholder_claim";
+  const email = "placeholder-claim@example.com";
+
+  // Seed a row in createUser's placeholder form.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      email,
+      clerkId: `placeholder_${subject}`,
+      role: "student",
+    });
+  });
+
+  await t.withIdentity({ subject, email }).mutation(api.users.syncUser, {});
+
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", subject))
+      .first();
+  });
+  expect(row?.clerkId).toBe(subject);
+  expect(row?.role).toBe("student");
+});
+
+test("syncUser: legacy mixed-case row wins over newer normalized row for same email (P1 #18)", async () => {
+  // Greptile P1 #18 (PR #905): if a legacy user has a mixed-case
+  // email row AND a different account has a normalized row for
+  // the same address, the legitimate user's syncUser must claim
+  // their legacy row, not refuse with "already in use by another
+  // account". The probe-for-owned-row-first ordering handles
+  // this case.
+  const t = convexTest(schema, modules);
+  const legacySubject = "user_legacy_email_row";
+  const otherSubject = "user_other_normalized_row";
+  const mixedCaseEmail = "Mixed.Case@Example.COM";
+  const normalizedEmail = mixedCaseEmail.toLowerCase();
+
+  // Legacy row (mixed-case email, the legitimate user).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: legacySubject,
+      email: mixedCaseEmail,
+      clerkId: legacySubject,
+      role: "student",
+    });
+  });
+  // Other account's row (normalized email, a different user).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: otherSubject,
+      email: normalizedEmail,
+      clerkId: otherSubject,
+      role: "student",
+    });
+  });
+
+  // The legitimate user signs in with the mixed-case email.
+  // syncUser must find THEIR row (by the raw-email lookup)
+  // and patch it, not refuse.
+  await t
+    .withIdentity({ subject: legacySubject, email: mixedCaseEmail })
+    .mutation(api.users.syncUser, { firstName: "Legacy" });
+
+  const legacy = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", legacySubject))
+      .first();
+  });
+  expect(legacy?.firstName).toBe("Legacy");
+  // The other account's row is untouched.
+  const other = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", otherSubject))
+      .first();
+  });
+  expect(other?.email).toBe(normalizedEmail);
+  expect(other?.firstName).toBeUndefined();
+});
+
+test("syncUser: owner's row is found even if NOT first in by_email (P1 #19)", async () => {
+  // Greptile P1 #19 (PR #905): if multiple rows share the same
+  // email (legacy data), the caller's OWN row may not be the
+  // FIRST one returned by the by_email index. We must scan all
+  // matching rows for one owned by the caller, not just the
+  // first.
+  const t = convexTest(schema, modules);
+  const ownerSubject = "user_owner_second";
+  const otherSubject = "user_other_first";
+  const email = "shared@example.com";
+
+  // Seed the other row FIRST so it sorts ahead of the owner row.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: otherSubject,
+      email,
+      clerkId: otherSubject,
+      role: "student",
+    });
+    await ctx.db.insert("users", {
+      userId: ownerSubject,
+      email,
+      clerkId: ownerSubject,
+      role: "student",
+    });
+  });
+
+  // Owner's syncUser must find their row, not the other row.
+  await t
+    .withIdentity({ subject: ownerSubject, email })
+    .mutation(api.users.syncUser, { firstName: "Owner" });
+
+  const owner = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", ownerSubject))
+      .first();
+  });
+  expect(owner?.firstName).toBe("Owner");
+  // The other row is unchanged.
+  const other = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", otherSubject))
+      .first();
+  });
+  expect(other?.firstName).toBeUndefined();
+});
