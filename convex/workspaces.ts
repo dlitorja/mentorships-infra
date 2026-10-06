@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -310,27 +310,27 @@ export async function assertB2FileUploadOwnedByCaller(
     .withIndex("by_b2Key", (q) => q.eq("b2Key", args.b2Key))
     .first();
   if (!row) {
-    throw new Error(
+    throw new ConvexError(
       "B2 key is not bound to a known upload. Re-upload and try again."
     );
   }
   if (row.workspaceId !== args.workspaceId) {
-    throw new Error(
+    throw new ConvexError(
       "B2 key is not bound to this workspace. Re-upload and try again."
     );
   }
   if (row.uploaderId !== args.callerId) {
-    throw new Error(
+    throw new ConvexError(
       "B2 key is not owned by the caller. Re-upload and try again."
     );
   }
   if (row.cancelledAt !== undefined) {
-    throw new Error(
+    throw new ConvexError(
       "B2 key upload was cancelled. Re-upload and try again."
     );
   }
   if (row.completedAt === undefined) {
-    throw new Error(
+    throw new ConvexError(
       "B2 key upload has not been confirmed. Re-upload and try again."
     );
   }
@@ -1482,17 +1482,32 @@ export const embedImageInNote = mutation({
 
     const note = await ctx.db.get(args.noteId);
     if (!note) {
-      throw new Error("Note not found");
+      throw new ConvexError("Note not found");
     }
 
     const workspace = await ctx.db.get(note.workspaceId);
     if (!workspace) {
-      throw new Error("Workspace not found");
+      throw new ConvexError("Workspace not found");
     }
 
     const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (role !== "instructor" && role !== "admin") {
-      throw new Error("Only instructors and admins can embed images in notes");
+      // Greptile Security P2 round 4 (PR #908): "Note not found"
+      // vs "Only instructors and admins..." would otherwise let a
+      // non-participant enumerate note IDs — invalid ids hit the
+      // existence gate, valid-but-unwritable ids hit the role gate.
+      // Collapse the leak: callers with NO role in the workspace
+      // get the same "Note not found" they'd get for an invalid
+      // id. Legitimate workspace participants who happen to be
+      // students (the existing test case) still get the specific
+      // role message — they're already inside the workspace so
+      // there's nothing to disclose.
+      if (role === null) {
+        throw new ConvexError("Note not found");
+      }
+      throw new ConvexError(
+        "Only instructors and admins can embed images in notes"
+      );
     }
 
     // PR workspace-storage-3c: gate on the B2 upload ledger so a
@@ -1511,7 +1526,7 @@ export const embedImageInNote = mutation({
       ledger.contentType !== undefined &&
       !ledger.contentType.toLowerCase().startsWith("image/")
     ) {
-      throw new Error(
+      throw new ConvexError(
         "Only image files can be embedded in notes. Use the file share for other types."
       );
     }
@@ -1523,7 +1538,9 @@ export const embedImageInNote = mutation({
     const cap = isAdmin ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
 
     if (currentCount >= cap) {
-      throw new Error(`Image limit reached (${cap} images allowed)`);
+      throw new ConvexError(
+        `Image limit reached (${cap} images allowed)`
+      );
     }
 
     // PR workspace-storage-3c: the row stores the `b2Key` directly;
