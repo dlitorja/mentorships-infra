@@ -4,7 +4,6 @@ import { useRef, useEffect } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Underline from '@tiptap/extension-underline';
 import { toast } from 'sonner';
 import { Id, type Doc } from '@/convex/_generated/dataModel';
 import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
@@ -63,7 +62,6 @@ export function useNoteEditor({
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Underline,
       Placeholder.configure({
         placeholder: 'Start writing your note...',
       }),
@@ -240,7 +238,15 @@ export function useNoteEditor({
       }
     } catch (error) {
       console.error('Failed to embed image:', error);
-      toast.error('Failed to embed image', { id: toastId });
+      // Surface the server-side error message when available so the
+      // user can tell "B2 key upload has not been confirmed" apart
+      // from "Image limit reached (250 images allowed)" — both
+      // would otherwise collapse into the same generic toast.
+      const detail =
+        error instanceof Error && error.message ? error.message : null;
+      toast.error(detail ? `Failed to embed image: ${detail}` : 'Failed to embed image', {
+        id: toastId,
+      });
     }
   };
 

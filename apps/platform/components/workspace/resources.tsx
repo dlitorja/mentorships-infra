@@ -18,7 +18,7 @@ import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useDropzone } from 'react-dropzone';
 import { Loader2, Upload, FileText, ImageIcon, Share2, Trash2, Tag, XCircle } from 'lucide-react';
@@ -390,10 +390,10 @@ export default function WorkspaceResources({ workspaceId, activeSessionId }: Wor
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Delete resource?</DialogTitle>
+              <DialogDescription>
+                This will permanently delete the resource. Any images already shared to chat or embedded in notes will remain there.
+              </DialogDescription>
             </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              This will permanently delete the resource. Any images already shared to chat or embedded in notes will remain there.
-            </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
                 Cancel
@@ -456,11 +456,11 @@ function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, 
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Embed in note</DialogTitle>
+          <DialogDescription>
+            Select a note to embed this image in. The image will be inserted into the note and appear in the Images tab.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Select a note to embed this image in. The image will be inserted into the note and appear in the Images tab.
-          </p>
           <Select
             value={selectedNoteId ?? ''}
             onValueChange={(v) => onNoteChange(v as Id<'workspaceNotes'>)}
