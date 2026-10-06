@@ -158,6 +158,33 @@ test("embedImageInNote: rejects student callers with role gate message", async (
   ).rejects.toThrow(/instructors and admins/);
 });
 
+test("embedImageInNote: hides note existence from non-participants", async () => {
+  // Greptile Security P2 round 4 (PR #908): without this, a
+  // caller who is NOT a participant in the workspace can
+  // enumerate note IDs by watching which call returns
+  // "Note not found" vs "Only instructors and admins...". The
+  // fix in convex/workspaces.ts collapses both to "Note not
+  // found" when the caller has no role at all. Legitimate
+  // workspace participants who are students (covered by the
+  // separate "rejects student callers with role gate message"
+  // test above) still see the specific role message because
+  // they're already inside the workspace.
+  const t = convexTest({ schema, modules });
+  const seed = await seedWorkspace(t, {
+    studentUserId: "user_student_1",
+    instructorUserId: "user_instructor_1",
+  });
+  // Caller is authenticated but not the workspace owner and not
+  // the workspace instructor — `getWorkspaceRole` returns null.
+  const outsiderT = t.withIdentity({ subject: "user_outsider" });
+  await expect(
+    outsiderT.mutation(api.workspaces.embedImageInNote, {
+      noteId: seed.noteId as any,
+      b2Key: seed.b2Key,
+    })
+  ).rejects.toThrow(/Note not found/);
+});
+
 test("embedImageInNote: rejects unknown b2Key (ledger-gate)", async () => {
   const t = convexTest({ schema, modules });
   const seed = await seedWorkspace(t, {

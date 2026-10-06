@@ -1492,6 +1492,19 @@ export const embedImageInNote = mutation({
 
     const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (role !== "instructor" && role !== "admin") {
+      // Greptile Security P2 round 4 (PR #908): "Note not found"
+      // vs "Only instructors and admins..." would otherwise let a
+      // non-participant enumerate note IDs — invalid ids hit the
+      // existence gate, valid-but-unwritable ids hit the role gate.
+      // Collapse the leak: callers with NO role in the workspace
+      // get the same "Note not found" they'd get for an invalid
+      // id. Legitimate workspace participants who happen to be
+      // students (the existing test case) still get the specific
+      // role message — they're already inside the workspace so
+      // there's nothing to disclose.
+      if (role === null) {
+        throw new ConvexError("Note not found");
+      }
       throw new ConvexError(
         "Only instructors and admins can embed images in notes"
       );
