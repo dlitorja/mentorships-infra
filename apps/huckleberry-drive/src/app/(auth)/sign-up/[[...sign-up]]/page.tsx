@@ -43,33 +43,33 @@ export default function SignUpPage() {
     setError(null);
     setIsSubmitting(true);
 
-    const createResult = await signUp.create({
-      strategy: "ticket",
-      ticket,
-      firstName,
-      lastName,
-      password,
-    });
-
-    if (createResult.error) {
-      setError(createResult.error.message || "Failed to process invitation");
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (signUp.status === "complete") {
-      const finalizeResult = await signUp.finalize({
-        navigate: () => router.push("/dashboard"),
+    try {
+      const createResult = await signUp.create({
+        strategy: "ticket",
+        ticket,
+        firstName,
+        lastName,
+        password,
       });
-      if (finalizeResult.error) {
-        setError(finalizeResult.error.message || "Failed to activate session");
-        setIsSubmitting(false);
+
+      if (createResult.error) {
+        setError(createResult.error.message || "Failed to process invitation");
         return;
       }
-      return;
-    }
 
-    setIsSubmitting(false);
+      if (signUp.status === "complete") {
+        const finalizeResult = await signUp.finalize({
+          navigate: () => router.push("/dashboard"),
+        });
+        if (finalizeResult.error) {
+          setError(finalizeResult.error.message || "Failed to activate session");
+          return;
+        }
+        return;
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
