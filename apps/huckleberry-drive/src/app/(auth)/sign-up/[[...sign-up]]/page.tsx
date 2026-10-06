@@ -67,6 +67,10 @@ export default function SignUpPage() {
         }
         return;
       }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to process invitation";
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
