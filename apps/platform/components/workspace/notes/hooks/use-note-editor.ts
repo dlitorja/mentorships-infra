@@ -4,6 +4,7 @@ import { useRef, useEffect } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import { ConvexError } from 'convex/values';
 import { toast } from 'sonner';
 import { Id, type Doc } from '@/convex/_generated/dataModel';
 import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
@@ -242,8 +243,16 @@ export function useNoteEditor({
       // user can tell "B2 key upload has not been confirmed" apart
       // from "Image limit reached (250 images allowed)" — both
       // would otherwise collapse into the same generic toast.
+      // ConvexError carries its payload on `.data` (the user-facing
+      // string the mutation threw); `Error.message` for raw Error
+      // throws is redacted by Convex to "Server Error" in prod, so
+      // we can't rely on it. Greptile P2 round 3 on PR #908.
       const detail =
-        error instanceof Error && error.message ? error.message : null;
+        error instanceof ConvexError
+          ? typeof error.data === 'string'
+            ? error.data
+            : (error.data as { message?: string })?.message ?? null
+          : null;
       toast.error(detail ? `Failed to embed image: ${detail}` : 'Failed to embed image', {
         id: toastId,
       });

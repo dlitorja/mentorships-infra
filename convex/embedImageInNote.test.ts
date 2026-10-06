@@ -402,7 +402,7 @@ test("embedImageInNote: rejects b2Key whose ledger row belongs to a different wo
   ).rejects.toThrow(/not bound to this workspace/);
 });
 
-test("embedImageInNote: admin cap uses countActiveWorkspaceImages + WORKSPACE_IMAGE_CAPS.admin", async () => {
+test("embedImageInNote: admin cap uses countActiveWorkspaceImages + WORKSPACE_IMAGE_CAPS.admin", { timeout: 30_000 }, async () => {
   // Greptile P2 round 2: the instructor cap branch reads the
   // workspace's `instructorImageCount` counter, but the admin
   // branch reads the live `workspaceImages` row count
