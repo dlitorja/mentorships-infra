@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSignUp } from "@clerk/nextjs/legacy";
+import { useState } from "react";
+import { useSignUp } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export default function SignUpPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signUp, isLoaded, setActive } = useSignUp();
+  const { signUp } = useSignUp();
 
   const ticket = searchParams.get("__clerk_ticket");
   const [firstName, setFirstName] = useState("");
@@ -15,20 +15,6 @@ export default function SignUpPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (signUp?.status === "complete") {
-      router.push("/dashboard");
-    }
-  }, [signUp?.status, router]);
-
-  if (!isLoaded) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900">
-        <p className="text-slate-400">Loading...</p>
-      </div>
-    );
-  }
 
   if (!ticket) {
     return (
@@ -51,13 +37,14 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!ticket) return;
     if (!signUp) return;
 
     setError(null);
     setIsSubmitting(true);
 
     try {
-      await signUp.create({
+      const createResult = await signUp.create({
         strategy: "ticket",
         ticket,
         firstName,
@@ -65,12 +52,24 @@ export default function SignUpPage() {
         password,
       });
 
+      if (createResult.error) {
+        setError(createResult.error.message || "Failed to process invitation");
+        return;
+      }
+
       if (signUp.status === "complete") {
-        await setActive({ session: signUp.createdSessionId });
-        router.push("/dashboard");
+        const finalizeResult = await signUp.finalize({
+          navigate: () => router.push("/dashboard"),
+        });
+        if (finalizeResult.error) {
+          setError(finalizeResult.error.message || "Failed to activate session");
+          return;
+        }
+        return;
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to process invitation";
+      const message =
+        err instanceof Error ? err.message : "Failed to process invitation";
       setError(message);
     } finally {
       setIsSubmitting(false);
