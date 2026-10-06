@@ -335,3 +335,143 @@ test("embedImageInNote: rejects b2Key owned by a different caller", async () => 
     })
   ).rejects.toThrow(/not owned by the caller/);
 });
+
+test("embedImageInNote: rejects b2Key whose ledger row belongs to a different workspace", async () => {
+  // Greptile P2 round 2: a future change that drops the
+  // `workspaceId` arg from `assertB2FileUploadOwnedByCaller` would
+  // silently re-open a cross-workspace smuggle vector. Pin the
+  // branch by handing the mutation a key bound to workspace A but
+  // asking it to embed in a note that lives in workspace B.
+  // The caller is the instructor of BOTH workspaces (one
+  // `instructors` row referenced from both `workspaces.instructorId`
+  // fields) so the role gate passes on B and the cross-workspace
+  // check inside the helper is what stops the embed.
+  const t = convexTest({ schema, modules });
+  const b2KeyA = "workspaces/test/file_cross_workspace_A.png";
+  const { noteIdB } = await t.run(async (ctx) => {
+    // One instructor record referenced by both workspaces.
+    const instructorSharedId = await ctx.db.insert("instructors", {
+      userId: "user_instructor_shared",
+    });
+    // Workspace A — owns the b2Key row.
+    const wsA = await ctx.db.insert("workspaces", {
+      name: "Workspace A",
+      ownerId: "user_student_A",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      instructorId: instructorSharedId as any,
+    });
+    // Workspace B — owns the note the caller will try to embed into.
+    const wsB = await ctx.db.insert("workspaces", {
+      name: "Workspace B",
+      ownerId: "user_student_B",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      instructorId: instructorSharedId as any,
+    });
+    // Note lives in B.
+    const nB = await ctx.db.insert("workspaceNotes", {
+      workspaceId: wsB,
+      title: "Note in B",
+      content: "",
+      createdBy: "user_instructor_shared",
+      updatedAt: Date.now(),
+    });
+    // Ledger row for the b2Key lives in A. Caller uploaded it
+    // themselves, so `uploaderId` matches — only the
+    // `workspaceId` mismatch in the helper can reject.
+    await ctx.db.insert("fileUploads", {
+      workspaceId: wsA,
+      b2Key: b2KeyA,
+      uploaderId: "user_instructor_shared",
+      uploadedAt: Date.now(),
+      contentType: "image/png",
+      size: 1024,
+      completedAt: Date.now(),
+    });
+    return { noteIdB: nB };
+  });
+  const instructorSharedT = t.withIdentity({ subject: "user_instructor_shared" });
+  await expect(
+    instructorSharedT.mutation(api.workspaces.embedImageInNote, {
+      noteId: noteIdB as any,
+      b2Key: b2KeyA,
+    })
+  ).rejects.toThrow(/not bound to this workspace/);
+});
+
+test("embedImageInNote: admin cap uses countActiveWorkspaceImages + WORKSPACE_IMAGE_CAPS.admin", async () => {
+  // Greptile P2 round 2: the instructor cap branch reads the
+  // workspace's `instructorImageCount` counter, but the admin
+  // branch reads the live `workspaceImages` row count
+  // (`countActiveWorkspaceImages`) and applies a different cap
+  // (`WORKSPACE_IMAGE_CAPS.admin = 9999`). A regression that
+  // collapses the two branches would silently lift the admin cap
+  // (or, worse, swap it for the instructor cap). Pin the branch
+  // by seeding 9999 already-counted image rows with the workspace
+  // counter still at 0: only the admin branch (live count) can
+  // trigger the rejection.
+  const t = convexTest({ schema, modules });
+  const seed = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_admin_1",
+      clerkId: "user_admin_1",
+      email: "user_admin_1@example.com",
+      role: "admin",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "user_instructor_1",
+    });
+    const ws = await ctx.db.insert("workspaces", {
+      name: "Admin Cap Test",
+      ownerId: "user_student_1",
+      isPublic: false,
+      studentImageCount: 0,
+      // Counter intentionally at 0 — instructor-cap branch would
+      // accept, but the admin branch reads the live row count.
+      instructorImageCount: 0,
+      instructorId: instructorId as any,
+    });
+    const noteId = await ctx.db.insert("workspaceNotes", {
+      workspaceId: ws,
+      title: "Note",
+      content: "",
+      createdBy: "user_admin_1",
+      updatedAt: Date.now(),
+    });
+    // Seed 9999 workspaceImages rows directly — exactly the admin
+    // cap. The admin branch's `countActiveWorkspaceImages` will
+    // see 9999; the next embed pushes it to 10000, so the mutation
+    // must reject at 9999.
+    for (let i = 0; i < 9999; i++) {
+      await ctx.db.insert("workspaceImages", {
+        workspaceId: ws,
+        imageUrl: "",
+        b2Key: `workspaces/test/admin_cap_seed_${i}.png`,
+        createdBy: "user_instructor_1",
+      });
+    }
+    // b2Key for the embed attempt — fresh ledger row bound to the
+    // same workspace and uploaded by the admin caller.
+    const b2Key = "workspaces/test/file_admin_cap.png";
+    await ctx.db.insert("fileUploads", {
+      workspaceId: ws,
+      b2Key,
+      uploaderId: "user_admin_1",
+      uploadedAt: Date.now(),
+      contentType: "image/png",
+      size: 1024,
+      completedAt: Date.now(),
+    });
+    return { workspaceId: ws, noteId, b2Key };
+  });
+  const adminT = t.withIdentity({ subject: "user_admin_1" });
+  await expect(
+    adminT.mutation(api.workspaces.embedImageInNote, {
+      noteId: seed.noteId as any,
+      b2Key: seed.b2Key,
+    })
+  ).rejects.toThrow(/Image limit reached \(9999 images allowed\)/);
+});
