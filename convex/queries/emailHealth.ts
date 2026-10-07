@@ -21,11 +21,14 @@ const DIVERGENCE_YELLOW_THRESHOLD = 10;
 
 // Overlay-only safety guards. The overlay scans suppressionEvents
 // for every day in the window and per-day bins the counts, so a
-// `take()` cap would silently drop the oldest days and falsely mark
-// them as zero webhook events — pushing divergence to 100% and the
-// severity to red. We instead `collect()` and surface a high-water
-// warning if the window has more rows than the high-water guard.
-const OVERLAY_HIGH_WATER = 50_000;
+// `take()` cap below the window size would silently drop the
+// oldest days and falsely mark them as zero webhook events —
+// pushing divergence to 100% and the severity to red. The
+// high-water cap is set BELOW Convex's hard 32,000-document scan
+// limit so a request that exceeds it returns with a warning
+// rather than failing the whole page load. The admin's recourse
+// is to narrow the window or wait for the next cron pass.
+const OVERLAY_HIGH_WATER = 30_000;
 
 export const getEmailHealthSummary = query({
   args: {
@@ -276,14 +279,11 @@ export const getEmailMetricsOverlay = query({
     // oldest days in the window are not silently dropped — if
     // they were, the per-day divergence would compute against a
     // zero baseline and falsely flag every old day as red. The
-    // high-water cap is sized for an admin-only query against a
-    // 30-day window with worst-case pathological suppression
-    // volume; anything above it is surfaced as a warning in
-    // `sources` (and the admin should narrow the window).
-    // `.take(N + 1)` is the standard "detect truncation without
-    // losing data" trick: if we get N+1 rows back, we know there
-    // are more and surface the warning; otherwise we got exactly
-    // what was there.
+    // high-water cap is set BELOW Convex's hard 32k-document
+    // scan limit; `.take(N + 1)` is the standard "detect
+    // truncation without losing data" trick: if we get N+1 rows
+    // back, we know there are more and surface the warning;
+    // otherwise we got exactly what was there.
     const allScanRows = await ctx.db
       .query("suppressionEvents")
       .withIndex("by_dashboardRelevant_and_occurredAt", (q) =>
@@ -296,6 +296,33 @@ export const getEmailMetricsOverlay = query({
       ? allScanRows.slice(0, OVERLAY_HIGH_WATER)
       : allScanRows;
 
+    // Webhook counts per day, with the right dedup rules:
+    //
+    // - `event:<delivery_id>` rows come from the Svix webhook —
+    //   each is a distinct bounce/complaint/unsubscribe event.
+    //   Count them straight (N events => N rows for that key).
+    // - `list:<entry_id>` rows come from the periodic suppression-
+    //   list scan. Resend's suppression list has at most one entry
+    //   per (email, kind) regardless of how many events created it,
+    //   so a list: row for (email, kind, day) is a *snapshot* of
+    //   one of those events, not a new one. It contributes 0 to
+    //   the day's count IF at least one event: row exists for the
+    //   same (email, kind, day); it contributes 1 IF no event: row
+    //   exists (the suppression predates today and the list scan
+    //   was the only signal that day).
+    // - `removed:<id>` rows are admin removals; they do not
+    //   interact with bounce/complaint/unsubscribe counting.
+    const eventCountsByKey = new Map<string, number>();
+    const listPresentByKey = new Set<string>();
+    for (const row of suppressionRows) {
+      const key = `${row.email}|${row.kind}|${isoDateUtc(row.occurredAt)}`;
+      if (row.resendId.startsWith("event:")) {
+        eventCountsByKey.set(key, (eventCountsByKey.get(key) ?? 0) + 1);
+      } else if (row.resendId.startsWith("list:")) {
+        listPresentByKey.add(key);
+      }
+    }
+
     const suppressionsByDate = new Map<
       string,
       {
@@ -306,24 +333,8 @@ export const getEmailMetricsOverlay = query({
         total: number;
       }
     >();
-    // Dedup key: a single underlying suppression event lands in
-    // BOTH the Svix webhook (`event:<delivery_id>`) and the
-    // periodic suppression-list scan (`list:<entry_id>`) — same
-    // email, same kind, same UTC day, but different resendId so
-    // `upsertSuppressionEvent` does not collapse them. We count
-    // each (email, kind, day) once so a day whose counts agree
-    // does not get a false yellow/red from the duplicate.
-    const seenByDate = new Map<string, Set<string>>();
-    for (const row of suppressionRows) {
-      const date = isoDateUtc(row.occurredAt);
-      let seen = seenByDate.get(date);
-      if (!seen) {
-        seen = new Set();
-        seenByDate.set(date, seen);
-      }
-      const dedupKey = `${row.email}|${row.kind}`;
-      if (seen.has(dedupKey)) continue;
-      seen.add(dedupKey);
+    for (const [key, eventCount] of eventCountsByKey) {
+      const [, kind, date] = key.split("|");
       const bucket = suppressionsByDate.get(date) ?? {
         bounces: 0,
         complaints: 0,
@@ -331,10 +342,43 @@ export const getEmailMetricsOverlay = query({
         removed: 0,
         total: 0,
       };
-      if (row.kind === "bounce") bucket.bounces += 1;
-      else if (row.kind === "complaint") bucket.complaints += 1;
-      else if (row.kind === "unsubscribe") bucket.unsubscribes += 1;
-      else bucket.removed += 1;
+      if (kind === "bounce") bucket.bounces += eventCount;
+      else if (kind === "complaint") bucket.complaints += eventCount;
+      else if (kind === "unsubscribe") bucket.unsubscribes += eventCount;
+      bucket.total += eventCount;
+      suppressionsByDate.set(date, bucket);
+    }
+    for (const key of listPresentByKey) {
+      const [, kind, date] = key.split("|");
+      if (eventCountsByKey.has(key)) continue;
+      const bucket = suppressionsByDate.get(date) ?? {
+        bounces: 0,
+        complaints: 0,
+        unsubscribes: 0,
+        removed: 0,
+        total: 0,
+      };
+      if (kind === "bounce") bucket.bounces += 1;
+      else if (kind === "complaint") bucket.complaints += 1;
+      else if (kind === "unsubscribe") bucket.unsubscribes += 1;
+      bucket.total += 1;
+      suppressionsByDate.set(date, bucket);
+    }
+    // `removed:` rows do not participate in the dedup; they are
+    // an admin-action snapshot that lives separately from bounce
+    // /complaint/unsubscribe. Count them once per row.
+    for (const row of suppressionRows) {
+      if (!row.resendId.startsWith("removed:")) continue;
+      if (row.kind !== "removed") continue;
+      const date = isoDateUtc(row.occurredAt);
+      const bucket = suppressionsByDate.get(date) ?? {
+        bounces: 0,
+        complaints: 0,
+        unsubscribes: 0,
+        removed: 0,
+        total: 0,
+      };
+      bucket.removed += 1;
       bucket.total += 1;
       suppressionsByDate.set(date, bucket);
     }

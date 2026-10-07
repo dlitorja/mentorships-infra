@@ -645,21 +645,32 @@ test("emailHealth overlay: sources.apiLatestIngestedAt tracks the most recent ro
   expect(row?.delivery).toBe(150);
 });
 
-test("emailHealth overlay: dedupes webhook + list-scan duplicates by (email, kind, day)", async () => {
+test("emailHealth overlay: dedupes webhook + list-scan duplicates without collapsing distinct events", async () => {
   const t = convexTest(schema, modules);
   await seedAdmin(t);
   const today = utcIsoDate(0);
   await seedMetrics(t, [
     { date: today, kind: "delivery", count: 100, source: "api" },
-    { date: today, kind: "bounce", count: 1, source: "api" },
+    { date: today, kind: "bounce", count: 2, source: "api" },
     { date: today, kind: "complaint", count: 1, source: "api" },
   ]);
+  // a@example.com bounced twice today (2 distinct events = 2 event: rows)
+  // AND the suppression-list scan produced 1 list: row. The list:
+  // row is a snapshot of one of the events, so the day's webhook
+  // count is 2, not 1.
   await seed(t, [
     seedRow({
       kind: "bounce",
       email: "a@example.com",
       domain: "example.com",
-      resendId: "event:abc",
+      resendId: "event:abc1",
+      occurredAt: NOW,
+    }),
+    seedRow({
+      kind: "bounce",
+      email: "a@example.com",
+      domain: "example.com",
+      resendId: "event:abc2",
       occurredAt: NOW,
     }),
     seedRow({
@@ -687,8 +698,36 @@ test("emailHealth overlay: dedupes webhook + list-scan duplicates by (email, kin
   const overlay = await callOverlay(t, 7);
   const row = overlay.byDate.find((d) => d.date === today);
   expect(row).toBeDefined();
-  expect(row?.webhookBounces).toBe(1);
+  expect(row?.webhookBounces).toBe(2);
   expect(row?.webhookComplaints).toBe(1);
+  expect(row?.severity).toBe("green");
+  expect(row?.divergencePct).toBe(0);
+});
+
+test("emailHealth overlay: list: row counts as 1 only when no event: row exists for the same (email, kind, day)", async () => {
+  const t = convexTest(schema, modules);
+  await seedAdmin(t);
+  const today = utcIsoDate(0);
+  await seedMetrics(t, [
+    { date: today, kind: "delivery", count: 100, source: "api" },
+    { date: today, kind: "bounce", count: 1, source: "api" },
+  ]);
+  // The webhook didn't fire for this bounce today, but the
+  // suppression-list scan caught it. We should count 1 (the list:
+  // row represents an event even if the webhook missed).
+  await seed(t, [
+    seedRow({
+      kind: "bounce",
+      email: "old@example.com",
+      domain: "example.com",
+      resendId: "list:old",
+      occurredAt: NOW,
+    }),
+  ]);
+  const overlay = await callOverlay(t, 7);
+  const row = overlay.byDate.find((d) => d.date === today);
+  expect(row).toBeDefined();
+  expect(row?.webhookBounces).toBe(1);
   expect(row?.severity).toBe("green");
   expect(row?.divergencePct).toBe(0);
 });
