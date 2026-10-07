@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   CheckCircle2,
   TrendingUp,
+  HelpCircle,
 } from "lucide-react";
 
 const SEVERITY_STYLES = {
@@ -41,6 +42,11 @@ const SEVERITY_STYLES = {
     label: "Healthy",
     icon: CheckCircle2,
   },
+  unknown: {
+    badge: "bg-gray-100 text-gray-700 border-gray-200",
+    label: "Unknown",
+    icon: HelpCircle,
+  },
 } as const;
 
 export type EmailMetricsOverlay = {
@@ -58,7 +64,7 @@ export type EmailMetricsOverlay = {
     webhookRemoved: number;
     webhookTotal: number;
     divergencePct: number;
-    severity: "red" | "yellow" | "green";
+    severity: "red" | "yellow" | "green" | "unknown";
     openRate: number;
     clickRate: number;
     bounceRate: number;
@@ -73,14 +79,16 @@ export type EmailMetricsOverlay = {
     webhookBounces: number;
     webhookComplaints: number;
     webhookUnsubscribes: number;
+    webhookRemoved: number;
+    webhookTotal: number;
     divergentDays: number;
     redDays: number;
   };
   sources: {
     apiLatestIngestedAt: number;
     webhookScannedRows: number;
-    webhookScanCap: number;
-    webhookTruncated: boolean;
+    webhookHighWater: number;
+    webhookHighWaterExceeded: boolean;
   };
 };
 
@@ -119,7 +127,9 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
           below the chart compares the API aggregate (volume baseline) with the
           webhook aggregate (ground truth). Rows diverge by more than 10% are
           flagged yellow; more than 25% are red — indicating the API ingestion
-          missed events the webhook caught.
+          missed events the webhook caught. Days where the scan could not fully
+          enumerate webhook events show as &quot;Unknown&quot; rather than a
+          misleading color.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -151,9 +161,7 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
               Webhook Total
             </p>
             <p className="text-2xl font-semibold">
-              {overlay.totals.webhookBounces +
-                overlay.totals.webhookComplaints +
-                overlay.totals.webhookUnsubscribes}
+              {overlay.totals.webhookTotal}
             </p>
           </div>
           <div>
@@ -277,14 +285,16 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
                     <td className="py-2 pr-4 text-right">{d.webhookTotal}</td>
                     <td
                       className={`py-2 pr-4 text-right font-medium ${
-                        d.divergencePct >= 25
+                        d.severity === "red"
                           ? "text-red-700"
-                          : d.divergencePct >= 10
+                          : d.severity === "yellow"
                             ? "text-yellow-700"
-                            : "text-muted-foreground"
+                            : d.severity === "unknown"
+                              ? "text-gray-500"
+                              : "text-muted-foreground"
                       }`}
                     >
-                      {d.divergencePct}%
+                      {d.severity === "unknown" ? "—" : `${d.divergencePct}%`}
                     </td>
                   </tr>
                 );
@@ -295,11 +305,13 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
 
         <p className="text-xs text-muted-foreground">
           API ingestion last ran at{" "}
-          {formatTimestamp(overlay.sources.apiLatestIngestedAt)}
-          {overlay.sources.webhookTruncated && (
+          {formatTimestamp(overlay.sources.apiLatestIngestedAt)} · webhook scan
+          read {overlay.sources.webhookScannedRows} rows
+          {overlay.sources.webhookHighWaterExceeded && (
             <span className="text-yellow-600 ml-2">
-              · Webhook scan hit cap of {overlay.sources.webhookScanCap} rows —
-              narrow the window or wait for the next cron pass.
+              · Scan exceeded high-water mark of{" "}
+              {overlay.sources.webhookHighWater} — narrow the window to surface
+              per-day webhook counts reliably.
             </span>
           )}
         </p>

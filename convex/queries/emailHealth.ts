@@ -19,6 +19,14 @@ const UNSUBSCRIBE_RED_THRESHOLD = 200;
 const DIVERGENCE_RED_THRESHOLD = 25;
 const DIVERGENCE_YELLOW_THRESHOLD = 10;
 
+// Overlay-only safety guards. The overlay scans suppressionEvents
+// for every day in the window and per-day bins the counts, so a
+// `take()` cap would silently drop the oldest days and falsely mark
+// them as zero webhook events — pushing divergence to 100% and the
+// severity to red. We instead `collect()` and surface a high-water
+// warning if the window has more rows than the high-water guard.
+const OVERLAY_HIGH_WATER = 50_000;
+
 export const getEmailHealthSummary = query({
   args: {
     windowDays: v.number(),
@@ -263,17 +271,30 @@ export const getEmailMetricsOverlay = query({
       metricsByDate.set(row.date, bucket);
     }
 
-    // Pull suppression events in the same window. Same dashboard
-    // scan path as `getEmailHealthSummary` (caps + index) so a
-    // large backlog cannot starve the overlay of rows. We then
-    // bin per UTC date in-memory.
-    const suppressionRows = await ctx.db
+    // Pull suppression events in the same window. We use `.take()`
+    // (not `take(SCAN_CAP)` like `getEmailHealthSummary`) so the
+    // oldest days in the window are not silently dropped — if
+    // they were, the per-day divergence would compute against a
+    // zero baseline and falsely flag every old day as red. The
+    // high-water cap is sized for an admin-only query against a
+    // 30-day window with worst-case pathological suppression
+    // volume; anything above it is surfaced as a warning in
+    // `sources` (and the admin should narrow the window).
+    // `.take(N + 1)` is the standard "detect truncation without
+    // losing data" trick: if we get N+1 rows back, we know there
+    // are more and surface the warning; otherwise we got exactly
+    // what was there.
+    const allScanRows = await ctx.db
       .query("suppressionEvents")
       .withIndex("by_dashboardRelevant_and_occurredAt", (q) =>
         q.eq("dashboardRelevant", true).gte("occurredAt", earliestMs),
       )
       .order("desc")
-      .take(SCAN_CAP);
+      .take(OVERLAY_HIGH_WATER + 1);
+    const webhookHighWaterExceeded = allScanRows.length > OVERLAY_HIGH_WATER;
+    const suppressionRows = webhookHighWaterExceeded
+      ? allScanRows.slice(0, OVERLAY_HIGH_WATER)
+      : allScanRows;
 
     const suppressionsByDate = new Map<
       string,
@@ -285,8 +306,24 @@ export const getEmailMetricsOverlay = query({
         total: number;
       }
     >();
+    // Dedup key: a single underlying suppression event lands in
+    // BOTH the Svix webhook (`event:<delivery_id>`) and the
+    // periodic suppression-list scan (`list:<entry_id>`) — same
+    // email, same kind, same UTC day, but different resendId so
+    // `upsertSuppressionEvent` does not collapse them. We count
+    // each (email, kind, day) once so a day whose counts agree
+    // does not get a false yellow/red from the duplicate.
+    const seenByDate = new Map<string, Set<string>>();
     for (const row of suppressionRows) {
       const date = isoDateUtc(row.occurredAt);
+      let seen = seenByDate.get(date);
+      if (!seen) {
+        seen = new Set();
+        seenByDate.set(date, seen);
+      }
+      const dedupKey = `${row.email}|${row.kind}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
       const bucket = suppressionsByDate.get(date) ?? {
         bounces: 0,
         complaints: 0,
@@ -301,6 +338,17 @@ export const getEmailMetricsOverlay = query({
       bucket.total += 1;
       suppressionsByDate.set(date, bucket);
     }
+
+    // When the scan hit the high-water cap, the rows we have are
+    // the newest 50,000 in the window. The oldest row we have
+    // defines a floor: any day older than it has no observable
+    // webhook events in our scan (some may exist beyond the cap).
+    // We mark those days "unknown" rather than falsely red — the
+    // admin sees they need to narrow the window.
+    const oldestScannedDay: string | null =
+      suppressionRows.length > 0
+        ? isoDateUtc(suppressionRows[suppressionRows.length - 1].occurredAt)
+        : null;
 
     const byDate = dates.map((date) => {
       const api = metricsByDate.get(date) ?? {
@@ -319,10 +367,16 @@ export const getEmailMetricsOverlay = query({
         total: 0,
       };
 
+      const isUnknownDay =
+        webhookHighWaterExceeded &&
+        oldestScannedDay !== null &&
+        date < oldestScannedDay;
+
       const apiBounceComplaint = api.bounce + api.complaint;
       const webhookBounceComplaint = webhook.bounces + webhook.complaints;
-      const divergencePct =
-        apiBounceComplaint === 0 && webhookBounceComplaint === 0
+      const divergencePct = isUnknownDay
+        ? 0
+        : apiBounceComplaint === 0 && webhookBounceComplaint === 0
           ? 0
           : Math.round(
               (Math.abs(apiBounceComplaint - webhookBounceComplaint) /
@@ -330,12 +384,20 @@ export const getEmailMetricsOverlay = query({
                 100,
             );
 
-      const severity: "red" | "yellow" | "green" =
-        divergencePct >= DIVERGENCE_RED_THRESHOLD
-          ? "red"
-          : divergencePct >= DIVERGENCE_YELLOW_THRESHOLD
-            ? "yellow"
-            : "green";
+      // Severity is "unknown" when the scan was truncated and
+      // this day is older than the oldest day we have rows for.
+      // Showing a confident green/yellow/red would be misleading
+      // — the admin sees "unknown" and knows to narrow the
+      // window or wait for the next cron pass.
+      const severity: "red" | "yellow" | "green" | "unknown" = isUnknownDay
+        ? "unknown"
+        : apiBounceComplaint === 0 && webhookBounceComplaint === 0
+          ? "green"
+          : divergencePct >= DIVERGENCE_RED_THRESHOLD
+            ? "red"
+            : divergencePct >= DIVERGENCE_YELLOW_THRESHOLD
+              ? "yellow"
+              : "green";
 
       return {
         date,
@@ -380,6 +442,8 @@ export const getEmailMetricsOverlay = query({
         webhookBounces: acc.webhookBounces + d.webhookBounces,
         webhookComplaints: acc.webhookComplaints + d.webhookComplaints,
         webhookUnsubscribes: acc.webhookUnsubscribes + d.webhookUnsubscribes,
+        webhookRemoved: acc.webhookRemoved + d.webhookRemoved,
+        webhookTotal: acc.webhookTotal + d.webhookTotal,
         divergentDays:
           acc.divergentDays +
           (d.divergencePct >= DIVERGENCE_YELLOW_THRESHOLD ? 1 : 0),
@@ -394,6 +458,8 @@ export const getEmailMetricsOverlay = query({
         webhookBounces: 0,
         webhookComplaints: 0,
         webhookUnsubscribes: 0,
+        webhookRemoved: 0,
+        webhookTotal: 0,
         divergentDays: 0,
         redDays: 0,
       },
@@ -411,8 +477,8 @@ export const getEmailMetricsOverlay = query({
       sources: {
         apiLatestIngestedAt: lastIngestedAt,
         webhookScannedRows: suppressionRows.length,
-        webhookScanCap: SCAN_CAP,
-        webhookTruncated: suppressionRows.length === SCAN_CAP,
+        webhookHighWater: OVERLAY_HIGH_WATER,
+        webhookHighWaterExceeded,
       },
     };
   },
