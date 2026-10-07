@@ -732,6 +732,43 @@ test("emailHealth overlay: list: row counts as 1 only when no event: row exists 
   expect(row?.divergencePct).toBe(0);
 });
 
+test("emailHealth overlay: dedup key handles emails containing the separator", async () => {
+  const t = convexTest(schema, modules);
+  await seedAdmin(t);
+  const today = utcIsoDate(0);
+  // An email that contains characters that would collide with a
+  // naive "|" separator. The dedup key must not lose rows for
+  // these recipients.
+  await seedMetrics(t, [
+    { date: today, kind: "delivery", count: 100, source: "api" },
+    { date: today, kind: "bounce", count: 1, source: "api" },
+    { date: today, kind: "complaint", count: 1, source: "api" },
+  ]);
+  await seed(t, [
+    seedRow({
+      kind: "bounce",
+      email: "a|b@example.com",
+      domain: "example.com",
+      resendId: "event:bounce-with-pipe",
+      occurredAt: NOW,
+    }),
+    seedRow({
+      kind: "complaint",
+      email: "c|d@example.com",
+      domain: "example.com",
+      resendId: "event:complaint-with-pipe",
+      occurredAt: NOW,
+    }),
+  ]);
+  const overlay = await callOverlay(t, 7);
+  const row = overlay.byDate.find((d) => d.date === today);
+  expect(row).toBeDefined();
+  expect(row?.webhookBounces).toBe(1);
+  expect(row?.webhookComplaints).toBe(1);
+  expect(row?.severity).toBe("green");
+  expect(row?.divergencePct).toBe(0);
+});
+
 test("emailHealth overlay: totals include webhookRemoved so totals and per-day webhookTotal match", async () => {
   const t = convexTest(schema, modules);
   await seedAdmin(t);

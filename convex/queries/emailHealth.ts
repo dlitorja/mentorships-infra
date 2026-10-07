@@ -312,10 +312,19 @@ export const getEmailMetricsOverlay = query({
     //   was the only signal that day).
     // - `removed:<id>` rows are admin removals; they do not
     //   interact with bounce/complaint/unsubscribe counting.
+    //
+    // The dedup key uses \u001F (Unit Separator) as a delimiter
+    // because it is non-printable and cannot appear in either the
+    // email (which in practice only contains printable ASCII) or
+    // the kind (a fixed union of 4 strings) or the date (YYYY-MM-DD).
+    // Using a printable separator would silently collide with an
+    // email like "a|b@example.com" and lose rows.
+    const KEY_SEP = "\u001F";
     const eventCountsByKey = new Map<string, number>();
     const listPresentByKey = new Set<string>();
     for (const row of suppressionRows) {
-      const key = `${row.email}|${row.kind}|${isoDateUtc(row.occurredAt)}`;
+      const date = isoDateUtc(row.occurredAt);
+      const key = `${row.email}${KEY_SEP}${row.kind}${KEY_SEP}${date}`;
       if (row.resendId.startsWith("event:")) {
         eventCountsByKey.set(key, (eventCountsByKey.get(key) ?? 0) + 1);
       } else if (row.resendId.startsWith("list:")) {
@@ -334,7 +343,10 @@ export const getEmailMetricsOverlay = query({
       }
     >();
     for (const [key, eventCount] of eventCountsByKey) {
-      const [, kind, date] = key.split("|");
+      const lastSep = key.lastIndexOf(KEY_SEP);
+      const secondLastSep = key.lastIndexOf(KEY_SEP, lastSep - 1);
+      const kind = key.slice(secondLastSep + 1, lastSep);
+      const date = key.slice(lastSep + 1);
       const bucket = suppressionsByDate.get(date) ?? {
         bounces: 0,
         complaints: 0,
@@ -349,7 +361,10 @@ export const getEmailMetricsOverlay = query({
       suppressionsByDate.set(date, bucket);
     }
     for (const key of listPresentByKey) {
-      const [, kind, date] = key.split("|");
+      const lastSep = key.lastIndexOf(KEY_SEP);
+      const secondLastSep = key.lastIndexOf(KEY_SEP, lastSep - 1);
+      const kind = key.slice(secondLastSep + 1, lastSep);
+      const date = key.slice(lastSep + 1);
       if (eventCountsByKey.has(key)) continue;
       const bucket = suppressionsByDate.get(date) ?? {
         bounces: 0,
@@ -384,11 +399,14 @@ export const getEmailMetricsOverlay = query({
     }
 
     // When the scan hit the high-water cap, the rows we have are
-    // the newest 50,000 in the window. The oldest row we have
-    // defines a floor: any day older than it has no observable
-    // webhook events in our scan (some may exist beyond the cap).
-    // We mark those days "unknown" rather than falsely red — the
-    // admin sees they need to narrow the window.
+    // the newest 30,000 in the window. The oldest row we have
+    // defines a floor: the day that row lives in is potentially
+    // PARTIALLY truncated (we kept up to the cap, but anything
+    // older dropped on the table) so it counts as "unknown".
+    // Anything older than that is fully unobserved. We mark
+    // both the cutoff day and every older day as "unknown"
+    // rather than falsely red — the admin sees they need to
+    // narrow the window.
     const oldestScannedDay: string | null =
       suppressionRows.length > 0
         ? isoDateUtc(suppressionRows[suppressionRows.length - 1].occurredAt)
@@ -414,7 +432,7 @@ export const getEmailMetricsOverlay = query({
       const isUnknownDay =
         webhookHighWaterExceeded &&
         oldestScannedDay !== null &&
-        date < oldestScannedDay;
+        date <= oldestScannedDay;
 
       const apiBounceComplaint = api.bounce + api.complaint;
       const webhookBounceComplaint = webhook.bounces + webhook.complaints;
