@@ -11,6 +11,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Mail, AlertTriangle, ShieldAlert, CheckCircle2 } from "lucide-react";
 import { EmailMetricsTrendCard } from "./email-metrics-trend-card";
+import { EmailHealthWindowPicker } from "./email-health-window-picker";
+
+const WINDOW_OPTIONS = [1, 3, 7, 14, 30] as const;
+const DEFAULT_WINDOW_DAYS = 7;
+const MIN_WINDOW_DAYS = 1;
+const MAX_WINDOW_DAYS = 30;
+
+function clampWindowDays(raw: string | string[] | undefined): number {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_WINDOW_DAYS;
+  if (parsed < MIN_WINDOW_DAYS) return MIN_WINDOW_DAYS;
+  if (parsed > MAX_WINDOW_DAYS) return MAX_WINDOW_DAYS;
+  return parsed;
+}
 
 const SEVERITY_STYLES = {
   red: {
@@ -34,19 +49,27 @@ function formatTimestamp(ms: number): string {
   return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 }
 
-export default async function AdminEmailHealthPage(): Promise<React.JSX.Element> {
+type AdminEmailHealthPageProps = {
+  searchParams: Promise<{ windowDays?: string | string[] }>;
+};
+
+export default async function AdminEmailHealthPage({
+  searchParams,
+}: AdminEmailHealthPageProps): Promise<React.JSX.Element> {
   await requireRole("admin");
   const token = await getConvexAuthToken();
+  const params = await searchParams;
+  const windowDays = clampWindowDays(params.windowDays);
 
   const [summary, overlay] = await Promise.all([
     fetchQuery(
       api.queries.emailHealth.getEmailHealthSummary,
-      { windowDays: 7 },
+      { windowDays },
       { token: token ?? undefined },
     ),
     fetchQuery(
       api.queries.emailHealth.getEmailMetricsOverlay,
-      { windowDays: 7 },
+      { windowDays },
       { token: token ?? undefined },
     ),
   ]);
@@ -63,10 +86,16 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
           {summary.scannedRows} rows scanned
           {summary.truncated && (
             <span className="text-yellow-600 ml-2">
-              (cap reached at {summary.scanCap} rows — query a smaller window)
+              (cap reached at {summary.scanCap} rows — pick a smaller window)
             </span>
           )}
         </p>
+        <div className="mt-4">
+          <EmailHealthWindowPicker
+            current={windowDays}
+            options={[...WINDOW_OPTIONS]}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">

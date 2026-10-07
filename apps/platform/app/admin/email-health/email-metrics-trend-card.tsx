@@ -8,16 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import dynamic from "next/dynamic";
 import {
   AlertTriangle,
   ShieldAlert,
@@ -25,6 +16,21 @@ import {
   TrendingUp,
   HelpCircle,
 } from "lucide-react";
+
+// Recharts is a heavy dep and only renders the trend chart. Lazy-load
+// it with ssr:false so the table + counters render immediately while
+// the chart hydrates on the client.
+const DailyTrendChart = dynamic(
+  () => import("./email-metrics-trend-chart").then((m) => m.DailyTrendChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-72 w-full flex items-center justify-center text-sm text-muted-foreground">
+        Loading trend chart…
+      </div>
+    ),
+  },
+);
 
 const SEVERITY_STYLES = {
   red: {
@@ -124,10 +130,12 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
         </CardTitle>
         <CardDescription>
           Resend API counts over the last {overlay.windowDays} days. Each row
-          below the chart compares the API aggregate (volume baseline) with the
-          webhook aggregate (ground truth). Rows diverge by more than 10% are
-          flagged yellow; more than 25% are red — indicating the API ingestion
-          missed events the webhook caught. Days where the scan could not fully
+          below the chart compares the API bounce+complaint count against the
+          webhook bounce+complaint count. Rows where the two counts differ by at
+          least 10% are flagged yellow; at least 25% are red. The webhook count
+          is treated as ground truth, so a flagged row simply means the API
+          aggregate does not match the webhook aggregate by that threshold —
+          investigate the underlying source. Days where the scan could not fully
           enumerate webhook events show as &quot;Unknown&quot; rather than a
           misleading color.
         </CardDescription>
@@ -162,6 +170,14 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
             </p>
             <p className="text-2xl font-semibold">
               {overlay.totals.webhookTotal}
+              {overlay.sources.webhookHighWaterExceeded && (
+                <span
+                  className="text-sm font-normal text-yellow-600 ml-2"
+                  title="Some webhook rows were dropped because the scan hit the high-water mark; this total is a lower bound."
+                >
+                  (partial)
+                </span>
+              )}
             </p>
           </div>
           <div>
@@ -177,73 +193,7 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
           </div>
         </div>
 
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={chartData}
-              margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
-            >
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="hsl(var(--border))"
-              />
-              <XAxis
-                dataKey="date"
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-              />
-              <YAxis
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-                allowDecimals={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "hsl(var(--background))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: 6,
-                  fontSize: 12,
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line
-                type="monotone"
-                dataKey="Delivery"
-                stroke="#16a34a"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="Bounce"
-                stroke="#dc2626"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="Complaint"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="Open"
-                stroke="#2563eb"
-                strokeWidth={1}
-                dot={{ r: 2 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="Click"
-                stroke="#7c3aed"
-                strokeWidth={1}
-                dot={{ r: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <DailyTrendChart data={chartData} />
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -257,7 +207,7 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
                 <th className="py-2 pr-4 text-right">Open %</th>
                 <th className="py-2 pr-4 text-right">Click %</th>
                 <th className="py-2 pr-4 text-right">API BC</th>
-                <th className="py-2 pr-4 text-right">Webhook</th>
+                <th className="py-2 pr-4 text-right">Webhook BC</th>
                 <th className="py-2 pr-4 text-right">Divergence</th>
               </tr>
             </thead>
@@ -282,7 +232,9 @@ export function EmailMetricsTrendCard({ overlay }: Props): React.JSX.Element {
                     <td className="py-2 pr-4 text-right">
                       {d.bounce + d.complaint}
                     </td>
-                    <td className="py-2 pr-4 text-right">{d.webhookTotal}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {d.webhookBounces + d.webhookComplaints}
+                    </td>
                     <td
                       className={`py-2 pr-4 text-right font-medium ${
                         d.severity === "red"
