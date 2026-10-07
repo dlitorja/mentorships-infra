@@ -10,6 +10,22 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Mail, AlertTriangle, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { EmailMetricsTrendCard } from "./email-metrics-trend-card";
+import { EmailHealthWindowPicker } from "./email-health-window-picker";
+
+const WINDOW_OPTIONS = [1, 3, 7, 14, 30] as const;
+const DEFAULT_WINDOW_DAYS = 7;
+const MIN_WINDOW_DAYS = 1;
+const MAX_WINDOW_DAYS = 30;
+
+function clampWindowDays(raw: string | string[] | undefined): number {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_WINDOW_DAYS;
+  if (parsed < MIN_WINDOW_DAYS) return MIN_WINDOW_DAYS;
+  if (parsed > MAX_WINDOW_DAYS) return MAX_WINDOW_DAYS;
+  return parsed;
+}
 
 const SEVERITY_STYLES = {
   red: {
@@ -33,15 +49,30 @@ function formatTimestamp(ms: number): string {
   return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 }
 
-export default async function AdminEmailHealthPage(): Promise<React.JSX.Element> {
+type AdminEmailHealthPageProps = {
+  searchParams: Promise<{ windowDays?: string | string[] }>;
+};
+
+export default async function AdminEmailHealthPage({
+  searchParams,
+}: AdminEmailHealthPageProps): Promise<React.JSX.Element> {
   await requireRole("admin");
   const token = await getConvexAuthToken();
+  const params = await searchParams;
+  const windowDays = clampWindowDays(params.windowDays);
 
-  const summary = await fetchQuery(
-    api.queries.emailHealth.getEmailHealthSummary,
-    { windowDays: 7 },
-    { token: token ?? undefined }
-  );
+  const [summary, overlay] = await Promise.all([
+    fetchQuery(
+      api.queries.emailHealth.getEmailHealthSummary,
+      { windowDays },
+      { token: token ?? undefined },
+    ),
+    fetchQuery(
+      api.queries.emailHealth.getEmailMetricsOverlay,
+      { windowDays },
+      { token: token ?? undefined },
+    ),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -55,10 +86,16 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
           {summary.scannedRows} rows scanned
           {summary.truncated && (
             <span className="text-yellow-600 ml-2">
-              (cap reached at {summary.scanCap} rows — query a smaller window)
+              (cap reached at {summary.scanCap} rows — pick a smaller window)
             </span>
           )}
         </p>
+        <div className="mt-4">
+          <EmailHealthWindowPicker
+            current={windowDays}
+            options={[...WINDOW_OPTIONS]}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -77,13 +114,17 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
         <Card>
           <CardHeader>
             <CardDescription>Complaints</CardDescription>
-            <CardTitle className="text-3xl">{summary.totals.complaints}</CardTitle>
+            <CardTitle className="text-3xl">
+              {summary.totals.complaints}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Unsubscribes</CardDescription>
-            <CardTitle className="text-3xl">{summary.totals.unsubscribes}</CardTitle>
+            <CardTitle className="text-3xl">
+              {summary.totals.unsubscribes}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -93,6 +134,8 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
           </CardHeader>
         </Card>
       </div>
+
+      <EmailMetricsTrendCard overlay={overlay} />
 
       {summary.deniedDomains.length > 0 && (
         <Card>
@@ -116,7 +159,10 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
                     {d.note ? ` · ${d.note}` : ""}
                   </p>
                 </div>
-                <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">
+                <Badge
+                  variant="outline"
+                  className="bg-red-100 text-red-800 border-red-200"
+                >
                   Denied
                 </Badge>
               </div>
@@ -167,7 +213,9 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
                         <td className="py-2 pr-4 font-medium">{d.domain}</td>
                         <td className="py-2 pr-4 text-right">{d.bounces}</td>
                         <td className="py-2 pr-4 text-right">{d.complaints}</td>
-                        <td className="py-2 pr-4 text-right">{d.unsubscribes}</td>
+                        <td className="py-2 pr-4 text-right">
+                          {d.unsubscribes}
+                        </td>
                         <td className="py-2 pr-4 text-right">{d.removed}</td>
                         <td className="py-2 pr-4 text-muted-foreground">
                           {formatTimestamp(d.lastOccurredAt)}
@@ -186,7 +234,8 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
         <CardHeader>
           <CardTitle>Recent Suppression Events</CardTitle>
           <CardDescription>
-            Last {summary.recentEvents.length} of {summary.scannedRows} scanned events
+            Last {summary.recentEvents.length} of {summary.scannedRows} scanned
+            events
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -207,7 +256,10 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
                 </thead>
                 <tbody>
                   {summary.recentEvents.map((e) => (
-                    <tr key={`${e.resendId}:${e.kind}`} className="border-b last:border-b-0">
+                    <tr
+                      key={`${e.resendId}:${e.kind}`}
+                      className="border-b last:border-b-0"
+                    >
                       <td className="py-2 pr-4 text-muted-foreground">
                         {formatTimestamp(e.occurredAt)}
                       </td>
@@ -215,7 +267,9 @@ export default async function AdminEmailHealthPage(): Promise<React.JSX.Element>
                         <Badge variant="outline">{e.kind}</Badge>
                       </td>
                       <td className="py-2 pr-4 font-medium">{e.domain}</td>
-                      <td className="py-2 pr-4 text-muted-foreground">{e.email}</td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {e.email}
+                      </td>
                       <td className="py-2 pr-4">{e.bounceType ?? "—"}</td>
                       <td className="py-2 pr-4">{e.reason ?? "—"}</td>
                     </tr>
