@@ -735,7 +735,10 @@ test("emailHealth overlay: list: row counts as 1 only when no event: row exists 
 test("emailHealth overlay: dedup key handles emails containing the separator", async () => {
   const t = convexTest(schema, modules);
   await seedAdmin(t);
-  const today = utcIsoDate(0);
+  // Use the same fixed NOW for both seed APIs (the file-load
+  // constant) so the api date and the webhook occurredAt cannot
+  // straddle UTC midnight and land on different days.
+  const today = new Date(NOW).toISOString().slice(0, 10);
   // An email that contains characters that would collide with a
   // naive "|" separator. The dedup key must not lose rows for
   // these recipients.
