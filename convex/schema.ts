@@ -1496,7 +1496,8 @@ export default defineSchema({
         v.literal("cancelled"),
         v.literal("capacity_override"),
         v.literal("alias_set"),
-        v.literal("released")
+        v.literal("released"),
+        v.literal("invitation_resent")
       ),
       actorUserId: v.optional(v.string()),
       details: v.optional(v.string()),

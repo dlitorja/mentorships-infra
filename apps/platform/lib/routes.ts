@@ -49,6 +49,8 @@ export const ApiRoutes = {
   adminOrders: "/api/admin/orders",
   adminRefunds: "/api/admin/refunds",
   adminOnboardingRetry: (id: string) => `/api/admin/onboardings/${encodeURIComponent(id)}/retry`,
+  adminOnboardingResendInvitation: (id: string) =>
+    `/api/admin/onboardings/${encodeURIComponent(id)}/resend-invitation`,
   adminAuditLogs: "/api/admin/audit-logs",
 
   // Public products
