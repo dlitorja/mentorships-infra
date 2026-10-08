@@ -227,11 +227,24 @@ export async function POST(
     // invite is still pending, and if the save succeeds the new
     // invite is recorded before we tear down the old one. Greptile P1
     // finding on commit 7331002e.
+    //
+    // Capture the save result so we can use the
+    // `previousInvitationIds` returned by the mutation for the
+    // revoke loop. Those IDs reflect the row state at the moment of
+    // the save — concurrent admins will see each other's freshly-
+    // minted IDs and clean them up too, so no Clerk invite lingers
+    // outside the row. Greptile P2 finding on commit ee7cd904.
+    let saveResult: {
+      onboardingId: string;
+      previousStatus: "queued" | "processing" | "failed" | "cancelled";
+      previousInvitationIds: string[];
+      newInvitationId: string;
+    };
     try {
-      await convex.mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
-        onboardingId,
-        newInvitationId,
-      });
+      saveResult = await convex.mutation(
+        api.adminOnboarding.resendAdminOnboardingInvitation,
+        { onboardingId, newInvitationId }
+      );
     } catch (saveErr) {
       // The mutation threw. Two possibilities:
       //   (a) the throw is authoritative (e.g. terminal-state guard,
@@ -296,10 +309,13 @@ export async function POST(
     // either way the new invitationId is on the row). Revoke the
     // prior invites best-effort. Done AFTER the save so a save
     // failure cannot strand the student without a working link.
-    // Errors logged but do not block the resend — Clerk rejects
-    // revoke on already-accepted or already-revoked invites, and
-    // the new invite already works as the replacement.
-    for (const prevId of previousInvitationIds) {
+    // Use the previousInvitationIds from the mutation result (not
+    // the local read) so concurrent admins see each other's freshly-
+    // minted IDs and clean them up too. Greptile P2 finding on
+    // commit ee7cd904.
+    for (const prevId of saveResult.previousInvitationIds) {
+      // Don't revoke the freshly-minted invite we just saved.
+      if (prevId === newInvitationId) continue;
       try {
         await clerk.invitations.revokeInvitation(prevId);
       } catch (err) {
