@@ -18,6 +18,7 @@ import {
 import { Loader2, ArrowLeft, User, Users, X } from "lucide-react";
 import Link from "next/link";
 import { getAdminInstructors, getAdminStudents, createAdminStudentWorkspace, createAdminInstructorWorkspace } from "@/lib/queries/api-client";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
 
 type StudentItem = {
   kind: "student";
@@ -202,9 +203,19 @@ const items = workspaceType === "admin_student"
               <div className={`max-h-96 overflow-y-auto space-y-2 ${isSearching ? "opacity-50" : ""}`}>
                 {items.map((item) => {
                   const itemId = workspaceType === "admin_student" ? item.userId : item.id;
-                  const displayName = isStudentItem(item) 
+                  const displayName = isStudentItem(item)
                     ? (item.firstName || item.email || item.userId)
-                    : (item.name || item.email || item.userId.slice(0, 8));
+                    : item.name
+                      ? item.name
+                      : item.email
+                        ? item.email
+                        : (
+                          <ClerkUserIdCell
+                            id={item.userId}
+                            showCopyButton={false}
+                            showDashboardLink={false}
+                          />
+                        );
                   
                   return (
                     <div

@@ -15,6 +15,7 @@ export {
   DialogDescription,
 } from "./components/ui/dialog";
 export { ImageUploadField, type ImageUploadFieldProps } from "./components/image-upload-field";
+export { ClerkUserIdCell, type ClerkUserIdCellProps } from "./components/clerk-user-id-cell";
 export { CropDialog } from "./components/crop-dialog";
 export {
   TurnstileWidget,

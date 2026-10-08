@@ -23,6 +23,8 @@ import {
 import { Loader2, ArrowLeft, User, Users, Save } from "lucide-react";
 import { getAdminWorkspace, getAdminInstructors, getAdminStudents, updateAdminWorkspaceMembers } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 
 type WorkspaceMember = {
   id: string;
@@ -258,10 +260,15 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
             <CardContent className="space-y-4">
               <div className="p-4 bg-muted rounded-lg">
                 <div className="text-sm text-muted-foreground">Current Instructor</div>
-                {workspace.instructor ? (
-                  <div className="font-medium font-mono text-sm">
-                    {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 12)}...` : '-'}
-                  </div>
+                {workspace.instructor?.userId ? (
+                  <ClerkUserIdCell
+                    id={workspace.instructor.userId}
+                    truncateAt={12}
+                    dashboardUrl={getClerkDashboardUserUrl(workspace.instructor.userId)}
+                    label="Clerk user id"
+                  />
+                ) : workspace.instructor ? (
+                  <div className="font-medium font-mono text-sm">-</div>
                 ) : (
                   <div className="text-muted-foreground">None assigned</div>
                 )}

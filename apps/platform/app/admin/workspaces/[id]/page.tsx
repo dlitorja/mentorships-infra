@@ -16,6 +16,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ArrowLeft, User, Users, MessageSquare, ScrollText } from "lucide-react";
 import { getAdminWorkspace } from "@/lib/queries/api-client";
 import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 import { Settings2 } from "lucide-react";
 import { UserCircle } from "lucide-react";
 
@@ -193,9 +195,16 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
           <CardContent>
             {workspace.instructor ? (
               <div>
-                <div className="font-medium font-mono text-sm">
-                  {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 12)}...` : '-'}
-                </div>
+                {workspace.instructor.userId ? (
+                  <ClerkUserIdCell
+                    id={workspace.instructor.userId}
+                    truncateAt={12}
+                    dashboardUrl={getClerkDashboardUserUrl(workspace.instructor.userId)}
+                    label="Clerk user id"
+                  />
+                ) : (
+                  <span className="font-medium font-mono text-sm">-</span>
+                )}
                 {workspace.instructor.bio && (
                   <div className="text-sm text-muted-foreground truncate">
                     {workspace.instructor.bio.slice(0, 50)}...
@@ -323,7 +332,12 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
                           </div>
                         )}
                         <div className="text-xs text-muted-foreground mt-1">
-                          Admin: {log.adminId.slice(0, 8)}... | {formatTimestamp(log.timestamp)}
+                          Admin:{" "}
+                          <ClerkUserIdCell
+                            id={log.adminId}
+                            dashboardUrl={getClerkDashboardUserUrl(log.adminId)}
+                          />{" "}
+                          | {formatTimestamp(log.timestamp)}
                         </div>
                       </div>
                     </div>

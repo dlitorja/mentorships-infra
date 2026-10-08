@@ -21,6 +21,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { previewAdminOnboarding, submitAdminOnboarding } from "@/lib/queries/api-client";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
 import {
   useInstructorOptionsForOnboarding,
   useLookupExistingStudent,
@@ -847,7 +848,11 @@ function CommitResultPanel({
         )}
         {result.clerkInvitationId && (
           <div className="rounded border bg-background p-2 text-xs text-muted-foreground">
-            Clerk invitation: <code>{result.clerkInvitationId}</code>
+            <span className="block mb-1">Clerk invitation</span>
+            <ClerkUserIdCell
+              id={result.clerkInvitationId}
+              showDashboardLink={false}
+            />
           </div>
         )}
         <div className="space-y-1">

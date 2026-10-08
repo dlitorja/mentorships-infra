@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 import {
   Dialog,
   DialogContent,
@@ -150,7 +152,14 @@ export function BasicInfoSection({
             </p>
           )}
           {formData.userId && (
-            <p className="text-xs text-muted-foreground">Clerk User ID: {formData.userId}</p>
+            <div className="text-xs text-muted-foreground">
+              <span className="block mb-1">Clerk User ID</span>
+              <ClerkUserIdCell
+                id={formData.userId}
+                truncateAt={0}
+                dashboardUrl={getClerkDashboardUserUrl(formData.userId)}
+              />
+            </div>
           )}
         </div>
         <div>
