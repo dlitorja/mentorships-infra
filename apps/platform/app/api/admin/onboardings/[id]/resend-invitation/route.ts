@@ -60,23 +60,23 @@ async function markOnboardingFailed(
  *      otherwise we'd revoke the prior invite without minting a
  *      replacement and the student would be locked out (Greptile
  *      P2 finding).
- *   6. Best-effort revoke prior `clerkInvitationId` via
- *      `clerkClient.invitations.revokeInvitation`. Errors are logged
- *      but do not block the resend — Clerk rejects revoke on already-
- *      accepted or already-revoked invites, and we still want to mint a
- *      fresh one when possible.
- *   7. Mint a fresh Clerk invite via `clerk.invitations.createInvitation`
+ *   6. Mint a fresh Clerk invite via `clerk.invitations.createInvitation`
  *      with `ignoreExisting: true`, reusing the same redirect URL as
  *      the original commit. Mints FIRST so a Clerk rejection does not
  *      strand the student without a working signup link (Greptile P1
  *      finding on commit dbe2c09c).
- *   8. Call `resendAdminOnboardingInvitation` mutation with the new
+ *   7. Call `resendAdminOnboardingInvitation` mutation with the new
  *      invitationId — patches `perInstructor[i].clerkInvitationId`
  *      for non-renewal pairs and appends a timeline entry. If the
- *      mutation throws (e.g. concurrent state change flipped the row
- *      to terminal), revoke the freshly-minted invite so the student
- *      doesn't receive a signup link to a stale onboarding (Greptile
- *      P2 finding).
+ *      mutation throws, re-read the row and only revoke the freshly-
+ *      minted invite when the new invitationId is NOT recorded on any
+ *      perInstructor pair (Greptile P1 finding on commit 35493b25).
+ *   8. Best-effort revoke prior `clerkInvitationId` via
+ *      `clerk.invitations.revokeInvitation`. Done AFTER the save so
+ *      a save failure cannot strand the student without a working
+ *      link (Greptile P1 finding on commit 7331002e). Errors are
+ *      logged but do not block — Clerk rejects revoke on already-
+ *      accepted or already-revoked invites.
  *   9. If prior status was `failed`, chain `retryAdminOnboarding` to
  *      flip to `processing` + re-emit Inngest event. If the Inngest
  *      send then fails, mark the row as `failed` via the bearer-auth
@@ -221,25 +221,12 @@ export async function POST(
 
     const newInvitationId = mintInvitationId;
 
-    // Revoke prior invites best-effort. Now safe to do — replacement
-    // is in hand. Errors logged but do not block the resend (Clerk
-    // rejects revoke on already-accepted or already-revoked invites,
-    // and the new invite already works as the replacement).
-    for (const prevId of previousInvitationIds) {
-      try {
-        await clerk.invitations.revokeInvitation(prevId);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await reportError({
-          source: "api:admin/onboardings/resend-invitation:revoke",
-          error: err instanceof Error ? err : new Error(String(err)),
-          level: "warn",
-          message: `Failed to revoke prior Clerk invitation ${prevId} during resend (continuing)`,
-          context: { onboardingId, prevId, clerkErrorMessage: msg },
-        });
-      }
-    }
-
+    // Save the new invitationId on the Convex row BEFORE revoking the
+    // prior invites. This ordering guarantees the student always has
+    // at least one working signup link: if the save fails the prior
+    // invite is still pending, and if the save succeeds the new
+    // invite is recorded before we tear down the old one. Greptile P1
+    // finding on commit 7331002e.
     try {
       await convex.mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
         onboardingId,
@@ -303,6 +290,28 @@ export async function POST(
         });
       }
       throw saveErr;
+    }
+
+    // Save committed (or response was lost but DB write did happen —
+    // either way the new invitationId is on the row). Revoke the
+    // prior invites best-effort. Done AFTER the save so a save
+    // failure cannot strand the student without a working link.
+    // Errors logged but do not block the resend — Clerk rejects
+    // revoke on already-accepted or already-revoked invites, and
+    // the new invite already works as the replacement.
+    for (const prevId of previousInvitationIds) {
+      try {
+        await clerk.invitations.revokeInvitation(prevId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await reportError({
+          source: "api:admin/onboardings/resend-invitation:revoke",
+          error: err instanceof Error ? err : new Error(String(err)),
+          level: "warn",
+          message: `Failed to revoke prior Clerk invitation ${prevId} during resend (continuing)`,
+          context: { onboardingId, prevId, clerkErrorMessage: msg },
+        });
+      }
     }
 
     let responseStatus: "queued" | "processing" | "failed" | "cancelled" = row.status;
