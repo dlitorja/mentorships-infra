@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
@@ -10,6 +11,38 @@ import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 import { inngest } from "@/inngest/client";
 import { reportError } from "@/lib/observability";
 import { convexIdSchema } from "@/lib/validators";
+
+/**
+ * Mark the row as `failed` via the bearer-auth HTTP endpoint after a
+ * failed Inngest event send. Mirrors the same helper in
+ * `apps/platform/app/api/admin/onboardings/[id]/retry/route.ts:18-40`.
+ * Uses `expectedStatus: "processing"` so a concurrent state change
+ * (e.g. another admin clicks Cancel) doesn't silently overwrite a
+ * newer status.
+ */
+async function markOnboardingFailed(
+  onboardingId: string,
+  attemptCount: number,
+  reason: string
+): Promise<void> {
+  try {
+    await convexServerCall("/admin-onboarding/append-timeline", {
+      onboardingId: onboardingId as Id<"adminOnboardings">,
+      event: "failed",
+      details: reason,
+      expectedStatus: "processing",
+      expectedAttemptCount: attemptCount,
+    });
+  } catch (err) {
+    await reportError({
+      source: "api:admin/onboardings/resend-invitation:mark-failed",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Could not mark onboarding as failed after Inngest send failure on resend",
+      context: { onboardingId, attemptCount },
+    });
+  }
+}
 
 /**
  * PR 12 PR 2 — Resend the Clerk invitation for an onboarding row.
@@ -21,20 +54,34 @@ import { convexIdSchema } from "@/lib/validators";
  *      keeps the Clerk revoke loop on the route side (Node runtime)
  *      and only writes state through Convex mutations.
  *   3. Refuse on `completed` / `cancelled` (terminal) → 409.
- *   4. Best-effort revoke prior `clerkInvitationId` via
+ *   4. Refuse on renewal-only rows (no `clerkInvitationId` on any
+ *      pair) → 409. Without an existing invitation there's nothing
+ *      to revoke or replace.
+ *   5. Verify `NEXT_PUBLIC_APP_URL` is set BEFORE touching Clerk —
+ *      otherwise we'd revoke the prior invite without minting a
+ *      replacement and the student would be locked out (Greptile
+ *      P2 finding).
+ *   6. Best-effort revoke prior `clerkInvitationId` via
  *      `clerkClient.invitations.revokeInvitation`. Errors are logged
  *      but do not block the resend — Clerk rejects revoke on already-
  *      accepted or already-revoked invites, and we still want to mint a
  *      fresh one when possible.
- *   5. Mint a fresh Clerk invite via `createStudentClerkInvitation`,
+ *   7. Mint a fresh Clerk invite via `createStudentClerkInvitation`,
  *      reusing the same redirect URL as the original commit.
- *   6. Call `resendAdminOnboardingInvitation` mutation with the new
+ *   8. Call `resendAdminOnboardingInvitation` mutation with the new
  *      invitationId — patches `perInstructor[i].clerkInvitationId`
- *      for non-renewal pairs and appends a timeline entry.
- *   7. If prior status was `failed`, chain `retryAdminOnboarding` to
- *      flip to `processing` + re-emit Inngest event so the workflow
- *      re-drives. For `queued` / `processing` we leave the Inngest
- *      pipeline alone — the new invite is the only side effect.
+ *      for non-renewal pairs and appends a timeline entry. If the
+ *      mutation throws (e.g. concurrent state change flipped the row
+ *      to terminal), revoke the freshly-minted invite so the student
+ *      doesn't receive a signup link to a stale onboarding (Greptile
+ *      P2 finding).
+ *   9. If prior status was `failed`, chain `retryAdminOnboarding` to
+ *      flip to `processing` + re-emit Inngest event. If the Inngest
+ *      send then fails, mark the row as `failed` via the bearer-auth
+ *      append-timeline endpoint so staff can still retry from the
+ *      recovery dashboard (Greptile P1 finding — without this, the
+ *      row sits in `processing` forever and the staff's only escape
+ *      is another resend, which won't re-emit the event).
  *
  * Idempotency:
  *   - Workspace count unchanged before/after (no Convex writes to
@@ -47,6 +94,10 @@ import { convexIdSchema } from "@/lib/validators";
  *   - 400 invalid onboarding id (zod)
  *   - 404 not found (row missing)
  *   - 409 terminal status (cannot resend from `completed` / `cancelled`)
+ *   - 409 renewal-only row (no `clerkInvitationId` to replace)
+ *   - 500 missing `NEXT_PUBLIC_APP_URL` (would leak state — caught
+ *     before any Clerk call)
+ *   - 502 Clerk mint failure
  *   - 500 unexpected (logged via `reportError`)
  */
 export async function POST(
@@ -106,6 +157,21 @@ export async function POST(
       );
     }
 
+    // Verify the redirect URL is available BEFORE we revoke anything.
+    // If we revoked first and then discovered the env var was missing,
+    // the student would lose their original signup link with no
+    // replacement. Greptile P2 finding.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      return NextResponse.json(
+        {
+          error:
+            "NEXT_PUBLIC_APP_URL is not set; cannot build Clerk invitation redirect URL.",
+        },
+        { status: 500 }
+      );
+    }
+
     const clerk = await clerkClient();
     for (const prevId of previousInvitationIds) {
       try {
@@ -122,17 +188,6 @@ export async function POST(
       }
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl) {
-      return NextResponse.json(
-        {
-          error:
-            "NEXT_PUBLIC_APP_URL is not set; cannot build Clerk invitation redirect URL.",
-        },
-        { status: 500 }
-      );
-    }
-
     const mint = await createStudentClerkInvitation({
       emailAddress: row.email,
       redirectUrl: `${appUrl}/sign-up`,
@@ -146,46 +201,41 @@ export async function POST(
 
     const newInvitationId = mint.invitationId;
 
-    await convex.mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
-      onboardingId,
-      newInvitationId,
-    });
+    try {
+      await convex.mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+        onboardingId,
+        newInvitationId,
+      });
+    } catch (saveErr) {
+      // The mutation rejected (e.g. concurrent cancel flipped the row
+      // to terminal between our check and the save). Revoke the
+      // freshly-minted invitation so the student doesn't receive a
+      // signup link to a stale onboarding. Greptile P2 finding.
+      try {
+        await clerk.invitations.revokeInvitation(newInvitationId);
+      } catch (revokeErr) {
+        await reportError({
+          source: "api:admin/onboardings/resend-invitation:rollback-revoke",
+          error: revokeErr instanceof Error ? revokeErr : new Error(String(revokeErr)),
+          level: "warn",
+          message: `Failed to revoke freshly-minted Clerk invitation ${newInvitationId} after save rejection`,
+          context: { onboardingId, newInvitationId },
+        });
+      }
+      throw saveErr;
+    }
 
     let responseStatus: "queued" | "processing" | "failed" | "cancelled" = row.status;
     let failureReason: string | undefined;
 
     if (row.status === "failed") {
+      let retryResult: { onboardingId: string; status: "processing"; attemptCount: number } | null = null;
       try {
-        const retryResult = await convex.mutation(
+        retryResult = await convex.mutation(
           api.adminOnboarding.retryAdminOnboarding,
           { onboardingId }
         );
         responseStatus = retryResult.status;
-        try {
-          await inngest.send({
-            name: "admin/onboarding.completed",
-            data: {
-              onboardingId: retryResult.onboardingId,
-              attemptCount: retryResult.attemptCount,
-            },
-            id: `admin-onboarding:${retryResult.onboardingId}:${retryResult.attemptCount}`,
-          });
-        } catch (err) {
-          await reportError({
-            source: "api:admin/onboardings/resend-invitation",
-            error: err instanceof Error ? err : new Error(String(err)),
-            level: "warn",
-            message:
-              "Failed to emit admin/onboarding.completed Inngest event after resend+retry",
-            context: {
-              onboardingId: retryResult.onboardingId,
-              attemptCount: retryResult.attemptCount,
-            },
-          });
-          responseStatus = "failed";
-          failureReason =
-            "Inngest event send failed after resend+retry; admin must retry again.";
-        }
       } catch (retryErr) {
         await reportError({
           source: "api:admin/onboardings/resend-invitation:retry",
@@ -197,6 +247,44 @@ export async function POST(
         responseStatus = "failed";
         failureReason =
           retryErr instanceof Error ? retryErr.message : "retry failed";
+      }
+
+      if (retryResult) {
+        try {
+          await inngest.send({
+            name: "admin/onboarding.completed",
+            data: {
+              onboardingId: retryResult.onboardingId,
+              attemptCount: retryResult.attemptCount,
+            },
+            id: `admin-onboarding:${retryResult.onboardingId}:${retryResult.attemptCount}`,
+          });
+        } catch (sendErr) {
+          // Without this, the row sits in `processing` forever and
+          // the staff's only escape is another resend (which won't
+          // re-emit the Inngest event). Mark the row failed so the
+          // recovery dashboard's "Needs attention" tab can pick it up.
+          // Greptile P1 finding.
+          await reportError({
+            source: "api:admin/onboardings/resend-invitation",
+            error: sendErr instanceof Error ? sendErr : new Error(String(sendErr)),
+            level: "warn",
+            message:
+              "Failed to emit admin/onboarding.completed Inngest event after resend+retry",
+            context: {
+              onboardingId: retryResult.onboardingId,
+              attemptCount: retryResult.attemptCount,
+            },
+          });
+          await markOnboardingFailed(
+            retryResult.onboardingId,
+            retryResult.attemptCount,
+            "Inngest event send failed after resend+retry; admin must retry again."
+          );
+          responseStatus = "failed";
+          failureReason =
+            "Inngest event send failed after resend+retry; admin must retry again.";
+        }
       }
     }
 

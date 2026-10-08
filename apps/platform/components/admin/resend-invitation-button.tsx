@@ -76,11 +76,21 @@ export function ResendInvitationButton({
     setPending(true);
     try {
       const body = await resendAdminOnboardingInvitation(onboardingId);
-      toast.success(
-        currentStatus === "failed"
-          ? `Invitation resent and onboarding re-queued`
-          : `Invitation resent (status: ${body.status})`
-      );
+      // The route returns HTTP 200 even when the retry chain fails
+      // downstream (e.g. Inngest event send). Surface that as a
+      // warning toast so staff know the invitation was sent but the
+      // pipeline needs another nudge. Greptile P2 finding.
+      if (body.failureReason) {
+        toast.warning(
+          `Invitation resent, but pipeline did not start: ${body.failureReason}`
+        );
+      } else {
+        toast.success(
+          currentStatus === "failed"
+            ? `Invitation resent and onboarding re-queued`
+            : `Invitation resent (status: ${body.status})`
+        );
+      }
       router.refresh();
     } catch (err) {
       if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
