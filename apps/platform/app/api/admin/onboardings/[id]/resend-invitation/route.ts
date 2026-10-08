@@ -7,7 +7,6 @@ import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
 import { clerkClient } from "@clerk/nextjs/server";
-import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 import { inngest } from "@/inngest/client";
 import { reportError } from "@/lib/observability";
 import { convexIdSchema } from "@/lib/validators";
@@ -66,8 +65,11 @@ async function markOnboardingFailed(
  *      but do not block the resend — Clerk rejects revoke on already-
  *      accepted or already-revoked invites, and we still want to mint a
  *      fresh one when possible.
- *   7. Mint a fresh Clerk invite via `createStudentClerkInvitation`,
- *      reusing the same redirect URL as the original commit.
+ *   7. Mint a fresh Clerk invite via `clerk.invitations.createInvitation`
+ *      with `ignoreExisting: true`, reusing the same redirect URL as
+ *      the original commit. Mints FIRST so a Clerk rejection does not
+ *      strand the student without a working signup link (Greptile P1
+ *      finding on commit dbe2c09c).
  *   8. Call `resendAdminOnboardingInvitation` mutation with the new
  *      invitationId — patches `perInstructor[i].clerkInvitationId`
  *      for non-renewal pairs and appends a timeline entry. If the
@@ -173,6 +175,56 @@ export async function POST(
     }
 
     const clerk = await clerkClient();
+
+    // Mint a fresh Clerk invite BEFORE revoking the prior one. If the
+    // mint fails we leave the original invite intact so the student
+    // keeps a working signup link. Greptile P1 finding on commit
+    // dbe2c09c — the previous order (revoke-then-mint) could strand
+    // the student without any working link if Clerk accepted the
+    // revoke but rejected the create.
+    //
+    // We pass `ignoreExisting: true` here because the resend is
+    // explicitly replacing an existing invite — the default
+    // `ignoreExisting: false` would error out with "already invited"
+    // while the prior invite is still pending. After the new invite
+    // is recorded we revoke the old one (best-effort below).
+    let mintInvitationId: string | undefined;
+    try {
+      const created = await clerk.invitations.createInvitation({
+        emailAddress: row.email,
+        redirectUrl: `${appUrl}/sign-up`,
+        publicMetadata: { isStudent: true, role: "student" },
+        ignoreExisting: true,
+      });
+      mintInvitationId = created.id;
+    } catch (mintErr) {
+      const mintMsg = mintErr instanceof Error ? mintErr.message : String(mintErr);
+      await reportError({
+        source: "api:admin/onboardings/resend-invitation:mint",
+        error: mintErr instanceof Error ? mintErr : new Error(String(mintErr)),
+        level: "warn",
+        message: "Failed to mint new Clerk invitation during resend; original invite left intact",
+        context: { onboardingId, clerkErrorMessage: mintMsg },
+      });
+      return NextResponse.json(
+        { error: mintMsg ?? "Failed to mint new Clerk invitation" },
+        { status: 502 }
+      );
+    }
+
+    if (!mintInvitationId) {
+      return NextResponse.json(
+        { error: "Failed to mint new Clerk invitation (no id returned)" },
+        { status: 502 }
+      );
+    }
+
+    const newInvitationId = mintInvitationId;
+
+    // Revoke prior invites best-effort. Now safe to do — replacement
+    // is in hand. Errors logged but do not block the resend (Clerk
+    // rejects revoke on already-accepted or already-revoked invites,
+    // and the new invite already works as the replacement).
     for (const prevId of previousInvitationIds) {
       try {
         await clerk.invitations.revokeInvitation(prevId);
@@ -187,19 +239,6 @@ export async function POST(
         });
       }
     }
-
-    const mint = await createStudentClerkInvitation({
-      emailAddress: row.email,
-      redirectUrl: `${appUrl}/sign-up`,
-    });
-    if (!mint.success || !mint.invitationId) {
-      return NextResponse.json(
-        { error: mint.error ?? "Failed to mint new Clerk invitation" },
-        { status: 502 }
-      );
-    }
-
-    const newInvitationId = mint.invitationId;
 
     try {
       await convex.mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
