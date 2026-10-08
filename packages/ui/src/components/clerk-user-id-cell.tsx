@@ -78,7 +78,10 @@ export function ClerkUserIdCell({
       <div className="flex flex-col gap-1 min-w-0">
         {label && <span className="text-xs text-muted-foreground">{label}</span>}
         <code
-          className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded inline-block max-w-[14rem] truncate"
+          className={cn(
+            "font-mono text-xs bg-muted px-1.5 py-0.5 rounded inline-block",
+            truncateAt > 0 ? "max-w-[14rem] truncate" : "whitespace-normal break-all",
+          )}
           title={fullIdForTitle}
         >
           {displayId}

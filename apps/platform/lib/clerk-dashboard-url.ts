@@ -10,21 +10,25 @@
  * cell with the "Open in Clerk" link disabled. Logs a single warning per missing
  * value per process so misconfigured deployments surface the gap in the
  * browser console.
+ *
+ * IMPORTANT: read the env var via a literal `process.env.NEXT_PUBLIC_CLERK_APP_ID`
+ * lookup. Next.js's `DefinePlugin` only inlines values whose names appear as string
+ * literals in the source, so an indirect `process.env[CONSTANT]` lookup always
+ * resolves to `undefined` at runtime in the browser bundle.
  */
 
-const APP_ID_ENV_VAR = "NEXT_PUBLIC_CLERK_APP_ID";
 const CLERK_DASHBOARD_ORIGIN = "https://dashboard.clerk.com";
 
 let warned = false;
 
 export function getClerkDashboardUserUrl(userId: string): string | null {
-  const appId = process.env[APP_ID_ENV_VAR];
+  const appId = process.env.NEXT_PUBLIC_CLERK_APP_ID;
 
   if (!appId) {
     if (!warned) {
       warned = true;
       console.warn(
-        `[clerk-dashboard-url] ${APP_ID_ENV_VAR} is not set; the "Open in Clerk" link on <ClerkUserIdCell> is disabled. Set it in apps/platform/.env.local and Vercel to enable.`,
+        `[clerk-dashboard-url] NEXT_PUBLIC_CLERK_APP_ID is not set; the "Open in Clerk" link on <ClerkUserIdCell> is disabled. Set it in apps/platform/.env.local and Vercel to enable.`,
       );
     }
     return null;

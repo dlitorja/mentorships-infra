@@ -1,6 +1,6 @@
 # Onboarding Improvements (PR 12 — Clerk ID affordances, resend invitation, student onboarding page)
 
-**Status (updated 2026-10-08):** PR 1 implementation complete — `<ClerkUserIdCell>` shared component, `getClerkDashboardUserUrl` helper, and 9 ad-hoc Clerk-id render sites replaced. Branch `feat/onboarding-improvements-pr1-clerk-user-id-cell` ready for Greptile + CodeRabbit review.
+**Status (updated 2026-10-08):** PR 1 implementation complete — `<ClerkUserIdCell>` shared component, `getClerkDashboardUserUrl` helper, and 9 ad-hoc Clerk-id render sites replaced. Branch `feat/onboarding-improvements-pr1-clerk-user-id-cell` ready for Greptile + CodeRabbit re-review after Greptile P1 fix (helper now reads `process.env.NEXT_PUBLIC_CLERK_APP_ID` as a literal so Next.js inlines it into the browser bundle).
 
 **Target branch:** `main`
 **Apps affected:** `apps/platform` (admin + instructor surfaces, new `/onboarding/[id]` route)
@@ -356,7 +356,7 @@ All four PRs follow the **PR Merge Policy** in AGENTS.md (Greptile + CodeRabbit 
 
 | Risk | Mitigation |
 |---|---|
-| Clerk dashboard URL helper breaks when `NEXT_PUBLIC_CLERK_APP_ID` is unset | Fall back to deriving from the publishable key; log a clear runtime warning. Surface in PR 1 acceptance test. |
+| Clerk dashboard URL helper breaks when `NEXT_PUBLIC_CLERK_APP_ID` is unset | There is no runtime fallback — the Clerk Backend SDK does not expose a way to derive the app ID from the publishable key. The helper returns `null` and the `<ClerkUserIdCell>` renders the copy button only (no dashboard link); a one-time `console.warn` fires per process to surface the gap. Mitigation: `.env.example` documents the var and the PR 1 acceptance test verifies the link is enabled when the var is set. |
 | Resend could race with the student accepting the previous invite | Refuse the resend if `studentInvitations.status === "accepted"` (read it after revoke attempts). Toast says "student already signed up — view their profile instead." |
 | Auto-save flooding the database on every keystroke | Field-change save is debounced (~500ms) at the component level. Convex charges per-mutation; bounded write rate per active student. |
 | Abandonment beacon never reaches the server (network drop, browser kill) | The Inngest cron every 30 min catches stale drafts (`updatedAt < now - 1h`) and sends the reminder within ~1.5h. Worst case: a student closes the laptop with no signal and gets the email at the next cron tick. |
@@ -392,7 +392,7 @@ Update this table as PRs ship. Mirror the live status line into `docs/plans/READ
 
 ### A.1 Clerk dashboard URL derivation — LOCKED
 
-`getClerkDashboardUserUrl` derives the app ID from the publishable key via a single Clerk Backend API call (`clerkClient.instance.get()`) cached at module level. No new env var required in the happy path. Falls back gracefully (returns `null` → component renders copy button without dashboard link + console warning) if the API call fails.
+`getClerkDashboardUserUrl` reads `process.env.NEXT_PUBLIC_CLERK_APP_ID` literally (must be a literal `process.env.NEXT_PUBLIC_CLERK_APP_ID` reference — Next.js's `DefinePlugin` only inlines values whose names appear as string literals in the source; an indirect `process.env[CONSTANT]` lookup always resolves to `undefined` at runtime in the browser bundle). Returns `https://dashboard.clerk.com/apps/${appId}/users/${encodeURIComponent(userId)}`. The env var is `NEXT_PUBLIC_*` so it ships to the client and works in any client component without an SDK call. Falls back gracefully (returns `null` → component renders copy button without dashboard link + one-time console warning per process) when the env var is missing. The earlier plan to derive the app ID from the publishable key via `clerkClient.instance.get()` was rejected because `@clerk/backend@3.18.1` (installed transitively via `@clerk/nextjs@7.3.4`) does not expose `instance.get()`, and the publishable key's base64 segment decodes to the Clerk frontend API host, not the app ID.
 
 ### A.2 Resend button placement — LOCKED
 
