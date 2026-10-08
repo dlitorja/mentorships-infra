@@ -207,18 +207,59 @@ export async function POST(
         newInvitationId,
       });
     } catch (saveErr) {
-      // The mutation rejected (e.g. concurrent cancel flipped the row
-      // to terminal between our check and the save). Revoke the
-      // freshly-minted invitation so the student doesn't receive a
-      // signup link to a stale onboarding. Greptile P2 finding.
+      // The mutation threw. Two possibilities:
+      //   (a) the throw is authoritative (e.g. terminal-state guard,
+      //       concurrent cancel flipped the row). The DB write did
+      //       NOT commit. Revoke the freshly-minted invite so the
+      //       student doesn't get a signup link to a stale onboarding.
+      //   (b) the throw is from a transient failure (network, auth,
+      //       response lost). The DB write MAY have committed. To
+      //       avoid revoking a working signup link, re-read the row
+      //       and only revoke when the new invitationId is NOT
+      //       recorded on any perInstructor pair. Greptile P1 finding
+      //       on commit 35493b25.
+      let savedRowHasNewId = false;
       try {
-        await clerk.invitations.revokeInvitation(newInvitationId);
-      } catch (revokeErr) {
+        const savedRow = await convex.query(api.adminOnboarding.getAdminOnboarding, {
+          id: onboardingId,
+        });
+        if (savedRow) {
+          savedRowHasNewId = savedRow.perInstructor.some(
+            (p) => p.clerkInvitationId === newInvitationId
+          );
+        }
+      } catch (recheckErr) {
         await reportError({
-          source: "api:admin/onboardings/resend-invitation:rollback-revoke",
-          error: revokeErr instanceof Error ? revokeErr : new Error(String(revokeErr)),
+          source: "api:admin/onboardings/resend-invitation:recheck",
+          error: recheckErr instanceof Error ? recheckErr : new Error(String(recheckErr)),
           level: "warn",
-          message: `Failed to revoke freshly-minted Clerk invitation ${newInvitationId} after save rejection`,
+          message: "Could not re-read onboarding row to confirm save outcome",
+          context: { onboardingId, newInvitationId },
+        });
+      }
+
+      if (!savedRowHasNewId) {
+        try {
+          await clerk.invitations.revokeInvitation(newInvitationId);
+        } catch (revokeErr) {
+          await reportError({
+            source: "api:admin/onboardings/resend-invitation:rollback-revoke",
+            error: revokeErr instanceof Error ? revokeErr : new Error(String(revokeErr)),
+            level: "warn",
+            message: `Failed to revoke freshly-minted Clerk invitation ${newInvitationId} after save rejection`,
+            context: { onboardingId, newInvitationId },
+          });
+        }
+      } else {
+        // The save did commit but our response was lost — keep the
+        // signup link working. Surface a warning in observability so
+        // an operator can audit if needed.
+        await reportError({
+          source: "api:admin/onboardings/resend-invitation:save-ambiguous",
+          error: saveErr instanceof Error ? saveErr : new Error(String(saveErr)),
+          level: "info",
+          message:
+            "resendAdminOnboardingInvitation mutation returned an error but the row now records the new invitationId; the response was likely lost. Preserving the Clerk invite.",
           context: { onboardingId, newInvitationId },
         });
       }
