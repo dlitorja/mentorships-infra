@@ -18,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
 
 type InstructorOption = {
   id: string;
@@ -322,7 +323,17 @@ export default function ProductsPage() {
                 <SelectItem value="__all__">All Instructors</SelectItem>
                 {instructors.map((instructor) => (
                   <SelectItem key={instructor.id} value={instructor.id}>
-                    {instructor.email || (instructor.userId ? instructor.userId.slice(0, 8) + "..." : "No email")}
+                    {instructor.email || (
+                      instructor.userId ? (
+                        <ClerkUserIdCell
+                          id={instructor.userId}
+                          showCopyButton={false}
+                          showDashboardLink={false}
+                        />
+                      ) : (
+                        "No email"
+                      )
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>

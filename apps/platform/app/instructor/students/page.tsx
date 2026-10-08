@@ -20,6 +20,8 @@ import {
 import { Loader2, Minus, Plus, Calendar, ChevronRight, Search, ArrowUpDown, AlertTriangle } from "lucide-react";
 import { ApiRoutes } from "@/lib/routes";
 import { ApiFetchError, apiFetch, updateSessionPack } from "@/lib/queries/api-client";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 
 type Student = {
   userId: string;
@@ -253,8 +255,12 @@ export default function InstructorStudentsPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-medium text-muted-foreground">Existing Clerk user</span>
-                  <span className="col-span-2 font-mono text-xs break-all">
-                    {reconciliation.existingClerkUserId}
+                  <span className="col-span-2">
+                    <ClerkUserIdCell
+                      id={reconciliation.existingClerkUserId}
+                      truncateAt={0}
+                      dashboardUrl={getClerkDashboardUserUrl(reconciliation.existingClerkUserId)}
+                    />
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">

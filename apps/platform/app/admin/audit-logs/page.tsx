@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { getAdminAuditLogs } from "@/lib/queries/api-client";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 
 type AuditLog = {
   id: string;
@@ -110,9 +112,10 @@ export default function AuditLogsPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-mono text-sm">
-                          {log.adminId.slice(0, 8)}...
-                        </span>
+                        <ClerkUserIdCell
+                          id={log.adminId}
+                          dashboardUrl={getClerkDashboardUserUrl(log.adminId)}
+                        />
                       </td>
                       <td className="py-3 px-4">{getActionBadge(log.action)}</td>
                       <td className="py-3 px-4">

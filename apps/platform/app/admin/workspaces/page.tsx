@@ -16,6 +16,8 @@ import { Loader2, ExternalLink, Plus } from "lucide-react";
 import { getAdminWorkspaces } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
+import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
+import { getClerkDashboardUserUrl } from "@/lib/clerk-dashboard-url";
 
 type Workspace = {
   id: string;
@@ -172,10 +174,11 @@ export default function WorkspacesPage() {
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        {workspace.instructor ? (
-                          <span className="text-sm font-mono">
-                            {workspace.instructor.userId ? `${workspace.instructor.userId.slice(0, 8)}...` : '-'}
-                          </span>
+                        {workspace.instructor?.userId ? (
+                          <ClerkUserIdCell
+                            id={workspace.instructor.userId}
+                            dashboardUrl={getClerkDashboardUserUrl(workspace.instructor.userId)}
+                          />
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
