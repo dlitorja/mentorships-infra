@@ -114,7 +114,6 @@ export default function OnboardingQuestionnaireForm({
   // Auto-save (debounced) when answers or inspirations change.
   const lastSavePayload = useRef<string>("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mutateRef = useRef<(() => void) | null>(null);
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -155,29 +154,51 @@ export default function OnboardingQuestionnaireForm({
     inspirationsRef.current = inspirations;
   }, [inspirations]);
 
-  useEffect(() => {
-    // Greptile P1 follow-up: pin `saveMutation.mutate` to a ref so
-    // the effect dep array stays stable. TanStack Query returns a
-    // fresh mutation object on every render; depending on it caused
-    // the cleanup to fire when an in-flight save resolved, which
-    // cancelled a pending debounce and silently dropped the latest
-    // edit.
-    mutateRef.current = saveMutation.mutate;
-  });
+  // Greptile P1 follow-up: serialise autosaves so earlier PATCH
+  // requests never overwrite newer answers. Without this, two
+  // saves triggered close together can land out of order on the
+  // server — the older payload's PATCH resolves last, and
+  // `saveQuestionnaireDraft` unconditionally overwrites the row.
+  // The fix chains saves through a single promise so each save
+  // awaits the previous one before starting. The
+  // `pendingPayloadRef` holds the most recent debounced payload
+  // so when the chain drains, we kick another save.
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingPayloadRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (alreadySubmitted) return;
     const payload = JSON.stringify({ answers, inspirations });
     if (payload === lastSavePayload.current) return;
     lastSavePayload.current = payload;
+
+    const fireNext = async (): Promise<void> => {
+      const next = pendingPayloadRef.current;
+      pendingPayloadRef.current = null;
+      if (next == null) return;
+      try {
+        await saveMutation.mutateAsync();
+      } catch {
+        // onError already toasted; swallow here so the chain
+        // doesn't break.
+      }
+      // After this save lands, check whether the user typed
+      // more while it was in flight. If so, kick another save
+      // through the same chain so they land in order.
+      if (pendingPayloadRef.current != null) {
+        await fireNext();
+      }
+    };
+
+    pendingPayloadRef.current = payload;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      mutateRef.current?.();
+      saveChainRef.current = saveChainRef.current.then(fireNext);
     }, ONBOARDING_AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [answers, inspirations, alreadySubmitted]);
+  }, [answers, inspirations, alreadySubmitted, saveMutation]);
 
   // Beacon on tab close — fires lastSeenAt so the cron has fresh data.
   useEffect(() => {

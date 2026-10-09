@@ -48,15 +48,20 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     ],
   },
   async ({ step }) => {
-    const drafts: Array<{
-      onboardingId: string;
-      submissionId: string;
-      studentEmail: string;
-      studentName: string | null;
-      reminderCount: number;
-    }> = [];
-    await step.run("scan", async () => {
+    const drafts = await step.run("scan", async () => {
+      // Greptile P1 follow-up: return the result from step.run so
+      // Inngest can restore it across a resume. Without a return
+      // value, `drafts` would be empty on resume (the step
+      // callback isn't re-run) and the function would exit
+      // before sending any reminders.
       const url = `${getConvexBaseUrl()}/onboarding/stale-questionnaire`;
+      const collected: Array<{
+        onboardingId: string;
+        submissionId: string;
+        studentEmail: string;
+        studentName: string | null;
+        reminderCount: number;
+      }> = [];
       let cursor: string | null = null;
       for (let page = 0; page < SCAN_MAX_PAGES; page += 1) {
         const res = await fetch(url, {
@@ -86,7 +91,7 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
           isDone: boolean;
           pageHadEligible: boolean;
         };
-        drafts.push(...json.candidates);
+        collected.push(...json.candidates);
         // If we've filled the batch or hit the end of the
         // partition, stop. Likewise if an entire page had no
         // eligible row, the remaining pages are unlikely to have
@@ -94,6 +99,7 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         if (json.isDone || !json.pageHadEligible) break;
         cursor = json.nextCursor;
       }
+      return collected;
     });
 
     if (!drafts.length) {

@@ -488,98 +488,109 @@ export const getSubmittedQuestionnaireForViewer = query({
  * rows.
  *
  * Lookup strategy: `adminOnboardings` has no index keyed on
- * `perInstructor[].instructorId`, so we walk the table with a
- * bounded pagination pass. Per-tick read budget is
- * `LIST_SCAN_LIMIT * LIST_MAX_PAGES`; once we have at least
- * `LIST_LIMIT` matches, we stop early. For PR 4b scale (~hundreds
- * of onboardings) this is comfortably inside the per-query read
- * budget; a `by_perInstructor` index would be a PR 4c follow-up
- * if the table grows.
+ * `perInstructor[].instructorId`, so we walk the table in pages.
+ * Convex queries can only `.paginate()` once per handler, so each
+ * call returns ONE page plus a `nextCursor` for the caller to
+ * carry forward. The caller (`/instructor/onboarding` page server
+ * component) loops with the cursor until `isDone` or the page is
+ * empty.
+ *
+ * For PR 4b scale (~hundreds of onboardings) the first page is
+ * almost always enough; a `by_perInstructor` index would be a
+ * PR 4c follow-up if the table grows.
  */
 const LIST_SCAN_LIMIT = 200;
-const LIST_MAX_PAGES = 3;
 const LIST_LIMIT = 20;
 
 export const listSubmittedQuestionnairesForInstructor = query({
-  args: {},
-  returns: v.array(
-    v.object({
-      onboardingId: v.id("adminOnboardings"),
-      studentEmail: v.string(),
-      submittedAt: v.number(),
-      instructorCount: v.number(),
-    })
-  ),
-  handler: async (ctx): Promise<
-    Array<{
+  args: {
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        onboardingId: v.id("adminOnboardings"),
+        studentEmail: v.string(),
+        submittedAt: v.number(),
+        instructorCount: v.number(),
+      })
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{
+    rows: Array<{
       onboardingId: Id<"adminOnboardings">;
       studentEmail: string;
       submittedAt: number;
       instructorCount: number;
-    }>
-  > => {
+    }>;
+    nextCursor: string | null;
+    isDone: boolean;
+  }> => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return [];
+    if (!identity) {
+      return { rows: [], nextCursor: null, isDone: true };
+    }
 
     // Staff can see every onboarding; an instructor can only see
     // rows where they are one of the assigned instructors.
     const staffRole = await lookupStaffRole(ctx, identity.subject);
     const isStaff = staffRole !== null;
 
-    const out: Array<{
+    const page = await ctx.db
+      .query("adminOnboardings")
+      .paginate({ numItems: LIST_SCAN_LIMIT, cursor: args.cursor });
+
+    const rows: Array<{
       onboardingId: Id<"adminOnboardings">;
       studentEmail: string;
       submittedAt: number;
       instructorCount: number;
     }> = [];
 
-    let cursor: string | null = null;
-    let pages = 0;
-    while (out.length < LIST_LIMIT && pages < LIST_MAX_PAGES) {
-      const page = await ctx.db
-        .query("adminOnboardings")
-        .paginate({ numItems: LIST_SCAN_LIMIT, cursor });
-      for (const row of page.page) {
-        if (!isStaff) {
-          // Instructor check: walk `perInstructor` and resolve
-          // each `instructorId` to its `userId`.
-          let matched = false;
-          for (const p of row.perInstructor) {
-            const inst = await ctx.db.get("instructors", p.instructorId);
-            if (inst?.userId && inst.userId === identity.subject) {
-              matched = true;
-              break;
-            }
+    for (const row of page.page) {
+      if (!isStaff) {
+        // Instructor check: walk `perInstructor` and resolve
+        // each `instructorId` to its `userId`.
+        let matched = false;
+        for (const p of row.perInstructor) {
+          const inst = await ctx.db.get("instructors", p.instructorId);
+          if (inst?.userId && inst.userId === identity.subject) {
+            matched = true;
+            break;
           }
-          if (!matched) continue;
         }
-
-        // Find the submitted questionnaire row.
-        const submission = await ctx.db
-          .query("onboardingQuestionnaireSubmissions")
-          .withIndex("by_onboardingId", (q) =>
-            q.eq("onboardingId", row._id)
-          )
-          .first();
-        if (!submission || submission.status !== "submitted") continue;
-
-        out.push({
-          onboardingId: row._id,
-          studentEmail: row.email,
-          submittedAt: submission.submittedAt ?? submission.updatedAt,
-          instructorCount: row.perInstructor.length,
-        });
-        if (out.length >= LIST_LIMIT) break;
+        if (!matched) continue;
       }
-      cursor = page.continueCursor;
-      pages += 1;
-      if (page.isDone) break;
+
+      // Find the submitted questionnaire row.
+      const submission = await ctx.db
+        .query("onboardingQuestionnaireSubmissions")
+        .withIndex("by_onboardingId", (q) =>
+          q.eq("onboardingId", row._id)
+        )
+        .first();
+      if (!submission || submission.status !== "submitted") continue;
+
+      rows.push({
+        onboardingId: row._id,
+        studentEmail: row.email,
+        submittedAt: submission.submittedAt ?? submission.updatedAt,
+        instructorCount: row.perInstructor.length,
+      });
+      if (rows.length >= LIST_LIMIT) break;
     }
 
     // Newest first so the instructor sees recent submissions on
     // top.
-    out.sort((a, b) => b.submittedAt - a.submittedAt);
-    return out;
+    rows.sort((a, b) => b.submittedAt - a.submittedAt);
+
+    return {
+      rows,
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });
 

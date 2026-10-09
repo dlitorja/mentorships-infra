@@ -97,16 +97,37 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   // historically only knew about the legacy `studentOnboarding`
   // row; the new questionnaire is keyed on `adminOnboardings` so
   // a link from here gives instructors a discoverable entry point.
+  // Greptile round 4 P1: the query only paginates one page per call
+  // (Convex rule), so the page server component loops with the
+  // returned cursor until `isDone` or the list fills up.
   const submittedQuestionnaires: Array<{
     onboardingId: Id<"adminOnboardings">;
     studentEmail: string;
     submittedAt: number;
     instructorCount: number;
-  }> = await fetchQuery(
-    (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
-    {},
-    { token }
-  ).catch(() => []);
+  }> = [];
+  try {
+    let cursor: string | null = null;
+    const SUBMITTED_PAGE_LIMIT = 5;
+    for (let i = 0; i < SUBMITTED_PAGE_LIMIT; i += 1) {
+      const page = (await fetchQuery(
+        (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+        { cursor },
+        { token }
+      )) as {
+        rows: typeof submittedQuestionnaires;
+        nextCursor: string | null;
+        isDone: boolean;
+      };
+      submittedQuestionnaires.push(...page.rows);
+      if (page.isDone) break;
+      cursor = page.nextCursor;
+    }
+  } catch {
+    // Swallow — the instructor page degrades gracefully if the
+    // new query isn't available yet (e.g. an older Convex
+    // deployment hasn't picked up codegen).
+  }
 
   const selected =
     (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
