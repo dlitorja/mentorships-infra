@@ -67,6 +67,13 @@ export const generateWorkExampleUploadUrl = action({
     uploadUrl: v.string(),
     b2Key: v.string(),
     fileId: v.string(),
+    // Greptile P1 #2 fix: `recordWorkExampleUpload` needs the
+    // reserved row id to flip the row from `pending` → `active`
+    // after the B2 PUT. Without this, the caller cannot finish
+    // the upload and the row stays pending forever (the public
+    // `listWorkExamples` query only returns `active` rows, so
+    // the student cannot discover the orphan).
+    workExampleId: v.id("onboardingWorkExamples"),
   }),
   handler: async (ctx, args) => {
     if (!Number.isFinite(args.size) || args.size <= 0) {
@@ -118,6 +125,7 @@ export const generateWorkExampleUploadUrl = action({
       uploadUrl,
       b2Key,
       fileId: args.fileId,
+      workExampleId: reservation.workExampleId,
     };
   },
 });
