@@ -12,6 +12,7 @@ import {
 import {
   signedWorkspaceUploadUrl,
   signedWorkspaceDownloadUrl,
+  workspaceObjectExists,
 } from "./lib/b2WorkspaceUpload";
 
 import {
@@ -160,5 +161,27 @@ export const getWorkExampleDownloadUrl = action({
     }
     const url = await signedWorkspaceDownloadUrl(args.b2Key, 60 * 60);
     return { url };
+  },
+});
+
+/**
+ * Greptile P1 follow-up: move the B2 HEAD check out of the
+ * mutation and into this action. The mutation
+ * `recordWorkExampleUpload` calls this action via
+ * `ctx.runAction`, then re-checks the row ownership + status
+ * inside the transaction and patches to `active` on success.
+ * Putting the HEAD in an action keeps external IO out of the
+ * mutation path, which is more reliable for retries and avoids
+ * the `fetch` failure mode that would silently mark uploads
+ * as incomplete.
+ */
+export const checkWorkExampleUploaded = action({
+  args: {
+    b2Key: v.string(),
+  },
+  returns: v.object({ exists: v.boolean() }),
+  handler: async (_ctx, args) => {
+    const exists = await workspaceObjectExists(args.b2Key);
+    return { exists };
   },
 });

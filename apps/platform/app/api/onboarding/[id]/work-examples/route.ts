@@ -50,7 +50,7 @@ export async function POST(
     }
 
     const convex = await getAuthenticatedConvexClient();
-    const result = await convex.mutation(
+    const result = await convex.action(
       (api as any).onboardingWorkExamples.recordWorkExampleUpload,
       {
         onboardingId,

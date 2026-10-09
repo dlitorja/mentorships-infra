@@ -1,4 +1,5 @@
 import {
+  action,
   internalMutation,
   mutation,
   query,
@@ -12,7 +13,7 @@ import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
 } from "./workspaceConstants";
-import { workspaceObjectExists } from "./lib/b2WorkspaceUpload";
+import { checkWorkExampleUploaded } from "./onboardingWorkExamplesActions";
 
 /**
  * Greptile P1 follow-up: staff records can have
@@ -117,6 +118,97 @@ async function requireAssignedStudentForUpload(
 }
 
 /**
+ * Greptile P1 follow-up: action-side auth gate for the record
+ * flow. Mirrors `requireAssignedStudentForUpload` but as a
+ * public `query` so an action can call it via `ctx.runQuery`.
+ * Returns the onboarding doc (or `null` when unauthorized) so
+ * the caller can decide whether to throw — the original
+ * `require*` helper throws because mutations shouldn't leak
+ * existence, but actions can return null and let the caller
+ * decide.
+ */
+export const requireAssignedStudentForUploadQuery = query({
+  args: { onboardingId: v.id("adminOnboardings") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("adminOnboardings"),
+      email: v.string(),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      ),
+      assignedStudentClerkId: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    if (!row) return null;
+    if (row.assignedStudentClerkId !== identity.subject) return null;
+    return {
+      _id: row._id,
+      email: row.email,
+      status: row.status,
+      assignedStudentClerkId: row.assignedStudentClerkId ?? null,
+    };
+  },
+});
+
+/**
+ * Greptile P1 follow-up: read a work example by id (no auth
+ * check — callers are responsible for ownership checks via
+ * `requireAssignedStudentForUploadQuery`).
+ */
+export const getWorkExampleByIdInternal = query({
+  args: { workExampleId: v.id("onboardingWorkExamples") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("onboardingWorkExamples"),
+      onboardingId: v.id("adminOnboardings"),
+      studentClerkId: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("active"),
+        v.literal("deleted")
+      ),
+      b2Key: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    if (!row) return null;
+    return {
+      _id: row._id,
+      onboardingId: row.onboardingId,
+      studentClerkId: row.studentClerkId,
+      status: row.status,
+      b2Key: row.b2Key,
+    };
+  },
+});
+
+/**
+ * Greptile P1 follow-up: internal mutation that flips a work
+ * example row to `active`. Called from the action wrapper
+ * after the B2 HEAD succeeds; runs in a transaction so the
+ * patch is consistent.
+ */
+export const markWorkExampleActive = internalMutation({
+  args: { workExampleId: v.id("onboardingWorkExamples") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.workExampleId, { status: "active" });
+    return null;
+  },
+});
+
+/**
  * Internal query used by the upload-URL action to authorise
  * the caller + read the onboarding row.
  */
@@ -218,15 +310,47 @@ export const reserveWorkExampleUpload = internalMutation({
  * in `generateWorkExampleUploadUrl` (already in scope — see
  * `recordWorkExampleUpload`'s status check below).
  */
-export const recordWorkExampleUpload = mutation({
+/**
+ * Greptile P1 follow-up (round 6): the B2 HEAD check that
+ * prevents accepting an un-uploaded row is external IO and
+ * doesn't belong in a mutation (mutations run on V8; actions
+ * run on Node with `fetch` available). Convert this entry
+ * point to an `action` so the IO is reliable. The auth gate
+ * still runs server-side via `runQuery(requireAssignedStudent
+ * ForUpload)` and the patch runs in an internal `runMutation`
+ * so the row change stays transactional.
+ *
+ * The client-facing API shape is unchanged: callers invoke
+ * `convex.action(api.onboardingWorkExamples.recordWorkExample
+ * Upload, args)` (see
+ * `apps/platform/app/api/onboarding/[id]/work-examples/route.ts`).
+ */
+export const recordWorkExampleUpload = action({
   args: {
     onboardingId: v.id("adminOnboardings"),
     workExampleId: v.id("onboardingWorkExamples"),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const row = await requireAssignedStudentForUpload(ctx, args.onboardingId);
-    const work = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    // The `as any` casts below mirror the
+    // `onboardingWorkExamplesActions.ts:93` pattern. The
+    // committed `_generated/api.d.ts` doesn't know about the
+    // PR 4b module yet (codegen runs on push to main only), so
+    // referencing the function values directly trips the new
+    // `FunctionReference_future` strictness. The functions are
+    // registered and the runtime calls are valid.
+    const row = await ctx.runQuery(
+      requireAssignedStudentForUploadQuery as any,
+      {
+        onboardingId: args.onboardingId,
+      }
+    );
+    if (!row) {
+      throw new Error("NOT_FOUND: not your onboarding");
+    }
+    const work = await ctx.runQuery(getWorkExampleByIdInternal as any, {
+      workExampleId: args.workExampleId,
+    });
     if (!work) throw new Error("NOT_FOUND: work example missing");
     if (work.onboardingId !== args.onboardingId) {
       throw new Error("NOT_FOUND: work example belongs to a different onboarding");
@@ -239,30 +363,20 @@ export const recordWorkExampleUpload = mutation({
       throw new Error("TERMINAL: work example was deleted");
     }
 
-    // PR 4b Greptile P1 follow-up: confirm the B2 object exists
-    // before flipping to `active`. Without this check, a
-    // student could call `recordWorkExampleUpload` immediately
-    // after the action mints the PUT URL — without actually
-    // PUTting the bytes — and the row would count toward the
-    // submit cap. The HEAD goes through the B2 S3-compatible
-    // endpoint using the same credentials as the upload action;
-    // the SDK is loaded in the default V8 runtime so this works
-    // in a mutation.
-    const exists = await workspaceObjectExists(work.b2Key);
-    if (!exists) {
+    // Verify B2 has the object before flipping the row. The
+    // helper catches NotFound AND any transient SDK errors so
+    // a flaky HEAD never silently accepts an un-uploaded row.
+    const check = await ctx.runAction(checkWorkExampleUploaded as any, {
+      b2Key: work.b2Key,
+    });
+    if (!check.exists) {
       throw new Error(
         "Upload not complete: the file is not yet in storage. Please retry the upload."
       );
     }
 
-    // PR 4 follow-up (Greptile P2 #7): also refuse when the
-    // questionnaire is `submitted`. For now we rely on the
-    // upload-URL action's check (see
-    // `generateWorkExampleUploadUrl`) plus the deletion block
-    // in `deleteWorkExample`.
-
-    await ctx.db.patch(args.workExampleId, {
-      status: "active",
+    await ctx.runMutation(markWorkExampleActive as any, {
+      workExampleId: args.workExampleId,
     });
     return null;
   },
