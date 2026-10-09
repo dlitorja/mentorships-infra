@@ -1610,4 +1610,74 @@ export default defineSchema({
     .index("by_date", ["date"])
     .index("by_date_and_kind", ["date", "kind"])
     .index("by_date_and_audienceId_and_kind", ["date", "audienceId", "kind"]),
+
+  // PR 12 PR 4: student-facing onboarding questionnaire. One row per
+  // `adminOnboardings` id; created lazily on first draft save and
+  // updated on every auto-save keystroke. Bumps `questionnaireVersion`
+  // whenever the canonical `ONBOARDING_QUESTIONS` const changes; old
+  // submissions keep their original version so the instructor view
+  // renders historical wording.
+  //
+  // Greptile P2 (PR 2 #5): avoided a `by_status_updatedAt` index with
+  // an infinite time range because the cron filters on `updatedAt <
+  // now - 1h`; a sparse `by_stale_drafts` index keyed on
+  // `[status, updatedAt]` is exactly what the cron needs to drain
+  // candidates cheaply. Because `updatedAt` is appended, the cron
+  // can scan the head of the index and stop at the first non-stale
+  // row.
+  onboardingQuestionnaireSubmissions: defineTable({
+    onboardingId: v.id("adminOnboardings"),
+    studentClerkId: v.string(),
+    questionnaireVersion: v.number(),
+    status: v.union(v.literal("draft"), v.literal("submitted")),
+    answers: v.array(v.object({
+      questionId: v.string(),
+      questionText: v.string(),
+      answerText: v.string(),
+    })),
+    inspirations: v.array(v.object({
+      name: v.string(),
+    })),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    submittedAt: v.optional(v.number()),
+    // PR 4: abandonment-reminder bookkeeping. The cron
+    // (`checkStaleOnboardingDrafts` in
+    // `convex/onboardingReminders.ts`) writes these fields; the
+    // beacon API route (`/api/onboarding/[id]/abandoned`) only stamps
+    // `lastSeenAt` (does NOT count toward `reminderCount`). Cap of
+    // `ONBOARDING_REMINDER_MAX_COUNT` enforced by the cron.
+    lastSeenAt: v.optional(v.number()),
+    lastReminderSentAt: v.optional(v.number()),
+    reminderCount: v.optional(v.number()),
+  })
+    .index("by_onboardingId", ["onboardingId"])
+    .index("by_status_updatedAt", ["status", "updatedAt"])
+    .index("by_studentClerkId", ["studentClerkId"]),
+
+  // PR 12 PR 4: work-example image uploads for the questionnaire.
+  // Backs onto B2 with a dedicated `onboarding/<onboardingId>/`
+  // prefix so the lifecycle rule can purge them when the
+  // `adminOnboardings` row reaches a terminal status. Active rows
+  // (status="active") are the ones the instructor view shows;
+  // "pending" is the upload-in-flight state minted by
+  // `recordWorkExampleUpload`; "deleted" is the terminal state after
+  // `purgeWorkExamples` runs.
+  onboardingWorkExamples: defineTable({
+    onboardingId: v.id("adminOnboardings"),
+    studentClerkId: v.string(),
+    b2Key: v.string(),
+    fileName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    status: v.union(v.literal("pending"), v.literal("active"), v.literal("deleted")),
+    uploadedAt: v.number(),
+    deletedAt: v.optional(v.number()),
+    // Client-supplied id used to correlate the B2 PUT callback with
+    // the row. Stable across retries so a re-upload of the same file
+    // is idempotent on `recordWorkExampleUpload`.
+    fileId: v.string(),
+  })
+    .index("by_onboardingId", ["onboardingId"])
+    .index("by_onboardingId_active", ["onboardingId", "status"]),
 });

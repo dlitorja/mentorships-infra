@@ -136,3 +136,94 @@ export const BACKFILL_BATCH_SIZE = 50;
  * `clampWorkspaceDownloadExpiresInSeconds`.
  */
 export const WORKSPACE_B2_URL_TTL_SECONDS = 60 * 60;
+
+// PR 12 PR 4 — onboarding questionnaire constants.
+// Source of truth lives here on the Convex side; mirror in
+// `apps/platform/lib/workspace-constants.ts` so client-side
+// validation matches server-side rejection (Greptile finding on
+// previous mismatched caps).
+
+/** Max bytes for a single work-example image upload. Matches
+ *  MAX_IMAGE_BYTES (8 MB); reuses the existing B2 PUT pipeline. */
+export const MAX_WORK_EXAMPLE_BYTES = 8 * 1024 * 1024;
+
+/** Hard cap on active work-example rows per onboarding. The plan
+ *  accepts 4–6 per submission; the cap is 6 so a stale "preparing
+ *  next example" frame cannot push past the visible limit. */
+export const MAX_WORK_EXAMPLES_PER_ONBOARDING = 6;
+
+/** Allowed mime types for work-example uploads. Mirrors the
+ *  workspace image allow-list so a shared validator can be
+ *  re-used if we ever migrate them to the same constant. */
+export const WORK_EXAMPLE_ALLOWED_MIME = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+] as const;
+
+/** Inspirations-field length bounds (v1: 3–4 entries). Enforced
+ *  in `submitQuestionnaire`; mirrored client-side for UI gating. */
+export const MIN_INSPIRATIONS = 3;
+export const MAX_INSPIRATIONS = 4;
+
+/** B2 key prefix used by `generateWorkExampleUploadUrl`. Mirrored
+ *  in the lifecycle rule that purges this prefix when an
+ *  onboarding reaches a terminal status. */
+export const ONBOARDING_WORK_EXAMPLES_B2_PREFIX = "onboarding";
+
+/** Auto-save cadence target (milliseconds). The form component
+ *  debounces draft saves to this interval; faster than this risks
+ *  per-keystroke mutation storms. */
+export const ONBOARDING_AUTOSAVE_DEBOUNCE_MS = 500;
+
+/** How long a draft can sit untouched before the abandonment
+ *  cron considers it stale. 1 hour — short enough that the cron
+ *  sends the first reminder within ~1.5h of the student
+ *  walking away; long enough that active typing does not
+ *  trigger a reminder. */
+export const ONBOARDING_REMINDER_STALE_MS = 60 * 60 * 1000;
+
+/** Hard cap on reminders per draft. The 4th reminder is
+ *  suppressed — admin has to intervene. */
+export const ONBOARDING_REMINDER_MAX_COUNT = 3;
+
+/** Minimum interval between reminders for the SAME draft, even
+ *  if the cap is not yet reached. Prevents the cron from
+ *  firing twice in one tick if `lastReminderSentAt` is
+ *  unusually recent (e.g. a clock skew). */
+export const ONBOARDING_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * PR 12 PR 4 — canonical onboarding question IDs.
+ *
+ * The authoritative client-side definition lives in
+ * `apps/platform/lib/onboarding-questions.ts` (TS types + UI
+ * labels). The Convex validator here is intentionally
+ * ID-only — the server doesn't care about the label text, just
+ * that the answers array contains one entry per REQUIRED
+ * canonical question id.
+ *
+ * If you add or rename a question, update BOTH
+ * `ONBOARDING_QUESTIONS` in `apps/platform/lib/onboarding-questions.ts`
+ * AND `ONBOARDING_REQUIRED_QUESTION_IDS` here in the same
+ * commit. Bump `ONBOARDING_QUESTIONNAIRE_VERSION` (which mirrors
+ * `CURRENT_VERSION` in the client module) so historical
+ * submissions retain their original question text.
+ */
+export const ONBOARDING_REQUIRED_QUESTION_IDS = [
+  "how_did_you_hear",
+  "goals",
+  "inspirations",
+] as const;
+export type OnboardingRequiredQuestionId =
+  (typeof ONBOARDING_REQUIRED_QUESTION_IDS)[number];
+
+/** Mirrors `CURRENT_VERSION` in
+ *  `apps/platform/lib/onboarding-questions.ts`. Bumped on label /
+ *  rule changes. */
+export const ONBOARDING_QUESTIONNAIRE_VERSION = 1;
+
+/** Hard minimum on work examples for a valid submission. Plan §5.4
+ *  accepts 4–6; the cron / form use the floor of 4 as the gate. */
+export const MIN_WORK_EXAMPLES_PER_SUBMISSION = 4;
