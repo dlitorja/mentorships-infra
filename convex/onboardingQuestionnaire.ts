@@ -519,7 +519,11 @@ export const recordQuestionnaireSeen = mutation({
  * whatever the scan returns without pagination (the cap is small).
  */
 
-const STALE_BATCH_LIMIT = 100;
+const STALE_BATCH_LIMIT = 50;
+// Read up to this many draft rows in one tick. Most are exhausted
+// (past the reminder cap) or recently-active, so we cap the page
+// size to keep the per-query read budget bounded.
+const STALE_SCAN_PAGE_SIZE = 200;
 
 export const listStaleDraftsForReminder = internalQuery({
   args: {},
@@ -538,17 +542,14 @@ export const listStaleDraftsForReminder = internalQuery({
     const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
     const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
 
-    // Greptile P2 #13: bound the read. The
-    // `by_status_updatedAt` partition only contains draft rows, but
-    // a long-running app could accumulate a lot of them. `take`
-    // caps the scan at the batch limit so a single cron tick can't
-    // exceed Convex's per-query read budget even if every draft
-    // has been paused at `reminderCount = MAX`.
-    const rows = await ctx.db
-      .query("onboardingQuestionnaireSubmissions")
-      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
-      .take(STALE_BATCH_LIMIT);
-
+    // Greptile P1 follow-up: paginate through the
+    // `by_status_updatedAt` partition so a backlog of exhausted
+    // drafts (rows that have hit the reminder cap) can't crowd
+    // out newer eligible rows at the front of the index. We walk
+    // pages until we fill the candidate list OR we run out of
+    // rows. Bounded by STALE_SCAN_PAGE_SIZE * numPages so a single
+    // cron tick can't blow the read budget even if the partition
+    // is full of exhausted rows.
     const candidates: Array<{
       onboardingId: Id<"adminOnboardings">;
       submissionId: Id<"onboardingQuestionnaireSubmissions">;
@@ -558,57 +559,87 @@ export const listStaleDraftsForReminder = internalQuery({
       lastSeenAt: number | null;
     }> = [];
 
-    for (const row of rows) {
-      const reminderCount = row.reminderCount ?? 0;
-      if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
-      // Greptile P2 #14: a student who is actively editing the
-      // form updates `updatedAt` on every debounced save; only the
-      // tab-close beacon updates `lastSeenAt`. Treat the latest of
-      // either as the activity signal so an actively edited draft
-      // never lands in the reminder queue.
-      const latestActivity = Math.max(
-        row.updatedAt,
-        row.lastSeenAt ?? 0
-      );
-      const isFresh = latestActivity >= staleCutoff;
-      if (isFresh) continue;
-      // Don't double-fire reminders: respect the min interval since
-      // the last send so a slow scan can't spam a student.
-      if (
-        row.lastReminderSentAt !== undefined &&
-        row.lastReminderSentAt > minIntervalCutoff
-      ) {
-        continue;
+    let cursor: string | null = null;
+    let pagesRead = 0;
+    const MAX_PAGES = 5;
+
+    while (candidates.length < STALE_BATCH_LIMIT && pagesRead < MAX_PAGES) {
+      const page = await ctx.db
+        .query("onboardingQuestionnaireSubmissions")
+        .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+        .paginate({ numItems: STALE_SCAN_PAGE_SIZE, cursor });
+
+      let pageHadEligible = false;
+      for (const row of page.page) {
+        const reminderCount = row.reminderCount ?? 0;
+        // Greptile P1 follow-up: when `reminderCount` is at the
+        // cap, skip without inspecting other fields. The
+        // `updatedAt` of an exhausted row stays put until the
+        // student edits or submits, so these rows would
+        // otherwise pin the cursor at the front of the index
+        // forever.
+        if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
+        pageHadEligible = true;
+
+        // Greptile P2 #14: a student who is actively editing the
+        // form updates `updatedAt` on every debounced save; only
+        // the tab-close beacon updates `lastSeenAt`. Treat the
+        // latest of either as the activity signal so an actively
+        // edited draft never lands in the reminder queue.
+        const latestActivity = Math.max(
+          row.updatedAt,
+          row.lastSeenAt ?? 0
+        );
+        const isFresh = latestActivity >= staleCutoff;
+        if (isFresh) continue;
+
+        // Don't double-fire reminders: respect the min interval
+        // since the last send so a slow scan can't spam a student.
+        if (
+          row.lastReminderSentAt !== undefined &&
+          row.lastReminderSentAt > minIntervalCutoff
+        ) {
+          continue;
+        }
+
+        const onboarding = await ctx.db.get(row.onboardingId);
+        if (!onboarding) continue;
+        // Greptile P2 #15: a cancelled onboarding leaves its
+        // questionnaire as a draft, and the questionnaire
+        // mutations reject further writes. Skip those parents.
+        if (onboarding.status === "cancelled") continue;
+
+        const student = onboarding.assignedStudentClerkId
+          ? await ctx.db
+              .query("users")
+              .withIndex("by_clerkId", (q) =>
+                q.eq("clerkId", onboarding.assignedStudentClerkId!)
+              )
+              .first()
+          : null;
+
+        candidates.push({
+          onboardingId: row.onboardingId,
+          submissionId: row._id,
+          studentEmail: student?.email ?? onboarding.email,
+          studentName: student?.firstName
+            ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
+            : null,
+          reminderCount,
+          lastSeenAt: row.lastSeenAt ?? null,
+        });
+
+        if (candidates.length >= STALE_BATCH_LIMIT) break;
       }
 
-      const onboarding = await ctx.db.get(row.onboardingId);
-      if (!onboarding) continue;
-      // Greptile P2 #15: a cancelled onboarding leaves its
-      // questionnaire as a draft, and the questionnaire mutations
-      // reject further writes. Skip those parents so we don't
-      // send a reminder to a form the student can no longer
-      // submit.
-      if (onboarding.status === "cancelled") continue;
-
-      const student = onboarding.assignedStudentClerkId
-        ? await ctx.db
-            .query("users")
-            .withIndex("by_clerkId", (q) =>
-              q.eq("clerkId", onboarding.assignedStudentClerkId!)
-            )
-            .first()
-        : null;
-
-      candidates.push({
-        onboardingId: row.onboardingId,
-        submissionId: row._id,
-        studentEmail: student?.email ?? onboarding.email,
-        studentName: student?.firstName
-          ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
-          : null,
-        reminderCount,
-        lastSeenAt: row.lastSeenAt ?? null,
-      });
+      cursor = page.continueCursor;
+      pagesRead += 1;
+      // If we walked an entire page without finding any eligible
+      // row, the rest of the partition is unlikely to have any
+      // either (the index is sorted by updatedAt ascending — newer
+      // drafts surface first). Stop early to save the read budget.
+      if (!pageHadEligible) break;
+      if (page.isDone) break;
     }
 
     return candidates;

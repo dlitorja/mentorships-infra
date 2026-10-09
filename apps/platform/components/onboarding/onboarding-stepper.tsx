@@ -25,7 +25,11 @@ function computeCurrentStep(
   if (status === "completed") {
     return questionnaireSubmitted ? 4 : 3;
   }
-  const helper: Record<OnboardingStatus, number> = {
+  // Exclude `completed` from the helper record — that branch is
+  // handled by the early-return above. Using
+  // `Exclude<OnboardingStatus, "completed">` keeps the type
+  // exhaustive without a redundant key (Greptile P1 follow-up).
+  const helper: Record<Exclude<OnboardingStatus, "completed">, number> = {
     queued: 1,
     processing: 2,
     failed: 2,

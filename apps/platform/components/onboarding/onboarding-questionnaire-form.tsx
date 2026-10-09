@@ -114,21 +114,24 @@ export default function OnboardingQuestionnaireForm({
   // Auto-save (debounced) when answers or inspirations change.
   const lastSavePayload = useRef<string>("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mutateRef = useRef<(() => void) | null>(null);
   const saveMutation = useMutation({
     mutationFn: () => {
+      const a = answersRef.current;
+      const i = inspirationsRef.current;
       const trimmedAnswers = textareaQuestions
         .map((q) => ({
           questionId: q.id,
-          answerText: (answers[q.id] ?? "").trim(),
+          answerText: (a[q.id] ?? "").trim(),
         }))
-        .filter((a) => a.answerText.length > 0);
+        .filter((x) => x.answerText.length > 0);
       return apiFetch<{ submission: Submission }>(
         ApiRoutes.onboardingQuestionnaire(onboardingId),
         {
           method: "PATCH",
           body: JSON.stringify({
             answers: trimmedAnswers,
-            inspirations: inspirations.filter((i) => i.name.trim().length > 0),
+            inspirations: i.filter((x) => x.name.trim().length > 0),
           }),
         }
       );
@@ -153,18 +156,28 @@ export default function OnboardingQuestionnaireForm({
   }, [inspirations]);
 
   useEffect(() => {
+    // Greptile P1 follow-up: pin `saveMutation.mutate` to a ref so
+    // the effect dep array stays stable. TanStack Query returns a
+    // fresh mutation object on every render; depending on it caused
+    // the cleanup to fire when an in-flight save resolved, which
+    // cancelled a pending debounce and silently dropped the latest
+    // edit.
+    mutateRef.current = saveMutation.mutate;
+  });
+
+  useEffect(() => {
     if (alreadySubmitted) return;
     const payload = JSON.stringify({ answers, inspirations });
     if (payload === lastSavePayload.current) return;
     lastSavePayload.current = payload;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      saveMutation.mutate();
+      mutateRef.current?.();
     }, ONBOARDING_AUTOSAVE_DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [answers, inspirations, alreadySubmitted, saveMutation]);
+  }, [answers, inspirations, alreadySubmitted]);
 
   // Beacon on tab close — fires lastSeenAt so the cron has fresh data.
   useEffect(() => {
