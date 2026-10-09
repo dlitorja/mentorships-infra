@@ -26,6 +26,7 @@ export const TIMELINE_EVENTS = [
   "cancelled",
   "capacity_override",
   "alias_set",
+  "invitation_resent",
 ] as const;
 export type TimelineEvent = (typeof TIMELINE_EVENTS)[number];
 
@@ -149,6 +150,8 @@ export function timelineEventLabel(event: TimelineEvent | string): string {
       return "Capacity override applied";
     case "alias_set":
       return "Separate student alias set";
+    case "invitation_resent":
+      return "Invitation resent";
     default:
       return event;
   }

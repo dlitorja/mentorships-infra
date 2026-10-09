@@ -1436,6 +1436,24 @@ export async function retryAdminOnboarding(onboardingId: string) {
 }
 
 /**
+ * Resend the Clerk invitation for an onboarding whose student never
+ * received (or lost) the original signup email. See
+ * apps/platform/app/api/admin/onboardings/[id]/resend-invitation/route.ts
+ * for the full flow — this wrapper is the typed client-side handle.
+ */
+export async function resendAdminOnboardingInvitation(onboardingId: string) {
+  return apiFetch<{
+    onboardingId: string;
+    status: "queued" | "processing" | "failed" | "cancelled";
+    failureReason?: string;
+    previousInvitationIds: string[];
+    newInvitationId: string;
+  }>(ApiRoutes.adminOnboardingResendInvitation(onboardingId), {
+    method: "POST",
+  });
+}
+
+/**
  * Admin workspaces
  */
 

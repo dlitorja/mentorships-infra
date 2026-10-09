@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
+import { api } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -173,4 +174,183 @@ test("audit-atomicity: /release-placeholder-batch writes one audit row per onboa
   expect(targetIds.has(a.onboardingId)).toBe(true);
   expect(targetIds.has(b.onboardingId)).toBe(true);
   expect(targetIds.has(c.onboardingId)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// PR 12 PR 2: resendAdminOnboardingInvitation mutation tests
+//
+// The route at apps/platform/app/api/admin/onboardings/[id]/resend-invitation
+// does the Clerk revoke + mint (Node runtime); the Convex mutation only
+// patches perInstructor.clerkInvitationId, appends a timeline entry, and
+// writes an audit row. These tests cover the mutation directly.
+// ---------------------------------------------------------------------------
+
+async function seedResendRow(
+  t: ReturnType<typeof convexTest>,
+  email: string,
+  status: "queued" | "processing" | "completed" | "failed" | "cancelled",
+): Promise<{ onboardingId: string; instructorId: string }> {
+  let onboardingId = "";
+  let instructorId = "";
+  await t.run(async (ctx) => {
+    instructorId = await ctx.db.insert("instructors", {
+      name: "Resend Instructor",
+      slug: `resend-${status}-${Math.random().toString(36).slice(2, 8)}`,
+      email: "resend-instructor@example.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    onboardingId = await ctx.db.insert("adminOnboardings", {
+      email,
+      flowVersion: 1,
+      source: "manual",
+      submittedByUserId: "user_submitter",
+      status,
+      attemptCount: 1,
+      perInstructor: [
+        {
+          instructorId: instructorId as any,
+          isRenewal: false,
+          sessionsPerInstructor: 4,
+          clerkInvitationId: "inv_old_xxx",
+        },
+      ],
+      isSeparateStudentRecord: false,
+      existingWorkspaceIds: [],
+      timeline: [{ at: Date.now(), event: "queued" }],
+      createdAt: Date.now(),
+    });
+  });
+  return { onboardingId, instructorId };
+}
+
+async function seedAdminUser(t: ReturnType<typeof convexTest>, subject: string): Promise<void> {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email: `${subject}@example.com`,
+      role: "admin",
+    });
+  });
+}
+
+test("resendAdminOnboardingInvitation: happy path (queued) writes timeline entry + audit row + new invitationId", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_resend_queued";
+  await seedAdminUser(t, subject);
+  const { onboardingId } = await seedResendRow(t, "resend-queued@example.com", "queued");
+
+  const result = await t
+    .withIdentity({ subject })
+    .mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+      onboardingId: onboardingId as any,
+      newInvitationId: "inv_new_yyy",
+    });
+
+  expect(result.previousStatus).toBe("queued");
+  expect(result.previousInvitationIds).toEqual(["inv_old_xxx"]);
+  expect(result.newInvitationId).toBe("inv_new_yyy");
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  expect(row?.perInstructor[0].clerkInvitationId).toBe("inv_new_yyy");
+  const lastTimeline = row?.timeline[row.timeline.length - 1];
+  expect(lastTimeline?.event).toBe("invitation_resent");
+  expect(lastTimeline?.actorUserId).toBe(subject);
+  expect(lastTimeline?.details).toContain("prev=inv_old_xxx");
+  expect(lastTimeline?.details).toContain("new=inv_new_yyy");
+  // Row status is unchanged — the mutation does not auto-retry.
+  expect(row?.status).toBe("queued");
+
+  const audit = await t.run(async (ctx) => await ctx.db.query("auditLogs").collect());
+  const resendAudit = audit.filter((l: any) => l.action === "resend_admin_onboarding_invitation");
+  expect(resendAudit.length).toBe(1);
+  expect(resendAudit[0].targetId).toBe(onboardingId);
+  expect(resendAudit[0].actorId).toBe(subject);
+  expect(resendAudit[0].actorRole).toBe("admin");
+  expect(resendAudit[0].metadata?.newInvitationId).toBe("inv_new_yyy");
+  expect(resendAudit[0].metadata?.previousInvitationIds).toEqual(["inv_old_xxx"]);
+  expect(resendAudit[0].metadata?.previousStatus).toBe("queued");
+});
+
+test("resendAdminOnboardingInvitation: failed row keeps status 'failed' (route chains retry, mutation does not)", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_resend_failed";
+  await seedAdminUser(t, subject);
+  const { onboardingId } = await seedResendRow(t, "resend-failed@example.com", "failed");
+
+  await t
+    .withIdentity({ subject })
+    .mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+      onboardingId: onboardingId as any,
+      newInvitationId: "inv_new_zzz",
+    });
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  expect(row?.perInstructor[0].clerkInvitationId).toBe("inv_new_zzz");
+  // Mutation does not flip status — the route chains retryAdminOnboarding
+  // separately when the prior status was 'failed'.
+  expect(row?.status).toBe("failed");
+});
+
+test("resendAdminOnboardingInvitation: refuses on terminal 'completed' status", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_resend_completed";
+  await seedAdminUser(t, subject);
+  const { onboardingId } = await seedResendRow(t, "resend-completed@example.com", "completed");
+
+  await expect(
+    t
+      .withIdentity({ subject })
+      .mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+        onboardingId: onboardingId as any,
+        newInvitationId: "inv_new_terminal",
+      })
+  ).rejects.toThrow(/terminal/);
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  // clerkInvitationId unchanged.
+  expect(row?.perInstructor[0].clerkInvitationId).toBe("inv_old_xxx");
+});
+
+test("resendAdminOnboardingInvitation: refuses on terminal 'cancelled' status", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_resend_cancelled";
+  await seedAdminUser(t, subject);
+  const { onboardingId } = await seedResendRow(t, "resend-cancelled@example.com", "cancelled");
+
+  await expect(
+    t
+      .withIdentity({ subject })
+      .mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+        onboardingId: onboardingId as any,
+        newInvitationId: "inv_new_cancelled",
+      })
+  ).rejects.toThrow(/terminal/);
+});
+
+test("resendAdminOnboardingInvitation: throws 'Forbidden' for non-admin caller", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_student_caller";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email: `${subject}@example.com`,
+      role: "student",
+    });
+  });
+  const { onboardingId } = await seedResendRow(t, "resend-forbidden@example.com", "queued");
+
+  await expect(
+    t
+      .withIdentity({ subject })
+      .mutation(api.adminOnboarding.resendAdminOnboardingInvitation, {
+        onboardingId: onboardingId as any,
+        newInvitationId: "inv_new_forbidden",
+      })
+  ).rejects.toThrow(/Forbidden/);
 });

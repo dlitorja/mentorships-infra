@@ -661,6 +661,116 @@ export const retryAdminOnboarding = mutation({
 });
 
 /**
+ * PR 12 PR 2: Resend the Clerk invitation for an onboarding whose
+ * student never received (or lost) the original signup email.
+ *
+ * Unlike `retryAdminOnboarding` (which only re-emits the Inngest event
+ * with a bumped attempt count), this mutation writes a fresh
+ * `clerkInvitationId` onto the row's `perInstructor[i]` entries (for
+ * non-renewal pairs) so the student gets a brand-new signup email.
+ *
+ * The Clerk Backend SDK calls (revoke prior + mint new) live in the
+ * HTTP route at `apps/platform/app/api/admin/onboardings/[id]/resend-invitation/route.ts`
+ * because Convex mutations don't have Node-runtime access to
+ * `@clerk/nextjs/server`. This mutation accepts the IDs minted by the
+ * route and records them on the row.
+ *
+ * State machine:
+ *   - refuses on `completed` / `cancelled` (terminal) — throws a plain
+ *     `Error` containing the substring `"terminal"` so the route can
+ *     map it to HTTP 409 (matches the existing `retryAdminOnboarding`
+ *     error-mapping pattern).
+ *   - on `queued` / `processing` / `failed`, the row stays in its
+ *     current status. The route chains `retryAdminOnboarding` only
+ *     when the prior status was `failed` so the Inngest pipeline
+ *     re-drives.
+ *
+ * Side effects:
+ *   - patches `perInstructor[i].clerkInvitationId = newInvitationId`
+ *     for every non-renewal pair (renewal pairs keep their undefined
+ *     value because the Clerk account is already linked).
+ *   - appends a timeline entry with event `invitation_resent` and a
+ *     `details` string of the form `prev=inv_xxx new=inv_yyy`.
+ *   - writes an audit log row with action
+ *     `resend_admin_onboarding_invitation`.
+ *
+ * Plan §5.2 originally referenced `studentInvitations.clerkInvitationId`
+ * as the patch target when `isSeparateStudentRecord === true`. That
+ * table is a legacy artifact of the `/api/admin/students/invite`
+ * route and is never written by the `adminOnboardings` commit flow,
+ * so the patch target here is `perInstructor[i].clerkInvitationId`
+ * regardless of `isSeparateStudentRecord`.
+ */
+export const resendAdminOnboardingInvitation = mutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    newInvitationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const gate = await isAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) throw new Error("Forbidden: admin or support role required");
+
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) throw new Error("Onboarding not found");
+
+    if (row.status === "completed" || row.status === "cancelled") {
+      throw new Error(
+        `Cannot resend invitation from terminal status '${row.status}'`
+      );
+    }
+
+    const previousInvitationIds = Array.from(
+      new Set(
+        row.perInstructor
+          .map((p) => p.clerkInvitationId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      )
+    );
+
+    const newPerInstructor = row.perInstructor.map((p) => ({
+      ...p,
+      clerkInvitationId: p.isRenewal ? undefined : args.newInvitationId,
+    }));
+
+    await ctx.db.patch(args.onboardingId, {
+      perInstructor: newPerInstructor,
+      timeline: [
+        ...row.timeline,
+        newTimelineEntry(
+          "invitation_resent",
+          identity.subject,
+          `prev=${previousInvitationIds.join(",") || "(none)"} new=${args.newInvitationId}`
+        ),
+      ],
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "resend_admin_onboarding_invitation",
+      targetType: "adminOnboarding",
+      targetId: args.onboardingId,
+      details: `Resent Clerk invitation (was: ${previousInvitationIds.join(",") || "(none)"}, new: ${args.newInvitationId})`,
+      metadata: {
+        previousInvitationIds,
+        newInvitationId: args.newInvitationId,
+        previousStatus: row.status,
+        email: row.email,
+      },
+    });
+
+    return {
+      onboardingId: args.onboardingId,
+      previousStatus: row.status,
+      previousInvitationIds,
+      newInvitationId: args.newInvitationId,
+    };
+  },
+});
+
+/**
  * Cancel a `queued`, `processing`, or `failed` onboarding. Artifacts
  * (session packs, seats, workspaces) are preserved — the admin can audit
  * what was created and decide whether to release seats via separate
@@ -1006,7 +1116,8 @@ export const appendTimelineEntry = internalMutation({
       v.literal("cancelled"),
       v.literal("capacity_override"),
       v.literal("alias_set"),
-      v.literal("released")
+      v.literal("released"),
+      v.literal("invitation_resent")
     ),
     actorUserId: v.optional(v.string()),
     details: v.optional(v.string()),
