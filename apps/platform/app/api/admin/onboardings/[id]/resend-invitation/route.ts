@@ -338,10 +338,17 @@ export async function POST(
       }
     }
 
-    let responseStatus: "queued" | "processing" | "failed" | "cancelled" = row.status;
+    // Use `saveResult.previousStatus` (the status at the moment of the
+    // save, not the local read at the start of the route) for the
+    // retry decision and the initial response status. The status can
+    // have flipped from `queued` to `failed` between the route's local
+    // read and the save if an in-flight Inngest run failed in the
+    // meantime. Greptile P1 finding on commit 46fb2fd8.
+    let responseStatus: "queued" | "processing" | "failed" | "cancelled" =
+      saveResult.previousStatus;
     let failureReason: string | undefined;
 
-    if (row.status === "failed") {
+    if (saveResult.previousStatus === "failed") {
       let retryResult: { onboardingId: string; status: "processing"; attemptCount: number } | null = null;
       try {
         retryResult = await convex.mutation(
