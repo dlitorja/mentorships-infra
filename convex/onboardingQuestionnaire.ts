@@ -1,7 +1,6 @@
 import {
   mutation,
   query,
-  internalMutation,
   MutationCtx,
   QueryCtx,
 } from "./_generated/server";
@@ -469,24 +468,32 @@ export const getSubmittedQuestionnaireForViewer = query({
 });
 
 /**
- * Internal mutation: stamp `lastSeenAt` on the submission row.
- * Called by the `/api/onboarding/[id]/abandoned` beacon route.
- * Does NOT increment `reminderCount` — only the cron does that.
+ * Stamp `lastSeenAt` on the submission row. Called by the
+ * `/api/onboarding/[id]/abandoned` beacon route.
  *
- * Greptile round 1 P2 finding on PR 2: the beacon must not
- * race with the cron. Idempotent on `lastSeenAt` (just
- * patches the timestamp).
+ * Made public (not internal) because the beacon flow requires a
+ * browser → Next.js → Convex call path. The auth check is
+ * server-side: reads `ctx.auth` and verifies the caller's Clerk
+ * subject matches the submission's `studentClerkId`. Does NOT
+ * increment `reminderCount` — only the cron does that.
+ *
+ * Greptile round 1 P2 finding on PR 2: the beacon must not race
+ * with the cron. Idempotent on `lastSeenAt` (just patches the
+ * timestamp). Returns null silently when unauthorized so the
+ * beacon's failure mode is indistinguishable from success on the
+ * wire — `beforeunload` requests can be aborted by the browser.
  */
-export const recordQuestionnaireSeen = internalMutation({
+export const recordQuestionnaireSeen = mutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
-    studentClerkId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
     const submission = await loadDraftOrNull(ctx, args.onboardingId);
     if (!submission) return null;
-    if (submission.studentClerkId !== args.studentClerkId) return null;
+    if (submission.studentClerkId !== identity.subject) return null;
     if (submission.status === "submitted") return null;
     await ctx.db.patch(submission._id, { lastSeenAt: Date.now() });
     return null;
