@@ -257,7 +257,14 @@ export async function POST(
       //       and only revoke when the new invitationId is NOT
       //       recorded on any perInstructor pair. Greptile P1 finding
       //       on commit 35493b25.
-      let savedRowHasNewId = false;
+      //
+      // When the recheck itself fails (couldn't tell), default to
+      // `savedRowHasNewId = true` (assume the save MAY have committed
+      // and preserve the freshly-minted invite). The alternative —
+      // defaulting to `false` and revoking — risks revoking a working
+      // signup link if the recheck failed transiently. Greptile P1
+      // finding on commit e2cb4b33.
+      let savedRowHasNewId = true;
       try {
         const savedRow = await convex.query(api.adminOnboarding.getAdminOnboarding, {
           id: onboardingId,
@@ -272,7 +279,8 @@ export async function POST(
           source: "api:admin/onboardings/resend-invitation:recheck",
           error: recheckErr instanceof Error ? recheckErr : new Error(String(recheckErr)),
           level: "warn",
-          message: "Could not re-read onboarding row to confirm save outcome",
+          message:
+            "Could not re-read onboarding row to confirm save outcome; preserving freshly-minted Clerk invite for operator audit (safer default)",
           context: { onboardingId, newInvitationId },
         });
       }
