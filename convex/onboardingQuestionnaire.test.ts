@@ -537,13 +537,15 @@ test("listStaleDraftsForReminder picks up rows past the stale threshold", async 
       inspirations: VALID_INSPIRATIONS,
     });
 
-  // Stamp lastSeenAt deep in the past.
+  // Stamp both `updatedAt` and `lastSeenAt` deep in the past so the
+  // Math.max(updatedAt, lastSeenAt ?? 0) freshness check (Greptile
+  // P2 #14) considers the row stale.
   await t.run(async (ctx) => {
     const sub = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
       .withIndex("by_onboardingId", (q) => q.eq("onboardingId", onboardingId as any))
       .first();
-    await ctx.db.patch(sub!._id, { lastSeenAt: 0 });
+    await ctx.db.patch(sub!._id, { lastSeenAt: 0, updatedAt: 0 });
   });
 
   const drafts = await t.run(async (ctx) =>
@@ -601,4 +603,40 @@ test("markReminderSent is idempotent on `next`", async () => {
     return sub;
   });
   expect((row as any).reminderCount).toBe(1);
+});
+
+test("listStaleDraftsForReminder excludes cancelled parent onboardings (P2 #15)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_13";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-13" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student13@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+    });
+
+  // Cancel the parent onboarding + stamp the draft as stale.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(onboardingId as any, { status: "cancelled" });
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", onboardingId as any))
+      .first();
+    await ctx.db.patch(sub!._id, { lastSeenAt: 0, updatedAt: 0 });
+  });
+
+  const drafts = await t.run(async (ctx) =>
+    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, {})
+  );
+  expect(drafts.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
 });

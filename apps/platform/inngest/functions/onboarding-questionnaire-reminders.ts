@@ -91,7 +91,14 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
           if (next > maxReminders) {
             return { skipped: true, reason: "max-reached" };
           }
-          const questionnaireUrl = `${baseUrl}/onboarding/${draft.onboardingId}/questionnaire`;
+          // Greptile P1 #11: link through Clerk's sign-in redirect so a
+// logged-out tab lands back on the questionnaire after auth. The
+// proxy's protected-page list does not include /onboarding so
+// direct links hit notFound() before reaching ProtectedLayout.
+const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
+  `/onboarding/${draft.onboardingId}/questionnaire`
+)}`;
+const questionnaireUrl = `${baseUrl}${signInPath}`;
           const email = buildOnboardingReminderEmail({
             studentName: draft.studentName,
             studentEmail: draft.studentEmail,

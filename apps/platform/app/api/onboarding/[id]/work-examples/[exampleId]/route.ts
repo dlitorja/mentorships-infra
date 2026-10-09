@@ -15,7 +15,7 @@ import { reportError } from "@/lib/observability";
  */
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string; exampleId: string } }
+  { params }: { params: Promise<{ id: string; exampleId: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -23,8 +23,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
-    const workExampleId = convexIdSchema.parse(params.exampleId) as Id<"onboardingWorkExamples">;
+    const { id, exampleId } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
+    const workExampleId = convexIdSchema.parse(exampleId) as Id<"onboardingWorkExamples">;
 
     const convex = await getAuthenticatedConvexClient();
     const result = await convex.mutation(

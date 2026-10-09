@@ -309,6 +309,8 @@ export const listWorkExamples = query({
   returns: v.array(
     v.object({
       _id: v.id("onboardingWorkExamples"),
+      status: v.union(v.literal("pending"), v.literal("active"), v.literal("deleted")),
+      fileName: v.string(),
       b2Key: v.string(),
       contentType: v.string(),
       size: v.number(),
@@ -343,19 +345,79 @@ export const listWorkExamples = query({
     }
     if (!authorized) return [];
 
+    // Greptile P1 #9: return every field the form needs (status +
+    // fileName) so a saved-but-not-yet-active row survives a reload.
+    // We still filter out terminal `deleted` rows here — the public
+    // surface treats only `pending` and `active` as visible to the
+    // student.
     const rows = await ctx.db
       .query("onboardingWorkExamples")
-      .withIndex("by_onboardingId_active", (q) =>
-        q.eq("onboardingId", args.onboardingId).eq("status", "active")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
       )
       .collect();
-    return rows.map((r) => ({
-      _id: r._id,
-      b2Key: r.b2Key,
-      contentType: r.contentType,
-      size: r.size,
-      uploadedAt: r.uploadedAt,
-    }));
+    return rows
+      .filter((r) => r.status !== "deleted")
+      .map((r) => ({
+        _id: r._id,
+        status: r.status,
+        fileName: r.fileName,
+        b2Key: r.b2Key,
+        contentType: r.contentType,
+        size: r.size,
+        uploadedAt: r.uploadedAt,
+      }));
+  },
+});
+
+/**
+ * Greptile P1 #3 helper: resolve a single work example to its b2Key
+ * after auth-checking the viewer. Used by the download-url API route
+ * to call `getWorkExampleDownloadUrl({ b2Key })`. Returns `null` if
+ * the row doesn't exist, doesn't belong to this onboarding, or the
+ * viewer is unauthorized.
+ */
+export const getWorkExampleByIdForViewer = query({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    workExampleId: v.id("onboardingWorkExamples"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("onboardingWorkExamples"),
+      b2Key: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    if (!row) return null;
+    const work = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    if (!work || work.onboardingId !== args.onboardingId) return null;
+
+    let authorized = row.assignedStudentClerkId === identity.subject;
+    if (!authorized) {
+      for (const p of row.perInstructor) {
+        const instructor = await ctx.db.get("instructors", p.instructorId);
+        if (instructor?.userId === identity.subject) {
+          authorized = true;
+          break;
+        }
+      }
+    }
+    if (!authorized) {
+      const userRow = await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+        .first();
+      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+        authorized = true;
+      }
+    }
+    if (!authorized) return null;
+    return { _id: work._id, b2Key: work.b2Key };
   },
 });
 

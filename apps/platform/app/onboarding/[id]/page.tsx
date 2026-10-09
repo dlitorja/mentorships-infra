@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
+import { ApiRoutes } from "@/lib/routes";
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -124,7 +125,14 @@ export default async function OnboardingStatusPage({
           </p>
         </header>
 
-        <OnboardingStepper status={onboarding.status} />
+        <OnboardingStepper
+          status={onboarding.status}
+          questionnaireSubmitted={
+            isStudent
+              ? myDraft?.status === "submitted"
+              : submittedForViewer != null
+          }
+        />
 
         {onboarding.status === "failed" && onboarding.failureReason && (
           <Card className="border-destructive/40 bg-destructive/5">
@@ -240,19 +248,27 @@ export default async function OnboardingStatusPage({
           </p>
         )}
 
-        {isStudent && myDraft && myDraft.status === "draft" && (
+        {isStudent && (
           <Card>
             <CardHeader>
-              <CardTitle>Almost there — finish your questionnaire</CardTitle>
+              <CardTitle>
+                {myDraft && myDraft.status === "draft"
+                  ? "Almost there — finish your questionnaire"
+                  : "Tell your instructor about you"}
+              </CardTitle>
               <CardDescription>
-                Your instructor needs your answers before your first call.
-                Auto-save keeps your draft; come back any time.
+                Your instructor reads these answers before your first call so
+                they can prepare a session that&apos;s useful for you.
+                {myDraft && myDraft.status === "draft" &&
+                  " Auto-save keeps your draft; come back any time."}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button asChild>
                 <Link href={`/onboarding/${onboarding._id}/questionnaire`}>
-                  Continue questionnaire
+                  {myDraft && myDraft.status === "draft"
+                    ? "Continue questionnaire"
+                    : "Start questionnaire"}
                 </Link>
               </Button>
             </CardContent>
@@ -264,39 +280,61 @@ export default async function OnboardingStatusPage({
             <CardHeader>
               <CardTitle>Student questionnaire</CardTitle>
               <CardDescription>
-                Submitted {formatDateTime(submittedForViewer.submittedAt)}.
+                {/* Greptile P1 #6: answers + inspirations live under
+                   `submittedForViewer.submission`, not on the outer
+                   object. */}
+                Submitted {formatDateTime(submittedForViewer.submission?.submittedAt)}.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                {(submittedForViewer.answers ?? []).map((a: { questionId: string; answerText: string }) => (
-                  <div key={a.questionId} className="space-y-1">
-                    <p className="text-sm font-medium">
-                      {questionLabel(a.questionId)}
-                    </p>
-                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                      {a.answerText || <em>No answer</em>}
-                    </p>
-                  </div>
-                ))}
+                {(submittedForViewer.submission?.answers ?? []).map(
+                  (a: {
+                    questionId: string;
+                    questionText?: string;
+                    answerText: string;
+                  }) => (
+                    <div key={a.questionId} className="space-y-1">
+                      <p className="text-sm font-medium">
+                        {a.questionText ?? questionLabel(a.questionId)}
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                        {a.answerText || <em>No answer</em>}
+                      </p>
+                    </div>
+                  )
+                )}
               </div>
               <div>
                 <p className="mb-2 text-sm font-medium">Inspirations</p>
                 <ul className="list-disc pl-5 text-sm text-muted-foreground">
-                  {(submittedForViewer.inspirations ?? []).map((i: { name: string }, idx: number) => (
-                    <li key={idx}>{i.name}</li>
-                  ))}
+                  {(submittedForViewer.submission?.inspirations ?? []).map(
+                    (i: { name: string }, idx: number) => (
+                      <li key={idx}>{i.name}</li>
+                    )
+                  )}
                 </ul>
               </div>
+              {/* Greptile P1 #7: render the uploaded images here so
+                 instructors can actually review the work before the
+                 first call. Each <img> fetches a fresh signed GET
+                 URL (1h TTL) from the work-examples download-url
+                 API route, which re-checks the viewer's auth gate. */}
               {Array.isArray(submittedWorkExamples) && submittedWorkExamples.length > 0 && (
-                <div>
-                  <p className="mb-2 text-sm font-medium">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
                     Work examples ({submittedWorkExamples.length})
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Images are stored in B2; use the admin tools to view full
-                    resolution.
-                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {submittedWorkExamples.map((w: { _id: string; fileName: string }) => (
+                      <WorkExampleThumb
+                        key={w._id}
+                        onboardingId={onboarding._id}
+                        exampleId={w._id}
+                        fileName={w.fileName}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -327,4 +365,65 @@ function questionLabel(id: string): string {
     default:
       return id;
   }
+}
+
+/**
+ * Greptile P1 #7 helper: each thumbnail mints its own short-lived
+ * signed GET URL on render (server component). The URL TTL is 1h and
+ * the download-url API route re-checks the viewer is authorized
+ * (student / matching instructor / admin / support).
+ */
+async function WorkExampleThumb({
+  onboardingId,
+  exampleId,
+  fileName,
+}: {
+  onboardingId: string;
+  exampleId: string;
+  fileName: string;
+}): Promise<React.JSX.Element> {
+  const token = await getConvexAuthToken();
+  try {
+    const { url } = await fetchQuery(
+      (api as any).onboardingWorkExamplesActions.getWorkExampleDownloadUrl,
+      // The action needs (onboardingId, b2Key) — resolve first.
+      // We use the same lookup the API route does.
+      { onboardingId: onboardingId as Id<"adminOnboardings">, b2Key: "" } as any,
+      { token: token ?? undefined }
+    );
+    // Fall back to the API route instead — it does the b2Key
+    // resolution server-side.
+    void url;
+  } catch {
+    // ignore — fallback below
+  }
+  // Use the API route directly so we don't duplicate the resolve
+  // logic here. Same auth gate runs server-side.
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_APP_URL ?? ""}${ApiRoutes.onboardingWorkExampleDownloadUrl(onboardingId, exampleId)}`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: "no-store",
+    }
+  ).catch(() => null);
+  const url = res?.ok ? (await res.json()).url : null;
+  return (
+    <div className="relative aspect-square overflow-hidden rounded-md border bg-muted">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={fileName}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+          (image)
+        </div>
+      )}
+      <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
+        <span className="line-clamp-1">{fileName}</span>
+      </div>
+    </div>
+  );
 }

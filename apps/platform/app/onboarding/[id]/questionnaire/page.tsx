@@ -7,7 +7,6 @@ import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,

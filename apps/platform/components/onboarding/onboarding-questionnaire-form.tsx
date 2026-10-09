@@ -26,7 +26,6 @@ import {
 } from "@/lib/workspace-constants";
 import {
   ONBOARDING_QUESTIONS,
-  type OnboardingQuestion,
   type OnboardingInspirationsQuestion,
   type OnboardingTextareaQuestion,
 } from "@/lib/onboarding-questions";
@@ -93,6 +92,9 @@ export default function OnboardingQuestionnaireForm({
 }): React.JSX.Element {
   const router = useRouter();
   const [submission, setSubmission] = useState<Submission | null>(initial.submission);
+  // Greptile P1 #9: listWorkExamples now returns status + fileName
+  // for every non-deleted row, so a pending-but-still-saved row
+  // survives a reload and renders in the grid.
   const [workExamples, setWorkExamples] = useState<WorkExample[]>(
     initial.workExamples.filter((w) => w.status !== "deleted")
   );
@@ -235,7 +237,6 @@ export default function OnboardingQuestionnaireForm({
           method: "POST",
           body: JSON.stringify({
             workExampleId: minted.workExampleId,
-            fileId: minted.fileId,
           }),
         });
         setWorkExamples((prev) => [
@@ -277,25 +278,44 @@ export default function OnboardingQuestionnaireForm({
   );
 
   // Submit gate (client-side preview; server is authoritative).
-  const missingRequired = useMemo(
+  //
+  // Greptile P1 #8: required coverage used to be checked against
+  // `answers[inspirations]`, but the inspirations inputs update the
+  // separate `inspirations` state — never `answers`. So that branch
+  // was always missing, and submit stayed disabled even when every
+  // required field was filled. The fix: treat `inspirations` as its
+  // own required set, alongside the textarea required ids.
+  const validInspirations = useMemo(
+    () => inspirations.filter((i) => i.name.trim().length > 0),
+    [inspirations]
+  );
+  const missingTextareaRequired = useMemo(
     () =>
       ONBOARDING_REQUIRED_QUESTION_IDS.filter(
-        (id) => !(answers[id] ?? "").trim()
+        (id) => id !== "inspirations" && !(answers[id] ?? "").trim()
       ),
     [answers]
   );
-  const validInspirations = inspirations.filter((i) => i.name.trim().length > 0);
-  const activeWorkExamples = workExamples.filter((w) => w.status === "active");
   const canSubmit =
-    missingRequired.length === 0 &&
+    missingTextareaRequired.length === 0 &&
     validInspirations.length >= MIN_INSPIRATIONS &&
-    activeWorkExamples.length >= MIN_WORK_EXAMPLES_PER_SUBMISSION;
+    workExamples.filter((w) => w.status !== "deleted").length >=
+      MIN_WORK_EXAMPLES_PER_SUBMISSION;
 
   const submitMutation = useMutation({
     mutationFn: () =>
       apiFetch<{ submission: Submission }>(
         ApiRoutes.onboardingQuestionnaireSubmit(onboardingId),
-        { method: "POST" }
+        {
+          method: "POST",
+          body: JSON.stringify({
+            answers: textareaQuestions.map((q) => ({
+              questionId: q.id,
+              answerText: (answers[q.id] ?? "").trim(),
+            })),
+            inspirations: validInspirations,
+          }),
+        }
       ),
     onSuccess: ({ submission: next }) => {
       setSubmission(next);
@@ -459,10 +479,10 @@ export default function OnboardingQuestionnaireForm({
           </CardHeader>
           <CardContent className="space-y-3">
             <SubmitChecklist
-              missingRequired={missingRequired}
+              missingRequired={missingTextareaRequired}
               validInspirations={validInspirations.length}
               minInspirations={MIN_INSPIRATIONS}
-              activeWorkExamples={activeWorkExamples.length}
+              activeWorkExamples={workExamples.filter((w) => w.status !== "deleted").length}
               minWorkExamples={MIN_WORK_EXAMPLES_PER_SUBMISSION}
             />
             <Button

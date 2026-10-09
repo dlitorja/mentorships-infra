@@ -8,6 +8,8 @@ import { convexIdSchema } from "@/lib/validators";
 import { readJsonBody } from "@/lib/api/read-json-body";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { reportError } from "@/lib/observability";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
+import { ONBOARDING_QUESTIONS } from "@/lib/onboarding-questions";
 
 const inspirationSchema = z.object({
   name: z
@@ -38,7 +40,7 @@ const saveDraftSchema = z.object({
  */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -46,7 +48,8 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
 
     const convex = await getAuthenticatedConvexClient();
     const submission = await convex.query(
@@ -81,7 +84,7 @@ export async function GET(
  */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -89,7 +92,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
     const body = await readJsonBody(req);
     const parsed = saveDraftSchema.safeParse(body);
     if (!parsed.success) {
@@ -104,7 +108,17 @@ export async function PATCH(
       (api as any).onboardingQuestionnaire.saveQuestionnaireDraft,
       {
         onboardingId,
-        answers: parsed.data.answers,
+        questionnaireVersion: ONBOARDING_QUESTIONNAIRE_VERSION,
+        // Server-side: stamp each answer with the canonical
+        // questionText for the id (Greptile P1 #2). Without this,
+        // `saveQuestionnaireDraft` would reject the args because
+        // `questionText` is a required field on the validator.
+        answers: parsed.data.answers.map((a) => ({
+          questionId: a.questionId,
+          questionText:
+            ONBOARDING_QUESTIONS.find((q) => q.id === a.questionId)?.label ?? "",
+          answerText: a.answerText,
+        })),
         inspirations: parsed.data.inspirations,
       } as any
     );

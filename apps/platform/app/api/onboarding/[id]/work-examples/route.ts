@@ -12,21 +12,25 @@ import { reportError } from "@/lib/observability";
 /**
  * POST /api/onboarding/[id]/work-examples — finalize an upload. The
  * client PUT the bytes to B2 using the URL from `/upload-url`; this
- * route tells Convex to flip the row from `pending` → `active` and
- * record the B2 file id.
+ * route tells Convex to flip the row from `pending` → `active`. The
+ * reserved `workExampleId` came back in the upload-url response, so
+ * the client echoes it here.
  *
  * Idempotent: if the same `workExampleId` is recorded twice, the
  * second call is a no-op (server-side `recordWorkExampleUpload` checks
  * status before mutating).
+ *
+ * Greptile P1 #4: `recordWorkExampleUpload` only takes
+ * `onboardingId` + `workExampleId`. The `fileId` is stored on the
+ * pending row at upload-url time and never re-passed here.
  */
 const recordSchema = z.object({
   workExampleId: convexIdSchema,
-  fileId: z.string().min(1),
 });
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -34,7 +38,8 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
     const body = await readJsonBody(req);
     const parsed = recordSchema.safeParse(body);
     if (!parsed.success) {
@@ -50,7 +55,6 @@ export async function POST(
       {
         onboardingId,
         workExampleId: parsed.data.workExampleId,
-        fileId: parsed.data.fileId,
       } as any
     );
 

@@ -8,7 +8,7 @@ import { convexIdSchema } from "@/lib/validators";
 import { readJsonBody } from "@/lib/api/read-json-body";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { reportError } from "@/lib/observability";
-import { ONBOARDING_WORK_EXAMPLES_B2_PREFIX } from "@/lib/workspace-constants";
+import { randomUUID } from "node:crypto";
 
 /**
  * POST /api/onboarding/[id]/work-examples/upload-url — mint a presigned
@@ -32,7 +32,7 @@ const uploadUrlSchema = z.object({
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -40,7 +40,8 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
     const body = await readJsonBody(req);
     const parsed = uploadUrlSchema.safeParse(body);
     if (!parsed.success) {
@@ -55,10 +56,14 @@ export async function POST(
       (api as any).onboardingWorkExamplesActions.generateWorkExampleUploadUrl,
       {
         onboardingId,
+        // Stable per-call id the server uses to dedupe re-uploads
+        // (Greptile P1 #4). The B2 key prefix lives inside the
+        // action — passing it here would let a forged client write
+        // outside the `onboarding/` namespace.
+        fileId: randomUUID(),
         fileName: parsed.data.fileName,
         contentType: parsed.data.contentType,
         size: parsed.data.size,
-        keyPrefix: ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
       } as any
     );
 

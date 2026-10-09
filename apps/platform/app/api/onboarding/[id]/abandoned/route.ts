@@ -20,7 +20,7 @@ import { reportError } from "@/lib/observability";
  */
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -29,7 +29,8 @@ export async function POST(
       return NextResponse.json({ ok: true });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
     const convex = await getAuthenticatedConvexClient();
     await convex.mutation(
       (api as any).onboardingQuestionnaire.recordQuestionnaireSeen,

@@ -14,17 +14,25 @@ const STEP_LABELS = [
 
 /**
  * Step → which numeric step is "current" for each terminal/non-terminal
- * status. PR 4's questionnaire CTA replaces this with a finer-grained
- * mapping once the questionnaire stage lands; for PR 3 the 4-step bar
- * is the calmest read.
+ * status. The "completed" status is split: provisioning-completed but
+ * questionnaire not yet submitted → step 3 (workspaces ready). Both
+ * done → step 4 (final). Greptile P2 #10.
  */
-const STEP_HELPER: Record<OnboardingStatus, number> = {
-  queued: 1,
-  processing: 2,
-  completed: 4,
-  failed: 2,
-  cancelled: 1,
-};
+function computeCurrentStep(
+  status: OnboardingStatus,
+  questionnaireSubmitted: boolean
+): number {
+  if (status === "completed") {
+    return questionnaireSubmitted ? 4 : 3;
+  }
+  const helper: Record<OnboardingStatus, number> = {
+    queued: 1,
+    processing: 2,
+    failed: 2,
+    cancelled: 1,
+  };
+  return helper[status];
+}
 
 /**
  * PR 12 PR 3 — Visual progress indicator for the student onboarding
@@ -32,15 +40,24 @@ const STEP_HELPER: Record<OnboardingStatus, number> = {
  * Reused by the per-row status badge on `/admin/onboardings/[id]`
  * later if we want to surface the same visualization to admins; for
  * now it only renders on `/onboarding/[id]`.
+ *
+ * Greptile P2 #10 (PR 4b): provisioning completes asynchronously on
+ * the worker, so by the time `status === "completed"` flips, the
+ * student may still have an unsubmitted questionnaire. The stepper
+ * should reflect "your workspaces are ready" but not mark the
+ * final "Onboarding complete" step until the questionnaire is also
+ * submitted (the page passes that signal in).
  */
 export function OnboardingStepper({
   status,
+  questionnaireSubmitted,
   className,
 }: {
   status: OnboardingStatus;
+  questionnaireSubmitted: boolean;
   className?: string;
 }): React.JSX.Element {
-  const currentStep = STEP_HELPER[status];
+  const currentStep = computeCurrentStep(status, questionnaireSubmitted);
 
   return (
     <ol
@@ -79,11 +96,17 @@ function resolveState(
   currentStep: number,
   status: OnboardingStatus
 ): StepState {
-  // Greptile P2 finding: when `status === "completed"` the original
-  // mapping marked step 4 (the final "Onboarding complete" step) as
-  // "current" with a pulsing hourglass — visually unfinished. Completed
-  // means every step is done.
-  if (status === "completed") return "done";
+  if (status === "completed") {
+    // Workspaces-ready is "done" once status flipped; the final
+    // "Onboarding complete" step is only done once the questionnaire
+    // is submitted too. `computeCurrentStep` already encodes that
+    // signal — if `currentStep === 4` we know it's submitted, so
+    // every step is done.
+    if (currentStep >= 4) return "done";
+    if (stepNumber < currentStep) return "done";
+    if (stepNumber === currentStep) return "current";
+    return "future";
+  }
   if (status === "failed") {
     if (stepNumber < currentStep) return "done";
     if (stepNumber === currentStep) return "blocked";

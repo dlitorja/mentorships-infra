@@ -538,10 +538,16 @@ export const listStaleDraftsForReminder = internalQuery({
     const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
     const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
 
+    // Greptile P2 #13: bound the read. The
+    // `by_status_updatedAt` partition only contains draft rows, but
+    // a long-running app could accumulate a lot of them. `take`
+    // caps the scan at the batch limit so a single cron tick can't
+    // exceed Convex's per-query read budget even if every draft
+    // has been paused at `reminderCount = MAX`.
     const rows = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
       .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
-      .collect();
+      .take(STALE_BATCH_LIMIT);
 
     const candidates: Array<{
       onboardingId: Id<"adminOnboardings">;
@@ -555,10 +561,16 @@ export const listStaleDraftsForReminder = internalQuery({
     for (const row of rows) {
       const reminderCount = row.reminderCount ?? 0;
       if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
-      // Either: never seen (`lastSeenAt` undefined), or seen long
-      // enough ago that the row is stale again.
-      const isFresh =
-        row.lastSeenAt !== undefined && row.lastSeenAt >= staleCutoff;
+      // Greptile P2 #14: a student who is actively editing the
+      // form updates `updatedAt` on every debounced save; only the
+      // tab-close beacon updates `lastSeenAt`. Treat the latest of
+      // either as the activity signal so an actively edited draft
+      // never lands in the reminder queue.
+      const latestActivity = Math.max(
+        row.updatedAt,
+        row.lastSeenAt ?? 0
+      );
+      const isFresh = latestActivity >= staleCutoff;
       if (isFresh) continue;
       // Don't double-fire reminders: respect the min interval since
       // the last send so a slow scan can't spam a student.
@@ -571,6 +583,12 @@ export const listStaleDraftsForReminder = internalQuery({
 
       const onboarding = await ctx.db.get(row.onboardingId);
       if (!onboarding) continue;
+      // Greptile P2 #15: a cancelled onboarding leaves its
+      // questionnaire as a draft, and the questionnaire mutations
+      // reject further writes. Skip those parents so we don't
+      // send a reminder to a form the student can no longer
+      // submit.
+      if (onboarding.status === "cancelled") continue;
 
       const student = onboarding.assignedStudentClerkId
         ? await ctx.db
@@ -591,8 +609,6 @@ export const listStaleDraftsForReminder = internalQuery({
         reminderCount,
         lastSeenAt: row.lastSeenAt ?? null,
       });
-
-      if (candidates.length >= STALE_BATCH_LIMIT) break;
     }
 
     return candidates;
@@ -602,8 +618,10 @@ export const listStaleDraftsForReminder = internalQuery({
 /**
  * Read-only status read used by the cron's per-row race-safe re-check
  * (see `onboarding-questionnaire-reminders.ts:fetchReadOnlyDraftStatus`).
- * Returns `null` if the submission row is missing or has been
- * submitted since the scan.
+ * Returns `null` if the submission row is missing, has been
+ * submitted since the scan, OR the parent onboarding was cancelled
+ * (Greptile P2 #15: cancelled parents keep their draft row but the
+ * student can no longer submit — don't send a reminder).
  */
 export const getDraftStatusForReminder = internalQuery({
   args: { onboardingId: v.id("adminOnboardings") },
@@ -614,6 +632,9 @@ export const getDraftStatusForReminder = internalQuery({
       .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
       .first();
     if (!sub) return null;
+    if (sub.status === "submitted") return null;
+    const onboarding = await ctx.db.get(args.onboardingId);
+    if (!onboarding || onboarding.status === "cancelled") return null;
     return sub.status;
   },
 });

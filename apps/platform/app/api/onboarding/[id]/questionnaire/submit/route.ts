@@ -6,6 +6,9 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { convexIdSchema } from "@/lib/validators";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { reportError } from "@/lib/observability";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
+import { readJsonBody } from "@/lib/api/read-json-body";
+import { z } from "zod";
 
 /**
  * POST /api/onboarding/[id]/questionnaire/submit — finalize the
@@ -17,10 +20,24 @@ import { reportError } from "@/lib/observability";
  *
  * The client-side form pre-checks the same conditions to render
  * disabled state, but the server is authoritative.
+ *
+ * The body carries the full answers + inspirations so the submit
+ * validator can re-check canonical question-id coverage without
+ * trusting any client-side save state.
  */
+const submitSchema = z.object({
+  answers: z.array(
+    z.object({
+      questionId: z.string().min(1),
+      answerText: z.string().max(8000),
+    })
+  ),
+  inspirations: z.array(z.object({ name: z.string().min(1).max(120) })).max(8),
+});
+
 export async function POST(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
   try {
     const { userId } = await auth();
@@ -28,12 +45,26 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const onboardingId = convexIdSchema.parse(params.id) as Id<"adminOnboardings">;
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
+    const body = await readJsonBody(req);
+    const parsed = submitSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
 
     const convex = await getAuthenticatedConvexClient();
     const submission = await convex.mutation(
       (api as any).onboardingQuestionnaire.submitQuestionnaire,
-      { onboardingId } as any
+      {
+        onboardingId,
+        questionnaireVersion: ONBOARDING_QUESTIONNAIRE_VERSION,
+        answers: parsed.data.answers,
+        inspirations: parsed.data.inspirations,
+      } as any
     );
 
     return NextResponse.json({ submission });
