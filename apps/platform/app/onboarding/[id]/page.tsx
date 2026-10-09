@@ -75,6 +75,31 @@ export default async function OnboardingStatusPage({
   const isStudent = viewerRole === "student";
   const showHelpFooter = timelineOlderCount > 0;
 
+  // PR 12 PR 4b — questionnaire state. For students, fetch their
+  // draft so we can show a "Continue" CTA. For instructor/admin,
+  // fetch the submitted row (if any) so we can render the answers.
+  const myDraft = isStudent
+    ? await fetchQuery(
+        (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => null)
+    : null;
+  const submittedForViewer = !isStudent
+    ? await fetchQuery(
+        (api as any).onboardingQuestionnaire.getSubmittedQuestionnaireForViewer,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => null)
+    : null;
+  const submittedWorkExamples = !isStudent
+    ? await fetchQuery(
+        (api as any).onboardingWorkExamples.listWorkExamples,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => [])
+    : [];
+
   return (
     <ProtectedLayout currentPath="/onboarding">
       <div className="container mx-auto py-8 space-y-8">
@@ -215,6 +240,69 @@ export default async function OnboardingStatusPage({
           </p>
         )}
 
+        {isStudent && myDraft && myDraft.status === "draft" && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Almost there — finish your questionnaire</CardTitle>
+              <CardDescription>
+                Your instructor needs your answers before your first call.
+                Auto-save keeps your draft; come back any time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link href={`/onboarding/${onboarding._id}/questionnaire`}>
+                  Continue questionnaire
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isStudent && submittedForViewer && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Student questionnaire</CardTitle>
+              <CardDescription>
+                Submitted {formatDateTime(submittedForViewer.submittedAt)}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                {(submittedForViewer.answers ?? []).map((a: { questionId: string; answerText: string }) => (
+                  <div key={a.questionId} className="space-y-1">
+                    <p className="text-sm font-medium">
+                      {questionLabel(a.questionId)}
+                    </p>
+                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                      {a.answerText || <em>No answer</em>}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <p className="mb-2 text-sm font-medium">Inspirations</p>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                  {(submittedForViewer.inspirations ?? []).map((i: { name: string }, idx: number) => (
+                    <li key={idx}>{i.name}</li>
+                  ))}
+                </ul>
+              </div>
+              {Array.isArray(submittedWorkExamples) && submittedWorkExamples.length > 0 && (
+                <div>
+                  <p className="mb-2 text-sm font-medium">
+                    Work examples ({submittedWorkExamples.length})
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Images are stored in B2; use the admin tools to view full
+                    resolution.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {isStudent && (
           <p className="text-center text-xs text-muted-foreground">
             Signed in as a student.{" "}
@@ -226,4 +314,17 @@ export default async function OnboardingStatusPage({
       </div>
     </ProtectedLayout>
   );
+}
+
+function questionLabel(id: string): string {
+  switch (id) {
+    case "how_did_you_hear":
+      return "How did you learn about this mentorship?";
+    case "goals":
+      return "Goals";
+    case "inspirations":
+      return "Inspirations";
+    default:
+      return id;
+  }
 }
