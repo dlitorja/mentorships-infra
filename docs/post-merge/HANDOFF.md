@@ -142,6 +142,7 @@ cd /home/dlitorja/projects/mentorships-infra && wc -l docs/post-merge/instructor
 
 # Trigger Linear OAuth (this is what kicks off the browser popup)
 # In the next agent turn: ask the agent to list Linear teams.
+```
 
 ---
 
