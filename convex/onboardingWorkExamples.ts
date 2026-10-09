@@ -12,6 +12,7 @@ import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
 } from "./workspaceConstants";
+import { workspaceObjectExists } from "./lib/b2WorkspaceUpload";
 
 /**
  * Greptile P1 follow-up: staff records can have
@@ -236,6 +237,22 @@ export const recordWorkExampleUpload = mutation({
     if (work.status === "active") return null; // idempotent
     if (work.status === "deleted") {
       throw new Error("TERMINAL: work example was deleted");
+    }
+
+    // PR 4b Greptile P1 follow-up: confirm the B2 object exists
+    // before flipping to `active`. Without this check, a
+    // student could call `recordWorkExampleUpload` immediately
+    // after the action mints the PUT URL — without actually
+    // PUTting the bytes — and the row would count toward the
+    // submit cap. The HEAD goes through the B2 S3-compatible
+    // endpoint using the same credentials as the upload action;
+    // the SDK is loaded in the default V8 runtime so this works
+    // in a mutation.
+    const exists = await workspaceObjectExists(work.b2Key);
+    if (!exists) {
+      throw new Error(
+        "Upload not complete: the file is not yet in storage. Please retry the upload."
+      );
     }
 
     // PR 4 follow-up (Greptile P2 #7): also refuse when the

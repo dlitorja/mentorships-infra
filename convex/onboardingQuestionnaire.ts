@@ -500,7 +500,6 @@ export const getSubmittedQuestionnaireForViewer = query({
  * PR 4c follow-up if the table grows.
  */
 const LIST_SCAN_LIMIT = 200;
-const LIST_LIMIT = 20;
 
 export const listSubmittedQuestionnairesForInstructor = query({
   args: {
@@ -549,6 +548,10 @@ export const listSubmittedQuestionnairesForInstructor = query({
       instructorCount: number;
     }> = [];
 
+    // Greptile P1 follow-up: process EVERY row in the page (no
+    // early `break` at LIST_LIMIT) so a single page that holds
+    // more submitted questionnaires than LIST_LIMIT still
+    // returns them all. The caller decides how many to keep.
     for (const row of page.page) {
       if (!isStaff) {
         // Instructor check: walk `perInstructor` and resolve
@@ -579,7 +582,6 @@ export const listSubmittedQuestionnairesForInstructor = query({
         submittedAt: submission.submittedAt ?? submission.updatedAt,
         instructorCount: row.perInstructor.length,
       });
-      if (rows.length >= LIST_LIMIT) break;
     }
 
     // Newest first so the instructor sees recent submissions on

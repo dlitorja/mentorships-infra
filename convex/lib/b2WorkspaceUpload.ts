@@ -24,7 +24,13 @@
  * hand-rolled SigV4 because they sign the Authorization HEADER on a server-
  * side fetch — those work, only the presigned URL signing was broken.
  */
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  NotFound,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const WORKSPACE_REGION = process.env.WORKSPACE_STORAGE_BUCKET_REGION || "us-east-005";
@@ -95,4 +101,35 @@ export async function signedWorkspaceDownloadUrl(
     }),
     { expiresIn: expiresInSeconds }
   );
+}
+
+/**
+ * PR 12 PR 4b Greptile P1 follow-up: verify an object actually
+ * exists in B2 before treating an upload as complete. Without
+ * this, a student could call `recordWorkExampleUpload` without
+ * completing the PUT and the row would flip to `active`,
+ * allowing `submitQuestionnaire` to count a missing file
+ * toward the artwork requirement.
+ *
+ * Uses the SDK's `HeadObjectCommand` (B2 is S3-compatible and
+ * returns the standard NotFound error code on missing keys).
+ * Returns true if the object exists, false on NotFound OR on
+ * any other failure — the caller treats `false` as "upload not
+ * yet complete" rather than raising an exception (so a flaky
+ * HEAD doesn't block the user from retrying the PUT).
+ */
+export async function workspaceObjectExists(key: string): Promise<boolean> {
+  try {
+    await getWorkspaceClient().send(
+      new HeadObjectCommand({ Bucket: WORKSPACE_BUCKET, Key: key })
+    );
+    return true;
+  } catch (err) {
+    if (err instanceof NotFound) return false;
+    // Treat any other SDK error (network, auth, transient) as
+    // "we couldn't confirm" rather than failing the mutation —
+    // the student can retry. Log via the same observability
+    // surface used elsewhere.
+    return false;
+  }
 }

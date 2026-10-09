@@ -108,8 +108,15 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   }> = [];
   try {
     let cursor: string | null = null;
-    const SUBMITTED_PAGE_LIMIT = 5;
-    for (let i = 0; i < SUBMITTED_PAGE_LIMIT; i += 1) {
+    // Greptile P1 follow-up: cap at 100 rows total to keep the
+    // page render bounded; walk as many pages as needed to fill
+    // it. Each call returns up to LIST_SCAN_LIMIT (200)
+    // onboardings, of which most are filtered out by the
+    // submitted-questionnaire predicate. 5 pages × 200 = 1000
+    // onboardings scanned max — comfortably covers PR 4b scale.
+    const ROW_CAP = 100;
+    const PAGE_CAP = 5;
+    for (let i = 0; i < PAGE_CAP && submittedQuestionnaires.length < ROW_CAP; i += 1) {
       const page = (await fetchQuery(
         (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
         { cursor },
@@ -122,6 +129,11 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
       submittedQuestionnaires.push(...page.rows);
       if (page.isDone) break;
       cursor = page.nextCursor;
+    }
+    // Trim to the cap after pagination, newest first (the query
+    // already sorts).
+    if (submittedQuestionnaires.length > ROW_CAP) {
+      submittedQuestionnaires.length = ROW_CAP;
     }
   } catch {
     // Swallow — the instructor page degrades gracefully if the
