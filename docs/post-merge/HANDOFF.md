@@ -1,8 +1,10 @@
-# Handoff — Post-`instructorProfiles` Drop + Linear Task Setup
+# Handoff — PR 12 PR 1 (`<ClerkUserIdCell>`) shipped
 
 **For:** the next opencode session in this directory.
-**Branch state:** `main` is clean. Latest commit `e35aabd3` (PR #835 merged 2026-09-09 20:33 UTC). Branch `chore/linear-mcp-setup` deleted.
-**What was just done:** All code work for the 4-PR widen-migrate-narrow arc is shipped and deployed to prod. Linear MCP is wired up but OAuth has not yet been triggered. The 9 post-merge tasks are queued for Linear but not yet created.
+**Branch state:** `main` is clean. Latest commit `dc6c1bff` (PR #910 squash-merged 2026-10-08 22:48 UTC). Branch `feat/onboarding-improvements-pr1-clerk-user-id-cell` deleted on remote. Local worktree at `/tmp/opencode/pr-12-pr1` still has the branch tip `0eab1822` (pre-squash); safe to `git worktree remove /tmp/opencode/pr-12-pr1 --force` once this handoff is committed.
+**What was just done:** PR 12 PR 1 of the onboarding-improvements 4-PR arc is shipped and merged. PRs 12/2–12/4 (resend invitation, status page, questionnaire + abandonment) are still pending — see "Remaining work" below.
+
+**Snapshot date:** 2026-10-08. The repo is in the middle of a multi-PR arc; this handoff is a "where we are" progress note, not an interrupted-session reconstruction. AGENTS.md discourages HANDOFF.md for multi-PR arcs in favor of a Linear Project, but PR 12 doesn't have one yet — once the user creates `Post-Merge Verification` (or equivalent) in Linear and migrates HUC-80 there, this file can be retired.
 
 ---
 
@@ -141,3 +143,39 @@ cd /home/dlitorja/projects/mentorships-infra && wc -l docs/post-merge/instructor
 # Trigger Linear OAuth (this is what kicks off the browser popup)
 # In the next agent turn: ask the agent to list Linear teams.
 ```
+
+---
+
+## PR 12 — Onboarding Improvements progress (post-PR-1, 2026-10-08)
+
+### Shipped (PR 1)
+- **PR #910** — `<ClerkUserIdCell>` shared component + `getClerkDashboardUserUrl` helper, replacing 11 ad-hoc Clerk-id render sites across `apps/platform/app/admin/*` and `apps/platform/app/instructor/students/*` + the `admin-onboarding-form.tsx` success card. Single env var `NEXT_PUBLIC_CLERK_APP_ID` (browser-readable). Both `apps/platform/.env.local` and the Vercel `mentorships-infra-platform` project env are updated. `.env.example` has the placeholder.
+- **Plan doc:** `docs/plans/pr-12-onboarding-improvements.md` (full 4-PR arc).
+- **Greptile fix:** All 3 P1/P2 review threads addressed in commit `0eab1822` before merge. The P1 (process.env indirect lookup) is a real bug — without the fix the dashboard link silently resolves to `undefined` in the browser bundle even when the env var is set. The P1 fix is on the merged commit `dc6c1bff`.
+
+### Linear
+- **HUC-80** "Verify `<ClerkUserIdCell>` shared component on prod (PR 12 PR 1)" — created with labels `verification`, `prod`, refs PR #910. Currently `Backlog`; should be moved to `In Progress` and worked through T1–T10 (smoke tests documented in the issue body). Move to `Done` after the smoke tests pass.
+
+### Remaining PRs (PR 2, 3, 4)
+- **PR 12 PR 2** — Resend invitation: `convex/adminOnboarding.ts` `resendAdminOnboardingInvitation` mutation + UI button on `/admin/onboardings/[id]` next to `RetryOnboardingButton`. Adds `invitation_resent` to the timeline event union. Independent of PR 1, can start in parallel.
+- **PR 12 PR 3** — Onboarding status page `/onboarding/[id]`: read-only view for instructor + post-auth view for student (auto-resume on sign-in if a draft exists). Permission check returns 404 on failure (not 403, to avoid leaking existence).
+- **PR 12 PR 4** — Questionnaire (3 questions: how-did-you-hear, goals, inspirations × 3–4 entries) + work examples upload (max 6 per onboarding, 8 MB each) + abandonment reminder pipeline. New `onboardingQuestionnaireSubmissions` Convex table; Inngest cron every 30 min checks for stale drafts (`updatedAt < now - 1h`), max 3 reminders per draft. Auto-save on every field change, debounced ~500ms.
+
+### Deviations from the original plan (locked-in during PR 1)
+- **Dashboard URL source:** `NEXT_PUBLIC_CLERK_APP_ID` env var (not "decode publishable key + `clerkClient.instance.get()`"). `@clerk/backend@3.18.1` does NOT expose `instance.get()` — verified by grepping installed `.d.ts` files. The publishable-key base64 segment decodes to the Clerk frontend API host, not the app ID.
+- **Component prop:** renamed `userId` → `id` so the cell also covers the Clerk invitation id in the onboarding-form success card.
+- **Two render sites disable both buttons** for layout reasons: `workspaces/create/page.tsx` search fallback inside a clickable list item + `products/page.tsx` instructor filter `SelectItem`.
+
+### Constants (locked-in for PR 2–4)
+- `MAX_WORK_EXAMPLE_BYTES = 8 MB`, `MAX_WORK_EXAMPLES_PER_ONBOARDING = 6`
+- `MIN_INSPIRATIONS = 3`, `MAX_INSPIRATIONS = 4`
+- `ONBOARDING_REMINDER_STALE_MS = 60 * 60 * 1000` (1 hour)
+- `ONBOARDING_REMINDER_MAX_COUNT = 3`
+- B2 prefix for onboarding uploads: `onboarding/{onboardingId}/`
+
+### Next move (after this handoff)
+1. Run T1–T10 on prod and move HUC-80 to `Done`.
+2. Open PR 12 PR 2 on branch `feat/onboarding-improvements-pr2-resend-invitation` from a new worktree.
+3. Open PR 12 PR 3 on a new branch from a new worktree.
+4. Open PR 12 PR 4 on a new branch from a new worktree (introduces new Convex table — Linear verification issue + `schema-change` label required per AGENTS.md).
+5. Optionally create a Linear Project `PR 12 — Onboarding Improvements` (in Linear UI; the CLI wrapper can't create Projects) to host HUC-80 + the future PR 2/3/4 verification issues.
