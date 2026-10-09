@@ -1480,6 +1480,15 @@ export default defineSchema({
     onboardingAlias: v.optional(v.string()),
     existingWorkspaceIds: v.array(v.id("workspaces")),
 
+    // PR 12 PR 3: assignedStudentClerkId is set by the `user.created`
+    // Clerk webhook once the student signs up via the invite. The
+    // /onboarding/[id] page and the auth-redirect helper use this
+    // field to authorise the student to view their own onboarding
+    // status without leaking existence to non-assigned users. Optional
+    // because the student may not have signed up yet (and historically
+    // populated adminOnboardings rows are missing this field).
+    assignedStudentClerkId: v.optional(v.string()),
+
     // Append-only event history. Bounded by transitions + email sends
     // (typically <20 entries per row) — does not violate Convex's
     // no-unbounded-lists rule.
@@ -1524,7 +1533,11 @@ export default defineSchema({
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_submittedByUserId", ["submittedByUserId"])
     .index("by_onboardingAlias", ["onboardingAlias"])
-    .index("by_email_source", ["email", "source"]),
+    .index("by_email_source", ["email", "source"])
+    .index("by_assignedStudentClerkId_createdAt", [
+      "assignedStudentClerkId",
+      "createdAt",
+    ]),
 
   suppressionEvents: defineTable({
     kind: v.union(

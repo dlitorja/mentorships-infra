@@ -1726,3 +1726,267 @@ export const getStaleOnboardingsInternal = internalQuery({
     };
   },
 });
+
+/**
+ * PR 12 PR 3 — Onboarding status page view.
+ *
+ * Public query: returns a denormalised view of a single
+ * `adminOnboardings` row scoped to the caller. Auth model:
+ *   - the assigned student (via `assignedStudentClerkId`), OR
+ *   - one of the assigned instructors (via `instructors.by_userId`), OR
+ *   - an admin or support role.
+ * Anyone else gets `null` so the page renders a 404 instead of leaking
+ * existence (Plan §5.3 acceptance).
+ *
+ * Lives in `adminOnboarding.ts` (not a new module) so the existing
+ * `_generated/api.d.ts` surface picks it up via the file watcher on
+ * `convex dev`/`convex codegen` without an extra codegen step — PR 2
+ * established this convention by adding `resendAdminOnboardingInvitation`
+ * to the same module.
+ */
+export const getOnboardingView = query({
+  args: { onboardingId: v.id("adminOnboardings") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      onboarding: v.object({
+        _id: v.id("adminOnboardings"),
+        email: v.string(),
+        status: v.union(
+          v.literal("queued"),
+          v.literal("processing"),
+          v.literal("completed"),
+          v.literal("failed"),
+          v.literal("cancelled")
+        ),
+        createdAt: v.number(),
+        attemptCount: v.number(),
+        failureReason: v.optional(v.string()),
+        assignedStudentClerkId: v.optional(v.string()),
+      }),
+      viewerRole: v.union(
+        v.literal("student"),
+        v.literal("instructor"),
+        v.literal("admin"),
+        v.literal("support")
+      ),
+      instructors: v.array(
+        v.object({
+          _id: v.id("instructors"),
+          name: v.union(v.string(), v.null()),
+          slug: v.union(v.string(), v.null()),
+          isRenewal: v.boolean(),
+        })
+      ),
+      timeline: v.array(
+        v.object({
+          at: v.number(),
+          event: v.string(),
+          actorUserId: v.optional(v.string()),
+          details: v.optional(v.string()),
+        })
+      ),
+      timelineOlderCount: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) return null;
+
+    const canView = await canViewOnboarding(ctx, identity.subject, row);
+    if (!canView) return null;
+
+    const instructorIds = row.perInstructor.map((p) => p.instructorId);
+    const instructors: Array<{
+      _id: Id<"instructors">;
+      name: string | null;
+      slug: string | null;
+      isRenewal: boolean;
+    }> = [];
+    for (let i = 0; i < instructorIds.length; i++) {
+      const instructorId = instructorIds[i];
+      const pair = row.perInstructor[i];
+      const instructor = await ctx.db.get(instructorId);
+      instructors.push({
+        _id: instructorId,
+        name: instructor?.name ?? null,
+        slug: instructor?.slug ?? null,
+        isRenewal: pair?.isRenewal ?? false,
+      });
+    }
+
+    const TIMELINE_LIMIT = 50;
+    const timelineTail = row.timeline.slice(-TIMELINE_LIMIT);
+    const timelineOlderCount = Math.max(0, row.timeline.length - TIMELINE_LIMIT);
+
+    return {
+      onboarding: {
+        _id: row._id,
+        email: row.email,
+        status: row.status,
+        createdAt: row.createdAt,
+        attemptCount: row.attemptCount,
+        failureReason: row.failureReason,
+        assignedStudentClerkId: row.assignedStudentClerkId,
+      },
+      viewerRole: canView.role,
+      instructors,
+      timeline: timelineTail,
+      timelineOlderCount,
+    };
+  },
+});
+
+/**
+ * PR 12 PR 3 — Post-auth redirect helper.
+ *
+ * Public query: returns the most recent `adminOnboardings` row for the
+ * currently signed-in student where the student has signed up AND the
+ * onboarding has NOT reached a terminal state. Used by the
+ * `/auth-redirect` route so a student who closed the tab mid-flow and
+ * came back to sign in is auto-routed to their status page instead of
+ * the default `/dashboard` (Plan §5.3 acceptance).
+ *
+ * Returns `null` when the signed-in user is not assigned to any active
+ * onboarding — callers should fall through to the role-default redirect
+ * in that case. PR 4's questionnaire submission check is layered on top
+ * of this query (filter out rows where the questionnaire is already
+ * submitted) — for PR 3, no questionnaire table exists yet, so the
+ * filter is implicit (terminal status only).
+ */
+export const getIncompleteOnboardingForCurrentUser = query({
+  args: {},
+  returns: v.union(v.null(), v.id("adminOnboardings")),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const candidates = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
+        q.eq("assignedStudentClerkId", identity.subject)
+      )
+      .order("desc")
+      .take(10);
+
+    for (const row of candidates) {
+      if (row.status === "completed" || row.status === "cancelled") continue;
+      return row._id;
+    }
+    return null;
+  },
+});
+
+/**
+ * PR 12 PR 3 — Claim an onboarding by email.
+ *
+ * Internal mutation: called by the `user.created` Clerk webhook in
+ * `convex/http.ts:httpClerkWebhook`. Sets `assignedStudentClerkId` on
+ * the most-recent active `adminOnboardings` row whose `email` matches
+ * (case-insensitive) the signed-up user. Idempotent — running this
+ * twice with the same `(email, clerkUserId)` is a no-op the second
+ * time, so webhook retries from Clerk are safe.
+ *
+ * Writes an audit log entry on first-claim so an admin can verify the
+ * claim happened without scraping logs.
+ */
+export const claimOnboardingByEmail = internalMutation({
+  args: {
+    email: v.string(),
+    clerkUserId: v.string(),
+  },
+  returns: v.object({
+    claimedOnboardingId: v.union(v.id("adminOnboardings"), v.null()),
+    matchedCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      return { claimedOnboardingId: null, matchedCount: 0 };
+    }
+
+    const candidates = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .order("desc")
+      .take(20);
+
+    let target: Doc<"adminOnboardings"> | null = null;
+    for (const row of candidates) {
+      if (row.status === "completed" || row.status === "cancelled") continue;
+      target = row;
+      break;
+    }
+    if (!target) {
+      return { claimedOnboardingId: null, matchedCount: candidates.length };
+    }
+
+    if (target.assignedStudentClerkId === args.clerkUserId) {
+      return { claimedOnboardingId: target._id, matchedCount: candidates.length };
+    }
+
+    await ctx.db.patch(target._id, {
+      assignedStudentClerkId: args.clerkUserId,
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: args.clerkUserId,
+      actorRole: "student",
+      action: "student_claim_onboarding",
+      targetType: "adminOnboarding",
+      targetId: target._id,
+      details:
+        `Student (Clerk userId ${args.clerkUserId}) claimed adminOnboarding ${target._id} ` +
+        `via email match (${normalizedEmail}).`,
+      metadata: {
+        onboardingId: target._id,
+        email: normalizedEmail,
+        clerkUserId: args.clerkUserId,
+      },
+    });
+
+    return { claimedOnboardingId: target._id, matchedCount: candidates.length };
+  },
+});
+
+/**
+ * PR 12 PR 3 — Auth gate helper for the status page.
+ *
+ * Returns the viewer's role if they may view the given onboarding row,
+ * `null` otherwise. Three identities qualify:
+ *   1. the assigned student (`assignedStudentClerkId === identity.subject`)
+ *   2. one of the assigned instructors (`instructors.by_userId = identity.subject`)
+ *      — limited to `perInstructor[].instructorId` only, not arbitrary
+ *      instructors, so a teacher for a different student cannot view
+ *      this onboarding.
+ *   3. an admin or support user.
+ *
+ * Returns `null` (NOT a thrown error) so the caller can render a 404
+ * without leaking the existence of the row.
+ */
+async function canViewOnboarding(
+  ctx: QueryCtx,
+  identitySubject: string,
+  row: Doc<"adminOnboardings">
+): Promise<{ role: "student" | "instructor" | "admin" | "support" } | null> {
+  if (row.assignedStudentClerkId && row.assignedStudentClerkId === identitySubject) {
+    return { role: "student" };
+  }
+
+  const adminGate = await isAdminOrSupport(ctx, identitySubject);
+  if (adminGate.ok) {
+    return { role: adminGate.role };
+  }
+
+  for (const pair of row.perInstructor) {
+    const instructor = await ctx.db.get(pair.instructorId);
+    if (instructor?.userId && instructor.userId === identitySubject) {
+      return { role: "instructor" };
+    }
+  }
+
+  return null;
+}
