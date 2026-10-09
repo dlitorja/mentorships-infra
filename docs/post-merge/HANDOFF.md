@@ -179,4 +179,3 @@ cd /home/dlitorja/projects/mentorships-infra && wc -l docs/post-merge/instructor
 3. Open PR 12 PR 3 on a new branch from a new worktree.
 4. Open PR 12 PR 4 on a new branch from a new worktree (introduces new Convex table — Linear verification issue + `schema-change` label required per AGENTS.md).
 5. Optionally create a Linear Project `PR 12 — Onboarding Improvements` (in Linear UI; the CLI wrapper can't create Projects) to host HUC-80 + the future PR 2/3/4 verification issues.
-```
