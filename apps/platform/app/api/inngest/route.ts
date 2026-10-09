@@ -12,6 +12,7 @@ import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-s
 import { linkClerkUserToSessionPacks } from "@/inngest/functions/clerk-user-linking";
 import { handleClerkUserCreated, handleClerkUserUpdated } from "@/inngest/functions/clerk-user-instructor-lifecycle";
 import { migrateGuestSessionPacks } from "@/inngest/functions/migrate-guest-session-packs";
+import { onboardingQuestionnaireReminders } from "@/inngest/functions/onboarding-questionnaire-reminders";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -28,6 +29,8 @@ export const { GET, POST, PUT } = serve({
     adminOnboardingFlow,
     // Daily stale invite digest - releases placeholder seats after 13 days (PR 3)
     adminOnboardingStaleDigestFlow,
+    // PR 12 PR 4b: hourly questionnaire-reminder cron
+    onboardingQuestionnaireReminders,
     // Inventory sync from Stripe products to Convex (Convex HTTP endpoint)
     syncInstructorInventoryToConvex,
     // Clerk user linking - links guest purchases to Clerk user after signup

@@ -1,6 +1,8 @@
 import {
   mutation,
   query,
+  internalMutation,
+  internalQuery,
   MutationCtx,
   QueryCtx,
 } from "./_generated/server";
@@ -13,6 +15,9 @@ import {
   MAX_INSPIRATIONS,
   MIN_WORK_EXAMPLES_PER_SUBMISSION,
   ONBOARDING_REQUIRED_QUESTION_IDS,
+  ONBOARDING_REMINDER_STALE_MS,
+  ONBOARDING_REMINDER_MAX_COUNT,
+  ONBOARDING_REMINDER_MIN_INTERVAL_MS,
 } from "./workspaceConstants";
 
 /**
@@ -496,6 +501,144 @@ export const recordQuestionnaireSeen = mutation({
     if (submission.studentClerkId !== identity.subject) return null;
     if (submission.status === "submitted") return null;
     await ctx.db.patch(submission._id, { lastSeenAt: Date.now() });
+    return null;
+  },
+});
+
+/**
+ * PR 12 PR 4b — internal helpers for the reminder cron. Bearer-auth
+ * via the HTTP actions in `convex/http.ts:httpOnboardingStaleQuestionnaire`
+ * etc. The HTTP layer is the auth gate; these functions trust that
+ * the caller is the platform cron and run unscoped.
+ *
+ * Read strategy: scans the `by_status_updatedAt` index for
+ * `status === "draft"`, then filters in JS by
+ * `ONBOARDING_REMINDER_STALE_MS` and `reminderCount <
+ * ONBOARDING_REMINDER_MAX_COUNT`. The Convex query is bounded by the
+ * index partition; real cron cadence is hourly and the cron processes
+ * whatever the scan returns without pagination (the cap is small).
+ */
+
+const STALE_BATCH_LIMIT = 100;
+
+export const listStaleDraftsForReminder = internalQuery({
+  args: {},
+  returns: v.array(
+    v.object({
+      onboardingId: v.id("adminOnboardings"),
+      submissionId: v.id("onboardingQuestionnaireSubmissions"),
+      studentEmail: v.string(),
+      studentName: v.union(v.string(), v.null()),
+      reminderCount: v.number(),
+      lastSeenAt: v.union(v.number(), v.null()),
+    })
+  ),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
+    const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
+
+    const rows = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      .collect();
+
+    const candidates: Array<{
+      onboardingId: Id<"adminOnboardings">;
+      submissionId: Id<"onboardingQuestionnaireSubmissions">;
+      studentEmail: string;
+      studentName: string | null;
+      reminderCount: number;
+      lastSeenAt: number | null;
+    }> = [];
+
+    for (const row of rows) {
+      const reminderCount = row.reminderCount ?? 0;
+      if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
+      // Either: never seen (`lastSeenAt` undefined), or seen long
+      // enough ago that the row is stale again.
+      const isFresh =
+        row.lastSeenAt !== undefined && row.lastSeenAt >= staleCutoff;
+      if (isFresh) continue;
+      // Don't double-fire reminders: respect the min interval since
+      // the last send so a slow scan can't spam a student.
+      if (
+        row.lastReminderSentAt !== undefined &&
+        row.lastReminderSentAt > minIntervalCutoff
+      ) {
+        continue;
+      }
+
+      const onboarding = await ctx.db.get(row.onboardingId);
+      if (!onboarding) continue;
+
+      const student = onboarding.assignedStudentClerkId
+        ? await ctx.db
+            .query("users")
+            .withIndex("by_clerkId", (q) =>
+              q.eq("clerkId", onboarding.assignedStudentClerkId!)
+            )
+            .first()
+        : null;
+
+      candidates.push({
+        onboardingId: row.onboardingId,
+        submissionId: row._id,
+        studentEmail: student?.email ?? onboarding.email,
+        studentName: student?.firstName
+          ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
+          : null,
+        reminderCount,
+        lastSeenAt: row.lastSeenAt ?? null,
+      });
+
+      if (candidates.length >= STALE_BATCH_LIMIT) break;
+    }
+
+    return candidates;
+  },
+});
+
+/**
+ * Read-only status read used by the cron's per-row race-safe re-check
+ * (see `onboarding-questionnaire-reminders.ts:fetchReadOnlyDraftStatus`).
+ * Returns `null` if the submission row is missing or has been
+ * submitted since the scan.
+ */
+export const getDraftStatusForReminder = internalQuery({
+  args: { onboardingId: v.id("adminOnboardings") },
+  returns: v.union(v.literal("draft"), v.literal("submitted"), v.null()),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
+      .first();
+    if (!sub) return null;
+    return sub.status;
+  },
+});
+
+/**
+ * Patch `lastReminderSentAt` + `reminderCount` after a successful
+ * send. Idempotent on `next` (advancing twice with the same `next`
+ * is a no-op the second time, so a cron retry that re-sent the same
+ * reminder email won't double-count).
+ */
+export const markReminderSent = internalMutation({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+    next: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    if (sub.status === "submitted") return null;
+    if ((sub.reminderCount ?? 0) + 1 !== args.next) return null;
+    await ctx.db.patch(args.submissionId, {
+      lastReminderSentAt: Date.now(),
+      reminderCount: args.next,
+    });
     return null;
   },
 });

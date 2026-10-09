@@ -3427,4 +3427,91 @@ http.route({
   handler: httpBackfillInventoryBySlug,
 });
 
+/**
+ * PR 12 PR 4b — onboarding questionnaire reminder scan + status +
+ * mark-sent HTTP endpoints. Called by the Inngest cron
+ * `onboarding-questionnaire-reminders` (hourly). Bearer-auth via
+ * `CONVEX_HTTP_KEY`, same shape as the existing workspace-retention
+ * endpoints above.
+ */
+export const httpOnboardingStaleQuestionnaire = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const drafts = await ctx.runQuery(
+    (internal as any).onboardingQuestionnaire.listStaleDraftsForReminder
+  );
+
+  return new Response(JSON.stringify({ drafts }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+export const httpOnboardingQuestionnaireStatus = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { onboardingId } = (await request.json().catch(() => ({}))) as {
+    onboardingId?: string;
+  };
+  if (!onboardingId) {
+    return new Response(JSON.stringify({ error: "onboardingId required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const status = await ctx.runQuery(
+    (internal as any).onboardingQuestionnaire.getDraftStatusForReminder,
+    { onboardingId }
+  );
+
+  return new Response(JSON.stringify({ status }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+export const httpOnboardingMarkReminderSent = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = (await request.json().catch(() => ({}))) as {
+    submissionId?: string;
+    next?: number;
+  };
+  if (!body.submissionId || typeof body.next !== "number") {
+    return new Response(JSON.stringify({ error: "submissionId + next required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  await ctx.runMutation(
+    (internal as any).onboardingQuestionnaire.markReminderSent,
+    { submissionId: body.submissionId, next: body.next }
+  );
+
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/onboarding/stale-questionnaire",
+  method: "POST",
+  handler: httpOnboardingStaleQuestionnaire,
+});
+
+http.route({
+  path: "/onboarding/questionnaire-status",
+  method: "POST",
+  handler: httpOnboardingQuestionnaireStatus,
+});
+
+http.route({
+  path: "/onboarding/mark-reminder-sent",
+  method: "POST",
+  handler: httpOnboardingMarkReminderSent,
+});
+
 export default http;
