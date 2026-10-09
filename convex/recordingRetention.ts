@@ -14,7 +14,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DELIVERY_CLAIM_STALE_MS = 60 * 60 * 1000;
 
 /**
- * R12: 90-day automatic retention for call recordings uploaded to
+ * R12: 30-day automatic retention for call recordings uploaded to
  * Backblaze B2 by the Daily → B2 transfer pipeline
  * (`src/trigger/recording-transfer.ts`). Records the upload time
  * in `recordingExpiresAt` (`attachRecordingFromB2Upload` patches
@@ -26,28 +26,29 @@ const DELIVERY_CLAIM_STALE_MS = 60 * 60 * 1000;
  *     for sessions whose `recordingExpiresAt` has passed.
  *   - The Trigger schedule
  *     `send-recording-retention-warnings` (cron `0 10 * * *`)
- *     sends Resend emails at the 30/7/1-day windows and writes
+ *     sends a single Resend email at the 7-day window and writes
  *     `recordingRetentionNotifications` rows for in-app banner
  *     surfacing.
  *
- * Defaults to 90 days so the most-recent quarter of recordings is
- * always available; backfills to `_creationTime + 90d` for legacy
+ * Defaults to 30 days so roughly the most-recent month of recordings
+ * is always available; backfills to `_creationTime + 30d` for legacy
  * rows. Configurable via the `RECORDING_RETENTION_DAYS` env var
  * (read in `attachRecordingFromB2Upload`, which is the only
  * place the value is captured at write time).
  */
-export const DEFAULT_RECORDING_RETENTION_DAYS = 90;
+export const DEFAULT_RECORDING_RETENTION_DAYS = 30;
 export const DEFAULT_RECORDING_RETENTION_MS =
   DEFAULT_RECORDING_RETENTION_DAYS * DAY_MS;
 
 /**
- * Warning thresholds (days before deletion). Tighter than the
- * workspace retention (90/30/7) because the recording lifecycle
- * is shorter and the email is more actionable ("download before
- * May 14") — a workspace deletion warning at 90 days is too
- * noisy for a single recording.
+ * Warning threshold (days before deletion). A single 7-day email —
+ * tighter than the workspace retention (90/30/7) because the
+ * recording lifecycle is shorter and the email is more actionable
+ * ("download before May 14"). The same `recordingRetentionNotifications`
+ * row also powers the in-app banner, so recipients get the banner
+ * as a second surface without a second email.
  */
-const WARNING_THRESHOLDS_DAYS = [1, 7, 30] as const;
+const WARNING_THRESHOLDS_DAYS = [7] as const;
 
 export function getRecordingWarningThreshold(
   recordingExpiresAt: number,
@@ -107,7 +108,7 @@ export const getRecordingsNeedingCleanup = internalQuery({
 
 /**
  * Returns recordings approaching their `recordingExpiresAt`
- * within one of the configured warning thresholds (30/7/1 days).
+ * within the configured warning threshold (7 days).
  * Each row carries the resolved recipients so the Trigger
  * warnings job can dispatch one email per recipient without a
  * second round-trip. The deduplication key is
@@ -133,7 +134,7 @@ export const getRecordingsForRetentionNotification = internalQuery({
       .withIndex("by_recordingExpiresAt", (q) =>
         q
           .gt("recordingExpiresAt", args.now)
-          .lte("recordingExpiresAt", args.now + 30 * DAY_MS)
+          .lte("recordingExpiresAt", args.now + 7 * DAY_MS)
       )
       .paginate(args.paginationOpts);
 
