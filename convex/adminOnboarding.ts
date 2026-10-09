@@ -1844,18 +1844,27 @@ export const getOnboardingView = query({
  * PR 12 PR 3 — Post-auth redirect helper.
  *
  * Public query: returns the most recent `adminOnboardings` row for the
- * currently signed-in student where the student has signed up AND the
- * onboarding has NOT reached a terminal state. Used by the
- * `/auth-redirect` route so a student who closed the tab mid-flow and
- * came back to sign in is auto-routed to their status page instead of
- * the default `/dashboard` (Plan §5.3 acceptance).
+ * currently signed-in student. The student must already be assigned
+ * (`assignedStudentClerkId === identity.subject`); the webhook in
+ * `convex/http.ts` writes that field on `user.created`.
  *
- * Returns `null` when the signed-in user is not assigned to any active
- * onboarding — callers should fall through to the role-default redirect
- * in that case. PR 4's questionnaire submission check is layered on top
- * of this query (filter out rows where the questionnaire is already
- * submitted) — for PR 3, no questionnaire table exists yet, so the
- * filter is implicit (terminal status only).
+ * Status filter:
+ *   - skipped: `cancelled` (terminal-abandoned, no status page to show).
+ *   - accepted: `queued`, `processing`, `failed`, `completed`. Greptile
+ *     P1 finding on the original filter that excluded `completed`: the
+ *     worker can complete provisioning before the student signs up
+ *     (e.g. a returning student with a fully-prebuilt row), and the
+ *     student still wants the status page so they can see "yes, your
+ *     workspaces are ready" instead of getting dumped on `/dashboard`.
+ *
+ * Pagination: walks the index in `createdAt desc` order in 50-row
+ * batches until either a non-cancelled row is found or the index is
+ * exhausted. Greptile P2 finding on the original 10-row `.take(10)`
+ * cap — an older failed onboarding behind many completed renewals must
+ * still be discoverable.
+ *
+ * Returns `null` when no assigned row exists for the signed-in user.
+ * Callers fall through to the role-default redirect in that case.
  */
 export const getIncompleteOnboardingForCurrentUser = query({
   args: {},
@@ -1864,17 +1873,22 @@ export const getIncompleteOnboardingForCurrentUser = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    const candidates = await ctx.db
-      .query("adminOnboardings")
-      .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
-        q.eq("assignedStudentClerkId", identity.subject)
-      )
-      .order("desc")
-      .take(10);
-
-    for (const row of candidates) {
-      if (row.status === "completed" || row.status === "cancelled") continue;
-      return row._id;
+    const PAGE_SIZE = 50;
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await ctx.db
+        .query("adminOnboardings")
+        .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
+          q.eq("assignedStudentClerkId", identity.subject)
+        )
+        .order("desc")
+        .paginate({ numItems: PAGE_SIZE, cursor });
+      for (const row of result.page) {
+        if (row.status === "cancelled") continue;
+        return row._id;
+      }
+      if (result.isDone) return null;
+      cursor = result.continueCursor;
     }
     return null;
   },
@@ -1885,10 +1899,26 @@ export const getIncompleteOnboardingForCurrentUser = query({
  *
  * Internal mutation: called by the `user.created` Clerk webhook in
  * `convex/http.ts:httpClerkWebhook`. Sets `assignedStudentClerkId` on
- * the most-recent active `adminOnboardings` row whose `email` matches
+ * the most-recent `adminOnboardings` row whose `email` matches
  * (case-insensitive) the signed-up user. Idempotent — running this
  * twice with the same `(email, clerkUserId)` is a no-op the second
  * time, so webhook retries from Clerk are safe.
+ *
+ * Status filter:
+ *   - skipped: `cancelled` only. Greptile P1 finding on the original
+ *     filter that excluded `completed`: the provisioning worker can
+ *     complete onboarding before the student clicks the invite link
+ *     (a returning student with a prebuilt workspace, for example).
+ *     The student still needs to be able to claim that row so they
+ *     see the post-completion status page.
+ *   - accepted: `queued`, `processing`, `failed`, `completed`. The
+ *     query prefers non-terminal statuses when both exist so a
+ *     failing retry is surfaced before a historical completed row.
+ *
+ * Pagination: walks the `by_email` index in 50-row batches until a
+ * claimable row is found or the index is exhausted. Greptile P2
+ * finding on the original 20-row `.take(20)` cap — an older failed
+ * onboarding behind many completed renewals must still be claimable.
  *
  * Writes an audit log entry on first-claim so an admin can verify the
  * claim happened without scraping logs.
@@ -1901,31 +1931,52 @@ export const claimOnboardingByEmail = internalMutation({
   returns: v.object({
     claimedOnboardingId: v.union(v.id("adminOnboardings"), v.null()),
     matchedCount: v.number(),
+    skippedCompletedCount: v.number(),
   }),
   handler: async (ctx, args) => {
     const normalizedEmail = args.email.trim().toLowerCase();
     if (!normalizedEmail) {
-      return { claimedOnboardingId: null, matchedCount: 0 };
+      return { claimedOnboardingId: null, matchedCount: 0, skippedCompletedCount: 0 };
     }
 
-    const candidates = await ctx.db
-      .query("adminOnboardings")
-      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-      .order("desc")
-      .take(20);
-
-    let target: Doc<"adminOnboardings"> | null = null;
-    for (const row of candidates) {
-      if (row.status === "completed" || row.status === "cancelled") continue;
-      target = row;
-      break;
+    const PAGE_SIZE = 50;
+    let cursor: string | null = null;
+    let firstNonCancelled: Doc<"adminOnboardings"> | null = null;
+    let skippedCompletedCount = 0;
+    let matchedCount = 0;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await ctx.db
+        .query("adminOnboardings")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .order("desc")
+        .paginate({ numItems: PAGE_SIZE, cursor });
+      matchedCount += result.page.length;
+      for (const row of result.page) {
+        if (row.status === "cancelled") continue;
+        if (row.status === "completed") {
+          // Prefer the first non-terminal row if we find one later in
+          // the same pagination walk; only fall back to this completed
+          // row if no non-terminal candidate surfaces. We track the
+          // most-recent completed row seen so the loop can claim it
+          // once we know the rest of the index is non-terminal-empty.
+          if (!firstNonCancelled) firstNonCancelled = row;
+          skippedCompletedCount += 1;
+          continue;
+        }
+        firstNonCancelled = row;
+        break;
+      }
+      if (firstNonCancelled && firstNonCancelled.status !== "completed") break;
+      if (result.isDone) break;
+      cursor = result.continueCursor;
     }
+    const target = firstNonCancelled;
     if (!target) {
-      return { claimedOnboardingId: null, matchedCount: candidates.length };
+      return { claimedOnboardingId: null, matchedCount, skippedCompletedCount };
     }
 
     if (target.assignedStudentClerkId === args.clerkUserId) {
-      return { claimedOnboardingId: target._id, matchedCount: candidates.length };
+      return { claimedOnboardingId: target._id, matchedCount, skippedCompletedCount };
     }
 
     await ctx.db.patch(target._id, {
@@ -1945,10 +1996,11 @@ export const claimOnboardingByEmail = internalMutation({
         onboardingId: target._id,
         email: normalizedEmail,
         clerkUserId: args.clerkUserId,
+        claimedStatus: target.status,
       },
     });
 
-    return { claimedOnboardingId: target._id, matchedCount: candidates.length };
+    return { claimedOnboardingId: target._id, matchedCount, skippedCompletedCount };
   },
 });
 

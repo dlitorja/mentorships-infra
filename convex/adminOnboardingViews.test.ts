@@ -225,6 +225,32 @@ test("getIncompleteOnboardingForCurrentUser: returns null when student has no as
   expect(result).toBeNull();
 });
 
+test("getIncompleteOnboardingForCurrentUser: returns completed row too (worker can complete before signup)", async () => {
+  // Greptile P1 finding: with the old filter that excluded completed
+  // rows, a student whose onboarding completes before they sign up
+  // (e.g. a returning student with a prebuilt workspace) was routed to
+  // /dashboard instead of the post-completion status page. The new
+  // filter only skips cancelled rows.
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_kim";
+  let completedId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst L", slug: "inst-l" });
+    completedId = await seedAdminOnboarding(ctx, {
+      email: "kim@example.com",
+      status: "completed",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId })
+    .query(api.adminOnboarding.getIncompleteOnboardingForCurrentUser, {});
+
+  expect(result).toBe(completedId);
+});
+
 test("claimOnboardingByEmail: claims the most-recent non-terminal row and writes audit log", async () => {
   const t = convexTest(schema, modules);
   let instructorId = "";
@@ -293,7 +319,7 @@ test("claimOnboardingByEmail: idempotent on second invocation with same clerkUse
   });
 });
 
-test("claimOnboardingByEmail: skips terminal rows so old completed rows don't get re-claimed", async () => {
+test("claimOnboardingByEmail: prefers non-terminal row over completed row when both match", async () => {
   const t = convexTest(schema, modules);
   let instructorId = "";
   let completedId = "";
@@ -324,6 +350,68 @@ test("claimOnboardingByEmail: skips terminal rows so old completed rows don't ge
     expect(completedRow?.assignedStudentClerkId).toBeUndefined();
     const activeRow = await ctx.db.get(activeId as any);
     expect(activeRow?.assignedStudentClerkId).toBe("user_student_henry");
+  });
+});
+
+test("claimOnboardingByEmail: claims completed row when worker outruns signup (no non-terminal row exists)", async () => {
+  // Greptile P1 finding: the worker can complete provisioning before
+  // the student signs up. With only completed rows on file, the claim
+  // must still succeed so the student sees the post-completion status
+  // page instead of being routed to /dashboard.
+  const t = convexTest(schema, modules);
+  let instructorId = "";
+  let completedId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst J", slug: "inst-j" });
+    completedId = await seedAdminOnboarding(ctx, {
+      email: "irene@example.com",
+      status: "completed",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t.mutation(internal.adminOnboarding.claimOnboardingByEmail, {
+    email: "irene@example.com",
+    clerkUserId: "user_student_irene",
+  });
+  expect(result.claimedOnboardingId).toBe(completedId);
+  expect(result.skippedCompletedCount).toBe(1);
+
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(completedId as any);
+    expect(row?.assignedStudentClerkId).toBe("user_student_irene");
+  });
+});
+
+test("claimOnboardingByEmail: skips cancelled rows but still claims completed ones", async () => {
+  const t = convexTest(schema, modules);
+  let instructorId = "";
+  let cancelledId = "";
+  let completedId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst K", slug: "inst-k" });
+    cancelledId = await seedAdminOnboarding(ctx, {
+      email: "jack@example.com",
+      status: "cancelled",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+    completedId = await seedAdminOnboarding(ctx, {
+      email: "jack@example.com",
+      status: "completed",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t.mutation(internal.adminOnboarding.claimOnboardingByEmail, {
+    email: "jack@example.com",
+    clerkUserId: "user_student_jack",
+  });
+  expect(result.claimedOnboardingId).toBe(completedId);
+  expect(result.claimedOnboardingId).not.toBe(cancelledId);
+
+  await t.run(async (ctx) => {
+    const cancelledRow = await ctx.db.get(cancelledId as any);
+    expect(cancelledRow?.assignedStudentClerkId).toBeUndefined();
   });
 });
 

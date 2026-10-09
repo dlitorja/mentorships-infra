@@ -43,9 +43,12 @@ function formatDateTime(ms: number | null | undefined): string {
 export default async function OnboardingStatusPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }): Promise<React.JSX.Element> {
-  const id = parseOnboardingId(params?.id);
+  // Next.js 16: `params` is a Promise — must be awaited before reading
+  // the onboarding id. Greptile P1 finding on the original sync read.
+  const { id: rawId } = await params;
+  const id = parseOnboardingId(rawId);
 
   // No `requireRole` here: `getOnboardingView` does its own auth gate
   // (assigned student / matching instructor / admin / support) and
@@ -146,11 +149,17 @@ export default async function OnboardingStatusPage({
                       {inst.isRenewal ? "Renewing existing access" : "New workspace"}
                     </p>
                   </div>
-                  {!inst.isRenewal && (
-                    <Badge variant="outline">Preparing</Badge>
-                  )}
+                  {/* Greptile P2 finding: a renewal pair is "ready" the
+                     moment the row exists; a new-workspace pair only
+                     flips to ready once the row is `completed`. */}
                   {inst.isRenewal && (
                     <Badge variant="secondary">Ready</Badge>
+                  )}
+                  {!inst.isRenewal && onboarding.status === "completed" && (
+                    <Badge variant="secondary">Ready</Badge>
+                  )}
+                  {!inst.isRenewal && onboarding.status !== "completed" && (
+                    <Badge variant="outline">Preparing</Badge>
                   )}
                 </li>
               ))}

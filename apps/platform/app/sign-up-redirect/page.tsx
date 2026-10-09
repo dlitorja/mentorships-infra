@@ -56,7 +56,16 @@ export default function SignUpRedirectPage(): React.JSX.Element {
       return;
     }
 
-    if (incompleteOnboarding.isLoading || incompleteOnboarding.isError) return;
+    if (incompleteOnboarding.isLoading) return;
+    if (incompleteOnboarding.isError) {
+      // Greptile P1 finding: an unhandled Convex query error kept the
+      // page on its spinner indefinitely. Fall through to /dashboard so
+      // the student at least lands somewhere useful; the recovery
+      // dashboard (admin tooling, PR 4) can re-route via the
+      // /onboarding/[id] deep link if the row is still active.
+      router.push("/dashboard");
+      return;
+    }
     const onboardingId = incompleteOnboarding.data;
     if (onboardingId) {
       router.push(`/onboarding/${onboardingId}`);

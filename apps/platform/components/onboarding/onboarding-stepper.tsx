@@ -79,6 +79,11 @@ function resolveState(
   currentStep: number,
   status: OnboardingStatus
 ): StepState {
+  // Greptile P2 finding: when `status === "completed"` the original
+  // mapping marked step 4 (the final "Onboarding complete" step) as
+  // "current" with a pulsing hourglass — visually unfinished. Completed
+  // means every step is done.
+  if (status === "completed") return "done";
   if (status === "failed") {
     if (stepNumber < currentStep) return "done";
     if (stepNumber === currentStep) return "blocked";
