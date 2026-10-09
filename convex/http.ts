@@ -3437,11 +3437,21 @@ http.route({
 export const httpOnboardingStaleQuestionnaire = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const drafts = await ctx.runQuery(
-    (internal as any).onboardingQuestionnaire.listStaleDraftsForReminder
+  // Greptile P1 follow-up: each call reads ONE page. The cron
+  // loops with the returned `nextCursor`. Convex queries can only
+  // `.paginate()` once per handler, so multi-page scans must be
+  // orchestrated by the caller.
+  const body = (await request.json().catch(() => ({}))) as {
+    cursor?: string | null;
+  };
+  const cursor = typeof body.cursor === "string" ? body.cursor : null;
+
+  const page = await ctx.runQuery(
+    (internal as any).onboardingQuestionnaire.listStaleDraftsForReminder,
+    { cursor }
   );
 
-  return new Response(JSON.stringify({ drafts }), {
+  return new Response(JSON.stringify(page), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });

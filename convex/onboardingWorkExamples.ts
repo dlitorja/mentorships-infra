@@ -14,6 +14,35 @@ import {
 } from "./workspaceConstants";
 
 /**
+ * Greptile P1 follow-up: staff records can have
+ * `clerkId !== userId` (split identity — e.g. one operator for
+ * two products). The PR 3 status page (`getOnboardingView` →
+ * `isAdminOrSupport`) only consults `by_userId`. To stay
+ * consistent with that gate, this helper checks BOTH indexes and
+ * returns whichever row exists.
+ */
+async function lookupStaffRole(
+  ctx: QueryCtx,
+  identitySubject: string
+): Promise<"admin" | "support" | null> {
+  const byClerk = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identitySubject))
+    .first();
+  if (byClerk && (byClerk.role === "admin" || byClerk.role === "support")) {
+    return byClerk.role;
+  }
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identitySubject))
+    .first();
+  if (byUserId && (byUserId.role === "admin" || byUserId.role === "support")) {
+    return byUserId.role;
+  }
+  return null;
+}
+
+/**
  * PR 12 PR 4 — onboarding work-example image uploads.
  *
  * Lifecycle:
@@ -335,11 +364,8 @@ export const listWorkExamples = query({
       }
     }
     if (!authorized) {
-      const userRow = await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-        .first();
-      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+      const staffRole = await lookupStaffRole(ctx, identity.subject);
+      if (staffRole) {
         authorized = true;
       }
     }
@@ -408,11 +434,8 @@ export const getWorkExampleByIdForViewer = query({
       }
     }
     if (!authorized) {
-      const userRow = await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-        .first();
-      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+      const staffRole = await lookupStaffRole(ctx, identity.subject);
+      if (staffRole) {
         authorized = true;
       }
     }
@@ -457,11 +480,8 @@ export const resolveDownloadAccess = query({
       }
     }
     if (!authorized) {
-      const userRow = await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-        .first();
-      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+      const staffRole = await lookupStaffRole(ctx, identity.subject);
+      if (staffRole) {
         authorized = true;
       }
     }

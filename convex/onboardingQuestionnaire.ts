@@ -425,14 +425,20 @@ export const getSubmittedQuestionnaireForViewer = query({
       }
     }
     if (!isAssignedStudent && !isAssignedInstructor) {
-      // Defer to admin/support check by querying the users
-      // table.
-      const userRow = await ctx.db
+      // Greptile P1 follow-up: staff rows can have
+      // `clerkId !== userId` (split identity). Check both indexes
+      // — the status page (`getOnboardingView`) uses `by_userId`,
+      // so we need the same shape here or split-identity staff
+      // can open the page but see no submitted answers.
+      const byClerk = await ctx.db
         .query("users")
-        .withIndex("by_clerkId", (q) =>
-          q.eq("clerkId", identity.subject)
-        )
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
         .first();
+      const byUserId = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      const userRow = byClerk ?? byUserId;
       if (!userRow || (userRow.role !== "admin" && userRow.role !== "support")) {
         return null;
       }
@@ -471,6 +477,132 @@ export const getSubmittedQuestionnaireForViewer = query({
     };
   },
 });
+
+/**
+ * Greptile P1 follow-up: instructor-facing list of adminOnboardings
+ * where this instructor is one of the assigned pair AND the student
+ * has submitted the questionnaire. Drives the new "Student
+ * questionnaires" section on `/instructor/onboarding` so an
+ * instructor has a discoverable deep link to each submitted answer
+ * set instead of only seeing the legacy `studentOnboardingSubmissions`
+ * rows.
+ *
+ * Lookup strategy: `adminOnboardings` has no index keyed on
+ * `perInstructor[].instructorId`, so we walk the table with a
+ * bounded pagination pass. Per-tick read budget is
+ * `LIST_SCAN_LIMIT * LIST_MAX_PAGES`; once we have at least
+ * `LIST_LIMIT` matches, we stop early. For PR 4b scale (~hundreds
+ * of onboardings) this is comfortably inside the per-query read
+ * budget; a `by_perInstructor` index would be a PR 4c follow-up
+ * if the table grows.
+ */
+const LIST_SCAN_LIMIT = 200;
+const LIST_MAX_PAGES = 3;
+const LIST_LIMIT = 20;
+
+export const listSubmittedQuestionnairesForInstructor = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      onboardingId: v.id("adminOnboardings"),
+      studentEmail: v.string(),
+      submittedAt: v.number(),
+      instructorCount: v.number(),
+    })
+  ),
+  handler: async (ctx): Promise<
+    Array<{
+      onboardingId: Id<"adminOnboardings">;
+      studentEmail: string;
+      submittedAt: number;
+      instructorCount: number;
+    }>
+  > => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    // Staff can see every onboarding; an instructor can only see
+    // rows where they are one of the assigned instructors.
+    const staffRole = await lookupStaffRole(ctx, identity.subject);
+    const isStaff = staffRole !== null;
+
+    const out: Array<{
+      onboardingId: Id<"adminOnboardings">;
+      studentEmail: string;
+      submittedAt: number;
+      instructorCount: number;
+    }> = [];
+
+    let cursor: string | null = null;
+    let pages = 0;
+    while (out.length < LIST_LIMIT && pages < LIST_MAX_PAGES) {
+      const page = await ctx.db
+        .query("adminOnboardings")
+        .paginate({ numItems: LIST_SCAN_LIMIT, cursor });
+      for (const row of page.page) {
+        if (!isStaff) {
+          // Instructor check: walk `perInstructor` and resolve
+          // each `instructorId` to its `userId`.
+          let matched = false;
+          for (const p of row.perInstructor) {
+            const inst = await ctx.db.get("instructors", p.instructorId);
+            if (inst?.userId && inst.userId === identity.subject) {
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) continue;
+        }
+
+        // Find the submitted questionnaire row.
+        const submission = await ctx.db
+          .query("onboardingQuestionnaireSubmissions")
+          .withIndex("by_onboardingId", (q) =>
+            q.eq("onboardingId", row._id)
+          )
+          .first();
+        if (!submission || submission.status !== "submitted") continue;
+
+        out.push({
+          onboardingId: row._id,
+          studentEmail: row.email,
+          submittedAt: submission.submittedAt ?? submission.updatedAt,
+          instructorCount: row.perInstructor.length,
+        });
+        if (out.length >= LIST_LIMIT) break;
+      }
+      cursor = page.continueCursor;
+      pages += 1;
+      if (page.isDone) break;
+    }
+
+    // Newest first so the instructor sees recent submissions on
+    // top.
+    out.sort((a, b) => b.submittedAt - a.submittedAt);
+    return out;
+  },
+});
+
+async function lookupStaffRole(
+  ctx: QueryCtx,
+  identitySubject: string
+): Promise<"admin" | "support" | null> {
+  const byClerk = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identitySubject))
+    .first();
+  if (byClerk && (byClerk.role === "admin" || byClerk.role === "support")) {
+    return byClerk.role;
+  }
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identitySubject))
+    .first();
+  if (byUserId && (byUserId.role === "admin" || byUserId.role === "support")) {
+    return byUserId.role;
+  }
+  return null;
+}
 
 /**
  * Stamp `lastSeenAt` on the submission row. Called by the
@@ -520,36 +652,39 @@ export const recordQuestionnaireSeen = mutation({
  */
 
 const STALE_BATCH_LIMIT = 50;
-// Read up to this many draft rows in one tick. Most are exhausted
+// Read up to this many draft rows per call. Most are exhausted
 // (past the reminder cap) or recently-active, so we cap the page
 // size to keep the per-query read budget bounded.
 const STALE_SCAN_PAGE_SIZE = 200;
 
 export const listStaleDraftsForReminder = internalQuery({
-  args: {},
-  returns: v.array(
-    v.object({
-      onboardingId: v.id("adminOnboardings"),
-      submissionId: v.id("onboardingQuestionnaireSubmissions"),
-      studentEmail: v.string(),
-      studentName: v.union(v.string(), v.null()),
-      reminderCount: v.number(),
-      lastSeenAt: v.union(v.number(), v.null()),
-    })
-  ),
-  handler: async (ctx) => {
+  args: {
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        onboardingId: v.id("adminOnboardings"),
+        submissionId: v.id("onboardingQuestionnaireSubmissions"),
+        studentEmail: v.string(),
+        studentName: v.union(v.string(), v.null()),
+        reminderCount: v.number(),
+        lastSeenAt: v.union(v.number(), v.null()),
+      })
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+    pageHadEligible: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
     const now = Date.now();
     const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
     const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
 
-    // Greptile P1 follow-up: paginate through the
-    // `by_status_updatedAt` partition so a backlog of exhausted
-    // drafts (rows that have hit the reminder cap) can't crowd
-    // out newer eligible rows at the front of the index. We walk
-    // pages until we fill the candidate list OR we run out of
-    // rows. Bounded by STALE_SCAN_PAGE_SIZE * numPages so a single
-    // cron tick can't blow the read budget even if the partition
-    // is full of exhausted rows.
+    // Greptile P1 follow-up: each call reads one page. Convex
+    // queries can only `.paginate()` once per handler, so the
+    // caller (the Inngest cron) loops with `nextCursor` until
+    // `isDone` or the candidate batch fills up.
     const candidates: Array<{
       onboardingId: Id<"adminOnboardings">;
       submissionId: Id<"onboardingQuestionnaireSubmissions">;
@@ -559,90 +694,81 @@ export const listStaleDraftsForReminder = internalQuery({
       lastSeenAt: number | null;
     }> = [];
 
-    let cursor: string | null = null;
-    let pagesRead = 0;
-    const MAX_PAGES = 5;
+    const page = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      .paginate({ numItems: STALE_SCAN_PAGE_SIZE, cursor: args.cursor });
 
-    while (candidates.length < STALE_BATCH_LIMIT && pagesRead < MAX_PAGES) {
-      const page = await ctx.db
-        .query("onboardingQuestionnaireSubmissions")
-        .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
-        .paginate({ numItems: STALE_SCAN_PAGE_SIZE, cursor });
+    let pageHadEligible = false;
 
-      let pageHadEligible = false;
-      for (const row of page.page) {
-        const reminderCount = row.reminderCount ?? 0;
-        // Greptile P1 follow-up: when `reminderCount` is at the
-        // cap, skip without inspecting other fields. The
-        // `updatedAt` of an exhausted row stays put until the
-        // student edits or submits, so these rows would
-        // otherwise pin the cursor at the front of the index
-        // forever.
-        if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
-        pageHadEligible = true;
+    for (const row of page.page) {
+      const reminderCount = row.reminderCount ?? 0;
+      // Greptile P1 follow-up: when `reminderCount` is at the
+      // cap, skip without inspecting other fields. The
+      // `updatedAt` of an exhausted row stays put until the
+      // student edits or submits, so these rows would
+      // otherwise pin the cursor at the front of the index
+      // forever.
+      if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
+      pageHadEligible = true;
 
-        // Greptile P2 #14: a student who is actively editing the
-        // form updates `updatedAt` on every debounced save; only
-        // the tab-close beacon updates `lastSeenAt`. Treat the
-        // latest of either as the activity signal so an actively
-        // edited draft never lands in the reminder queue.
-        const latestActivity = Math.max(
-          row.updatedAt,
-          row.lastSeenAt ?? 0
-        );
-        const isFresh = latestActivity >= staleCutoff;
-        if (isFresh) continue;
+      // Greptile P2 #14: a student who is actively editing the
+      // form updates `updatedAt` on every debounced save; only
+      // the tab-close beacon updates `lastSeenAt`. Treat the
+      // latest of either as the activity signal so an actively
+      // edited draft never lands in the reminder queue.
+      const latestActivity = Math.max(
+        row.updatedAt,
+        row.lastSeenAt ?? 0
+      );
+      const isFresh = latestActivity >= staleCutoff;
+      if (isFresh) continue;
 
-        // Don't double-fire reminders: respect the min interval
-        // since the last send so a slow scan can't spam a student.
-        if (
-          row.lastReminderSentAt !== undefined &&
-          row.lastReminderSentAt > minIntervalCutoff
-        ) {
-          continue;
-        }
-
-        const onboarding = await ctx.db.get(row.onboardingId);
-        if (!onboarding) continue;
-        // Greptile P2 #15: a cancelled onboarding leaves its
-        // questionnaire as a draft, and the questionnaire
-        // mutations reject further writes. Skip those parents.
-        if (onboarding.status === "cancelled") continue;
-
-        const student = onboarding.assignedStudentClerkId
-          ? await ctx.db
-              .query("users")
-              .withIndex("by_clerkId", (q) =>
-                q.eq("clerkId", onboarding.assignedStudentClerkId!)
-              )
-              .first()
-          : null;
-
-        candidates.push({
-          onboardingId: row.onboardingId,
-          submissionId: row._id,
-          studentEmail: student?.email ?? onboarding.email,
-          studentName: student?.firstName
-            ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
-            : null,
-          reminderCount,
-          lastSeenAt: row.lastSeenAt ?? null,
-        });
-
-        if (candidates.length >= STALE_BATCH_LIMIT) break;
+      // Don't double-fire reminders: respect the min interval
+      // since the last send so a slow scan can't spam a student.
+      if (
+        row.lastReminderSentAt !== undefined &&
+        row.lastReminderSentAt > minIntervalCutoff
+      ) {
+        continue;
       }
 
-      cursor = page.continueCursor;
-      pagesRead += 1;
-      // If we walked an entire page without finding any eligible
-      // row, the rest of the partition is unlikely to have any
-      // either (the index is sorted by updatedAt ascending — newer
-      // drafts surface first). Stop early to save the read budget.
-      if (!pageHadEligible) break;
-      if (page.isDone) break;
+      const onboarding = await ctx.db.get(row.onboardingId);
+      if (!onboarding) continue;
+      // Greptile P2 #15: a cancelled onboarding leaves its
+      // questionnaire as a draft, and the questionnaire
+      // mutations reject further writes. Skip those parents.
+      if (onboarding.status === "cancelled") continue;
+
+      const student = onboarding.assignedStudentClerkId
+        ? await ctx.db
+            .query("users")
+            .withIndex("by_clerkId", (q) =>
+              q.eq("clerkId", onboarding.assignedStudentClerkId!)
+            )
+            .first()
+        : null;
+
+      candidates.push({
+        onboardingId: row.onboardingId,
+        submissionId: row._id,
+        studentEmail: student?.email ?? onboarding.email,
+        studentName: student?.firstName
+          ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
+          : null,
+        reminderCount,
+        lastSeenAt: row.lastSeenAt ?? null,
+      });
+
+      if (candidates.length >= STALE_BATCH_LIMIT) break;
     }
 
-    return candidates;
+    return {
+      candidates,
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+      pageHadEligible,
+    };
   },
 });
 

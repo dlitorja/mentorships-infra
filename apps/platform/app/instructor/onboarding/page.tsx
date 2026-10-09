@@ -91,6 +91,23 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     { token }
   );
 
+  // PR 4b (Greptile P1 follow-up): list adminOnboardings assigned
+  // to this instructor that have a submitted questionnaire, with a
+  // deep link to /onboarding/[id]. The instructor onboarding page
+  // historically only knew about the legacy `studentOnboarding`
+  // row; the new questionnaire is keyed on `adminOnboardings` so
+  // a link from here gives instructors a discoverable entry point.
+  const submittedQuestionnaires: Array<{
+    onboardingId: Id<"adminOnboardings">;
+    studentEmail: string;
+    submittedAt: number;
+    instructorCount: number;
+  }> = await fetchQuery(
+    (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+    {},
+    { token }
+  ).catch(() => []);
+
   const selected =
     (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
 
@@ -189,6 +206,36 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                 })}
               </CardContent>
             </Card>
+
+            {submittedQuestionnaires.length > 0 && (
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle>Student questionnaires</CardTitle>
+                  <CardDescription>
+                    New intake form responses for assigned students. Click
+                    through to read goals, inspirations, and work examples
+                    before the first call.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {submittedQuestionnaires.map((q) => (
+                    <Link
+                      key={q.onboardingId}
+                      href={`/onboarding/${q.onboardingId}`}
+                      className="block rounded-md border p-3 hover:bg-muted"
+                    >
+                      <div className="text-sm font-medium">{q.studentEmail}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Submitted{" "}
+                        {new Date(q.submittedAt).toLocaleString()} ·{" "}
+                        {q.instructorCount} instructor
+                        {q.instructorCount === 1 ? "" : "s"}
+                      </div>
+                    </Link>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>

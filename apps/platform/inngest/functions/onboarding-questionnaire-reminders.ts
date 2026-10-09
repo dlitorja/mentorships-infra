@@ -27,7 +27,17 @@ import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-e
  * advance `reminderCount`; the cron is the only writer. A student
  * who submits while the cron is running could otherwise receive a
  * reminder for a just-submitted questionnaire.
+ *
+ * Greptile P1 follow-up: the scan is paginated. Convex queries can
+ * only `.paginate()` once per handler, so each scan call reads
+ * one page (`STALE_SCAN_PAGE_SIZE` rows). The cron loops with
+ * `nextCursor` until the candidate batch fills up, the cursor
+ * returns `isDone`, or an entire page yields no eligible row
+ * (which means we've walked past the candidate cluster — the
+ * index is sorted by `updatedAt` ascending).
  */
+const SCAN_MAX_PAGES = 5;
+
 export const onboardingQuestionnaireReminders = inngest.createFunction(
   {
     id: "onboarding-questionnaire-reminders",
@@ -38,32 +48,52 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     ],
   },
   async ({ step }) => {
-    const drafts = await step.run("scan", async () => {
+    const drafts: Array<{
+      onboardingId: string;
+      submissionId: string;
+      studentEmail: string;
+      studentName: string | null;
+      reminderCount: number;
+    }> = [];
+    await step.run("scan", async () => {
       const url = `${getConvexBaseUrl()}/onboarding/stale-questionnaire`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.CONVEX_HTTP_KEY ?? ""}`,
-        },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(
-          `stale-questionnaire scan failed (HTTP ${res.status}): ${text}`
-        );
+      let cursor: string | null = null;
+      for (let page = 0; page < SCAN_MAX_PAGES; page += 1) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.CONVEX_HTTP_KEY ?? ""}`,
+          },
+          body: JSON.stringify({ cursor }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            `stale-questionnaire scan failed (HTTP ${res.status}): ${text}`
+          );
+        }
+        const json = (await res.json()) as {
+          candidates: Array<{
+            onboardingId: string;
+            submissionId: string;
+            studentEmail: string;
+            studentName: string | null;
+            reminderCount: number;
+            lastSeenAt: number | null;
+          }>;
+          nextCursor: string | null;
+          isDone: boolean;
+          pageHadEligible: boolean;
+        };
+        drafts.push(...json.candidates);
+        // If we've filled the batch or hit the end of the
+        // partition, stop. Likewise if an entire page had no
+        // eligible row, the remaining pages are unlikely to have
+        // any either (newer drafts surface first in the index).
+        if (json.isDone || !json.pageHadEligible) break;
+        cursor = json.nextCursor;
       }
-      const json = (await res.json()) as {
-        drafts: Array<{
-          onboardingId: string;
-          submissionId: string;
-          studentEmail: string;
-          studentName: string | null;
-          reminderCount: number;
-        }>;
-      };
-      return json.drafts;
     });
 
     if (!drafts.length) {
@@ -92,13 +122,13 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             return { skipped: true, reason: "max-reached" };
           }
           // Greptile P1 #11: link through Clerk's sign-in redirect so a
-// logged-out tab lands back on the questionnaire after auth. The
-// proxy's protected-page list does not include /onboarding so
-// direct links hit notFound() before reaching ProtectedLayout.
-const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
-  `/onboarding/${draft.onboardingId}/questionnaire`
-)}`;
-const questionnaireUrl = `${baseUrl}${signInPath}`;
+          // logged-out tab lands back on the questionnaire after auth. The
+          // proxy's protected-page list does not include /onboarding so
+          // direct links hit notFound() before reaching ProtectedLayout.
+          const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
+            `/onboarding/${draft.onboardingId}/questionnaire`
+          )}`;
+          const questionnaireUrl = `${baseUrl}${signInPath}`;
           const email = buildOnboardingReminderEmail({
             studentName: draft.studentName,
             studentEmail: draft.studentEmail,

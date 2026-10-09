@@ -42,6 +42,23 @@ export default async function OnboardingQuestionnairePage({
   if (!userId) notFound();
   const token = await getConvexAuthToken();
 
+  // Greptile P2: gate on `getOnboardingView` first. That query
+  // returns the caller's role (`student` for the assigned student,
+  // `instructor` for one of the assigned instructors, `admin`/`support`
+  // for staff). Anything else is a 404 — same existence-leak guard
+  // as the PR 3 status page. We can't rely on
+  // `getQuestionnaireForCurrentUser` returning `null` to mean "no
+  // access", because it also returns `null` on a student's first
+  // visit (no draft yet) — the form needs an initial value in that
+  // case but a 404 in the no-access case.
+  const view = await fetchQuery(
+    (api as any).adminOnboarding.getOnboardingView,
+    { onboardingId: id },
+    { token: token ?? undefined }
+  ).catch(() => null);
+
+  if (!view || view.viewerRole !== "student") notFound();
+
   const initial = await fetchQuery(
     (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
     { onboardingId: id },

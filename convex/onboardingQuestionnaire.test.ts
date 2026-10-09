@@ -511,10 +511,10 @@ test("listStaleDraftsForReminder skips rows past the max-count cap", async () =>
     await ctx.db.patch(sub!._id, { reminderCount: 99, lastSeenAt: 0 });
   });
 
-  const drafts = await t.run(async (ctx) =>
-    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, {})
+  const page = await t.run(async (ctx) =>
+    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
-  expect(drafts.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
+  expect(page.candidates.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
 });
 
 test("listStaleDraftsForReminder picks up rows past the stale threshold", async () => {
@@ -548,11 +548,11 @@ test("listStaleDraftsForReminder picks up rows past the stale threshold", async 
     await ctx.db.patch(sub!._id, { lastSeenAt: 0, updatedAt: 0 });
   });
 
-  const drafts = await t.run(async (ctx) =>
-    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, {})
+  const page = await t.run(async (ctx) =>
+    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
-  expect(drafts.length).toBeGreaterThan(0);
-  expect(drafts[0].onboardingId).toBe(onboardingId);
+  expect(page.candidates.length).toBeGreaterThan(0);
+  expect(page.candidates[0].onboardingId).toBe(onboardingId);
 });
 
 test("markReminderSent is idempotent on `next`", async () => {
@@ -635,8 +635,8 @@ test("listStaleDraftsForReminder excludes cancelled parent onboardings (P2 #15)"
     await ctx.db.patch(sub!._id, { lastSeenAt: 0, updatedAt: 0 });
   });
 
-  const drafts = await t.run(async (ctx) =>
-    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, {})
+  const page = await t.run(async (ctx) =>
+    ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
-  expect(drafts.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
+  expect(page.candidates.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
 });

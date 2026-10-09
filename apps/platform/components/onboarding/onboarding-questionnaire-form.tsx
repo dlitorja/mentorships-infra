@@ -312,7 +312,12 @@ export default function OnboardingQuestionnaireForm({
   const canSubmit =
     missingTextareaRequired.length === 0 &&
     validInspirations.length >= MIN_INSPIRATIONS &&
-    workExamples.filter((w) => w.status !== "deleted").length >=
+    // Greptile P2: server-side `submitQuestionnaire` rejects when
+    // the count of active rows is below the cap. Counting pending
+    // rows would let a student who refreshed mid-upload submit a
+    // request the server can't accept, surfacing as a confusing
+    // 400. Match the server check exactly.
+    workExamples.filter((w) => w.status === "active").length >=
       MIN_WORK_EXAMPLES_PER_SUBMISSION;
 
   const submitMutation = useMutation({
@@ -495,7 +500,7 @@ export default function OnboardingQuestionnaireForm({
               missingRequired={missingTextareaRequired}
               validInspirations={validInspirations.length}
               minInspirations={MIN_INSPIRATIONS}
-              activeWorkExamples={workExamples.filter((w) => w.status !== "deleted").length}
+              activeWorkExamples={workExamples.filter((w) => w.status === "active").length}
               minWorkExamples={MIN_WORK_EXAMPLES_PER_SUBMISSION}
             />
             <Button
