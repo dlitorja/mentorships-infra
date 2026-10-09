@@ -1118,6 +1118,17 @@ export const appendTimelineEntry = internalMutation({
       v.literal("alias_set"),
       v.literal("released"),
       v.literal("invitation_resent")
+      // PR 12 PR 4 — `questionnaire_submitted` is NOT appended to the
+      // timeline event union here. Reasoning: widening the union
+      // requires regenerating `convex/_generated/dataModel.d.ts`
+      // (only runs on push to main per `.github/workflows/ci.yml`,
+      // not on PRs). The questionnaire submission is instead
+      // surfaced to the instructor view by reading the
+      // `onboardingQuestionnaireSubmissions` table directly
+      // (`getSubmittedQuestionnaireForViewer` in
+      // `convex/onboardingQuestionnaire.ts`). If a future PR wants
+      // a timeline event for the submission, widen the union
+      // here and bump `_generated/` in the same PR.
     ),
     actorUserId: v.optional(v.string()),
     details: v.optional(v.string()),
