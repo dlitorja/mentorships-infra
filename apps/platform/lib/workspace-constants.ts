@@ -51,3 +51,12 @@ export const ONBOARDING_WORK_EXAMPLES_B2_PREFIX = "onboarding";
 export const ONBOARDING_AUTOSAVE_DEBOUNCE_MS = 500;
 export const ONBOARDING_REMINDER_STALE_MS = 60 * 60 * 1000;
 export const ONBOARDING_REMINDER_MAX_COUNT = 3;
+export const ONBOARDING_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+export const ONBOARDING_REQUIRED_QUESTION_IDS = [
+  "how_did_you_hear",
+  "goals",
+  "inspirations",
+] as const;
+export const ONBOARDING_QUESTIONNAIRE_VERSION = 1;
+export const MIN_WORK_EXAMPLES_PER_SUBMISSION = 4;

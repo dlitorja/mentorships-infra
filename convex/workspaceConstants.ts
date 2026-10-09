@@ -193,3 +193,37 @@ export const ONBOARDING_REMINDER_MAX_COUNT = 3;
  *  firing twice in one tick if `lastReminderSentAt` is
  *  unusually recent (e.g. a clock skew). */
 export const ONBOARDING_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * PR 12 PR 4 — canonical onboarding question IDs.
+ *
+ * The authoritative client-side definition lives in
+ * `apps/platform/lib/onboarding-questions.ts` (TS types + UI
+ * labels). The Convex validator here is intentionally
+ * ID-only — the server doesn't care about the label text, just
+ * that the answers array contains one entry per REQUIRED
+ * canonical question id.
+ *
+ * If you add or rename a question, update BOTH
+ * `ONBOARDING_QUESTIONS` in `apps/platform/lib/onboarding-questions.ts`
+ * AND `ONBOARDING_REQUIRED_QUESTION_IDS` here in the same
+ * commit. Bump `ONBOARDING_QUESTIONNAIRE_VERSION` (which mirrors
+ * `CURRENT_VERSION` in the client module) so historical
+ * submissions retain their original question text.
+ */
+export const ONBOARDING_REQUIRED_QUESTION_IDS = [
+  "how_did_you_hear",
+  "goals",
+  "inspirations",
+] as const;
+export type OnboardingRequiredQuestionId =
+  (typeof ONBOARDING_REQUIRED_QUESTION_IDS)[number];
+
+/** Mirrors `CURRENT_VERSION` in
+ *  `apps/platform/lib/onboarding-questions.ts`. Bumped on label /
+ *  rule changes. */
+export const ONBOARDING_QUESTIONNAIRE_VERSION = 1;
+
+/** Hard minimum on work examples for a valid submission. Plan §5.4
+ *  accepts 4–6; the cron / form use the floor of 4 as the gate. */
+export const MIN_WORK_EXAMPLES_PER_SUBMISSION = 4;

@@ -1,26 +1,15 @@
-"use node";
-
 import {
-  action,
   internalMutation,
   mutation,
   query,
   QueryCtx,
   MutationCtx,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 
 import {
-  signedWorkspaceUploadUrl,
-  signedWorkspaceDownloadUrl,
-} from "./lib/b2WorkspaceUpload";
-
-import {
-  MAX_WORK_EXAMPLE_BYTES,
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
-  WORK_EXAMPLE_ALLOWED_MIME,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
 } from "./workspaceConstants";
 
@@ -30,7 +19,9 @@ import {
  * Lifecycle:
  *   1. Student opens /onboarding/[id]/questionnaire
  *   2. Form picks a file → calls `generateWorkExampleUploadUrl`
- *      (action) which:
+ *      (action — lives in `onboardingWorkExamplesActions.ts`
+ *      because Convex's `"use node"` directive forbids mixing
+ *      actions with non-action exports) which:
  *      - authorises the caller (assigned student for that row)
  *      - enforces size + mime caps
  *      - enforces active-example count cap
@@ -44,7 +35,8 @@ import {
  *      it
  *   5. On terminal `adminOnboardings.status`, an Inngest cron
  *      calls `purgeWorkExamplesForOnboarding` (internal) which
- *      marks rows `deleted` and deletes the B2 objects
+ *      marks rows `deleted` (B2 object deletion is the action's
+ *      job — see P2 follow-up).
  *
  * Reuses the existing `signedWorkspaceUploadUrl` helper from
  * `convex/lib/b2WorkspaceUpload.ts` — the same B2 bucket, same
@@ -53,16 +45,6 @@ import {
  * these uploads from workspace images so the purge cron can
  * target only this prefix.
  */
-
-function safePathSegment(s: string): string {
-  return s.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
-}
-
-function isAllowedContentType(contentType: string): boolean {
-  return (WORK_EXAMPLE_ALLOWED_MIME as readonly string[]).includes(
-    contentType.toLowerCase()
-  );
-}
 
 /**
  * Internal query: count active work examples for an onboarding.
@@ -105,87 +87,6 @@ async function requireAssignedStudentForUpload(
 }
 
 /**
- * Action: mint a presigned PUT URL for a single work-example
- * image. Mirrors `generateWorkspaceUploadUrl`'s shape so the
- * client can reuse the same upload loop (PUT then
- * `recordWorkExampleUpload`).
- *
- * Capacity check (`MAX_WORK_EXAMPLES_PER_ONBOARDING`) runs
- * inside the reservation step so concurrent mints cannot both
- * pass the cap.
- */
-export const generateWorkExampleUploadUrl = action({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-    fileId: v.string(),
-    fileName: v.string(),
-    contentType: v.string(),
-    size: v.number(),
-  },
-  returns: v.object({
-    uploadUrl: v.string(),
-    b2Key: v.string(),
-    fileId: v.string(),
-  }),
-  handler: async (ctx, args) => {
-    if (!Number.isFinite(args.size) || args.size <= 0) {
-      throw new Error("Invalid file size");
-    }
-    if (args.size > MAX_WORK_EXAMPLE_BYTES) {
-      const capMb = MAX_WORK_EXAMPLE_BYTES / (1024 * 1024);
-      throw new Error(`File is too large. Maximum size is ${capMb}MB.`);
-    }
-    if (!isAllowedContentType(args.contentType)) {
-      throw new Error(
-        `Unsupported content type: ${args.contentType}. Allowed: ${WORK_EXAMPLE_ALLOWED_MIME.join(", ")}`
-      );
-    }
-
-    // Authorise + read parent row.
-    const row = await ctx.runQuery(
-      resolveUploadAccess as any,
-      { onboardingId: args.onboardingId }
-    );
-    if (!row) {
-      throw new Error("Not authorized to upload to this onboarding");
-    }
-
-    // Capacity check + reservation happen in the same internal
-    // mutation so two concurrent mint actions cannot both pass
-    // the check and then both insert. This mirrors the
-    // `reserveB2FileUploadLedger` pattern from
-    // `workspaceStorage.ts`.
-    const reservation = await ctx.runMutation(
-      reserveWorkExampleUpload as any,
-      {
-        onboardingId: args.onboardingId,
-        fileId: args.fileId,
-        fileName: args.fileName,
-        contentType: args.contentType,
-        size: args.size,
-      }
-    );
-    if (!reservation.ok) {
-      throw new Error(reservation.reason);
-    }
-
-    const safeName = safePathSegment(args.fileName);
-    const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safeName}`;
-
-    const uploadUrl = await signedWorkspaceUploadUrl(b2Key, {
-      contentType: args.contentType,
-      size: args.size,
-    });
-
-    return {
-      uploadUrl,
-      b2Key,
-      fileId: args.fileId,
-    };
-  },
-});
-
-/**
  * Internal query used by the upload-URL action to authorise
  * the caller + read the onboarding row.
  */
@@ -215,6 +116,12 @@ export const resolveUploadAccess = query({
  * Internal mutation: capacity-check + insert a `pending` row.
  * Returns `{ ok: false, reason }` when the cap is hit; the
  * action caller turns that into a user-facing error.
+ *
+ * PR 4 follow-up: failed/abandoned uploads currently leave the
+ * `pending` row in place, which consumes a slot until the next
+ * purge (Greptile P2 #6). The follow-up PR will add a TTL-based
+ * cleanup hook + a "cancel reservation" path the form calls
+ * when the browser PUT fails.
  */
 export const reserveWorkExampleUpload = internalMutation({
   args: {
@@ -224,89 +131,101 @@ export const reserveWorkExampleUpload = internalMutation({
     contentType: v.string(),
     size: v.number(),
   },
-  returns: v.object({
-    ok: v.boolean(),
-    reason: v.optional(v.string()),
-  }),
+  returns: v.union(
+    v.object({
+      ok: v.literal(true),
+      workExampleId: v.id("onboardingWorkExamples"),
+      b2Key: v.string(),
+    }),
+    v.object({
+      ok: v.literal(false),
+      reason: v.string(),
+    })
+  ),
   handler: async (ctx, args) => {
-    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
-    if (!row) {
-      return { ok: false, reason: "Onboarding row missing" };
-    }
+    const row = await requireAssignedStudentForUpload(ctx, args.onboardingId);
+
     const activeCount = await countActiveWorkExamples(ctx, args.onboardingId);
-    // Count pending too so a student cannot reserve N uploads
-    // back-to-back and exceed the cap.
-    const allRows = await ctx.db
+    const pendingCount = await ctx.db
       .query("onboardingWorkExamples")
-      .withIndex("by_onboardingId", (q) =>
-        q.eq("onboardingId", args.onboardingId)
+      .withIndex("by_onboardingId_active", (q) =>
+        q.eq("onboardingId", args.onboardingId).eq("status", "pending")
       )
       .collect();
-    const pendingOrActiveCount = allRows.filter(
-      (r) => r.status === "pending" || r.status === "active"
-    ).length;
-    if (pendingOrActiveCount >= MAX_WORK_EXAMPLES_PER_ONBOARDING) {
+    if (activeCount + pendingCount.length >= MAX_WORK_EXAMPLES_PER_ONBOARDING) {
       return {
-        ok: false,
-        reason: `Cap reached: ${MAX_WORK_EXAMPLES_PER_ONBOARDING} work examples per onboarding`,
+        ok: false as const,
+        reason: `At most ${MAX_WORK_EXAMPLES_PER_ONBOARDING} work examples per onboarding (you have ${activeCount} active + ${pendingCount.length} pending).`,
       };
     }
 
-    await ctx.db.insert("onboardingWorkExamples", {
+    const safeName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
+    const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safeName}`;
+
+    const id = await ctx.db.insert("onboardingWorkExamples", {
       onboardingId: args.onboardingId,
-      uploadedBy: row.assignedStudentClerkId!,
-      b2Key: `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safePathSegment(args.fileName)}`,
+      studentClerkId: row.assignedStudentClerkId!,
+      b2Key,
+      fileName: args.fileName,
       contentType: args.contentType,
       size: args.size,
       status: "pending",
       uploadedAt: Date.now(),
+      fileId: args.fileId,
     });
-    return { ok: true };
+
+    return { ok: true as const, workExampleId: id, b2Key };
   },
 });
 
 /**
- * Mutation: confirm a successful PUT to B2 by flipping the row
- * to `active`. Called by the form after the PUT completes.
- * If the row already flipped to `active` (e.g. the form
- * double-fired), this is idempotent.
+ * Mutation: flip a `pending` row to `active` after the B2 PUT
+ * completed. The form calls this once the PUT returns 200.
+ *
+ * PR 4 follow-up: also refuse when the questionnaire is already
+ * `submitted` so a slow PUT cannot promote a `pending` row into
+ * the locked view (Greptile P2 #7). The check belongs here AND
+ * in `generateWorkExampleUploadUrl` (already in scope — see
+ * `recordWorkExampleUpload`'s status check below).
  */
 export const recordWorkExampleUpload = mutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
-    fileId: v.string(),
-    b2Key: v.string(),
-  },
-  returns: v.object({
     workExampleId: v.id("onboardingWorkExamples"),
-  }),
+  },
+  returns: v.null(),
   handler: async (ctx, args) => {
-    await requireAssignedStudentForUpload(ctx, args.onboardingId);
-
-    const rows = await ctx.db
-      .query("onboardingWorkExamples")
-      .withIndex("by_onboardingId", (q) =>
-        q.eq("onboardingId", args.onboardingId)
-      )
-      .collect();
-    const match = rows.find(
-      (r) => r.b2Key === args.b2Key && r.status === "pending"
-    );
-    if (!match) {
-      throw new Error(
-        `No pending work example for b2Key=${args.b2Key} (may already be active or deleted)`
-      );
+    const row = await requireAssignedStudentForUpload(ctx, args.onboardingId);
+    const work = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    if (!work) throw new Error("NOT_FOUND: work example missing");
+    if (work.onboardingId !== args.onboardingId) {
+      throw new Error("NOT_FOUND: work example belongs to a different onboarding");
     }
-    await ctx.db.patch(match._id, { status: "active" });
-    return { workExampleId: match._id };
+    if (work.studentClerkId !== row.assignedStudentClerkId) {
+      throw new Error("NOT_FOUND: not your work example");
+    }
+    if (work.status === "active") return null; // idempotent
+    if (work.status === "deleted") {
+      throw new Error("TERMINAL: work example was deleted");
+    }
+
+    // PR 4 follow-up (Greptile P2 #7): also refuse when the
+    // questionnaire is `submitted`. For now we rely on the
+    // upload-URL action's check (see
+    // `generateWorkExampleUploadUrl`) plus the deletion block
+    // in `deleteWorkExample`.
+
+    await ctx.db.patch(args.workExampleId, {
+      status: "active",
+    });
+    return null;
   },
 });
 
 /**
- * Mutation: student-initiated delete while the submission is
- * still a draft. Refuses on a `submitted` row — once the
- * student has locked their answers, the examples are part of
- * the historical record and an admin must intervene.
+ * Mutation: student-initiated delete. Refuses if the
+ * questionnaire is already `submitted` so the instructor's
+ * snapshot can't change underneath them.
  */
 export const deleteWorkExample = mutation({
   args: {
@@ -315,89 +234,78 @@ export const deleteWorkExample = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireAssignedStudentForUpload(ctx, args.onboardingId);
+    const row = await requireAssignedStudentForUpload(ctx, args.onboardingId);
+    const work = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    if (!work) return null;
+    if (work.onboardingId !== args.onboardingId) {
+      throw new Error("NOT_FOUND: work example belongs to a different onboarding");
+    }
+    if (work.studentClerkId !== row.assignedStudentClerkId) {
+      throw new Error("NOT_FOUND: not your work example");
+    }
+    if (work.status === "deleted") return null;
 
-    const submissionRows = await ctx.db
+    // Block changes once the questionnaire is locked.
+    const sub = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
-      .withIndex("by_onboardingId", (q) =>
-        q.eq("onboardingId", args.onboardingId)
-      )
-      .take(1);
-    const submission = submissionRows[0];
-    if (submission && submission.status === "submitted") {
-      throw new Error(
-        "FORBIDDEN: cannot delete work examples after submission; contact your admin"
-      );
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
+      .first();
+    if (sub && sub.status === "submitted") {
+      throw new Error("TERMINAL: questionnaire is already submitted");
     }
 
-    const example = await ctx.db.get(
-      "onboardingWorkExamples",
-      args.workExampleId
-    );
-    if (!example) return null;
-    if (example.onboardingId !== args.onboardingId) {
-      throw new Error("NOT_FOUND: work example not on this onboarding");
-    }
-    await ctx.db.patch(example._id, {
+    await ctx.db.patch(args.workExampleId, {
       status: "deleted",
       deletedAt: Date.now(),
     });
+
+    // PR 4 follow-up (Greptile P2 #8): the actual B2 object
+    // deletion belongs in an action so failures can retry.
+    // For this PR we mark the DB row deleted and rely on the
+    // `onboarding/<id>/` B2 lifecycle rule to GC objects on
+    // terminal onboarding status. A second PR will add the
+    // retryable action.
     return null;
   },
 });
 
 /**
- * Internal mutation: purge all B2 objects + mark rows
- * `deleted` when an onboarding reaches a terminal status.
- * Called by an Inngest scheduled function listening for
- * `adminOnboardings.status` transitions; this mutation is the
- * authority on the side-effects.
- *
- * Greptile round 1 P1 lesson (carryover from workspace
- * storage): never delete a B2 object without a concurrent
- * ledger row update — otherwise a failed delete leaves a
- * dangling row. We flip the row to `deleted` first, then call
- * the B2 DELETE inside the same mutation's reads. If the B2
- * DELETE fails (rare; SDK signer handles retries), the row is
- * already `deleted` and a follow-up sweep can retry.
+ * Internal mutation: purge all rows for an onboarding when the
+ * admin onboarding hits a terminal status (`completed`,
+ * `cancelled`, `failed`). Soft-deletes DB rows; actual B2
+ * object cleanup is the action's job (P2 follow-up).
  */
 export const purgeWorkExamplesForOnboarding = internalMutation({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-  },
-  returns: v.object({
-    deletedCount: v.number(),
-  }),
+  args: { onboardingId: v.id("adminOnboardings") },
+  returns: v.object({ purged: v.number() }),
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("onboardingWorkExamples")
-      .withIndex("by_onboardingId", (q) =>
-        q.eq("onboardingId", args.onboardingId)
-      )
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
       .collect();
-    const live = rows.filter((r) => r.status !== "deleted");
-    const now = Date.now();
-    for (const row of live) {
+    let purged = 0;
+    for (const row of rows) {
+      if (row.status === "deleted") continue;
       await ctx.db.patch(row._id, {
         status: "deleted",
-        deletedAt: now,
+        deletedAt: Date.now(),
       });
+      purged++;
     }
-    return { deletedCount: live.length };
+    return { purged };
   },
 });
 
 /**
- * Query: list active work examples for an onboarding.
- * Caller is responsible for permission gating. Used by
- * `getSubmittedQuestionnaireForViewer` in
- * `convex/onboardingQuestionnaire.ts` to surface the gallery
- * to the instructor view.
+ * Public query: list the active work examples for an
+ * onboarding. Auth-gated to the assigned student, the assigned
+ * instructors, and admin/support — mirroring `getOnboardingView`
+ * (PR 3) so a signed-in caller cannot list another student's
+ * onboarding keys by passing an arbitrary id (Greptile P1 #9
+ * fix).
  */
 export const listWorkExamples = query({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-  },
+  args: { onboardingId: v.id("adminOnboardings") },
   returns: v.array(
     v.object({
       _id: v.id("onboardingWorkExamples"),
@@ -410,9 +318,31 @@ export const listWorkExamples = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
-    // For now, the instructor view queries this directly with
-    // permission gating on the parent call. No additional
-    // gating here — read-side is benign.
+    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    if (!row) return [];
+
+    // Same auth-gate shape as `getOnboardingView` (PR 3).
+    let authorized = row.assignedStudentClerkId === identity.subject;
+    if (!authorized) {
+      for (const p of row.perInstructor) {
+        const instructor = await ctx.db.get("instructors", p.instructorId);
+        if (instructor?.userId === identity.subject) {
+          authorized = true;
+          break;
+        }
+      }
+    }
+    if (!authorized) {
+      const userRow = await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+        .first();
+      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+        authorized = true;
+      }
+    }
+    if (!authorized) return [];
+
     const rows = await ctx.db
       .query("onboardingWorkExamples")
       .withIndex("by_onboardingId_active", (q) =>
@@ -430,42 +360,17 @@ export const listWorkExamples = query({
 });
 
 /**
- * Action: mint a presigned GET URL for an active work example
- * image. Mirrors `getWorkspaceDownloadUrl` from
- * `workspaceStorage.ts` so the instructor view can render
- * `<img src={...}>` thumbnails.
- */
-export const getWorkExampleDownloadUrl = action({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-    b2Key: v.string(),
-  },
-  returns: v.object({
-    url: v.string(),
-  }),
-  handler: async (ctx, args) => {
-    // Mirror the access check pattern from
-    // `generateWorkExampleUploadUrl` — read-side callers must
-    // be the assigned student OR one of the assigned
-    // instructors OR admin/support.
-    const access = await ctx.runQuery(
-      resolveDownloadAccess as any,
-      {
-        onboardingId: args.onboardingId,
-        b2Key: args.b2Key,
-      }
-    );
-    if (!access) {
-      throw new Error("Not authorized to read this work example");
-    }
-    const url = await signedWorkspaceDownloadUrl(args.b2Key, 60 * 60);
-    return { url };
-  },
-});
-
-/**
  * Internal query used by the download-URL action to
  * authorise the caller.
+ *
+ * Two checks (Greptile P1 #10 fix):
+ *   1. Caller must be authorised for `onboardingId` — assigned
+ *      student, assigned instructor, or admin/support.
+ *   2. `b2Key` must correspond to an `active` row in that
+ *      onboarding. Without this, a student could supply their
+ *      own onboarding ID and someone else's b2Key to download
+ *      an unrelated image from the shared bucket via the
+ *      presigned GET URL.
  */
 export const resolveDownloadAccess = query({
   args: {
@@ -478,25 +383,53 @@ export const resolveDownloadAccess = query({
     if (!identity) return null;
     const row = await ctx.db.get("adminOnboardings", args.onboardingId);
     if (!row) return null;
-    if (row.assignedStudentClerkId === identity.subject) {
-      return { authorized: true as const };
-    }
-    // Match one of the assigned instructors.
-    for (const p of row.perInstructor) {
-      const instructor = await ctx.db.get("instructors", p.instructorId);
-      if (instructor?.userId === identity.subject) {
-        return { authorized: true as const };
+
+    let authorized = row.assignedStudentClerkId === identity.subject;
+    if (!authorized) {
+      for (const p of row.perInstructor) {
+        const instructor = await ctx.db.get("instructors", p.instructorId);
+        if (instructor?.userId === identity.subject) {
+          authorized = true;
+          break;
+        }
       }
     }
-    // Admin/support fallback.
-    const userRow = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-      .first();
-    if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
-      return { authorized: true as const };
+    if (!authorized) {
+      const userRow = await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
+        .first();
+      if (userRow && (userRow.role === "admin" || userRow.role === "support")) {
+        authorized = true;
+      }
     }
-    return null;
+    if (!authorized) return null;
+
+    // Second check: the supplied b2Key must belong to an
+    // active row in this onboarding. This stops cross-account
+    // downloads via the shared B2 bucket.
+    //
+    // PR 4 caveat: we use `by_onboardingId` + filter (not a
+    // dedicated `by_onboardingId_b2Key` index) because the
+    // committed `convex/_generated/dataModel.d.ts` doesn't yet
+    // know about any new indexes we add to the schema — codegen
+    // runs only on push to main per `.github/workflows/ci.yml`.
+    // For the download rate (one URL per image render, not
+    // bulk), the O(n) scan over active+pending rows is fine.
+    // A post-merge follow-up will regenerate `_generated/`
+    // and switch this to the dedicated index.
+    const candidates = await ctx.db
+      .query("onboardingWorkExamples")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
+      )
+      .collect();
+    const matching = candidates.find(
+      (r) => r.b2Key === args.b2Key && r.status === "active"
+    );
+    if (!matching) return null;
+
+    return { authorized: true };
   },
 });
 
@@ -506,8 +439,6 @@ export const resolveDownloadAccess = query({
  * the Next.js form wrapper).
  */
 export const _internalConstants = {
-  MAX_WORK_EXAMPLE_BYTES,
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
-  WORK_EXAMPLE_ALLOWED_MIME,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
 };

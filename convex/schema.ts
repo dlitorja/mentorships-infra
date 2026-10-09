@@ -1665,13 +1665,18 @@ export default defineSchema({
   // `purgeWorkExamples` runs.
   onboardingWorkExamples: defineTable({
     onboardingId: v.id("adminOnboardings"),
-    uploadedBy: v.string(),
+    studentClerkId: v.string(),
     b2Key: v.string(),
+    fileName: v.string(),
     contentType: v.string(),
     size: v.number(),
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("deleted")),
     uploadedAt: v.number(),
     deletedAt: v.optional(v.number()),
+    // Client-supplied id used to correlate the B2 PUT callback with
+    // the row. Stable across retries so a re-upload of the same file
+    // is idempotent on `recordWorkExampleUpload`.
+    fileId: v.string(),
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_onboardingId_active", ["onboardingId", "status"]),

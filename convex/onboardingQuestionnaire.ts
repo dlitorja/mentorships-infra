@@ -12,6 +12,8 @@ import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
   MIN_INSPIRATIONS,
   MAX_INSPIRATIONS,
+  MIN_WORK_EXAMPLES_PER_SUBMISSION,
+  ONBOARDING_REQUIRED_QUESTION_IDS,
 } from "./workspaceConstants";
 
 /**
@@ -182,10 +184,17 @@ export const saveQuestionnaireDraft = mutation({
 });
 
 /**
- * Submit a completed questionnaire. Hard-validates all fields
- * AND the work-example count, then flips `status` to
- * "submitted". Idempotent — re-submitting an already-submitted
- * row is a no-op.
+ * Submit a completed questionnaire. Hard-validates against the
+ * canonical question bank AND the server-counted active work
+ * examples, then flips `status` to "submitted". Idempotent —
+ * re-submitting an already-submitted row is a no-op.
+ *
+ * Greptile P1 #3 fix (this PR): the original draft of this
+ * mutation trusted the client-supplied `activeWorkExampleCount`
+ * and accepted an empty `answers` array. Both are now
+ * server-derived: we read the actual active row count from the
+ * `onboardingWorkExamples` table and require one non-empty
+ * answer entry per `ONBOARDING_REQUIRED_QUESTION_IDS` id.
  */
 export const submitQuestionnaire = mutation({
   args: {
@@ -193,7 +202,6 @@ export const submitQuestionnaire = mutation({
     questionnaireVersion: v.number(),
     answers: QUESTIONNAIRE_ANSWERS_VALIDATOR,
     inspirations: QUESTIONNAIRE_INSPIRATIONS_VALIDATOR,
-    activeWorkExampleCount: v.number(),
   },
   returns: v.object({
     submissionId: v.id("onboardingQuestionnaireSubmissions"),
@@ -204,10 +212,27 @@ export const submitQuestionnaire = mutation({
     if (!identity) throw new Error("UNAUTHORIZED: sign-in required");
     const row = await ensureAssignedStudent(ctx, args.onboardingId);
 
-    // Hard validation. These are the gates from §5.4 of the plan
-    // doc — kept in sync with the client-side form so a
-    // misbehaving client cannot bypass them.
+    // ---- Canonical question-id coverage check (Greptile P1 #3) ----
+    // Require one non-empty answer entry per canonical question id.
+    // The validator is intentionally loose (`v.array(v.object({...}))`)
+    // so the draft-save path can accept partial / out-of-order
+    // answers; the gate lives here, not in the validator.
+    const answeredIds = new Set<string>();
+    for (const ans of args.answers) {
+      if (ans.answerText.trim()) {
+        answeredIds.add(ans.questionId);
+      }
+    }
+    const missingIds = ONBOARDING_REQUIRED_QUESTION_IDS.filter(
+      (id) => !answeredIds.has(id)
+    );
+    if (missingIds.length > 0) {
+      throw new Error(
+        `Missing required answers: ${missingIds.join(", ")}`
+      );
+    }
 
+    // ---- Inspirations bounds ----
     if (args.inspirations.length < MIN_INSPIRATIONS) {
       throw new Error(
         `Need at least ${MIN_INSPIRATIONS} inspirations (got ${args.inspirations.length})`
@@ -223,19 +248,25 @@ export const submitQuestionnaire = mutation({
         throw new Error("Inspiration entry has empty name");
       }
     }
-    for (const ans of args.answers) {
-      if (!ans.answerText.trim()) {
-        throw new Error(`Answer for "${ans.questionId}" is empty`);
-      }
-    }
-    if (args.activeWorkExampleCount < 4) {
+
+    // ---- Server-counted work-example gate (Greptile P1 #3) ----
+    // Don't trust the client arg — read the active row count from
+    // `onboardingWorkExamples`. This stops a form from submitting
+    // with `activeWorkExampleCount: 4` and zero uploaded bytes.
+    const activeWorkExamples = await ctx.db
+      .query("onboardingWorkExamples")
+      .withIndex("by_onboardingId_active", (q) =>
+        q.eq("onboardingId", args.onboardingId).eq("status", "active")
+      )
+      .collect();
+    if (activeWorkExamples.length < MIN_WORK_EXAMPLES_PER_SUBMISSION) {
       throw new Error(
-        `Need at least 4 work examples (got ${args.activeWorkExampleCount})`
+        `Need at least ${MIN_WORK_EXAMPLES_PER_SUBMISSION} active work examples (got ${activeWorkExamples.length})`
       );
     }
-    if (args.activeWorkExampleCount > MAX_WORK_EXAMPLES_PER_ONBOARDING) {
+    if (activeWorkExamples.length > MAX_WORK_EXAMPLES_PER_ONBOARDING) {
       throw new Error(
-        `Too many work examples: ${args.activeWorkExampleCount} > ${MAX_WORK_EXAMPLES_PER_ONBOARDING}`
+        `Too many work examples: ${activeWorkExamples.length} > ${MAX_WORK_EXAMPLES_PER_ONBOARDING}`
       );
     }
 
