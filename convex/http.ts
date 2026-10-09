@@ -1481,6 +1481,17 @@ export const httpClerkWebhook = httpAction(async (ctx, request) => {
           userId: eventData.id,
           email: emailAddress,
         });
+        // PR 12 PR 3: also claim any matching `adminOnboardings` row by
+        // email. We deliberately use a separate internal mutation (not
+        // the `linkClerkUserToInstructor` action) so the claim logic is
+        // owned by the onboarding module and the audit log entry
+        // identifies itself as `student_claim_onboarding` instead of the
+        // generic instructor link. Idempotent — a second `user.created`
+        // for the same Clerk userId matches zero rows and exits cleanly.
+        await ctx.runMutation(internal.adminOnboarding.claimOnboardingByEmail, {
+          email: emailAddress,
+          clerkUserId: eventData.id,
+        });
       }
       break;
     }

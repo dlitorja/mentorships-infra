@@ -20,6 +20,15 @@ export interface CreateStudentClerkInvitationOptions {
   emailAddress: string;
   studentId?: string;
   redirectUrl?: string;
+  /**
+   * PR 12 PR 3: `onboardingId` is the `adminOnboardings` row the
+   * student is being invited into. Set on Clerk's `publicMetadata`
+   * so the post-signup redirect (apps/platform/app/sign-up-redirect)
+   * can route the student straight to `/onboarding/[onboardingId]`
+   * instead of `/dashboard`. Optional to keep the legacy
+   * `/api/admin/students/invite` flow working unchanged.
+   */
+  onboardingId?: string;
 }
 
 export interface ClerkInvitationResult {
@@ -30,6 +39,27 @@ export interface ClerkInvitationResult {
 
 async function getClerkApi() {
   return await clerkClient();
+}
+
+/**
+ * PR 12 PR 3: Build the `publicMetadata` payload Clerk stores on the
+ * invitation. We always set `isStudent: true` + `role: "student"` so
+ * the post-signup routing can read it via `useUser().publicMetadata`
+ * without an extra Clerk API call. `studentId` (legacy) and
+ * `onboardingId` (new) are included when present; Clerk treats
+ * undefined as "not set", which is what we want.
+ */
+function buildStudentPublicMetadata(args: {
+  studentId: string | undefined;
+  onboardingId: string | undefined;
+}): Record<string, string | boolean> {
+  const metadata: Record<string, string | boolean> = {
+    isStudent: true,
+    role: "student",
+  };
+  if (args.studentId) metadata.studentId = args.studentId;
+  if (args.onboardingId) metadata.onboardingId = args.onboardingId;
+  return metadata;
 }
 
 export async function createClerkInvitation(
@@ -75,7 +105,7 @@ export async function createClerkInvitation(
 export async function createStudentClerkInvitation(
   options: CreateStudentClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
-  const { emailAddress, studentId, redirectUrl = `${APP_URL}/sign-up` } = options;
+  const { emailAddress, studentId, redirectUrl = `${APP_URL}/sign-up`, onboardingId } = options;
 
   try {
     const client = await getClerkApi();
@@ -83,9 +113,7 @@ export async function createStudentClerkInvitation(
     const invitation = await client.invitations.createInvitation({
       emailAddress,
       redirectUrl,
-      publicMetadata: studentId
-        ? { studentId, isStudent: true, role: "student" }
-        : { isStudent: true, role: "student" },
+      publicMetadata: buildStudentPublicMetadata({ studentId, onboardingId }),
     });
 
     return {
