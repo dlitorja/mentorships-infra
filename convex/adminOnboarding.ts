@@ -1857,11 +1857,13 @@ export const getOnboardingView = query({
  *     student still wants the status page so they can see "yes, your
  *     workspaces are ready" instead of getting dumped on `/dashboard`.
  *
- * Pagination: walks the index in `createdAt desc` order in 50-row
- * batches until either a non-cancelled row is found or the index is
- * exhausted. Greptile P2 finding on the original 10-row `.take(10)`
- * cap — an older failed onboarding behind many completed renewals must
- * still be discoverable.
+ * Read strategy: `.collect()` reads every row in the index partition
+ * for this Clerk userId in one read. Convex only allows one query call
+ * per handler (a second `.paginate()` would 500 on the deployed
+ * backend — Greptile P1 finding on the original loop), and
+ * `.collect()` is bounded by the index partition size. A single student
+ * can have at most a few hundred onboardings in their lifetime; well
+ * under the per-handler read limit.
  *
  * Returns `null` when no assigned row exists for the signed-in user.
  * Callers fall through to the role-default redirect in that case.
@@ -1873,22 +1875,17 @@ export const getIncompleteOnboardingForCurrentUser = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    const PAGE_SIZE = 50;
-    let cursor: string | null = null;
-    for (let page = 0; page < 10; page += 1) {
-      const result = await ctx.db
-        .query("adminOnboardings")
-        .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
-          q.eq("assignedStudentClerkId", identity.subject)
-        )
-        .order("desc")
-        .paginate({ numItems: PAGE_SIZE, cursor });
-      for (const row of result.page) {
-        if (row.status === "cancelled") continue;
-        return row._id;
-      }
-      if (result.isDone) return null;
-      cursor = result.continueCursor;
+    const rows = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
+        q.eq("assignedStudentClerkId", identity.subject)
+      )
+      .order("desc")
+      .collect();
+
+    for (const row of rows) {
+      if (row.status === "cancelled") continue;
+      return row._id;
     }
     return null;
   },
@@ -1911,14 +1908,16 @@ export const getIncompleteOnboardingForCurrentUser = query({
  *     (a returning student with a prebuilt workspace, for example).
  *     The student still needs to be able to claim that row so they
  *     see the post-completion status page.
- *   - accepted: `queued`, `processing`, `failed`, `completed`. The
- *     query prefers non-terminal statuses when both exist so a
- *     failing retry is surfaced before a historical completed row.
+ *   - accepted: `queued`, `processing`, `failed`, `completed`. Prefers
+ *     non-terminal when both exist so a failing retry surfaces before
+ *     a historical completed row.
  *
- * Pagination: walks the `by_email` index in 50-row batches until a
- * claimable row is found or the index is exhausted. Greptile P2
- * finding on the original 20-row `.take(20)` cap — an older failed
- * onboarding behind many completed renewals must still be claimable.
+ * Read strategy: `.collect()` reads every row in the index partition
+ * for this email in one read. Convex only allows one query call per
+ * handler (a second `.paginate()` would 500 on the deployed backend —
+ * Greptile P1 finding on the original loop), and `.collect()` is
+ * bounded by the index partition size. Real students have a few dozen
+ * onboardings at most; well under the per-handler read limit.
  *
  * Writes an audit log entry on first-claim so an admin can verify the
  * claim happened without scraping logs.
@@ -1939,44 +1938,35 @@ export const claimOnboardingByEmail = internalMutation({
       return { claimedOnboardingId: null, matchedCount: 0, skippedCompletedCount: 0 };
     }
 
-    const PAGE_SIZE = 50;
-    let cursor: string | null = null;
+    const rows = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .order("desc")
+      .collect();
+
     let firstNonCancelled: Doc<"adminOnboardings"> | null = null;
     let skippedCompletedCount = 0;
-    let matchedCount = 0;
-    for (let page = 0; page < 10; page += 1) {
-      const result = await ctx.db
-        .query("adminOnboardings")
-        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .order("desc")
-        .paginate({ numItems: PAGE_SIZE, cursor });
-      matchedCount += result.page.length;
-      for (const row of result.page) {
-        if (row.status === "cancelled") continue;
-        if (row.status === "completed") {
-          // Prefer the first non-terminal row if we find one later in
-          // the same pagination walk; only fall back to this completed
-          // row if no non-terminal candidate surfaces. We track the
-          // most-recent completed row seen so the loop can claim it
-          // once we know the rest of the index is non-terminal-empty.
-          if (!firstNonCancelled) firstNonCancelled = row;
-          skippedCompletedCount += 1;
-          continue;
-        }
-        firstNonCancelled = row;
-        break;
+    for (const row of rows) {
+      if (row.status === "cancelled") continue;
+      if (row.status === "completed") {
+        // Prefer the first non-terminal row if one surfaces further
+        // down the index walk. Track the most-recent completed row so
+        // we can claim it as a last-resort fallback when the index is
+        // terminal-empty.
+        if (!firstNonCancelled) firstNonCancelled = row;
+        skippedCompletedCount += 1;
+        continue;
       }
-      if (firstNonCancelled && firstNonCancelled.status !== "completed") break;
-      if (result.isDone) break;
-      cursor = result.continueCursor;
+      firstNonCancelled = row;
+      break;
     }
     const target = firstNonCancelled;
     if (!target) {
-      return { claimedOnboardingId: null, matchedCount, skippedCompletedCount };
+      return { claimedOnboardingId: null, matchedCount: rows.length, skippedCompletedCount };
     }
 
     if (target.assignedStudentClerkId === args.clerkUserId) {
-      return { claimedOnboardingId: target._id, matchedCount, skippedCompletedCount };
+      return { claimedOnboardingId: target._id, matchedCount: rows.length, skippedCompletedCount };
     }
 
     await ctx.db.patch(target._id, {
@@ -2000,7 +1990,7 @@ export const claimOnboardingByEmail = internalMutation({
       },
     });
 
-    return { claimedOnboardingId: target._id, matchedCount, skippedCompletedCount };
+    return { claimedOnboardingId: target._id, matchedCount: rows.length, skippedCompletedCount };
   },
 });
 
