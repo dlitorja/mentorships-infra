@@ -230,19 +230,38 @@ export default function OnboardingQuestionnaireForm({
     };
   }, [answers, inspirations, alreadySubmitted, mutateAsync]);
 
-  // Beacon on tab close — fires lastSeenAt so the cron has fresh data.
+  // Beacon on tab close — fires lastSeenAt AND flushes any pending
+  // debounced autosave so a student who closes the tab during
+  // the 500 ms debounce window doesn't lose their latest answers.
+  // Greptile round-17 P1: previously the beacon sent only `{}`
+  // and any pending payload was discarded by the cleanup.
   useEffect(() => {
     if (alreadySubmitted) return;
     const sendBeacon = () => {
       try {
         const url = ApiRoutes.onboardingAbandoned(onboardingId);
-        // sendBeacon with POST + empty body so the request lands even
-        // as the page is unloading.
+        // Build the same payload the autosave chain would have
+        // sent — only the textarea answers with non-empty text
+        // and only the inspirations with non-empty names. Send
+        // them through keepalive so the request lands even as
+        // the page is unloading.
+        const a = answersRef.current;
+        const i = inspirationsRef.current;
+        const trimmedAnswers = textareaQuestions
+          .map((q) => ({
+            questionId: q.id,
+            answerText: (a[q.id] ?? "").trim(),
+          }))
+          .filter((x) => x.answerText.length > 0);
+        const inspirations = i.filter((x) => x.name.trim().length > 0);
         void fetch(url, {
           method: "POST",
           keepalive: true,
           headers: { "Content-Type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({
+            answers: trimmedAnswers,
+            inspirations,
+          }),
         });
       } catch {
         // ignore — best-effort

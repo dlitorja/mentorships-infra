@@ -3,6 +3,7 @@
 import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 
 import {
   MAX_WORK_EXAMPLE_BYTES,
@@ -93,7 +94,7 @@ export const generateWorkExampleUploadUrl = action({
       {
         onboardingId: args.onboardingId,
       }
-    );
+    ) as { onboardingId: Id<"adminOnboardings">; studentClerkId: string } | null;
     if (!row) {
       throw new Error("Not authorized to upload to this onboarding");
     }
@@ -106,13 +107,15 @@ export const generateWorkExampleUploadUrl = action({
     const reservation = await ctx.runMutation(
       (internal as any).onboardingWorkExamples.reserveWorkExampleUpload,
       {
-      onboardingId: args.onboardingId,
-      fileId: args.fileId,
-      fileName: args.fileName,
-      contentType: args.contentType,
-      size: args.size,
+        onboardingId: args.onboardingId,
+        fileId: args.fileId,
+        fileName: args.fileName,
+        contentType: args.contentType,
+        size: args.size,
       }
-    );
+    ) as
+      | { ok: true; workExampleId: Id<"onboardingWorkExamples">; b2Key: string }
+      | { ok: false; reason: string };
     if (!reservation.ok) {
       throw new Error(reservation.reason);
     }
