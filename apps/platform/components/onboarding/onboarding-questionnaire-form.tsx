@@ -130,9 +130,39 @@ export default function OnboardingQuestionnaireForm({
   // server-stored value on mount so a returning student
   // doesn't restart at 0 (which would cause the server to
   // drop every save until the counter catches up).
-  const clientSaveIdCounter = useRef(
-    (initial.submission?.lastClientSaveId ?? 0) + 1
-  );
+  // Greptile round-20 P1 #2: namespace the counter per-tab so
+  // two open tabs don't collide. Each tab gets a random
+  // prefix stored in sessionStorage on mount and prepends it
+  // to every save; the server still uses a single global
+  // "highest seen" guard, so whichever tab fires last wins.
+  // Two simultaneous saves with the same prefix would still
+  // collide; we also detect that via the `storedClientSaveId`
+  // echo (see onSuccess) and re-fire with a bumped counter.
+  const clientSaveIdTabPrefix = useMemo<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const existing = window.sessionStorage.getItem(
+        "onb-tab-save-prefix"
+      );
+      if (existing) return parseInt(existing, 10);
+    } catch {
+      // sessionStorage may be disabled; fall through to a
+      // fresh random prefix for this tab.
+    }
+    const fresh =
+      Math.floor(Math.random() * 1_000_000_000) + 1;
+    try {
+      window.sessionStorage.setItem("onb-tab-save-prefix", String(fresh));
+    } catch {
+      // ignore
+    }
+    return fresh;
+  }, []);
+  const clientSaveIdCounter = useRef(0);
+  // Greptile round-20 P1 #2: avoid an infinite retry loop if
+  // a third tab keeps beating us — only attempt the catch-up
+  // re-fire once per save.
+  const recoveryInFlight = useRef(false);
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -144,16 +174,23 @@ export default function OnboardingQuestionnaireForm({
         }))
         .filter((x) => x.answerText.length > 0);
       // Increment on every fire; the server uses this as a
-      // strict-greater-than guard.
+      // strict-greater-than guard. Combine the per-tab prefix
+      // with the per-tab monotonic counter so two open tabs
+      // never share a save id.
       clientSaveIdCounter.current += 1;
-      return apiFetch<{ submission: Submission }>(
+      const prefix = clientSaveIdTabPrefix ?? 0;
+      const clientSaveId =
+        prefix * 1_000_000_000 + clientSaveIdCounter.current;
+      return apiFetch<{
+        submission: Submission & { storedClientSaveId?: number };
+      }>(
         ApiRoutes.onboardingQuestionnaire(onboardingId),
         {
           method: "PATCH",
           body: JSON.stringify({
             answers: trimmedAnswers,
             inspirations: i.filter((x) => x.name.trim().length > 0),
-            clientSaveId: clientSaveIdCounter.current,
+            clientSaveId,
           }),
         }
       );
@@ -173,6 +210,46 @@ export default function OnboardingQuestionnaireForm({
         return;
       }
       setSubmission(next);
+      // Greptile round-20 P1 #2: detect a stale save that
+      // the server dropped because another tab won the race.
+      // The mutation echoes `storedClientSaveId`; if the
+      // server has a value strictly greater than what we
+      // sent, our counter is behind — bump it past the
+      // stored value and re-fire so this tab catches up.
+      const sentId =
+        (clientSaveIdTabPrefix ?? 0) * 1_000_000_000 +
+        clientSaveIdCounter.current;
+      const stored = (next as { storedClientSaveId?: number })
+        .storedClientSaveId;
+      if (
+        typeof stored === "number" &&
+        stored > sentId &&
+        !recoveryInFlight.current
+      ) {
+        const recovered =
+          stored - (clientSaveIdTabPrefix ?? 0) * 1_000_000_000;
+        if (recovered >= clientSaveIdCounter.current) {
+          clientSaveIdCounter.current = recovered;
+        }
+        // Re-fire through the same chain so the latest
+        // answers reach the server. Single attempt — if a
+        // third tab keeps beating us, the next debounced
+        // autosave will catch up.
+        recoveryInFlight.current = true;
+        saveChainRef.current = saveChainRef.current
+          .then(async () => {
+            try {
+              await mutateAsync();
+            } catch {
+              // onError already toasted
+            } finally {
+              recoveryInFlight.current = false;
+            }
+          })
+          .catch(() => {
+            recoveryInFlight.current = false;
+          });
+      }
       // Greptile round-12 P1 #1: only mark the payload as
       // "saved" after the server has acknowledged it. If we
       // marked it before the request landed, an upload-driven
@@ -282,8 +359,13 @@ export default function OnboardingQuestionnaireForm({
         const inspirations = i.filter((x) => x.name.trim().length > 0);
         // Increment counter so the tab-close flush is always
         // strictly newer than any autosave that fired before
-        // it.
+        // it. Combine the per-tab prefix with the counter so
+        // the flush has the same per-tab namespace as the
+        // autosaves (round 20 P1 #2 fix).
         clientSaveIdCounter.current += 1;
+        const prefix = clientSaveIdTabPrefix ?? 0;
+        const clientSaveId =
+          prefix * 1_000_000_000 + clientSaveIdCounter.current;
         void fetch(url, {
           method: "POST",
           keepalive: true,
@@ -291,7 +373,7 @@ export default function OnboardingQuestionnaireForm({
           body: JSON.stringify({
             answers: trimmedAnswers,
             inspirations,
-            clientSaveId: clientSaveIdCounter.current,
+            clientSaveId,
           }),
         });
       } catch {
@@ -300,7 +382,7 @@ export default function OnboardingQuestionnaireForm({
     };
     window.addEventListener("beforeunload", sendBeacon);
     return () => window.removeEventListener("beforeunload", sendBeacon);
-  }, [onboardingId, alreadySubmitted]);
+  }, [onboardingId, alreadySubmitted, clientSaveIdTabPrefix]);
 
   // Image uploads
   const uploadFile = useCallback(

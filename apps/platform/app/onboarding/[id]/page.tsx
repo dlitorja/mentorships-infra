@@ -18,7 +18,12 @@ import { Button } from "@/components/ui/button";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
-import { ApiRoutes } from "@/lib/routes";
+// ApiRoutes is intentionally not used in this server component
+// (the WorkExampleThumb now goes through `convex.action()`); keep
+// the import path here as a placeholder for future client-side
+// fallbacks.
+import * as _ApiRoutesUnused from "@/lib/routes";
+void _ApiRoutesUnused;
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -382,31 +387,47 @@ async function WorkExampleThumb({
   exampleId: string;
   fileName: string;
 }): Promise<React.JSX.Element> {
-  const token = await getConvexAuthToken();
+  // Greptile round-19 P1 #1: this server component was
+  // calling `fetchQuery` on an action (wrong API) and then
+  // falling back to a fetch() call that forwarded a Convex
+  // JWT as a bearer token to a Clerk-protected route. The
+  // route's `auth()` reads Clerk cookies, so the bearer was
+  // ignored and the call 401'd, showing "(image)" instead of
+  // the artwork.
+  //
+  // Fix: use the Convex HTTP client directly. It carries the
+  // Convex JWT (which the action's auth layer recognises) and
+  // supports actions via `client.action()`. The
+  // `getWorkExampleDownloadUrl` action is the same one the
+  // `/api/.../download-url` route uses, so the auth gate and
+  // presigned-URL mint logic are unchanged.
+  let url: string | null = null;
   try {
-    const { url } = await fetchQuery(
-      (api as any).onboardingWorkExamplesActions.getWorkExampleDownloadUrl,
-      // The action needs (onboardingId, b2Key) — resolve first.
-      // We use the same lookup the API route does.
-      { onboardingId: onboardingId as Id<"adminOnboardings">, b2Key: "" } as any,
-      { token: token ?? undefined }
+    const { getAuthenticatedConvexClient } = await import(
+      "@/lib/convex"
     );
-    // Fall back to the API route instead — it does the b2Key
-    // resolution server-side.
-    void url;
-  } catch {
-    // ignore — fallback below
-  }
-  // Use the API route directly so we don't duplicate the resolve
-  // logic here. Same auth gate runs server-side.
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APP_URL ?? ""}${ApiRoutes.onboardingWorkExampleDownloadUrl(onboardingId, exampleId)}`,
-    {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      cache: "no-store",
+    const convex = await getAuthenticatedConvexClient();
+    const workExample = await convex.query(
+      (api as any).onboardingWorkExamples.getWorkExampleByIdForViewer,
+      {
+        onboardingId: onboardingId as Id<"adminOnboardings">,
+        workExampleId: exampleId as Id<"onboardingWorkExamples">,
+      }
+    );
+    if (!workExample) {
+      throw new Error("Work example not found");
     }
-  ).catch(() => null);
-  const url = res?.ok ? (await res.json()).url : null;
+    const { url: signedUrl } = await convex.action(
+      (api as any).onboardingWorkExamplesActions.getWorkExampleDownloadUrl,
+      {
+        onboardingId: onboardingId as Id<"adminOnboardings">,
+        b2Key: (workExample as { b2Key: string }).b2Key,
+      }
+    );
+    url = signedUrl;
+  } catch {
+    url = null;
+  }
   return (
     <div className="relative aspect-square overflow-hidden rounded-md border bg-muted">
       {url ? (
