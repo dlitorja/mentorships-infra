@@ -119,6 +119,13 @@ export default function OnboardingQuestionnaireForm({
 
   // Auto-save (debounced) when answers or inspirations change.
   const lastSavePayload = useRef<string>("");
+  // Greptile round-21 P1 #2: the value the chain captured
+  // when this save was FIRED. Distinct from
+  // `pendingPayloadRef.current` (which holds whatever the
+  // user typed most recently) — using the latter in
+  // onSuccess could mark a payload as "saved" that we
+  // actually haven't sent yet.
+  const lastSentPayloadRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Greptile round-18 P1 #1: monotonic save counter sent to the
   // server with every save (autosave + tab-close flush). The
@@ -211,7 +218,8 @@ export default function OnboardingQuestionnaireForm({
       if (alreadySubmitted) {
         // Still mark the payload as saved so subsequent
         // renders don't replay the save.
-        lastSavePayload.current = pendingPayloadRef.current ?? lastSavePayload.current;
+        lastSavePayload.current =
+          lastSentPayloadRef.current ?? lastSavePayload.current;
         return;
       }
       setSubmission(next);
@@ -261,7 +269,14 @@ export default function OnboardingQuestionnaireForm({
       // re-render during the 500ms debounce window would
       // short-circuit the autosave effect (lastSavePayload
       // matched) and the answers would never reach the server.
-      lastSavePayload.current = pendingPayloadRef.current ?? lastSavePayload.current;
+      // Greptile round-21 P1 #2: use the payload the chain
+      // captured when this save was FIRED — `pendingPayloadRef`
+      // might already point to a newer pending value the user
+      // typed while the request was in flight, and marking that
+      // as "saved" lets an in-flight later save overwrite it
+      // without the form noticing.
+      lastSavePayload.current =
+        lastSentPayloadRef.current ?? lastSavePayload.current;
     },
     onError: (err) => {
       // Auto-save failures are non-fatal; surface a soft toast so
@@ -310,6 +325,12 @@ export default function OnboardingQuestionnaireForm({
       const next = pendingPayloadRef.current;
       pendingPayloadRef.current = null;
       if (next == null) return;
+      // Greptile round-21 P1 #2: capture the payload the
+      // chain is about to send so onSuccess can mark THIS
+      // value as saved (not whatever the user typed most
+      // recently, which may already be a newer pending
+      // payload).
+      lastSentPayloadRef.current = next;
       try {
         await mutateAsync();
       } catch {
