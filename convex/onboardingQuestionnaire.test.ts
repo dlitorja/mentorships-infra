@@ -703,6 +703,7 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
   expect(row?.inspirations[0]?.name).toBe("Closing");
 });
 
+
 test("listStaleDraftsForReminder picks up rows past the stale threshold", async () => {
   const t = convexTest(schema, modules);
   const studentId = "user_student_11";
@@ -934,4 +935,133 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
     row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
   ).toBe("closing");
   expect(row?.inspirations[0]?.name).toBe("Closing");
+});
+
+test("saveQuestionnaireDraft seeds reminderCount: 0 on first insert (reminder-scan P2)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_seed";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-seed" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-seed@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
+    });
+
+  // Reminder-scan P2: new inserts must seed reminderCount: 0
+  // so the row immediately participates in the
+  // `by_status_reminderCount_updatedAt` index range used by
+  // the cron (Convex excludes rows whose optional field is
+  // undefined from the index).
+  const row = await t.run(async (ctx) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", onboardingId as any))
+      .first();
+    return sub;
+  });
+  expect(row?.reminderCount).toBe(0);
+});
+
+test("backfillReminderCountZeroForLegacyDrafts patches only rows with undefined reminderCount", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_backfill";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-backfill" });
+
+  // Row A: legacy shape (no reminderCount). Must be patched.
+  const onboardingA = await seedAdminOnboarding(t, {
+    email: "student-backfill-a@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  // Row B: legacy shape (no reminderCount). Must be patched.
+  const onboardingB = await seedAdminOnboarding(t, {
+    email: "student-backfill-b@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  // Row C: pre-existing reminderCount: 1. Migration must leave
+  // it alone.
+  const onboardingC = await seedAdminOnboarding(t, {
+    email: "student-backfill-c@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+      onboardingId: onboardingA as any,
+      studentClerkId: studentId,
+      questionnaireVersion: 1,
+      status: "draft",
+      answers: [],
+      inspirations: [],
+      createdAt: Date.now() - 2 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 2 * 60 * 60 * 1000,
+    });
+    await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+      onboardingId: onboardingB as any,
+      studentClerkId: studentId,
+      questionnaireVersion: 1,
+      status: "draft",
+      answers: [],
+      inspirations: [],
+      createdAt: Date.now() - 2 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 2 * 60 * 60 * 1000,
+    });
+    await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+      onboardingId: onboardingC as any,
+      studentClerkId: studentId,
+      questionnaireVersion: 1,
+      status: "draft",
+      answers: [],
+      inspirations: [],
+      createdAt: Date.now() - 2 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 2 * 60 * 60 * 1000,
+      reminderCount: 1,
+    });
+  });
+
+  const result = await t.run(async (ctx) =>
+    ctx.runMutation(
+      internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
+      {}
+    )
+  );
+  expect(result.scanned).toBe(3);
+  expect(result.patched).toBe(2);
+
+  // Re-run is idempotent — should patch zero rows on the second pass.
+  const result2 = await t.run(async (ctx) =>
+    ctx.runMutation(
+      internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
+      {}
+    )
+  );
+  expect(result2.scanned).toBe(3);
+  expect(result2.patched).toBe(0);
+
+  // The pre-existing reminderCount: 1 row must not be touched.
+  const untouched = await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      .collect();
+    return rows.find((r: any) => r.reminderCount === 1);
+  });
+  expect(untouched).toBeDefined();
+  expect(untouched?.reminderCount).toBe(1);
 });

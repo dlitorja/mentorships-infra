@@ -1667,7 +1667,22 @@ export default defineSchema({
     // recent submissions even when older records exist. Combined
     // with the cursor-paginated call site, the instructor can
     // keep paging until they've seen everything.
-    .index("by_status_submittedAt", ["status", "submittedAt"]),
+    .index("by_status_submittedAt", ["status", "submittedAt"])
+    // Reminder-scan P2: cron skips exhausted drafts at the
+    // index level via `q.lt("reminderCount", MAX)`. New
+    // inserts in `saveQuestionnaireDraft` set `reminderCount: 0`;
+    // legacy rows with undefined `reminderCount` are excluded
+    // from the index until the one-off
+    // `backfillReminderCountZeroForLegacyDrafts` migration
+    // patches them. After backfill, exhausted drafts (rows
+    // whose `reminderCount >= ONBOARDING_REMINDER_MAX_COUNT`)
+    // sit past the upper bound and never re-enter the cron's
+    // working set.
+    .index("by_status_reminderCount_updatedAt", [
+      "status",
+      "reminderCount",
+      "updatedAt",
+    ]),
 
   // PR 12 PR 4: work-example image uploads for the questionnaire.
   // Backs onto B2 with a dedicated `onboarding/<onboardingId>/`

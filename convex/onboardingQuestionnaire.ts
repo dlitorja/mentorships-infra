@@ -248,6 +248,13 @@ export const saveQuestionnaireDraft = mutation({
     }
 
     // First save — insert a new row keyed by onboardingId.
+    // Reminder-scan P2: seed `reminderCount: 0` so the row
+    // immediately participates in the
+    // `by_status_reminderCount_updatedAt` index range used by
+    // `listStaleDraftsForReminder`. Legacy rows with undefined
+    // `reminderCount` are excluded from that index until the
+    // one-off backfill in `convex/onboardingQuestionnaire.ts`
+    // patches them.
     const submissionId = await ctx.db.insert(
       "onboardingQuestionnaireSubmissions",
       {
@@ -259,6 +266,7 @@ export const saveQuestionnaireDraft = mutation({
         inspirations: args.inspirations,
         createdAt: now,
         updatedAt: now,
+        reminderCount: 0,
         lastClientSaveId: args.clientSaveId,
       }
     );
@@ -755,12 +763,21 @@ export const recordQuestionnaireSeen = mutation({
  * etc. The HTTP layer is the auth gate; these functions trust that
  * the caller is the platform cron and run unscoped.
  *
- * Read strategy: scans the `by_status_updatedAt` index for
- * `status === "draft"`, then filters in JS by
- * `ONBOARDING_REMINDER_STALE_MS` and `reminderCount <
- * ONBOARDING_REMINDER_MAX_COUNT`. The Convex query is bounded by the
- * index partition; real cron cadence is hourly and the cron processes
- * whatever the scan returns without pagination (the cap is small).
+ * Read strategy: scans the `by_status_reminderCount_updatedAt`
+ * index for `status === "draft" AND reminderCount <
+ * ONBOARDING_REMINDER_MAX_COUNT`. Exhausted drafts (rows whose
+ * `reminderCount >= ONBOARDING_REMINDER_MAX_COUNT`) sit past
+ * the index range and never re-enter the cron's working set.
+ * Rows with `reminderCount === undefined` (legacy, predating
+ * the index addition) are excluded from this index entirely —
+ * the `backfillReminderCountZeroForLegacyDrafts` internal
+ * mutation patches them in one pass. New inserts in
+ * `saveQuestionnaireDraft` set `reminderCount: 0` so they
+ * participate immediately.
+ *
+ * The remaining in-JS filters (`updatedAt < staleCutoff`,
+ * `lastReminderSentAt` min-interval, `onboarding.status !==
+ * "cancelled"`) are unchanged.
  */
 
 const STALE_BATCH_LIMIT = 50;
@@ -814,20 +831,26 @@ export const listStaleDraftsForReminder = internalQuery({
 
     const page = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
-      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      // Reminder-scan P2: exhausted drafts (reminderCount >=
+      // MAX) are excluded by the index range, so the cron
+      // doesn't re-read them every hour. Legacy rows whose
+      // `reminderCount` is undefined are also excluded; the
+      // `backfillReminderCountZeroForLegacyDrafts` migration
+      // patches them.
+      .withIndex("by_status_reminderCount_updatedAt", (q) =>
+        q
+          .eq("status", "draft")
+          .lt("reminderCount", ONBOARDING_REMINDER_MAX_COUNT)
+      )
       .paginate({ numItems: STALE_SCAN_PAGE_SIZE, cursor: args.cursor });
 
     let pageHadEligible = false;
 
     for (const row of page.page) {
+      // `reminderCount` is guaranteed by the index range to be
+      // < ONBOARDING_REMINDER_MAX_COUNT, but we still read it
+      // off the row to forward to the caller.
       const reminderCount = row.reminderCount ?? 0;
-      // Greptile P1 follow-up: when `reminderCount` is at the
-      // cap, skip without inspecting other fields. The
-      // `updatedAt` of an exhausted row stays put until the
-      // student edits or submits, so these rows would
-      // otherwise pin the cursor at the front of the index
-      // forever.
-      if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
       pageHadEligible = true;
 
       // Greptile P2 #14: a student who is actively editing the
@@ -949,5 +972,52 @@ export const markReminderSent = internalMutation({
       reminderCount: args.next,
     });
     return null;
+  },
+});
+
+/**
+ * Reminder-scan P2 — one-off migration that backfills
+ * `reminderCount = 0` onto legacy draft rows whose field is
+ * `undefined`. New inserts in `saveQuestionnaireDraft` already
+ * seed `reminderCount: 0`, so this only matters for rows that
+ * predate the index addition. The migration is idempotent
+ * (skips rows where `reminderCount` is already set), paginates
+ * to stay inside Convex transaction limits, and returns a
+ * summary so a human operator can verify completion.
+ *
+ * Run via `npx convex run onboardingQuestionnaire:backfillReminderCountZeroForLegacyDrafts`
+ * once per deployment after the new
+ * `by_status_reminderCount_updatedAt` index finishes
+ * backfilling. Safe to re-run.
+ */
+export const backfillReminderCountZeroForLegacyDrafts = internalMutation({
+  args: {},
+  returns: v.object({
+    scanned: v.number(),
+    patched: v.number(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx) => {
+    // Single page per call — paginate by re-invoking with the
+    // returned cursor if `isDone` is false. Each call caps at
+    // 200 patches to stay inside the per-mutation write
+    // budget.
+    const page = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      .paginate({ numItems: 200, cursor: null });
+
+    let patched = 0;
+    for (const row of page.page) {
+      if (row.reminderCount !== undefined) continue;
+      await ctx.db.patch(row._id, { reminderCount: 0 });
+      patched += 1;
+    }
+
+    return {
+      scanned: page.page.length,
+      patched,
+      isDone: page.isDone,
+    };
   },
 });
