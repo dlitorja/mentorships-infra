@@ -185,24 +185,41 @@ export const studentCancelledBookingNotifications = task({
 });
 
 const REMINDER_MINUTES = 30;
-const REMINDER_WINDOW_MINUTES = 2;
+// Polling cadence is 15 minutes (`cron: "*/15 * * * *"` below), so the
+// match window must extend half the cadence on each side of the target
+// lead time to keep coverage continuous across ticks. The window is
+// anchored to `payload.timestamp` (the cron-scheduled tick, e.g.
+// exactly 10:15:00.000) rather than the actual task start time, so
+// adjacent ticks produce half-open intervals that share their boundary
+// without overlap. Using `new Date()` instead would let queue-latency
+// jitter widen adjacent windows into each other and double-match the
+// same session.
+const REMINDER_WINDOW_MINUTES = 15 / 2;
+
+const REMINDER_PAGE_SIZE = 100;
 
 export const sendSessionReminders = schedules.task({
   id: "send-session-reminders",
-  cron: "*/5 * * * *",
+  cron: "*/15 * * * *",
   maxDuration: 300,
   run: async (payload) => {
-    const now = new Date();
+    const now = payload.timestamp;
     const targetTime = new Date(now.getTime() + REMINDER_MINUTES * 60 * 1000);
     const windowStart = new Date(targetTime.getTime() - REMINDER_WINDOW_MINUTES * 60 * 1000);
     const windowEnd = new Date(targetTime.getTime() + REMINDER_WINDOW_MINUTES * 60 * 1000);
 
     logger.info("Checking for sessions needing reminders", {
+      scheduledTick: now.toISOString(),
       windowStart: windowStart.toISOString(),
       windowEnd: windowEnd.toISOString(),
     });
 
-    const sessionsToRemind = await db
+    // Page through matches instead of capping at a fixed limit:
+    // widening the window from ±2m to ±7.5m roughly triples the
+    // expected match count per tick, and dropping the tail means
+    // some sessions never get the reminder. Order by scheduledAt
+    // so pagination is deterministic.
+    const query = db
       .select({
         session: sessions,
         student: users,
@@ -220,7 +237,22 @@ export const sendSessionReminders = schedules.task({
           lt(sessions.scheduledAt, windowEnd)
         )
       )
-      .limit(50);
+      .orderBy(sessions.scheduledAt, sessions.id);
+
+    async function fetchReminderPage(offset: number) {
+      return await query.limit(REMINDER_PAGE_SIZE).offset(offset);
+    }
+    type ReminderRow = Awaited<ReturnType<typeof fetchReminderPage>>[number];
+
+    const sessionsToRemind: ReminderRow[] = [];
+    let offset = 0;
+    while (true) {
+      const page = await query.limit(REMINDER_PAGE_SIZE).offset(offset);
+      if (page.length === 0) break;
+      sessionsToRemind.push(...page);
+      if (page.length < REMINDER_PAGE_SIZE) break;
+      offset += REMINDER_PAGE_SIZE;
+    }
 
     logger.info(`Found ${sessionsToRemind.length} sessions needing reminders`);
 
@@ -236,6 +268,16 @@ export const sendSessionReminders = schedules.task({
 
         const studentTimeZone = row.student.timeZone;
         const instructorTimeZone = instructorUser?.timeZone;
+
+        // Greptile R5 P1 defense-in-depth: Resend idempotency key
+        // scopes per (role, session, scheduledAt) so a Trigger.dev
+        // retry of this same tick reuses the same key and Resend
+        // deduplicates the send. A genuine reschedule to a new
+        // `scheduledAt` produces a fresh key (new email), and the
+        // primary `payload.timestamp` window anchor already prevents
+        // adjacent ticks from selecting the same session.
+        const reminderIdempotencyKey = (role: "student" | "instructor") =>
+          `session-reminder:${role}:${row.session.id}:${row.session.scheduledAt}`;
 
         if (row.student.email) {
           const studentEmail = buildSessionReminderEmail({
@@ -254,6 +296,7 @@ export const sendSessionReminders = schedules.task({
             html: studentEmail.html,
             headers: studentEmail.headers,
             kind: "transactional",
+            idempotencyKey: reminderIdempotencyKey("student"),
           });
         }
 
@@ -275,6 +318,7 @@ export const sendSessionReminders = schedules.task({
             html: instructorEmail.html,
             headers: instructorEmail.headers,
             kind: "transactional",
+            idempotencyKey: reminderIdempotencyKey("instructor"),
           });
         }
 

@@ -9,6 +9,7 @@ import {
   resolveSessionWorkspace,
   resolveWorkspaceForNewSession,
 } from "./lib/sessionWorkspace";
+import { DEFAULT_RECORDING_RETENTION_DAYS } from "./recordingRetention";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -1405,9 +1406,9 @@ export const attachRecordingFromB2Upload = internalMutation({
     }
     // R12: stamp the retention deadline. Read the env value at
     // mutation-evaluation time (not module load) so deploys can
-    // tune retention without a code change. Default to 90 days
-    // (`DEFAULT_RECORDING_RETENTION_DAYS` in
-    // `convex/recordingRetention.ts`). We DO NOT overwrite an
+    // tune retention without a code change. Defaults to
+    // `DEFAULT_RECORDING_RETENTION_DAYS` (30) in
+    // `convex/recordingRetention.ts`. We DO NOT overwrite an
     // existing `recordingExpiresAt` — if a previous attach left
     // one (shouldn't happen because the early-return above
     // short-circuits when status is `ready`, but defence in
@@ -1419,7 +1420,11 @@ export const attachRecordingFromB2Upload = internalMutation({
     const recordingExpiresAt =
       session.recordingExpiresAt ??
       Date.now() +
-        (retentionDays ?? 90) * 24 * 60 * 60 * 1000;
+        (retentionDays ?? DEFAULT_RECORDING_RETENTION_DAYS) *
+          24 *
+          60 *
+          60 *
+          1000;
     const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.b2Key,
       hasRecordingArtifact: true,

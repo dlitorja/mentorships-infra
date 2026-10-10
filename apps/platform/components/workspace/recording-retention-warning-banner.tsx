@@ -17,9 +17,16 @@ import {
  *
  * The banner aggregates all unacknowledged notifications for
  * the user across every workspace; the worst (smallest
- * `daysUntilDeletion`) drives the severity, and the message
- * surfaces the count so multi-recording cases don't bury the
- * warning under a single countdown.
+ * ACTUAL remaining time, computed from `recordingExpiresAt`)
+ * drives the severity, and the message surfaces the count so
+ * multi-recording cases don't bury the warning under a single
+ * countdown.
+ *
+ * Greptile R5 P1 (fix): the headline used to read from the
+ * static `daysUntilDeletion` dedup key (always 7), which would
+ * promise 7 days even when the actual expiry was in hours. We
+ * now compute the remaining time from `recordingExpiresAt` at
+ * render time so the user sees the truth.
  *
  * Greptile P2 (fix): "Dismiss" now calls the bulk mutation
  * `acknowledgeAllRecordingRetentionNotifications` instead of
@@ -29,10 +36,24 @@ import {
  * making "Dismiss" feel broken.
  */
 
-function getSeverity(days: number) {
-  if (days <= 7) return { className: "border-red-500 bg-red-50 text-red-800", icon: AlertCircle };
-  if (days <= 30) return { className: "border-yellow-500 bg-yellow-50 text-yellow-800", icon: AlertTriangle };
+function getSeverity(actualRemainingDays: number) {
+  if (actualRemainingDays <= 7) return { className: "border-red-500 bg-red-50 text-red-800", icon: AlertCircle };
+  if (actualRemainingDays <= 30) return { className: "border-yellow-500 bg-yellow-50 text-yellow-800", icon: AlertTriangle };
   return { className: "border-blue-500 bg-blue-50 text-blue-800", icon: Clock };
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function formatActualRemaining(recordingExpiresAt: number, now: number): string {
+  const remainingMs = recordingExpiresAt - now;
+  if (remainingMs <= 0) return "less than an hour";
+  if (remainingMs < DAY_MS) {
+    const hours = Math.max(1, Math.ceil(remainingMs / HOUR_MS));
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const days = Math.ceil(remainingMs / DAY_MS);
+  return `${days} day${days === 1 ? "" : "s"}`;
 }
 
 export function RecordingRetentionWarningBanner() {
@@ -44,23 +65,29 @@ export function RecordingRetentionWarningBanner() {
   const list = notifications ?? [];
   if (list.length === 0) return null;
 
-  // Pick the smallest daysUntilDeletion for severity. If the
-  // worst one is already ≤7d we colour red; otherwise yellow
-  // up to 30d; blue beyond that.
-  const worstDays = list.reduce(
-    (min, n) => Math.min(min, n.daysUntilDeletion),
+  // Compute actual remaining time per notification from the stored
+  // `recordingExpiresAt`, not from the static `daysUntilDeletion`
+  // dedup key. The worst (smallest actual remaining) drives severity.
+  const now = Date.now();
+  const remainingBySession = list.map((n) => ({
+    n,
+    actualRemainingMs: Math.max(0, n.recordingExpiresAt - now),
+  }));
+  const worstRemainingMs = remainingBySession.reduce(
+    (min, x) => Math.min(min, x.actualRemainingMs),
     Number.POSITIVE_INFINITY
   );
-  const { className, icon: Icon } = getSeverity(worstDays);
+  const worstRemainingDays = Math.ceil(worstRemainingMs / DAY_MS);
+  const { className, icon: Icon } = getSeverity(worstRemainingDays);
+  const worstText = formatActualRemaining(
+    now + worstRemainingMs,
+    now
+  );
 
   const headline =
     list.length === 1
-      ? `A call recording will be permanently deleted in ${worstDays} day${
-          worstDays === 1 ? "" : "s"
-        }`
-      : `${list.length} call recordings will be permanently deleted — soonest in ${worstDays} day${
-          worstDays === 1 ? "" : "s"
-        }`;
+      ? `A call recording will be permanently deleted in ${worstText}`
+      : `${list.length} call recordings will be permanently deleted — soonest in ${worstText}`;
 
   return (
     <div className={`rounded-lg border p-4 ${className}`}>

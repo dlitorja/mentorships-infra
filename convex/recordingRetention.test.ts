@@ -8,13 +8,14 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-test("recording warnings use canonical 30, 7, and 1 day thresholds", () => {
+test("recording warnings use a single 7-day threshold", () => {
   const now = 1_800_000_000_000;
 
   expect(getRecordingWarningThreshold(now + 31 * DAY_MS, now)).toBeNull();
-  expect(getRecordingWarningThreshold(now + 29.5 * DAY_MS, now)).toBe(30);
+  expect(getRecordingWarningThreshold(now + 29.5 * DAY_MS, now)).toBeNull();
+  expect(getRecordingWarningThreshold(now + 7.5 * DAY_MS, now)).toBeNull();
   expect(getRecordingWarningThreshold(now + 6.5 * DAY_MS, now)).toBe(7);
-  expect(getRecordingWarningThreshold(now + 0.5 * DAY_MS, now)).toBe(1);
+  expect(getRecordingWarningThreshold(now + 0.5 * DAY_MS, now)).toBe(7);
   expect(getRecordingWarningThreshold(now, now)).toBeNull();
 });
 
