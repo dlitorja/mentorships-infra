@@ -142,56 +142,26 @@ export default function OnboardingQuestionnaireForm({
   // prefix stored in sessionStorage on mount and prepends it
   // to every save; the server still uses a single global
   // "highest seen" guard, so whichever tab fires last wins.
-  // Greptile round-21 P1 #1: the previous round multiplied a
-  // prefix in [1, 1e9] by 1e9 (counter space). That product
-  // overflows JS's safe integer (2^53 ~= 9e15) so prefixes
-  // ~5e8 collapsed counters 1..n to the same number — every
-  // save was a no-op for ~half of all tab-prefix draws.
-  // New scheme: prefix in [1, 9_999_999] * 1_000_000 +
-  // counter in [1, 999_999]. Worst case ~1e13, well under 2^53.
-  const clientSaveIdTabPrefix = useMemo<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const existing = window.sessionStorage.getItem(
-        "onb-tab-save-prefix"
-      );
-      if (existing) return parseInt(existing, 10);
-    } catch {
-      // sessionStorage may be disabled; fall through to a
-      // fresh random prefix for this tab.
-    }
-    const fresh = Math.floor(Math.random() * 9_999_999) + 1;
-    try {
-      window.sessionStorage.setItem("onb-tab-save-prefix", String(fresh));
-    } catch {
-      // ignore
-    }
-    return fresh;
-  }, []);
-  // PREFIX_SPACE = 1_000_000 (counter slots per prefix).
-  const PREFIX_SPACE = 1_000_000;
-  // Greptile round-24 P1 #1: seed the per-tab counter from
-  // the server-stored lastClientSaveId so the FIRST save
-  // after reload doesn't reuse the previous visit's id.
-  // The server's strict-greater-than guard drops any save
-  // whose clientSaveId <= stored, so an unlucky reload that
-  // lands on the same prefix (sessionStorage survived) but
-  // a zero counter would repeat the prior id and silently
-  // drop the edit. Recover the counter when the stored id
-  // falls inside our prefix space; otherwise start at 0
-  // (a fresh tab with a different prefix).
-  const initialCounter = (() => {
-    const stored = initial.submission?.lastClientSaveId ?? 0;
-    const prefix = clientSaveIdTabPrefix ?? 0;
-    if (stored <= 0) return 0;
-    if (
-      stored >= prefix * PREFIX_SPACE &&
-      stored < (prefix + 1) * PREFIX_SPACE
-    ) {
-      return stored - prefix * PREFIX_SPACE;
-    }
-    return 0;
-  })();
+  // Greptile round-21 P1 #1: prefix * 1e9 overflowed JS safe
+  // integer (2^53) so prefixes ~5e8 collapsed counters. New
+  // scheme: prefix in [1, 9_999_999], counter in [1, 999_999].
+  // Greptile round-27 P1 #1: a fresh tab gets a random
+  // prefix; if its prefix is LOWER than the prefix used by
+  // the previous visit (different random draw), the very
+  // first save lands below the stored value. The server
+  // rejects it; recovery only runs in the PATCH path, so
+  // the beacon/cleanup paths lose edits on close.
+  //
+  // Fix: drop the per-tab prefix entirely. Use a single
+  // GLOBAL monotonic counter seeded from stored + 1. Two
+  // open tabs increment the same counter (one per tab in
+  // memory); saves collide on equal ids, the server's
+  // `accepted: false` reply triggers the existing recovery
+  // path which bumps the counter to stored + 1 and retries.
+  // No integer-overflow risk (single counter, ~1e9 saves
+  // per session is well under 2^53).
+  const initialCounter =
+    (initial.submission?.lastClientSaveId ?? 0) + 1;
   const clientSaveIdCounter = useRef(initialCounter);
   // Greptile round-20 P1 #2: avoid an infinite retry loop if
   // a third tab keeps beating us — only attempt the catch-up
@@ -212,9 +182,9 @@ export default function OnboardingQuestionnaireForm({
       // with the per-tab monotonic counter so two open tabs
       // never share a save id.
       clientSaveIdCounter.current += 1;
-      const prefix = clientSaveIdTabPrefix ?? 0;
+      
       const clientSaveId =
-        prefix * PREFIX_SPACE + clientSaveIdCounter.current;
+        clientSaveIdCounter.current;
       return apiFetch<{
         submission: Submission & { storedClientSaveId?: number };
       }>(
@@ -256,19 +226,15 @@ export default function OnboardingQuestionnaireForm({
       const accepted = (next as { accepted?: boolean }).accepted;
       const stored = (next as { storedClientSaveId?: number })
         .storedClientSaveId;
-      const sentId =
-        (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE +
-        clientSaveIdCounter.current;
+      const sentId = clientSaveIdCounter.current;
       if (
         accepted === false &&
         typeof stored === "number" &&
-        stored > sentId &&
+        stored >= sentId &&
         !recoveryInFlight.current
       ) {
-        const recovered =
-          stored - (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE;
-        if (recovered >= clientSaveIdCounter.current) {
-          clientSaveIdCounter.current = recovered;
+        if (stored >= clientSaveIdCounter.current) {
+          clientSaveIdCounter.current = stored + 1;
         }
         // Re-fire through the same chain so the latest
         // answers reach the server. Single attempt — if a
@@ -415,9 +381,9 @@ export default function OnboardingQuestionnaireForm({
         // the flush has the same per-tab namespace as the
         // autosaves (round 20 P1 #2 fix).
         clientSaveIdCounter.current += 1;
-        const prefix = clientSaveIdTabPrefix ?? 0;
+        
         const clientSaveId =
-          prefix * PREFIX_SPACE + clientSaveIdCounter.current;
+          clientSaveIdCounter.current;
         void fetch(url, {
           method: "POST",
           keepalive: true,
@@ -434,7 +400,7 @@ export default function OnboardingQuestionnaireForm({
     };
     window.addEventListener("beforeunload", sendBeacon);
     return () => window.removeEventListener("beforeunload", sendBeacon);
-  }, [onboardingId, alreadySubmitted, clientSaveIdTabPrefix]);
+  }, [onboardingId, alreadySubmitted]);
 
   // Greptile round-23 P1 #2: Next.js navigation (link clicks,
   // router.push) does NOT fire `beforeunload`. Without a
@@ -470,9 +436,9 @@ export default function OnboardingQuestionnaireForm({
           .filter((x) => x.answerText.length > 0);
         const inspirations = i.filter((x) => x.name.trim().length > 0);
         clientSaveIdCounter.current += 1;
-        const prefix = clientSaveIdTabPrefix ?? 0;
+        
         const clientSaveId =
-          prefix * PREFIX_SPACE + clientSaveIdCounter.current;
+          clientSaveIdCounter.current;
         // keepalive lets the request land even as the page
         // is being torn down by the navigation.
         void fetch(url, {
@@ -489,7 +455,7 @@ export default function OnboardingQuestionnaireForm({
         // ignore — best-effort
       }
     };
-  }, [onboardingId, alreadySubmitted, clientSaveIdTabPrefix]);
+  }, [onboardingId, alreadySubmitted]);
 
   // Image uploads
   const uploadFile = useCallback(
