@@ -2,6 +2,7 @@
 
 import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 import {
   MAX_WORK_EXAMPLE_BYTES,
@@ -15,12 +16,6 @@ import {
   workspaceObjectExists,
 } from "./lib/b2WorkspaceUpload";
 
-import {
-  resolveUploadAccess,
-  resolveDownloadAccess,
-  reserveWorkExampleUpload,
-} from "./onboardingWorkExamples";
-
 /**
  * PR 12 PR 4 — actions for onboarding work-example image uploads.
  *
@@ -29,11 +24,13 @@ import {
  * mutation exports in a Node file would be rejected at deploy
  * time (the file lives on the Node runtime, but those function
  * kinds must run on V8). The non-action primitives stay in
- * `convex/onboardingWorkExamples.ts` and are imported here by
- * reference — the `as any` symbol-cast mirrors the
- * `convex/http.ts:61` pattern for cross-module references where
- * the committed `_generated/api.d.ts` doesn't yet know about
- * the new module (codegen runs on push to main only).
+ * `convex/onboardingWorkExamples.ts` and are referenced via
+ * `internal.onboardingWorkExamples.X` — the same pattern as
+ * `digestActions.ts` (Greptile round-11 P1 fix).
+ *
+ * The `as any` cast handles the case where the local
+ * `_generated/api.d.ts` was committed BEFORE PR 4a merged —
+ * CI refreshes it on push to main.
  */
 
 function safePathSegment(s: string): string {
@@ -91,9 +88,12 @@ export const generateWorkExampleUploadUrl = action({
     }
 
     // Authorise + read parent row.
-    const row = await ctx.runQuery(resolveUploadAccess as any, {
-      onboardingId: args.onboardingId,
-    });
+    const row = await ctx.runQuery(
+      (internal as any).onboardingWorkExamples.resolveUploadAccess,
+      {
+        onboardingId: args.onboardingId,
+      }
+    );
     if (!row) {
       throw new Error("Not authorized to upload to this onboarding");
     }
@@ -103,13 +103,16 @@ export const generateWorkExampleUploadUrl = action({
     // the check and then both insert. This mirrors the
     // `reserveB2FileUploadLedger` pattern from
     // `workspaceStorage.ts`.
-    const reservation = await ctx.runMutation(reserveWorkExampleUpload as any, {
+    const reservation = await ctx.runMutation(
+      (internal as any).onboardingWorkExamples.reserveWorkExampleUpload,
+      {
       onboardingId: args.onboardingId,
       fileId: args.fileId,
       fileName: args.fileName,
       contentType: args.contentType,
       size: args.size,
-    });
+      }
+    );
     if (!reservation.ok) {
       throw new Error(reservation.reason);
     }
@@ -152,10 +155,13 @@ export const getWorkExampleDownloadUrl = action({
   },
   returns: v.object({ url: v.string() }),
   handler: async (ctx, args) => {
-    const access = await ctx.runQuery(resolveDownloadAccess as any, {
-      onboardingId: args.onboardingId,
-      b2Key: args.b2Key,
-    });
+    const access = await ctx.runQuery(
+      (internal as any).onboardingWorkExamples.resolveDownloadAccess,
+      {
+        onboardingId: args.onboardingId,
+        b2Key: args.b2Key,
+      }
+    );
     if (!access) {
       throw new Error("Not authorized to read this work example");
     }

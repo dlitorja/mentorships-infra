@@ -92,11 +92,18 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
           pageHadEligible: boolean;
         };
         collected.push(...json.candidates);
-        // If we've filled the batch or hit the end of the
-        // partition, stop. Likewise if an entire page had no
-        // eligible row, the remaining pages are unlikely to have
-        // any either (newer drafts surface first in the index).
-        if (json.isDone || !json.pageHadEligible) break;
+        // Greptile round-11 P1: a page that returns ZERO eligible
+        // rows is not a stopping signal. The index orders by
+        // `updatedAt`, and exhausted drafts (reminderCount at
+        // cap) sit at the same `updatedAt` they were given — they
+        // do NOT age forward, so they pin the front of the scan.
+        // Stopping at the first "no eligible" page leaves the
+        // scan stuck on the exhausted drafts forever, and any
+        // newer draft that's eligible sits behind them.
+        // Only stop when `isDone` (end of the partition) or
+        // we've collected enough candidates to cap the batch.
+        if (json.isDone) break;
+        if (!json.nextCursor) break;
         cursor = json.nextCursor;
       }
       return collected;

@@ -9,12 +9,12 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 
 import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
 } from "./workspaceConstants";
-import { checkWorkExampleUploaded } from "./onboardingWorkExamplesActions";
 
 /**
  * Greptile P1 follow-up: staff records can have
@@ -348,15 +348,13 @@ export const recordWorkExampleUpload = action({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    // The `as any` casts below mirror the
-    // `onboardingWorkExamplesActions.ts:93` pattern. The
-    // committed `_generated/api.d.ts` doesn't know about the
-    // PR 4b module yet (codegen runs on push to main only), so
-    // referencing the function values directly trips the new
-    // `FunctionReference_future` strictness. The functions are
-    // registered and the runtime calls are valid.
+    // Greptile round-11 P1 follow-up: reference the helpers via
+    // `internal.X.Y` instead of the registered function values.
+    // The `as any` cast on the reference (not the function
+    // value) handles the local stale `_generated/api.d.ts`
+    // before CI regenerates it.
     const row = await ctx.runQuery(
-      requireAssignedStudentForUploadQuery as any,
+      (internal as any).onboardingWorkExamples.requireAssignedStudentForUploadQuery,
       {
         onboardingId: args.onboardingId,
       }
@@ -364,9 +362,12 @@ export const recordWorkExampleUpload = action({
     if (!row) {
       throw new Error("NOT_FOUND: not your onboarding");
     }
-    const work = await ctx.runQuery(getWorkExampleByIdInternal as any, {
-      workExampleId: args.workExampleId,
-    });
+    const work = await ctx.runQuery(
+      (internal as any).onboardingWorkExamples.getWorkExampleByIdInternal,
+      {
+        workExampleId: args.workExampleId,
+      }
+    );
     if (!work) throw new Error("NOT_FOUND: work example missing");
     if (work.onboardingId !== args.onboardingId) {
       throw new Error("NOT_FOUND: work example belongs to a different onboarding");
@@ -382,18 +383,24 @@ export const recordWorkExampleUpload = action({
     // Verify B2 has the object before flipping the row. The
     // helper catches NotFound AND any transient SDK errors so
     // a flaky HEAD never silently accepts an un-uploaded row.
-    const check = await ctx.runAction(checkWorkExampleUploaded as any, {
-      b2Key: work.b2Key,
-    });
+    const check = await ctx.runAction(
+      (internal as any).onboardingWorkExamplesActions.checkWorkExampleUploaded,
+      {
+        b2Key: work.b2Key,
+      }
+    );
     if (!check.exists) {
       throw new Error(
         "Upload not complete: the file is not yet in storage. Please retry the upload."
       );
     }
 
-    await ctx.runMutation(markWorkExampleActive as any, {
-      workExampleId: args.workExampleId,
-    });
+    await ctx.runMutation(
+      (internal as any).onboardingWorkExamples.markWorkExampleActive,
+      {
+        workExampleId: args.workExampleId,
+      }
+    );
     return null;
   },
 });
