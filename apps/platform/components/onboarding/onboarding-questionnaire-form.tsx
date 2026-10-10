@@ -135,9 +135,13 @@ export default function OnboardingQuestionnaireForm({
   // prefix stored in sessionStorage on mount and prepends it
   // to every save; the server still uses a single global
   // "highest seen" guard, so whichever tab fires last wins.
-  // Two simultaneous saves with the same prefix would still
-  // collide; we also detect that via the `storedClientSaveId`
-  // echo (see onSuccess) and re-fire with a bumped counter.
+  // Greptile round-21 P1 #1: the previous round multiplied a
+  // prefix in [1, 1e9] by 1e9 (counter space). That product
+  // overflows JS's safe integer (2^53 ~= 9e15) so prefixes
+  // ~5e8 collapsed counters 1..n to the same number — every
+  // save was a no-op for ~half of all tab-prefix draws.
+  // New scheme: prefix in [1, 9_999_999] * 1_000_000 +
+  // counter in [1, 999_999]. Worst case ~1e13, well under 2^53.
   const clientSaveIdTabPrefix = useMemo<number | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -149,8 +153,7 @@ export default function OnboardingQuestionnaireForm({
       // sessionStorage may be disabled; fall through to a
       // fresh random prefix for this tab.
     }
-    const fresh =
-      Math.floor(Math.random() * 1_000_000_000) + 1;
+    const fresh = Math.floor(Math.random() * 9_999_999) + 1;
     try {
       window.sessionStorage.setItem("onb-tab-save-prefix", String(fresh));
     } catch {
@@ -163,6 +166,8 @@ export default function OnboardingQuestionnaireForm({
   // a third tab keeps beating us — only attempt the catch-up
   // re-fire once per save.
   const recoveryInFlight = useRef(false);
+  // PREFIX_SPACE = 1_000_000 (counter slots per prefix).
+  const PREFIX_SPACE = 1_000_000;
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -180,7 +185,7 @@ export default function OnboardingQuestionnaireForm({
       clientSaveIdCounter.current += 1;
       const prefix = clientSaveIdTabPrefix ?? 0;
       const clientSaveId =
-        prefix * 1_000_000_000 + clientSaveIdCounter.current;
+        prefix * PREFIX_SPACE + clientSaveIdCounter.current;
       return apiFetch<{
         submission: Submission & { storedClientSaveId?: number };
       }>(
@@ -217,7 +222,7 @@ export default function OnboardingQuestionnaireForm({
       // sent, our counter is behind — bump it past the
       // stored value and re-fire so this tab catches up.
       const sentId =
-        (clientSaveIdTabPrefix ?? 0) * 1_000_000_000 +
+        (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE +
         clientSaveIdCounter.current;
       const stored = (next as { storedClientSaveId?: number })
         .storedClientSaveId;
@@ -227,7 +232,7 @@ export default function OnboardingQuestionnaireForm({
         !recoveryInFlight.current
       ) {
         const recovered =
-          stored - (clientSaveIdTabPrefix ?? 0) * 1_000_000_000;
+          stored - (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE;
         if (recovered >= clientSaveIdCounter.current) {
           clientSaveIdCounter.current = recovered;
         }
@@ -365,7 +370,7 @@ export default function OnboardingQuestionnaireForm({
         clientSaveIdCounter.current += 1;
         const prefix = clientSaveIdTabPrefix ?? 0;
         const clientSaveId =
-          prefix * 1_000_000_000 + clientSaveIdCounter.current;
+          prefix * PREFIX_SPACE + clientSaveIdCounter.current;
         void fetch(url, {
           method: "POST",
           keepalive: true,
