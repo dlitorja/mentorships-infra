@@ -985,27 +985,36 @@ export const markReminderSent = internalMutation({
  * to stay inside Convex transaction limits, and returns a
  * summary so a human operator can verify completion.
  *
- * Run via `npx convex run onboardingQuestionnaire:backfillReminderCountZeroForLegacyDrafts`
- * once per deployment after the new
- * `by_status_reminderCount_updatedAt` index finishes
- * backfilling. Safe to re-run.
+ * Greptile round-1 P1: callers MUST pass the
+ * `continueCursor` returned by the previous invocation back
+ * in as `args.cursor`; otherwise the second call reads the
+ * same first page again and silently stops. Each call caps
+ * at 200 patches to stay inside the per-mutation write
+ * budget.
+ *
+ * Run via `npx convex run onboardingQuestionnaire:backfillReminderCountZeroForLegacyDrafts '{ "cursor": null }'`
+ * repeatedly until `isDone` is `true`, once per deployment
+ * after the new `by_status_reminderCount_updatedAt` index
+ * finishes backfilling. Safe to re-run.
  */
 export const backfillReminderCountZeroForLegacyDrafts = internalMutation({
-  args: {},
+  args: {
+    cursor: v.union(v.string(), v.null()),
+  },
   returns: v.object({
     scanned: v.number(),
     patched: v.number(),
     isDone: v.boolean(),
+    continueCursor: v.string(),
   }),
-  handler: async (ctx) => {
-    // Single page per call — paginate by re-invoking with the
-    // returned cursor if `isDone` is false. Each call caps at
-    // 200 patches to stay inside the per-mutation write
-    // budget.
+  handler: async (ctx, args) => {
+    // Single page per call. The caller loops with the
+    // returned `continueCursor` until `isDone` is true so a
+    // large legacy set can be drained in 200-row chunks.
     const page = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
       .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
-      .paginate({ numItems: 200, cursor: null });
+      .paginate({ numItems: 200, cursor: args.cursor });
 
     let patched = 0;
     for (const row of page.page) {
@@ -1018,6 +1027,7 @@ export const backfillReminderCountZeroForLegacyDrafts = internalMutation({
       scanned: page.page.length,
       patched,
       isDone: page.isDone,
+      continueCursor: page.continueCursor,
     };
   },
 });

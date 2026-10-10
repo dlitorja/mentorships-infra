@@ -1038,17 +1038,18 @@ test("backfillReminderCountZeroForLegacyDrafts patches only rows with undefined 
   const result = await t.run(async (ctx) =>
     ctx.runMutation(
       internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
-      {}
+      { cursor: null }
     )
   );
   expect(result.scanned).toBe(3);
   expect(result.patched).toBe(2);
+  expect(result.isDone).toBe(true);
 
   // Re-run is idempotent — should patch zero rows on the second pass.
   const result2 = await t.run(async (ctx) =>
     ctx.runMutation(
       internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
-      {}
+      { cursor: null }
     )
   );
   expect(result2.scanned).toBe(3);
@@ -1064,4 +1065,82 @@ test("backfillReminderCountZeroForLegacyDrafts patches only rows with undefined 
   });
   expect(untouched).toBeDefined();
   expect(untouched?.reminderCount).toBe(1);
+});
+
+test("backfillReminderCountZeroForLegacyDrafts drains >200 rows via cursor (Greptile round-1 P1)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_paginate";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-paginate" });
+
+  // Greptile round-1 P1: the cursor must advance the
+  // scan. We seed 201 legacy rows so the second call
+  // drains the leftover 1 row instead of re-patching the
+  // same first 200. We bypass `seedAdminOnboarding` (slow)
+  // and insert the submissions rows directly with a
+  // placeholder onboardingId — the backfill only reads the
+  // index, never resolves the parent.
+  const TOTAL = 201;
+  const placeholderOnboardingId = await seedAdminOnboarding(t, {
+    email: "student-page-base@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  await t.run(async (ctx) => {
+    for (let i = 0; i < TOTAL; i++) {
+      await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+        onboardingId: placeholderOnboardingId as any,
+        studentClerkId: studentId,
+        questionnaireVersion: 1,
+        status: "draft",
+        answers: [],
+        inspirations: [],
+        createdAt: Date.now() - 2 * 60 * 60 * 1000 + i,
+        updatedAt: Date.now() - 2 * 60 * 60 * 1000 + i,
+      });
+    }
+  });
+
+  // First call: patches 200, isDone: false, returns
+  // continueCursor.
+  const first = await t.run(async (ctx) =>
+    ctx.runMutation(
+      internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
+      { cursor: null }
+    )
+  );
+  expect(first.scanned).toBe(200);
+  expect(first.patched).toBe(200);
+  expect(first.isDone).toBe(false);
+  expect(typeof first.continueCursor).toBe("string");
+
+  // Second call: pass the cursor back in. Must drain the
+  // remaining 1 row, NOT re-patch the first 200.
+  const second = await t.run(async (ctx) =>
+    ctx.runMutation(
+      internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
+      { cursor: first.continueCursor }
+    )
+  );
+  expect(second.scanned).toBe(1);
+  expect(second.patched).toBe(1);
+  expect(second.isDone).toBe(true);
+
+  // Third call with no cursor: the page reads the first
+  // 200 rows (now patched in the first call, so
+  // `patched: 0`). `scanned` is the page size (200), not
+  // the table size — we verify nothing was patched
+  // because the cursor reset did not re-process
+  // already-patched rows. (isDone is `false` because the
+  // leftover 1 row from the second call sits past the
+  // first page; draining it requires another cursor pass
+  // — which would also patch nothing.)
+  const third = await t.run(async (ctx) =>
+    ctx.runMutation(
+      internal.onboardingQuestionnaire.backfillReminderCountZeroForLegacyDrafts as any,
+      { cursor: null }
+    )
+  );
+  expect(third.scanned).toBe(200);
+  expect(third.patched).toBe(0);
 });
