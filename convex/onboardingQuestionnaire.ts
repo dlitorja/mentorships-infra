@@ -537,8 +537,14 @@ export const listSubmittedQuestionnairesForInstructor = query({
     const staffRole = await lookupStaffRole(ctx, identity.subject);
     const isStaff = staffRole !== null;
 
+    // Greptile round-15 P1 #2: scan the SUBMISSIONS table newest-
+    // first via the new by_status_submittedAt index. The old
+    // approach scanned adminOnboardings by id (= insertion
+    // order, oldest first); older records filled the ROW_CAP
+    // and newer submissions fell off the bottom of the page.
     const page = await ctx.db
-      .query("adminOnboardings")
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_submittedAt", (q) => q.eq("status", "submitted"))
       .paginate({ numItems: LIST_SCAN_LIMIT, cursor: args.cursor });
 
     const rows: Array<{
@@ -548,16 +554,15 @@ export const listSubmittedQuestionnairesForInstructor = query({
       instructorCount: number;
     }> = [];
 
-    // Greptile P1 follow-up: process EVERY row in the page (no
-    // early `break` at LIST_LIMIT) so a single page that holds
-    // more submitted questionnaires than LIST_LIMIT still
-    // returns them all. The caller decides how many to keep.
-    for (const row of page.page) {
+    for (const submission of page.page) {
+      const onboarding = await ctx.db.get(submission.onboardingId);
+      if (!onboarding) continue;
+
       if (!isStaff) {
         // Instructor check: walk `perInstructor` and resolve
         // each `instructorId` to its `userId`.
         let matched = false;
-        for (const p of row.perInstructor) {
+        for (const p of onboarding.perInstructor) {
           const inst = await ctx.db.get("instructors", p.instructorId);
           if (inst?.userId && inst.userId === identity.subject) {
             matched = true;
@@ -567,26 +572,13 @@ export const listSubmittedQuestionnairesForInstructor = query({
         if (!matched) continue;
       }
 
-      // Find the submitted questionnaire row.
-      const submission = await ctx.db
-        .query("onboardingQuestionnaireSubmissions")
-        .withIndex("by_onboardingId", (q) =>
-          q.eq("onboardingId", row._id)
-        )
-        .first();
-      if (!submission || submission.status !== "submitted") continue;
-
       rows.push({
-        onboardingId: row._id,
-        studentEmail: row.email,
+        onboardingId: submission.onboardingId,
+        studentEmail: onboarding.email,
         submittedAt: submission.submittedAt ?? submission.updatedAt,
-        instructorCount: row.perInstructor.length,
+        instructorCount: onboarding.perInstructor.length,
       });
     }
-
-    // Newest first so the instructor sees recent submissions on
-    // top.
-    rows.sort((a, b) => b.submittedAt - a.submittedAt);
 
     return {
       rows,
@@ -595,6 +587,8 @@ export const listSubmittedQuestionnairesForInstructor = query({
     };
   },
 });
+
+
 
 async function lookupStaffRole(
   ctx: QueryCtx,

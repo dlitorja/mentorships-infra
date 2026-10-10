@@ -1653,7 +1653,13 @@ export default defineSchema({
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
-    .index("by_studentClerkId", ["studentClerkId"]),
+    .index("by_studentClerkId", ["studentClerkId"])
+    // Greptile round-15 P1 #2: query submitted questionnaires
+    // newest-first by submittedAt so the instructor page sees
+    // recent submissions even when older records exist. Combined
+    // with the cursor-paginated call site, the instructor can
+    // keep paging until they've seen everything.
+    .index("by_status_submittedAt", ["status", "submittedAt"]),
 
   // PR 12 PR 4: work-example image uploads for the questionnaire.
   // Backs onto B2 with a dedicated `onboarding/<onboardingId>/`

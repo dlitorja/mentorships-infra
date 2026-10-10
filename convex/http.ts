@@ -3470,12 +3470,18 @@ export const httpOnboardingQuestionnaireStatus = httpAction(async (ctx, request)
     });
   }
 
-  const status = await ctx.runQuery(
+  // Greptile round-15 P1 #1: return the query result directly
+  // (not wrapped in another { status } envelope). The cron
+  // expects { status: "draft", latestActivityAt } or
+  // { status: "submitted" } at the TOP level so it can branch
+  // on json.status === "draft" / json.status === "submitted"
+  // without unwrapping.
+  const result = await ctx.runQuery(
     (internal as any).onboardingQuestionnaire.getDraftStatusForReminder,
     { onboardingId }
   );
 
-  return new Response(JSON.stringify({ status }), {
+  return new Response(JSON.stringify(result), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
