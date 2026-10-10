@@ -132,80 +132,105 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     // used, computed against `Date.now()` at send time.
     const sendStaleCutoff = Date.now() - ONBOARDING_REMINDER_STALE_MS;
     for (const draft of drafts) {
-      const result = await step.run(`send:${draft.submissionId}`, async () => {
-        try {
-          // Re-check inside the step so a beacon-then-submit that
-          // landed between scan and send doesn't send a stale
-          // reminder. Convex read is cheap; the `submitQuestionnaire`
-          // path takes a write lock on the row.
-          const status = await fetchReadOnlyDraftStatus(draft.onboardingId);
-          if (status === "submitted") {
-            return { skipped: true, reason: "submitted" };
-          }
-          if (status == null) {
-            return { skipped: true, reason: "missing" };
-          }
-          if (status.latestActivityAt >= sendStaleCutoff) {
-            return { skipped: true, reason: "activity-resumed" };
-          }
-          const next = draft.reminderCount + 1;
-          if (next > maxReminders) {
-            return { skipped: true, reason: "max-reached" };
-          }
-          // Greptile P1 #11: link through Clerk's sign-in redirect so a
-          // logged-out tab lands back on the questionnaire after auth. The
-          // proxy's protected-page list does not include /onboarding so
-          // direct links hit notFound() before reaching ProtectedLayout.
-          const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
-            `/onboarding/${draft.onboardingId}/questionnaire`
-          )}`;
-          const questionnaireUrl = `${baseUrl}${signInPath}`;
-          const email = buildOnboardingReminderEmail({
-            studentName: draft.studentName,
-            studentEmail: draft.studentEmail,
-            onboardingId: draft.onboardingId,
-            questionnaireUrl,
-            reminderNumber: next,
-            maxReminders,
-          });
-          const sendResult = await sendEmail({
-            to: draft.studentEmail,
-            subject: email.subject,
-            html: email.html,
-            text: email.text,
-            headers: email.headers,
-            idempotencyKey: `onboarding-reminder:${draft.submissionId}:${next}`,
-          });
-          if (!sendResult.ok) {
-            const errMsg =
-              "error" in sendResult && typeof sendResult.error === "string"
-                ? sendResult.error
-                : "skipped" in sendResult
-                ? `skipped: ${sendResult.reason}`
-                : "sendEmail returned not-ok";
-            reportError({
-              source: "inngest:onboarding-questionnaire-reminders:send",
-              error: new Error(errMsg),
-              level: "warn",
-              message: "Reminder email failed",
-              context: { submissionId: draft.submissionId },
-            });
-            return { skipped: true, reason: "send-failed" };
-          }
-          await markReminderSent(draft.submissionId, next);
-          return { sent: true };
-        } catch (err) {
+      // Greptile round-23 P2 #2: split the send and the
+      // mark-sent steps so a transient Convex mark failure
+      // can retry without re-sending the email. The send
+      // step carries the idempotency key on the email side,
+      // so a re-fired send is harmless even on retry.
+      const sendOutcome = await step.run(`send:${draft.submissionId}`, async () => {
+        // Re-check inside the step so a beacon-then-submit that
+        // landed between scan and send doesn't send a stale
+        // reminder. Convex read is cheap; the `submitQuestionnaire`
+        // path takes a write lock on the row.
+        const status = await fetchReadOnlyDraftStatus(draft.onboardingId);
+        if (status === "submitted") {
+          return { skipped: true, reason: "submitted" } as const;
+        }
+        if (status == null) {
+          return { skipped: true, reason: "missing" } as const;
+        }
+        if (status.latestActivityAt >= sendStaleCutoff) {
+          return { skipped: true, reason: "activity-resumed" } as const;
+        }
+        const next = draft.reminderCount + 1;
+        if (next > maxReminders) {
+          return { skipped: true, reason: "max-reached" } as const;
+        }
+        // Greptile P1 #11: link through Clerk's sign-in redirect so a
+        // logged-out tab lands back on the questionnaire after auth. The
+        // proxy's protected-page list does not include /onboarding so
+        // direct links hit notFound() before reaching ProtectedLayout.
+        const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
+          `/onboarding/${draft.onboardingId}/questionnaire`
+        )}`;
+        const questionnaireUrl = `${baseUrl}${signInPath}`;
+        const email = buildOnboardingReminderEmail({
+          studentName: draft.studentName,
+          studentEmail: draft.studentEmail,
+          onboardingId: draft.onboardingId,
+          questionnaireUrl,
+          reminderNumber: next,
+          maxReminders,
+        });
+        const sendResult = await sendEmail({
+          to: draft.studentEmail,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+          headers: email.headers,
+          idempotencyKey: `onboarding-reminder:${draft.submissionId}:${next}`,
+        });
+        if (!sendResult.ok) {
+          const errMsg =
+            "error" in sendResult && typeof sendResult.error === "string"
+              ? sendResult.error
+              : "skipped" in sendResult
+              ? `skipped: ${sendResult.reason}`
+              : "sendEmail returned not-ok";
           reportError({
             source: "inngest:onboarding-questionnaire-reminders:send",
-            error: err instanceof Error ? err : new Error(String(err)),
+            error: new Error(errMsg),
             level: "warn",
-            message: "Reminder step threw",
+            message: "Reminder email failed",
             context: { submissionId: draft.submissionId },
           });
-          return { skipped: true, reason: "exception" };
+          return { skipped: true, reason: "send-failed" } as const;
         }
+        // Return the next counter so a follow-up step can
+        // persist it without re-running the send.
+        return { sent: true, next } as const;
       });
-      stepResults.push(result);
+      if ("sent" in sendOutcome) {
+        // Mark the row in a SEPARATE step so a transient
+        // Convex failure retries the mark without re-sending
+        // the email. The mark is idempotent on the server
+        // (`markReminderSent` no-ops when `next` is not
+        // strictly greater than the stored value), so a
+        // retried mark is harmless even if the first attempt
+        // partially succeeded.
+        const markOutcome = await step.run(
+          `mark:${draft.submissionId}:${sendOutcome.next}`,
+          async () => {
+            try {
+              await markReminderSent(draft.submissionId, sendOutcome.next);
+              return { ok: true } as const;
+            } catch (err) {
+              reportError({
+                source: "inngest:onboarding-questionnaire-reminders:mark",
+                error: err instanceof Error ? err : new Error(String(err)),
+                level: "warn",
+                message: "mark-reminder-sent failed; Inngest will retry",
+                context: { submissionId: draft.submissionId },
+              });
+              throw err;
+            }
+          }
+        );
+        void markOutcome;
+        stepResults.push({ sent: true });
+      } else {
+        stepResults.push(sendOutcome);
+      }
     }
 
     // Inngest step.run() return type is the union of every branch
