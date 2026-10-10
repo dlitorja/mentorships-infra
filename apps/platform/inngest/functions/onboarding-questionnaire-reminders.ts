@@ -36,8 +36,18 @@ import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-e
  * returns `isDone`, or an entire page yields no eligible row
  * (which means we've walked past the candidate cluster — the
  * index is sorted by `updatedAt` ascending).
+ *
+ * Greptile round-27 P1 #2: drop the SCAN_MAX_PAGES cap. An
+ * exhausted draft (reminderCount at the cap) sits at the
+ * same `updatedAt` it was given — `markReminderSent` does
+ * NOT bump `updatedAt`. So if 250 exhausted drafts
+ * accumulate at the front of the index, a 5-page cap reads
+ * only those drafts and never reaches newer eligible
+ * drafts behind them. The existing `isDone` / `nextCursor`
+ * guards are the correct stop conditions; the page cap is
+ * a stale belt-and-suspenders measure that breaks under
+ * accumulation.
  */
-const SCAN_MAX_PAGES = 5;
 
 export const onboardingQuestionnaireReminders = inngest.createFunction(
   {
@@ -64,7 +74,11 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         reminderCount: number;
       }> = [];
       let cursor: string | null = null;
-      for (let page = 0; page < SCAN_MAX_PAGES; page += 1) {
+      // Greptile round-27 P1 #2: no page cap. `isDone` (end
+      // of partition) is the only correct stop signal; the
+      // old `SCAN_MAX_PAGES = 5` cap trapped the scan on a
+      // growing cluster of exhausted drafts.
+      for (;;) {
         const res = await fetch(url, {
           method: "POST",
           headers: {
