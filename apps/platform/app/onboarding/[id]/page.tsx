@@ -98,13 +98,25 @@ export default async function OnboardingStatusPage({
         { token: token ?? undefined }
       ).catch(() => null)
     : null;
-  const submittedWorkExamples = !isStudent
+  const submittedWorkExamplesRaw = !isStudent
     ? await fetchQuery(
         (api as any).onboardingWorkExamples.listWorkExamples,
         { onboardingId: id },
         { token: token ?? undefined }
       ).catch(() => [])
     : [];
+// Greptile round-24 P2 #1: listWorkExamples returns pending
+// uploads too (so the student sees their in-flight uploads),
+// but the instructor gallery should only show finished
+// (active) work. Pending rows don't have a valid B2 object
+// yet and would render as broken "(image)" placeholders.
+const submittedWorkExamples = (
+  submittedWorkExamplesRaw as Array<{
+    _id: string;
+    fileName: string;
+    status: string;
+  }>
+).filter((w) => w.status === "active");
 
   return (
     <ProtectedLayout currentPath="/onboarding">

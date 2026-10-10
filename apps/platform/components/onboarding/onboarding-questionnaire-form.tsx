@@ -168,13 +168,35 @@ export default function OnboardingQuestionnaireForm({
     }
     return fresh;
   }, []);
-  const clientSaveIdCounter = useRef(0);
+  // PREFIX_SPACE = 1_000_000 (counter slots per prefix).
+  const PREFIX_SPACE = 1_000_000;
+  // Greptile round-24 P1 #1: seed the per-tab counter from
+  // the server-stored lastClientSaveId so the FIRST save
+  // after reload doesn't reuse the previous visit's id.
+  // The server's strict-greater-than guard drops any save
+  // whose clientSaveId <= stored, so an unlucky reload that
+  // lands on the same prefix (sessionStorage survived) but
+  // a zero counter would repeat the prior id and silently
+  // drop the edit. Recover the counter when the stored id
+  // falls inside our prefix space; otherwise start at 0
+  // (a fresh tab with a different prefix).
+  const initialCounter = (() => {
+    const stored = initial.submission?.lastClientSaveId ?? 0;
+    const prefix = clientSaveIdTabPrefix ?? 0;
+    if (stored <= 0) return 0;
+    if (
+      stored >= prefix * PREFIX_SPACE &&
+      stored < (prefix + 1) * PREFIX_SPACE
+    ) {
+      return stored - prefix * PREFIX_SPACE;
+    }
+    return 0;
+  })();
+  const clientSaveIdCounter = useRef(initialCounter);
   // Greptile round-20 P1 #2: avoid an infinite retry loop if
   // a third tab keeps beating us — only attempt the catch-up
   // re-fire once per save.
   const recoveryInFlight = useRef(false);
-  // PREFIX_SPACE = 1_000_000 (counter slots per prefix).
-  const PREFIX_SPACE = 1_000_000;
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -229,6 +251,12 @@ export default function OnboardingQuestionnaireForm({
       // server has a value strictly greater than what we
       // sent, our counter is behind — bump it past the
       // stored value and re-fire so this tab catches up.
+      // Greptile round-24 P1 #1: also treat EQUAL ids as
+      // rejected (the server's strict-greater guard drops
+      // them too). Without this, the first save after
+      // reload with the same prefix but a fresh counter
+      // could send an id that matches the previously
+      // stored value and silently drop the new edit.
       const sentId =
         (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE +
         clientSaveIdCounter.current;
@@ -236,7 +264,7 @@ export default function OnboardingQuestionnaireForm({
         .storedClientSaveId;
       if (
         typeof stored === "number" &&
-        stored > sentId &&
+        stored >= sentId &&
         !recoveryInFlight.current
       ) {
         const recovered =
