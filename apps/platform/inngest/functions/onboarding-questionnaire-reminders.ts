@@ -264,11 +264,20 @@ function getConvexBaseUrl(): string {
 }
 
 function getAppBaseUrl(): string {
-  return (
+  // Greptile round-27 P1 #8: match the rest of apps/platform
+  // (booking-email.ts, google.ts, notification-email.ts).
+  // VERCEL_URL is set automatically on Vercel deployments
+  // (preview + production); without it the previous code
+  // fell back to localhost, sending reminder emails with
+  // Continue links back to a developer's machine.
+  const candidate =
     process.env.NEXT_PUBLIC_URL ??
     process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000"
-  ).replace(/\/+$/, "");
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (candidate) return candidate.replace(/\/+$/, "");
+  throw new Error(
+    "Onboarding reminder cron: NEXT_PUBLIC_URL / NEXT_PUBLIC_APP_URL / VERCEL_URL must be set"
+  );
 }
 
 /**

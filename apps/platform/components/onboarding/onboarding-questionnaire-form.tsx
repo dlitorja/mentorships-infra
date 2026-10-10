@@ -319,7 +319,21 @@ export default function OnboardingQuestionnaireForm({
   useEffect(() => {
     if (alreadySubmitted) return;
     const payload = JSON.stringify({ answers, inspirations });
-    if (payload === lastSavePayload.current) return;
+    // Greptile round-27 P1 #7: when a save is in flight, the
+    // server's stored value is whatever that save will land
+    // (which may not be the current answers). Short-circuiting
+    // on payload match would skip a save that needs to land
+    // FIRST — e.g. A→B→A: B-save in flight, A change matches
+    // lastSavePayload (A, the prior landed value), the A-save
+    // is skipped, then B-save resolves and overwrites the
+    // student's current A. Force a save whenever anything is
+    // in flight, even on payload match.
+    if (
+      payload === lastSavePayload.current &&
+      !saveMutation.isPending
+    ) {
+      return;
+    }
     pendingPayloadRef.current = payload;
 
     const fireNext = async (): Promise<void> => {
