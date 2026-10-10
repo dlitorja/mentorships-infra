@@ -170,14 +170,23 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         if (next > maxReminders) {
           return { skipped: true, reason: "max-reached" } as const;
         }
-        // Greptile P1 #11: link through Clerk's sign-in redirect so a
-        // logged-out tab lands back on the questionnaire after auth. The
-        // proxy's protected-page list does not include /onboarding so
-        // direct links hit notFound() before reaching ProtectedLayout.
-        const signInPath = `/sign-in?redirect_url=${encodeURIComponent(
+        // Greptile P1 #11: link through /auth-redirect (NOT
+        // /sign-in) so the destination survives the
+        // signed-out → sign-in → signed-in round-trip. The
+        // previous /sign-in?redirect_url=... path put the
+        // destination on /sign-in's query, but after Clerk
+        // finishes sign-in the user lands on /auth-redirect
+        // (per the route handler's afterAuth path) and
+        // /auth-redirect only reads ITS OWN query — so the
+        // destination was dropped on the floor.
+// Greptile round-27 P2 #2: /auth-redirect reads its own
+        // redirect_url query and re-emits /sign-in?redirect_url
+        // when the visitor is signed out, so chaining through
+        // /auth-redirect preserves the destination end-to-end.
+        const authRedirectPath = `/auth-redirect?redirect_url=${encodeURIComponent(
           `/onboarding/${draft.onboardingId}/questionnaire`
         )}`;
-        const questionnaireUrl = `${baseUrl}${signInPath}`;
+        const questionnaireUrl = `${baseUrl}${authRedirectPath}`;
         const email = buildOnboardingReminderEmail({
           studentName: draft.studentName,
           studentEmail: draft.studentEmail,

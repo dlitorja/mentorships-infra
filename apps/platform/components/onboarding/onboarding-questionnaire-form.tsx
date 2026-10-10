@@ -832,6 +832,30 @@ export default function OnboardingQuestionnaireForm({
                 )}
               </div>
             ))}
+            {/* Greptile round-27 P1 #10: surface pending uploads
+                with a remove control. A failed PUT leaves its
+                reservation behind; without this control the
+                student can't free the slot, and the gallery
+                hides the in-flight row entirely. */}
+            {!alreadySubmitted &&
+              workExamples.filter((w) => w.status === "pending").map((w) => (
+                <div
+                  key={w._id}
+                  className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted text-xs text-muted-foreground"
+                >
+                  <span className="px-2 text-center line-clamp-2">
+                    Uploading: {w.fileName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => deleteExample(w._id)}
+                    className="absolute right-1 top-1 rounded bg-background/80 p-1 text-destructive hover:bg-background"
+                    aria-label="Cancel upload"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
             {!alreadySubmitted && workExamples.filter((w) => w.status === "active").length < MAX_WORK_EXAMPLES_PER_ONBOARDING && (
               <WorkExampleUploadTile onFile={uploadFile} />
             )}
