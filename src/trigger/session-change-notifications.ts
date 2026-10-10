@@ -269,6 +269,16 @@ export const sendSessionReminders = schedules.task({
         const studentTimeZone = row.student.timeZone;
         const instructorTimeZone = instructorUser?.timeZone;
 
+        // Greptile R5 P1 defense-in-depth: Resend idempotency key
+        // scopes per (role, session, scheduledAt) so a Trigger.dev
+        // retry of this same tick reuses the same key and Resend
+        // deduplicates the send. A genuine reschedule to a new
+        // `scheduledAt` produces a fresh key (new email), and the
+        // primary `payload.timestamp` window anchor already prevents
+        // adjacent ticks from selecting the same session.
+        const reminderIdempotencyKey = (role: "student" | "instructor") =>
+          `session-reminder:${role}:${row.session.id}:${row.session.scheduledAt}`;
+
         if (row.student.email) {
           const studentEmail = buildSessionReminderEmail({
             studentEmail: row.student.email,
@@ -286,6 +296,7 @@ export const sendSessionReminders = schedules.task({
             html: studentEmail.html,
             headers: studentEmail.headers,
             kind: "transactional",
+            idempotencyKey: reminderIdempotencyKey("student"),
           });
         }
 
@@ -307,6 +318,7 @@ export const sendSessionReminders = schedules.task({
             html: instructorEmail.html,
             headers: instructorEmail.headers,
             kind: "transactional",
+            idempotencyKey: reminderIdempotencyKey("instructor"),
           });
         }
 
