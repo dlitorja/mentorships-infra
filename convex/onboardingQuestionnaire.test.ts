@@ -647,6 +647,57 @@ test("listStaleDraftsForReminder skips rows past the max-count cap", async () =>
   expect(page.candidates.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
 });
 
+test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close beacon)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_force";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-force" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-force@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  // Greptile round-27 P1 #14: a different tab (or an
+  // earlier save in the same tab) has stored id=10. The
+  // closing tab's beacon sends id=3, which would normally
+  // be a no-op. With force:true the closing tab's payload
+  // wins — it has the most recent user activity.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "earlier" }],
+      inspirations: [{ name: "Earlier" }],
+      clientSaveId: 10,
+    });
+
+  const beacon = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "closing" }],
+      inspirations: [{ name: "Closing" }],
+      clientSaveId: 3,
+      force: true,
+    });
+  expect(beacon.accepted).toBe(true);
+  expect(beacon.storedClientSaveId).toBe(3);
+
+  const row = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(row?.status).toBe("draft");
+  expect(
+    row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
+  ).toBe("closing");
+  expect(row?.inspirations[0]?.name).toBe("Closing");
+});
+
 test("listStaleDraftsForReminder picks up rows past the stale threshold", async () => {
   const t = convexTest(schema, modules);
   const studentId = "user_student_11";
@@ -822,4 +873,55 @@ test("listStaleDraftsForReminder excludes cancelled parent onboardings (P2 #15)"
     ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
   expect(page.candidates.find((d: any) => d.onboardingId === onboardingId)).toBeUndefined();
+});
+
+test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close beacon)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_force";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-force" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-force@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  // Greptile round-27 P1 #14: a different tab (or an
+  // earlier save in the same tab) has stored id=10. The
+  // closing tab's beacon sends id=3, which would normally
+  // be a no-op. With force:true the closing tab's payload
+  // wins — it has the most recent user activity.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "earlier" }],
+      inspirations: [{ name: "Earlier" }],
+      clientSaveId: 10,
+    });
+
+  const beacon = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "closing" }],
+      inspirations: [{ name: "Closing" }],
+      clientSaveId: 3,
+      force: true,
+    });
+  expect(beacon.accepted).toBe(true);
+  expect(beacon.storedClientSaveId).toBe(3);
+
+  const row = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(row?.status).toBe("draft");
+  expect(
+    row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
+  ).toBe("closing");
+  expect(row?.inspirations[0]?.name).toBe("Closing");
 });

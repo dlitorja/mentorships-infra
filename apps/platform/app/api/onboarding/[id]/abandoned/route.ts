@@ -105,6 +105,15 @@ export async function POST(
           // out-of-order writes. Missing here = 0; the server
           // treats it as the first save.
           clientSaveId: parsed.clientSaveId ?? 0,
+          // Greptile round-27 P1 #14: this is the tab-close
+          // beacon. The closing tab has the most-recent user
+          // activity (otherwise they wouldn't be closing it)
+          // but its local counter may be below the latest
+          // stored value because another tab has been saving
+          // in the meantime. Force the save so the closing
+          // tab's latest edits land instead of being dropped
+          // by the server's strict-greater-than guard.
+          force: true,
         } as any
       );
     }

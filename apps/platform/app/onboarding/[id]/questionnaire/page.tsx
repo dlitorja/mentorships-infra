@@ -59,6 +59,31 @@ export default async function OnboardingQuestionnairePage({
 
   if (!view || view.viewerRole !== "student") notFound();
 
+  // Greptile round-27 P2 #4: refuse the editable form on
+  // a cancelled onboarding. `getOnboardingView` still
+  // returns the assigned student's role after cancellation
+  // (so they can see the timeline), but `ensureAssignedStudent`
+  // throws on any save/submit and the student would fill out
+  // a form that always fails. Show a cancelled notice instead.
+  if (view.onboarding.status === "cancelled") {
+    return (
+      <ProtectedLayout>
+        <div className="mx-auto max-w-3xl space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Onboarding cancelled</CardTitle>
+              <CardDescription>
+                This mentorship onboarding was cancelled. If you were
+                expecting to fill out a questionnaire, please contact
+                support.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+
   const initial = await fetchQuery(
     (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
     { onboardingId: id },

@@ -128,6 +128,18 @@ export const saveQuestionnaireDraft = mutation({
     // older autosave in flight can never overwrite a newer
     // tab-close flush.
     clientSaveId: v.number(),
+    // Greptile round-27 P1 #14: the `/api/onboarding/.../abandoned`
+    // beacon route calls this mutation with `force: true` when
+    // the client is closing the tab. A closing tab has the
+    // most-recent user activity (otherwise they wouldn't be
+    // closing it) but its local clientSaveIdCounter was seeded
+    // at mount and may be BELOW whatever another tab saved in
+    // the meantime — the server's strict-greater-than guard
+    // would otherwise drop the closing tab's latest edits.
+    // `force: true` bypasses the ordering check so the
+    // closing tab's payload wins. Limited to the abandoned
+    // beacon path; never set from the autosave PATCH route.
+    force: v.optional(v.boolean()),
   },
   returns: v.object({
     submissionId: v.id("onboardingQuestionnaireSubmissions"),
@@ -183,8 +195,16 @@ export const saveQuestionnaireDraft = mutation({
     // client serialises order-of-FETCH, but the network can
     // reorder request-of-ARRIVAL at the Convex backend, so the
     // server is the only place we can guarantee ordering.
+    // Greptile round-27 P1 #14: `force: true` (only set by
+    // the tab-close beacon route) bypasses the guard so the
+    // closing tab's payload lands even when its local
+    // counter is below the latest stored value.
     const stored = existing?.lastClientSaveId ?? 0;
-    if (existing && args.clientSaveId <= stored) {
+    if (
+      existing &&
+      args.clientSaveId <= stored &&
+      args.force !== true
+    ) {
       return {
         submissionId: existing._id,
         status: "draft" as const,
