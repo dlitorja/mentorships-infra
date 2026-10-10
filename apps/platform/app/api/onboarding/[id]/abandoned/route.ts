@@ -76,10 +76,14 @@ export async function POST(
     // flush them through the same save mutation the autosave
     // chain uses. Only stamp the server's known questionText
     // so we don't accept arbitrary text from the wire.
-    if (
-      (parsed.answers && parsed.answers.length > 0) ||
-      (parsed.inspirations && parsed.inspirations.length > 0)
-    ) {
+    // Greptile round-23 P1 #1: distinguish "supplied-as-empty"
+    // (intentional clear — student wiped their answers) from
+    // "absent" (no client state). Only skip the save when both
+    // fields are absent. Empty arrays represent the user's
+    // latest intent and must reach the server.
+    const answersSupplied = parsed.answers !== undefined;
+    const inspirationsSupplied = parsed.inspirations !== undefined;
+    if (answersSupplied || inspirationsSupplied) {
       const { ONBOARDING_QUESTIONS } = await import(
         "@/lib/onboarding-questions"
       );

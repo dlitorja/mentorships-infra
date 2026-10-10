@@ -733,6 +733,55 @@ test("markReminderSent is idempotent on `next`", async () => {
   expect((row as any).reminderCount).toBe(1);
 });
 
+test("saveQuestionnaireDraft accepts empty answers + empty inspirations (intentional clear)", async () => {
+  // Greptile round-23 P1 #1: a student who clears their
+  // previously saved answers and then closes the tab must
+  // still reach the server with the empty state. The
+  // abandoned route distinguishes "supplied-as-empty" from
+  // "absent" and the mutation itself must accept either.
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_clear";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-clear" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-clear@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  // Save non-empty first.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
+    });
+
+  // Now save empty (intentional clear).
+  const cleared = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [],
+      inspirations: [],
+      clientSaveId: 2,
+    });
+  expect(cleared.storedClientSaveId).toBe(2);
+
+  // Row should reflect the empty state.
+  const row = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(row?.answers).toEqual([]);
+  expect(row?.inspirations).toEqual([]);
+});
+
 test("listStaleDraftsForReminder excludes cancelled parent onboardings (P2 #15)", async () => {
   const t = convexTest(schema, modules);
   const studentId = "user_student_13";

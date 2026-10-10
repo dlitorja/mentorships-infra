@@ -410,6 +410,61 @@ export default function OnboardingQuestionnaireForm({
     return () => window.removeEventListener("beforeunload", sendBeacon);
   }, [onboardingId, alreadySubmitted, clientSaveIdTabPrefix]);
 
+  // Greptile round-23 P1 #2: Next.js navigation (link clicks,
+  // router.push) does NOT fire `beforeunload`. Without a
+  // flush on unmount, clicking "Workspace" or "Dashboard"
+  // mid-debounce cancels the waiting autosave and the latest
+  // edits are lost. The fix: on component unmount, if there
+  // is a pending payload OR a debounce in flight, cancel the
+  // timer and fire the save synchronously through the
+  // /api/onboarding/[id]/abandoned route so the server gets
+  // the latest answers with `keepalive: true` (which Next
+  // route handlers can honour via fetch keepalive).
+  useEffect(() => {
+    return () => {
+      if (alreadySubmitted) return;
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      const pending = pendingPayloadRef.current;
+      if (pending == null) return;
+      try {
+        const url = ApiRoutes.onboardingAbandoned(onboardingId);
+        // Build the same payload shape as the beforeunload
+        // beacon. Use the LATEST refs so a clear (empty
+        // arrays) is preserved.
+        const a = answersRef.current;
+        const i = inspirationsRef.current;
+        const trimmedAnswers = textareaQuestions
+          .map((q) => ({
+            questionId: q.id,
+            answerText: (a[q.id] ?? "").trim(),
+          }))
+          .filter((x) => x.answerText.length > 0);
+        const inspirations = i.filter((x) => x.name.trim().length > 0);
+        clientSaveIdCounter.current += 1;
+        const prefix = clientSaveIdTabPrefix ?? 0;
+        const clientSaveId =
+          prefix * PREFIX_SPACE + clientSaveIdCounter.current;
+        // keepalive lets the request land even as the page
+        // is being torn down by the navigation.
+        void fetch(url, {
+          method: "POST",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: trimmedAnswers,
+            inspirations,
+            clientSaveId,
+          }),
+        });
+      } catch {
+        // ignore — best-effort
+      }
+    };
+  }, [onboardingId, alreadySubmitted, clientSaveIdTabPrefix]);
+
   // Image uploads
   const uploadFile = useCallback(
     async (file: File) => {
