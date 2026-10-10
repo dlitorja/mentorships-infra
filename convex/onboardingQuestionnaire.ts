@@ -604,6 +604,14 @@ export const listSubmittedQuestionnairesForInstructor = query({
     const page = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
       .withIndex("by_status_submittedAt", (q) => q.eq("status", "submitted"))
+      // Greptile round-27 P1 #6: order newest-first. The
+      // index's default order is ascending by submittedAt,
+      // which means ROW_CAP / SCAN_LIMIT fills with the
+      // oldest submissions and newer ones fall off the end
+      // of the page once either limit is reached. Ordering
+      // desc keeps the recent questionnaires visible to
+      // instructors.
+      .order("desc")
       .paginate({ numItems: LIST_SCAN_LIMIT, cursor: args.cursor });
 
     const rows: Array<{
