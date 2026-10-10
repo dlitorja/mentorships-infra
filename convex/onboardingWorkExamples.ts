@@ -300,6 +300,28 @@ export const reserveWorkExampleUpload = internalMutation({
     const safeName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
     const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safeName}`;
 
+    // Greptile round-13 P1 #4: collapse duplicates on b2Key for
+    // the same onboarding. The action mints a PUT URL based on
+    // (fileId, fileName); if the caller repeats the same values
+    // they get the same b2Key, and without this check we'd
+    // insert N rows that all reference one object — letting a
+    // single uploaded image count as N required work examples.
+    // A deleted row frees the slot; a pending or active row
+    // returns its existing id (idempotent retry).
+    const existing = await ctx.db
+      .query("onboardingWorkExamples")
+      .withIndex("by_onboardingId_b2Key", (q) =>
+        q.eq("onboardingId", args.onboardingId).eq("b2Key", b2Key)
+      )
+      .first();
+    if (existing && existing.status !== "deleted") {
+      return {
+        ok: true as const,
+        workExampleId: existing._id,
+        b2Key,
+      };
+    }
+
     const id = await ctx.db.insert("onboardingWorkExamples", {
       onboardingId: args.onboardingId,
       studentClerkId: row.assignedStudentClerkId!,

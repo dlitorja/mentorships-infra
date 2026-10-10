@@ -240,36 +240,6 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
               </CardContent>
             </Card>
 
-            {submittedQuestionnaires.length > 0 && (
-              <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle>Student questionnaires</CardTitle>
-                  <CardDescription>
-                    New intake form responses for assigned students. Click
-                    through to read goals, inspirations, and work examples
-                    before the first call.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {submittedQuestionnaires.map((q) => (
-                    <Link
-                      key={q.onboardingId}
-                      href={`/onboarding/${q.onboardingId}`}
-                      className="block rounded-md border p-3 hover:bg-muted"
-                    >
-                      <div className="text-sm font-medium">{q.studentEmail}</div>
-                      <div className="text-xs text-muted-foreground">
-                        Submitted{" "}
-                        {new Date(q.submittedAt).toLocaleString()} ·{" "}
-                        {q.instructorCount} instructor
-                        {q.instructorCount === 1 ? "" : "s"}
-                      </div>
-                    </Link>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-
             <Card>
               <CardHeader>
                 <CardTitle>Details</CardTitle>
@@ -335,6 +305,41 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Greptile round-13 P1 #2: the new-questionnaires card
+            was inside the legacy submissions branch, so an
+            instructor with only NEW submissions saw the empty
+            state. Render it as a sibling so it shows whenever
+            submittedQuestionnaires has rows. */}
+        {submittedQuestionnaires.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Student questionnaires</CardTitle>
+              <CardDescription>
+                New intake form responses for assigned students.
+                Click through to read goals, inspirations, and
+                work examples before the first call.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {submittedQuestionnaires.map((q) => (
+                <Link
+                  key={q.onboardingId}
+                  href={`/onboarding/${q.onboardingId}`}
+                  className="block rounded-md border p-3 hover:bg-muted"
+                >
+                  <div className="text-sm font-medium">{q.studentEmail}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Submitted{" "}
+                    {new Date(q.submittedAt).toLocaleString()} ·{" "}
+                    {q.instructorCount} instructor
+                    {q.instructorCount === 1 ? "" : "s"}
+                  </div>
+                </Link>
+              ))}
+            </CardContent>
+          </Card>
         )}
       </div>
     </ProtectedLayout>

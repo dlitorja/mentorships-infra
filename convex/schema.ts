@@ -1679,5 +1679,12 @@ export default defineSchema({
     fileId: v.string(),
   })
     .index("by_onboardingId", ["onboardingId"])
-    .index("by_onboardingId_active", ["onboardingId", "status"]),
+    .index("by_onboardingId_active", ["onboardingId", "status"])
+    // Greptile round-13 P1 #4: a caller can re-use the same
+    // (fileId, fileName) and receive multiple reservations for
+    // the same b2Key, which lets a single uploaded object count
+    // as N required work examples. Reuse existing pending/active
+    // reservations by b2Key for the same onboarding so retries
+    // collapse to one row.
+    .index("by_onboardingId_b2Key", ["onboardingId", "b2Key"]),
 });
