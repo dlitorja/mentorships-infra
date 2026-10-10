@@ -4,6 +4,7 @@ import { inngest } from "../client";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { getConvexClient } from "@/lib/convex";
+import { ONBOARDING_REMINDER_STALE_MS } from "@/lib/workspace-constants";
 import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-email";
 
 /**
@@ -124,6 +125,12 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     // from their return values on resume — if `sent` lives
     // outside, it's lost across resumes and we under-report.
     const stepResults: Array<{ sent?: boolean } | { skipped: boolean; reason: string }> = [];
+    // Greptile round-14 P2: re-check activity freshness inside
+    // the per-row send. The scan reads at T1; a student who
+    // resumes editing between T1 and T2 would otherwise still
+    // get a "finish onboarding" email. Same cutoffs the scan
+    // used, computed against `Date.now()` at send time.
+    const sendStaleCutoff = Date.now() - ONBOARDING_REMINDER_STALE_MS;
     for (const draft of drafts) {
       const result = await step.run(`send:${draft.submissionId}`, async () => {
         try {
@@ -132,8 +139,14 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
           // reminder. Convex read is cheap; the `submitQuestionnaire`
           // path takes a write lock on the row.
           const status = await fetchReadOnlyDraftStatus(draft.onboardingId);
-          if (status !== "draft") {
-            return { skipped: true, reason: status ?? "missing" };
+          if (status === "submitted") {
+            return { skipped: true, reason: "submitted" };
+          }
+          if (status == null) {
+            return { skipped: true, reason: "missing" };
+          }
+          if (status.latestActivityAt >= sendStaleCutoff) {
+            return { skipped: true, reason: "activity-resumed" };
           }
           const next = draft.reminderCount + 1;
           if (next > maxReminders) {
@@ -228,7 +241,11 @@ function getAppBaseUrl(): string {
  */
 async function fetchReadOnlyDraftStatus(
   onboardingId: string
-): Promise<"draft" | "submitted" | null> {
+): Promise<
+  | { status: "draft"; latestActivityAt: number }
+  | "submitted"
+  | null
+> {
   const url = `${getConvexBaseUrl()}/onboarding/questionnaire-status`;
   const res = await fetch(url, {
     method: "POST",
@@ -239,8 +256,17 @@ async function fetchReadOnlyDraftStatus(
     body: JSON.stringify({ onboardingId }),
   });
   if (!res.ok) return null;
-  const json = (await res.json()) as { status: "draft" | "submitted" | null };
-  return json.status ?? null;
+  const json = (await res.json()) as
+    | { status: "draft"; latestActivityAt: number }
+    | { status: "submitted" }
+    | { status: null };
+  if ("status" in json && json.status === "draft") {
+    return { status: "draft", latestActivityAt: json.latestActivityAt };
+  }
+  if ("status" in json && json.status === "submitted") {
+    return "submitted";
+  }
+  return null;
 }
 
 /**

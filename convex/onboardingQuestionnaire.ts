@@ -795,17 +795,30 @@ export const listStaleDraftsForReminder = internalQuery({
  */
 export const getDraftStatusForReminder = internalQuery({
   args: { onboardingId: v.id("adminOnboardings") },
-  returns: v.union(v.literal("draft"), v.literal("submitted"), v.null()),
+  returns: v.union(
+    v.object({
+      status: v.literal("draft"),
+      latestActivityAt: v.number(),
+    }),
+    v.literal("submitted"),
+    v.null()
+  ),
   handler: async (ctx, args) => {
     const sub = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
       .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
       .first();
     if (!sub) return null;
-    if (sub.status === "submitted") return null;
+    if (sub.status === "submitted") return "submitted";
     const onboarding = await ctx.db.get(args.onboardingId);
     if (!onboarding || onboarding.status === "cancelled") return null;
-    return sub.status;
+    // Greptile round-14 P2: also return the latest activity
+    // timestamp so the per-row send step can re-check freshness
+    // before firing the email. The scan reads at T1; if the
+    // student edits between T1 and T2, the send step would
+    // still fire without this. Same staleCutoff the scan uses.
+    const latestActivityAt = Math.max(sub.updatedAt, sub.lastSeenAt ?? 0);
+    return { status: "draft" as const, latestActivityAt };
   },
 });
 

@@ -817,6 +817,17 @@ export const cancelAdminOnboarding = mutation({
       metadata: { previousStatus, email: row.email },
     });
 
+    // Greptile round-14 P1: cancelling an onboarding left the
+    // student's pending and active work-example rows in place.
+    // resolveDownloadAccess would still accept those rows and
+    // mint download URLs. Soft-delete them now so the orphan
+    // rows stop resolving; B2 object cleanup is a separate
+    // (P2) follow-up.
+    await ctx.runMutation(
+      (internal as any).onboardingWorkExamples.purgeWorkExamplesForOnboarding,
+      { onboardingId: args.onboardingId }
+    );
+
     return { onboardingId: args.onboardingId, status: "cancelled" as const };
   },
 });
