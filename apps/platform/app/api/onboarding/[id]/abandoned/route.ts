@@ -40,6 +40,10 @@ const beaconBodySchema = z
       .array(z.object({ name: z.string().min(1).max(120) }))
       .max(8)
       .optional(),
+    // Greptile round-18 P1 #1: monotonic save counter the
+    // client sends with every save (autosave + tab-close
+    // flush) so the server can reject out-of-order requests.
+    clientSaveId: z.number().int().nonnegative().optional(),
   })
   .partial();
 
@@ -92,6 +96,11 @@ export async function POST(
           questionnaireVersion: ONBOARDING_QUESTIONNAIRE_VERSION,
           answers: stamped,
           inspirations: parsed.inspirations ?? [],
+          // Greptile round-18 P1 #1: forward the client's
+          // monotonic save counter so the server can reject
+          // out-of-order writes. Missing here = 0; the server
+          // treats it as the first save.
+          clientSaveId: parsed.clientSaveId ?? 0,
         } as any
       );
     }

@@ -26,6 +26,11 @@ const answerSchema = z.object({
 const saveDraftSchema = z.object({
   answers: z.array(answerSchema),
   inspirations: z.array(inspirationSchema).max(8),
+  // Greptile round-18 P1 #1: client sends a monotonic save
+  // counter so the server can reject out-of-order requests.
+  // The form increments this on every save (autosave + tab-
+  // close flush).
+  clientSaveId: z.number().int().nonnegative(),
 });
 
 /**
@@ -120,6 +125,7 @@ export async function PATCH(
           answerText: a.answerText,
         })),
         inspirations: parsed.data.inspirations,
+        clientSaveId: parsed.data.clientSaveId,
       } as any
     );
 

@@ -120,10 +120,22 @@ export const saveQuestionnaireDraft = mutation({
     questionnaireVersion: v.number(),
     answers: QUESTIONNAIRE_ANSWERS_VALIDATOR,
     inspirations: QUESTIONNAIRE_INSPIRATIONS_VALIDATOR,
+    // Greptile round-18 P1 #1: monotonic client-side save
+    // counter so the server can reject out-of-order saves.
+    // Each save (autosave + tab-close flush) increments this
+    // and the server stores the latest accepted value;
+    // incoming `clientSaveId <= stored` is a no-op so an
+    // older autosave in flight can never overwrite a newer
+    // tab-close flush.
+    clientSaveId: v.number(),
   },
   returns: v.object({
     submissionId: v.id("onboardingQuestionnaireSubmissions"),
     status: v.union(v.literal("draft"), v.literal("submitted")),
+    // Echo the latest stored clientSaveId so the client can
+    // confirm its write took effect (and detect out-of-order
+    // drops for future telemetry).
+    storedClientSaveId: v.number(),
   }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -150,6 +162,21 @@ export const saveQuestionnaireDraft = mutation({
       return {
         submissionId: existing._id,
         status: "submitted" as const,
+        storedClientSaveId: existing.lastClientSaveId ?? 0,
+      };
+    }
+
+    // Out-of-order guard: if we already stored a newer (or
+    // equal) clientSaveId, drop this write. The chain on the
+    // client serialises order-of-FETCH, but the network can
+    // reorder request-of-ARRIVAL at the Convex backend, so the
+    // server is the only place we can guarantee ordering.
+    const stored = existing?.lastClientSaveId ?? 0;
+    if (existing && args.clientSaveId <= stored) {
+      return {
+        submissionId: existing._id,
+        status: "draft" as const,
+        storedClientSaveId: stored,
       };
     }
 
@@ -159,10 +186,12 @@ export const saveQuestionnaireDraft = mutation({
         answers: args.answers,
         inspirations: args.inspirations,
         updatedAt: now,
+        lastClientSaveId: args.clientSaveId,
       });
       return {
         submissionId: existing._id,
         status: "draft" as const,
+        storedClientSaveId: args.clientSaveId,
       };
     }
 
@@ -178,11 +207,13 @@ export const saveQuestionnaireDraft = mutation({
         inspirations: args.inspirations,
         createdAt: now,
         updatedAt: now,
+        lastClientSaveId: args.clientSaveId,
       }
     );
     return {
       submissionId,
       status: "draft" as const,
+      storedClientSaveId: args.clientSaveId,
     };
   },
 });
@@ -425,11 +456,14 @@ export const getSubmittedQuestionnaireForViewer = query({
       }
     }
     if (!isAssignedStudent && !isAssignedInstructor) {
-      // Greptile P1 follow-up: staff rows can have
-      // `clerkId !== userId` (split identity). Check both indexes
-      // — the status page (`getOnboardingView`) uses `by_userId`,
-      // so we need the same shape here or split-identity staff
-      // can open the page but see no submitted answers.
+      // Greptile round-18 P1 #3: staff rows can have
+      // `clerkId !== userId` (split identity). Check BOTH
+      // indexes — the status page (`getOnboardingView`) uses
+      // `by_userId`, but a split-identity staff may match on
+      // `by_clerkId` only and have a different `userId`.
+      // Choose the row that has a staff role; if neither does,
+      // the caller is a student and we return null. Mirrors
+      // `lookupStaffRole`.
       const byClerk = await ctx.db
         .query("users")
         .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
@@ -438,8 +472,11 @@ export const getSubmittedQuestionnaireForViewer = query({
         .query("users")
         .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
         .first();
-      const userRow = byClerk ?? byUserId;
-      if (!userRow || (userRow.role !== "admin" && userRow.role !== "support")) {
+      const staffRow = [byClerk, byUserId].find(
+        (r): r is NonNullable<typeof r> =>
+          r != null && (r.role === "admin" || r.role === "support")
+      );
+      if (!staffRow) {
         return null;
       }
     }

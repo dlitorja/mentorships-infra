@@ -1650,6 +1650,14 @@ export default defineSchema({
     lastSeenAt: v.optional(v.number()),
     lastReminderSentAt: v.optional(v.number()),
     reminderCount: v.optional(v.number()),
+    // Greptile round-18 P1 #1: server-side save-ordering
+    // counter. Each save (autosave + tab-close flush) sends a
+    // monotonic `clientSaveId`; the server keeps the latest
+    // value and rejects incoming writes whose `clientSaveId`
+    // is not strictly greater. Prevents an older autosave from
+    // overwriting a newer tab-close flush when requests
+    // arrive out of order.
+    lastClientSaveId: v.optional(v.number()),
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_status_updatedAt", ["status", "updatedAt"])

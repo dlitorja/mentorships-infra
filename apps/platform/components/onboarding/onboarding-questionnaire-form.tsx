@@ -115,6 +115,13 @@ export default function OnboardingQuestionnaireForm({
   // Auto-save (debounced) when answers or inspirations change.
   const lastSavePayload = useRef<string>("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Greptile round-18 P1 #1: monotonic save counter sent to the
+  // server with every save (autosave + tab-close flush). The
+  // server stores the latest accepted value and rejects writes
+  // whose `clientSaveId <= stored`, so an older autosave in
+  // flight can never overwrite a newer tab-close flush even
+  // when requests arrive out of order at the backend.
+  const clientSaveIdCounter = useRef(0);
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -125,6 +132,9 @@ export default function OnboardingQuestionnaireForm({
           answerText: (a[q.id] ?? "").trim(),
         }))
         .filter((x) => x.answerText.length > 0);
+      // Increment on every fire; the server uses this as a
+      // strict-greater-than guard.
+      clientSaveIdCounter.current += 1;
       return apiFetch<{ submission: Submission }>(
         ApiRoutes.onboardingQuestionnaire(onboardingId),
         {
@@ -132,6 +142,7 @@ export default function OnboardingQuestionnaireForm({
           body: JSON.stringify({
             answers: trimmedAnswers,
             inspirations: i.filter((x) => x.name.trim().length > 0),
+            clientSaveId: clientSaveIdCounter.current,
           }),
         }
       );
@@ -235,6 +246,10 @@ export default function OnboardingQuestionnaireForm({
   // the 500 ms debounce window doesn't lose their latest answers.
   // Greptile round-17 P1: previously the beacon sent only `{}`
   // and any pending payload was discarded by the cleanup.
+  // Greptile round-18 P1 #1: the beacon also forwards the
+  // monotonic save counter so the server can reject out-of-
+  // order writes if the in-flight autosave arrives AFTER the
+  // close flush.
   useEffect(() => {
     if (alreadySubmitted) return;
     const sendBeacon = () => {
@@ -254,6 +269,10 @@ export default function OnboardingQuestionnaireForm({
           }))
           .filter((x) => x.answerText.length > 0);
         const inspirations = i.filter((x) => x.name.trim().length > 0);
+        // Increment counter so the tab-close flush is always
+        // strictly newer than any autosave that fired before
+        // it.
+        clientSaveIdCounter.current += 1;
         void fetch(url, {
           method: "POST",
           keepalive: true,
@@ -261,6 +280,7 @@ export default function OnboardingQuestionnaireForm({
           body: JSON.stringify({
             answers: trimmedAnswers,
             inspirations,
+            clientSaveId: clientSaveIdCounter.current,
           }),
         });
       } catch {

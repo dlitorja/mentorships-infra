@@ -131,6 +131,7 @@ test("saveQuestionnaireDraft upserts answers + inspirations", async () => {
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   expect(draft.status).toBe("draft");
@@ -164,6 +165,7 @@ test("submitQuestionnaire rejects when fewer than MIN_WORK_EXAMPLES_PER_SUBMISSI
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   // Add only 2 active work examples (below MIN_WORK_EXAMPLES_PER_SUBMISSION = 4)
@@ -209,6 +211,7 @@ test("submitQuestionnaire rejects when a required question id has no answer", as
       questionnaireVersion: 1,
       answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "Friend." }],
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   // 4 active work examples so the work-examples gate doesn't fire first.
@@ -250,6 +253,7 @@ test("submitQuestionnaire rejects when inspirations are below MIN_INSPIRATIONS",
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: [{ name: "Only One" }],
+      clientSaveId: 1,
     });
 
   for (let i = 0; i < 4; i++) {
@@ -290,6 +294,7 @@ test("submitQuestionnaire happy path flips status to submitted", async () => {
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   for (let i = 0; i < 4; i++) {
@@ -354,6 +359,7 @@ test("saveQuestionnaireDraft no-ops once submitted", async () => {
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
   for (let i = 0; i < 4; i++) {
     await seedWorkExample(t, {
@@ -379,6 +385,7 @@ test("saveQuestionnaireDraft no-ops once submitted", async () => {
       questionnaireVersion: 1,
       answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "tampered" }],
       inspirations: [{ name: "Tampered" }],
+      clientSaveId: 1,
     });
 
   const row = await t
@@ -390,6 +397,79 @@ test("saveQuestionnaireDraft no-ops once submitted", async () => {
   expect(
     row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
   ).not.toBe("tampered");
+});
+
+test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)", async () => {
+  // Greptile round-18 P1 #1: an older autosave in flight can
+  // race with a newer tab-close flush. Server tracks the
+  // latest accepted `clientSaveId` and drops incoming writes
+  // whose `clientSaveId <= stored`.
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_order";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-order" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-order@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  // Newer save first.
+  const newer = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "newer" }],
+      inspirations: [{ name: "Newer Inspo" }],
+      clientSaveId: 5,
+    });
+  expect(newer.storedClientSaveId).toBe(5);
+
+  // Older save arrives out of order — should be a no-op.
+  const older = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "older" }],
+      inspirations: [{ name: "Older Inspo" }],
+      clientSaveId: 3,
+    });
+  expect(older.storedClientSaveId).toBe(5);
+
+  // Row reflects the newer save, not the older one.
+  const row = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(row?.status).toBe("draft");
+  expect(
+    row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
+  ).toBe("newer");
+  expect(row?.inspirations[0]?.name).toBe("Newer Inspo");
+
+  // Equal clientSaveId is also a no-op (duplicate).
+  const equal = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [{ questionId: "how_did_you_hear", questionText: "How did you learn about this mentorship?", answerText: "duplicate" }],
+      inspirations: [{ name: "Dup Inspo" }],
+      clientSaveId: 5,
+    });
+  expect(equal.storedClientSaveId).toBe(5);
+
+  const rowAfterDup = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(
+    rowAfterDup?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
+  ).toBe("newer");
 });
 
 test("recordQuestionnaireSeen stamps lastSeenAt only, does not increment reminderCount", async () => {
@@ -410,6 +490,7 @@ test("recordQuestionnaireSeen stamps lastSeenAt only, does not increment reminde
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   await t
@@ -457,6 +538,7 @@ test("getIncompleteOnboardingForCurrentUser skips rows with a submitted question
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
   for (let i = 0; i < 4; i++) {
     await seedWorkExample(t, {
@@ -500,6 +582,7 @@ test("listStaleDraftsForReminder skips rows past the max-count cap", async () =>
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   // Manually bump reminderCount past the cap.
@@ -535,6 +618,7 @@ test("listStaleDraftsForReminder picks up rows past the stale threshold", async 
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   // Stamp both `updatedAt` and `lastSeenAt` deep in the past so the
@@ -573,6 +657,7 @@ test("markReminderSent is idempotent on `next`", async () => {
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   const submissionId = await t.run(async (ctx) => {
@@ -623,6 +708,7 @@ test("listStaleDraftsForReminder excludes cancelled parent onboardings (P2 #15)"
       questionnaireVersion: 1,
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
     });
 
   // Cancel the parent onboarding + stamp the draft as stale.
