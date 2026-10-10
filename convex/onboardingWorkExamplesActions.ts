@@ -1,6 +1,6 @@
 "use node";
 
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 
 import {
@@ -165,17 +165,13 @@ export const getWorkExampleDownloadUrl = action({
 });
 
 /**
- * Greptile P1 follow-up: move the B2 HEAD check out of the
- * mutation and into this action. The mutation
- * `recordWorkExampleUpload` calls this action via
- * `ctx.runAction`, then re-checks the row ownership + status
- * inside the transaction and patches to `active` on success.
- * Putting the HEAD in an action keeps external IO out of the
- * mutation path, which is more reliable for retries and avoids
- * the `fetch` failure mode that would silently mark uploads
- * as incomplete.
+ * Greptile P1 follow-up (round 7): make this an
+ * `internalAction` so an arbitrary client can't probe B2 keys
+ * for existence. Previously a public action; now only callable
+ * from other Convex functions (the `recordWorkExampleUpload`
+ * action).
  */
-export const checkWorkExampleUploaded = action({
+export const checkWorkExampleUploaded = internalAction({
   args: {
     b2Key: v.string(),
   },

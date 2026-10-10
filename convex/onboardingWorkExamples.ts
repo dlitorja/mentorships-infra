@@ -1,6 +1,7 @@
 import {
   action,
   internalMutation,
+  internalQuery,
   mutation,
   query,
   QueryCtx,
@@ -119,15 +120,17 @@ async function requireAssignedStudentForUpload(
 
 /**
  * Greptile P1 follow-up: action-side auth gate for the record
- * flow. Mirrors `requireAssignedStudentForUpload` but as a
- * public `query` so an action can call it via `ctx.runQuery`.
- * Returns the onboarding doc (or `null` when unauthorized) so
- * the caller can decide whether to throw — the original
- * `require*` helper throws because mutations shouldn't leak
- * existence, but actions can return null and let the caller
- * decide.
+ * flow. Mirrors `requireAssignedStudentForUpload` but as an
+ * internal `query` so an action can call it via
+ * `ctx.runQuery(internal.X)`. Returns the onboarding doc (or
+ * `null` when unauthorized) so the caller can decide whether
+ * to throw — the original `require*` helper throws because
+ * mutations shouldn't leak existence, but actions can return
+ * null and let the caller decide. Internal because it exposes
+ * `assignedStudentClerkId` and the underlying onboarding
+ * status — Greptile round-7 P1.
  */
-export const requireAssignedStudentForUploadQuery = query({
+export const requireAssignedStudentForUploadQuery = internalQuery({
   args: { onboardingId: v.id("adminOnboardings") },
   returns: v.union(
     v.null(),
@@ -160,11 +163,13 @@ export const requireAssignedStudentForUploadQuery = query({
 });
 
 /**
- * Greptile P1 follow-up: read a work example by id (no auth
- * check — callers are responsible for ownership checks via
- * `requireAssignedStudentForUploadQuery`).
+ * Greptile P1 follow-up (round 7): make this an `internalQuery`
+ * so it can't be called directly from a client. The previous
+ * shape exposed `studentClerkId` + `b2Key` to anyone with a
+ * work-example ID, bypassing the auth checks in
+ * `listWorkExamples`.
  */
-export const getWorkExampleByIdInternal = query({
+export const getWorkExampleByIdInternal = internalQuery({
   args: { workExampleId: v.id("onboardingWorkExamples") },
   returns: v.union(
     v.null(),

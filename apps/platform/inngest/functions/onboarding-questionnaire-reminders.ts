@@ -111,9 +111,14 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
       process.env.ONBOARDING_REMINDER_MAX_COUNT ?? "3"
     );
 
-    let sent = 0;
+    // Greptile P1 follow-up (round 7): aggregate `sent` from the
+    // step's return values instead of mutating an outer-scope
+    // counter inside the callback. Inngest restores step results
+    // from their return values on resume — if `sent` lives
+    // outside, it's lost across resumes and we under-report.
+    const stepResults: Array<{ sent?: boolean }> = [];
     for (const draft of drafts) {
-      await step.run(`send:${draft.submissionId}`, async () => {
+      const result = await step.run(`send:${draft.submissionId}`, async () => {
         try {
           // Re-check inside the step so a beacon-then-submit that
           // landed between scan and send doesn't send a stale
@@ -143,7 +148,7 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             reminderNumber: next,
             maxReminders,
           });
-          const result = await sendEmail({
+          const sendResult = await sendEmail({
             to: draft.studentEmail,
             subject: email.subject,
             html: email.html,
@@ -151,12 +156,12 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             headers: email.headers,
             idempotencyKey: `onboarding-reminder:${draft.submissionId}:${next}`,
           });
-          if (!result.ok) {
+          if (!sendResult.ok) {
             const errMsg =
-              "error" in result && typeof result.error === "string"
-                ? result.error
-                : "skipped" in result
-                ? `skipped: ${result.reason}`
+              "error" in sendResult && typeof sendResult.error === "string"
+                ? sendResult.error
+                : "skipped" in sendResult
+                ? `skipped: ${sendResult.reason}`
                 : "sendEmail returned not-ok";
             reportError({
               source: "inngest:onboarding-questionnaire-reminders:send",
@@ -168,7 +173,6 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             return { skipped: true, reason: "send-failed" };
           }
           await markReminderSent(draft.submissionId, next);
-          sent += 1;
           return { sent: true };
         } catch (err) {
           reportError({
@@ -181,8 +185,10 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
           return { skipped: true, reason: "exception" };
         }
       });
+      stepResults.push(result);
     }
 
+    const sent = stepResults.filter((r) => r.sent).length;
     return { sent, considered: drafts.length };
   }
 );
