@@ -33,25 +33,40 @@ function unauthorizedResponse(): Response {
 }
 
 function verifyAuth(request: Request): boolean {
+  // Greptile round-27 P1 #11: in PRODUCTION, refuse every
+  // request when CONVEX_HTTP_KEY is missing or empty.
+  // The previous implementation computed
+  // `expected = "Bearer ${CONVEX_HTTP_KEY}"`, so when the
+  // env var was undefined, ANY caller sending the literal
+  // `Authorization: Bearer undefined` matched — leaking
+  // student data through the reminder scan / mark
+  // endpoints and letting attackers exhaust reminder
+  // counts without sending any email.
+  if (process.env.NODE_ENV === "production") {
+    if (!CONVEX_HTTP_KEY) return false;
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader) return false;
+    return authHeader === `Bearer ${CONVEX_HTTP_KEY}`;
+  }
+
   // Only skip auth for seed endpoint in development
   if (request.url.includes("/seed/")) {
-    const allowDevSeed = process.env.ALLOW_DEV_SEED === "true" && process.env.NODE_ENV !== "production";
+    const allowDevSeed = process.env.ALLOW_DEV_SEED === "true";
     if (!allowDevSeed) {
       console.warn("Seed endpoint access denied - set ALLOW_DEV_SEED=true in dev only");
       return false;
     }
     return true;
   }
-  
+
   // Skip auth in development mode if no key is configured
-  if (!CONVEX_HTTP_KEY && process.env.NODE_ENV !== "production") {
+  if (!CONVEX_HTTP_KEY) {
     return true;
   }
-  
+
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) return false;
-  const expected = `Bearer ${CONVEX_HTTP_KEY}`;
-  return authHeader === expected;
+  return authHeader === `Bearer ${CONVEX_HTTP_KEY}`;
 }
 
 /** Returns workspaces past the 18-month retention period that are pending deletion. */

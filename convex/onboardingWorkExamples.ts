@@ -298,13 +298,26 @@ export const reserveWorkExampleUpload = internalMutation({
     // slot a second time, and once 6 pending + active rows
     // accumulate the previous code returned a capacity error
     // even when the retry was just asking for the same row.
-    const existing = await ctx.db
+    // Greptile round-27 P1 #12: filter out deleted rows
+    // BEFORE .first() — the by_onboardingId_b2Key index
+    // doesn't include status, so the first match can be
+    // a deleted row whose entry still occupies the slot.
+    // Without this filter, deleting an image and re-uploading
+    // with the same fileId+fileName would insert a new live
+    // row while the deleted row stayed at the front of the
+    // index, so subsequent retries would keep inserting
+    // duplicates (one image counted several times toward
+    // the required count).
+    const candidates = await ctx.db
       .query("onboardingWorkExamples")
       .withIndex("by_onboardingId_b2Key", (q) =>
         q.eq("onboardingId", args.onboardingId).eq("b2Key", b2Key)
       )
-      .first();
-    if (existing && existing.status !== "deleted") {
+      .collect();
+    const existing = candidates.find(
+      (row) => row.status !== "deleted"
+    );
+    if (existing) {
       return {
         ok: true as const,
         workExampleId: existing._id,
