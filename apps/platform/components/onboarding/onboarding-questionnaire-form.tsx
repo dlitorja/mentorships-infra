@@ -119,13 +119,14 @@ export default function OnboardingQuestionnaireForm({
 
   // Auto-save (debounced) when answers or inspirations change.
   const lastSavePayload = useRef<string>("");
-  // Greptile round-21 P1 #2: the value the chain captured
-  // when this save was FIRED. Distinct from
-  // `pendingPayloadRef.current` (which holds whatever the
-  // user typed most recently) — using the latter in
-  // onSuccess could mark a payload as "saved" that we
-  // actually haven't sent yet.
-  const lastSentPayloadRef = useRef<string | null>(null);
+  // Greptile round-21 P1 #2 / round-27 P1 #9: onSuccess
+  // now uses the `sentPayload` returned from `mutationFn`
+  // (the exact answers+inspirations THIS request sent)
+  // rather than a separate `lastSentPayloadRef` that
+  // `fireNext` set before `await mutateAsync()`. The
+  // recovery re-fire path called `mutateAsync()` directly
+  // without going through `fireNext`, so the stale ref
+  // would mark the WRONG value as saved.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Greptile round-18 P1 #1: monotonic save counter sent to the
   // server with every save (autosave + tab-close flush). The
@@ -177,14 +178,31 @@ export default function OnboardingQuestionnaireForm({
           answerText: (a[q.id] ?? "").trim(),
         }))
         .filter((x) => x.answerText.length > 0);
+      const trimmedInspirations = i.filter(
+        (x) => x.name.trim().length > 0
+      );
       // Increment on every fire; the server uses this as a
-      // strict-greater-than guard. Combine the per-tab prefix
-      // with the per-tab monotonic counter so two open tabs
-      // never share a save id.
+      // strict-greater-than guard. Each save sends a unique
+      // monotonic id so out-of-order requests can't overwrite
+      // newer ones.
       clientSaveIdCounter.current += 1;
-      
-      const clientSaveId =
-        clientSaveIdCounter.current;
+      const clientSaveId = clientSaveIdCounter.current;
+      // Greptile round-27 P1 #9: capture the exact payload
+      // THIS save is sending so onSuccess can mark THIS
+      // value as saved. The previous scheme captured the
+      // payload in `lastSentPayloadRef` from `fireNext`, but
+      // the recovery re-fire path (round-20) calls
+      // `mutateAsync()` directly without going through
+      // `fireNext`, so `lastSentPayloadRef` was stale —
+      // pointing at the REJECTED payload, not what
+      // recovery actually sent. onSuccess then marked the
+      // wrong value as saved, and a re-typed-to-original
+      // match would short-circuit a save the recovery
+      // data needed.
+      const sentPayload = JSON.stringify({
+        answers: a,
+        inspirations: i,
+      });
       return apiFetch<{
         submission: Submission & { storedClientSaveId?: number };
       }>(
@@ -193,13 +211,14 @@ export default function OnboardingQuestionnaireForm({
           method: "PATCH",
           body: JSON.stringify({
             answers: trimmedAnswers,
-            inspirations: i.filter((x) => x.name.trim().length > 0),
+            inspirations: trimmedInspirations,
             clientSaveId,
           }),
         }
-      );
+      ).then((response) => ({ response, sentPayload }));
     },
-    onSuccess: ({ submission: next }) => {
+    onSuccess: ({ response, sentPayload }) => {
+      const next = response.submission;
       // Greptile round-16 P1 #1: a draft save that landed
       // BEFORE the submit but whose response arrived AFTER
       // it would have set submission back to "draft",
@@ -210,8 +229,7 @@ export default function OnboardingQuestionnaireForm({
       if (alreadySubmitted) {
         // Still mark the payload as saved so subsequent
         // renders don't replay the save.
-        lastSavePayload.current =
-          lastSentPayloadRef.current ?? lastSavePayload.current;
+        lastSavePayload.current = sentPayload;
         return;
       }
       setSubmission(next);
@@ -274,9 +292,13 @@ export default function OnboardingQuestionnaireForm({
       // saved" for answers that never landed on the server.
       // Only mark saved when the server actually accepted
       // this write.
+      // Greptile round-27 P1 #9: use `sentPayload` returned
+      // from `mutationFn` (not the stale
+      // `lastSentPayloadRef`) so the recovery re-fire path
+      // — which calls `mutateAsync()` directly — marks
+      // EXACTLY what the recovery sent as saved.
       if (accepted === true) {
-        lastSavePayload.current =
-          lastSentPayloadRef.current ?? lastSavePayload.current;
+        lastSavePayload.current = sentPayload;
       }
     },
     onError: (err) => {
@@ -340,12 +362,6 @@ export default function OnboardingQuestionnaireForm({
       const next = pendingPayloadRef.current;
       pendingPayloadRef.current = null;
       if (next == null) return;
-      // Greptile round-21 P1 #2: capture the payload the
-      // chain is about to send so onSuccess can mark THIS
-      // value as saved (not whatever the user typed most
-      // recently, which may already be a newer pending
-      // payload).
-      lastSentPayloadRef.current = next;
       try {
         await mutateAsync();
       } catch {

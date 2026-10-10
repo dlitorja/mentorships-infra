@@ -283,20 +283,6 @@ export const reserveWorkExampleUpload = internalMutation({
   handler: async (ctx, args) => {
     const row = await requireAssignedStudentForUpload(ctx, args.onboardingId);
 
-    const activeCount = await countActiveWorkExamples(ctx, args.onboardingId);
-    const pendingCount = await ctx.db
-      .query("onboardingWorkExamples")
-      .withIndex("by_onboardingId_active", (q) =>
-        q.eq("onboardingId", args.onboardingId).eq("status", "pending")
-      )
-      .collect();
-    if (activeCount + pendingCount.length >= MAX_WORK_EXAMPLES_PER_ONBOARDING) {
-      return {
-        ok: false as const,
-        reason: `At most ${MAX_WORK_EXAMPLES_PER_ONBOARDING} work examples per onboarding (you have ${activeCount} active + ${pendingCount.length} pending).`,
-      };
-    }
-
     const safeName = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
     const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safeName}`;
 
@@ -306,8 +292,12 @@ export const reserveWorkExampleUpload = internalMutation({
     // they get the same b2Key, and without this check we'd
     // insert N rows that all reference one object — letting a
     // single uploaded image count as N required work examples.
-    // A deleted row frees the slot; a pending or active row
-    // returns its existing id (idempotent retry).
+    // Greptile round-27 P2 #3: run this lookup BEFORE the
+    // capacity check. An idempotent retry (same b2Key as an
+    // already-pending row) should not consume a capacity
+    // slot a second time, and once 6 pending + active rows
+    // accumulate the previous code returned a capacity error
+    // even when the retry was just asking for the same row.
     const existing = await ctx.db
       .query("onboardingWorkExamples")
       .withIndex("by_onboardingId_b2Key", (q) =>
@@ -319,6 +309,20 @@ export const reserveWorkExampleUpload = internalMutation({
         ok: true as const,
         workExampleId: existing._id,
         b2Key,
+      };
+    }
+
+    const activeCount = await countActiveWorkExamples(ctx, args.onboardingId);
+    const pendingCount = await ctx.db
+      .query("onboardingWorkExamples")
+      .withIndex("by_onboardingId_active", (q) =>
+        q.eq("onboardingId", args.onboardingId).eq("status", "pending")
+      )
+      .collect();
+    if (activeCount + pendingCount.length >= MAX_WORK_EXAMPLES_PER_ONBOARDING) {
+      return {
+        ok: false as const,
+        reason: `At most ${MAX_WORK_EXAMPLES_PER_ONBOARDING} work examples per onboarding (you have ${activeCount} active + ${pendingCount.length} pending).`,
       };
     }
 

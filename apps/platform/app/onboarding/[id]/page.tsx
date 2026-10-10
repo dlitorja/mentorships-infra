@@ -283,9 +283,11 @@ const submittedWorkExamples = (
             <CardContent>
               <Button asChild>
                 <Link href={`/onboarding/${onboarding._id}/questionnaire`}>
-                  {myDraft && myDraft.status === "draft"
-                    ? "Continue questionnaire"
-                    : "Start questionnaire"}
+                  {myDraft?.status === "submitted"
+                    ? "View questionnaire"
+                    : myDraft?.status === "draft"
+                      ? "Continue questionnaire"
+                      : "Start questionnaire"}
                 </Link>
               </Button>
             </CardContent>
