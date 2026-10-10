@@ -24,11 +24,24 @@ export const dynamic = "force-dynamic";
  * `app/sign-up-redirect/page.tsx` but on the server side, which keeps
  * the redirect fast (no client-side Convex mount required).
  */
-async function resolveRedirect(): Promise<never> {
+async function resolveRedirect({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<never> {
   const { userId, sessionClaims } = await auth();
+  const requested = await resolveRequestedRedirect(searchParams);
 
   if (!userId) {
-    redirect("/sign-in");
+    // Preserve the requested destination through sign-in so
+    // the post-auth redirect lands the user on the page they
+    // asked for (used by reminder emails linking back to a
+    // specific draft).
+    redirect(
+      requested
+        ? `/sign-in?redirect_url=${encodeURIComponent(requested)}`
+        : "/sign-in"
+    );
   }
 
   // Fast path: prefer role from session claims to avoid Clerk API latency
@@ -60,10 +73,15 @@ async function resolveRedirect(): Promise<never> {
     redirect("/instructor/dashboard");
   }
 
-  // Student path: check for an active onboarding before falling through
-  // to /dashboard. The query is auth-gated server-side and uses the
-  // `by_assignedStudentClerkId_createdAt` index — bounded lookup so
-  // this stays cheap.
+  // Student path: respect the requested redirect (set by
+  // reminder emails) if it's an internal onboarding URL,
+  // otherwise check for an active onboarding before falling
+  // through to /dashboard. The query is auth-gated server-
+  // side and uses the `by_assignedStudentClerkId_createdAt`
+  // index — bounded lookup so this stays cheap.
+  if (requested) {
+    redirect(requested);
+  }
   const token = await getConvexAuthToken();
   const onboardingId = await fetchQuery(
     api.adminOnboarding.getIncompleteOnboardingForCurrentUser,
@@ -79,7 +97,20 @@ async function resolveRedirect(): Promise<never> {
   redirect("/dashboard");
 }
 
-export default function AuthRedirectPage(): React.JSX.Element {
+async function ResolveAndRedirect({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<React.JSX.Element> {
+  await resolveRedirect({ searchParams });
+  return <></>;
+}
+
+export default function AuthRedirectPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}): React.JSX.Element {
   return (
     <Suspense
       fallback={
@@ -88,12 +119,41 @@ export default function AuthRedirectPage(): React.JSX.Element {
         </div>
       }
     >
-      <ResolveAndRedirect />
+      <ResolveAndRedirect searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function ResolveAndRedirect(): Promise<React.JSX.Element> {
-  await resolveRedirect();
-  return <></>;
+/**
+ * Greptile round-23 P2 #1: reminder emails link to
+ * `/sign-in?redirect_url=/onboarding/<id>/questionnaire`.
+ * After sign-in Clerk redirects to `/auth-redirect`, which
+ * used to ignore the requested URL and pick the newest
+ * incomplete onboarding. The student landed on a different
+ * draft (or a status page) than the one named in the email.
+ *
+ * Fix: read `redirect_url` from the search params and, if
+ * it's an internal onboarding path, use it instead of the
+ * role-driven default. Whitelist the prefix so a forged
+ * query can't redirect off-site.
+ */
+async function resolveRequestedRedirect(
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+): Promise<string | null> {
+  if (!searchParams) return null;
+  const params = await searchParams.catch(
+    () => ({}) as Record<string, string | string[] | undefined>
+  );
+  const raw = params.redirect_url;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string" || !value.startsWith("/")) return null;
+  // Whitelist internal onboarding paths so a forged query
+  // can't redirect off-site.
+  if (
+    value.startsWith("/onboarding/") &&
+    !value.startsWith("/onboarding/../")
+  ) {
+    return value;
+  }
+  return null;
 }

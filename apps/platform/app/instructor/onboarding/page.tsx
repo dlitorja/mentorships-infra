@@ -91,6 +91,56 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     { token }
   );
 
+  // PR 4b (Greptile P1 follow-up): list adminOnboardings assigned
+  // to this instructor that have a submitted questionnaire, with a
+  // deep link to /onboarding/[id]. The instructor onboarding page
+  // historically only knew about the legacy `studentOnboarding`
+  // row; the new questionnaire is keyed on `adminOnboardings` so
+  // a link from here gives instructors a discoverable entry point.
+  // Greptile round 4 P1: the query only paginates one page per call
+  // (Convex rule), so the page server component loops with the
+  // returned cursor until `isDone` or the list fills up.
+  const submittedQuestionnaires: Array<{
+    onboardingId: Id<"adminOnboardings">;
+    studentEmail: string;
+    submittedAt: number;
+    instructorCount: number;
+  }> = [];
+  try {
+    let cursor: string | null = null;
+    // Greptile P1 follow-up: cap at 100 rows total to keep the
+    // page render bounded; walk as many pages as needed to fill
+    // it. Each call returns up to LIST_SCAN_LIMIT (200)
+    // onboardings, of which most are filtered out by the
+    // submitted-questionnaire predicate. 5 pages × 200 = 1000
+    // onboardings scanned max — comfortably covers PR 4b scale.
+    const ROW_CAP = 100;
+    const PAGE_CAP = 5;
+    for (let i = 0; i < PAGE_CAP && submittedQuestionnaires.length < ROW_CAP; i += 1) {
+      const page = (await fetchQuery(
+        (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+        { cursor },
+        { token }
+      )) as {
+        rows: typeof submittedQuestionnaires;
+        nextCursor: string | null;
+        isDone: boolean;
+      };
+      submittedQuestionnaires.push(...page.rows);
+      if (page.isDone) break;
+      cursor = page.nextCursor;
+    }
+    // Trim to the cap after pagination, newest first (the query
+    // already sorts).
+    if (submittedQuestionnaires.length > ROW_CAP) {
+      submittedQuestionnaires.length = ROW_CAP;
+    }
+  } catch {
+    // Swallow — the instructor page degrades gracefully if the
+    // new query isn't available yet (e.g. an older Convex
+    // deployment hasn't picked up codegen).
+  }
+
   const selected =
     (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
 
@@ -255,6 +305,41 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Greptile round-13 P1 #2: the new-questionnaires card
+            was inside the legacy submissions branch, so an
+            instructor with only NEW submissions saw the empty
+            state. Render it as a sibling so it shows whenever
+            submittedQuestionnaires has rows. */}
+        {submittedQuestionnaires.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Student questionnaires</CardTitle>
+              <CardDescription>
+                New intake form responses for assigned students.
+                Click through to read goals, inspirations, and
+                work examples before the first call.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {submittedQuestionnaires.map((q) => (
+                <Link
+                  key={q.onboardingId}
+                  href={`/onboarding/${q.onboardingId}`}
+                  className="block rounded-md border p-3 hover:bg-muted"
+                >
+                  <div className="text-sm font-medium">{q.studentEmail}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Submitted{" "}
+                    {new Date(q.submittedAt).toLocaleString()} ·{" "}
+                    {q.instructorCount} instructor
+                    {q.instructorCount === 1 ? "" : "s"}
+                  </div>
+                </Link>
+              ))}
+            </CardContent>
+          </Card>
         )}
       </div>
     </ProtectedLayout>

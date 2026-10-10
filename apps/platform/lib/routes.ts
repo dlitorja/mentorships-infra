@@ -152,4 +152,20 @@ export const ApiRoutes = {
 
   // Admin upload
   adminUpload: "/api/admin/upload",
+
+  // PR 12 PR 4b — onboarding questionnaire + work examples
+  onboardingQuestionnaire: (id: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/questionnaire`,
+  onboardingQuestionnaireSubmit: (id: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/questionnaire/submit`,
+  onboardingWorkExamples: (id: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/work-examples`,
+  onboardingWorkExampleUploadUrl: (id: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/work-examples/upload-url`,
+  onboardingWorkExample: (id: string, exampleId: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/work-examples/${encodeURIComponent(exampleId)}`,
+  onboardingWorkExampleDownloadUrl: (id: string, exampleId: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/work-examples/${encodeURIComponent(exampleId)}/download-url`,
+  onboardingAbandoned: (id: string) =>
+    `/api/onboarding/${encodeURIComponent(id)}/abandoned`,
 } as const;

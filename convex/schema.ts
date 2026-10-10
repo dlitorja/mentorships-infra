@@ -1650,10 +1650,24 @@ export default defineSchema({
     lastSeenAt: v.optional(v.number()),
     lastReminderSentAt: v.optional(v.number()),
     reminderCount: v.optional(v.number()),
+    // Greptile round-18 P1 #1: server-side save-ordering
+    // counter. Each save (autosave + tab-close flush) sends a
+    // monotonic `clientSaveId`; the server keeps the latest
+    // value and rejects incoming writes whose `clientSaveId`
+    // is not strictly greater. Prevents an older autosave from
+    // overwriting a newer tab-close flush when requests
+    // arrive out of order.
+    lastClientSaveId: v.optional(v.number()),
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
-    .index("by_studentClerkId", ["studentClerkId"]),
+    .index("by_studentClerkId", ["studentClerkId"])
+    // Greptile round-15 P1 #2: query submitted questionnaires
+    // newest-first by submittedAt so the instructor page sees
+    // recent submissions even when older records exist. Combined
+    // with the cursor-paginated call site, the instructor can
+    // keep paging until they've seen everything.
+    .index("by_status_submittedAt", ["status", "submittedAt"]),
 
   // PR 12 PR 4: work-example image uploads for the questionnaire.
   // Backs onto B2 with a dedicated `onboarding/<onboardingId>/`
@@ -1679,5 +1693,12 @@ export default defineSchema({
     fileId: v.string(),
   })
     .index("by_onboardingId", ["onboardingId"])
-    .index("by_onboardingId_active", ["onboardingId", "status"]),
+    .index("by_onboardingId_active", ["onboardingId", "status"])
+    // Greptile round-13 P1 #4: a caller can re-use the same
+    // (fileId, fileName) and receive multiple reservations for
+    // the same b2Key, which lets a single uploaded object count
+    // as N required work examples. Reuse existing pending/active
+    // reservations by b2Key for the same onboarding so retries
+    // collapse to one row.
+    .index("by_onboardingId_b2Key", ["onboardingId", "b2Key"]),
 });

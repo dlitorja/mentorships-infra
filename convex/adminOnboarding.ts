@@ -817,6 +817,17 @@ export const cancelAdminOnboarding = mutation({
       metadata: { previousStatus, email: row.email },
     });
 
+    // Greptile round-14 P1: cancelling an onboarding left the
+    // student's pending and active work-example rows in place.
+    // resolveDownloadAccess would still accept those rows and
+    // mint download URLs. Soft-delete them now so the orphan
+    // rows stop resolving; B2 object cleanup is a separate
+    // (P2) follow-up.
+    await ctx.runMutation(
+      (internal as any).onboardingWorkExamples.purgeWorkExamplesForOnboarding,
+      { onboardingId: args.onboardingId }
+    );
+
     return { onboardingId: args.onboardingId, status: "cancelled" as const };
   },
 });
@@ -1896,6 +1907,21 @@ export const getIncompleteOnboardingForCurrentUser = query({
 
     for (const row of rows) {
       if (row.status === "cancelled") continue;
+      // PR 12 PR 4b: skip rows whose questionnaire is already
+      // submitted, so a student who finished the questionnaire
+      // doesn't keep getting routed to `/onboarding/[id]`. The
+      // provisioning worker may still be running (adminOnboardings
+      // status remains `queued` until workspaces are built), but
+      // the questionnaire is the user-facing work the student
+      // cares about; once it's submitted they should fall through
+      // to the dashboard or wherever the next affordance lives.
+      const sub = await ctx.db
+        .query("onboardingQuestionnaireSubmissions")
+        .withIndex("by_onboardingId", (q) =>
+          q.eq("onboardingId", row._id)
+        )
+        .first();
+      if (sub && sub.status === "submitted") continue;
       return row._id;
     }
     return null;

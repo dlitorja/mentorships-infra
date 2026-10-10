@@ -18,6 +18,12 @@ import { Button } from "@/components/ui/button";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
+// ApiRoutes is intentionally not used in this server component
+// (the WorkExampleThumb now goes through `convex.action()`); keep
+// the import path here as a placeholder for future client-side
+// fallbacks.
+import * as _ApiRoutesUnused from "@/lib/routes";
+void _ApiRoutesUnused;
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -75,6 +81,43 @@ export default async function OnboardingStatusPage({
   const isStudent = viewerRole === "student";
   const showHelpFooter = timelineOlderCount > 0;
 
+  // PR 12 PR 4b — questionnaire state. For students, fetch their
+  // draft so we can show a "Continue" CTA. For instructor/admin,
+  // fetch the submitted row (if any) so we can render the answers.
+  const myDraft = isStudent
+    ? await fetchQuery(
+        (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => null)
+    : null;
+  const submittedForViewer = !isStudent
+    ? await fetchQuery(
+        (api as any).onboardingQuestionnaire.getSubmittedQuestionnaireForViewer,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => null)
+    : null;
+  const submittedWorkExamplesRaw = !isStudent
+    ? await fetchQuery(
+        (api as any).onboardingWorkExamples.listWorkExamples,
+        { onboardingId: id },
+        { token: token ?? undefined }
+      ).catch(() => [])
+    : [];
+// Greptile round-24 P2 #1: listWorkExamples returns pending
+// uploads too (so the student sees their in-flight uploads),
+// but the instructor gallery should only show finished
+// (active) work. Pending rows don't have a valid B2 object
+// yet and would render as broken "(image)" placeholders.
+const submittedWorkExamples = (
+  submittedWorkExamplesRaw as Array<{
+    _id: string;
+    fileName: string;
+    status: string;
+  }>
+).filter((w) => w.status === "active");
+
   return (
     <ProtectedLayout currentPath="/onboarding">
       <div className="container mx-auto py-8 space-y-8">
@@ -99,7 +142,14 @@ export default async function OnboardingStatusPage({
           </p>
         </header>
 
-        <OnboardingStepper status={onboarding.status} />
+        <OnboardingStepper
+          status={onboarding.status}
+          questionnaireSubmitted={
+            isStudent
+              ? myDraft?.status === "submitted"
+              : submittedForViewer != null
+          }
+        />
 
         {onboarding.status === "failed" && onboarding.failureReason && (
           <Card className="border-destructive/40 bg-destructive/5">
@@ -216,6 +266,101 @@ export default async function OnboardingStatusPage({
         )}
 
         {isStudent && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {myDraft && myDraft.status === "draft"
+                  ? "Almost there — finish your questionnaire"
+                  : "Tell your instructor about you"}
+              </CardTitle>
+              <CardDescription>
+                Your instructor reads these answers before your first call so
+                they can prepare a session that&apos;s useful for you.
+                {myDraft && myDraft.status === "draft" &&
+                  " Auto-save keeps your draft; come back any time."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link href={`/onboarding/${onboarding._id}/questionnaire`}>
+                  {myDraft?.status === "submitted"
+                    ? "View questionnaire"
+                    : myDraft?.status === "draft"
+                      ? "Continue questionnaire"
+                      : "Start questionnaire"}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isStudent && submittedForViewer && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Student questionnaire</CardTitle>
+              <CardDescription>
+                {/* Greptile P1 #6: answers + inspirations live under
+                   `submittedForViewer.submission`, not on the outer
+                   object. */}
+                Submitted {formatDateTime(submittedForViewer.submission?.submittedAt)}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                {(submittedForViewer.submission?.answers ?? []).map(
+                  (a: {
+                    questionId: string;
+                    questionText?: string;
+                    answerText: string;
+                  }) => (
+                    <div key={a.questionId} className="space-y-1">
+                      <p className="text-sm font-medium">
+                        {a.questionText ?? questionLabel(a.questionId)}
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                        {a.answerText || <em>No answer</em>}
+                      </p>
+                    </div>
+                  )
+                )}
+              </div>
+              <div>
+                <p className="mb-2 text-sm font-medium">Inspirations</p>
+                <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                  {(submittedForViewer.submission?.inspirations ?? []).map(
+                    (i: { name: string }, idx: number) => (
+                      <li key={idx}>{i.name}</li>
+                    )
+                  )}
+                </ul>
+              </div>
+              {/* Greptile P1 #7: render the uploaded images here so
+                 instructors can actually review the work before the
+                 first call. Each <img> fetches a fresh signed GET
+                 URL (1h TTL) from the work-examples download-url
+                 API route, which re-checks the viewer's auth gate. */}
+              {Array.isArray(submittedWorkExamples) && submittedWorkExamples.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    Work examples ({submittedWorkExamples.length})
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {submittedWorkExamples.map((w: { _id: string; fileName: string }) => (
+                      <WorkExampleThumb
+                        key={w._id}
+                        onboardingId={onboarding._id}
+                        exampleId={w._id}
+                        fileName={w.fileName}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isStudent && (
           <p className="text-center text-xs text-muted-foreground">
             Signed in as a student.{" "}
             <Link href="/dashboard" className="underline">
@@ -225,5 +370,95 @@ export default async function OnboardingStatusPage({
         )}
       </div>
     </ProtectedLayout>
+  );
+}
+
+function questionLabel(id: string): string {
+  switch (id) {
+    case "how_did_you_hear":
+      return "How did you learn about this mentorship?";
+    case "goals":
+      return "Goals";
+    case "inspirations":
+      return "Inspirations";
+    default:
+      return id;
+  }
+}
+
+/**
+ * Greptile P1 #7 helper: each thumbnail mints its own short-lived
+ * signed GET URL on render (server component). The URL TTL is 1h and
+ * the download-url API route re-checks the viewer is authorized
+ * (student / matching instructor / admin / support).
+ */
+async function WorkExampleThumb({
+  onboardingId,
+  exampleId,
+  fileName,
+}: {
+  onboardingId: string;
+  exampleId: string;
+  fileName: string;
+}): Promise<React.JSX.Element> {
+  // Greptile round-19 P1 #1: this server component was
+  // calling `fetchQuery` on an action (wrong API) and then
+  // falling back to a fetch() call that forwarded a Convex
+  // JWT as a bearer token to a Clerk-protected route. The
+  // route's `auth()` reads Clerk cookies, so the bearer was
+  // ignored and the call 401'd, showing "(image)" instead of
+  // the artwork.
+  //
+  // Fix: use the Convex HTTP client directly. It carries the
+  // Convex JWT (which the action's auth layer recognises) and
+  // supports actions via `client.action()`. The
+  // `getWorkExampleDownloadUrl` action is the same one the
+  // `/api/.../download-url` route uses, so the auth gate and
+  // presigned-URL mint logic are unchanged.
+  let url: string | null = null;
+  try {
+    const { getAuthenticatedConvexClient } = await import(
+      "@/lib/convex"
+    );
+    const convex = await getAuthenticatedConvexClient();
+    const workExample = await convex.query(
+      (api as any).onboardingWorkExamples.getWorkExampleByIdForViewer,
+      {
+        onboardingId: onboardingId as Id<"adminOnboardings">,
+        workExampleId: exampleId as Id<"onboardingWorkExamples">,
+      }
+    );
+    if (!workExample) {
+      throw new Error("Work example not found");
+    }
+    const { url: signedUrl } = await convex.action(
+      (api as any).onboardingWorkExamplesActions.getWorkExampleDownloadUrl,
+      {
+        onboardingId: onboardingId as Id<"adminOnboardings">,
+        b2Key: (workExample as { b2Key: string }).b2Key,
+      }
+    );
+    url = signedUrl;
+  } catch {
+    url = null;
+  }
+  return (
+    <div className="relative aspect-square overflow-hidden rounded-md border bg-muted">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={fileName}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+          (image)
+        </div>
+      )}
+      <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
+        <span className="line-clamp-1">{fileName}</span>
+      </div>
+    </div>
   );
 }

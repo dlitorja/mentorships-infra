@@ -1,0 +1,1081 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
+import { Loader2, Trash2, Upload, Image as ImageIcon, CheckCircle2, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { apiFetch } from "@/lib/queries/api-client";
+import { ApiRoutes } from "@/lib/routes";
+import {
+  ONBOARDING_AUTOSAVE_DEBOUNCE_MS,
+  MAX_WORK_EXAMPLE_BYTES,
+  MAX_WORK_EXAMPLES_PER_ONBOARDING,
+  MIN_WORK_EXAMPLES_PER_SUBMISSION,
+  MIN_INSPIRATIONS,
+  MAX_INSPIRATIONS,
+  ONBOARDING_REQUIRED_QUESTION_IDS,
+  WORK_EXAMPLE_ALLOWED_MIME,
+} from "@/lib/workspace-constants";
+import {
+  ONBOARDING_QUESTIONS,
+  type OnboardingInspirationsQuestion,
+  type OnboardingTextareaQuestion,
+} from "@/lib/onboarding-questions";
+
+type WorkExample = {
+  _id: string;
+  status: "pending" | "active" | "deleted";
+  fileName: string;
+  contentType: string;
+  b2Key: string;
+  fileId: string;
+  uploadedAt: number;
+  size: number;
+};
+
+type Submission = {
+  _id: string;
+  onboardingId: string;
+  status: "draft" | "submitted";
+  version: number;
+  answers: { questionId: string; answerText: string }[];
+  inspirations: { name: string }[];
+  lastSeenAt: number | undefined;
+  reminderCount: number;
+  lastReminderSentAt: number | undefined;
+  submittedAt: number | undefined;
+  // Greptile round-19 P1: server-stored save counter so the
+  // client can seed its monotonic counter on subsequent
+  // visits. Without this, a returning student restarts at 0
+  // and the server drops every save.
+  lastClientSaveId: number | undefined;
+};
+
+type InitialState = {
+  submission: Submission | null;
+  workExamples: WorkExample[];
+};
+
+const WORK_EXAMPLE_ALLOWED_MIME_LIST = WORK_EXAMPLE_ALLOWED_MIME as readonly string[];
+
+const inspirationsQuestion: OnboardingInspirationsQuestion = ONBOARDING_QUESTIONS.find(
+  (q): q is OnboardingInspirationsQuestion => q.type === "inspirations"
+)!;
+const textareaQuestions: OnboardingTextareaQuestion[] = ONBOARDING_QUESTIONS.filter(
+  (q): q is OnboardingTextareaQuestion => q.type === "textarea"
+);
+
+/**
+ * Student-facing onboarding questionnaire form.
+ *
+ * Renders three textarea questions plus an inspirations array (3–4
+ * entries) plus a work-example image grid (4–6 active uploads). Auto-
+ * saves the text fields + inspirations on a debounce; image uploads
+ * commit immediately per file. Submission requires all required
+ * question IDs to have a non-empty answer, the inspirations count to
+ * be at least MIN_INSPIRATIONS, and at least
+ * MIN_WORK_EXAMPLES_PER_SUBMISSION active work examples. The server
+ * `submitQuestionnaire` re-checks the same conditions authoritatively.
+ *
+ * Sends a `sendBeacon` to `/api/onboarding/[id]/abandoned` on
+ * `beforeunload` so the abandonment reminder cron has an accurate
+ * `lastSeenAt` to compare against.
+ */
+export default function OnboardingQuestionnaireForm({
+  onboardingId,
+  initial,
+}: {
+  onboardingId: string;
+  initial: InitialState;
+}): React.JSX.Element {
+  const router = useRouter();
+  const [submission, setSubmission] = useState<Submission | null>(initial.submission);
+  // Greptile P1 #9: listWorkExamples now returns status + fileName
+  // for every non-deleted row, so a pending-but-still-saved row
+  // survives a reload and renders in the grid.
+  const [workExamples, setWorkExamples] = useState<WorkExample[]>(
+    initial.workExamples.filter((w) => w.status !== "deleted")
+  );
+  const [answers, setAnswers] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const a of initial.submission?.answers ?? []) m[a.questionId] = a.answerText;
+    return m;
+  });
+  const [inspirations, setInspirations] = useState<{ name: string }[]>(
+    initial.submission?.inspirations?.length
+      ? initial.submission.inspirations
+      : Array.from({ length: MIN_INSPIRATIONS }, () => ({ name: "" }))
+  );
+
+  const alreadySubmitted = submission?.status === "submitted";
+
+  // Auto-save (debounced) when answers or inspirations change.
+  const lastSavePayload = useRef<string>("");
+  // Greptile round-21 P1 #2 / round-27 P1 #9: onSuccess
+  // now uses the `sentPayload` returned from `mutationFn`
+  // (the exact answers+inspirations THIS request sent)
+  // rather than a separate `lastSentPayloadRef` that
+  // `fireNext` set before `await mutateAsync()`. The
+  // recovery re-fire path called `mutateAsync()` directly
+  // without going through `fireNext`, so the stale ref
+  // would mark the WRONG value as saved.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Greptile round-18 P1 #1: monotonic save counter sent to the
+  // server with every save (autosave + tab-close flush). The
+  // server stores the latest accepted value and rejects writes
+  // whose `clientSaveId <= stored`, so an older autosave in
+  // flight can never overwrite a newer tab-close flush even
+  // when requests arrive out of order at the backend.
+  // Greptile round-19 P1: seed the counter from the
+  // server-stored value on mount so a returning student
+  // doesn't restart at 0 (which would cause the server to
+  // drop every save until the counter catches up).
+  // Greptile round-20 P1 #2: namespace the counter per-tab so
+  // two open tabs don't collide. Each tab gets a random
+  // prefix stored in sessionStorage on mount and prepends it
+  // to every save; the server still uses a single global
+  // "highest seen" guard, so whichever tab fires last wins.
+  // Greptile round-21 P1 #1: prefix * 1e9 overflowed JS safe
+  // integer (2^53) so prefixes ~5e8 collapsed counters. New
+  // scheme: prefix in [1, 9_999_999], counter in [1, 999_999].
+  // Greptile round-27 P1 #1: a fresh tab gets a random
+  // prefix; if its prefix is LOWER than the prefix used by
+  // the previous visit (different random draw), the very
+  // first save lands below the stored value. The server
+  // rejects it; recovery only runs in the PATCH path, so
+  // the beacon/cleanup paths lose edits on close.
+  //
+  // Fix: drop the per-tab prefix entirely. Use a single
+  // GLOBAL monotonic counter seeded from stored + 1. Two
+  // open tabs increment the same counter (one per tab in
+  // memory); saves collide on equal ids, the server's
+  // `accepted: false` reply triggers the existing recovery
+  // path which bumps the counter to stored + 1 and retries.
+  // No integer-overflow risk (single counter, ~1e9 saves
+  // per session is well under 2^53).
+  const initialCounter =
+    (initial.submission?.lastClientSaveId ?? 0) + 1;
+  const clientSaveIdCounter = useRef(initialCounter);
+  // Greptile round-20 P1 #2: avoid an infinite retry loop if
+  // a third tab keeps beating us — only attempt the catch-up
+  // re-fire once per save.
+  const recoveryInFlight = useRef(false);
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const a = answersRef.current;
+      const i = inspirationsRef.current;
+      const trimmedAnswers = textareaQuestions
+        .map((q) => ({
+          questionId: q.id,
+          answerText: (a[q.id] ?? "").trim(),
+        }))
+        .filter((x) => x.answerText.length > 0);
+      const trimmedInspirations = i.filter(
+        (x) => x.name.trim().length > 0
+      );
+      // Increment on every fire; the server uses this as a
+      // strict-greater-than guard. Each save sends a unique
+      // monotonic id so out-of-order requests can't overwrite
+      // newer ones.
+      clientSaveIdCounter.current += 1;
+      const clientSaveId = clientSaveIdCounter.current;
+      // Greptile round-27 P1 #9: capture the exact payload
+      // THIS save is sending so onSuccess can mark THIS
+      // value as saved. The previous scheme captured the
+      // payload in `lastSentPayloadRef` from `fireNext`, but
+      // the recovery re-fire path (round-20) calls
+      // `mutateAsync()` directly without going through
+      // `fireNext`, so `lastSentPayloadRef` was stale —
+      // pointing at the REJECTED payload, not what
+      // recovery actually sent. onSuccess then marked the
+      // wrong value as saved, and a re-typed-to-original
+      // match would short-circuit a save the recovery
+      // data needed.
+      const sentPayload = JSON.stringify({
+        answers: a,
+        inspirations: i,
+      });
+      return apiFetch<{
+        submission: Submission & { storedClientSaveId?: number };
+      }>(
+        ApiRoutes.onboardingQuestionnaire(onboardingId),
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            answers: trimmedAnswers,
+            inspirations: trimmedInspirations,
+            clientSaveId,
+          }),
+        }
+      ).then((response) => ({ response, sentPayload }));
+    },
+    onSuccess: ({ response, sentPayload }) => {
+      const next = response.submission;
+      // Greptile round-16 P1 #1: a draft save that landed
+      // BEFORE the submit but whose response arrived AFTER
+      // it would have set submission back to "draft",
+      // re-opening a form the server has locked. If we've
+      // already submitted, the server's response here just
+      // confirms the same row in its prior state — drop it
+      // so the local state stays "submitted".
+      if (alreadySubmitted) {
+        // Still mark the payload as saved so subsequent
+        // renders don't replay the save.
+        lastSavePayload.current = sentPayload;
+        return;
+      }
+      setSubmission(next);
+      // Greptile round-20 P1 #2: detect a stale save that
+      // the server dropped because another tab won the race.
+      // Greptile round-25 P2: the server returns an explicit
+      // `accepted: boolean` flag rather than inferring from
+      // id equality. Inferring from `stored === sent` would
+      // retry every successful save (the server stamps the
+      // same id on accept). Only re-fire when the server
+      // explicitly says it dropped the write.
+      const accepted = (next as { accepted?: boolean }).accepted;
+      const stored = (next as { storedClientSaveId?: number })
+        .storedClientSaveId;
+      const sentId = clientSaveIdCounter.current;
+      if (
+        accepted === false &&
+        typeof stored === "number" &&
+        stored >= sentId &&
+        !recoveryInFlight.current
+      ) {
+        if (stored >= clientSaveIdCounter.current) {
+          clientSaveIdCounter.current = stored + 1;
+        }
+        // Re-fire through the same chain so the latest
+        // answers reach the server. Single attempt — if a
+        // third tab keeps beating us, the next debounced
+        // autosave will catch up.
+        recoveryInFlight.current = true;
+        saveChainRef.current = saveChainRef.current
+          .then(async () => {
+            try {
+              await mutateAsync();
+            } catch {
+              // onError already toasted
+            } finally {
+              recoveryInFlight.current = false;
+            }
+          })
+          .catch(() => {
+            recoveryInFlight.current = false;
+          });
+      }
+      // Greptile round-12 P1 #1: only mark the payload as
+      // "saved" after the server has acknowledged it. If we
+      // marked it before the request landed, an upload-driven
+      // re-render during the 500ms debounce window would
+      // short-circuit the autosave effect (lastSavePayload
+      // matched) and the answers would never reach the server.
+      // Greptile round-21 P1 #2: use the payload the chain
+      // captured when this save was FIRED — `pendingPayloadRef`
+      // might already point to a newer pending value the user
+      // typed while the request was in flight, and marking that
+      // as "saved" lets an in-flight later save overwrite it
+      // without the form noticing.
+      // Greptile round-27 P1 #5: when another tab wins both
+      // the first save AND the recovery re-fire, the second
+      // onSuccess also returns accepted=false. Marking
+      // lastSavePayload here would make the form say "Draft
+      // saved" for answers that never landed on the server.
+      // Only mark saved when the server actually accepted
+      // this write.
+      // Greptile round-27 P1 #9: use `sentPayload` returned
+      // from `mutationFn` (not the stale
+      // `lastSentPayloadRef`) so the recovery re-fire path
+      // — which calls `mutateAsync()` directly — marks
+      // EXACTLY what the recovery sent as saved.
+      if (accepted === true) {
+        lastSavePayload.current = sentPayload;
+      }
+    },
+    onError: (err) => {
+      // Auto-save failures are non-fatal; surface a soft toast so
+      // the student knows their draft may be stale on reload.
+      toast.error("Auto-save failed", {
+        description: err instanceof Error ? err.message : "Try saving manually.",
+      });
+    },
+  });
+
+  const answersRef = useRef(answers);
+  const inspirationsRef = useRef(inspirations);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+  useEffect(() => {
+    inspirationsRef.current = inspirations;
+  }, [inspirations]);
+
+  // Greptile P1 follow-up: serialise autosaves so earlier PATCH
+  // requests never overwrite newer answers. Without this, two
+  // saves triggered close together can land out of order on the
+  // server — the older payload's PATCH resolves last, and
+  // `saveQuestionnaireDraft` unconditionally overwrites the row.
+  // The fix chains saves through a single promise so each save
+  // awaits the previous one before starting. The
+  // `pendingPayloadRef` holds the most recent debounced payload
+  // so when the chain drains, we kick another save.
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingPayloadRef = useRef<string | null>(null);
+  // Greptile round-12 P1 #1: depend on the STABLE mutateAsync
+  // function rather than the whole saveMutation object, which
+  // changes between renders and causes the effect's cleanup to
+  // cancel in-flight debounced saves. With the stable function,
+  // the effect only re-runs when answers / inspirations /
+  // alreadySubmitted actually change.
+  const mutateAsync = saveMutation.mutateAsync;
+
+  useEffect(() => {
+    if (alreadySubmitted) return;
+    const payload = JSON.stringify({ answers, inspirations });
+    // Greptile round-27 P1 #7: when a save is in flight, the
+    // server's stored value is whatever that save will land
+    // (which may not be the current answers). Short-circuiting
+    // on payload match would skip a save that needs to land
+    // FIRST — e.g. A→B→A: B-save in flight, A change matches
+    // lastSavePayload (A, the prior landed value), the A-save
+    // is skipped, then B-save resolves and overwrites the
+    // student's current A. Force a save whenever anything is
+    // in flight, even on payload match.
+    if (
+      payload === lastSavePayload.current &&
+      !saveMutation.isPending
+    ) {
+      return;
+    }
+    pendingPayloadRef.current = payload;
+
+    const fireNext = async (): Promise<void> => {
+      const next = pendingPayloadRef.current;
+      pendingPayloadRef.current = null;
+      if (next == null) return;
+      try {
+        await mutateAsync();
+      } catch {
+        // onError already toasted; swallow here so the chain
+        // doesn't break.
+      }
+      // After this save lands, check whether the user typed
+      // more while it was in flight. If so, kick another save
+      // through the same chain so they land in order.
+      if (pendingPayloadRef.current != null) {
+        await fireNext();
+      }
+    };
+
+    pendingPayloadRef.current = payload;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      saveChainRef.current = saveChainRef.current.then(fireNext);
+    }, ONBOARDING_AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [answers, inspirations, alreadySubmitted, mutateAsync]);
+
+  // Beacon on tab close — fires lastSeenAt AND flushes any pending
+  // debounced autosave so a student who closes the tab during
+  // the 500 ms debounce window doesn't lose their latest answers.
+  // Greptile round-17 P1: previously the beacon sent only `{}`
+  // and any pending payload was discarded by the cleanup.
+  // Greptile round-18 P1 #1: the beacon also forwards the
+  // monotonic save counter so the server can reject out-of-
+  // order writes if the in-flight autosave arrives AFTER the
+  // close flush.
+  useEffect(() => {
+    if (alreadySubmitted) return;
+    const sendBeacon = () => {
+      try {
+        const url = ApiRoutes.onboardingAbandoned(onboardingId);
+        // Build the same payload the autosave chain would have
+        // sent — only the textarea answers with non-empty text
+        // and only the inspirations with non-empty names. Send
+        // them through keepalive so the request lands even as
+        // the page is unloading.
+        const a = answersRef.current;
+        const i = inspirationsRef.current;
+        const trimmedAnswers = textareaQuestions
+          .map((q) => ({
+            questionId: q.id,
+            answerText: (a[q.id] ?? "").trim(),
+          }))
+          .filter((x) => x.answerText.length > 0);
+        const inspirations = i.filter((x) => x.name.trim().length > 0);
+        // Increment counter so the tab-close flush is always
+        // strictly newer than any autosave that fired before
+        // it. Combine the per-tab prefix with the counter so
+        // the flush has the same per-tab namespace as the
+        // autosaves (round 20 P1 #2 fix).
+        clientSaveIdCounter.current += 1;
+        
+        const clientSaveId =
+          clientSaveIdCounter.current;
+        void fetch(url, {
+          method: "POST",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: trimmedAnswers,
+            inspirations,
+            clientSaveId,
+          }),
+        });
+      } catch {
+        // ignore — best-effort
+      }
+    };
+    window.addEventListener("beforeunload", sendBeacon);
+    return () => window.removeEventListener("beforeunload", sendBeacon);
+  }, [onboardingId, alreadySubmitted]);
+
+  // Greptile round-23 P1 #2: Next.js navigation (link clicks,
+  // router.push) does NOT fire `beforeunload`. Without a
+  // flush on unmount, clicking "Workspace" or "Dashboard"
+  // mid-debounce cancels the waiting autosave and the latest
+  // edits are lost. The fix: on component unmount, if there
+  // is a pending payload OR a debounce in flight, cancel the
+  // timer and fire the save synchronously through the
+  // /api/onboarding/[id]/abandoned route so the server gets
+  // the latest answers with `keepalive: true` (which Next
+  // route handlers can honour via fetch keepalive).
+  useEffect(() => {
+    return () => {
+      if (alreadySubmitted) return;
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      const pending = pendingPayloadRef.current;
+      if (pending == null) return;
+      try {
+        const url = ApiRoutes.onboardingAbandoned(onboardingId);
+        // Build the same payload shape as the beforeunload
+        // beacon. Use the LATEST refs so a clear (empty
+        // arrays) is preserved.
+        const a = answersRef.current;
+        const i = inspirationsRef.current;
+        const trimmedAnswers = textareaQuestions
+          .map((q) => ({
+            questionId: q.id,
+            answerText: (a[q.id] ?? "").trim(),
+          }))
+          .filter((x) => x.answerText.length > 0);
+        const inspirations = i.filter((x) => x.name.trim().length > 0);
+        clientSaveIdCounter.current += 1;
+        
+        const clientSaveId =
+          clientSaveIdCounter.current;
+        // keepalive lets the request land even as the page
+        // is being torn down by the navigation.
+        void fetch(url, {
+          method: "POST",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: trimmedAnswers,
+            inspirations,
+            clientSaveId,
+          }),
+        });
+      } catch {
+        // ignore — best-effort
+      }
+    };
+  }, [onboardingId, alreadySubmitted]);
+
+  // Image uploads
+  const uploadFile = useCallback(
+    async (file: File) => {
+      if (file.size > MAX_WORK_EXAMPLE_BYTES) {
+        toast.error("Image too large", {
+          description: `Max ${Math.round(MAX_WORK_EXAMPLE_BYTES / (1024 * 1024))} MB.`,
+        });
+        return;
+      }
+      if (!WORK_EXAMPLE_ALLOWED_MIME_LIST.includes(file.type)) {
+        toast.error("Unsupported image type", {
+          description: `Use ${WORK_EXAMPLE_ALLOWED_MIME_LIST.join(", ")}.`,
+        });
+        return;
+      }
+      if (workExamples.length >= MAX_WORK_EXAMPLES_PER_ONBOARDING) {
+        toast.error("Too many images", {
+          description: `Max ${MAX_WORK_EXAMPLES_PER_ONBOARDING} work examples.`,
+        });
+        return;
+      }
+      try {
+        const minted = await apiFetch<{
+          uploadUrl: string;
+          workExampleId: string;
+          fileId: string;
+        }>(ApiRoutes.onboardingWorkExampleUploadUrl(onboardingId), {
+          method: "POST",
+          body: JSON.stringify({
+            fileName: file.name,
+            contentType: file.type,
+            size: file.size,
+          }),
+        });
+        const putRes = await fetch(minted.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!putRes.ok) {
+          toast.error("Upload failed", {
+            description: `B2 returned HTTP ${putRes.status}`,
+          });
+          return;
+        }
+        await apiFetch(ApiRoutes.onboardingWorkExamples(onboardingId), {
+          method: "POST",
+          body: JSON.stringify({
+            workExampleId: minted.workExampleId,
+          }),
+        });
+        setWorkExamples((prev) => [
+          ...prev,
+          {
+            _id: minted.workExampleId,
+            status: "active",
+            fileName: file.name,
+            contentType: file.type,
+            b2Key: "",
+            fileId: minted.fileId,
+            uploadedAt: Date.now(),
+            size: file.size,
+          },
+        ]);
+        toast.success("Uploaded");
+      } catch (err) {
+        toast.error("Upload failed", {
+          description: err instanceof Error ? err.message : "Try again.",
+        });
+      }
+    },
+    [onboardingId, workExamples.length]
+  );
+
+  const deleteExample = useCallback(
+    async (exampleId: string) => {
+      try {
+        await apiFetch(ApiRoutes.onboardingWorkExample(onboardingId, exampleId), {
+          method: "DELETE",
+        });
+        setWorkExamples((prev) => prev.filter((w) => w._id !== exampleId));
+      } catch (err) {
+        toast.error("Delete failed", {
+          description: err instanceof Error ? err.message : "Try again.",
+        });
+      }
+    },
+    [onboardingId]
+  );
+
+  // Submit gate (client-side preview; server is authoritative).
+  //
+  // Greptile P1 #8: required coverage used to be checked against
+  // `answers[inspirations]`, but the inspirations inputs update the
+  // separate `inspirations` state — never `answers`. So that branch
+  // was always missing, and submit stayed disabled even when every
+  // required field was filled. The fix: treat `inspirations` as its
+  // own required set, alongside the textarea required ids.
+  const validInspirations = useMemo(
+    () => inspirations.filter((i) => i.name.trim().length > 0),
+    [inspirations]
+  );
+  const missingTextareaRequired = useMemo(
+    () =>
+      ONBOARDING_REQUIRED_QUESTION_IDS.filter(
+        (id) => id !== "inspirations" && !(answers[id] ?? "").trim()
+      ),
+    [answers]
+  );
+  const canSubmit =
+    missingTextareaRequired.length === 0 &&
+    validInspirations.length >= MIN_INSPIRATIONS &&
+    // Greptile P2: server-side `submitQuestionnaire` rejects when
+    // the count of active rows is below the cap. Counting pending
+    // rows would let a student who refreshed mid-upload submit a
+    // request the server can't accept, surfacing as a confusing
+    // 400. Match the server check exactly.
+    workExamples.filter((w) => w.status === "active").length >=
+      MIN_WORK_EXAMPLES_PER_SUBMISSION;
+
+  const submitMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<{ submission: Submission }>(
+        ApiRoutes.onboardingQuestionnaireSubmit(onboardingId),
+        {
+          method: "POST",
+          body: JSON.stringify({
+            // Submit body MUST carry one answer entry per canonical
+            // question id — including "inspirations" — and each entry
+            // MUST include questionText (the server stamps it on the
+            // stored row so the answer renders correctly even if the
+            // question wording changes later).
+            answers: [
+              ...textareaQuestions.map((q) => ({
+                questionId: q.id,
+                questionText: q.label,
+                answerText: (answers[q.id] ?? "").trim(),
+              })),
+              {
+                questionId: inspirationsQuestion.id,
+                questionText: inspirationsQuestion.label,
+                answerText: validInspirations
+                  .map((i) => i.name)
+                  .join("\n"),
+              },
+            ],
+            inspirations: validInspirations,
+          }),
+        }
+      ),
+    onSuccess: ({ submission: next }) => {
+      // Force status="submitted" locally so the form locks even if
+      // the server's submit response shape omits the field —
+      // students should not be able to keep editing after the
+      // server has locked their questionnaire.
+      setSubmission({ ...next, status: "submitted" });
+      toast.success("Questionnaire submitted", {
+        description: "Your instructor will review it before your first call.",
+      });
+      router.refresh();
+    },
+    onError: (err) => {
+      toast.error("Submit failed", {
+        description: err instanceof Error ? err.message : "Try again.",
+      });
+      // Greptile round-27 P1 #4: a failed submit must clear
+      // the snapshot so the student sees their CURRENT
+      // edits (not the stale values they tried to send).
+      // Without this, typing after a failed submit updates
+      // the draft state but the display still reads from
+      // the snapshot — the next submit can contain values
+      // that don't match what the student sees.
+      submitSnapshotRef.current = null;
+    },
+  });
+
+  // Greptile round-27 P1 #3: the submit mutation sends the
+  // values at the moment the button is clicked, but the
+  // `answers`/`inspirations` state keeps updating if the
+  // student keeps typing. After submit resolves,
+  // `alreadySubmitted` is true and the form locks; the
+  // student sees their LATEST edits but the instructor
+  // received the EARLIER snapshot. On reload, the form
+  // shows the server's (earlier) state, so the student's
+  // most recent edits vanish without explanation.
+  //
+  // Fix: freeze the form to the snapshot that was sent
+  // while submit is in flight (and after it succeeds). We
+  // don't replace the state (that would clobber pending
+  // autosaves for drafts), but we render from the snapshot
+  // for both the textareas and the inspirations list.
+  const submitSnapshotRef = useRef<{
+    answers: Record<string, string>;
+    inspirations: string[];
+  } | null>(null);
+  const renderAnswers =
+    submitSnapshotRef.current?.answers ?? answers;
+  // Greptile round-27 P1 #3: disable all editing inputs
+  // while submit is in flight so a student can't type
+  // past the snapshot. After submit resolves, the form
+  // locks anyway (alreadySubmitted), but the in-flight
+  // window is the leaky one.
+  const fieldsDisabled =
+    alreadySubmitted || submitMutation.isPending;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>About you</CardTitle>
+          <CardDescription>
+            Your instructor reads these answers before your first call so they
+            can prepare a session that&apos;s useful for you.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {textareaQuestions.map((q: OnboardingTextareaQuestion) => (
+            <div key={q.id} className="space-y-2">
+              <Label htmlFor={`q-${q.id}`}>
+                {q.label}
+                {ONBOARDING_REQUIRED_QUESTION_IDS.some((id) => id === q.id) && (
+                  <span className="ml-1 text-destructive">*</span>
+                )}
+              </Label>
+              {q.helpText && (
+                <p className="text-xs text-muted-foreground">{q.helpText}</p>
+              )}
+              <Textarea
+                id={`q-${q.id}`}
+                value={renderAnswers[q.id] ?? ""}
+                onChange={(e) =>
+                  setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
+                }
+                placeholder={q.placeholder}
+                maxLength={q.maxLength}
+                rows={q.id === "goals" ? 6 : 4}
+                disabled={fieldsDisabled}
+              />
+              <p className="text-xs text-muted-foreground text-right">
+                {(renderAnswers[q.id] ?? "").length} / {q.maxLength}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{inspirationsQuestion.label}</CardTitle>
+          <CardDescription>{inspirationsQuestion.helpText}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(submitSnapshotRef.current
+            ? submitSnapshotRef.current.inspirations
+            : inspirations.map((i) => i.name)
+          ).map((name, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <Input
+                value={name}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setInspirations((prev) =>
+                    prev.map((x, i) => (i === idx ? { name: e.target.value } : x))
+                  );
+                }}
+                placeholder={`Inspiration ${idx + 1}`}
+                maxLength={120}
+                disabled={fieldsDisabled}
+              />
+              {inspirations.length > MIN_INSPIRATIONS && !fieldsDisabled && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() =>
+                    setInspirations((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  aria-label="Remove inspiration"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          ))}
+          {!fieldsDisabled &&
+            inspirations.length < MAX_INSPIRATIONS && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setInspirations((prev) => [...prev, { name: "" }])
+                }
+              >
+                Add inspiration
+              </Button>
+            )}
+          <p className="text-xs text-muted-foreground">
+            {validInspirations.length} of {MIN_INSPIRATIONS}–{MAX_INSPIRATIONS}{" "}
+            filled.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Work examples</CardTitle>
+          <CardDescription>
+            Upload {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
+            images of your recent work. Your instructor uses these to
+            personalize your first call.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {workExamples.filter((w) => w.status === "active").map((w) => (
+              <div
+                key={w._id}
+                className="relative aspect-square overflow-hidden rounded-md border bg-muted"
+              >
+                <WorkExampleThumb
+                  onboardingId={onboardingId}
+                  workExampleId={w._id}
+                  fileName={w.fileName}
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
+                  <span className="line-clamp-1">{w.fileName}</span>
+                </div>
+                {!alreadySubmitted && (
+                  <button
+                    type="button"
+                    onClick={() => deleteExample(w._id)}
+                    className="absolute right-1 top-1 rounded bg-background/80 p-1 text-destructive hover:bg-background"
+                    aria-label="Remove image"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {/* Greptile round-27 P1 #10: surface pending uploads
+                with a remove control. A failed PUT leaves its
+                reservation behind; without this control the
+                student can't free the slot, and the gallery
+                hides the in-flight row entirely. */}
+            {!alreadySubmitted &&
+              workExamples.filter((w) => w.status === "pending").map((w) => (
+                <div
+                  key={w._id}
+                  className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted text-xs text-muted-foreground"
+                >
+                  <span className="px-2 text-center line-clamp-2">
+                    Uploading: {w.fileName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => deleteExample(w._id)}
+                    className="absolute right-1 top-1 rounded bg-background/80 p-1 text-destructive hover:bg-background"
+                    aria-label="Cancel upload"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            {!alreadySubmitted && workExamples.filter((w) => w.status === "active").length < MAX_WORK_EXAMPLES_PER_ONBOARDING && (
+              <WorkExampleUploadTile onFile={uploadFile} />
+            )}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {workExamples.filter((w) => w.status === "active").length} of {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
+            uploaded. Max {Math.round(MAX_WORK_EXAMPLE_BYTES / (1024 * 1024))} MB
+            per file. {WORK_EXAMPLE_ALLOWED_MIME_LIST.join(", ")}.
+          </p>
+        </CardContent>
+      </Card>
+
+      {!alreadySubmitted && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Submit</CardTitle>
+            <CardDescription>
+              We&apos;ll send this to your instructor before your first call.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SubmitChecklist
+              missingRequired={missingTextareaRequired}
+              validInspirations={validInspirations.length}
+              minInspirations={MIN_INSPIRATIONS}
+              activeWorkExamples={workExamples.filter((w) => w.status === "active").length}
+              minWorkExamples={MIN_WORK_EXAMPLES_PER_SUBMISSION}
+            />
+            <Button
+              onClick={() => {
+                // Greptile round-27 P1 #3: capture the
+                // snapshot BEFORE mutate so the in-flight
+                // submit reflects exactly what the student
+                // sent, not whatever they type next.
+                submitSnapshotRef.current = {
+                  answers: { ...answers },
+                  inspirations: validInspirations.map((i) => i.name),
+                };
+                submitMutation.mutate();
+              }}
+              disabled={!canSubmit || submitMutation.isPending}
+            >
+              {submitMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Submit questionnaire
+            </Button>
+            {saveMutation.isPending && (
+              <p className="text-xs text-muted-foreground">Saving draft…</p>
+            )}
+            {!saveMutation.isPending && submission && (
+              <p className="text-xs text-muted-foreground">Draft saved.</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {alreadySubmitted && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+              Submitted
+            </CardTitle>
+            <CardDescription>
+              Your instructor has your answers. We&apos;ll email when your
+              first call is scheduled.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function WorkExampleUploadTile({
+  onFile,
+}: {
+  onFile: (file: File) => void;
+}): React.JSX.Element {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  return (
+    <button
+      type="button"
+      onClick={() => inputRef.current?.click()}
+      className="flex aspect-square items-center justify-center rounded-md border-2 border-dashed text-muted-foreground hover:border-foreground hover:text-foreground"
+    >
+      <Upload className="h-6 w-6" />
+      <input
+        ref={inputRef}
+        type="file"
+        accept={WORK_EXAMPLE_ALLOWED_MIME_LIST.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
+    </button>
+  );
+}
+
+function SubmitChecklist({
+  missingRequired,
+  validInspirations,
+  minInspirations,
+  activeWorkExamples,
+  minWorkExamples,
+}: {
+  missingRequired: string[];
+  validInspirations: number;
+  minInspirations: number;
+  activeWorkExamples: number;
+  minWorkExamples: number;
+}): React.JSX.Element {
+  const items = [
+    {
+      ok: missingRequired.length === 0,
+      label: "All required questions answered",
+      detail:
+        missingRequired.length === 0
+          ? undefined
+          : `${missingRequired.length} question${missingRequired.length === 1 ? "" : "s"} still empty`,
+    },
+    {
+      ok: validInspirations >= minInspirations,
+      label: `At least ${minInspirations} inspirations`,
+      detail: `${validInspirations} filled`,
+    },
+    {
+      ok: activeWorkExamples >= minWorkExamples,
+      label: `At least ${minWorkExamples} work examples`,
+      detail: `${activeWorkExamples} uploaded`,
+    },
+  ];
+  return (
+    <ul className="space-y-1 text-sm">
+      {items.map((it) => (
+        <li key={it.label} className="flex items-center gap-2">
+          {it.ok ? (
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          )}
+          <span>{it.label}</span>
+          {it.detail && (
+            <Badge variant="outline" className="ml-auto">
+              {it.detail}
+            </Badge>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Greptile P2 follow-up (round 9): render the actual image for
+ * each work example tile, not just the ImageIcon placeholder.
+ * Fetches a short-lived signed GET URL on mount via the existing
+ * `getWorkExampleDownloadUrl` action and swaps the tile contents
+ * once the URL resolves. Falls back to the icon if the fetch
+ * fails (network/auth/expiry) so the form stays usable.
+ */
+function WorkExampleThumb({
+  onboardingId,
+  workExampleId,
+  fileName,
+}: {
+  onboardingId: string;
+  workExampleId: string;
+  fileName: string;
+}): React.JSX.Element {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    setSignedUrl(null);
+    (async () => {
+      try {
+        const res = await apiFetch<{ url: string }>(
+          ApiRoutes.onboardingWorkExampleDownloadUrl(
+            onboardingId,
+            workExampleId
+          ),
+          { method: "GET" }
+        );
+        if (!cancelled) setSignedUrl(res.url);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onboardingId, workExampleId]);
+
+  return (
+    <>
+      {signedUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={signedUrl}
+          alt={fileName}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+      )}
+      {failed && !signedUrl && (
+        <div className="absolute inset-x-0 top-0 bg-destructive/80 px-1 py-0.5 text-[10px] text-destructive-foreground">
+          preview unavailable
+        </div>
+      )}
+    </>
+  );
+}

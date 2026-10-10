@@ -1,0 +1,372 @@
+"use node";
+
+import { inngest } from "../client";
+import { sendEmail } from "@/lib/email";
+import { reportError } from "@/lib/observability";
+import { getConvexClient } from "@/lib/convex";
+import { ONBOARDING_REMINDER_STALE_MS } from "@/lib/workspace-constants";
+import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-email";
+
+/**
+ * PR 12 PR 4b — hourly cron that nudges students with stale
+ * onboarding questionnaire drafts.
+ *
+ * Flow:
+ *   1. Cron fires at the top of every hour.
+ *   2. Step `scan` calls the Convex HTTP endpoint
+ *      `/onboarding/stale-questionnaire` (bearer-auth via
+ *      `convexServerCall`) which returns up to N stale drafts
+ *      filtered by `ONBOARDING_REMINDER_STALE_MS`,
+ *      `ONBOARDING_REMINDER_MAX_COUNT`, and the assigned student's
+ *      Clerk identity.
+ *   3. For each stale draft, step `send` re-checks the row is still
+ *      `draft` (race-safe against beacon-then-submit), then sends
+ *      the reminder email and patches `lastReminderSentAt` +
+ *      `reminderCount`.
+ *
+ * Why the re-check: the beacon stamps `lastSeenAt` but does NOT
+ * advance `reminderCount`; the cron is the only writer. A student
+ * who submits while the cron is running could otherwise receive a
+ * reminder for a just-submitted questionnaire.
+ *
+ * Greptile P1 follow-up: the scan is paginated. Convex queries can
+ * only `.paginate()` once per handler, so each scan call reads
+ * one page (`STALE_SCAN_PAGE_SIZE` rows). The cron loops with
+ * `nextCursor` until the candidate batch fills up, the cursor
+ * returns `isDone`, or an entire page yields no eligible row
+ * (which means we've walked past the candidate cluster — the
+ * index is sorted by `updatedAt` ascending).
+ *
+ * Greptile round-27 P1 #2: drop the SCAN_MAX_PAGES cap. An
+ * exhausted draft (reminderCount at the cap) sits at the
+ * same `updatedAt` it was given — `markReminderSent` does
+ * NOT bump `updatedAt`. So if 250 exhausted drafts
+ * accumulate at the front of the index, a 5-page cap reads
+ * only those drafts and never reaches newer eligible
+ * drafts behind them. The existing `isDone` / `nextCursor`
+ * guards are the correct stop conditions; the page cap is
+ * a stale belt-and-suspenders measure that breaks under
+ * accumulation.
+ */
+
+export const onboardingQuestionnaireReminders = inngest.createFunction(
+  {
+    id: "onboarding-questionnaire-reminders",
+    name: "Onboarding questionnaire reminders",
+    retries: 2,
+    triggers: [
+      { cron: "0 * * * *" }, // top of every hour
+    ],
+  },
+  async ({ step }) => {
+    const drafts = await step.run("scan", async () => {
+      // Greptile P1 follow-up: return the result from step.run so
+      // Inngest can restore it across a resume. Without a return
+      // value, `drafts` would be empty on resume (the step
+      // callback isn't re-run) and the function would exit
+      // before sending any reminders.
+      const url = `${getConvexBaseUrl()}/onboarding/stale-questionnaire`;
+      const collected: Array<{
+        onboardingId: string;
+        submissionId: string;
+        studentEmail: string;
+        studentName: string | null;
+        reminderCount: number;
+      }> = [];
+      let cursor: string | null = null;
+      // Greptile round-27 P1 #2: no page cap. `isDone` (end
+      // of partition) is the only correct stop signal; the
+      // old `SCAN_MAX_PAGES = 5` cap trapped the scan on a
+      // growing cluster of exhausted drafts.
+      for (;;) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.CONVEX_HTTP_KEY ?? ""}`,
+          },
+          body: JSON.stringify({ cursor }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            `stale-questionnaire scan failed (HTTP ${res.status}): ${text}`
+          );
+        }
+        const json = (await res.json()) as {
+          candidates: Array<{
+            onboardingId: string;
+            submissionId: string;
+            studentEmail: string;
+            studentName: string | null;
+            reminderCount: number;
+            lastSeenAt: number | null;
+          }>;
+          nextCursor: string | null;
+          isDone: boolean;
+          pageHadEligible: boolean;
+        };
+        collected.push(...json.candidates);
+        // Greptile round-11 P1: a page that returns ZERO eligible
+        // rows is not a stopping signal. The index orders by
+        // `updatedAt`, and exhausted drafts (reminderCount at
+        // cap) sit at the same `updatedAt` they were given — they
+        // do NOT age forward, so they pin the front of the scan.
+        // Stopping at the first "no eligible" page leaves the
+        // scan stuck on the exhausted drafts forever, and any
+        // newer draft that's eligible sits behind them.
+        // Only stop when `isDone` (end of the partition) or
+        // we've collected enough candidates to cap the batch.
+        if (json.isDone) break;
+        if (!json.nextCursor) break;
+        cursor = json.nextCursor;
+      }
+      return collected;
+    });
+
+    if (!drafts.length) {
+      return { sent: 0 };
+    }
+
+    const baseUrl = getAppBaseUrl();
+    const maxReminders = Number(
+      process.env.ONBOARDING_REMINDER_MAX_COUNT ?? "3"
+    );
+
+    // Greptile P1 follow-up (round 7): aggregate `sent` from the
+    // step's return values instead of mutating an outer-scope
+    // counter inside the callback. Inngest restores step results
+    // from their return values on resume — if `sent` lives
+    // outside, it's lost across resumes and we under-report.
+    const stepResults: Array<{ sent?: boolean } | { skipped: boolean; reason: string }> = [];
+    // Greptile round-14 P2: re-check activity freshness inside
+    // the per-row send. The scan reads at T1; a student who
+    // resumes editing between T1 and T2 would otherwise still
+    // get a "finish onboarding" email. Same cutoffs the scan
+    // used, computed against `Date.now()` at send time.
+    const sendStaleCutoff = Date.now() - ONBOARDING_REMINDER_STALE_MS;
+    for (const draft of drafts) {
+      // Greptile round-23 P2 #2: split the send and the
+      // mark-sent steps so a transient Convex mark failure
+      // can retry without re-sending the email. The send
+      // step carries the idempotency key on the email side,
+      // so a re-fired send is harmless even on retry.
+      const sendOutcome = await step.run(`send:${draft.submissionId}`, async () => {
+        // Re-check inside the step so a beacon-then-submit that
+        // landed between scan and send doesn't send a stale
+        // reminder. Convex read is cheap; the `submitQuestionnaire`
+        // path takes a write lock on the row.
+        const status = await fetchReadOnlyDraftStatus(draft.onboardingId);
+        if (status === "submitted") {
+          return { skipped: true, reason: "submitted" } as const;
+        }
+        if (status == null) {
+          return { skipped: true, reason: "missing" } as const;
+        }
+        if (status.latestActivityAt >= sendStaleCutoff) {
+          return { skipped: true, reason: "activity-resumed" } as const;
+        }
+        const next = draft.reminderCount + 1;
+        if (next > maxReminders) {
+          return { skipped: true, reason: "max-reached" } as const;
+        }
+        // Greptile P1 #11: link through /auth-redirect (NOT
+        // /sign-in) so the destination survives the
+        // signed-out → sign-in → signed-in round-trip. The
+        // previous /sign-in?redirect_url=... path put the
+        // destination on /sign-in's query, but after Clerk
+        // finishes sign-in the user lands on /auth-redirect
+        // (per the route handler's afterAuth path) and
+        // /auth-redirect only reads ITS OWN query — so the
+        // destination was dropped on the floor.
+// Greptile round-27 P2 #2: /auth-redirect reads its own
+        // redirect_url query and re-emits /sign-in?redirect_url
+        // when the visitor is signed out, so chaining through
+        // /auth-redirect preserves the destination end-to-end.
+        const authRedirectPath = `/auth-redirect?redirect_url=${encodeURIComponent(
+          `/onboarding/${draft.onboardingId}/questionnaire`
+        )}`;
+        const questionnaireUrl = `${baseUrl}${authRedirectPath}`;
+        const email = buildOnboardingReminderEmail({
+          studentName: draft.studentName,
+          studentEmail: draft.studentEmail,
+          onboardingId: draft.onboardingId,
+          questionnaireUrl,
+          reminderNumber: next,
+          maxReminders,
+        });
+        const sendResult = await sendEmail({
+          to: draft.studentEmail,
+          subject: email.subject,
+          html: email.html,
+          text: email.text,
+          headers: email.headers,
+          idempotencyKey: `onboarding-reminder:${draft.submissionId}:${next}`,
+        });
+        if (!sendResult.ok) {
+          const errMsg =
+            "error" in sendResult && typeof sendResult.error === "string"
+              ? sendResult.error
+              : "skipped" in sendResult
+              ? `skipped: ${sendResult.reason}`
+              : "sendEmail returned not-ok";
+          reportError({
+            source: "inngest:onboarding-questionnaire-reminders:send",
+            error: new Error(errMsg),
+            level: "warn",
+            message: "Reminder email failed",
+            context: { submissionId: draft.submissionId },
+          });
+          return { skipped: true, reason: "send-failed" } as const;
+        }
+        // Return the next counter so a follow-up step can
+        // persist it without re-running the send.
+        return { sent: true, next } as const;
+      });
+      if ("sent" in sendOutcome) {
+        // Mark the row in a SEPARATE step so a transient
+        // Convex failure retries the mark without re-sending
+        // the email. The mark is idempotent on the server
+        // (`markReminderSent` no-ops when `next` is not
+        // strictly greater than the stored value), so a
+        // retried mark is harmless even if the first attempt
+        // partially succeeded.
+        const markOutcome = await step.run(
+          `mark:${draft.submissionId}:${sendOutcome.next}`,
+          async () => {
+            try {
+              await markReminderSent(draft.submissionId, sendOutcome.next);
+              return { ok: true } as const;
+            } catch (err) {
+              reportError({
+                source: "inngest:onboarding-questionnaire-reminders:mark",
+                error: err instanceof Error ? err : new Error(String(err)),
+                level: "warn",
+                message: "mark-reminder-sent failed; Inngest will retry",
+                context: { submissionId: draft.submissionId },
+              });
+              throw err;
+            }
+          }
+        );
+        void markOutcome;
+        stepResults.push({ sent: true });
+      } else {
+        stepResults.push(sendOutcome);
+      }
+    }
+
+    // Inngest step.run() return type is the union of every branch
+    // above (`{ reason, skipped }` | `{ sent }`); narrow to count
+    // only successful sends without TypeScript losing track.
+    const sent = stepResults.filter(
+      (r): r is { sent: boolean } => "sent" in r
+    ).length;
+    return { sent, considered: drafts.length };
+  }
+);
+
+function getConvexBaseUrl(): string {
+  const explicit =
+    process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
+  return explicit.replace(/\/+$/, "").replace(/\.convex\.cloud$/, ".convex.site");
+}
+
+function getAppBaseUrl(): string {
+  // Greptile round-27 P1 #8: match the rest of apps/platform
+  // (booking-email.ts, google.ts, notification-email.ts).
+  // VERCEL_URL is set automatically on Vercel deployments
+  // (preview + production); without it the previous code
+  // fell back to localhost, sending reminder emails with
+  // Continue links back to a developer's machine.
+  const candidate =
+    process.env.NEXT_PUBLIC_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (candidate) return candidate.replace(/\/+$/, "");
+  throw new Error(
+    "Onboarding reminder cron: NEXT_PUBLIC_URL / NEXT_PUBLIC_APP_URL / VERCEL_URL must be set"
+  );
+}
+
+/**
+ * Re-reads the submission row status from Convex. Uses a raw
+ * ConvexHttpClient because the `getQuestionnaireForCurrentUser`
+ * query is auth-gated (we want a server-side view, not the
+ * student's own session). The HTTP endpoint we call returns the
+ * status alone so we don't need to pass identity tokens.
+ */
+async function fetchReadOnlyDraftStatus(
+  onboardingId: string
+): Promise<
+  | { status: "draft"; latestActivityAt: number }
+  | "submitted"
+  | null
+> {
+  const url = `${getConvexBaseUrl()}/onboarding/questionnaire-status`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.CONVEX_HTTP_KEY ?? ""}`,
+    },
+    body: JSON.stringify({ onboardingId }),
+  });
+  if (!res.ok) return null;
+  // Greptile round-16 P2: the HTTP route returns the query
+  // result directly. The query can return:
+  //   * { status: "draft", latestActivityAt }  (object)
+  //   * "submitted"  (JSON string)
+  //   * null  (JSON null)
+  // JSON.parse round-trips each form faithfully. Treat
+  // each shape before reaching for object fields so a
+  // submit-then-send or cancel-then-send reports the
+  // expected skip reason instead of throwing a
+  // TypeError inside the try/catch (which would have been
+  // reported as a reminder failure).
+  const json: unknown = await res.json();
+  if (json === null) return null;
+  if (json === "submitted") return "submitted";
+  if (
+    typeof json === "object" &&
+    json !== null &&
+    "status" in json &&
+    (json as { status: unknown }).status === "draft"
+  ) {
+    const obj = json as { latestActivityAt?: unknown };
+    if (typeof obj.latestActivityAt === "number") {
+      return { status: "draft", latestActivityAt: obj.latestActivityAt };
+    }
+  }
+  return null;
+}
+
+/**
+ * Patches the submission row after a successful send. Mirrors the
+ * shape of the public `recordQuestionnaireSeen` mutation but
+ * advances `reminderCount` and `lastReminderSentAt` instead.
+ */
+async function markReminderSent(
+  submissionId: string,
+  next: number
+): Promise<void> {
+  const url = `${getConvexBaseUrl()}/onboarding/mark-reminder-sent`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.CONVEX_HTTP_KEY ?? ""}`,
+    },
+    body: JSON.stringify({ submissionId, next }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `mark-reminder-sent failed (HTTP ${res.status}): ${text}`
+    );
+  }
+}
+
+// Suppress unused-import warnings when these are only used in
+// future iterations of the reminder flow.
+void getConvexClient;

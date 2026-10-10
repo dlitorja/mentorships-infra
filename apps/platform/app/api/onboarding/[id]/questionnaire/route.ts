@@ -1,0 +1,143 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { auth } from "@clerk/nextjs/server";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
+import { convexIdSchema } from "@/lib/validators";
+import { readJsonBody } from "@/lib/api/read-json-body";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { reportError } from "@/lib/observability";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
+import { ONBOARDING_QUESTIONS } from "@/lib/onboarding-questions";
+
+const inspirationSchema = z.object({
+  name: z
+    .string()
+    .min(1, "Each inspiration must have a name")
+    .max(120, "Inspiration name is too long"),
+});
+
+const answerSchema = z.object({
+  questionId: z.string().min(1),
+  answerText: z.string().max(8000),
+});
+
+const saveDraftSchema = z.object({
+  answers: z.array(answerSchema),
+  inspirations: z.array(inspirationSchema).max(8),
+  // Greptile round-18 P1 #1: client sends a monotonic save
+  // counter so the server can reject out-of-order requests.
+  // The form increments this on every save (autosave + tab-
+  // close flush).
+  clientSaveId: z.number().int().nonnegative(),
+});
+
+/**
+ * GET /api/onboarding/[id]/questionnaire — read the current draft or
+ * submitted row for the signed-in viewer. Auth is propagated to Convex
+ * via the Clerk JWT; the server-side `getQuestionnaireForCurrentUser`
+ * query resolves the viewer role.
+ *
+ * Returns `{ submission: null }` when no row exists yet (first visit)
+ * or when the viewer is not authorized (rendering a 404 in the page is
+ * the caller's call; we don't leak existence here).
+ */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
+
+    const convex = await getAuthenticatedConvexClient();
+    const submission = await convex.query(
+      (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
+      { onboardingId } as any
+    );
+    const workExamples = await convex.query(
+      (api as any).onboardingWorkExamples.listWorkExamples,
+      { onboardingId } as any
+    );
+
+    return NextResponse.json({ submission, workExamples });
+  } catch (err) {
+    if (isUnauthorizedError(err) || isForbiddenError(err)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    reportError({ source: "api:onboarding.questionnaire.GET", error: err instanceof Error ? err : new Error(String(err)) });
+    return NextResponse.json(
+      { error: "Failed to read questionnaire" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/onboarding/[id]/questionnaire — auto-save a draft. Debounced
+ * client-side at `ONBOARDING_AUTOSAVE_DEBOUNCE_MS`. Only the assigned
+ * student can save; server-side `saveQuestionnaireDraft` re-checks
+ * `assignedStudentClerkId` so a forged body still rejects.
+ *
+ * Returns the updated submission row.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const onboardingId = convexIdSchema.parse(id) as Id<"adminOnboardings">;
+    const body = await readJsonBody(req);
+    const parsed = saveDraftSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const convex = await getAuthenticatedConvexClient();
+    const submission = await convex.mutation(
+      (api as any).onboardingQuestionnaire.saveQuestionnaireDraft,
+      {
+        onboardingId,
+        questionnaireVersion: ONBOARDING_QUESTIONNAIRE_VERSION,
+        // Server-side: stamp each answer with the canonical
+        // questionText for the id (Greptile P1 #2). Without this,
+        // `saveQuestionnaireDraft` would reject the args because
+        // `questionText` is a required field on the validator.
+        answers: parsed.data.answers.map((a) => ({
+          questionId: a.questionId,
+          questionText:
+            ONBOARDING_QUESTIONS.find((q) => q.id === a.questionId)?.label ?? "",
+          answerText: a.answerText,
+        })),
+        inspirations: parsed.data.inspirations,
+        clientSaveId: parsed.data.clientSaveId,
+      } as any
+    );
+
+    return NextResponse.json({ submission });
+  } catch (err) {
+    if (isUnauthorizedError(err) || isForbiddenError(err)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    reportError({ source: "api:onboarding.questionnaire.PATCH", error: err instanceof Error ? err : new Error(String(err)) });
+    return NextResponse.json(
+      { error: "Failed to save draft" },
+      { status: 500 }
+    );
+  }
+}

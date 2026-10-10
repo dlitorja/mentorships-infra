@@ -33,25 +33,40 @@ function unauthorizedResponse(): Response {
 }
 
 function verifyAuth(request: Request): boolean {
+  // Greptile round-27 P1 #11: in PRODUCTION, refuse every
+  // request when CONVEX_HTTP_KEY is missing or empty.
+  // The previous implementation computed
+  // `expected = "Bearer ${CONVEX_HTTP_KEY}"`, so when the
+  // env var was undefined, ANY caller sending the literal
+  // `Authorization: Bearer undefined` matched — leaking
+  // student data through the reminder scan / mark
+  // endpoints and letting attackers exhaust reminder
+  // counts without sending any email.
+  if (process.env.NODE_ENV === "production") {
+    if (!CONVEX_HTTP_KEY) return false;
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader) return false;
+    return authHeader === `Bearer ${CONVEX_HTTP_KEY}`;
+  }
+
   // Only skip auth for seed endpoint in development
   if (request.url.includes("/seed/")) {
-    const allowDevSeed = process.env.ALLOW_DEV_SEED === "true" && process.env.NODE_ENV !== "production";
+    const allowDevSeed = process.env.ALLOW_DEV_SEED === "true";
     if (!allowDevSeed) {
       console.warn("Seed endpoint access denied - set ALLOW_DEV_SEED=true in dev only");
       return false;
     }
     return true;
   }
-  
+
   // Skip auth in development mode if no key is configured
-  if (!CONVEX_HTTP_KEY && process.env.NODE_ENV !== "production") {
+  if (!CONVEX_HTTP_KEY) {
     return true;
   }
-  
+
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) return false;
-  const expected = `Bearer ${CONVEX_HTTP_KEY}`;
-  return authHeader === expected;
+  return authHeader === `Bearer ${CONVEX_HTTP_KEY}`;
 }
 
 /** Returns workspaces past the 18-month retention period that are pending deletion. */
@@ -3425,6 +3440,109 @@ http.route({
   path: "/inventory/backfill-by-slug",
   method: "POST",
   handler: httpBackfillInventoryBySlug,
+});
+
+/**
+ * PR 12 PR 4b — onboarding questionnaire reminder scan + status +
+ * mark-sent HTTP endpoints. Called by the Inngest cron
+ * `onboarding-questionnaire-reminders` (hourly). Bearer-auth via
+ * `CONVEX_HTTP_KEY`, same shape as the existing workspace-retention
+ * endpoints above.
+ */
+export const httpOnboardingStaleQuestionnaire = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  // Greptile P1 follow-up: each call reads ONE page. The cron
+  // loops with the returned `nextCursor`. Convex queries can only
+  // `.paginate()` once per handler, so multi-page scans must be
+  // orchestrated by the caller.
+  const body = (await request.json().catch(() => ({}))) as {
+    cursor?: string | null;
+  };
+  const cursor = typeof body.cursor === "string" ? body.cursor : null;
+
+  const page = await ctx.runQuery(
+    (internal as any).onboardingQuestionnaire.listStaleDraftsForReminder,
+    { cursor }
+  );
+
+  return new Response(JSON.stringify(page), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+export const httpOnboardingQuestionnaireStatus = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { onboardingId } = (await request.json().catch(() => ({}))) as {
+    onboardingId?: string;
+  };
+  if (!onboardingId) {
+    return new Response(JSON.stringify({ error: "onboardingId required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Greptile round-15 P1 #1: return the query result directly
+  // (not wrapped in another { status } envelope). The cron
+  // expects { status: "draft", latestActivityAt } or
+  // { status: "submitted" } at the TOP level so it can branch
+  // on json.status === "draft" / json.status === "submitted"
+  // without unwrapping.
+  const result = await ctx.runQuery(
+    (internal as any).onboardingQuestionnaire.getDraftStatusForReminder,
+    { onboardingId }
+  );
+
+  return new Response(JSON.stringify(result), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+export const httpOnboardingMarkReminderSent = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const body = (await request.json().catch(() => ({}))) as {
+    submissionId?: string;
+    next?: number;
+  };
+  if (!body.submissionId || typeof body.next !== "number") {
+    return new Response(JSON.stringify({ error: "submissionId + next required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  await ctx.runMutation(
+    (internal as any).onboardingQuestionnaire.markReminderSent,
+    { submissionId: body.submissionId, next: body.next }
+  );
+
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/onboarding/stale-questionnaire",
+  method: "POST",
+  handler: httpOnboardingStaleQuestionnaire,
+});
+
+http.route({
+  path: "/onboarding/questionnaire-status",
+  method: "POST",
+  handler: httpOnboardingQuestionnaireStatus,
+});
+
+http.route({
+  path: "/onboarding/mark-reminder-sent",
+  method: "POST",
+  handler: httpOnboardingMarkReminderSent,
 });
 
 export default http;

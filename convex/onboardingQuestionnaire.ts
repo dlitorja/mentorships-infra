@@ -2,6 +2,7 @@ import {
   mutation,
   query,
   internalMutation,
+  internalQuery,
   MutationCtx,
   QueryCtx,
 } from "./_generated/server";
@@ -14,6 +15,9 @@ import {
   MAX_INSPIRATIONS,
   MIN_WORK_EXAMPLES_PER_SUBMISSION,
   ONBOARDING_REQUIRED_QUESTION_IDS,
+  ONBOARDING_REMINDER_STALE_MS,
+  ONBOARDING_REMINDER_MAX_COUNT,
+  ONBOARDING_REMINDER_MIN_INTERVAL_MS,
 } from "./workspaceConstants";
 
 /**
@@ -116,10 +120,45 @@ export const saveQuestionnaireDraft = mutation({
     questionnaireVersion: v.number(),
     answers: QUESTIONNAIRE_ANSWERS_VALIDATOR,
     inspirations: QUESTIONNAIRE_INSPIRATIONS_VALIDATOR,
+    // Greptile round-18 P1 #1: monotonic client-side save
+    // counter so the server can reject out-of-order saves.
+    // Each save (autosave + tab-close flush) increments this
+    // and the server stores the latest accepted value;
+    // incoming `clientSaveId <= stored` is a no-op so an
+    // older autosave in flight can never overwrite a newer
+    // tab-close flush.
+    clientSaveId: v.number(),
+    // Greptile round-27 P1 #14: the `/api/onboarding/.../abandoned`
+    // beacon route calls this mutation with `force: true` when
+    // the client is closing the tab. A closing tab has the
+    // most-recent user activity (otherwise they wouldn't be
+    // closing it) but its local clientSaveIdCounter was seeded
+    // at mount and may be BELOW whatever another tab saved in
+    // the meantime — the server's strict-greater-than guard
+    // would otherwise drop the closing tab's latest edits.
+    // `force: true` bypasses the ordering check so the
+    // closing tab's payload wins. Limited to the abandoned
+    // beacon path; never set from the autosave PATCH route.
+    force: v.optional(v.boolean()),
   },
   returns: v.object({
     submissionId: v.id("onboardingQuestionnaireSubmissions"),
     status: v.union(v.literal("draft"), v.literal("submitted")),
+    // Echo the latest stored clientSaveId so the client can
+    // confirm its write took effect (and detect out-of-order
+    // drops for future telemetry).
+    storedClientSaveId: v.number(),
+    // Greptile round-25 P2: explicit accept flag so the
+    // client doesn't have to infer success from id equality.
+    // `accepted === true` means THIS save's payload landed
+    // on the server; `accepted === false` means an older
+    // (or equal) write already won and this one was a
+    // no-op. Returning storedClientSaveId alone is
+    // ambiguous: stored === sent can mean "accepted" or
+    // "duplicate was a no-op". Treating the equal case as
+    // a retry, as round 24 did, doubled successful
+    // autosave traffic.
+    accepted: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -146,19 +185,65 @@ export const saveQuestionnaireDraft = mutation({
       return {
         submissionId: existing._id,
         status: "submitted" as const,
+        storedClientSaveId: existing.lastClientSaveId ?? 0,
+        accepted: false,
+      };
+    }
+
+    // Out-of-order guard: if we already stored a newer (or
+    // equal) clientSaveId, drop this write. The chain on the
+    // client serialises order-of-FETCH, but the network can
+    // reorder request-of-ARRIVAL at the Convex backend, so the
+    // server is the only place we can guarantee ordering.
+    // Greptile round-27 P1 #14 + round-28 P1 #15: `force: true`
+    // (only set by the tab-close beacon route) bypasses the
+    // guard so the closing tab's payload lands even when its
+    // local counter is below the latest stored value.
+    // Greptile round-28 P1 #15: a naive force=true can lower
+    // the stored counter and let a delayed non-forced save
+    // (with id between the old stored and the forced id)
+    // pass the ordering check and overwrite the closing
+    // tab's edits. Fix: on force, never lower the stored
+    // counter. If clientSaveId < stored, bump stored to
+    // stored + 1 (one above the highest known) and write
+    // the payload. Subsequent saves with id > newStored
+    // still win the race.
+    const stored = existing?.lastClientSaveId ?? 0;
+    const forcedOverwrite = existing && args.force === true;
+    if (
+      existing &&
+      args.clientSaveId <= stored &&
+      !forcedOverwrite
+    ) {
+      return {
+        submissionId: existing._id,
+        status: "draft" as const,
+        storedClientSaveId: stored,
+        accepted: false,
       };
     }
 
     if (existing) {
+      // Greptile round-28 P1 #15: on forced overwrite, bump
+      // stored to max(stored + 1, clientSaveId) so the
+      // counter never goes DOWN. The closing tab's payload
+      // lands (we wrote it) but the next non-forced save
+      // from any tab still has to beat the bumped value.
+      const newStored = forcedOverwrite
+        ? Math.max(stored + 1, args.clientSaveId)
+        : args.clientSaveId;
       await ctx.db.patch(existing._id, {
         questionnaireVersion: args.questionnaireVersion,
         answers: args.answers,
         inspirations: args.inspirations,
         updatedAt: now,
+        lastClientSaveId: newStored,
       });
       return {
         submissionId: existing._id,
         status: "draft" as const,
+        storedClientSaveId: newStored,
+        accepted: true,
       };
     }
 
@@ -174,11 +259,14 @@ export const saveQuestionnaireDraft = mutation({
         inspirations: args.inspirations,
         createdAt: now,
         updatedAt: now,
+        lastClientSaveId: args.clientSaveId,
       }
     );
     return {
       submissionId,
       status: "draft" as const,
+      storedClientSaveId: args.clientSaveId,
+      accepted: true,
     };
   },
 });
@@ -342,6 +430,12 @@ export const getQuestionnaireForCurrentUser = query({
       inspirations: QUESTIONNAIRE_INSPIRATIONS_VALIDATOR,
       submittedAt: v.optional(v.number()),
       updatedAt: v.number(),
+      // Greptile round-19 P1: return the stored save counter
+      // so the client can seed its monotonic counter on
+      // subsequent visits. Without this, a returning student
+      // restarts at 0 and the server drops every save (its
+      // stored value is still > 0 from the previous visit).
+      lastClientSaveId: v.optional(v.number()),
     })
   ),
   handler: async (ctx, args) => {
@@ -364,6 +458,7 @@ export const getQuestionnaireForCurrentUser = query({
       inspirations: submission.inspirations,
       submittedAt: submission.submittedAt,
       updatedAt: submission.updatedAt,
+      lastClientSaveId: submission.lastClientSaveId,
     };
   },
 });
@@ -421,15 +516,27 @@ export const getSubmittedQuestionnaireForViewer = query({
       }
     }
     if (!isAssignedStudent && !isAssignedInstructor) {
-      // Defer to admin/support check by querying the users
-      // table.
-      const userRow = await ctx.db
+      // Greptile round-18 P1 #3: staff rows can have
+      // `clerkId !== userId` (split identity). Check BOTH
+      // indexes — the status page (`getOnboardingView`) uses
+      // `by_userId`, but a split-identity staff may match on
+      // `by_clerkId` only and have a different `userId`.
+      // Choose the row that has a staff role; if neither does,
+      // the caller is a student and we return null. Mirrors
+      // `lookupStaffRole`.
+      const byClerk = await ctx.db
         .query("users")
-        .withIndex("by_clerkId", (q) =>
-          q.eq("clerkId", identity.subject)
-        )
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
         .first();
-      if (!userRow || (userRow.role !== "admin" && userRow.role !== "support")) {
+      const byUserId = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      const staffRow = [byClerk, byUserId].find(
+        (r): r is NonNullable<typeof r> =>
+          r != null && (r.role === "admin" || r.role === "support")
+      );
+      if (!staffRow) {
         return null;
       }
     }
@@ -469,26 +576,378 @@ export const getSubmittedQuestionnaireForViewer = query({
 });
 
 /**
- * Internal mutation: stamp `lastSeenAt` on the submission row.
- * Called by the `/api/onboarding/[id]/abandoned` beacon route.
- * Does NOT increment `reminderCount` — only the cron does that.
+ * Greptile P1 follow-up: instructor-facing list of adminOnboardings
+ * where this instructor is one of the assigned pair AND the student
+ * has submitted the questionnaire. Drives the new "Student
+ * questionnaires" section on `/instructor/onboarding` so an
+ * instructor has a discoverable deep link to each submitted answer
+ * set instead of only seeing the legacy `studentOnboardingSubmissions`
+ * rows.
  *
- * Greptile round 1 P2 finding on PR 2: the beacon must not
- * race with the cron. Idempotent on `lastSeenAt` (just
- * patches the timestamp).
+ * Lookup strategy: `adminOnboardings` has no index keyed on
+ * `perInstructor[].instructorId`, so we walk the table in pages.
+ * Convex queries can only `.paginate()` once per handler, so each
+ * call returns ONE page plus a `nextCursor` for the caller to
+ * carry forward. The caller (`/instructor/onboarding` page server
+ * component) loops with the cursor until `isDone` or the page is
+ * empty.
+ *
+ * For PR 4b scale (~hundreds of onboardings) the first page is
+ * almost always enough; a `by_perInstructor` index would be a
+ * PR 4c follow-up if the table grows.
  */
-export const recordQuestionnaireSeen = internalMutation({
+const LIST_SCAN_LIMIT = 200;
+
+export const listSubmittedQuestionnairesForInstructor = query({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        onboardingId: v.id("adminOnboardings"),
+        studentEmail: v.string(),
+        submittedAt: v.number(),
+        instructorCount: v.number(),
+      })
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args): Promise<{
+    rows: Array<{
+      onboardingId: Id<"adminOnboardings">;
+      studentEmail: string;
+      submittedAt: number;
+      instructorCount: number;
+    }>;
+    nextCursor: string | null;
+    isDone: boolean;
+  }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { rows: [], nextCursor: null, isDone: true };
+    }
+
+    // Staff can see every onboarding; an instructor can only see
+    // rows where they are one of the assigned instructors.
+    const staffRole = await lookupStaffRole(ctx, identity.subject);
+    const isStaff = staffRole !== null;
+
+    // Greptile round-15 P1 #2: scan the SUBMISSIONS table newest-
+    // first via the new by_status_submittedAt index. The old
+    // approach scanned adminOnboardings by id (= insertion
+    // order, oldest first); older records filled the ROW_CAP
+    // and newer submissions fell off the bottom of the page.
+    const page = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_submittedAt", (q) => q.eq("status", "submitted"))
+      // Greptile round-27 P1 #6: order newest-first. The
+      // index's default order is ascending by submittedAt,
+      // which means ROW_CAP / SCAN_LIMIT fills with the
+      // oldest submissions and newer ones fall off the end
+      // of the page once either limit is reached. Ordering
+      // desc keeps the recent questionnaires visible to
+      // instructors.
+      .order("desc")
+      .paginate({ numItems: LIST_SCAN_LIMIT, cursor: args.cursor });
+
+    const rows: Array<{
+      onboardingId: Id<"adminOnboardings">;
+      studentEmail: string;
+      submittedAt: number;
+      instructorCount: number;
+    }> = [];
+
+    for (const submission of page.page) {
+      const onboarding = await ctx.db.get(submission.onboardingId);
+      if (!onboarding) continue;
+
+      if (!isStaff) {
+        // Instructor check: walk `perInstructor` and resolve
+        // each `instructorId` to its `userId`.
+        let matched = false;
+        for (const p of onboarding.perInstructor) {
+          const inst = await ctx.db.get("instructors", p.instructorId);
+          if (inst?.userId && inst.userId === identity.subject) {
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) continue;
+      }
+
+      rows.push({
+        onboardingId: submission.onboardingId,
+        studentEmail: onboarding.email,
+        submittedAt: submission.submittedAt ?? submission.updatedAt,
+        instructorCount: onboarding.perInstructor.length,
+      });
+    }
+
+    return {
+      rows,
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+
+
+async function lookupStaffRole(
+  ctx: QueryCtx,
+  identitySubject: string
+): Promise<"admin" | "support" | null> {
+  const byClerk = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identitySubject))
+    .first();
+  if (byClerk && (byClerk.role === "admin" || byClerk.role === "support")) {
+    return byClerk.role;
+  }
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identitySubject))
+    .first();
+  if (byUserId && (byUserId.role === "admin" || byUserId.role === "support")) {
+    return byUserId.role;
+  }
+  return null;
+}
+
+/**
+ * Stamp `lastSeenAt` on the submission row. Called by the
+ * `/api/onboarding/[id]/abandoned` beacon route.
+ *
+ * Made public (not internal) because the beacon flow requires a
+ * browser → Next.js → Convex call path. The auth check is
+ * server-side: reads `ctx.auth` and verifies the caller's Clerk
+ * subject matches the submission's `studentClerkId`. Does NOT
+ * increment `reminderCount` — only the cron does that.
+ *
+ * Greptile round 1 P2 finding on PR 2: the beacon must not race
+ * with the cron. Idempotent on `lastSeenAt` (just patches the
+ * timestamp). Returns null silently when unauthorized so the
+ * beacon's failure mode is indistinguishable from success on the
+ * wire — `beforeunload` requests can be aborted by the browser.
+ */
+export const recordQuestionnaireSeen = mutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
-    studentClerkId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
     const submission = await loadDraftOrNull(ctx, args.onboardingId);
     if (!submission) return null;
-    if (submission.studentClerkId !== args.studentClerkId) return null;
+    if (submission.studentClerkId !== identity.subject) return null;
     if (submission.status === "submitted") return null;
     await ctx.db.patch(submission._id, { lastSeenAt: Date.now() });
+    return null;
+  },
+});
+
+/**
+ * PR 12 PR 4b — internal helpers for the reminder cron. Bearer-auth
+ * via the HTTP actions in `convex/http.ts:httpOnboardingStaleQuestionnaire`
+ * etc. The HTTP layer is the auth gate; these functions trust that
+ * the caller is the platform cron and run unscoped.
+ *
+ * Read strategy: scans the `by_status_updatedAt` index for
+ * `status === "draft"`, then filters in JS by
+ * `ONBOARDING_REMINDER_STALE_MS` and `reminderCount <
+ * ONBOARDING_REMINDER_MAX_COUNT`. The Convex query is bounded by the
+ * index partition; real cron cadence is hourly and the cron processes
+ * whatever the scan returns without pagination (the cap is small).
+ */
+
+const STALE_BATCH_LIMIT = 50;
+// Greptile round-16 P1 #3: page size matches the batch limit
+// so the cursor advances past every row the page examined.
+// Previously STALE_SCAN_PAGE_SIZE was 200 while
+// STALE_BATCH_LIMIT was 50, so the loop collected only the
+// first 50 candidates, broke out of the inner loop, but the
+// returned cursor still pointed past all 200 rows. Rows
+// 51-200 of the page were never visited; the next call
+// resumed past them, so they fell into a per-hour blind
+// spot and got reminders several hours late.
+const STALE_SCAN_PAGE_SIZE = STALE_BATCH_LIMIT;
+
+export const listStaleDraftsForReminder = internalQuery({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        onboardingId: v.id("adminOnboardings"),
+        submissionId: v.id("onboardingQuestionnaireSubmissions"),
+        studentEmail: v.string(),
+        studentName: v.union(v.string(), v.null()),
+        reminderCount: v.number(),
+        lastSeenAt: v.union(v.number(), v.null()),
+      })
+    ),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+    pageHadEligible: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
+    const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
+
+    // Greptile P1 follow-up: each call reads one page. Convex
+    // queries can only `.paginate()` once per handler, so the
+    // caller (the Inngest cron) loops with `nextCursor` until
+    // `isDone` or the candidate batch fills up.
+    const candidates: Array<{
+      onboardingId: Id<"adminOnboardings">;
+      submissionId: Id<"onboardingQuestionnaireSubmissions">;
+      studentEmail: string;
+      studentName: string | null;
+      reminderCount: number;
+      lastSeenAt: number | null;
+    }> = [];
+
+    const page = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_status_updatedAt", (q) => q.eq("status", "draft"))
+      .paginate({ numItems: STALE_SCAN_PAGE_SIZE, cursor: args.cursor });
+
+    let pageHadEligible = false;
+
+    for (const row of page.page) {
+      const reminderCount = row.reminderCount ?? 0;
+      // Greptile P1 follow-up: when `reminderCount` is at the
+      // cap, skip without inspecting other fields. The
+      // `updatedAt` of an exhausted row stays put until the
+      // student edits or submits, so these rows would
+      // otherwise pin the cursor at the front of the index
+      // forever.
+      if (reminderCount >= ONBOARDING_REMINDER_MAX_COUNT) continue;
+      pageHadEligible = true;
+
+      // Greptile P2 #14: a student who is actively editing the
+      // form updates `updatedAt` on every debounced save; only
+      // the tab-close beacon updates `lastSeenAt`. Treat the
+      // latest of either as the activity signal so an actively
+      // edited draft never lands in the reminder queue.
+      const latestActivity = Math.max(
+        row.updatedAt,
+        row.lastSeenAt ?? 0
+      );
+      const isFresh = latestActivity >= staleCutoff;
+      if (isFresh) continue;
+
+      // Don't double-fire reminders: respect the min interval
+      // since the last send so a slow scan can't spam a student.
+      if (
+        row.lastReminderSentAt !== undefined &&
+        row.lastReminderSentAt > minIntervalCutoff
+      ) {
+        continue;
+      }
+
+      const onboarding = await ctx.db.get(row.onboardingId);
+      if (!onboarding) continue;
+      // Greptile P2 #15: a cancelled onboarding leaves its
+      // questionnaire as a draft, and the questionnaire
+      // mutations reject further writes. Skip those parents.
+      if (onboarding.status === "cancelled") continue;
+
+      const student = onboarding.assignedStudentClerkId
+        ? await ctx.db
+            .query("users")
+            .withIndex("by_clerkId", (q) =>
+              q.eq("clerkId", onboarding.assignedStudentClerkId!)
+            )
+            .first()
+        : null;
+
+      candidates.push({
+        onboardingId: row.onboardingId,
+        submissionId: row._id,
+        studentEmail: student?.email ?? onboarding.email,
+        studentName: student?.firstName
+          ? `${student.firstName}${student.lastName ? " " + student.lastName : ""}`
+          : null,
+        reminderCount,
+        lastSeenAt: row.lastSeenAt ?? null,
+      });
+
+      if (candidates.length >= STALE_BATCH_LIMIT) break;
+    }
+
+    return {
+      candidates,
+      nextCursor: page.continueCursor,
+      isDone: page.isDone,
+      pageHadEligible,
+    };
+  },
+});
+
+/**
+ * Read-only status read used by the cron's per-row race-safe re-check
+ * (see `onboarding-questionnaire-reminders.ts:fetchReadOnlyDraftStatus`).
+ * Returns `null` if the submission row is missing, has been
+ * submitted since the scan, OR the parent onboarding was cancelled
+ * (Greptile P2 #15: cancelled parents keep their draft row but the
+ * student can no longer submit — don't send a reminder).
+ */
+export const getDraftStatusForReminder = internalQuery({
+  args: { onboardingId: v.id("adminOnboardings") },
+  returns: v.union(
+    v.object({
+      status: v.literal("draft"),
+      latestActivityAt: v.number(),
+    }),
+    v.literal("submitted"),
+    v.null()
+  ),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", args.onboardingId))
+      .first();
+    if (!sub) return null;
+    if (sub.status === "submitted") return "submitted";
+    const onboarding = await ctx.db.get(args.onboardingId);
+    if (!onboarding || onboarding.status === "cancelled") return null;
+    // Greptile round-14 P2: also return the latest activity
+    // timestamp so the per-row send step can re-check freshness
+    // before firing the email. The scan reads at T1; if the
+    // student edits between T1 and T2, the send step would
+    // still fire without this. Same staleCutoff the scan uses.
+    const latestActivityAt = Math.max(sub.updatedAt, sub.lastSeenAt ?? 0);
+    return { status: "draft" as const, latestActivityAt };
+  },
+});
+
+/**
+ * Patch `lastReminderSentAt` + `reminderCount` after a successful
+ * send. Idempotent on `next` (advancing twice with the same `next`
+ * is a no-op the second time, so a cron retry that re-sent the same
+ * reminder email won't double-count).
+ */
+export const markReminderSent = internalMutation({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+    next: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    if (sub.status === "submitted") return null;
+    if ((sub.reminderCount ?? 0) + 1 !== args.next) return null;
+    await ctx.db.patch(args.submissionId, {
+      lastReminderSentAt: Date.now(),
+      reminderCount: args.next,
+    });
     return null;
   },
 });
