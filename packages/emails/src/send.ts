@@ -77,7 +77,40 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
       args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
     );
 
-    return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
+    // Greptile round-27 P1 #13: Resend returns
+    // { data, error } on every response. If the call
+    // succeeded but error is set (rate limit, bad
+    // recipient, etc.) the SDK doesn't throw — and the
+    // previous code returned { ok: true, id: null } for
+    // any non-throwing result. Callers (notably the
+    // onboarding-reminder cron) treated ok=true as
+    // 'sent' and advanced the reminder counter, so a
+    // failing Resend call exhausted all three reminders
+    // without ever delivering an email.
+    const resendError = (result as any)?.error;
+    if (resendError) {
+      const message =
+        typeof resendError === "string"
+          ? resendError
+          : typeof resendError?.message === "string"
+            ? resendError.message
+            : "Resend returned an error";
+      return { ok: false, error: message };
+    }
+    const id =
+      typeof (result as any)?.data?.id === "string"
+        ? (result as any).data.id
+        : null;
+    // Greptile round-27 P1 #13: also reject an
+    // 'ok:true' result with no id. The Resend SDK
+    // contract is that a successful send returns a
+    // data.id; absent that, the send was either lost
+    // or queued for retry — neither is good enough to
+    // call it a successful delivery.
+    if (!id) {
+      return { ok: false, error: "Resend returned no email id" };
+    }
+    return { ok: true, id };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -126,7 +159,28 @@ export async function sendTemplateEmail(args: {
       } as any,
       args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : undefined,
     );
-    return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
+    // Greptile round-27 P1 #13: same fix as sendEmail —
+    // reject results with an error field or no email id,
+    // so callers don't advance delivery counters on
+    // undelivered sends.
+    const resendError = (result as any)?.error;
+    if (resendError) {
+      const message =
+        typeof resendError === "string"
+          ? resendError
+          : typeof resendError?.message === "string"
+            ? resendError.message
+            : "Resend returned an error";
+      return { ok: false, error: message };
+    }
+    const id =
+      typeof (result as any)?.data?.id === "string"
+        ? (result as any).data.id
+        : null;
+    if (!id) {
+      return { ok: false, error: "Resend returned no email id" };
+    }
+    return { ok: true, id };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
