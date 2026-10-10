@@ -625,6 +625,35 @@ export default function OnboardingQuestionnaireForm({
     },
   });
 
+  // Greptile round-27 P1 #3: the submit mutation sends the
+  // values at the moment the button is clicked, but the
+  // `answers`/`inspirations` state keeps updating if the
+  // student keeps typing. After submit resolves,
+  // `alreadySubmitted` is true and the form locks; the
+  // student sees their LATEST edits but the instructor
+  // received the EARLIER snapshot. On reload, the form
+  // shows the server's (earlier) state, so the student's
+  // most recent edits vanish without explanation.
+  //
+  // Fix: freeze the form to the snapshot that was sent
+  // while submit is in flight (and after it succeeds). We
+  // don't replace the state (that would clobber pending
+  // autosaves for drafts), but we render from the snapshot
+  // for both the textareas and the inspirations list.
+  const submitSnapshotRef = useRef<{
+    answers: Record<string, string>;
+    inspirations: string[];
+  } | null>(null);
+  const renderAnswers =
+    submitSnapshotRef.current?.answers ?? answers;
+  // Greptile round-27 P1 #3: disable all editing inputs
+  // while submit is in flight so a student can't type
+  // past the snapshot. After submit resolves, the form
+  // locks anyway (alreadySubmitted), but the in-flight
+  // window is the leaky one.
+  const fieldsDisabled =
+    alreadySubmitted || submitMutation.isPending;
+
   return (
     <div className="space-y-6">
       <Card>
@@ -649,17 +678,17 @@ export default function OnboardingQuestionnaireForm({
               )}
               <Textarea
                 id={`q-${q.id}`}
-                value={answers[q.id] ?? ""}
+                value={renderAnswers[q.id] ?? ""}
                 onChange={(e) =>
                   setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
                 }
                 placeholder={q.placeholder}
                 maxLength={q.maxLength}
                 rows={q.id === "goals" ? 6 : 4}
-                disabled={alreadySubmitted}
+                disabled={fieldsDisabled}
               />
               <p className="text-xs text-muted-foreground text-right">
-                {(answers[q.id] ?? "").length} / {q.maxLength}
+                {(renderAnswers[q.id] ?? "").length} / {q.maxLength}
               </p>
             </div>
           ))}
@@ -672,10 +701,13 @@ export default function OnboardingQuestionnaireForm({
           <CardDescription>{inspirationsQuestion.helpText}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {inspirations.map((entry, idx) => (
+          {(submitSnapshotRef.current
+            ? submitSnapshotRef.current.inspirations
+            : inspirations.map((i) => i.name)
+          ).map((name, idx) => (
             <div key={idx} className="flex items-center gap-2">
               <Input
-                value={entry.name}
+                value={name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   setInspirations((prev) =>
                     prev.map((x, i) => (i === idx ? { name: e.target.value } : x))
@@ -683,9 +715,9 @@ export default function OnboardingQuestionnaireForm({
                 }}
                 placeholder={`Inspiration ${idx + 1}`}
                 maxLength={120}
-                disabled={alreadySubmitted}
+                disabled={fieldsDisabled}
               />
-              {inspirations.length > MIN_INSPIRATIONS && !alreadySubmitted && (
+              {inspirations.length > MIN_INSPIRATIONS && !fieldsDisabled && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -699,7 +731,7 @@ export default function OnboardingQuestionnaireForm({
               )}
             </div>
           ))}
-          {!alreadySubmitted &&
+          {!fieldsDisabled &&
             inspirations.length < MAX_INSPIRATIONS && (
               <Button
                 variant="outline"
@@ -782,7 +814,17 @@ export default function OnboardingQuestionnaireForm({
               minWorkExamples={MIN_WORK_EXAMPLES_PER_SUBMISSION}
             />
             <Button
-              onClick={() => submitMutation.mutate()}
+              onClick={() => {
+                // Greptile round-27 P1 #3: capture the
+                // snapshot BEFORE mutate so the in-flight
+                // submit reflects exactly what the student
+                // sent, not whatever they type next.
+                submitSnapshotRef.current = {
+                  answers: { ...answers },
+                  inspirations: validInspirations.map((i) => i.name),
+                };
+                submitMutation.mutate();
+              }}
               disabled={!canSubmit || submitMutation.isPending}
             >
               {submitMutation.isPending && (
