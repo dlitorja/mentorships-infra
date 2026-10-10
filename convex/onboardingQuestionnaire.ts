@@ -659,10 +659,16 @@ export const recordQuestionnaireSeen = mutation({
  */
 
 const STALE_BATCH_LIMIT = 50;
-// Read up to this many draft rows per call. Most are exhausted
-// (past the reminder cap) or recently-active, so we cap the page
-// size to keep the per-query read budget bounded.
-const STALE_SCAN_PAGE_SIZE = 200;
+// Greptile round-16 P1 #3: page size matches the batch limit
+// so the cursor advances past every row the page examined.
+// Previously STALE_SCAN_PAGE_SIZE was 200 while
+// STALE_BATCH_LIMIT was 50, so the loop collected only the
+// first 50 candidates, broke out of the inner loop, but the
+// returned cursor still pointed past all 200 rows. Rows
+// 51-200 of the page were never visited; the next call
+// resumed past them, so they fell into a per-hour blind
+// spot and got reminders several hours late.
+const STALE_SCAN_PAGE_SIZE = STALE_BATCH_LIMIT;
 
 export const listStaleDraftsForReminder = internalQuery({
   args: {

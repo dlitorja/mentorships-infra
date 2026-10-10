@@ -256,15 +256,30 @@ async function fetchReadOnlyDraftStatus(
     body: JSON.stringify({ onboardingId }),
   });
   if (!res.ok) return null;
-  const json = (await res.json()) as
-    | { status: "draft"; latestActivityAt: number }
-    | { status: "submitted" }
-    | { status: null };
-  if ("status" in json && json.status === "draft") {
-    return { status: "draft", latestActivityAt: json.latestActivityAt };
-  }
-  if ("status" in json && json.status === "submitted") {
-    return "submitted";
+  // Greptile round-16 P2: the HTTP route returns the query
+  // result directly. The query can return:
+  //   * { status: "draft", latestActivityAt }  (object)
+  //   * "submitted"  (JSON string)
+  //   * null  (JSON null)
+  // JSON.parse round-trips each form faithfully. Treat
+  // each shape before reaching for object fields so a
+  // submit-then-send or cancel-then-send reports the
+  // expected skip reason instead of throwing a
+  // TypeError inside the try/catch (which would have been
+  // reported as a reminder failure).
+  const json: unknown = await res.json();
+  if (json === null) return null;
+  if (json === "submitted") return "submitted";
+  if (
+    typeof json === "object" &&
+    json !== null &&
+    "status" in json &&
+    (json as { status: unknown }).status === "draft"
+  ) {
+    const obj = json as { latestActivityAt?: unknown };
+    if (typeof obj.latestActivityAt === "number") {
+      return { status: "draft", latestActivityAt: obj.latestActivityAt };
+    }
   }
   return null;
 }

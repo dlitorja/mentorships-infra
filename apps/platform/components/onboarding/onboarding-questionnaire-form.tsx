@@ -137,6 +137,19 @@ export default function OnboardingQuestionnaireForm({
       );
     },
     onSuccess: ({ submission: next }) => {
+      // Greptile round-16 P1 #1: a draft save that landed
+      // BEFORE the submit but whose response arrived AFTER
+      // it would have set submission back to "draft",
+      // re-opening a form the server has locked. If we've
+      // already submitted, the server's response here just
+      // confirms the same row in its prior state — drop it
+      // so the local state stays "submitted".
+      if (alreadySubmitted) {
+        // Still mark the payload as saved so subsequent
+        // renders don't replay the save.
+        lastSavePayload.current = pendingPayloadRef.current ?? lastSavePayload.current;
+        return;
+      }
       setSubmission(next);
       // Greptile round-12 P1 #1: only mark the payload as
       // "saved" after the server has acknowledged it. If we
