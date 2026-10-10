@@ -136,7 +136,16 @@ export default function OnboardingQuestionnaireForm({
         }
       );
     },
-    onSuccess: ({ submission: next }) => setSubmission(next),
+    onSuccess: ({ submission: next }) => {
+      setSubmission(next);
+      // Greptile round-12 P1 #1: only mark the payload as
+      // "saved" after the server has acknowledged it. If we
+      // marked it before the request landed, an upload-driven
+      // re-render during the 500ms debounce window would
+      // short-circuit the autosave effect (lastSavePayload
+      // matched) and the answers would never reach the server.
+      lastSavePayload.current = pendingPayloadRef.current ?? lastSavePayload.current;
+    },
     onError: (err) => {
       // Auto-save failures are non-fatal; surface a soft toast so
       // the student knows their draft may be stale on reload.
@@ -166,19 +175,26 @@ export default function OnboardingQuestionnaireForm({
   // so when the chain drains, we kick another save.
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const pendingPayloadRef = useRef<string | null>(null);
+  // Greptile round-12 P1 #1: depend on the STABLE mutateAsync
+  // function rather than the whole saveMutation object, which
+  // changes between renders and causes the effect's cleanup to
+  // cancel in-flight debounced saves. With the stable function,
+  // the effect only re-runs when answers / inspirations /
+  // alreadySubmitted actually change.
+  const mutateAsync = saveMutation.mutateAsync;
 
   useEffect(() => {
     if (alreadySubmitted) return;
     const payload = JSON.stringify({ answers, inspirations });
     if (payload === lastSavePayload.current) return;
-    lastSavePayload.current = payload;
+    pendingPayloadRef.current = payload;
 
     const fireNext = async (): Promise<void> => {
       const next = pendingPayloadRef.current;
       pendingPayloadRef.current = null;
       if (next == null) return;
       try {
-        await saveMutation.mutateAsync();
+        await mutateAsync();
       } catch {
         // onError already toasted; swallow here so the chain
         // doesn't break.
@@ -199,7 +215,7 @@ export default function OnboardingQuestionnaireForm({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [answers, inspirations, alreadySubmitted, saveMutation]);
+  }, [answers, inspirations, alreadySubmitted, mutateAsync]);
 
   // Beacon on tab close — fires lastSeenAt so the cron has fresh data.
   useEffect(() => {
