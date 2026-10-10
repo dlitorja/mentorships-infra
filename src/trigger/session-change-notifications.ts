@@ -239,7 +239,12 @@ export const sendSessionReminders = schedules.task({
       )
       .orderBy(sessions.scheduledAt);
 
-    const sessionsToRemind: Array<Awaited<ReturnType<typeof query>>[number]> = [];
+    async function fetchReminderPage(offset: number) {
+      return await query.limit(REMINDER_PAGE_SIZE).offset(offset);
+    }
+    type ReminderRow = Awaited<ReturnType<typeof fetchReminderPage>>[number];
+
+    const sessionsToRemind: ReminderRow[] = [];
     let offset = 0;
     while (true) {
       const page = await query.limit(REMINDER_PAGE_SIZE).offset(offset);
