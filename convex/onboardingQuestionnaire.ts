@@ -136,6 +136,17 @@ export const saveQuestionnaireDraft = mutation({
     // confirm its write took effect (and detect out-of-order
     // drops for future telemetry).
     storedClientSaveId: v.number(),
+    // Greptile round-25 P2: explicit accept flag so the
+    // client doesn't have to infer success from id equality.
+    // `accepted === true` means THIS save's payload landed
+    // on the server; `accepted === false` means an older
+    // (or equal) write already won and this one was a
+    // no-op. Returning storedClientSaveId alone is
+    // ambiguous: stored === sent can mean "accepted" or
+    // "duplicate was a no-op". Treating the equal case as
+    // a retry, as round 24 did, doubled successful
+    // autosave traffic.
+    accepted: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -163,6 +174,7 @@ export const saveQuestionnaireDraft = mutation({
         submissionId: existing._id,
         status: "submitted" as const,
         storedClientSaveId: existing.lastClientSaveId ?? 0,
+        accepted: false,
       };
     }
 
@@ -177,6 +189,7 @@ export const saveQuestionnaireDraft = mutation({
         submissionId: existing._id,
         status: "draft" as const,
         storedClientSaveId: stored,
+        accepted: false,
       };
     }
 
@@ -192,6 +205,7 @@ export const saveQuestionnaireDraft = mutation({
         submissionId: existing._id,
         status: "draft" as const,
         storedClientSaveId: args.clientSaveId,
+        accepted: true,
       };
     }
 
@@ -214,6 +228,7 @@ export const saveQuestionnaireDraft = mutation({
       submissionId,
       status: "draft" as const,
       storedClientSaveId: args.clientSaveId,
+      accepted: true,
     };
   },
 });

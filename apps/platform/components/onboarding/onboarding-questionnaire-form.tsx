@@ -247,24 +247,22 @@ export default function OnboardingQuestionnaireForm({
       setSubmission(next);
       // Greptile round-20 P1 #2: detect a stale save that
       // the server dropped because another tab won the race.
-      // The mutation echoes `storedClientSaveId`; if the
-      // server has a value strictly greater than what we
-      // sent, our counter is behind — bump it past the
-      // stored value and re-fire so this tab catches up.
-      // Greptile round-24 P1 #1: also treat EQUAL ids as
-      // rejected (the server's strict-greater guard drops
-      // them too). Without this, the first save after
-      // reload with the same prefix but a fresh counter
-      // could send an id that matches the previously
-      // stored value and silently drop the new edit.
+      // Greptile round-25 P2: the server returns an explicit
+      // `accepted: boolean` flag rather than inferring from
+      // id equality. Inferring from `stored === sent` would
+      // retry every successful save (the server stamps the
+      // same id on accept). Only re-fire when the server
+      // explicitly says it dropped the write.
+      const accepted = (next as { accepted?: boolean }).accepted;
+      const stored = (next as { storedClientSaveId?: number })
+        .storedClientSaveId;
       const sentId =
         (clientSaveIdTabPrefix ?? 0) * PREFIX_SPACE +
         clientSaveIdCounter.current;
-      const stored = (next as { storedClientSaveId?: number })
-        .storedClientSaveId;
       if (
+        accepted === false &&
         typeof stored === "number" &&
-        stored >= sentId &&
+        stored > sentId &&
         !recoveryInFlight.current
       ) {
         const recovered =

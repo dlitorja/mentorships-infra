@@ -421,6 +421,7 @@ test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)",
       clientSaveId: 5,
     });
   expect(newer.storedClientSaveId).toBe(5);
+  expect(newer.accepted).toBe(true);
 
   // Older save arrives out of order — should be a no-op.
   const older = await t
@@ -433,6 +434,7 @@ test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)",
       clientSaveId: 3,
     });
   expect(older.storedClientSaveId).toBe(5);
+  expect(older.accepted).toBe(false);
 
   // Row reflects the newer save, not the older one.
   const row = await t
@@ -457,6 +459,7 @@ test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)",
       clientSaveId: 5,
     });
   expect(equal.storedClientSaveId).toBe(5);
+  expect(equal.accepted).toBe(false);
 
   const rowAfterDup = await t
     .withIdentity({ subject: studentId })
@@ -513,6 +516,7 @@ test("getQuestionnaireForCurrentUser returns lastClientSaveId so returning stude
       clientSaveId: 8,
     });
   expect(next.storedClientSaveId).toBe(8);
+  expect(next.accepted).toBe(true);
 });
 
 test("recordQuestionnaireSeen stamps lastSeenAt only, does not increment reminderCount", async () => {
@@ -771,6 +775,7 @@ test("saveQuestionnaireDraft accepts empty answers + empty inspirations (intenti
       clientSaveId: 2,
     });
   expect(cleared.storedClientSaveId).toBe(2);
+  expect(cleared.accepted).toBe(true);
 
   // Row should reflect the empty state.
   const row = await t
