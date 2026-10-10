@@ -400,10 +400,6 @@ test("saveQuestionnaireDraft no-ops once submitted", async () => {
 });
 
 test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)", async () => {
-  // Greptile round-18 P1 #1: an older autosave in flight can
-  // race with a newer tab-close flush. Server tracks the
-  // latest accepted `clientSaveId` and drops incoming writes
-  // whose `clientSaveId <= stored`.
   const t = convexTest(schema, modules);
   const studentId = "user_student_order";
   const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-order" });
@@ -470,6 +466,53 @@ test("saveQuestionnaireDraft rejects older clientSaveId (server-side ordering)",
   expect(
     rowAfterDup?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
   ).toBe("newer");
+});
+
+test("getQuestionnaireForCurrentUser returns lastClientSaveId so returning students can re-seed the counter", async () => {
+  // Greptile round-19 P1: server stores lastClientSaveId;
+  // the read-side query must surface it so the client form
+  // can seed its monotonic counter on the next visit.
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_visit";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-visit" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-visit@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  // First visit: save 7.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 7,
+    });
+
+  // Returning visit: GET must surface lastClientSaveId = 7.
+  const initial = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(initial?.lastClientSaveId).toBe(7);
+
+  // A subsequent save with clientSaveId 8 (seed = 7 + 1)
+  // is accepted.
+  const next = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 8,
+    });
+  expect(next.storedClientSaveId).toBe(8);
 });
 
 test("recordQuestionnaireSeen stamps lastSeenAt only, does not increment reminderCount", async () => {

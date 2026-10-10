@@ -52,6 +52,11 @@ type Submission = {
   reminderCount: number;
   lastReminderSentAt: number | undefined;
   submittedAt: number | undefined;
+  // Greptile round-19 P1: server-stored save counter so the
+  // client can seed its monotonic counter on subsequent
+  // visits. Without this, a returning student restarts at 0
+  // and the server drops every save.
+  lastClientSaveId: number | undefined;
 };
 
 type InitialState = {
@@ -121,7 +126,13 @@ export default function OnboardingQuestionnaireForm({
   // whose `clientSaveId <= stored`, so an older autosave in
   // flight can never overwrite a newer tab-close flush even
   // when requests arrive out of order at the backend.
-  const clientSaveIdCounter = useRef(0);
+  // Greptile round-19 P1: seed the counter from the
+  // server-stored value on mount so a returning student
+  // doesn't restart at 0 (which would cause the server to
+  // drop every save until the counter catches up).
+  const clientSaveIdCounter = useRef(
+    (initial.submission?.lastClientSaveId ?? 0) + 1
+  );
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;

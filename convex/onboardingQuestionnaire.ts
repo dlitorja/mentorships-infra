@@ -377,6 +377,12 @@ export const getQuestionnaireForCurrentUser = query({
       inspirations: QUESTIONNAIRE_INSPIRATIONS_VALIDATOR,
       submittedAt: v.optional(v.number()),
       updatedAt: v.number(),
+      // Greptile round-19 P1: return the stored save counter
+      // so the client can seed its monotonic counter on
+      // subsequent visits. Without this, a returning student
+      // restarts at 0 and the server drops every save (its
+      // stored value is still > 0 from the previous visit).
+      lastClientSaveId: v.optional(v.number()),
     })
   ),
   handler: async (ctx, args) => {
@@ -399,6 +405,7 @@ export const getQuestionnaireForCurrentUser = query({
       inspirations: submission.inspirations,
       submittedAt: submission.submittedAt,
       updatedAt: submission.updatedAt,
+      lastClientSaveId: submission.lastClientSaveId,
     };
   },
 });
