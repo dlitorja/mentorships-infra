@@ -622,6 +622,14 @@ export default function OnboardingQuestionnaireForm({
       toast.error("Submit failed", {
         description: err instanceof Error ? err.message : "Try again.",
       });
+      // Greptile round-27 P1 #4: a failed submit must clear
+      // the snapshot so the student sees their CURRENT
+      // edits (not the stale values they tried to send).
+      // Without this, typing after a failed submit updates
+      // the draft state but the display still reads from
+      // the snapshot — the next submit can contain values
+      // that don't match what the student sees.
+      submitSnapshotRef.current = null;
     },
   });
 
