@@ -29,6 +29,7 @@ const submitSchema = z.object({
   answers: z.array(
     z.object({
       questionId: z.string().min(1),
+      questionText: z.string().min(1).max(500),
       answerText: z.string().max(8000),
     })
   ),

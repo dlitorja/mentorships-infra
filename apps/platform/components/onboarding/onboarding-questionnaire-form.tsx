@@ -350,10 +350,25 @@ export default function OnboardingQuestionnaireForm({
         {
           method: "POST",
           body: JSON.stringify({
-            answers: textareaQuestions.map((q) => ({
-              questionId: q.id,
-              answerText: (answers[q.id] ?? "").trim(),
-            })),
+            // Submit body MUST carry one answer entry per canonical
+            // question id — including "inspirations" — and each entry
+            // MUST include questionText (the server stamps it on the
+            // stored row so the answer renders correctly even if the
+            // question wording changes later).
+            answers: [
+              ...textareaQuestions.map((q) => ({
+                questionId: q.id,
+                questionText: q.label,
+                answerText: (answers[q.id] ?? "").trim(),
+              })),
+              {
+                questionId: inspirationsQuestion.id,
+                questionText: inspirationsQuestion.label,
+                answerText: validInspirations
+                  .map((i) => i.name)
+                  .join("\n"),
+              },
+            ],
             inspirations: validInspirations,
           }),
         }
