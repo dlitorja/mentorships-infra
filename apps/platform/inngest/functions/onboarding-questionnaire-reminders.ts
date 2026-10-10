@@ -116,7 +116,7 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     // counter inside the callback. Inngest restores step results
     // from their return values on resume — if `sent` lives
     // outside, it's lost across resumes and we under-report.
-    const stepResults: Array<{ sent?: boolean }> = [];
+    const stepResults: Array<{ sent?: boolean } | { skipped: boolean; reason: string }> = [];
     for (const draft of drafts) {
       const result = await step.run(`send:${draft.submissionId}`, async () => {
         try {
@@ -188,7 +188,12 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
       stepResults.push(result);
     }
 
-    const sent = stepResults.filter((r) => r.sent).length;
+    // Inngest step.run() return type is the union of every branch
+    // above (`{ reason, skipped }` | `{ sent }`); narrow to count
+    // only successful sends without TypeScript losing track.
+    const sent = stepResults.filter(
+      (r): r is { sent: boolean } => "sent" in r
+    ).length;
     return { sent, considered: drafts.length };
   }
 );

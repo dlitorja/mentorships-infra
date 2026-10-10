@@ -284,6 +284,7 @@ export default function OnboardingQuestionnaireForm({
             b2Key: "",
             fileId: minted.fileId,
             uploadedAt: Date.now(),
+            size: file.size,
           },
         ]);
         toast.success("Uploaded");
@@ -358,7 +359,11 @@ export default function OnboardingQuestionnaireForm({
         }
       ),
     onSuccess: ({ submission: next }) => {
-      setSubmission(next);
+      // Force status="submitted" locally so the form locks even if
+      // the server's submit response shape omits the field —
+      // students should not be able to keep editing after the
+      // server has locked their questionnaire.
+      setSubmission({ ...next, status: "submitted" });
       toast.success("Questionnaire submitted", {
         description: "Your instructor will review it before your first call.",
       });
@@ -474,7 +479,7 @@ export default function OnboardingQuestionnaireForm({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {activeWorkExamples.map((w) => (
+            {workExamples.filter((w) => w.status === "active").map((w) => (
               <div
                 key={w._id}
                 className="relative aspect-square overflow-hidden rounded-md border bg-muted"
@@ -499,12 +504,12 @@ export default function OnboardingQuestionnaireForm({
                 )}
               </div>
             ))}
-            {!alreadySubmitted && activeWorkExamples.length < MAX_WORK_EXAMPLES_PER_ONBOARDING && (
+            {!alreadySubmitted && workExamples.filter((w) => w.status === "active").length < MAX_WORK_EXAMPLES_PER_ONBOARDING && (
               <WorkExampleUploadTile onFile={uploadFile} />
             )}
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            {activeWorkExamples.length} of {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
+            {workExamples.filter((w) => w.status === "active").length} of {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
             uploaded. Max {Math.round(MAX_WORK_EXAMPLE_BYTES / (1024 * 1024))} MB
             per file. {WORK_EXAMPLE_ALLOWED_MIME_LIST.join(", ")}.
           </p>
