@@ -267,8 +267,17 @@ export default function OnboardingQuestionnaireForm({
       // typed while the request was in flight, and marking that
       // as "saved" lets an in-flight later save overwrite it
       // without the form noticing.
-      lastSavePayload.current =
-        lastSentPayloadRef.current ?? lastSavePayload.current;
+      // Greptile round-27 P1 #5: when another tab wins both
+      // the first save AND the recovery re-fire, the second
+      // onSuccess also returns accepted=false. Marking
+      // lastSavePayload here would make the form say "Draft
+      // saved" for answers that never landed on the server.
+      // Only mark saved when the server actually accepted
+      // this write.
+      if (accepted === true) {
+        lastSavePayload.current =
+          lastSentPayloadRef.current ?? lastSavePayload.current;
+      }
     },
     onError: (err) => {
       // Auto-save failures are non-fatal; surface a soft toast so
