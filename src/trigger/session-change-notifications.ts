@@ -237,7 +237,7 @@ export const sendSessionReminders = schedules.task({
           lt(sessions.scheduledAt, windowEnd)
         )
       )
-      .orderBy(sessions.scheduledAt);
+      .orderBy(sessions.scheduledAt, sessions.id);
 
     async function fetchReminderPage(offset: number) {
       return await query.limit(REMINDER_PAGE_SIZE).offset(offset);
