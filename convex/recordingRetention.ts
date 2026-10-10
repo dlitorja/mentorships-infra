@@ -30,11 +30,14 @@ const DELIVERY_CLAIM_STALE_MS = 60 * 60 * 1000;
  *     `recordingRetentionNotifications` rows for in-app banner
  *     surfacing.
  *
- * Defaults to 30 days so roughly the most-recent month of recordings
- * is always available; backfills to `_creationTime + 30d` for legacy
- * rows. Configurable via the `RECORDING_RETENTION_DAYS` env var
- * (read in `attachRecordingFromB2Upload`, which is the only
- * place the value is captured at write time).
+ * Defaults to 30 days for new recordings (forward-looking change:
+ * existing rows with a `recordingExpiresAt` keep their original
+ * deadline). The legacy backfill path (`backfillRecordingExpiryStep`)
+ * still writes `_creationTime + 90d` so historical rows aren't
+ * suddenly shortened by the default change. Configurable via the
+ * `RECORDING_RETENTION_DAYS` env var (read in
+ * `attachRecordingFromB2Upload`, which is the only place the
+ * value is captured at write time).
  */
 export const DEFAULT_RECORDING_RETENTION_DAYS = 30;
 export const DEFAULT_RECORDING_RETENTION_MS =

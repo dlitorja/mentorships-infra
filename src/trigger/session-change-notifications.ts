@@ -187,26 +187,39 @@ export const studentCancelledBookingNotifications = task({
 const REMINDER_MINUTES = 30;
 // Polling cadence is 15 minutes (`cron: "*/15 * * * *"` below), so the
 // match window must extend half the cadence on each side of the target
-// lead time. This keeps coverage continuous across ticks (no missed
-// sessions) with zero overlap (no duplicate reminder emails).
+// lead time to keep coverage continuous across ticks. The window is
+// anchored to `payload.timestamp` (the cron-scheduled tick, e.g.
+// exactly 10:15:00.000) rather than the actual task start time, so
+// adjacent ticks produce half-open intervals that share their boundary
+// without overlap. Using `new Date()` instead would let queue-latency
+// jitter widen adjacent windows into each other and double-match the
+// same session.
 const REMINDER_WINDOW_MINUTES = 15 / 2;
+
+const REMINDER_PAGE_SIZE = 100;
 
 export const sendSessionReminders = schedules.task({
   id: "send-session-reminders",
   cron: "*/15 * * * *",
   maxDuration: 300,
   run: async (payload) => {
-    const now = new Date();
+    const now = payload.timestamp;
     const targetTime = new Date(now.getTime() + REMINDER_MINUTES * 60 * 1000);
     const windowStart = new Date(targetTime.getTime() - REMINDER_WINDOW_MINUTES * 60 * 1000);
     const windowEnd = new Date(targetTime.getTime() + REMINDER_WINDOW_MINUTES * 60 * 1000);
 
     logger.info("Checking for sessions needing reminders", {
+      scheduledTick: now.toISOString(),
       windowStart: windowStart.toISOString(),
       windowEnd: windowEnd.toISOString(),
     });
 
-    const sessionsToRemind = await db
+    // Page through matches instead of capping at a fixed limit:
+    // widening the window from ±2m to ±7.5m roughly triples the
+    // expected match count per tick, and dropping the tail means
+    // some sessions never get the reminder. Order by scheduledAt
+    // so pagination is deterministic.
+    const query = db
       .select({
         session: sessions,
         student: users,
@@ -224,7 +237,17 @@ export const sendSessionReminders = schedules.task({
           lt(sessions.scheduledAt, windowEnd)
         )
       )
-      .limit(50);
+      .orderBy(sessions.scheduledAt);
+
+    const sessionsToRemind: Array<Awaited<ReturnType<typeof query>>[number]> = [];
+    let offset = 0;
+    while (true) {
+      const page = await query.limit(REMINDER_PAGE_SIZE).offset(offset);
+      if (page.length === 0) break;
+      sessionsToRemind.push(...page);
+      if (page.length < REMINDER_PAGE_SIZE) break;
+      offset += REMINDER_PAGE_SIZE;
+    }
 
     logger.info(`Found ${sessionsToRemind.length} sessions needing reminders`);
 
