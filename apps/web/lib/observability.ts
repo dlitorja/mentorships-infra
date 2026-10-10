@@ -55,21 +55,6 @@ function errorToContext(error: unknown): Record<string, JsonValue> {
   };
 }
 
-async function sendToBetterStack(event: ObservabilityEvent): Promise<void> {
-  const token = process.env.BETTERSTACK_SOURCE_TOKEN;
-  if (!token) return;
-
-  await fetch("https://in.logs.betterstack.com", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(event),
-    signal: timeoutSignal(3000),
-  });
-}
-
 async function sendToAxiom(event: ObservabilityEvent): Promise<void> {
   const token = process.env.AXIOM_TOKEN;
   const dataset = process.env.AXIOM_DATASET;
@@ -140,7 +125,7 @@ export async function reportError(args: {
   };
 
   try {
-    await Promise.allSettled([sendToBetterStack(event), sendToAxiom(event)]);
+    await sendToAxiom(event);
   } catch {
     // Fail closed: observability must never break production traffic.
   }
@@ -167,7 +152,7 @@ export async function reportInfo(args: {
   };
 
   try {
-    await Promise.allSettled([sendToBetterStack(event), sendToAxiom(event)]);
+    await sendToAxiom(event);
   } catch {
     // Fail closed: observability must never break production traffic.
   }

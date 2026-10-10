@@ -185,11 +185,15 @@ export const studentCancelledBookingNotifications = task({
 });
 
 const REMINDER_MINUTES = 30;
-const REMINDER_WINDOW_MINUTES = 2;
+// Polling cadence is 15 minutes (`cron: "*/15 * * * *"` below), so the
+// match window must extend half the cadence on each side of the target
+// lead time. This keeps coverage continuous across ticks (no missed
+// sessions) with zero overlap (no duplicate reminder emails).
+const REMINDER_WINDOW_MINUTES = 15 / 2;
 
 export const sendSessionReminders = schedules.task({
   id: "send-session-reminders",
-  cron: "*/5 * * * *",
+  cron: "*/15 * * * *",
   maxDuration: 300,
   run: async (payload) => {
     const now = new Date();
