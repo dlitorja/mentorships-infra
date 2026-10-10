@@ -201,13 +201,24 @@ export const getWorkExampleByIdInternal = internalQuery({
 /**
  * Greptile P1 follow-up: internal mutation that flips a work
  * example row to `active`. Called from the action wrapper
- * after the B2 HEAD succeeds; runs in a transaction so the
- * patch is consistent.
+ * after the B2 HEAD succeeds. Re-reads the row inside the
+ * transaction so a student-initiated deletion that landed
+ * between the action's HEAD check and this patch is not
+ * silently undone — round-8 P1: a late PUT confirmation was
+ * setting `status = "active"` on a row the student had
+ * already deleted during the B2 wait, which brought the
+ * orphan back into the active set.
  */
 export const markWorkExampleActive = internalMutation({
   args: { workExampleId: v.id("onboardingWorkExamples") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const row = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
+    if (!row) return null;
+    // Already-active is idempotent; deleted stays deleted.
+    if (row.status === "active" || row.status === "deleted") {
+      return null;
+    }
     await ctx.db.patch(args.workExampleId, { status: "active" });
     return null;
   },
