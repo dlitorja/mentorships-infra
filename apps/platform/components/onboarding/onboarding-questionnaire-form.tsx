@@ -38,6 +38,7 @@ type WorkExample = {
   b2Key: string;
   fileId: string;
   uploadedAt: number;
+  size: number;
 };
 
 type Submission = {
@@ -478,9 +479,11 @@ export default function OnboardingQuestionnaireForm({
                 key={w._id}
                 className="relative aspect-square overflow-hidden rounded-md border bg-muted"
               >
-                <div className="flex h-full w-full items-center justify-center">
-                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                </div>
+                <WorkExampleThumb
+                  onboardingId={onboardingId}
+                  workExampleId={w._id}
+                  fileName={w.fileName}
+                />
                 <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
                   <span className="line-clamp-1">{w.fileName}</span>
                 </div>
@@ -640,5 +643,72 @@ function SubmitChecklist({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Greptile P2 follow-up (round 9): render the actual image for
+ * each work example tile, not just the ImageIcon placeholder.
+ * Fetches a short-lived signed GET URL on mount via the existing
+ * `getWorkExampleDownloadUrl` action and swaps the tile contents
+ * once the URL resolves. Falls back to the icon if the fetch
+ * fails (network/auth/expiry) so the form stays usable.
+ */
+function WorkExampleThumb({
+  onboardingId,
+  workExampleId,
+  fileName,
+}: {
+  onboardingId: string;
+  workExampleId: string;
+  fileName: string;
+}): React.JSX.Element {
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    setSignedUrl(null);
+    (async () => {
+      try {
+        const res = await apiFetch<{ url: string }>(
+          ApiRoutes.onboardingWorkExampleDownloadUrl(
+            onboardingId,
+            workExampleId
+          ),
+          { method: "GET" }
+        );
+        if (!cancelled) setSignedUrl(res.url);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [onboardingId, workExampleId]);
+
+  return (
+    <>
+      {signedUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={signedUrl}
+          alt={fileName}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        </div>
+      )}
+      {failed && !signedUrl && (
+        <div className="absolute inset-x-0 top-0 bg-destructive/80 px-1 py-0.5 text-[10px] text-destructive-foreground">
+          preview unavailable
+        </div>
+      )}
+    </>
   );
 }
