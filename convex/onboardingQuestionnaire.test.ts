@@ -684,7 +684,12 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       force: true,
     });
   expect(beacon.accepted).toBe(true);
-  expect(beacon.storedClientSaveId).toBe(3);
+  // Greptile round-28 P1 #15: forced overwrites bump
+  // stored to max(stored + 1, clientSaveId) so the
+  // counter never goes DOWN. The earlier save had
+  // stored=10; the forced save with clientSaveId=3
+  // bumps stored to 11.
+  expect(beacon.storedClientSaveId).toBe(11);
 
   const row = await t
     .withIdentity({ subject: studentId })
@@ -912,7 +917,12 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       force: true,
     });
   expect(beacon.accepted).toBe(true);
-  expect(beacon.storedClientSaveId).toBe(3);
+  // Greptile round-28 P1 #15: forced overwrites bump
+  // stored to max(stored + 1, clientSaveId) so the
+  // counter never goes DOWN. The earlier save had
+  // stored=10; the forced save with clientSaveId=3
+  // bumps stored to 11.
+  expect(beacon.storedClientSaveId).toBe(11);
 
   const row = await t
     .withIdentity({ subject: studentId })

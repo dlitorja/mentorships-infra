@@ -195,15 +195,25 @@ export const saveQuestionnaireDraft = mutation({
     // client serialises order-of-FETCH, but the network can
     // reorder request-of-ARRIVAL at the Convex backend, so the
     // server is the only place we can guarantee ordering.
-    // Greptile round-27 P1 #14: `force: true` (only set by
-    // the tab-close beacon route) bypasses the guard so the
-    // closing tab's payload lands even when its local
-    // counter is below the latest stored value.
+    // Greptile round-27 P1 #14 + round-28 P1 #15: `force: true`
+    // (only set by the tab-close beacon route) bypasses the
+    // guard so the closing tab's payload lands even when its
+    // local counter is below the latest stored value.
+    // Greptile round-28 P1 #15: a naive force=true can lower
+    // the stored counter and let a delayed non-forced save
+    // (with id between the old stored and the forced id)
+    // pass the ordering check and overwrite the closing
+    // tab's edits. Fix: on force, never lower the stored
+    // counter. If clientSaveId < stored, bump stored to
+    // stored + 1 (one above the highest known) and write
+    // the payload. Subsequent saves with id > newStored
+    // still win the race.
     const stored = existing?.lastClientSaveId ?? 0;
+    const forcedOverwrite = existing && args.force === true;
     if (
       existing &&
       args.clientSaveId <= stored &&
-      args.force !== true
+      !forcedOverwrite
     ) {
       return {
         submissionId: existing._id,
@@ -214,17 +224,25 @@ export const saveQuestionnaireDraft = mutation({
     }
 
     if (existing) {
+      // Greptile round-28 P1 #15: on forced overwrite, bump
+      // stored to max(stored + 1, clientSaveId) so the
+      // counter never goes DOWN. The closing tab's payload
+      // lands (we wrote it) but the next non-forced save
+      // from any tab still has to beat the bumped value.
+      const newStored = forcedOverwrite
+        ? Math.max(stored + 1, args.clientSaveId)
+        : args.clientSaveId;
       await ctx.db.patch(existing._id, {
         questionnaireVersion: args.questionnaireVersion,
         answers: args.answers,
         inspirations: args.inspirations,
         updatedAt: now,
-        lastClientSaveId: args.clientSaveId,
+        lastClientSaveId: newStored,
       });
       return {
         submissionId: existing._id,
         status: "draft" as const,
-        storedClientSaveId: args.clientSaveId,
+        storedClientSaveId: newStored,
         accepted: true,
       };
     }
