@@ -62,7 +62,7 @@ describe("convexServerCall", () => {
     expect(result).toEqual({ value: 42 });
   });
 
-  it("throws on 401 with status 502", async () => {
+  it("throws on 401 with status 401 (passes through the auth-rejection status)", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response("unauthorized", { status: 401 })
     );
@@ -71,12 +71,12 @@ describe("convexServerCall", () => {
       convexServerCall("/users/set-role", { userId: "u_1" })
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
-      status: 502,
+      status: 401,
       message: expect.stringContaining("401"),
     });
   });
 
-  it("throws on 4xx with status 502", async () => {
+  it("throws on 4xx and passes the original status through (not 502)", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response("bad request: missing field", { status: 400 })
     );
@@ -89,12 +89,38 @@ describe("convexServerCall", () => {
     }
     expect(caught).toBeInstanceOf(ConvexServerCallError);
     const err = caught as ConvexServerCallError;
-    expect(err.status).toBe(502);
+    expect(err.status).toBe(400);
     expect(err.message).toContain("400");
     expect(err.message).toContain("bad request");
   });
 
-  it("throws on 5xx with status 502 and includes server text", async () => {
+  it("throws on 404 with status 404 (unlocks the inventory route's convex-not-found label)", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: "Instructor not found",
+        }),
+        { status: 404 }
+      )
+    );
+
+    let caught: unknown = null;
+    try {
+      await convexServerCall("/inventory/get-public-by-slug", {
+        slug: "missing",
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ConvexServerCallError);
+    const err = caught as ConvexServerCallError;
+    expect(err.status).toBe(404);
+    expect(err.message).toContain("404");
+    expect(err.message).toContain("Instructor not found");
+  });
+
+  it("throws on 5xx and passes the original status through (not 502)", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response("internal error: db down", { status: 500 })
     );
@@ -103,8 +129,36 @@ describe("convexServerCall", () => {
       convexServerCall("/users/set-role", { userId: "u_1" })
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
-      status: 502,
+      status: 500,
       message: expect.stringContaining("500"),
+    });
+  });
+
+  it("throws on 503 with status 503 (passes through)", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response("service unavailable", { status: 503 })
+    );
+
+    await expect(
+      convexServerCall("/users/set-role", {})
+    ).rejects.toMatchObject({
+      name: "ConvexServerCallError",
+      status: 503,
+      message: expect.stringContaining("503"),
+    });
+  });
+
+  it("throws on 502 with status 502 (preserves Convex transport errors)", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response("convex upstream error", { status: 502 })
+    );
+
+    await expect(
+      convexServerCall("/users/set-role", {})
+    ).rejects.toMatchObject({
+      name: "ConvexServerCallError",
+      status: 502,
+      message: expect.stringContaining("502"),
     });
   });
 
