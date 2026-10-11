@@ -1,12 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ConvexServerCallError,
-  convexServerCall,
+  convexServerCall as convexServerCallPlatform,
 } from "../../../apps/platform/lib/convex-server-call";
+import {
+  convexServerCall as convexServerCallMarketing,
+} from "../../../apps/marketing/lib/convex-server-call";
+
+// Both apps have a mirror copy of convexServerCall with identical behavior.
+// Run the status-pass-through tests against both so the marketing copy
+// (used by apps/marketing/app/api/instructor/inventory/route.ts) is
+// covered too — a regression in one file would still pass if only the
+// other were tested.
+const helpers = [
+  ["platform", convexServerCallPlatform],
+  ["marketing", convexServerCallMarketing],
+] as const;
 
 const originalEnv = { ...process.env };
 
-describe("convexServerCall", () => {
+describe("convexServerCallPlatform", () => {
   beforeEach(() => {
     process.env.CONVEX_URL = "https://example.convex.site";
     process.env.CONVEX_HTTP_KEY = "test-key-do-not-log";
@@ -28,7 +41,7 @@ describe("convexServerCall", () => {
       })
     );
 
-    const result = await convexServerCall<{ ok: boolean }>(
+    const result = await convexServerCallPlatform<{ ok: boolean }>(
       "/instructors/create-for-clerk-user",
       { userId: "u_123", name: "Alex" }
     );
@@ -54,7 +67,7 @@ describe("convexServerCall", () => {
       new Response(JSON.stringify({ value: 42 }), { status: 200 })
     );
 
-    const result = await convexServerCall<{ value: number }>("/users/set-role", {
+    const result = await convexServerCallPlatform<{ value: number }>("/users/set-role", {
       userId: "u_1",
       role: "instructor",
     });
@@ -68,7 +81,7 @@ describe("convexServerCall", () => {
     );
 
     await expect(
-      convexServerCall("/users/set-role", { userId: "u_1" })
+      convexServerCallPlatform("/users/set-role", { userId: "u_1" })
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 401,
@@ -83,7 +96,7 @@ describe("convexServerCall", () => {
 
     let caught: unknown = null;
     try {
-      await convexServerCall("/users/set-role", { userId: "u_1" });
+      await convexServerCallPlatform("/users/set-role", { userId: "u_1" });
     } catch (err) {
       caught = err;
     }
@@ -107,7 +120,7 @@ describe("convexServerCall", () => {
 
     let caught: unknown = null;
     try {
-      await convexServerCall("/inventory/get-public-by-slug", {
+      await convexServerCallPlatform("/inventory/get-public-by-slug", {
         slug: "missing",
       });
     } catch (err) {
@@ -126,7 +139,7 @@ describe("convexServerCall", () => {
     );
 
     await expect(
-      convexServerCall("/users/set-role", { userId: "u_1" })
+      convexServerCallPlatform("/users/set-role", { userId: "u_1" })
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 500,
@@ -140,7 +153,7 @@ describe("convexServerCall", () => {
     );
 
     await expect(
-      convexServerCall("/users/set-role", {})
+      convexServerCallPlatform("/users/set-role", {})
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 503,
@@ -148,19 +161,121 @@ describe("convexServerCall", () => {
     });
   });
 
-  it("throws on 502 with status 502 (preserves Convex transport errors)", async () => {
+it("throws on 502 with status 502 (preserves Convex transport errors)", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response("convex upstream error", { status: 502 })
     );
 
     await expect(
-      convexServerCall("/users/set-role", {})
+      convexServerCallPlatform("/users/set-role", {})
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 502,
       message: expect.stringContaining("502"),
     });
   });
+
+  // Regression guard: status pass-through must apply to BOTH the platform
+  // and marketing helpers. apps/marketing/app/api/instructor/inventory/route.ts
+  // keys off error.status === 404 to label a hidden instructor as
+  // `convex-not-found` instead of mislabeling as `convex-error` (HUC-73).
+  // If only the platform copy is fixed, the marketing route still sees
+  // hardcoded 502 and the label stays wrong.
+  describe.each(helpers)(
+    "convexServerCall [%s] — status pass-through",
+    (_name, callHelper) => {
+      it("401 → status 401 (auth-rejection status passes through)", async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          new Response("unauthorized", { status: 401 })
+        );
+
+        await expect(
+          callHelper("/users/set-role", { userId: "u_1" })
+        ).rejects.toMatchObject({
+          name: "ConvexServerCallError",
+          status: 401,
+          message: expect.stringContaining("401"),
+        });
+      });
+
+      it("404 → status 404 (unlocks the inventory route's convex-not-found label)", async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: false,
+              error: "Instructor not found",
+            }),
+            { status: 404 }
+          )
+        );
+
+        let caught: unknown = null;
+        try {
+          await callHelper("/inventory/get-public-by-slug", { slug: "x" });
+        } catch (err) {
+          caught = err;
+        }
+        // Use duck-typing instead of instanceof: the marketing helper
+        // exports its own ConvexServerCallError class (mirror copy), so
+        // an instanceof check against the platform class would fail.
+        expect(caught).toBeInstanceOf(Error);
+        const err = caught as Error & { status?: number; name?: string };
+        expect(err.name).toBe("ConvexServerCallError");
+        expect(err.status).toBe(404);
+      });
+
+      it("500 → status 500 (not 502)", async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          new Response("internal error", { status: 500 })
+        );
+
+        await expect(
+          callHelper("/users/set-role", {})
+        ).rejects.toMatchObject({
+          name: "ConvexServerCallError",
+          status: 500,
+        });
+      });
+
+      it("503 → status 503 (passes through)", async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          new Response("service unavailable", { status: 503 })
+        );
+
+        await expect(
+          callHelper("/users/set-role", {})
+        ).rejects.toMatchObject({
+          name: "ConvexServerCallError",
+          status: 503,
+        });
+      });
+
+      it("502 → status 502 (preserved, not downgraded)", async () => {
+        vi.mocked(fetch).mockResolvedValueOnce(
+          new Response("convex upstream error", { status: 502 })
+        );
+
+        await expect(
+          callHelper("/users/set-role", {})
+        ).rejects.toMatchObject({
+          name: "ConvexServerCallError",
+          status: 502,
+        });
+      });
+
+      it("network error still throws 502 (no upstream status to preserve)", async () => {
+        vi.mocked(fetch).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+        await expect(
+          callHelper("/users/set-role", {})
+        ).rejects.toMatchObject({
+          name: "ConvexServerCallError",
+          status: 502,
+          message: expect.stringContaining("Network error"),
+        });
+      });
+    }
+  );
 
   it("truncates long server error bodies", async () => {
     const longText = "x".repeat(2000);
@@ -169,7 +284,7 @@ describe("convexServerCall", () => {
     );
 
     await expect(
-      convexServerCall("/users/set-role", {})
+      convexServerCallPlatform("/users/set-role", {})
     ).rejects.toThrowError(/x+\u2026$/);
   });
 
@@ -177,7 +292,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
     await expect(
-      convexServerCall("/users/set-role", {})
+      convexServerCallPlatform("/users/set-role", {})
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 502,
@@ -188,7 +303,7 @@ describe("convexServerCall", () => {
   it("throws when CONVEX_URL is missing", async () => {
     delete process.env.CONVEX_URL;
     delete process.env.NEXT_PUBLIC_CONVEX_URL;
-    await expect(convexServerCall("/users/set-role", {})).rejects.toThrow(
+    await expect(convexServerCallPlatform("/users/set-role", {})).rejects.toThrow(
       /CONVEX_URL/
     );
     expect(fetch).not.toHaveBeenCalled();
@@ -200,7 +315,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
-    await convexServerCall("/users/set-role", {});
+    await convexServerCallPlatform("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       "https://fallback.convex.site/users/set-role"
     );
@@ -212,7 +327,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
-    await convexServerCall("/users/set-role", {});
+    await convexServerCallPlatform("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       "https://already-site.convex.site/users/set-role"
     );
@@ -223,7 +338,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
-    await convexServerCall("/users/set-role", {});
+    await convexServerCallPlatform("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       "https://example.convex.site/users/set-role"
     );
@@ -234,7 +349,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
-    await convexServerCall("/users/set-role", {});
+    await convexServerCallPlatform("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       "https://example.convex.site/users/set-role"
     );
@@ -246,7 +361,7 @@ describe("convexServerCall", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
-    await convexServerCall("/users/set-role", {});
+    await convexServerCallPlatform("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
       "https://example.convex.site/users/set-role"
     );
@@ -265,7 +380,7 @@ describe("convexServerCall", () => {
     );
 
     await expect(
-      convexServerCall("/users/set-role", {}, { timeoutMs: 50 })
+      convexServerCallPlatform("/users/set-role", {}, { timeoutMs: 50 })
     ).rejects.toMatchObject({
       name: "ConvexServerCallError",
       status: 504,
@@ -275,7 +390,7 @@ describe("convexServerCall", () => {
 
   it("throws when CONVEX_HTTP_KEY is missing", async () => {
     delete process.env.CONVEX_HTTP_KEY;
-    await expect(convexServerCall("/users/set-role", {})).rejects.toThrow(
+    await expect(convexServerCallPlatform("/users/set-role", {})).rejects.toThrow(
       /CONVEX_HTTP_KEY/
     );
     expect(fetch).not.toHaveBeenCalled();
@@ -283,7 +398,7 @@ describe("convexServerCall", () => {
 
   it("rejects paths that don't start with /", async () => {
     await expect(
-      convexServerCall("users/set-role", {})
+      convexServerCallPlatform("users/set-role", {})
     ).rejects.toThrow(/start with "\/"/);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -294,7 +409,7 @@ describe("convexServerCall", () => {
     );
 
     try {
-      await convexServerCall("/users/set-role", {});
+      await convexServerCallPlatform("/users/set-role", {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       expect(message).not.toContain("test-key-do-not-log");
