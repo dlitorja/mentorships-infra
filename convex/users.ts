@@ -2,7 +2,7 @@ import { query, mutation, internalQuery, internalMutation, action } from "./_gen
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import { writeAuditLog } from "./auditLog";
 import { isAdminUser } from "./admin";
 
