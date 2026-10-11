@@ -2,8 +2,9 @@ import { query, mutation, internalQuery, internalMutation, action } from "./_gen
 import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./auditLog";
+import { isAdminUser } from "./admin";
 
 /** Returns a user matching the given email address. */
 export const getUserByEmail = query({
@@ -408,10 +409,26 @@ export const setNotificationPreference = mutation({
   },
 });
 
-/** Deletes a user by their document ID. Requires admin auth. */
-export const deleteUser = mutation({
+/**
+ * Hard-deletes a user document by ID.
+ *
+ * Defense in depth:
+ * - `internalMutation` removes the public attack surface; only callable from
+ *   other Convex functions (cron, action, another internalMutation).
+ * - The `isAdminUser` check is also enforced as a sanity guard in case the
+ *   function is invoked from a context that does have `ctx.auth` populated.
+ *
+ * Original implementation was a public `mutation` with no auth gate, which
+ * was flagged as a residual security finding after PR #902. The doc comment
+ * promised "Requires admin auth." but the handler did not enforce it.
+ */
+export const deleteUser = internalMutation({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity && !(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden");
+    }
     await ctx.db.delete(args.id);
   },
 });
