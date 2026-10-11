@@ -103,14 +103,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   //      parsing or Convex call. `protectWithRateLimit` also emits a
   //      `reportError` event with `source = "ratelimit.middleware"`
   //      and the source IP in `context`, so 429s are observable in
-  //      BetterStack / Axiom. Kajabi's legitimate traffic is bursty
-  //      but rare (1–5 events per purchase, well below the 10/60s
-  //      ceiling).
+  //      Axiom. Kajabi's legitimate traffic is bursty but rare
+  //      (1–5 events per purchase, well below the 10/60s ceiling).
   //   2. User-Agent anomaly alerting. Invalid-UA rejections emit a
   //      `reportError({ source: "webhooks/kajabi", level: "warn",
   //      message: "Suspicious request …" })` event with the source
-  //      IP in `context`, flowing to BetterStack + Axiom (when
-  //      configured). Operators can alert on `source =
+  //      IP in `context`, flowing to Axiom (when configured).
+  //      Operators can alert on `source =
   //      "webhooks/kajabi"` AND `level = "warn"` AND `message
   //      CONTAINS "Suspicious request"` AND `context.ip` count > N
   //      per minute. See `docs/post-merge/kajabi-webhook-security.md`
@@ -278,20 +277,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // change so operators can configure the per-instructor inventory
       // drop alert described in
       // docs/post-merge/kajabi-webhook-security.md. Neither the
-      // Convex mutation nor the Inngest event surfaces to
-      // BetterStack/Axiom, so the webhook handler is the natural
-      // emit point. The event payload includes previousInventory,
-      // newInventory, and quantity so a monitor can alert on
-      // drop > N units/hour per instructor.
+      // Convex mutation nor the Inngest event surfaces to Axiom,
+      // so the webhook handler is the natural emit point. The
+      // event payload includes previousInventory, newInventory, and
+      // quantity so a monitor can alert on drop > N units/hour per
+      // instructor.
       //
       // PII NOTE: `purchaseId` is intentionally NOT included in this
       // event context because the Webhook's `purchaseId` value embeds
       // the buyer's email address when Kajabi sends a transaction id.
-      // Sending that to BetterStack/Axiom would expose buyer PII in
-      // routine operational logs. Operators who need to pivot from an
+      // Sending that to Axiom would expose buyer PII in routine
+      // operational logs. Operators who need to pivot from an
       // inventory drop to a specific purchase should join via the
       // `inventoryChangeLog` Convex table (which is the authoritative
-      // source and is not exported to the observability backends).
+      // source and is not exported to the observability backend).
       //
       // Latency: the emit runs AFTER the response is sent (`after`
       // from next/server) so a slow observability backend cannot
@@ -303,7 +302,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // returned a Promise to the runtime that could be cut off
       // the moment NextResponse.json returned. In serverless
       // environments (Vercel functions) that means an inventory
-      // drop could be silently dropped from BetterStack/Axiom.
+      // drop could be silently dropped from Axiom.
       if (!alreadyApplied && newInventory !== null) {
         after(() =>
           reportError({
