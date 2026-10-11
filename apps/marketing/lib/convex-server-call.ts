@@ -99,7 +99,7 @@ export async function convexServerCall<T>(
   if (response.status === 401) {
     throw new ConvexServerCallError(
       `Convex rejected authentication for ${path} (401). Check CONVEX_HTTP_KEY.`,
-      502
+      401
     );
   }
 
@@ -108,7 +108,7 @@ export async function convexServerCall<T>(
     const safeText = text.length > 500 ? `${text.slice(0, 500)}…` : text;
     throw new ConvexServerCallError(
       `Convex HTTP ${response.status} at ${path}: ${safeText}`,
-      502
+      response.status
     );
   }
 
