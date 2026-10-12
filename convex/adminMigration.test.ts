@@ -115,6 +115,12 @@ test("reassignInstructorFromDuplicate: idem rerun after Clerk deletion cleared u
       updatedAt: Date.now() - 60_000,
     });
     await ctx.db.patch(ids.oldUserId, { deletedAt: Date.now() - 60_000 });
+    await ctx.db.insert("pendingClerkDeletions", {
+      clerkUserId: OLD_CLERK,
+      instructorId: ids.newInstructorId,
+      attempts: 0,
+      createdAt: Date.now(),
+    });
     return ids;
   });
 
@@ -127,4 +133,38 @@ test("reassignInstructorFromDuplicate: idem rerun after Clerk deletion cleared u
 
   expect(result.applied).toBe(false);
   expect((result as any).alreadyCompleted).toBe(true);
+});
+
+test("reassignInstructorFromDuplicate: refuses to skip if oldUser is NOT soft-deleted (Greptile P1 #8)", async () => {
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const ids = await seedFixFixture(ctx);
+    // Admin deleted the instructor via the regular path but did NOT
+    // delete the user or queue Clerk deletion. The cleanup must NOT
+    // report alreadyCompleted and must finish the missing user/Clerk
+    // cleanup steps.
+    await ctx.db.patch(ids.oldInstructorId, {
+      deletedAt: Date.now() - 60_000,
+      isActive: false,
+      updatedAt: Date.now() - 60_000,
+    });
+    return ids;
+  });
+
+  const result = await t.mutation(internal.adminMigration.reassignInstructorFromDuplicate, {
+    oldInstructorId: ids.oldInstructorId as any,
+    oldUserId: ids.oldUserId as any,
+    oldClerkUserId: OLD_CLERK,
+    newInstructorId: ids.newInstructorId as any,
+  });
+
+  expect((result as any).alreadyCompleted).toBeUndefined();
+  expect(Array.isArray((result as any).applied)).toBe(true);
+  const appliedActions = (result as any).applied.map((a: any) => a.action);
+  expect(appliedActions).toEqual(
+    expect.arrayContaining([
+      "soft_delete_duplicate_user",
+      "queue_duplicate_clerk_user_for_deletion",
+    ]),
+  );
 });

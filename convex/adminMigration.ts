@@ -128,22 +128,25 @@ export const reassignInstructorFromDuplicate = internalMutation({
       },
     };
 
+    const existingPendingDeletionForRerun = await ctx.db
+      .query("pendingClerkDeletions")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.oldClerkUserId))
+      .first();
+    const userCleanupComplete = oldUser.deletedAt !== undefined;
+    const pendingClerkDeletionQueued = existingPendingDeletionForRerun !== null;
     if (
       oldInstructorAlreadyDeleted &&
       workspacesToReassign.length === 0 &&
       sessionPacksToReassign.length === 0 &&
       seatReservationsToReassign.length === 0 &&
-      sessionsToReassign.length === 0
+      sessionsToReassign.length === 0 &&
+      userCleanupComplete &&
+      pendingClerkDeletionQueued
     ) {
-      const existingPendingDeletionForRerun = await ctx.db
-        .query("pendingClerkDeletions")
-        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.oldClerkUserId))
-        .first();
       return {
         plan,
         applied: false,
         alreadyCompleted: true,
-        pendingClerkDeletionStillQueued: existingPendingDeletionForRerun !== null,
       };
     }
 

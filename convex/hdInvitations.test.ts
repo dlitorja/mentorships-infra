@@ -343,3 +343,54 @@ test("markInvitationAccepted: catches ANY live instructor with a conflicting Cle
     .map((i) => i.userId);
   expect(liveInstructorUserIds).toEqual([OLD_CLERK_USER]);
 });
+
+test("markInvitationAccepted: reuses an instructor already linked to this Clerk user (no duplicate insert) (Greptile P1 #7)", async () => {
+  const t = convexTest(schema, modules);
+  const { invitationId, instructorId } = await t.run(async (ctx) => {
+    // The Clerk webhook linked the instructor before our invitation
+    // webhook ran. No `users` row yet for this Clerk ID.
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: NEW_CLERK_USER,
+      name: "Niel Gray",
+      slug: "niel-gray",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return {
+      invitationId: await seedPendingInvitation(ctx, { role: "instructor" }),
+      instructorId,
+    };
+  });
+
+  const result = await t.mutation(internal.hdInvitations.markInvitationAccepted, {
+    invitationId: invitationId as any,
+    clerkUserId: NEW_CLERK_USER,
+  });
+
+  expect(result).toMatchObject({ success: true, reused: true });
+
+  // Exactly one instructor row, still linked to NEW_CLERK_USER.
+  const instructorsForEmail = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", EMAIL.toLowerCase()))
+      .collect();
+  });
+  expect(instructorsForEmail).toHaveLength(1);
+  expect(instructorsForEmail[0]?._id).toBe(instructorId);
+  expect(instructorsForEmail[0]?.userId).toBe(NEW_CLERK_USER);
+
+  // A user row was created (the invitation webhook also creates one),
+  // but no SECOND instructor was inserted.
+  const usersForNewClerk = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", NEW_CLERK_USER))
+      .collect();
+  });
+  expect(usersForNewClerk).toHaveLength(1);
+});

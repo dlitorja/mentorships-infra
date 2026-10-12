@@ -586,10 +586,13 @@ export const markInvitationAccepted = internalMutation({
           existingClerkUserId,
         };
       }
+      const matchingInstructor = liveInstructorsByEmail.find(
+        (i) => i.userId === args.clerkUserId,
+      );
       const placeholderInstructor = liveInstructorsByEmail.find(
         (i) => !isClerkUserId(i.userId ?? undefined),
       );
-      liveInstructorByEmail = placeholderInstructor ?? null;
+      liveInstructorByEmail = matchingInstructor ?? placeholderInstructor ?? null;
     }
 
     const conflictingUser = liveUsersByEmail.find(
@@ -642,26 +645,43 @@ export const markInvitationAccepted = internalMutation({
 
     if (invitation.role === "instructor") {
       if (liveInstructorByEmail && liveInstructorByEmail.deletedAt === undefined) {
-        await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
-          instructorId: liveInstructorByEmail._id,
-          legacyInstructorRef: (liveInstructorByEmail as any).legacyInstructorRef ?? (liveInstructorByEmail as any).legacyId,
-          userId: args.clerkUserId,
-        });
-
-        await writeAuditLog(ctx, {
-          actorId: "system",
-          actorRole: "system",
-          action: "link_existing_instructor_to_new_clerk_user_from_invitation",
-          targetType: "instructor",
-          targetId: liveInstructorByEmail._id,
-          details: `Reused existing instructor ${liveInstructorByEmail._id} (${normalizedEmail}) for invitation ${args.invitationId}; updated userId to ${args.clerkUserId}`,
-          metadata: {
-            invitationId: args.invitationId,
-            email: normalizedEmail,
+        if (liveInstructorByEmail.userId !== args.clerkUserId) {
+          await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
             instructorId: liveInstructorByEmail._id,
-            clerkUserId: args.clerkUserId,
-          },
-        });
+            legacyInstructorRef: (liveInstructorByEmail as any).legacyInstructorRef ?? (liveInstructorByEmail as any).legacyId,
+            userId: args.clerkUserId,
+          });
+
+          await writeAuditLog(ctx, {
+            actorId: "system",
+            actorRole: "system",
+            action: "link_existing_instructor_to_new_clerk_user_from_invitation",
+            targetType: "instructor",
+            targetId: liveInstructorByEmail._id,
+            details: `Reused existing instructor ${liveInstructorByEmail._id} (${normalizedEmail}) for invitation ${args.invitationId}; updated userId to ${args.clerkUserId}`,
+            metadata: {
+              invitationId: args.invitationId,
+              email: normalizedEmail,
+              instructorId: liveInstructorByEmail._id,
+              clerkUserId: args.clerkUserId,
+            },
+          });
+        } else {
+          await writeAuditLog(ctx, {
+            actorId: "system",
+            actorRole: "system",
+            action: "hd_invitation_instructor_already_linked_to_user",
+            targetType: "instructor",
+            targetId: liveInstructorByEmail._id,
+            details: `Instructor ${liveInstructorByEmail._id} (${normalizedEmail}) was already linked to Clerk user ${args.clerkUserId}; invitation ${args.invitationId} accepted without relinking`,
+            metadata: {
+              invitationId: args.invitationId,
+              email: normalizedEmail,
+              instructorId: liveInstructorByEmail._id,
+              clerkUserId: args.clerkUserId,
+            },
+          });
+        }
       } else {
         await ctx.runMutation(internal.instructors.createInstructorInternal, {
           userId: args.clerkUserId,
