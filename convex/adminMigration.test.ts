@@ -168,3 +168,46 @@ test("reassignInstructorFromDuplicate: refuses to skip if oldUser is NOT soft-de
     ]),
   );
 });
+
+test("reassignInstructorFromDuplicate: still reports alreadyCompleted after pending deletion was consumed (audit-trail signal)", async () => {
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const ids = await seedFixFixture(ctx);
+    await ctx.db.patch(ids.oldInstructorId, {
+      deletedAt: Date.now() - 60_000,
+      isActive: false,
+      updatedAt: Date.now() - 60_000,
+    });
+    await ctx.db.patch(ids.oldUserId, { deletedAt: Date.now() - 60_000 });
+    // Simulate processPendingClerkDeletions having removed the queued row,
+    // but write the audit log entry so the cleanup can still detect that
+    // deletion was previously queued.
+    await ctx.db.insert("auditLogs", {
+      actorId: "system",
+      actorRole: "system",
+      action: "queue_duplicate_clerk_user_for_deletion",
+      targetType: "pendingClerkDeletion",
+      targetId: OLD_CLERK,
+      details: `Fix duplicate-instructor account (note=test); oldInstructor=${ids.oldInstructorId} newInstructor=${ids.newInstructorId} oldClerkUserId=${OLD_CLERK}`,
+      metadata: {
+        note: "test",
+        oldInstructorId: ids.oldInstructorId,
+        newInstructorId: ids.newInstructorId,
+        oldUserId: ids.oldUserId,
+        oldClerkUserId: OLD_CLERK,
+      },
+      timestamp: Date.now() - 30_000,
+    });
+    return ids;
+  });
+
+  const result = await t.mutation(internal.adminMigration.reassignInstructorFromDuplicate, {
+    oldInstructorId: ids.oldInstructorId as any,
+    oldUserId: ids.oldUserId as any,
+    oldClerkUserId: OLD_CLERK,
+    newInstructorId: ids.newInstructorId as any,
+  });
+
+  expect((result as any).alreadyCompleted).toBe(true);
+  expect((result as any).applied).toBe(false);
+});
