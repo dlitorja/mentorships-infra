@@ -219,17 +219,31 @@ export const sendSessionReminders = schedules.task({
     // expected match count per tick, and dropping the tail means
     // some sessions never get the reminder. Order by scheduledAt
     // so pagination is deterministic.
+    //
+    // Narrow projection: only the columns the email builders consume.
+    // The old `select({ session, student, instructor, pack })` joined all
+    // four tables and pulled every column, including `instructors.socials`
+    // (jsonb), `instructors.specialties/background/portfolio_images`
+    // (text[]), `instructors.bio` (text), `sessions.notes/recording_url`,
+    // and `users.email` (Clerk-mirrored). On Supabase's transaction-mode
+    // pgBouncer pooler, that payload reliably exceeds the 60s idle/query
+    // limit on cold-path cron ticks (observed 1m25s before the connection
+    // is killed, with Drizzle wrapping the empty-message error as
+    // `Failed query: <sql>`). The drop-in: fetch only what each row needs.
     const query = db
       .select({
-        session: sessions,
-        student: users,
-        instructor: instructors,
-        pack: sessionPacks,
+        sessionId: sessions.id,
+        scheduledAt: sessions.scheduledAt,
+        studentId: sessions.studentId,
+        instructorId: sessions.instructorId,
+        studentEmail: users.email,
+        studentTimeZone: users.timeZone,
+        instructorName: instructors.name,
+        instructorUserId: instructors.userId,
       })
       .from(sessions)
       .innerJoin(users, eq(sessions.studentId, users.id))
       .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
-      .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
       .where(
         and(
           eq(sessions.status, "scheduled"),
@@ -260,13 +274,13 @@ export const sendSessionReminders = schedules.task({
 
     for (const row of sessionsToRemind) {
       try {
-        const instructorUser = row.instructor.userId
+        const instructorUser = row.instructorUserId
           ? await db.query.users.findFirst({
-              where: eq(users.id, row.instructor.userId),
+              where: eq(users.id, row.instructorUserId),
             })
           : null;
 
-        const studentTimeZone = row.student.timeZone;
+        const studentTimeZone = row.studentTimeZone;
         const instructorTimeZone = instructorUser?.timeZone;
 
         // Greptile R5 P1 defense-in-depth: Resend idempotency key
@@ -277,20 +291,20 @@ export const sendSessionReminders = schedules.task({
         // primary `payload.timestamp` window anchor already prevents
         // adjacent ticks from selecting the same session.
         const reminderIdempotencyKey = (role: "student" | "instructor") =>
-          `session-reminder:${role}:${row.session.id}:${row.session.scheduledAt}`;
+          `session-reminder:${role}:${row.sessionId}:${row.scheduledAt.toISOString()}`;
 
-        if (row.student.email) {
+        if (row.studentEmail) {
           const studentEmail = buildSessionReminderEmail({
-            studentEmail: row.student.email,
-            studentName: row.student.email.split("@")[0],
-            instructorName: row.instructor.name,
-            scheduledAt: row.session.scheduledAt,
+            studentEmail: row.studentEmail,
+            studentName: row.studentEmail.split("@")[0],
+            instructorName: row.instructorName,
+            scheduledAt: row.scheduledAt,
             minutesUntil: REMINDER_MINUTES,
             studentTimeZone,
           });
 
           await sendEmail({
-            to: row.student.email,
+            to: row.studentEmail,
             subject: studentEmail.subject,
             text: studentEmail.text,
             html: studentEmail.html,
@@ -303,10 +317,10 @@ export const sendSessionReminders = schedules.task({
         if (instructorUser?.email) {
           const instructorEmail = buildInstructorReminderEmail({
             instructorEmail: instructorUser.email,
-            instructorName: row.instructor.name,
-            studentName: row.student.email.split("@")[0],
-            studentEmail: row.student.email,
-            scheduledAt: row.session.scheduledAt,
+            instructorName: row.instructorName,
+            studentName: row.studentEmail.split("@")[0],
+            studentEmail: row.studentEmail,
+            scheduledAt: row.scheduledAt,
             minutesUntil: REMINDER_MINUTES,
             instructorTimeZone,
           });
@@ -325,7 +339,7 @@ export const sendSessionReminders = schedules.task({
         results.sent++;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`Failed to send reminder for session ${row.session.id}: ${errorMessage}`);
+        logger.error(`Failed to send reminder for session ${row.sessionId}: ${errorMessage}`);
         results.failed++;
       }
     }
