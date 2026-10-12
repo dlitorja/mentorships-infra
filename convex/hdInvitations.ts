@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation, internalQuery, action, httpAction, QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./auditLog";
 
 async function getAdminUser(ctx: QueryCtx | MutationCtx, identitySubject: string): Promise<Doc<"users"> | null> {
@@ -402,6 +402,22 @@ export const deleteHdInvitation = mutation({
   },
 });
 
+type AcceptHdInvitationFromClerkResult =
+  | { success: false; reason: "unauthorized" | "no_pending_invitation" }
+  | {
+      success: false;
+      reason: "instructor_already_linked";
+      existingInstructorId: Id<"instructors">;
+      existingClerkUserId: string;
+    }
+  | {
+      success: false;
+      reason: "user_already_linked";
+      existingUserId: Id<"users">;
+      existingClerkUserId: string;
+    }
+  | { success: true; reused: boolean };
+
 export const acceptHdInvitationFromClerk = action({
   args: {
     email: v.string(),
@@ -410,7 +426,7 @@ export const acceptHdInvitationFromClerk = action({
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<AcceptHdInvitationFromClerkResult> => {
     const expectedSecret = process.env.CONVEX_WEBHOOK_SECRET;
     if (!expectedSecret || args.webhookSecret !== expectedSecret) {
       return { success: false, reason: "unauthorized" };
@@ -418,35 +434,37 @@ export const acceptHdInvitationFromClerk = action({
 
     const emailLower = args.email.toLowerCase().trim();
 
-    const invitation = await ctx.runQuery(internal.hdInvitations.getPendingInvitationByEmailInternal, {
-      email: emailLower,
-    });
+    const invitation: Doc<"hdInvitations"> | null = await ctx.runQuery(
+      internal.hdInvitations.getPendingInvitationByEmailInternal,
+      { email: emailLower }
+    );
 
     if (!invitation) {
       return { success: false, reason: "no_pending_invitation" };
     }
 
-    const accepted = await ctx.runMutation(internal.hdInvitations.markInvitationAccepted, {
-      invitationId: invitation._id,
-      clerkUserId: args.clerkUserId,
-    });
+    const accepted: MarkInvitationAcceptedResult = await ctx.runMutation(
+      internal.hdInvitations.markInvitationAccepted,
+      {
+        invitationId: invitation._id,
+        clerkUserId: args.clerkUserId,
+      }
+    );
 
     if (!accepted.success) {
+      if (accepted.reason === "instructor_already_linked") {
+        return {
+          success: false,
+          reason: "instructor_already_linked",
+          existingInstructorId: accepted.existingInstructorId,
+          existingClerkUserId: accepted.existingClerkUserId,
+        };
+      }
       return {
         success: false,
-        reason: accepted.reason,
-        ...(accepted.reason === "instructor_already_linked"
-          ? {
-              existingInstructorId: accepted.existingInstructorId,
-              existingClerkUserId: accepted.existingClerkUserId,
-            }
-          : {}),
-        ...(accepted.reason === "user_already_linked"
-          ? {
-              existingUserId: accepted.existingUserId,
-              existingClerkUserId: accepted.existingClerkUserId,
-            }
-          : {}),
+        reason: "user_already_linked",
+        existingUserId: accepted.existingUserId,
+        existingClerkUserId: accepted.existingClerkUserId,
       };
     }
 
@@ -477,12 +495,27 @@ function isClerkUserId(id: string | undefined): boolean {
   return typeof id === "string" && CLERK_USER_ID_PATTERN.test(id);
 }
 
+type MarkInvitationAcceptedResult =
+  | { success: true; reused: boolean }
+  | {
+      success: false;
+      reason: "instructor_already_linked";
+      existingInstructorId: Id<"instructors">;
+      existingClerkUserId: string;
+    }
+  | {
+      success: false;
+      reason: "user_already_linked";
+      existingUserId: Id<"users">;
+      existingClerkUserId: string;
+    };
+
 export const markInvitationAccepted = internalMutation({
   args: {
     invitationId: v.id("hdInvitations"),
     clerkUserId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<MarkInvitationAcceptedResult> => {
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation) {
       throw new Error("Invitation not found");
@@ -538,11 +571,17 @@ export const markInvitationAccepted = internalMutation({
           newClerkUserId: args.clerkUserId,
         },
       });
+      const existingClerkUserId = liveInstructorByEmail.userId;
+      if (!existingClerkUserId) {
+        throw new Error(
+          `hdInvitations.markInvitationAccepted: refused on instructor ${liveInstructorByEmail._id} for ${normalizedEmail} but existingClerkUserId is undefined`,
+        );
+      }
       return {
         success: false,
         reason: "instructor_already_linked",
         existingInstructorId: liveInstructorByEmail._id,
-        existingClerkUserId: liveInstructorByEmail.userId ?? undefined,
+        existingClerkUserId,
       };
     }
 
