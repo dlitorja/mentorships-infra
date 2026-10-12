@@ -56,12 +56,14 @@ export const reassignInstructorFromDuplicate = internalMutation({
       throw new Error(`reassignInstructorFromDuplicate: user ${args.oldUserId} not found`);
     }
 
-    if (oldInstructor.userId !== args.oldClerkUserId) {
+    const oldInstructorAlreadyDeleted = oldInstructor.deletedAt !== undefined;
+
+    if (!oldInstructorAlreadyDeleted && oldInstructor.userId !== args.oldClerkUserId) {
       throw new Error(
-        `reassignInstructorFromDuplicate: instructor ${args.oldInstructorId}.userId=${oldInstructor.userId ?? "<null>"} does not match oldClerkUserId=${args.oldClerkUserId}; refusing to mutate`,
+        `reassignInstructorFromDuplicate: instructor ${args.oldInstructorId}.userId=${oldInstructor.userId ?? "<null>"} does not match oldClerkUserId=${args.oldClerkUserId}; refusing to mutate (already-cleaned-up state with deletedAt=${oldInstructor.deletedAt} is treated as safe to rerun)`,
       );
     }
-    if (oldUser.clerkId !== args.oldClerkUserId) {
+    if (oldUser.deletedAt === undefined && oldUser.clerkId !== args.oldClerkUserId) {
       throw new Error(
         `reassignInstructorFromDuplicate: user ${args.oldUserId}.clerkId=${oldUser.clerkId} does not match oldClerkUserId=${args.oldClerkUserId}; refusing to mutate`,
       );
@@ -71,8 +73,6 @@ export const reassignInstructorFromDuplicate = internalMutation({
         `reassignInstructorFromDuplicate: old instructor email=${oldInstructor.email ?? "<null>"} does not match new instructor email=${newInstructor.email ?? "<null>"}; refusing to mutate`,
       );
     }
-
-    const oldInstructorAlreadyDeleted = oldInstructor.deletedAt !== undefined;
 
     const workspacesToReassign = await ctx.db
       .query("workspaces")
@@ -84,6 +84,10 @@ export const reassignInstructorFromDuplicate = internalMutation({
       .collect();
     const seatReservationsToReassign = await ctx.db
       .query("seatReservations")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.oldInstructorId))
+      .collect();
+    const sessionsToReassign = await ctx.db
+      .query("sessions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.oldInstructorId))
       .collect();
 
@@ -114,13 +118,34 @@ export const reassignInstructorFromDuplicate = internalMutation({
         workspaces: workspacesToReassign.length,
         sessionPacks: sessionPacksToReassign.length,
         seatReservations: seatReservationsToReassign.length,
+        sessions: sessionsToReassign.length,
       },
       affectedIds: {
         workspaces: workspacesToReassign.map((w) => w._id),
         sessionPacks: sessionPacksToReassign.map((p) => p._id),
         seatReservations: seatReservationsToReassign.map((r) => r._id),
+        sessions: sessionsToReassign.map((s) => s._id),
       },
     };
+
+    if (
+      oldInstructorAlreadyDeleted &&
+      workspacesToReassign.length === 0 &&
+      sessionPacksToReassign.length === 0 &&
+      seatReservationsToReassign.length === 0 &&
+      sessionsToReassign.length === 0
+    ) {
+      const existingPendingDeletionForRerun = await ctx.db
+        .query("pendingClerkDeletions")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.oldClerkUserId))
+        .first();
+      return {
+        plan,
+        applied: false,
+        alreadyCompleted: true,
+        pendingClerkDeletionStillQueued: existingPendingDeletionForRerun !== null,
+      };
+    }
 
     if (dryRun) {
       return { plan, applied: false };
@@ -152,6 +177,15 @@ export const reassignInstructorFromDuplicate = internalMutation({
         action: "reassign_seat_reservation_instructor_from_duplicate",
         targetType: "seatReservation",
         targetId: reservation._id,
+      });
+    }
+
+    for (const session of sessionsToReassign) {
+      await ctx.db.patch(session._id, { instructorId: args.newInstructorId });
+      applied.push({
+        action: "reassign_session_instructor_from_duplicate",
+        targetType: "session",
+        targetId: session._id,
       });
     }
 

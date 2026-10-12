@@ -521,18 +521,17 @@ export const markInvitationAccepted = internalMutation({
       throw new Error("Invitation not found");
     }
 
-    await ctx.db.patch(args.invitationId, {
-      status: "accepted",
-      clerkInvitationId: args.clerkUserId,
-      updatedAt: Date.now(),
-    });
-
     const existingUser = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkUserId))
       .first();
 
     if (existingUser) {
+      await ctx.db.patch(args.invitationId, {
+        status: "accepted",
+        clerkInvitationId: args.clerkUserId,
+        updatedAt: Date.now(),
+      });
       return { success: true, reused: true };
     }
 
@@ -544,73 +543,82 @@ export const markInvitationAccepted = internalMutation({
       .collect();
     const liveUsersByEmail = usersByEmail.filter((u) => u.deletedAt === undefined);
 
-    const existingInstructorByEmail = invitation.role === "instructor"
-      ? await ctx.db
-          .query("instructors")
-          .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-          .first()
-      : null;
-    const liveInstructorByEmail = existingInstructorByEmail && existingInstructorByEmail.deletedAt === undefined
-      ? existingInstructorByEmail
-      : null;
-
-    if (liveInstructorByEmail && isClerkUserId(liveInstructorByEmail.userId ?? undefined) && liveInstructorByEmail.userId !== args.clerkUserId) {
-      await writeAuditLog(ctx, {
-        actorId: "system",
-        actorRole: "system",
-        action: "hd_invitation_instructor_linking_refused",
-        targetType: "instructor",
-        targetId: liveInstructorByEmail._id,
-        details:
-          `Invitation ${args.invitationId} refused: instructor ${liveInstructorByEmail._id} (${normalizedEmail}) is already linked to Clerk user ${liveInstructorByEmail.userId}; cannot relink to new Clerk user ${args.clerkUserId}. Run internal.adminMigration.reassignInstructorFromDuplicate to fix.`,
-        metadata: {
-          invitationId: args.invitationId,
-          email: normalizedEmail,
-          existingInstructorId: liveInstructorByEmail._id,
-          existingClerkUserId: liveInstructorByEmail.userId,
-          newClerkUserId: args.clerkUserId,
-        },
-      });
-      const existingClerkUserId = liveInstructorByEmail.userId;
-      if (!existingClerkUserId) {
-        throw new Error(
-          `hdInvitations.markInvitationAccepted: refused on instructor ${liveInstructorByEmail._id} for ${normalizedEmail} but existingClerkUserId is undefined`,
-        );
-      }
-      return {
-        success: false,
-        reason: "instructor_already_linked",
-        existingInstructorId: liveInstructorByEmail._id,
-        existingClerkUserId,
-      };
-    }
-
-    if (liveUsersByEmail.length > 0) {
-      const liveUser = liveUsersByEmail[0];
-      if (isClerkUserId(liveUser.userId) && liveUser.clerkId !== args.clerkUserId) {
+    let liveInstructorByEmail: Doc<"instructors"> | null = null;
+    if (invitation.role === "instructor") {
+      const instructorsByEmail = await ctx.db
+        .query("instructors")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect();
+      const liveInstructorsByEmail = instructorsByEmail.filter(
+        (i) => i.deletedAt === undefined,
+      );
+      const conflictingInstructor = liveInstructorsByEmail.find(
+        (i) => isClerkUserId(i.userId ?? undefined) && i.userId !== args.clerkUserId,
+      );
+      if (conflictingInstructor) {
+        const existingClerkUserId = conflictingInstructor.userId;
+        if (!existingClerkUserId) {
+          throw new Error(
+            `hdInvitations.markInvitationAccepted: refused on instructor ${conflictingInstructor._id} for ${normalizedEmail} but existingClerkUserId is undefined`,
+          );
+        }
         await writeAuditLog(ctx, {
           actorId: "system",
           actorRole: "system",
-          action: "hd_invitation_user_linking_refused",
-          targetType: "user",
-          targetId: liveUser._id,
+          action: "hd_invitation_instructor_linking_refused",
+          targetType: "instructor",
+          targetId: conflictingInstructor._id,
           details:
-            `Invitation ${args.invitationId} refused: user ${liveUser._id} (${normalizedEmail}) is already linked to Clerk user ${liveUser.clerkId}; cannot relink to new Clerk user ${args.clerkUserId}.`,
+            `Invitation ${args.invitationId} refused: instructor ${conflictingInstructor._id} (${normalizedEmail}) is already linked to Clerk user ${existingClerkUserId}; cannot relink to new Clerk user ${args.clerkUserId}. Run internal.adminMigration.reassignInstructorFromDuplicate to fix.`,
           metadata: {
             invitationId: args.invitationId,
             email: normalizedEmail,
-            existingUserId: liveUser._id,
-            existingClerkUserId: liveUser.clerkId,
+            existingInstructorId: conflictingInstructor._id,
+            existingClerkUserId,
             newClerkUserId: args.clerkUserId,
+            conflictingInstructorCount: liveInstructorsByEmail.length,
           },
         });
         return {
           success: false,
-          reason: "user_already_linked",
-          existingUserId: liveUser._id,
-          existingClerkUserId: liveUser.clerkId,
+          reason: "instructor_already_linked",
+          existingInstructorId: conflictingInstructor._id,
+          existingClerkUserId,
         };
       }
+      const placeholderInstructor = liveInstructorsByEmail.find(
+        (i) => !isClerkUserId(i.userId ?? undefined),
+      );
+      liveInstructorByEmail = placeholderInstructor ?? null;
+    }
+
+    const conflictingUser = liveUsersByEmail.find(
+      (u) => isClerkUserId(u.clerkId) && u.clerkId !== args.clerkUserId,
+    );
+    if (conflictingUser) {
+      await writeAuditLog(ctx, {
+        actorId: "system",
+        actorRole: "system",
+        action: "hd_invitation_user_linking_refused",
+        targetType: "user",
+        targetId: conflictingUser._id,
+        details:
+          `Invitation ${args.invitationId} refused: user ${conflictingUser._id} (${normalizedEmail}) is already linked to Clerk user ${conflictingUser.clerkId}; cannot relink to new Clerk user ${args.clerkUserId}.`,
+        metadata: {
+          invitationId: args.invitationId,
+          email: normalizedEmail,
+          existingUserId: conflictingUser._id,
+          existingClerkUserId: conflictingUser.clerkId,
+          newClerkUserId: args.clerkUserId,
+          conflictingUserCount: liveUsersByEmail.length,
+        },
+      });
+      return {
+        success: false,
+        reason: "user_already_linked",
+        existingUserId: conflictingUser._id,
+        existingClerkUserId: conflictingUser.clerkId,
+      };
     }
 
     await ctx.db.insert("users", {
@@ -668,6 +676,12 @@ export const markInvitationAccepted = internalMutation({
     await ctx.runMutation(internal.workspaces.linkWorkspacesByEmail, {
       clerkUserId: args.clerkUserId,
       email: invitation.email,
+    });
+
+    await ctx.db.patch(args.invitationId, {
+      status: "accepted",
+      clerkInvitationId: args.clerkUserId,
+      updatedAt: Date.now(),
     });
 
     return { success: true, reused: liveInstructorByEmail !== null };

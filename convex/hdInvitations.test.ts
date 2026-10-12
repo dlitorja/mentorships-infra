@@ -252,3 +252,94 @@ test("markInvitationAccepted: inserts a fresh user + instructor when no existing
   expect(instructorsForEmail).toHaveLength(1);
   expect(instructorsForEmail[0]?.userId).toBe(NEW_CLERK_USER);
 });
+
+test("markInvitationAccepted: refused invitations stay 'pending' (Greptile P1 #1)", async () => {
+  const t = convexTest(schema, modules);
+  const { invitationId } = await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Niel Gray",
+      slug: "niel-gray",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { invitationId: await seedPendingInvitation(ctx, { role: "instructor" }) };
+  });
+
+  const result = await t.mutation(internal.hdInvitations.markInvitationAccepted, {
+    invitationId: invitationId as any,
+    clerkUserId: NEW_CLERK_USER,
+  });
+
+  expect(result).toMatchObject({ success: false, reason: "instructor_already_linked" });
+
+  // Greptile P1 #1: a refusal must NOT mark the invitation accepted,
+  // otherwise the next webhook retry silently succeeds without linking.
+  const invitationAfter = await t.run(async (ctx) => {
+    return await ctx.db.get(invitationId as string);
+  });
+  expect(invitationAfter?.status).toBe("pending");
+});
+
+test("markInvitationAccepted: catches ANY live instructor with a conflicting Clerk link, not just the first (Greptile P1 #2)", async () => {
+  const t = convexTest(schema, modules);
+  const { invitationId, conflictInstructorId } = await t.run(async (ctx) => {
+    // Seed a deleted-by_clerkId placeholder that would be returned by .first()
+    // under the old implementation, hiding the real conflict below it.
+    await ctx.db.insert("instructors", {
+      userId: "seed-placeholder-slug",
+      name: "Stale Placeholder",
+      slug: "stale-placeholder",
+      email: EMAIL.toLowerCase(),
+      isActive: false,
+      isNew: true,
+      maxActiveStudents: 0,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      deletedAt: Date.now(),
+    });
+    const conflictInstructorId = await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Niel Gray",
+      slug: "niel-gray",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return {
+      invitationId: await seedPendingInvitation(ctx, { role: "instructor" }),
+      conflictInstructorId,
+    };
+  });
+
+  const result = await t.mutation(internal.hdInvitations.markInvitationAccepted, {
+    invitationId: invitationId as any,
+    clerkUserId: NEW_CLERK_USER,
+  });
+
+  expect(result).toMatchObject({
+    success: false,
+    reason: "instructor_already_linked",
+    existingInstructorId: conflictInstructorId,
+    existingClerkUserId: OLD_CLERK_USER,
+  });
+
+  // No new instructor inserted for the duplicate Clerk user.
+  const instructorsForEmail = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", EMAIL.toLowerCase()))
+      .collect();
+  });
+  const liveInstructorUserIds = instructorsForEmail
+    .filter((i) => i.deletedAt === undefined)
+    .map((i) => i.userId);
+  expect(liveInstructorUserIds).toEqual([OLD_CLERK_USER]);
+});

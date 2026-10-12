@@ -7,7 +7,7 @@
  *   created a second `instructors` row + a second `users` row because
  *   `convex/hdInvitations.ts:markInvitationAccepted` only checked
  *   `users.by_clerkId`. The new (duplicate) instructor was assigned
- *   to Tracy Houston's workspace/sessionPack/seatReservation, so Neil
+ *   to Tracy Houston's workspace/sessionPack/seatReservation/session, so Neil
  *   could no longer see Tracy in `/workspace`.
  *
  * What this runbook does:
@@ -21,11 +21,7 @@
  *
  *        npx convex run --deployment fine-bulldog-260 \
  *          adminMigration.js:reassignInstructorFromDuplicate \
- *          '{"oldInstructorId":"jd748t2bzr76fh8wazzxwsv6tn8f8hhj",\
- *            "oldUserId":"j575hh3gp04w8asagws33gb0ks8f8apv",\
- *            "oldClerkUserId":"user_3Jw6nFD2FxAA4631ZFRP7wkODsG",\
- *            "newInstructorId":"jd79ys4j7ga0xn4x5292v383g9857ra1",\
- *            "dryRun":true}'
+ *          '{"oldInstructorId":"jd748t2bzr76fh8wazzxwsv6tn8f8hhj","oldUserId":"j575hh3gp04w8asagws33gb0ks8f8apv","oldClerkUserId":"user_3Jw6nFD2FxAA4631ZFRP7wkODsG","newInstructorId":"jd79ys4j7ga0xn4x5292v383g9857ra1","dryRun":true}'
  *
  *      Expected output (truncated):
  *
@@ -34,7 +30,7 @@
  *            "oldInstructor": { "_id": "jd748t2bzr76fh8wazzxwsv6tn8f8hhj", "email": "nrcgray@gmail.com", ... },
  *            "newInstructor": { "_id": "jd79ys4j7ga0xn4x5292v383g9857ra1", "name": "Neil Gray", ... },
  *            "oldUser": { "_id": "j575hh3gp04w8asagws33gb0ks8f8apv", ... },
- *            "counts": { "workspaces": 1, "sessionPacks": 1, "seatReservations": 1 }
+ *            "counts": { "workspaces": 1, "sessionPacks": 1, "seatReservations": 1, "sessions": 0 }
  *          },
  *          "applied": false
  *        }
@@ -43,10 +39,7 @@
  *
  *        npx convex run --deployment fine-bulldog-260 \
  *          adminMigration.js:reassignInstructorFromDuplicate \
- *          '{"oldInstructorId":"jd748t2bzr76fh8wazzxwsv6tn8f8hhj",\
- *            "oldUserId":"j575hh3gp04w8asagws33gb0ks8f8apv",\
- *            "oldClerkUserId":"user_3Jw6nFD2FxAA4631ZFRP7wkODsG",\
- *            "newInstructorId":"jd79ys4j7ga0xn4x5292v383g9857ra1"}'
+ *          '{"oldInstructorId":"jd748t2bzr76fh8wazzxwsv6tn8f8hhj","oldUserId":"j575hh3gp04w8asagws33gb0ks8f8apv","oldClerkUserId":"user_3Jw6nFD2FxAA4631ZFRP7wkODsG","newInstructorId":"jd79ys4j7ga0xn4x5292v383g9857ra1"}'
  *
  *   3. Verify (read-only):
  *
@@ -78,16 +71,31 @@
  *     - `reassign_workspace_instructor_from_duplicate`
  *     - `reassign_session_pack_instructor_from_duplicate`
  *     - `reassign_seat_reservation_instructor_from_duplicate`
+ *     - `reassign_session_instructor_from_duplicate`
  *     - `soft_delete_duplicate_instructor`
  *     - `soft_delete_duplicate_user`
  *     - `queue_duplicate_clerk_user_for_deletion`
  *
  * Rollback:
  *   The mutation is forward-only (soft-delete + insert pendingClerkDeletion).
- *   To roll back BEFORE the Clerk cron runs:
- *     1. `ctx.db.patch(duplicateInstructorId, { deletedAt: undefined, isActive: true })`
- *     2. `ctx.db.patch(duplicateUserId, { deletedAt: undefined })`
- *     3. Manually reassign the three `instructorId` fields back to the duplicate.
+ *   To roll back BEFORE the Clerk cron runs, run each step below via
+ *   `npx convex run --deployment fine-bulldog-260 <module>.js:<fn>` (or
+ *   use a one-off internal mutation). WARNING: the `processPendingClerkDeletions`
+ *   cron runs every ~5 minutes; if it has already started invoking the Clerk
+ *   API for `user_3Jw6nFD2FxAA4631ZFRP7wkODsG`, stop it before rolling back
+ *   (the Clerk account will already be gone by the time the row is restored).
+ *     1. Delete the queued Clerk deletion FIRST so the cron does not delete the
+ *        restored account:
+ *          npx convex run --deployment fine-bulldog-260 \
+ *            pendingClerkDeletions.js:removeForRollback \
+ *            '{"clerkUserId":"user_3Jw6nFD2FxAA4631ZFRP7wkODsG"}'
+ *        (or, if no such fn exists, `npx convex data ... pendingClerkDeletions`
+ *        to find and delete the row by hand).
+ *     2. `ctx.db.patch(jd748t2bzr76fh8wazzxwsv6tn8f8hhj, { deletedAt: undefined, isActive: true })`
+ *     3. `ctx.db.patch(jd748t2bzr76fh8wazzxwsv6tn8f8hhj, { userId: "user_3Jw6nFD2FxAA4631ZFRP7wkODsG" })`
+ *     4. `ctx.db.patch(j575hh3gp04w8asagws33gb0ks8f8apv, { deletedAt: undefined })`
+ *     5. Manually reassign the four `instructorId` fields back to the duplicate
+ *        (workspace, sessionPack, seatReservation, any sessions).
  *   After the Clerk cron runs the duplicate Clerk user is gone and a
  *   re-create would require a new Clerk account; record-only rollback
  *   is not possible from that point onward.
