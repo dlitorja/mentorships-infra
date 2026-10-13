@@ -1454,6 +1454,28 @@ export async function resendAdminOnboardingInvitation(onboardingId: string) {
 }
 
 /**
+ * Resend the Clerk invitation for a single pending student invitation.
+ *
+ * PR-B (Issue 3) — calls the new HTTP route at
+ * apps/platform/app/api/admin/students/invitations/[id]/resend/route.ts.
+ * The route mutates the existing `studentInvitations` row in place; we
+ * never create a second row. Terminal statuses (`accepted`, `cancelled`)
+ * are refused at the route layer with HTTP 409.
+ */
+export async function resendStudentInvitation(invitationId: string) {
+  return apiFetch<{
+    invitationId: string;
+    previousClerkInvitationId: string | null;
+    newClerkInvitationId: string;
+    expiresAt: number;
+    previousStatus: string;
+    newStatus: "pending";
+  }>(ApiRoutes.adminStudentInvitationResend(invitationId), {
+    method: "POST",
+  });
+}
+
+/**
  * Admin workspaces
  */
 

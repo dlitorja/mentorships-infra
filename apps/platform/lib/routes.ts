@@ -36,6 +36,10 @@ export const ApiRoutes = {
   adminStudentsInvite: "/api/admin/students/invite",
   adminStudentsOnboard: "/api/admin/students/onboard",
   adminStudentsOnboardPreview: "/api/admin/students/onboard/preview",
+  // PR-B (Issue 3) — Resend Clerk invitation for a single student invitation
+  // row. Patches the existing row in place; never creates a second row.
+  adminStudentInvitationResend: (invitationId: string) =>
+    `/api/admin/students/invitations/${encodeURIComponent(invitationId)}/resend`,
 
   // Admin workspaces
   adminWorkspaces: "/api/admin/workspaces",

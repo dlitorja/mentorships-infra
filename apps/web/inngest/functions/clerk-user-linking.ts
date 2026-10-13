@@ -1,7 +1,20 @@
 import { inngest } from "../client";
 import { db, instructors, eq, ilike } from "@mentorships/db";
-import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { convexServerCall } from "@/lib/convex-server-call";
+
+type PendingStudentInvitation = {
+  id: string;
+  email: string;
+  instructorId: string;
+  clerkInvitationId: string | null;
+  expiresAt: number;
+  status: string;
+  createdAt: number;
+} | null;
+
+type AcceptStudentInvitationResult =
+  | { accepted: true; previousStatus: string }
+  | { accepted: false; reason: string };
 
 /**
  * Links a newly created Clerk user to an instructor or accepts a student invitation.
@@ -10,7 +23,19 @@ import { getConvexClient } from "@/lib/convex";
  *
  * When a new Clerk user is created:
  * 1. Looks up instructors by email and updates userId if found
- * 2. Checks for pending student invitations and accepts if email matches
+ * 2. Checks for pending student invitations via the bearer-auth HTTP endpoint
+ *    `/internal/student-invitations/list-pending-by-email`, then flips the
+ *    matching pending invitation to `accepted` via
+ *    `/internal/student-invitations/accept-by-id` — both routes authenticate
+ *    with `CONVEX_HTTP_KEY`.
+ *
+ * PR-B (Issue 3) motivation: previously this function called the public
+ * `convex/studentInvitations.listStudentInvitations` / `updateStudentInvitationStatus`
+ * mutations directly. After PR-B both are gated on admin-or-support role,
+ * which this Inngest worker doesn't satisfy (it has no Clerk user
+ * identity at run time — it authenticates as the deployment). Switching
+ * to bearer-auth HTTP endpoints keeps the link-student flow alive while
+ * the public mutations stay locked down.
  *
  * Skips if no email is provided. Instructor linking is idempotent (won't
  * overwrite a different Clerk user's link). Student invitation linking is
@@ -29,9 +54,9 @@ export const linkClerkUserToInstructor = inngest.createFunction(
     const { userId, email } = event.data;
 
     if (!email || typeof email !== "string") {
-      return { 
-        linked: false, 
-        reason: "No email in event data, skipping", 
+      return {
+        linked: false,
+        reason: "No email in event data, skipping",
         instructorLinking: { linked: false, reason: "No email provided" },
         studentLinking: { linked: false, reason: "No email provided" }
       };
@@ -72,24 +97,28 @@ export const linkClerkUserToInstructor = inngest.createFunction(
     });
 
     const studentResult = await step.run("link-student", async () => {
-      const convex = getConvexClient();
-      const result = await convex.query(api.studentInvitations.listStudentInvitations, {
-        status: "pending",
-      });
-
-      const items = result.items;
-      const pendingInvitation = items.find(
-        (inv) => inv.email.toLowerCase() === normalizedEmail
+      const findResponse = await convexServerCall<{ invitation: PendingStudentInvitation }>(
+        "/internal/student-invitations/list-pending-by-email",
+        { email: normalizedEmail }
       );
 
+      const pendingInvitation = findResponse.invitation;
       if (!pendingInvitation) {
         return { linked: false, reason: "No pending student invitation found", email };
       }
 
-      await convex.mutation(api.studentInvitations.updateStudentInvitationStatus, {
-        id: pendingInvitation.id,
-        status: "accepted",
-      });
+      const acceptResponse = await convexServerCall<AcceptStudentInvitationResult>(
+        "/internal/student-invitations/accept-by-id",
+        { invitationId: pendingInvitation.id }
+      );
+
+      if (!acceptResponse.accepted) {
+        return {
+          linked: false,
+          reason: `Pending invitation was not accepted: ${acceptResponse.reason}`,
+          email,
+        };
+      }
 
       return {
         linked: true,
@@ -97,6 +126,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
         instructorId: pendingInvitation.instructorId,
         email,
         needsSessionPack: true,
+        previousStatus: acceptResponse.previousStatus,
       };
     });
 
