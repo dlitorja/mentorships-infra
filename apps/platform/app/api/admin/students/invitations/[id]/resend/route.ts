@@ -11,6 +11,38 @@ import { convexIdSchema } from "@/lib/validators";
 import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 
 /**
+ * Strict Clerk revoke. Treats "already not active" errors (404,
+ * already-revoked, not-found) as success so we can proceed to patch
+ * the underlying Convex row. Re-throws anything else.
+ *
+ * Used by both resend and cancel routes. Mirrors
+ * `apps/platform/app/api/admin/students/invitations/[id]/cancel/route.ts:strictRevokeOrThrow`.
+ * Could be promoted to `apps/platform/lib/clerk-invitations.ts` if
+ * a third caller emerges.
+ */
+async function strictRevokeOrThrow(clerkInvitationId: string): Promise<true> {
+  try {
+    const client = await clerkClient();
+    await client.invitations.revokeInvitation(clerkInvitationId);
+    return true;
+  } catch (err) {
+    const status = (err as { status?: number })?.status ?? null;
+    const message = err instanceof Error ? err.message : String(err);
+    const lowered = message.toLowerCase();
+    const isAlreadyNotActive =
+      status === 404 ||
+      status === 422 ||
+      lowered.includes("already revoked") ||
+      lowered.includes("not found") ||
+      lowered.includes("does not exist") ||
+      lowered.includes("already accepted") ||
+      lowered.includes("already used");
+    if (isAlreadyNotActive) return true;
+    throw err;
+  }
+}
+
+/**
  * Resend a single `studentInvitations` row's Clerk invitation.
  *
  * Mirrors `apps/platform/app/api/admin/onboardings/[id]/resend-invitation/route.ts`
@@ -161,11 +193,17 @@ export async function POST(
     // gating fails (e.g. someone bypasses this route), Convex still
     // refuses.
     //
-    // Greptile P1 #4264777489: if this throws AFTER the Clerk mint
+    // Greptile round-1 P1: if this throws AFTER the Clerk mint
     // succeeded, revoke the new Clerk invitation so we don't strand
     // the student with a live link that no Convex row points to.
-    // Best-effort — failing to revoke is logged by `bestEffortRevoke`
-    // but does not change the user-facing 500.
+    // `strictRevokeOrThrow` is used here too — if the rescue revoke
+    // also fails (network / Clerk outage), the route surfaces the
+    // underlying mutation error rather than swallowing it.
+    //
+    // Greptile round-2 P1: pass `expectedStatus = row.status` (the
+    // status we observed on initial read) so a parallel cancel that
+    // flipped the row between read and patch refuses. On refusal we
+    // revoke the freshly-minted Clerk invite so we don't leak.
     let patch;
     try {
       patch = await convex.mutation(
@@ -174,10 +212,25 @@ export async function POST(
           invitationId,
           newClerkInvitationId: clerkResult.invitationId,
           expiresAt: newExpiresAt,
+          expectedStatus: row.status,
         }
       );
     } catch (saveErr) {
-      await bestEffortRevoke(clerkResult.invitationId);
+      // Precondition mismatch (race lost) or any Convex write failure
+      // — either way the new Clerk invite is orphaned. Revoke it
+      // strictly; if revoke itself fails we'll surface upstream.
+      try {
+        await strictRevokeOrThrow(clerkResult.invitationId);
+      } catch (revokeErr) {
+        reportError({
+          source: "/api/admin/students/invitations/[id]/resend",
+          error: revokeErr,
+          context: {
+            stage: "rescue_revoke_after_save_failure",
+            clerkInvitationId: clerkResult.invitationId,
+          },
+        });
+      }
       throw saveErr;
     }
 
@@ -203,12 +256,13 @@ export async function POST(
     if (message.includes("Forbidden") || message.includes("Forbidden: admin or support role required")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    if (message.includes("Precondition mismatch:")) {
+      return NextResponse.json(
+        { error: "Concurrent update detected; please retry." },
+        { status: 409 }
+      );
+    }
 
-    // Best-effort cleanup: if the Convex write threw AFTER the Clerk
-    // mint succeeded, revoke the new Clerk invitation so we don't
-    // strand the student with a live link that no Convex row points
-    // to. Mirror step 1's best-effort semantics — failing to revoke
-    // is logged but doesn't change the user-facing 500.
     reportError({
       source: "/api/admin/students/invitations/[id]/resend",
       error: err,

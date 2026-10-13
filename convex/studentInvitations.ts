@@ -193,6 +193,25 @@ export const updateStudentInvitationStatus = mutation({
   args: {
     id: v.id("studentInvitations"),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
+    /**
+     * PR-B (Issue 3) round-2 Greptile fix (P1 on cancel/route.ts:119):
+     * optional precondition. If provided, the mutation refuses if the
+     * row's current `status` doesn't match. The cancel HTTP route
+     * passes `expectedStatus = row.status` (the value it observed on
+     * the lined read). If a parallel resend slipped between our read
+     * and our patch, the precondition fails, the route re-reads and
+     * either surfaces 409 or retries against the new state.
+     *
+     * Skipped when omitted (legacy callers; pre-PR-B migration scripts).
+     */
+    expectedStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("expired"),
+        v.literal("cancelled")
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -205,6 +224,16 @@ export const updateStudentInvitationStatus = mutation({
 
     const row = await ctx.db.get(args.id);
     if (!row) throw new Error("Student invitation not found");
+
+    if (args.expectedStatus && row.status !== args.expectedStatus) {
+      // Greptile round-2 P1 (cancel/route.ts:119): a parallel resend
+      // changed the row state between our read and our patch. Race
+      // lost — refuse rather than blindly overwrite. The caller can
+      // re-read and decide whether to retry.
+      throw new Error(
+        `Precondition mismatch: expected status='${args.expectedStatus}' but row has status='${row.status}'`
+      );
+    }
 
     const previousStatus = row.status;
     await ctx.db.patch(args.id, { status: args.status });
@@ -298,6 +327,23 @@ export const resendStudentInvitation = mutation({
     invitationId: v.id("studentInvitations"),
     newClerkInvitationId: v.string(),
     expiresAt: v.number(),
+    /**
+     * PR-B (Issue 3) round-2 Greptile fix (P1 on cancel/route.ts:119):
+     * optional precondition. If a parallel cancel flipped the row's
+     * status to `cancelled` between the route's read and the mutation's
+     * patch, this precondition catches it. Route reads → mints Clerk
+     * with `ignoreExisting: true` → patches row. If the status was
+     * flipped in between, the patch refuses, the route re-reads and
+     * revokes the orphaned Clerk invitation it had minted.
+     */
+    expectedStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("expired"),
+        v.literal("cancelled")
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -314,6 +360,13 @@ export const resendStudentInvitation = mutation({
     if (row.status === "accepted" || row.status === "cancelled") {
       throw new Error(
         `Cannot resend invitation from terminal status '${row.status}'`
+      );
+    }
+
+    if (args.expectedStatus && row.status !== args.expectedStatus) {
+      // Greptile round-2 P1: race lost — refuse rather than overwrite.
+      throw new Error(
+        `Precondition mismatch: expected status='${args.expectedStatus}' but row has status='${row.status}'`
       );
     }
 

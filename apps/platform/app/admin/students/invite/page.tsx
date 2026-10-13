@@ -300,25 +300,11 @@ function PendingInvitationsCard() {
   const cancelMutation = useMutation({
     mutationFn: ({ invitationId }: { invitationId: string; email: string }) =>
       cancelStudentInvitation(invitationId),
-    onMutate: ({ email }) => {
-      // Greptile P2 #4264777511: require a confirmation before flipping
-      // status. `confirm()` returns true/false synchronously. We use
-      // `window.confirm` (not a styled dialog) for PR-B — a polished
-      // confirmation dialog can land in a follow-up.
-      if (typeof window !== "undefined") {
-        return window.confirm(
-          `Cancel the invitation sent to ${email}? This will revoke the live signup link and cannot be undone from this UI.`
-        );
-      }
-      return true;
-    },
     onSuccess: () => {
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["student-invitations"] });
     },
-    onError: (err, _variables, confirmed) => {
-      // Don't surface "user clicked Cancel" as an error.
-      if (confirmed === false) return;
+    onError: (err) => {
       setActionError(err instanceof Error ? err.message : "Failed to cancel");
     },
   });
@@ -393,7 +379,27 @@ function PendingInvitationsCard() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => cancelMutation.mutate({ invitationId: invitation.id, email: invitation.email })}
+                        onClick={() => {
+                          // Greptile P2 #4264777511 (round 2 — moved out of
+                          // onMutate because React Query's `onMutate`
+                          // returning false does NOT skip `mutationFn`).
+                          // Confirmation must live in the click handler.
+                          // `window.confirm` is used here (not a styled
+                          // dialog) for PR-B; a polished dialog lands in a
+                          // follow-up.
+                          if (
+                            typeof window !== "undefined" &&
+                            !window.confirm(
+                              `Cancel the invitation sent to ${invitation.email}? This will revoke the live signup link and cannot be undone from this UI.`
+                            )
+                          ) {
+                            return;
+                          }
+                          cancelMutation.mutate({
+                            invitationId: invitation.id,
+                            email: invitation.email,
+                          });
+                        }}
                         disabled={isBusy}
                         aria-label={`Cancel invitation to ${invitation.email}`}
                       >

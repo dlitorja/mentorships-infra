@@ -615,3 +615,140 @@ test("requireAdminOrSupport (admin-gated mutations): linked admin via by_clerkId
   const row = await t.run(async (ctx) => await ctx.db.get(id));
   expect(row?.status).toBe("cancelled");
 });
+
+// Greptile round-2 P1 (cancel/route.ts:119): the cancel / resend HTTP
+// routes pass `expectedStatus = row.status` from their initial read.
+// If the row's status has been flipped by a parallel mutation, the
+// precondition refuses. Pin that contract on
+// `updateStudentInvitationStatus` and `resendStudentInvitation`.
+test("updateStudentInvitationStatus: expectedStatus precondition refuses on race", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "precond-b-cancel");
+  await seedUser(t, { userId: "user_admin_b8", role: "admin" });
+  const id = await seedStudentInvitation(t, {
+    email: "tina@example.com",
+    instructorId,
+    status: "pending",
+  });
+
+  // First commit flips the row to cancelled.
+  await t
+    .withIdentity({ subject: "user_admin_b8" })
+    .mutation(api.studentInvitations.updateStudentInvitationStatus, {
+      id: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+      status: "cancelled",
+    });
+
+  // A second commit still passes expectedStatus="pending" — refuses.
+  await expect(
+    t.withIdentity({ subject: "user_admin_b8" }).mutation(
+      api.studentInvitations.updateStudentInvitationStatus,
+      {
+        id: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+        status: "cancelled",
+        expectedStatus: "pending",
+      }
+    )
+  ).rejects.toThrow(/Precondition mismatch/);
+});
+
+test("updateStudentInvitationStatus: expectedStatus matching current is permitted", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "precond-b-cancel-ok");
+  await seedUser(t, { userId: "user_admin_b9", role: "admin" });
+  const id = await seedStudentInvitation(t, {
+    email: "uma@example.com",
+    instructorId,
+    status: "pending",
+  });
+
+  await t
+    .withIdentity({ subject: "user_admin_b9" })
+    .mutation(api.studentInvitations.updateStudentInvitationStatus, {
+      id: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+      status: "expired",
+      expectedStatus: "pending",
+    });
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.status).toBe("expired");
+});
+
+test("resendStudentInvitation: refuses on race where row is now terminal", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "precond-b-resend");
+  await seedUser(t, { userId: "user_admin_b10", role: "admin" });
+  const id = await seedStudentInvitation(t, {
+    email: "victor@example.com",
+    instructorId,
+    status: "pending",
+    clerkInvitationId: "inv_old_v",
+  });
+
+  // Flip to cancelled first.
+  await t
+    .withIdentity({ subject: "user_admin_b10" })
+    .mutation(api.studentInvitations.updateStudentInvitationStatus, {
+      id: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+      status: "cancelled",
+    });
+
+  // Now a resend that was issued earlier in the path tries to commit.
+  // Handler prioritises the terminal-status refusal, so the error
+  // message is "Cannot resend from terminal status 'cancelled'".
+  // Granted `expectedStatus: "pending"`, the row is `cancelled`, so a
+  // resend MUST refuse (no second row, no overwrite of the cancel
+  // audit log). The exact error wording is a contract of the
+  // terminal check, not the precondition check.
+  await expect(
+    t.withIdentity({ subject: "user_admin_b10" }).mutation(
+      api.studentInvitations.resendStudentInvitation,
+      {
+        invitationId: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+        newClerkInvitationId: "inv_should_not_write",
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        expectedStatus: "pending",
+      }
+    )
+  ).rejects.toThrow(/terminal status 'cancelled'/);
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.status).toBe("cancelled");
+  expect(row?.clerkInvitationId).toBe("inv_old_v");
+});
+
+test("resendStudentInvitation: expectedStatus precondition refuses on non-terminal mismatch (pending → expired)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "precond-b-resend-nonterminal");
+  await seedUser(t, { userId: "user_admin_b11", role: "admin" });
+  const id = await seedStudentInvitation(t, {
+    email: "wendy@example.com",
+    instructorId,
+    status: "pending",
+    clerkInvitationId: "inv_old_w",
+    expiresAt: Date.now() - 1000,
+  });
+
+  // A parallel auto-expiry marked the row "expired" between the route
+  // read and the resend patch. Terminal check is skipped (expired
+  // isn't refused in resend), but the precondition catches the race.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(id, { status: "expired" });
+  });
+
+  await expect(
+    t.withIdentity({ subject: "user_admin_b11" }).mutation(
+      api.studentInvitations.resendStudentInvitation,
+      {
+        invitationId: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+        newClerkInvitationId: "inv_should_not_write_2",
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+        expectedStatus: "pending",
+      }
+    )
+  ).rejects.toThrow(/Precondition mismatch/);
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.status).toBe("expired");
+  expect(row?.clerkInvitationId).toBe("inv_old_w");
+});
