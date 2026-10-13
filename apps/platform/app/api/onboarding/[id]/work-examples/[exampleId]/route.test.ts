@@ -122,6 +122,32 @@ describe("DELETE /api/onboarding/[id]/work-examples/[exampleId]", () => {
     expect(args.workExampleId).toBe(workExampleId);
   });
 
+
+  it("returns 401 when Convex rejects with a Forbidden error (signed-in denial)", async () => {
+    // The route's catch block matches both `isUnauthorizedError` AND
+    // `isForbiddenError` to the same 401 response — a signed-in user
+    // who fails the per-onboarding ownership check should get the
+    // SAME body as an unauthenticated caller, not a 500 that leaks
+    // the deny via `reportError`. Without this case, a future
+    // refactor that turns the deny branch into "report and 500"
+    // would slip past this suite.
+    convexClient.mutation.mockRejectedValueOnce(
+      new Error("Forbidden: not your onboarding")
+    );
+    const { request, params } = makeDeleteRequest();
+
+
+    const response = await DELETE(request, { params });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    // The 401 path returns BEFORE the `reportError` call — a deny is
+    // expected client behavior, not a server-side anomaly. Pin the
+    // negative so a future refactor that adds reportError to the
+    // deny path (potentially double-reporting) is caught.
+    expect(mockReportError).not.toHaveBeenCalled();
+  });
+
   it("returns 500 on a non-auth Convex error", async () => {
     convexClient.mutation.mockRejectedValueOnce(
       new Error("row already deleted")

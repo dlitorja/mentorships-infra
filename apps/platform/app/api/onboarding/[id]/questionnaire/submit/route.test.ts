@@ -143,7 +143,11 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     expect(args.inspirations).toEqual([{ name: "Hendrix" }]);
   });
 
-  it("returns 422 when the mutation rejects with a 'missing required' message", async () => {
+  it("returns 422 when the mutation rejects with a message matching the regex's 'missing required' branch", async () => {
+    // Verify the route's regex (`/missing required|not enough work|inspirations/i`)
+    // catches the substring and surfaces the body verbatim at 422.
+    // This string is a substring test fixture, NOT a real backend
+    // message — see the next test for that.
     convexClient.mutation.mockRejectedValueOnce(
       new Error("missing required answers for q1")
     );
@@ -160,7 +164,8 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     expect(mockReportError).toHaveBeenCalledTimes(1);
   });
 
-  it("returns 422 when the mutation rejects with a 'not enough work' message", async () => {
+  it("returns 422 when the mutation rejects with a message matching the regex's 'not enough work' branch", async () => {
+    // Same fixture role as above — substring that the regex catches.
     convexClient.mutation.mockRejectedValueOnce(
       new Error("not enough work examples: need 3")
     );
@@ -173,7 +178,8 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     expect(response.status).toBe(422);
   });
 
-  it("returns 422 when the mutation rejects with an 'inspirations' message", async () => {
+  it("returns 422 when the mutation rejects with a message matching the regex's 'inspirations' branch", async () => {
+    // Same fixture role as above — substring that the regex catches.
     convexClient.mutation.mockRejectedValueOnce(
       new Error("inspirations: too few (1 < 2)")
     );
@@ -184,6 +190,58 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     });
     const response = await POST(request, { params });
     expect(response.status).toBe(422);
+  });
+
+  it("returns 500 (not 422) when the mutation throws the REAL 'Need at least N active work examples' message — known regex-coverage gap (Greptile round-2)", async () => {
+    // The actual Convex backend throws
+    //   `Need at least ${MIN_WORK_EXAMPLES_PER_SUBMISSION} active work examples (got ${N})`
+    // at `convex/onboardingQuestionnaire.ts`. None of "missing
+    // required", "not enough work", or "inspirations" appear in that
+    // string, so the route's regex does NOT match — production falls
+    // through to the generic 500 branch. This test pins CURRENT
+    // behavior (a known gap, out of scope for the test-scaffolding
+    // PR) so a future refactor that silently expands the regex (or
+    // a future change that swaps in a ConvexError with a structured
+    // shape we can branch on) surfaces as either a passing
+    // assertion here (fix landed) or a deliberate test edit.
+    convexClient.mutation.mockRejectedValueOnce(
+      new Error("Need at least 4 active work examples (got 2)")
+    );
+
+    const { request, params } = makeSubmitRequest({
+      answers: [{ questionId: "q1", questionText: "x", answerText: "y" }],
+      inspirations: [{ name: "Picasso" }],
+    });
+    const response = await POST(request, { params });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Failed to submit" });
+    expect(mockReportError).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("returns 401 when Convex rejects with a Forbidden error (signed-in denial)", async () => {
+    // The route's catch block matches both `isUnauthorizedError` AND
+    // `isForbiddenError` to the same 401 response — a signed-in user
+    // who fails the per-onboarding ownership check should get the
+    // SAME body as an unauthenticated caller, not a 500 that leaks
+    // the deny via `reportError`. Without this case, a future
+    // refactor that turns the deny branch into "report and 500"
+    // would slip past this suite.
+    convexClient.mutation.mockRejectedValueOnce(
+      new Error("Forbidden: not your onboarding")
+    );
+    const { request, params } = makeSubmitRequest({ answers: [{ questionId: "q1", questionText: "x", answerText: "y" }], inspirations: [] });
+
+
+    const response = await POST(request, { params });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    // The 401 path returns BEFORE the `reportError` call — a deny is
+    // expected client behavior, not a server-side anomaly. Pin the
+    // negative so a future refactor that adds reportError to the
+    // deny path (potentially double-reporting) is caught.
+    expect(mockReportError).not.toHaveBeenCalled();
   });
 
   it("returns 500 when the mutation rejects with an unrelated error", async () => {

@@ -129,7 +129,7 @@ describe("POST /api/onboarding/[id]/abandoned", () => {
   it("forwards answers to saveQuestionnaireDraft with questionText stamped server-side", async () => {
     const { request, params } = makeBeaconRequest({
       answers: [
-        { questionId: "q1", answerText: "My answer" },
+        { questionId: "how_did_you_hear", answerText: "My answer" },
         { questionId: "unknown-id", answerText: "Another answer" },
       ],
       inspirations: [{ name: "Picasso" }],
@@ -164,10 +164,16 @@ describe("POST /api/onboarding/[id]/abandoned", () => {
       expect(a).toHaveProperty("answerText");
       expect(typeof a.questionText).toBe("string");
     }
-    // `q1` is the canonical first question — its label should be
-    // stamped (not the client-supplied one).
-    expect(draftArgs.answers[0].questionId).toBe("q1");
+    // `how_did_you_hear` is a real question in ONBOARDING_QUESTIONS;
+    // its label is what the server stamps onto `questionText`. A
+    // future refactor that flips this from a label lookup to a
+    // client-trust would flip this assertion to fail.
+    expect(draftArgs.answers[0].questionId).toBe("how_did_you_hear");
     expect(draftArgs.answers[0].answerText).toBe("My answer");
+    // The server stamps the canonical label, NOT the client text.
+    expect(draftArgs.answers[0].questionText).toBe(
+      "How did you learn about this mentorship?"
+    );
 
     // Beacon must send `force: true` — the closing tab wins ties
     // against other tabs that may have a higher `clientSaveId`.
@@ -181,7 +187,7 @@ describe("POST /api/onboarding/[id]/abandoned", () => {
 
   it("defaults clientSaveId to 0 when the body omits it", async () => {
     const { request, params } = makeBeaconRequest({
-      answers: [{ questionId: "q1", answerText: "x" }],
+      answers: [{ questionId: "how_did_you_hear", answerText: "x" }],
     });
 
     const response = await POST(request, { params });

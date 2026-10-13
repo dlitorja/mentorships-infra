@@ -128,6 +128,33 @@ describe("GET /api/onboarding/[id]/questionnaire", () => {
     expect(args2).toEqual({ onboardingId });
   });
 
+
+  it("returns 401 when Convex rejects with a Forbidden error (signed-in denial)", async () => {
+    // The route's catch block matches both `isUnauthorizedError` AND
+    // `isForbiddenError` to the same 401 response — a signed-in user
+    // who fails the per-onboarding ownership check should get the
+    // SAME body as an unauthenticated caller, not a 500 that leaks
+    // the deny via `reportError`. Without this case, a future
+    // refactor that turns the deny branch into "report and 500"
+    // would slip past this suite.
+    convexClient.query.mockRejectedValueOnce(
+      new Error("Forbidden: not your onboarding")
+    );
+    const request = makeRequest({ method: "GET", url: `https://platform.test/api/onboarding/${onboardingId}/questionnaire` });
+    const params = Promise.resolve({ id: onboardingId });
+
+
+    const response = await GET(request, { params });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    // The 401 path returns BEFORE the `reportError` call — a deny is
+    // expected client behavior, not a server-side anomaly. Pin the
+    // negative so a future refactor that adds reportError to the
+    // deny path (potentially double-reporting) is caught.
+    expect(mockReportError).not.toHaveBeenCalled();
+  });
+
   it("returns 500 when Convex throws a non-auth error", async () => {
     convexClient.query.mockRejectedValueOnce(new Error("backend boom"));
 
@@ -209,8 +236,8 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
       url: `https://platform.test/api/onboarding/${onboardingId}/questionnaire`,
       body: {
         answers: [
-          { questionId: "q1", answerText: "Hello world" },
-          { questionId: "q2", answerText: "Another answer" },
+          { questionId: "how_did_you_hear", answerText: "Hello world" },
+          { questionId: "goals", answerText: "Another answer" },
         ],
         inspirations: [{ name: "Matisse" }],
         clientSaveId: 9097,
@@ -241,12 +268,54 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
       expect(a).toHaveProperty("answerText");
       expect(typeof a.questionText).toBe("string");
     }
+    // Both `how_did_you_hear` and `goals` are real entries in
+    // `ONBOARDING_QUESTIONS` (per `apps/platform/lib/onboarding-questions.ts`).
+    // Their labels are stamped verbatim by the route — a previous
+    // version of this test used synthetic `q1`/`q2` ids that
+    // resolved to `""` (allowing a regression that swapped to
+    // client-trust to slip past). Real ids + exact-label match
+    // closes that seam.
+    expect(args.answers[0]).toMatchObject({
+      questionId: "how_did_you_hear",
+      questionText: "How did you learn about this mentorship?",
+    });
+    expect(args.answers[1]).toMatchObject({
+      questionId: "goals",
+      questionText: "What are your goals with art and this mentorship?",
+    });
     expect(args.inspirations).toEqual([{ name: "Matisse" }]);
     expect(args.clientSaveId).toBe(9097);
     // PATCH should NOT pass `force` — autosave only updates when
     // the client is the most recent writer. The closing-tab beacon
     // route is the only caller that passes `force`.
     expect(args.force).toBeUndefined();
+  });
+
+
+  it("returns 401 when Convex rejects with a Forbidden error (signed-in denial)", async () => {
+    // The route's catch block matches both `isUnauthorizedError` AND
+    // `isForbiddenError` to the same 401 response — a signed-in user
+    // who fails the per-onboarding ownership check should get the
+    // SAME body as an unauthenticated caller, not a 500 that leaks
+    // the deny via `reportError`. Without this case, a future
+    // refactor that turns the deny branch into "report and 500"
+    // would slip past this suite.
+    convexClient.mutation.mockRejectedValueOnce(
+      new Error("Forbidden: not your onboarding")
+    );
+    const request = makeRequest({ method: "PATCH", url: `https://platform.test/api/onboarding/${onboardingId}/questionnaire`, body: { answers: [], inspirations: [], clientSaveId: 1 } });
+    const params = Promise.resolve({ id: onboardingId });
+
+
+    const response = await PATCH(request, { params });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    // The 401 path returns BEFORE the `reportError` call — a deny is
+    // expected client behavior, not a server-side anomaly. Pin the
+    // negative so a future refactor that adds reportError to the
+    // deny path (potentially double-reporting) is caught.
+    expect(mockReportError).not.toHaveBeenCalled();
   });
 
   it("returns 500 on a non-auth Convex error", async () => {

@@ -2,29 +2,30 @@
 /**
  * Convex Route Mapping reporter (HUC-94, second prong).
  *
- * For each route.ts file under apps/platform/app/api/onboarding (recursive
- * glob), this script finds the Convex calls inside the route handlers
- * and extracts:
+ * For each route.ts file under apps/platform/app/api/onboarding
+ * (recursive walk), this script finds the Convex calls inside the
+ * route handlers and extracts:
  *
  *   1. The Convex reference path (`api.<module>.<function>`).
- *   2. The keys of the args object passed to that mutation/action.
- *   3. The declared args on the matching Convex function
- *      (`convex/<module>.ts`).
+ *   2. The TOP-LEVEL keys of the args object passed to that
+ *      mutation / action / query.
+ *   3. The TOP-LEVEL declared args on the matching Convex function
+ *      in `convex/<module>.ts`.
  *
- * It then prints a Markdown table per route showing what was sent
- * vs what is declared. Today this is informational; tightening into a
- * CI gate (Zod-shape diff, optional vs required, type match) is a
- * future PR. The point of shipping this NOW is to give reviewers +
- * future PR authors a single-command lookup for the route ↔ Convex
- * seam.
+ * Why top-level only? Greptile P1 history on the Zod ↔ Convex seam
+ * is dominated by drift between the route's literal args and the
+ * declared validator shape. Nested shape (e.g. an `answers`
+ * array) is reported as a single key — its inner conformance is
+ * JSON-schema territory and belongs in a follow-up CI gate.
+ *
+ * Today's script is a reporter only — it prints a Markdown table
+ * and exits 0. Tightening into a CI gate (Zod shape, optional vs
+ * required, type match, returning exit code 1 on drift) is a
+ * follow-up PR.
  *
  * Usage:
  *   node scripts/convex-route-mapping.mjs
- *   pnpm exec tsx scripts/convex-route-mapping.mjs
- *
- * Exit code is always 0 today (reporter only). When the conformance
- * check tightens into a CI gate, the exit code will reflect drift
- * (non-zero on mismatch).
+ *   pnpm route-mapping
  */
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -36,18 +37,6 @@ const ROOT = join(__dirname, "..");
 const ROUTE_DIR = join(ROOT, "apps/platform/app/api/onboarding");
 const CONVEX_DIR = join(ROOT, "convex");
 
-/**
- * Read a TypeScript source file as text, return its content.
- */
-async function readSource(absPath) {
-  return await readFile(absPath, "utf8");
-}
-
-/**
- * List `route.ts` files under the API directory. We only descend
- * one or two levels deep (the onboarding routes are all under
- * `[id]/...`).
- */
 async function findRouteFiles(dir) {
   const out = [];
   async function walk(d, depth = 0) {
@@ -55,112 +44,197 @@ async function findRouteFiles(dir) {
     const entries = await readdir(d, { withFileTypes: true });
     for (const entry of entries) {
       const p = join(d, entry.name);
-      if (entry.isDirectory()) {
-        await walk(p, depth + 1);
-      } else if (entry.isFile() && entry.name === "route.ts") {
-        out.push(p);
-      }
+      if (entry.isDirectory()) await walk(p, depth + 1);
+      else if (entry.isFile() && entry.name === "route.ts") out.push(p);
     }
   }
   await walk(dir);
   return out;
 }
 
-/**
- * Find every Convex call site (`convex.<query|mutation|action>(ref, { ... })`)
- * inside a route source file and return each call's reference path +
- * the top-level keys of the args object.
- *
- * Phase 1 is loose: regex-based. Phase 2 (future) should use the TS
- * compiler API to get type-accurate extraction.
- */
 function extractConvexCalls(source) {
   const calls = [];
-  // Match:
-  //   await convex.<verb>(
-  //     (api as any).<module>.<function>,
-  //     {
-  //       key: ...,
-  //       ...
-  //     } as any
-  //   );
-  // We tolerate multi-line args bodies.
   const callRegex =
     /convex\.(query|mutation|action)\s*\(\s*\(\s*api\s+as\s+any\s*\)\.(\w+)\.(\w+)\s*,/g;
-  // The args object starts at the next `{` after the reference and
-  // we capture till the matching `}` (ignoring nested braces).
-  let match;
-  while ((match = callRegex.exec(source)) !== null) {
-    const verb = match[1];
-    const moduleName = match[2];
-    const fnName = match[3];
-    // Find the args object — start at the next `{` after the
-    // reference arg.
-    const afterRef = match.index + match[0].length;
+  let m;
+  while ((m = callRegex.exec(source)) !== null) {
+    const verb = m[1];
+    const moduleName = m[2];
+    const fnName = m[3];
+    // Find the args object literal — first balanced `{ ... }` after
+    // the reference arg, at top nesting.
+    const afterRef = m.index + m[0].length;
     let i = afterRef;
     while (i < source.length && source[i] !== "{") i++;
     if (i >= source.length) {
       calls.push({ verb, moduleName, fnName, argsKeys: [] });
       continue;
     }
-    // Find matching close brace at the same nesting level.
+    const openIdx = i;
     let depth = 0;
-    let start = i;
-    let end = -1;
+    let closeIdx = -1;
     for (; i < source.length; i++) {
       const ch = source[i];
       if (ch === "{") depth++;
       else if (ch === "}") {
         depth--;
         if (depth === 0) {
-          end = i;
+          closeIdx = i;
           break;
         }
       }
     }
-    const argsBody = end > 0 ? source.slice(start, end + 1) : "";
-    // Extract top-level keys: lines of the form `key:` at indent 2.
-    const keyRegex = /^\s{2,}"?(\w+)"?\s*:/gm;
-    const keys = [];
-    let km;
-    while ((km = keyRegex.exec(argsBody)) !== null) {
-      keys.push(km[1]);
-    }
-    calls.push({ verb, moduleName, fnName, argsKeys: keys });
+    // Body INCLUDES the outer `{` and `}` — the parser below uses
+    // them to detect end-of-body (so it works for shorthand like
+    // `{ onboardingId }` whose body would otherwise be just
+    // ` onboardingId ` with no closing brace).
+    const argsBody =
+      closeIdx > 0 ? source.slice(openIdx, closeIdx + 1) : "";
+    calls.push({
+      verb,
+      moduleName,
+      fnName,
+      argsKeys: parseTopLevelKeys(argsBody),
+    });
   }
   return calls;
 }
 
 /**
- * Find the declared `args: { ... }` block for a function in a
- * Convex source file. Loosely matches lines like
- *   `export const foo = <verb>({` or `export const foo = <verb>({ ... }, async`
- * followed by the `args: { ... }` block, then the function body.
+ * Parse an args object literal (INCLUDING its outer `{ ... }`) and
+ * return the top-level keys.
  *
- * Returns the keys of the declared args.
+ * Why "including"? Two reasons:
+ *   1. The matching `}` is what tells the parser when to stop.
+ *      Without it, a shorthand `{ onboardingId }` reduces to
+ *      ` onboardingId ` — no terminator — and the parser returns []
+ *      even though the key is obvious.
+ *   2. Tracking brace from 0 → 1 at the first `{` and back to 0
+ *      at the matching `}` mirrors a JS tokenizer, so the parser
+ *      can confidently report "top-level keys = identifiers at
+ *      brace === 1".
+ *
+ * Line comments (`// ... \n`) suppress string-walking — without
+ * that guard, an apostrophe like `the client's` is mistaken for a
+ * JS string delimiter and walks straight to the next `'`, skipping
+ * every key on the way (Greptile P2 #4).
+ *
+ * Paren / bracket are tracked so a `,` inside `answers.map(...)`
+ * or inside an `[]` array doesn't accidentally trigger the
+ * VALUE → KEY transition. They are clamped to non-negative so a
+ * stray `)` inside a `// ...` comment doesn't deadlock us.
  */
+function parseTopLevelKeys(body) {
+  const keys = [];
+  let brace = 0;
+  let paren = 0;
+  let bracket = 0;
+  let state = "KEY";
+  let inLineComment = false;
+  let i = 0;
+  while (i < body.length) {
+    const ch = body[i];
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      i++;
+      continue;
+    }
+    if (ch === "/" && body[i + 1] === "/") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (state !== "KEY" && /\s/.test(ch)) { i++; continue; }
+    if (ch === "{") { brace++; i++; continue; }
+    if (ch === "}") {
+      brace--;
+      i++;
+      if (brace < 0) return keys;
+      if (brace === 0) return keys;
+      continue;
+    }
+    if (ch === "(") { paren++; i++; continue; }
+    if (ch === ")") { paren = Math.max(0, paren - 1); i++; continue; }
+    if (ch === "[") { bracket++; i++; continue; }
+    if (ch === "]") { bracket = Math.max(0, bracket - 1); i++; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < body.length && body[i] !== quote) {
+        if (body[i] === "\\") i++;
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (state === "KEY") {
+      if (/\s/.test(ch)) { i++; continue; }
+      if (ch === ",") { i++; continue; }
+      if (/[a-zA-Z_$]/.test(ch)) {
+        const start = i;
+        while (i < body.length && /[\w$]/.test(body[i])) i++;
+        const ident = body.slice(start, i);
+        let look = i;
+        while (look < body.length && /\s/.test(body[look])) look++;
+        const next = body[look] ?? "";
+        if (next === ":") {
+          keys.push(ident);
+          state = "VALUE";
+          i = look + 1;
+          continue;
+        }
+        if (next === "?") {
+          look++;
+          while (look < body.length && /\s/.test(body[look])) look++;
+          if (body[look] === ":") {
+            keys.push(ident);
+            state = "VALUE";
+            i = look + 1;
+            continue;
+          }
+        }
+        if (next === "," || next === "}") {
+          keys.push(ident);
+          i = look;
+          if (next === ",") i++;
+          state = "KEY";
+          continue;
+        }
+        continue;
+      }
+      i++; continue;
+    }
+    if (
+      ch === "," &&
+      brace === 1 &&
+      paren === 0 &&
+      bracket === 0
+    ) {
+      state = "KEY";
+      i++;
+      continue;
+    }
+    i++;
+  }
+  return keys;
+}
+
 function extractConvexArgs(source, functionName) {
-  // Find the function header.
   const fnRegex = new RegExp(
     `export const ${functionName}\\s*=\\s*\\w+\\(\\s*\\{`,
     "g"
   );
   const headerMatch = fnRegex.exec(source);
   if (!headerMatch) return null;
-  // From there, find the matching `})`; then look for `args:` either
-  // before `returns:` or in the first object.
   const body = source.slice(headerMatch.index);
-  // We look for the first `args:` followed by `{`, capture keys until
-  // matching `}`.
   const argsOpen = body.indexOf("args:");
   if (argsOpen < 0) return null;
-  // Find the `{` immediately after `args:`.
-  let start = argsOpen + 5;
-  while (start < body.length && body[start] !== "{") start++;
-  if (start >= body.length) return null;
+  let searchFrom = argsOpen + "args:".length;
+  while (searchFrom < body.length && body[searchFrom] !== "{") searchFrom++;
+  if (searchFrom >= body.length) return null;
   let depth = 0;
   let end = -1;
-  for (let i = start; i < body.length; i++) {
+  for (let i = searchFrom; i < body.length; i++) {
     const ch = body[i];
     if (ch === "{") depth++;
     else if (ch === "}") {
@@ -171,28 +245,17 @@ function extractConvexArgs(source, functionName) {
       }
     }
   }
-  const argsBody = end > 0 ? body.slice(start, end + 1) : "";
-  const keyRegex = /^\s*"?(\w+)"?\??:\s*[v\[\(]/gm;
-  const keys = [];
-  let km;
-  while ((km = keyRegex.exec(argsBody)) !== null) {
-    keys.push(km[1]);
-  }
-  return keys;
+  if (end < 0) return null;
+  // Include the outer `{` and `}` so the parser can detect end-of-args.
+  const argsBody = body.slice(searchFrom, end + 1);
+  return parseTopLevelKeys(argsBody);
 }
 
-/**
- * Resolve the Convex module file path. The api stub in the route uses
- * `onboardingQuestionnaire` → `convex/onboardingQuestionnaire.ts`,
- * and `onboardingWorkExamples` → `convex/onboardingWorkExamples.ts`.
- * Actions live in `convex/<module>Actions.ts`.
- */
 function resolveConvexFile(moduleName) {
-  const candidates = [
+  return [
     join(CONVEX_DIR, `${moduleName}.ts`),
     join(CONVEX_DIR, `${moduleName}Actions.ts`),
   ];
-  return candidates;
 }
 
 async function main() {
@@ -202,7 +265,7 @@ async function main() {
     `# Convex Route Mapping (HUC-94)\n\nGenerated from \`scripts/convex-route-mapping.mjs\`.\n`
   );
   for (const routeAbs of routeFiles) {
-    const source = await readSource(routeAbs);
+    const source = await readFile(routeAbs, "utf8");
     const calls = extractConvexCalls(source);
     if (calls.length === 0) continue;
     const routePath = relative(ROOT, routeAbs);
@@ -211,20 +274,21 @@ async function main() {
     console.log("|------|------------------|-------------------|---------------|");
     for (const call of calls) {
       const refPath = `${call.moduleName}:${call.fnName}`;
-      const sent = call.argsKeys.length
-        ? call.argsKeys.map((k) => `\`${k}\``).join(", ")
-        : "_(none)_";
+      const sent =
+        call.argsKeys.length > 0
+          ? call.argsKeys.map((k) => `\`${k}\``).join(", ")
+          : "_(none)_";
       let declared = "_(not found)_";
       for (const candidate of resolveConvexFile(call.moduleName)) {
         try {
-          const convexSource = await readSource(candidate);
+          const convexSource = await readFile(candidate, "utf8");
           const declKeys = extractConvexArgs(convexSource, call.fnName);
           if (declKeys) {
             declared = declKeys.map((k) => `\`${k}\``).join(", ");
             break;
           }
         } catch {
-          // Try next candidate.
+          // Next candidate.
         }
       }
       console.log(
