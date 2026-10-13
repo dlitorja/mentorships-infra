@@ -990,10 +990,11 @@ test("HUC-93: force:true rejects when payloadCapturedAt < existing.updatedAt", a
     tabBLaterTimestamp: 0,
   });
 
-  // Tab B (the fresh one) saved at T+25min. We pin the
-  // server clock forward to a known value via a non-forced
-  // save, then back-date that with a manual patch so we can
-  // assert on a stable `updatedAt` reference.
+  // Tab B (the fresh one) saves first. We later pin the
+  // server's `updatedAt` to a deterministic reference via
+  // ctx.db.patch so the stale-payload test does not rely on
+  // wall-clock arithmetic between the prior mutation's
+  // execution and the new beacon's arrival.
   await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -1009,15 +1010,27 @@ test("HUC-93: force:true rejects when payloadCapturedAt < existing.updatedAt", a
       inspirations: [{ name: "Tab B" }],
       clientSaveId: 10,
     });
-  // Stash the server's now:existing.updatedAt as the
-  // reference. Subsequent patches below set updatedAt to a
-  // known value to make assertions deterministic.
-  const storedAfterTabB = Date.now();
+  // Greptile P2 (test:1015): pin `updatedAt` to a fixed
+  // reference. The prior version used `Date.now() - 1_000`
+  // which couples to wall-clock delta between the prior
+  // mutation and the Date.now() call site — a paused
+  // runnable for >1s flips the comparison. Same pattern as
+  // the equal/newer tests below.
+  const nowRef = Date.now() + 5_000;
+  await t.run(async (ctx: any) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q: any) =>
+        q.eq("onboardingId", onboardingId as any)
+      )
+      .first();
+    await ctx.db.patch(sub!._id, { updatedAt: nowRef });
+  });
 
   // Tab A's beacon fires much later, but Tab A's snapshot
   // timestamp is from when Tab A was last edited (BEFORE
   // Tab B's save landed on the server). payloadCapturedAt
-  // < storedAfterTabB ⇒ reject.
+  // < nowRef ⇒ reject.
   const beacon = await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -1033,8 +1046,8 @@ test("HUC-93: force:true rejects when payloadCapturedAt < existing.updatedAt", a
       inspirations: [{ name: "Tab A" }],
       clientSaveId: 5,
       force: true,
-      // Strictly older than the server's `updatedAt`.
-      payloadCapturedAt: storedAfterTabB - 1_000,
+      // Strictly older than the server's pinned `updatedAt`.
+      payloadCapturedAt: nowRef - 1_000,
     });
   expect(beacon.accepted).toBe(false);
   // Same shape as the older-id-guard rejection: status:draft

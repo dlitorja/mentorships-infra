@@ -431,19 +431,36 @@ export default function OnboardingQuestionnaireForm({
         // the flush has the same per-tab namespace as the
         // autosaves (round 20 P1 #2 fix).
         clientSaveIdCounter.current += 1;
-        
+
         const clientSaveId =
           clientSaveIdCounter.current;
-        // HUC-93: send the user's last-edit timestamp, NOT
-        // `Date.now()` at beacon-build time. The server-side
-        // `force: true` recency gate compares this against
-        // `existing.updatedAt` to bound the closing tab's
-        // stale-snapshot clobber race. Fall back to Date.now()
-        // only if the user typed nothing (the beacon
-        // shouldn't fire in that case anyway — alreadySubmitted
-        // or `answers`+`inspirations` all-empty suppresses the
-        // sendBeacon effect — but be defensive).
-        const payloadCapturedAt = lastEditedAtRef.current ?? Date.now();
+        // HUC-93 P1 (Greptile): when the form is hydrated
+        // from server-stored state and the user did NOT type
+        // anything, `lastEditedAtRef.current` is null. Sending
+        // the hydrated answers via `force: true` here would
+        // clobber a sibling tab's newer edits — the closing
+        // tab has nothing fresh to add. Stamp `lastSeenAt`
+        // only (empty payload triggers the route's seen-only
+        // path). Same fallback handling for the unmount
+        // handler below.
+        if (lastEditedAtRef.current == null) {
+          void fetch(url, {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          return;
+        }
+        // HUC-93: send the user's last-edit timestamp. The
+        // server-side `force: true` recency gate compares this
+        // against `existing.updatedAt` to bound the closing
+        // tab's stale-snapshot clobber race. We use the
+        // last-edit timestamp (not Date.now() at beacon-build
+        // time) so an idle tab doesn't accidentally pass the
+        // recency gate — see Linear HUC-93 race scenario step
+        // 4-5.
+        const payloadCapturedAt = lastEditedAtRef.current;
         void fetch(url, {
           method: "POST",
           keepalive: true,
@@ -497,14 +514,30 @@ export default function OnboardingQuestionnaireForm({
           .filter((x) => x.answerText.length > 0);
         const inspirations = i.filter((x) => x.name.trim().length > 0);
         clientSaveIdCounter.current += 1;
-        
+
         const clientSaveId =
           clientSaveIdCounter.current;
-        // HUC-93: send last-edit timestamp, NOT Date.now() at
-        // build time — same rationale as the beforeunload
-        // handler above. The mutation's force:true recency
-        // gate compares this against `existing.updatedAt`.
-        const payloadCapturedAt = lastEditedAtRef.current ?? Date.now();
+        // HUC-93 P1 (Greptile): the unmount handler is the
+        // mirror of the beforeunload beacon — if the form is
+        // hydrated and the user did NOT type anything, the
+        // (no-op) pending reference doesn't protect us; the
+        // server-side force:true gate would still let the
+        // hydrated answers clobber a sibling tab's newer
+        // edits. Same early-return as in `sendBeacon`: stamp
+        // lastSeenAt only.
+        if (lastEditedAtRef.current == null) {
+          void fetch(url, {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          return;
+        }
+        // HUC-93: send last-edit timestamp — the mutation's
+        // force:true recency gate compares this against
+        // `existing.updatedAt`.
+        const payloadCapturedAt = lastEditedAtRef.current;
         // keepalive lets the request land even as the page
         // is being torn down by the navigation.
         void fetch(url, {
