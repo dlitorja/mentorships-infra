@@ -205,67 +205,127 @@ export const onboardingQuestionnaireSubmittedNotification =
 
       const sentTo: string[] = [];
 
-      // Loop sequentially. Each send is its own step.run
-      // so Inngest checkpoints per recipient: a failed
-      // send throws inside the step (P1 #6 fix) and Inngest
-      // retries the function. On retry, prior successful
-      // step.runs are restored from Inngest's cache; only
-      // the failed recipient re-runs. The Resend
-      // `idempotencyKey` ensures the re-send is deduped on
-      // Resend's side.
-      for (const recipient of resolved.instructors) {
-        if (!recipient.email) {
-          // The HTTP endpoint already drops recipients with
-          // missing emails via `getInstructorRecipientsForSubmissionNotification`,
-          // but the consumer-side guard is a defensive belt
-          // in case a future refactor lets one through. We
-          // SKIP (no throw) — a missing email is not a
-          // transient failure.
-          continue;
-        }
-        const idempotencyKey = `questionnaire-submitted-notification:${resolved.submission._id}:${recipient.instructorId}`;
-        // Greptile round-1 P1 #5: greet by the STUDENT's
-        // `users` row name (resolved server-side by the
-        // HTTP endpoint), not the instructor's name which
-        // is `recipient.name`. Fall through to the email
-        // builder's own `studentEmail` local-part /
-        // "a new student" chain when the user row is missing.
-        const email = buildQuestionnaireSubmittedToInstructorEmail({
-          studentName: resolved.student.name,
-          studentEmail: resolved.student.email ?? "",
-          onboardingId: resolved.submission.onboardingId,
-          submittedAt: resolved.submission.submittedAt ?? submittedAt,
-          submissionUrl,
-        });
-        const outcome = await step.run(
-          `send:${resolved.submission._id}:${recipient.instructorId}`,
-          async () => {
-            const result = await sendEmail({
-              to: recipient.email!,
-              subject: email.subject,
-              html: email.html,
-              text: email.text,
-              headers: email.headers,
-              idempotencyKey,
-            });
-            if (!result.ok) {
-              const reason =
-                "error" in result && typeof result.error === "string"
-                  ? result.error
-                  : "skipped" in result
-                  ? `provider-skipped:${result.reason}`
-                  : "sendEmail-not-ok";
-              throw new Error(
-                `instructor-notification send failed for ${recipient.instructorId}: ${reason}`
-              );
-            }
-            return { ok: true as const, recipientId: recipient.instructorId };
-          }
-        );
+      // Greptile round-2 P1 #7: the prior loop awaited
+      // each step.run sequentially, so a throw on any one
+      // recipient short-circuited the rest — recipients
+      // #3, #4, ... never even started their step.run.
+      // Wrap per-recipient step.runs in `Promise.all` so
+      // every recipient's send starts concurrently. Two
+      // properties are preserved:
+      //   * Inngest still CHECKPOINTS each step.run
+      //     independently (a successful step.run's return
+      //     value is cached by step name), so on the
+      //     function-level retry triggered by the throw
+      //     below, prior successful sends return from
+      //     cache and do not re-send.
+      //   * Resend's per-recipient `idempotencyKey`
+      //     ensures the re-send is deduped at the provider.
+      //
+      // Trade-off: recipients now receive their emails
+      // concurrently rather than sequentially. This is a
+      // minor ordering change — instructors do not
+      // coordinate among themselves about a single
+      // student's submission.
+      const sendOutcomes = await Promise.all(
+        resolved.instructors
+          .filter((recipient) => !!recipient.email)
+          .map((recipient) => {
+            const idempotencyKey = `questionnaire-submitted-notification:${resolved.submission._id}:${recipient.instructorId}`;
+            return step
+              .run(
+                `send:${resolved.submission._id}:${recipient.instructorId}`,
+                async () => {
+                  // Greptile round-1 P1 #5: greet by the
+                  // STUDENT's `users` row name (resolved
+                  // server-side by the HTTP endpoint),
+                  // not `recipient.name` which is the
+                  // instructor's. Fall through to the
+                  // builder's own "a new student" chain
+                  // when the user row is missing.
+                  const email =
+                    buildQuestionnaireSubmittedToInstructorEmail({
+                      studentName: resolved.student.name,
+                      studentEmail: resolved.student.email ?? "",
+                      onboardingId: resolved.submission.onboardingId,
+                      submittedAt:
+                        resolved.submission.submittedAt ?? submittedAt,
+                      submissionUrl,
+                    });
+                  const result = await sendEmail({
+                    to: recipient.email!,
+                    subject: email.subject,
+                    html: email.html,
+                    text: email.text,
+                    headers: email.headers,
+                    idempotencyKey,
+                  });
+                  if (!result.ok) {
+                    const reason =
+                      "error" in result &&
+                      typeof result.error === "string"
+                        ? result.error
+                        : "skipped" in result
+                        ? `provider-skipped:${result.reason}`
+                        : "sendEmail-not-ok";
+                    throw new Error(
+                      `instructor-notification send failed for ${recipient.instructorId}: ${reason}`
+                    );
+                  }
+                  return {
+                    ok: true as const,
+                    recipientId: recipient.instructorId,
+                    email: recipient.email!,
+                  };
+                }
+              )
+              .catch((err: unknown) => {
+                // Per-recipient catch: a thrown step.run
+                // rejection would otherwise reject Promise.all
+                // and mask prior successes (Promise.all fails
+                // fast — only the first rejection bubbles).
+                // Returning a structured failure keeps every
+                // outcome visible; we re-throw the AGGREGATE
+                // at the end of this block to drive the
+                // Inngest retry.
+                return {
+                  ok: false as const,
+                  recipientId: recipient.instructorId,
+                  error: err instanceof Error ? err.message : String(err),
+                };
+              });
+          })
+      );
+
+      const sendErrors: Array<{ recipientId: string; error: string }> = [];
+      for (const outcome of sendOutcomes) {
         if (outcome.ok) {
-          sentTo.push(recipient.email);
+          sentTo.push(outcome.email);
+        } else {
+          sendErrors.push({
+            recipientId: outcome.recipientId,
+            error: outcome.error,
+          });
         }
       }
+
+      if (sendErrors.length > 0) {
+        // Greptile round-1 P1 #6: throw so Inngest retries
+        // the function. On retry, prior successful step.runs
+        // return from Inngest's step cache (so they do not
+        // re-send); the failing recipients' steps re-run.
+        // Each per-recipient .catch above already turned
+        // the throw into a structured failure so we still
+        // have visibility into ALL failures (not just the
+        // first — which is what Promise.all alone would
+        // give us).
+        const summary = sendErrors
+          .map((e) => `${e.recipientId}:${e.error}`)
+          .join("; ");
+        throw new Error(
+          `instructor-notification batch had ${sendErrors.length} failure(s): ${summary}`
+        );
+      }
+
 
       await reportInfo({
         source: "inngest:onboarding-questionnaire-submitted-notification",
