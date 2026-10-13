@@ -379,12 +379,33 @@ All four PRs follow the **PR Merge Policy** in AGENTS.md (Greptile + CodeRabbit 
 
 | PR | Topic | Status | PR # | Squash commit | Shipped |
 |---|---|---|---|---|---|
-| 1 | `<ClerkUserIdCell>` shared component | PR ready (Greptile + CodeRabbit review pending) | — | — | — |
-| 2 | Resend invitation | pending | — | — | — |
-| 3 | Onboarding status page `/onboarding/[id]` | pending | — | — | — |
-| 4 | Questionnaire + work examples | pending | — | — | — |
+| 1 | `<ClerkUserIdCell>` shared component | shipped | PR #910 | `dc6c1bff` | 2026-10-08 |
+| 2 | Resend invitation (`admin/onboardings/[id]` retry button) | shipped | PR #912 | `71c5fd6f` | 2026-10-09 |
+| 3 | Onboarding status page `/onboarding/[id]` (student-facing) | shipped | PR #913 | `f8a5239f` | 2026-10-09 |
+| 4a | Onboarding questionnaire + work examples data layer (Convex backend) | shipped | PR #914 | `05bc4776` (Greptile-fixed rev: `fd4f3447`) | 2026-10-10 |
+| 4b | Questionnaire form + abandonment beacon + reminder cron | shipped | PR #915 | `376f5ee9` | 2026-10-10 |
+| 4c | chore: reminder-scan P2 (index skip + `reminderCount` backfill) | shipped | PR #916 | `47486e1a` | 2026-10-12 |
 
-Update this table as PRs ship. Mirror the live status line into `docs/plans/README.md`.
+See `docs/post-merge/HANDOFF.md` for the pre-merge snapshot of PR 12 PR 1.
+
+### 10.1 Follow-up arc (post-merge remediations)
+
+PRs 1–4 closed HUC-83 / HUC-84 (the original arc). External review of the merged code identified four real issues, scoped to its own planning doc with its own linear issues (HUC-92 / HUC-93 / HUC-94 / HUC-95). Update as it ships.
+
+| Linear | Topic | Spec | PR # | Squash commit | Shipped |
+|---|---|---|---|---|---|
+| HUC-92 | Webhook race: signed-in student sees 404 when `user.created` hasn't landed | [`pr-12-onboarding-followups.md` §1](./pr-12-onboarding-followups.md) | PR #923 | `70e6b2ae` | 2026-10-13 |
+| HUC-94 | `route.test.ts` for `/api/onboarding/*` + conformance reporter | [`pr-12-onboarding-followups.md` §3](./pr-12-onboarding-followups.md) | PR #924 | `601e6f90` | 2026-10-13 |
+| HUC-93 | Convex `force:true` beacon clobber race → payload-recency gate | [`pr-12-onboarding-followups.md` §2](./pr-12-onboarding-followups.md) | PR #925 | `54a755e9` | 2026-10-13 |
+| HUC-95 | Notify assigned instructor(s) on questionnaire submit (Inngest + Resend) | [`pr-12-onboarding-followups.md` §4](./pr-12-onboarding-followups.md) | pending | — | — |
+
+Verification issues filed per AGENTS.md pattern:
+- HUC-96 — Verify claimOnboardingByEmailForCurrentUser on prod (HUC-92). Backlog/queued.
+- HUC-97 — Verify saveQuestionnaireDraft payload-recency gate on prod (HUC-93). Backlog/queued.
+
+(HUC-94 is test-scaffolding only — no schema/auth/Inngest/CI changes — so no verification issue was filed. HUC-95 touches an Inngest task, so a verification issue is filed once the PR opens, per AGENTS.md.)
+
+Mirror the live status line into `docs/plans/README.md`.
 
 ---
 
