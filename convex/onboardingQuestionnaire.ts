@@ -8,6 +8,12 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+// HUC-95: import the typed `internal` reference so we can
+// `ctx.scheduler.runAfter(0, internal.onboardingQuestionnaireActions.X, ...)`
+// from `submitQuestionnaire`. The compiled bundle exposes
+// `internal` as a per-module constant from `_generated/api.ts`
+// per Convex file-routing convention.
+import { internal } from "./_generated/api";
 
 import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
@@ -429,6 +435,18 @@ export const submitQuestionnaire = mutation({
           status: "submitted",
           submittedAt: now,
           updatedAt: now,
+          // Greptile round-1 P1 #1: do NOT pre-claim the
+          // `notifiedInstructorAt` field here. Doing so made
+          // the bridge action a no-op on its first run (the
+          // action's idempotency check saw the field already
+          // set and skipped before emitting the Inngest
+          // event, so ordinary submissions never produced an
+          // email). The action now sets the field AFTER it
+          // successfully posts to Inngest; an idempotent
+          // re-fire of the action sees the field then and
+          // skips without re-emitting. Resend handles
+          // per-recipient dedupe separately via its
+          // `idempotencyKey`.
         }), existing._id)
       : await ctx.db.insert("onboardingQuestionnaireSubmissions", {
           onboardingId: args.onboardingId,
@@ -441,6 +459,32 @@ export const submitQuestionnaire = mutation({
           updatedAt: now,
           submittedAt: now,
         });
+
+    // HUC-95: bridge to Inngest so the assigned instructor(s)
+    // get a "new mentor intro submitted" email. We schedule the
+    // action via the Convex scheduler rather than calling it
+    // inline because the action uses `"use node"` to perform
+    // outbound HTTP (Inngest's `inn.gs/e/...` event endpoint).
+    // `submitQuestionnaire` itself is a transaction; the action
+    // runs after the writes commit and reads the post-patch row
+    // state.
+    //
+    // Failure modes:
+    //   * If the action's Inngest send fails (network / DNS),
+    //     the action `throw`s so the Convex scheduler retries
+    //     (default 5 attempts). On a successful retry the
+    //     action posts the event and writes
+    //     `notifiedInstructorAt`, idempotency-claiming the
+    //     row.
+    //   * If the Inngest send succeeds but the Inngest
+    //     consumer errors, Inngest retries the consumer;
+    //     Resend's per-recipient `idempotencyKey` dedupes any
+    //     double-send.
+    ctx.scheduler.runAfter(
+      0,
+      internal.onboardingQuestionnaireActions.notifyInstructorOnSubmission,
+      { submissionId }
+    );
 
     // PR 12 PR 4: do NOT call `appendTimelineEntry` here.
     // Reasoning: the timeline event union in
@@ -990,6 +1034,192 @@ export const getDraftStatusForReminder = internalQuery({
     // still fire without this. Same staleCutoff the scan uses.
     const latestActivityAt = Math.max(sub.updatedAt, sub.lastSeenAt ?? 0);
     return { status: "draft" as const, latestActivityAt };
+  },
+});
+
+/**
+ * HUC-95 — Read the submission row from inside the
+ * `notifyInstructorOnSubmission` action so a Convex scheduler
+ * replay sees the post-mutation state. Returns `null` if the
+ * row is missing (the action handles that as a hard error to
+ * be retried). Returns a wide shape with the fields the
+ * action actually needs (the action narrows this with an
+ * explicit type annotation per the Convex guidelines'.
+ * "same-file annotation" guidance.
+ */
+export const getSubmissionForInstructorNotification = internalQuery({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("onboardingQuestionnaireSubmissions"),
+      onboardingId: v.id("adminOnboardings"),
+      studentClerkId: v.string(),
+      status: v.union(v.literal("draft"), v.literal("submitted")),
+      submittedAt: v.union(v.number(), v.null()),
+      notifiedInstructorAt: v.union(v.number(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    return {
+      _id: sub._id,
+      onboardingId: sub.onboardingId,
+      studentClerkId: sub.studentClerkId,
+      status: sub.status,
+      submittedAt: sub.submittedAt ?? null,
+      notifiedInstructorAt: sub.notifiedInstructorAt ?? null,
+    };
+  },
+});
+
+/**
+ * HUC-95 — Hydrate the parent onboarding's perInstructor
+ * list with `{ instructorId, name, email }` resolved from
+ * the `instructors` table. Read by the Convex HTTP endpoint
+ * `/onboarding/submission-for-instructor-notification` (an
+ * `httpAction` does NOT expose `ctx.db` directly, so the
+ * endpoint calls this query via `ctx.runQuery`).
+ *
+ * Returns `[]` if the parent is missing or has no
+ * perInstructor entries, rather than throwing — the
+ * Inngest consumer treats an empty recipient list as a
+ * benign no-op.
+ */
+export const getInstructorRecipientsForSubmissionNotification = internalQuery({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.array(
+    v.object({
+      instructorId: v.id("instructors"),
+      name: v.union(v.string(), v.null()),
+      email: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return [];
+    const parent = await ctx.db.get(sub.onboardingId);
+    if (!parent) return [];
+    const perInstructor = parent.perInstructor ?? [];
+    if (perInstructor.length === 0) return [];
+    // De-dup by instructorId; an instructor can appear in
+    // `perInstructor` multiple times across distinct
+    // onboarding segments (e.g. 1:1 + group). The email is
+    // per instructor, not per segment.
+    const uniqueIds = Array.from(
+      new Set(perInstructor.map((p) => p.instructorId))
+    );
+    const rows = await Promise.all(
+      uniqueIds.map((id) => ctx.db.get(id as Id<"instructors">))
+    );
+    return rows
+      .filter(
+        (r): r is Doc<"instructors"> & { _id: Id<"instructors"> } =>
+          r !== null
+      )
+      .map((r) => ({
+        instructorId: r._id,
+        name: r.name ?? null,
+        email: r.email ?? null,
+      }));
+  },
+});
+
+/**
+ * HUC-95 — Mark a submission as instructor-notified AFTER
+ * the bridge action has successfully posted the
+ * `questionnaire/submitted` event to Inngest. Idempotent on
+ * `notifiedInstructorAt`: a re-fire of the action whose
+ * first run already wrote the timestamp returns without
+ * overwriting it.
+ *
+ * Lives in the same module as `submitQuestionnaire` so the
+ * patch always runs inside the same Convex txn surface
+ * (no cross-module coordination needed); the action calls
+ * it via `ctx.runMutation(internal.X.markInstructorNotified, ...)`
+ * — actions themselves don't expose `ctx.db`, so this
+ * internalMutation is the only correct way to write the
+ * field after the Inngest send.
+ */
+export const markInstructorNotified = internalMutation({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    if (sub.notifiedInstructorAt != null) {
+      // Already written — a re-fire, not a duplicate.
+      return null;
+    }
+    await ctx.db.patch(args.submissionId, {
+      notifiedInstructorAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/**
+ * HUC-95 — Resolve the student that submitted a
+ * questionnaire by `studentClerkId`. Read by the Convex HTTP
+ * endpoint `/onboarding/submission-for-instructor-notification`
+ * (Greptile round-1 P1 #5: the email must name the
+ * student, not the instructor). Returns `null` if the
+ * `studentClerkId` doesn't resolve to a `users` row, in
+ * which case the Inngest consumer falls back to the
+ * generic "a new student" greeting.
+ *
+ * No identity check — this query is intentionally
+ * internal-only and called from `httpAction`, which is
+ * bearer-authenticated by `CONVEX_HTTP_KEY`. The public
+ * equivalent `getUsersByClerkIds` requires a Clerk identity
+ * (returns [] without one); an internal variant is required
+ * so the HTTP endpoint can resolve the student server-side.
+ *
+ * Index: `users.by_userId` (Clerk user id).
+ *
+ * The `users` table has firstName + lastName as separate
+ * fields (no joined `name`), so we concatenate and fall
+ * back to whichever side is present.
+ */
+export const getStudentForInstructorNotification = internalQuery({
+  args: {
+    studentClerkId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      name: v.union(v.string(), v.null()),
+      email: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentClerkId))
+      .first();
+    if (!user) return null;
+    const first =
+      typeof user.firstName === "string" && user.firstName.length > 0
+        ? user.firstName
+        : "";
+    const last =
+      typeof user.lastName === "string" && user.lastName.length > 0
+        ? user.lastName
+        : "";
+    const joined = `${first} ${last}`.trim();
+    const name = joined.length > 0 ? joined : null;
+    const email =
+      typeof user.email === "string" && user.email.length > 0
+        ? user.email
+        : null;
+    return { name, email };
   },
 });
 

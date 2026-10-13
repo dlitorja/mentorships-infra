@@ -3527,6 +3527,119 @@ export const httpOnboardingMarkReminderSent = httpAction(async (ctx, request) =>
   });
 });
 
+/**
+ * HUC-95 — Single-shot read endpoint that the Inngest
+ * `onboarding-questionnaire-submitted-notification` consumer
+ * hits once per submission event to resolve the recipient
+ * instructor list. Returns the widest object that needs to
+ * leave Convex (submission meta + parent onboarding id + the
+ * resolved `instructors[]` per-recipient) so the consumer
+ * doesn't have to make N follow-up calls in its own step
+ * runs.
+ *
+ * Auth: bearer `CONVEX_HTTP_KEY`, matching the existing
+ * `/onboarding/*` HTTP surface. The Inngest consumer holds
+ * the key in `apps/platform/.env*` and forwards it on every
+ * call (mirroring the cron at
+ * `onboarding-questionnaire-reminders.ts:scan`).
+ *
+ * Note: `httpAction` does NOT expose `ctx.db` (see
+ * `_generated/ai/guidelines.md` — `httpAction`s receive an
+ * `ActionCtx` which is query/mutation/storage/vector only).
+ * All DB reads here go through `ctx.runQuery(internal.X, ...)`
+ * and the per-recipient hydration goes through the dedicated
+ * `getInstructorRecipientsForSubmissionNotification` query
+ * so the same logic is type-safe and reusable.
+ */
+export const httpOnboardingSubmissionForInstructorNotification = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = (await request.json().catch(() => ({}))) as {
+      submissionId?: string;
+    };
+    if (
+      !body.submissionId ||
+      typeof body.submissionId !== "string"
+    ) {
+      return new Response(
+        JSON.stringify({ error: "submissionId required" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Read via the same internal query the action uses — keeps
+    // the field shape symmetric.
+    const submission:
+      | {
+          _id: string;
+          onboardingId: string;
+          studentClerkId: string;
+          status: "draft" | "submitted";
+          submittedAt: number | null;
+          notifiedInstructorAt: number | null;
+        }
+      | null = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getSubmissionForInstructorNotification,
+      {
+        submissionId: body.submissionId as any,
+      }
+    );
+
+    if (!submission) {
+      return new Response(JSON.stringify({ error: "not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Per-recipient hydration via the dedicated internal
+    // query. The query dedups + filters null instructors
+    // internally and returns `[]` for the missing-parent
+    // case (which we surface as `instructors: []` on the
+    // consumer side; it then no-ops).
+    const instructors = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getInstructorRecipientsForSubmissionNotification,
+      {
+        submissionId: body.submissionId as any,
+      }
+    );
+
+    // Greptile round-1 P1 #5: the email must name the
+    // student, not the instructor. Resolve the student's
+    // `users` row by `studentClerkId` (server-side, no
+    // Clerk identity required — the bearer-auth HTTP
+    // endpoint is the explicit bypass). A `null` result
+    // becomes the empty-fields placeholder in the
+    // consumer's email template.
+    const student = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getStudentForInstructorNotification,
+      {
+        studentClerkId: submission.studentClerkId,
+      }
+    );
+
+    return new Response(
+      JSON.stringify({
+        submission,
+        parentOnboardingId: submission.onboardingId,
+        student: student ?? { name: null, email: null },
+        instructors,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+);
+
 http.route({
   path: "/onboarding/stale-questionnaire",
   method: "POST",
@@ -3543,6 +3656,12 @@ http.route({
   path: "/onboarding/mark-reminder-sent",
   method: "POST",
   handler: httpOnboardingMarkReminderSent,
+});
+
+http.route({
+  path: "/onboarding/submission-for-instructor-notification",
+  method: "POST",
+  handler: httpOnboardingSubmissionForInstructorNotification,
 });
 
 export default http;

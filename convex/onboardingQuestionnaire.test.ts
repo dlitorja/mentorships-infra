@@ -1,10 +1,19 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.ts");
+
+// HUC-95 tests use `vi.useFakeTimers()` to keep the
+// `ctx.scheduler.runAfter(0, ...)` enqueue deterministic
+// across runs; the afterEach resets the timer mode so
+// earlier tests (which use wall-clock `Date.now()` for
+// stale-cutoff assertions) keep working.
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /**
  * PR 12 PR 4 — Tests for the onboarding questionnaire + work
@@ -315,6 +324,111 @@ test("submitQuestionnaire happy path flips status to submitted", async () => {
     });
   expect(submitted.submissionId).toBeTypeOf("string");
   expect(submitted.submittedAt).toBeTypeOf("number");
+});
+
+test("HUC-95: submitQuestionnaire does NOT pre-write notifiedInstructorAt (P1 #1 fix)", async () => {
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_huc95_a";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-huc95-a", email: "inst-huc95-a@example.com" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-huc95-a@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
+    });
+  for (let i = 0; i < 4; i++) {
+    await seedWorkExample(t, {
+      onboardingId,
+      studentClerkId: studentId,
+      status: "active",
+    });
+  }
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.submitQuestionnaire, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+    });
+
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) => q.eq("onboardingId", onboardingId as any))
+      .first();
+  });
+  expect(row).not.toBeNull();
+  // Greptile round-1 P1 #1: the field is NOT pre-written
+  // here — the action's idempotency check would otherwise
+  // always short-circuit on its first run. The mutation
+  // sets `status: submitted` only; the action sets
+  // `notifiedInstructorAt` AFTER it successfully posts
+  // to Inngest.
+  expect((row as any).notifiedInstructorAt).toBeUndefined();
+  expect((row as any).status).toBe("submitted");
+});
+
+test("HUC-95: submitQuestionnaire schedules notifyInstructorOnSubmission exactly once", async () => {
+  vi.useFakeTimers();
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_huc95_b";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-huc95-b", email: "inst-huc95-b@example.com" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-huc95-b@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
+    });
+  for (let i = 0; i < 4; i++) {
+    await seedWorkExample(t, {
+      onboardingId,
+      studentClerkId: studentId,
+      status: "active",
+    });
+  }
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.submitQuestionnaire, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+    });
+
+  const scheduled = await t.run(async (ctx) => {
+    return await ctx.db.system.query("_scheduled_functions").collect();
+  });
+  // The submit schedules exactly one action: the bridge to Inngest.
+  // The email-send step is owned by Inngest itself, not Convex
+  // scheduler — see apps/platform/inngest/functions/
+  // onboarding-questionnaire-submitted-notification.ts.
+  expect(scheduled).toHaveLength(1);
+  expect(scheduled[0].name).toMatch(/notifyInstructorOnSubmission/);
+
+  vi.useRealTimers();
 });
 
 test("submitQuestionnaire rejects non-assigned caller", async () => {

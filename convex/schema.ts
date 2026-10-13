@@ -1658,6 +1658,20 @@ export default defineSchema({
     // overwriting a newer tab-close flush when requests
     // arrive out of order.
     lastClientSaveId: v.optional(v.number()),
+    // HUC-95: instructor-notification bookkeeping.
+    // `submitQuestionnaire` writes this field atomically with
+    // the `status: "submitted"` flip so the Inngest consumer
+    // (`onboarding-questionnaire-submitted-notification`) has a
+    // server-side "this submission has already been claimed for
+    // notification" claim that survives Inngest retries. The
+    // field is set BEFORE the action emits the
+    // `questionnaire/submitted` event, so a re-fire of the
+    // action that's somehow re-scheduled (Convex scheduler
+    // replay) is a no-op. Resend's per-recipient
+    // `idempotencyKey` provides the second layer of dedupe on
+    // the consumer side; see the function file for the
+    // `questionnaire-submitted-notification:` prefix.
+    notifiedInstructorAt: v.optional(v.number()),
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_status_updatedAt", ["status", "updatedAt"])
