@@ -424,3 +424,182 @@ test("claimOnboardingByEmail: returns null when no matching rows", async () => {
   expect(result.claimedOnboardingId).toBeNull();
   expect(result.matchedCount).toBe(0);
 });
+
+/**
+ * HUC-92 — Tests for the public wrapper
+ * `claimOnboardingByEmailForCurrentUser` that the page server
+ * component calls when `getOnboardingView` returns `null` for an
+ * authenticated student. The wrapper exists so the student
+ * doesn't eat a 404 when the Clerk `user.created` webhook is
+ * still in flight.
+ */
+
+test("claimOnboardingByEmailForCurrentUser: signed-in student with matching email claims an unassigned row", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_alice_huc92";
+  const studentEmail = "alice-huc92@example.com";
+  let instructorId = "";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst A", slug: "inst-a-huc92" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: studentEmail,
+      status: "queued",
+      assignedStudentClerkId: undefined,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // Pre-claim: the row exists but the student isn't assigned,
+  // so the auth gate returns null.
+  const viewBefore = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .query(api.adminOnboarding.getOnboardingView, { onboardingId });
+  expect(viewBefore).toBeNull();
+
+  const claim = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+
+  expect(claim.claimedOnboardingId).toBe(onboardingId);
+  expect(claim.matchedCount).toBe(1);
+  expect(claim.skippedCompletedCount).toBe(0);
+
+  // Post-claim: the row is now assigned to the student, so the
+  // view is visible.
+  const viewAfter = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .query(api.adminOnboarding.getOnboardingView, { onboardingId });
+  expect(viewAfter).not.toBeNull();
+  expect(viewAfter?.viewerRole).toBe("student");
+  expect(viewAfter?.onboarding.assignedStudentClerkId).toBe(studentClerkId);
+});
+
+test("claimOnboardingByEmailForCurrentUser: hostile caller with a different email cannot claim the row", async () => {
+  const t = convexTest(schema, modules);
+  const bobClerkId = "user_student_bob_huc92";
+  const bobEmail = "bob-huc92@example.com";
+  let instructorId = "";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst A", slug: "inst-a-huc92b" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "alice-huc92@example.com",
+      status: "queued",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // Bob's JWT carries Bob's email. He calls the public wrapper;
+  // email won't match Alice's row.
+  const claim = await t
+    .withIdentity({ subject: bobClerkId, email: bobEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+
+  expect(claim.claimedOnboardingId).toBeNull();
+  expect(claim.matchedCount).toBe(0);
+
+  // The original Alice row stays unassigned — defense in depth:
+  // a malicious signed-in user cannot charge a row to themselves.
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(onboardingId as any);
+    expect(row?.assignedStudentClerkId).toBeUndefined();
+  });
+});
+
+test("claimOnboardingByEmailForCurrentUser: idempotent on second call from the same identity", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_alice_huc92c";
+  const studentEmail = "alice-huc92c@example.com";
+  let instructorId = "";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst A", slug: "inst-a-huc92c" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: studentEmail,
+      status: "queued",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const first = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+  expect(first.claimedOnboardingId).toBe(onboardingId);
+
+  const second = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+  expect(second.claimedOnboardingId).toBe(onboardingId);
+  expect(second.matchedCount).toBe(first.matchedCount);
+  expect(second.skippedCompletedCount).toBe(first.skippedCompletedCount);
+});
+
+test("claimOnboardingByEmailForCurrentUser: identity without email claim returns nulls without throwing", async () => {
+  const t = convexTest(schema, modules);
+  let instructorId = "";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst A", slug: "inst-a-huc92d" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "alice-huc92d@example.com",
+      status: "queued",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // JWT has `subject` but no `email` (defensive path for a custom
+  // Clerk JWT template that omits email).
+  const claim = await t
+    .withIdentity({ subject: "user_student_no_email_huc92" })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+
+  expect(claim.claimedOnboardingId).toBeNull();
+  expect(claim.matchedCount).toBe(0);
+  expect(claim.skippedCompletedCount).toBe(0);
+
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(onboardingId as any);
+    expect(row?.assignedStudentClerkId).toBeUndefined();
+  });
+});
+
+test("claimOnboardingByEmailForCurrentUser: P1 guard refuses to overwrite a row assigned to a different Clerk account", async () => {
+  const t = convexTest(schema, modules);
+  const aliceClerkId = "user_student_alice_huc92p1";
+  const bobClerkId = "user_student_bob_huc92p1";
+  const sharedEmail = "shared-huc92p1@example.com";
+
+  let instructorId = "";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    instructorId = await seedInstructor(ctx, { name: "Inst P1", slug: "inst-huc92p1" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: sharedEmail,
+      status: "queued",
+      assignedStudentClerkId: aliceClerkId, // pre-existing Alice claim
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // Bob's signed-in session carries the same email as Alice's row.
+  // The P1 guard must refuse to overwrite Alice's assignment.
+  const bobClaim = await t
+    .withIdentity({ subject: bobClerkId, email: sharedEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+  expect(bobClaim.claimedOnboardingId).toBeNull();
+  expect(bobClaim.matchedCount).toBeGreaterThan(0);
+
+  // Alice keeps her assignment — Bob can't kick her out.
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(onboardingId as any);
+    expect(row?.assignedStudentClerkId).toBe(aliceClerkId);
+  });
+
+  // Sanity: Alice (the legitimate owner) re-running the same-call
+  // still no-ops via the same-account short-circuit.
+  const aliceClaim = await t
+    .withIdentity({ subject: aliceClerkId, email: sharedEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+  expect(aliceClaim.claimedOnboardingId).toBe(onboardingId);
+});
