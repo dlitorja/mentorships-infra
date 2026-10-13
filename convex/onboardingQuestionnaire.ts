@@ -435,16 +435,18 @@ export const submitQuestionnaire = mutation({
           status: "submitted",
           submittedAt: now,
           updatedAt: now,
-          // HUC-95: atomically claim the instructor-notification
-          // slot at submission time so a re-fire of the action
-          // (Convex scheduler replay) is a no-op AND a second
-          // `submitQuestionnaire` call after status flipped is
-          // also a no-op above (we already returned the early
-          // path on `existing.status === "submitted"`). The
-          // Inngest consumer re-checks this field on resume for
-          // idempotency and Resend's per-recipient
-          // `idempotencyKey` is the second dedupe layer.
-          notifiedInstructorAt: now,
+          // Greptile round-1 P1 #1: do NOT pre-claim the
+          // `notifiedInstructorAt` field here. Doing so made
+          // the bridge action a no-op on its first run (the
+          // action's idempotency check saw the field already
+          // set and skipped before emitting the Inngest
+          // event, so ordinary submissions never produced an
+          // email). The action now sets the field AFTER it
+          // successfully posts to Inngest; an idempotent
+          // re-fire of the action sees the field then and
+          // skips without re-emitting. Resend handles
+          // per-recipient dedupe separately via its
+          // `idempotencyKey`.
         }), existing._id)
       : await ctx.db.insert("onboardingQuestionnaireSubmissions", {
           onboardingId: args.onboardingId,
@@ -456,10 +458,6 @@ export const submitQuestionnaire = mutation({
           createdAt: now,
           updatedAt: now,
           submittedAt: now,
-          // HUC-95: see comment on the patch path above. Same
-          // atomic-claim semantics — the freshly-inserted row's
-          // notification slot is reserved at insert time.
-          notifiedInstructorAt: now,
         });
 
     // HUC-95: bridge to Inngest so the assigned instructor(s)
@@ -473,14 +471,15 @@ export const submitQuestionnaire = mutation({
     //
     // Failure modes:
     //   * If the action's Inngest send fails (network / DNS),
-    //     `reportError` logs the error but does NOT throw.
-    //     The Convex scheduler will retry up to its limit (see
-    //     the action file). The submission row is already
-    //     marked `notifiedInstructorAt` so the action's
-    //     idempotency check on re-fire is a no-op.
-    //   * If the Inngest send succeeds but the consumer errors,
-    //     Inngest retries the consumer; Resend's per-recipient
-    //     `idempotencyKey` dedupes any double-send.
+    //     the action `throw`s so the Convex scheduler retries
+    //     (default 5 attempts). On a successful retry the
+    //     action posts the event and writes
+    //     `notifiedInstructorAt`, idempotency-claiming the
+    //     row.
+    //   * If the Inngest send succeeds but the Inngest
+    //     consumer errors, Inngest retries the consumer;
+    //     Resend's per-recipient `idempotencyKey` dedupes any
+    //     double-send.
     ctx.scheduler.runAfter(
       0,
       internal.onboardingQuestionnaireActions.notifyInstructorOnSubmission,
@@ -1128,6 +1127,99 @@ export const getInstructorRecipientsForSubmissionNotification = internalQuery({
         name: r.name ?? null,
         email: r.email ?? null,
       }));
+  },
+});
+
+/**
+ * HUC-95 — Mark a submission as instructor-notified AFTER
+ * the bridge action has successfully posted the
+ * `questionnaire/submitted` event to Inngest. Idempotent on
+ * `notifiedInstructorAt`: a re-fire of the action whose
+ * first run already wrote the timestamp returns without
+ * overwriting it.
+ *
+ * Lives in the same module as `submitQuestionnaire` so the
+ * patch always runs inside the same Convex txn surface
+ * (no cross-module coordination needed); the action calls
+ * it via `ctx.runMutation(internal.X.markInstructorNotified, ...)`
+ * — actions themselves don't expose `ctx.db`, so this
+ * internalMutation is the only correct way to write the
+ * field after the Inngest send.
+ */
+export const markInstructorNotified = internalMutation({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    if (sub.notifiedInstructorAt != null) {
+      // Already written — a re-fire, not a duplicate.
+      return null;
+    }
+    await ctx.db.patch(args.submissionId, {
+      notifiedInstructorAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/**
+ * HUC-95 — Resolve the student that submitted a
+ * questionnaire by `studentClerkId`. Read by the Convex HTTP
+ * endpoint `/onboarding/submission-for-instructor-notification`
+ * (Greptile round-1 P1 #5: the email must name the
+ * student, not the instructor). Returns `null` if the
+ * `studentClerkId` doesn't resolve to a `users` row, in
+ * which case the Inngest consumer falls back to the
+ * generic "a new student" greeting.
+ *
+ * No identity check — this query is intentionally
+ * internal-only and called from `httpAction`, which is
+ * bearer-authenticated by `CONVEX_HTTP_KEY`. The public
+ * equivalent `getUsersByClerkIds` requires a Clerk identity
+ * (returns [] without one); an internal variant is required
+ * so the HTTP endpoint can resolve the student server-side.
+ *
+ * Index: `users.by_userId` (Clerk user id).
+ *
+ * The `users` table has firstName + lastName as separate
+ * fields (no joined `name`), so we concatenate and fall
+ * back to whichever side is present.
+ */
+export const getStudentForInstructorNotification = internalQuery({
+  args: {
+    studentClerkId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      name: v.union(v.string(), v.null()),
+      email: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentClerkId))
+      .first();
+    if (!user) return null;
+    const first =
+      typeof user.firstName === "string" && user.firstName.length > 0
+        ? user.firstName
+        : "";
+    const last =
+      typeof user.lastName === "string" && user.lastName.length > 0
+        ? user.lastName
+        : "";
+    const joined = `${first} ${last}`.trim();
+    const name = joined.length > 0 ? joined : null;
+    const email =
+      typeof user.email === "string" && user.email.length > 0
+        ? user.email
+        : null;
+    return { name, email };
   },
 });
 

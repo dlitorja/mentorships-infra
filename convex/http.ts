@@ -3610,10 +3610,26 @@ export const httpOnboardingSubmissionForInstructorNotification = httpAction(
       }
     );
 
+    // Greptile round-1 P1 #5: the email must name the
+    // student, not the instructor. Resolve the student's
+    // `users` row by `studentClerkId` (server-side, no
+    // Clerk identity required — the bearer-auth HTTP
+    // endpoint is the explicit bypass). A `null` result
+    // becomes the empty-fields placeholder in the
+    // consumer's email template.
+    const student = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getStudentForInstructorNotification,
+      {
+        studentClerkId: submission.studentClerkId,
+      }
+    );
+
     return new Response(
       JSON.stringify({
         submission,
         parentOnboardingId: submission.onboardingId,
+        student: student ?? { name: null, email: null },
         instructors,
       }),
       {

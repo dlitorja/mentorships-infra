@@ -72,11 +72,15 @@ const INNGEST_INGEST_URL = "https://inn.gs/e/questionnaire/submitted";
  *
  * Idempotency:
  *
- * 1. `submitQuestionnaire` writes `notifiedInstructorAt = now`
- *    atomically with `status = "submitted"`. If the action is
- *    ever re-fired (Convex scheduler replay, manual retry
- *    from the dashboard), the field is already set and the
- *    action short-circuits before calling `fetch`.
+ * 1. The action sets `notifiedInstructorAt` AFTER it has
+ *    successfully posted to Inngest. If the action is ever
+ *    re-fired (Convex scheduler replay, manual retry from the
+ *    dashboard), the field is already set and the action
+ *    short-circuits before calling `fetch`. The mutation
+ *    that originally scheduled the action
+ *    (`submitQuestionnaire`) does NOT pre-write the field —
+ *    doing so made the action a no-op on its first run
+ *    (Greptile round-1 P1 #1).
  * 2. The Inngest consumer (`onboarding-questionnaire-submitted-notification`)
  *    re-reads `notifiedInstructorAt` on entry and treats the
  *    row as already-handled when set; this is defensive
@@ -255,6 +259,17 @@ export const notifyInstructorOnSubmission = internalAction({
     // eslint-disable-next-line no-console
     console.info(
       `[onboardingQuestionnaireActions] questionnaire/submitted event emitted for ${args.submissionId}`
+    );
+
+    // Greptile round-1 P1 #1: the success path writes
+    // `notifiedInstructorAt` so a future re-fire is a skip.
+    // Doing this in the action (not in `submitQuestionnaire`)
+    // preserves correctness: a successful emit gets the
+    // claim; a failed emit does not, so the scheduler
+    // retry produces a fresh attempt.
+    await ctx.runMutation(
+      internal.onboardingQuestionnaire.markInstructorNotified,
+      { submissionId: args.submissionId }
     );
 
     return {

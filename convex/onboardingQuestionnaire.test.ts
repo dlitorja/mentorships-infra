@@ -326,7 +326,7 @@ test("submitQuestionnaire happy path flips status to submitted", async () => {
   expect(submitted.submittedAt).toBeTypeOf("number");
 });
 
-test("HUC-95: submitQuestionnaire writes notifiedInstructorAt = now", async () => {
+test("HUC-95: submitQuestionnaire does NOT pre-write notifiedInstructorAt (P1 #1 fix)", async () => {
   const t = convexTest(schema, modules);
   const studentId = "user_student_huc95_a";
   const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-huc95-a", email: "inst-huc95-a@example.com" });
@@ -354,7 +354,6 @@ test("HUC-95: submitQuestionnaire writes notifiedInstructorAt = now", async () =
     });
   }
 
-  const before = Date.now();
   await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.submitQuestionnaire, {
@@ -363,7 +362,6 @@ test("HUC-95: submitQuestionnaire writes notifiedInstructorAt = now", async () =
       answers: VALID_ANSWERS,
       inspirations: VALID_INSPIRATIONS,
     });
-  const after = Date.now();
 
   const row = await t.run(async (ctx) => {
     return await ctx.db
@@ -372,11 +370,13 @@ test("HUC-95: submitQuestionnaire writes notifiedInstructorAt = now", async () =
       .first();
   });
   expect(row).not.toBeNull();
-  // Atomic claim — set at submit time, before the bridge action runs.
-  // Bounded by `before` / `after` so the test is robust against
-  // small wall-clock skew.
-  expect((row as any).notifiedInstructorAt).toBeGreaterThanOrEqual(before);
-  expect((row as any).notifiedInstructorAt).toBeLessThanOrEqual(after);
+  // Greptile round-1 P1 #1: the field is NOT pre-written
+  // here — the action's idempotency check would otherwise
+  // always short-circuit on its first run. The mutation
+  // sets `status: submitted` only; the action sets
+  // `notifiedInstructorAt` AFTER it successfully posts
+  // to Inngest.
+  expect((row as any).notifiedInstructorAt).toBeUndefined();
   expect((row as any).status).toBe("submitted");
 });
 

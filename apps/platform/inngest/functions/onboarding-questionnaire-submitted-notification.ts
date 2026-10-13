@@ -9,7 +9,7 @@
  *
  *   * Event name: `questionnaire/submitted`.
  *   * Payload schema (from
- *     `convex/onboardingQuestionnaireActions.ts:notifyInstructorOnSubmission`):
+ *     `convex/onboardingQuestionnaireActions.ts`):
  *     ```
  *     {
  *       submissionId: Id<"onboardingQuestionnaireSubmissions">;
@@ -24,54 +24,42 @@
  *   1. Step `resolve-recipients` POSTs to the Convex HTTP
  *      endpoint
  *      `/onboarding/submission-for-instructor-notification`
- *      (bearer `CONVEX_HTTP_KEY`) which returns the
- *      submission row + parent onboarding + every assigned
- *      instructor's `{ instructorId, name, email }`. We
- *      resolve recipients one call at a time so Inngest
- *      retries this step are independent of the email send
- *      step (and the recipient list itself is small — usually
- *      1, occasionally 2).
- *
- *   2. Step `verify-notified` re-checks
- *      `submission.notifiedInstructorAt`. It should be set
- *      already (the mutation writes it atomically before
- *      scheduling the bridge action). If it's somehow
- *      missing, we still proceed — the atomic claim is
- *      belt-and-suspenders for the scheduler re-fire case;
- *      Resend's per-recipient `idempotencyKey` is the actual
- *      dedupe layer that prevents duplicate email sends.
- *
- *   3. For each resolved instructor, step `send-{i}` builds
- *      the email (HTML-escaped) and sends via Resend with
+ *      (bearer `CONVEX_HTTP_KEY`) at the `.convex.site`
+ *      host. The endpoint returns `{ submission,
+ *      parentOnboardingId, student, instructors }` —
+ *      `student` is `{ name, email } | null` resolved
+ *      from `users` so the email can name the student
+ *      correctly (Greptile round-1 P1 #5).
+ *   2. For each resolved instructor, step
+ *      `send:{submissionId}:{instructorId}` builds the
+ *      email and sends via Resend with
  *      `idempotencyKey = "questionnaire-submitted-notification:{submissionId}:{instructorId}"`.
- *      A failing send does not abort the loop — we continue
- *      to the next instructor and surface the failure via
- *      `reportError`.
+ *      A failing send THROWS inside the step so Inngest
+ *      retries the function; Resend's per-recipient
+ *      `idempotencyKey` dedupes any re-deliveries
+ *      (Greptile round-1 P1 #6 — partial failures no
+ *      longer silently lose notifications).
+ *   3. Per-step state is checkpointed: on retry, prior
+ *      successful sends return from Inngest's cache and
+ *      only the failed recipient is re-sent. Convex's
+ *      `notifiedInstructorAt` covers the cross-system
+ *      dedupe (the bridge action skips on a re-fire
+ *      because the timestamp is already set).
  *
- * Failure modes:
- *
- *   * Convex HTTP 404: the submission row was deleted
- *     between the action and the consumer (rare; treat as
- *     "not actionable" — exit with `notFound: true`).
- *   * Convex HTTP 5xx: Inngest retries.
- *   * `sendEmail.ok === false`: log via `reportError`,
- *     continue to next recipient. The overall function does
- *     NOT bubble unless EVERY recipient failed — partial
- *     failure is the realistic case (one instructor has a
- *     stale email).
- *
- * Out of scope: this function does NOT mark
- * `notifiedInstructorAt` after sending. The atomic claim
- * happens in the Convex mutation; the second layer of
- * dedupe is Resend's per-recipient idempotency key. A
- * "but I sent already" consumer-side marker would
- * pessimize for transient failures (a sent-but-failed
- * patch leaves the row unmarked, the next retry re-sends,
- * Resend dedupes).
+ * Configuration:
+ *   * `INNGEST_EVENT_KEY` — internal Convex action reads
+ *     this from env to POST to `inn.gs`. The same key
+ *     powers Next.js SDK calls.
+ *   * `CONVEX_HTTP_KEY` — bearer for the recipient HTTP
+ *     endpoint.
+ *   * `NEXT_PUBLIC_URL` / `NEXT_PUBLIC_APP_URL` /
+ *     `VERCEL_URL` — base URL for the deep link. Match the
+ *     ONBOARDING-REMINDER cron's pattern (no prepended
+ *     `https://`; `VERCEL_URL` adds it).
  */
 import { inngest } from "../client";
 import { sendEmail } from "@/lib/email";
-import { reportError, reportInfo } from "@/lib/observability";
+import { reportInfo } from "@/lib/observability";
 import { buildQuestionnaireSubmittedToInstructorEmail } from "@/lib/emails/questionnaire-submitted-to-instructor";
 
 type InngestEventPayload = {
@@ -89,6 +77,11 @@ type ResolvedInstructor = {
   email: string | null;
 };
 
+type ResolvedStudent = {
+  name: string | null;
+  email: string | null;
+};
+
 type ResolvedSubmission = {
   submission: {
     _id: string;
@@ -99,19 +92,40 @@ type ResolvedSubmission = {
     notifiedInstructorAt: number | null;
   };
   parentOnboardingId: string;
+  student: ResolvedStudent;
   instructors: ResolvedInstructor[];
 };
 
+/**
+ * Greptile round-1 P1 #3: POSTing to an HTTP endpoint
+ * requires the `.convex.site` host; the regular database
+ * URL (`.convex.cloud`) serves queries/mutations only.
+ * Mirrors the ONBOARDING-REMINDER cron helper at
+ * `onboarding-questionnaire-reminders.ts:269`.
+ */
 function getConvexBaseUrl(): string {
-  const url =
-    process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
-  if (!url) {
-    throw new Error(
-      "CONVEX_URL / NEXT_PUBLIC_CONVEX_URL not set; cannot resolve submission recipient list"
-    );
-  }
-  // Strip trailing slash so `url + path` is well-formed.
-  return url.endsWith("/") ? url.slice(0, -1) : url;
+  const explicit =
+    process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
+  return explicit
+    .replace(/\/+$/, "")
+    .replace(/\.convex\.cloud$/, ".convex.site");
+}
+
+/**
+ * Greptile round-1 P1 #4: `NEXT_PUBLIC_URL` is already a
+ * full URL; `VERCEL_URL` is bare and needs `https://`.
+ * Mirrors the ONBOARDING-REMINDER cron helper at
+ * `onboarding-questionnaire-reminders.ts:275`.
+ */
+function getAppBaseUrl(): string {
+  const candidate =
+    process.env.NEXT_PUBLIC_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (candidate) return candidate.replace(/\/+$/, "");
+  throw new Error(
+    "onboarding-questionnaire-submitted-notification: NEXT_PUBLIC_URL / NEXT_PUBLIC_APP_URL / VERCEL_URL must be set"
+  );
 }
 
 export const onboardingQuestionnaireSubmittedNotification =
@@ -119,28 +133,23 @@ export const onboardingQuestionnaireSubmittedNotification =
     {
       id: "onboarding-questionnaire-submitted-notification",
       name: "Notify instructors on questionnaire submission",
-      // The Convex side already retries on 5xx via the
-      // scheduler; this consumer-side retry is in addition.
-      // A 2-attempt budget matches the existing reminder
-      // cron and keeps symmetric retry semantics across the
-      // HUC-95 + PR 12 PR 4b onboarding flows.
+      // Greptile round-1 P1 #6: each per-recipient send step
+      // throws on failure so Inngest retries THIS run. The
+      // successful prior steps are returned from the step
+      // cache on retry, so a transient outage no longer
+      // silently loses notifications. We deliberately keep
+      // retries at 2 (matching the reminder cron) — Resend's
+      // per-recipient `idempotencyKey` covers the
+      // application-layer dedupe so a retry that succeeds
+      // does not double-send.
       retries: 2,
-      triggers: [
-        { event: "questionnaire/submitted" },
-      ],
+      triggers: [{ event: "questionnaire/submitted" }],
     },
     async ({ event, step }) => {
       const payload = event as unknown as InngestEventPayload;
       const { submissionId, onboardingId, studentClerkId, submittedAt } =
         payload.data;
 
-      // Step 1: resolve the recipient list. We post to Convex
-      // HTTP rather than embedding the Inngest event in the
-      // payload because we want a server-side source-of-truth
-      // read of the current row state — a stale payload (a
-      // Convex scheduler replay that fired this event
-      // before the mutation committed) should re-fetch the
-      // canonical post-write state here.
       const resolved = await step.run(
         `resolve-recipients:${submissionId}`,
         async (): Promise<ResolvedSubmission | null> => {
@@ -187,54 +196,43 @@ export const onboardingQuestionnaireSubmittedNotification =
         return { skipped: true, reason: "no-instructors-assigned" } as const;
       }
 
-      // Local-name fallback comes from the student email
-      // (already in the payload via `studentClerkId` -> we'd
-      // need a lookup). For HUC-95 we ask Convex to include
-      // the email too — POSTing studentClerkId in case the
-      // resolved payload doesn't carry it. Quick add: the
-      // HTTP endpoint doesn't return the student email, so
-      // we fall back to "a new student" in the email when no
-      // name is provided. The deep link is the only block
-      // that absolutely needs the email anyway, and we
-      // suppress the `<a href="mailto:...">` if it's empty.
-      const studentEmailPlaceholder = "the student";
-      const baseUrl =
-        process.env.NEXT_PUBLIC_URL
-          ? `https://${process.env.NEXT_PUBLIC_URL}`
-          : process.env.VERCEL_URL
-          ? `https://${process.env.VERCEL_URL}`
-          : "http://localhost:3000";
+      // Greptile round-1 P1 #4: pull the base URL from
+      // envs via the helper that mirrors the reminder cron.
+      // We deliberately do NOT prepend `https://` because
+      // `NEXT_PUBLIC_URL` is a full URL.
+      const baseUrl = getAppBaseUrl();
       const submissionUrl = `${baseUrl}/onboarding/${resolved.submission.onboardingId}`;
 
       const sentTo: string[] = [];
-      const skippedRecipients: Array<{
-        instructorId: string;
-        reason: string;
-      }> = [];
 
-      // Loop sequentially. Inngest serializes step.run() by
-      // step name, but putting each send in its own step.run
-      // lets Inngest checkpoint per recipient — a send
-      // failure for one instructor does not re-run the send
-      // for previous instructors.
+      // Loop sequentially. Each send is its own step.run
+      // so Inngest checkpoints per recipient: a failed
+      // send throws inside the step (P1 #6 fix) and Inngest
+      // retries the function. On retry, prior successful
+      // step.runs are restored from Inngest's cache; only
+      // the failed recipient re-runs. The Resend
+      // `idempotencyKey` ensures the re-send is deduped on
+      // Resend's side.
       for (const recipient of resolved.instructors) {
         if (!recipient.email) {
-          skippedRecipients.push({
-            instructorId: recipient.instructorId,
-            reason: "missing-email",
-          });
+          // The HTTP endpoint already drops recipients with
+          // missing emails via `getInstructorRecipientsForSubmissionNotification`,
+          // but the consumer-side guard is a defensive belt
+          // in case a future refactor lets one through. We
+          // SKIP (no throw) — a missing email is not a
+          // transient failure.
           continue;
         }
         const idempotencyKey = `questionnaire-submitted-notification:${resolved.submission._id}:${recipient.instructorId}`;
+        // Greptile round-1 P1 #5: greet by the STUDENT's
+        // `users` row name (resolved server-side by the
+        // HTTP endpoint), not the instructor's name which
+        // is `recipient.name`. Fall through to the email
+        // builder's own `studentEmail` local-part /
+        // "a new student" chain when the user row is missing.
         const email = buildQuestionnaireSubmittedToInstructorEmail({
-          studentName: recipient.name ?? null,
-          // We don't have the actual student email in
-          // `resolved`; the consumer just needs *some* value
-          // for the footer. The template falls back to
-          // `greetingName` when null, so passing null is
-          // safe — we surface the placeholder only when
-          // the student name is also absent.
-          studentEmail: studentEmailPlaceholder,
+          studentName: resolved.student.name,
+          studentEmail: resolved.student.email ?? "",
           onboardingId: resolved.submission.onboardingId,
           submittedAt: resolved.submission.submittedAt ?? submittedAt,
           submissionUrl,
@@ -257,32 +255,15 @@ export const onboardingQuestionnaireSubmittedNotification =
                   : "skipped" in result
                   ? `provider-skipped:${result.reason}`
                   : "sendEmail-not-ok";
-              return { ok: false as const, reason };
+              throw new Error(
+                `instructor-notification send failed for ${recipient.instructorId}: ${reason}`
+              );
             }
-            return { ok: true as const };
+            return { ok: true as const, recipientId: recipient.instructorId };
           }
         );
         if (outcome.ok) {
           sentTo.push(recipient.email);
-        } else {
-          // Log but do not re-throw — the loop continues.
-          // The overall function reports this in the final
-          // summary step below so Inngest metrics show "send
-          // partial" rather than "send failure".
-          await reportError({
-            source: "inngest:onboarding-questionnaire-submitted-notification:send",
-            error: new Error(outcome.reason),
-            level: "warn",
-            message: "instructor notification email failed",
-            context: {
-              submissionId: resolved.submission._id,
-              instructorId: recipient.instructorId,
-            },
-          });
-          skippedRecipients.push({
-            instructorId: recipient.instructorId,
-            reason: outcome.reason,
-          });
         }
       }
 
@@ -293,14 +274,14 @@ export const onboardingQuestionnaireSubmittedNotification =
           submissionId: resolved.submission._id,
           onboardingId: resolved.submission.onboardingId,
           sentCount: sentTo.length,
-          skippedCount: skippedRecipients.length,
+          recipientCount: resolved.instructors.length,
         },
       });
 
       return {
         submissionId: resolved.submission._id,
         sent: sentTo,
-        skippedRecipients,
+        recipientCount: resolved.instructors.length,
       };
     }
   );

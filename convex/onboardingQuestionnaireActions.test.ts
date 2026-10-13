@@ -110,6 +110,14 @@ test("HUC-95: notifyInstructorOnSubmission emits Inngest event with correct payl
     },
   });
   expect(typeof payload.data.submittedAt).toBe("number");
+
+  // Greptile round-1 P1 #1 invariant: on a successful
+  // emit the action writes `notifiedInstructorAt` via
+  // `markInstructorNotified`. A re-fire of the action
+  // then sees the field set and short-circuits.
+  const rowAfter = await t.run(async (ctx) => ctx.db.get(submissionId as any));
+  expect(rowAfter!.notifiedInstructorAt).toEqual(expect.any(Number));
+  expect(rowAfter!.notifiedInstructorAt).toBeGreaterThan(0);
 });
 
 test("HUC-95: notifyInstructorOnSubmission is a no-op when notifiedInstructorAt is already set (idempotency)", async () => {
