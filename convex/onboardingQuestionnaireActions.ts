@@ -7,12 +7,18 @@
  * Right now this file owns a single action,
  * `notifyInstructorOnSubmission`, that bridges from a Convex
  * mutation to an Inngest event. The mutation
- * `submitQuestionnaire` writes the submission row and stamps
- * `notifiedInstructorAt` atomically, then schedules this
- * action via `ctx.scheduler.runAfter(0, ...)`. The action
- * reads the post-write row, idempotency-skips if the flag is
- * already set, otherwise emits the `questionnaire/submitted`
- * event to Inngest.
+ * `submitQuestionnaire` writes the submission row (status:
+ * `submitted`, `submittedAt: now`) and schedules this action
+ * via `ctx.scheduler.runAfter(0, ...)`. The action reads the
+ * post-write row, idempotency-skips if the
+ * `notifiedInstructorAt` claim is already set (a re-fire),
+ * otherwise emits the `questionnaire/submitted` event to
+ * Inngest AND only THEN patches `notifiedInstructorAt = now`
+ * via the internal mutation
+ * `markInstructorNotified`. We deliberately do NOT pre-write
+ * `notifiedInstructorAt` in the mutation — that pattern made
+ * the action a no-op on its first run (Greptile round-1
+ * P1 #1).
  *
  * Per Convex guidelines (`convex/_generated/ai/guidelines.md`):
  *   * `"use node"` is at the top of this file because
