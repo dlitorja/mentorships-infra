@@ -22,6 +22,8 @@ import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ForbiddenError } from "@/lib/errors";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -29,13 +31,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -134,8 +129,10 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     expect(convexClient.mutation).toHaveBeenCalledTimes(1);
     const [ref, args] = convexClient.mutation.mock.calls[0] as [any, any];
     expect(fnName(ref)).toContain("submitQuestionnaire");
-    // Server stamps the version
-    expect(args.questionnaireVersion).toBeDefined();
+    // Server stamps the version — assert the EXACT constant value so a
+    // future drift on either side (server stops stamping; client
+    // returns a literal that doesn't match) surfaces here.
+    expect(args.questionnaireVersion).toBe(ONBOARDING_QUESTIONNAIRE_VERSION);
     // Client-supplied `questionText` is ACCEPTED on submit (unlike
     // PATCH, where the server stamps it from the canonical list).
     // Pin that to guard against a future refactor flipping the two.
@@ -227,8 +224,15 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — the production
+    // `isForbiddenError` helper matches this via `instanceof
+    // ForbiddenError`. A plain `new Error("Forbidden: ...")` would
+    // not be matched by production (Greptile round-3 P2 #1: the
+    // previous substring mock accepted phrases that the real helper
+    // rejects, hiding regressions where production fell through to
+    // 500 instead of 401).
     convexClient.mutation.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const { request, params } = makeSubmitRequest({ answers: [{ questionId: "q1", questionText: "x", answerText: "y" }], inspirations: [] });
 

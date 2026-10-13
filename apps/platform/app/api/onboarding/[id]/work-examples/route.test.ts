@@ -20,6 +20,7 @@ import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ForbiddenError } from "@/lib/errors";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -27,13 +28,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -118,7 +112,7 @@ describe("POST /api/onboarding/[id]/work-examples", () => {
     // Pin the arg shape — both keys are required by the action's
     // `args` validator, no extras, no missing.
     expect(Object.keys(args).sort()).toEqual(
-      expect.arrayContaining(["onboardingId", "workExampleId"])
+      ["onboardingId", "workExampleId"]
     );
     expect(args.onboardingId).toBe(onboardingId);
     expect(args.workExampleId).toBe(workExampleId);
@@ -138,8 +132,10 @@ describe("POST /api/onboarding/[id]/work-examples", () => {
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — see the rationale on
+    // download-url/route.test.ts.
     convexClient.action.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const { request, params } = makeRecordRequest({ workExampleId });
 

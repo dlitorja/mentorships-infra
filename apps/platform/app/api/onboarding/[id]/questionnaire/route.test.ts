@@ -27,6 +27,8 @@ import { GET, PATCH } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ForbiddenError } from "@/lib/errors";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -34,13 +36,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -137,8 +132,13 @@ describe("GET /api/onboarding/[id]/questionnaire", () => {
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — the production
+    // `isForbiddenError` helper matches via `instanceof`. A plain
+    // `new Error("Forbidden: ...")` would not be matched (Greptile
+    // round-3 P2 #1: the previous substring mock accepted phrases
+    // production rejects).
     convexClient.query.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const request = makeRequest({ method: "GET", url: `https://platform.test/api/onboarding/${onboardingId}/questionnaire` });
     const params = Promise.resolve({ id: onboardingId });
@@ -257,8 +257,9 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
     const [ref, args] = convexClient.mutation.mock.calls[0] as [any, any];
     expect(fnName(ref)).toContain("saveQuestionnaireDraft");
     // The route stamps `questionnaireVersion` from the workspace
-    // constant — not from the client.
-    expect(args.questionnaireVersion).toBeDefined();
+    // constant — not from the client. Pin the EXACT value (Greptile
+    // round-3 P2: `toBeDefined` accepted wrong types/values).
+    expect(args.questionnaireVersion).toBe(ONBOARDING_QUESTIONNAIRE_VERSION);
     // The route stamps `questionText` from `ONBOARDING_QUESTIONS` —
     // never the client-sent text.
     expect(args.answers).toHaveLength(2);
@@ -300,8 +301,10 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — see the rationale on the
+    // GET-side denial test above.
     convexClient.mutation.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const request = makeRequest({ method: "PATCH", url: `https://platform.test/api/onboarding/${onboardingId}/questionnaire`, body: { answers: [], inspirations: [], clientSaveId: 1 } });
     const params = Promise.resolve({ id: onboardingId });

@@ -26,6 +26,7 @@ import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ForbiddenError } from "@/lib/errors";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -33,13 +34,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -263,8 +257,13 @@ describe("POST /api/onboarding/[id]/work-examples/upload-url", () => {
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — the production
+    // `isForbiddenError` helper matches via `instanceof`. Greptile
+    // round-3 P2 #1: the previous substring mock accepted phrases
+    // production rejects, hiding regressions where production fell
+    // through to 500 + reportError instead of returning 401.
     convexClient.action.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const { request, params } = makeUploadUrlRequest({ fileName: "photo.jpg", contentType: "image/jpeg", size: 4096 });
 

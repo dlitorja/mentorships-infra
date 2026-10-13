@@ -25,6 +25,7 @@ import { GET } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ForbiddenError } from "@/lib/errors";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -32,13 +33,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -142,7 +136,7 @@ describe("GET /api/onboarding/[id]/work-examples/[exampleId]/download-url", () =
     // Pin the arg shape: the action takes `{onboardingId, b2Key}`
     // — NOT `{onboardingId, workExampleId}` (the early Greptile P1).
     expect(Object.keys(aArgs).sort()).toEqual(
-      expect.arrayContaining(["b2Key", "onboardingId"])
+      ["b2Key", "onboardingId"]
     );
     expect(aArgs.onboardingId).toBe(onboardingId);
     expect(aArgs.b2Key).toBe("onboarding/uploads/abcdef/photo.jpg");
@@ -158,8 +152,12 @@ describe("GET /api/onboarding/[id]/work-examples/[exampleId]/download-url", () =
     // the deny via `reportError`. Without this case, a future
     // refactor that turns the deny branch into "report and 500"
     // would slip past this suite.
+    // Throw a real ForbiddenError instance — the production
+    // `isForbiddenError` helper matches via `instanceof`. Greptile
+    // round-3 P2 #1: the previous substring mock accepted phrases
+    // production rejects.
     convexClient.query.mockRejectedValueOnce(
-      new Error("Forbidden: not your onboarding")
+      new ForbiddenError("not your onboarding")
     );
     const { request, params } = makeDownloadRequest();
 

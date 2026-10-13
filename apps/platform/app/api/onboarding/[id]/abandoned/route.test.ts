@@ -33,6 +33,7 @@ import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { reportError } from "@/lib/observability";
+import { ONBOARDING_QUESTIONNAIRE_VERSION } from "@/lib/workspace-constants";
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(),
@@ -40,13 +41,6 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 vi.mock("@/lib/convex", () => ({
   getAuthenticatedConvexClient: vi.fn(),
-}));
-
-vi.mock("@/lib/errors", () => ({
-  isUnauthorizedError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Unauthorized"),
-  isForbiddenError: (error: unknown) =>
-    error instanceof Error && error.message.includes("Forbidden"),
 }));
 
 vi.mock("@/lib/observability", () => ({
@@ -150,6 +144,13 @@ describe("POST /api/onboarding/[id]/abandoned", () => {
     expect(draftArgs.onboardingId).toBe(onboardingId);
     expect(draftArgs.inspirations).toEqual([{ name: "Picasso" }]);
     expect(draftArgs.clientSaveId).toBe(7);
+    // Greptile round-3 P2 #3: the beacon test never checked
+    // `questionnaireVersion` although `saveQuestionnaireDraft`
+    // requires it as a number. Pin the EXACT constant so removing
+    // the field (or sending the wrong type) flips this to fail.
+    expect(draftArgs.questionnaireVersion).toBe(
+      ONBOARDING_QUESTIONNAIRE_VERSION
+    );
 
     // The route stamps `questionText` from the canonical question
     // list (`ONBOARDING_QUESTIONS`) — never trust a client-supplied
