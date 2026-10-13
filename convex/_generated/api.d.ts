@@ -59,6 +59,7 @@ import type * as mutations_reconcileRunState from "../mutations/reconcileRunStat
 import type * as mutations_suppressionEvents from "../mutations/suppressionEvents.js";
 import type * as notifications from "../notifications.js";
 import type * as onboardingQuestionnaire from "../onboardingQuestionnaire.js";
+import type * as onboardingQuestionnaireActions from "../onboardingQuestionnaireActions.js";
 import type * as onboardingWorkExamples from "../onboardingWorkExamples.js";
 import type * as onboardingWorkExamplesActions from "../onboardingWorkExamplesActions.js";
 import type * as orders from "../orders.js";
@@ -144,6 +145,7 @@ declare const fullApi: ApiFromModules<{
   "mutations/suppressionEvents": typeof mutations_suppressionEvents;
   notifications: typeof notifications;
   onboardingQuestionnaire: typeof onboardingQuestionnaire;
+  onboardingQuestionnaireActions: typeof onboardingQuestionnaireActions;
   onboardingWorkExamples: typeof onboardingWorkExamples;
   onboardingWorkExamplesActions: typeof onboardingWorkExamplesActions;
   orders: typeof orders;

@@ -1078,6 +1078,60 @@ export const getSubmissionForInstructorNotification = internalQuery({
 });
 
 /**
+ * HUC-95 — Hydrate the parent onboarding's perInstructor
+ * list with `{ instructorId, name, email }` resolved from
+ * the `instructors` table. Read by the Convex HTTP endpoint
+ * `/onboarding/submission-for-instructor-notification` (an
+ * `httpAction` does NOT expose `ctx.db` directly, so the
+ * endpoint calls this query via `ctx.runQuery`).
+ *
+ * Returns `[]` if the parent is missing or has no
+ * perInstructor entries, rather than throwing — the
+ * Inngest consumer treats an empty recipient list as a
+ * benign no-op.
+ */
+export const getInstructorRecipientsForSubmissionNotification = internalQuery({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.array(
+    v.object({
+      instructorId: v.id("instructors"),
+      name: v.union(v.string(), v.null()),
+      email: v.union(v.string(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return [];
+    const parent = await ctx.db.get(sub.onboardingId);
+    if (!parent) return [];
+    const perInstructor = parent.perInstructor ?? [];
+    if (perInstructor.length === 0) return [];
+    // De-dup by instructorId; an instructor can appear in
+    // `perInstructor` multiple times across distinct
+    // onboarding segments (e.g. 1:1 + group). The email is
+    // per instructor, not per segment.
+    const uniqueIds = Array.from(
+      new Set(perInstructor.map((p) => p.instructorId))
+    );
+    const rows = await Promise.all(
+      uniqueIds.map((id) => ctx.db.get(id as Id<"instructors">))
+    );
+    return rows
+      .filter(
+        (r): r is Doc<"instructors"> & { _id: Id<"instructors"> } =>
+          r !== null
+      )
+      .map((r) => ({
+        instructorId: r._id,
+        name: r.name ?? null,
+        email: r.email ?? null,
+      }));
+  },
+});
+
+/**
  * Patch `lastReminderSentAt` + `reminderCount` after a successful
  * send. Idempotent on `next` (advancing twice with the same `next`
  * is a no-op the second time, so a cron retry that re-sent the same

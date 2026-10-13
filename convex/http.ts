@@ -3543,10 +3543,13 @@ export const httpOnboardingMarkReminderSent = httpAction(async (ctx, request) =>
  * call (mirroring the cron at
  * `onboarding-questionnaire-reminders.ts:scan`).
  *
- * Idempotency: the consumer re-reads `submission.notifiedInstructorAt`
- * on its own entry so a re-delivery after the consumer crashes
- * is harmless; this endpoint doesn't need a separate dedupe
- * field.
+ * Note: `httpAction` does NOT expose `ctx.db` (see
+ * `_generated/ai/guidelines.md` — `httpAction`s receive an
+ * `ActionCtx` which is query/mutation/storage/vector only).
+ * All DB reads here go through `ctx.runQuery(internal.X, ...)`
+ * and the per-recipient hydration goes through the dedicated
+ * `getInstructorRecipientsForSubmissionNotification` query
+ * so the same logic is type-safe and reusable.
  */
 export const httpOnboardingSubmissionForInstructorNotification = httpAction(
   async (ctx, request) => {
@@ -3569,10 +3572,7 @@ export const httpOnboardingSubmissionForInstructorNotification = httpAction(
     }
 
     // Read via the same internal query the action uses — keeps
-    // the field shape symmetric and gives us a single source of
-    // truth. Per Convex guidelines we use
-    // `ctx.runQuery(internal.<module>.<fn>, ...)` rather than
-    // reading `ctx.db` directly inside the action.
+    // the field shape symmetric.
     const submission:
       | {
           _id: string;
@@ -3586,14 +3586,6 @@ export const httpOnboardingSubmissionForInstructorNotification = httpAction(
       (internal as any).onboardingQuestionnaire
         .getSubmissionForInstructorNotification,
       {
-        // We accept the string and force-cast to the typed id;
-        // the inner query will throw via `ctx.db.get` if the id
-        // is malformed, which we surface as a 404. The
-        // alternative would be to validate the id upfront via
-        // `convex/values` parsing, but `request.json()` is
-        // `unknown`-typed per Convex guidelines and a typed
-        // id-parse would require re-importing `v` here — not
-        // worth the indirection for an internal endpoint.
         submissionId: body.submissionId as any,
       }
     );
@@ -3605,37 +3597,18 @@ export const httpOnboardingSubmissionForInstructorNotification = httpAction(
       });
     }
 
-    // Hydrate the parent onboarding + per-instructor list. We
-    // pull the instructor `email` directly from the
-    // `instructors` table — `adminOnboardings.perInstructor`
-    // carries `instructorId` references, and the table holds a
-    // top-level `email` field (no join to `users` needed). If
-    // any per-instructor row is missing the email field (legacy
-    // import), the consumer treats that recipient as
-    // un-deliverable and continues.
-    const parent: { perInstructor: Array<{ instructorId: string }> } | null =
-      await ctx.db.get(submission.onboardingId);
-
-    const instructorIds = parent?.perInstructor?.length
-      ? Array.from(
-          new Set(parent.perInstructor.map((p) => p.instructorId))
-        )
-      : [];
-    const instructorRows = instructorIds.length
-      ? await Promise.all(
-          instructorIds.map((id) => ctx.db.get(id as any))
-        )
-      : [];
-    const instructors = instructorRows
-      .filter(
-        (r): r is { _id: string; name?: string; email?: string } =>
-          r !== null
-      )
-      .map((r) => ({
-        instructorId: r._id,
-        name: r.name ?? null,
-        email: r.email ?? null,
-      }));
+    // Per-recipient hydration via the dedicated internal
+    // query. The query dedups + filters null instructors
+    // internally and returns `[]` for the missing-parent
+    // case (which we surface as `instructors: []` on the
+    // consumer side; it then no-ops).
+    const instructors = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getInstructorRecipientsForSubmissionNotification,
+      {
+        submissionId: body.submissionId as any,
+      }
+    );
 
     return new Response(
       JSON.stringify({
