@@ -333,8 +333,8 @@ One PR, tiny:
 
 ## Implementation order
 
-Status (updated 2026-10-13T18:20Z):
-- **PR-A (Issue 4)** — implementation done in branch `feat/workspace-sidebar-fix`, push done, PR open (#927). Local Greptile CLI review returned 5/5 confidence across three rounds of feedback; three issues caught and fixed (admin-link inclusion, ?join= deep-link leakage across switches, ?videos= deep-link leakage). No Linear Verify issue per AGENTS.md (low-blast-radius — display/prop change only). Merge pending bot reviews.
+Status (updated 2026-10-13T21:23Z):
+- **PR-A (Issue 4)** — **MERGED** as #927 (squash merge, commit `756321d5`, mergedAt 2026-10-13T21:22:53Z). Branch `feat/workspace-sidebar-fix` deleted locally and on origin. Final diff: 2 files, +66/-9 in `apps/platform/app/workspace/[id]/page.tsx` and `apps/platform/components/workspace/workspace-client-page.tsx`. No Linear Verify issue warranted per AGENTS.md (low-blast-radius display/prop change — no schema, no auth, no workflow touch). Final local Greptile confidence 5/5 after P2 comment-text trim; CodeRabbit skipped per AGENTS.md OSS < 10 stars.
 
 I recommend the following order across separate PRs (each PR = one mergeable unit + one Greptile review). Each PR is post-merge-verified per the convention.
 
