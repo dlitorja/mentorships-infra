@@ -8,6 +8,12 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
+// HUC-95: import the typed `internal` reference so we can
+// `ctx.scheduler.runAfter(0, internal.onboardingQuestionnaireActions.X, ...)`
+// from `submitQuestionnaire`. The compiled bundle exposes
+// `internal` as a per-module constant from `_generated/api.ts`
+// per Convex file-routing convention.
+import { internal } from "./_generated/api";
 
 import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
@@ -429,6 +435,16 @@ export const submitQuestionnaire = mutation({
           status: "submitted",
           submittedAt: now,
           updatedAt: now,
+          // HUC-95: atomically claim the instructor-notification
+          // slot at submission time so a re-fire of the action
+          // (Convex scheduler replay) is a no-op AND a second
+          // `submitQuestionnaire` call after status flipped is
+          // also a no-op above (we already returned the early
+          // path on `existing.status === "submitted"`). The
+          // Inngest consumer re-checks this field on resume for
+          // idempotency and Resend's per-recipient
+          // `idempotencyKey` is the second dedupe layer.
+          notifiedInstructorAt: now,
         }), existing._id)
       : await ctx.db.insert("onboardingQuestionnaireSubmissions", {
           onboardingId: args.onboardingId,
@@ -440,7 +456,36 @@ export const submitQuestionnaire = mutation({
           createdAt: now,
           updatedAt: now,
           submittedAt: now,
+          // HUC-95: see comment on the patch path above. Same
+          // atomic-claim semantics — the freshly-inserted row's
+          // notification slot is reserved at insert time.
+          notifiedInstructorAt: now,
         });
+
+    // HUC-95: bridge to Inngest so the assigned instructor(s)
+    // get a "new mentor intro submitted" email. We schedule the
+    // action via the Convex scheduler rather than calling it
+    // inline because the action uses `"use node"` to perform
+    // outbound HTTP (Inngest's `inn.gs/e/...` event endpoint).
+    // `submitQuestionnaire` itself is a transaction; the action
+    // runs after the writes commit and reads the post-patch row
+    // state.
+    //
+    // Failure modes:
+    //   * If the action's Inngest send fails (network / DNS),
+    //     `reportError` logs the error but does NOT throw.
+    //     The Convex scheduler will retry up to its limit (see
+    //     the action file). The submission row is already
+    //     marked `notifiedInstructorAt` so the action's
+    //     idempotency check on re-fire is a no-op.
+    //   * If the Inngest send succeeds but the consumer errors,
+    //     Inngest retries the consumer; Resend's per-recipient
+    //     `idempotencyKey` dedupes any double-send.
+    ctx.scheduler.runAfter(
+      0,
+      internal.onboardingQuestionnaireActions.notifyInstructorOnSubmission,
+      { submissionId }
+    );
 
     // PR 12 PR 4: do NOT call `appendTimelineEntry` here.
     // Reasoning: the timeline event union in
@@ -990,6 +1035,45 @@ export const getDraftStatusForReminder = internalQuery({
     // still fire without this. Same staleCutoff the scan uses.
     const latestActivityAt = Math.max(sub.updatedAt, sub.lastSeenAt ?? 0);
     return { status: "draft" as const, latestActivityAt };
+  },
+});
+
+/**
+ * HUC-95 — Read the submission row from inside the
+ * `notifyInstructorOnSubmission` action so a Convex scheduler
+ * replay sees the post-mutation state. Returns `null` if the
+ * row is missing (the action handles that as a hard error to
+ * be retried). Returns a wide shape with the fields the
+ * action actually needs (the action narrows this with an
+ * explicit type annotation per the Convex guidelines'.
+ * "same-file annotation" guidance.
+ */
+export const getSubmissionForInstructorNotification = internalQuery({
+  args: {
+    submissionId: v.id("onboardingQuestionnaireSubmissions"),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("onboardingQuestionnaireSubmissions"),
+      onboardingId: v.id("adminOnboardings"),
+      studentClerkId: v.string(),
+      status: v.union(v.literal("draft"), v.literal("submitted")),
+      submittedAt: v.union(v.number(), v.null()),
+      notifiedInstructorAt: v.union(v.number(), v.null()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const sub = await ctx.db.get(args.submissionId);
+    if (!sub) return null;
+    return {
+      _id: sub._id,
+      onboardingId: sub.onboardingId,
+      studentClerkId: sub.studentClerkId,
+      status: sub.status,
+      submittedAt: sub.submittedAt ?? null,
+      notifiedInstructorAt: sub.notifiedInstructorAt ?? null,
+    };
   },
 });
 

@@ -13,6 +13,7 @@ import { linkClerkUserToSessionPacks } from "@/inngest/functions/clerk-user-link
 import { handleClerkUserCreated, handleClerkUserUpdated } from "@/inngest/functions/clerk-user-instructor-lifecycle";
 import { migrateGuestSessionPacks } from "@/inngest/functions/migrate-guest-session-packs";
 import { onboardingQuestionnaireReminders } from "@/inngest/functions/onboarding-questionnaire-reminders";
+import { onboardingQuestionnaireSubmittedNotification } from "@/inngest/functions/onboarding-questionnaire-submitted-notification";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -31,6 +32,10 @@ export const { GET, POST, PUT } = serve({
     adminOnboardingStaleDigestFlow,
     // PR 12 PR 4b: hourly questionnaire-reminder cron
     onboardingQuestionnaireReminders,
+    // HUC-95: notify assigned instructor(s) when a student
+    // submits their questionnaire (event-driven; bridges
+    // from `onboardingQuestionnaireActions`).
+    onboardingQuestionnaireSubmittedNotification,
     // Inventory sync from Stripe products to Convex (Convex HTTP endpoint)
     syncInstructorInventoryToConvex,
     // Clerk user linking - links guest purchases to Clerk user after signup

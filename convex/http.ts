@@ -3527,6 +3527,130 @@ export const httpOnboardingMarkReminderSent = httpAction(async (ctx, request) =>
   });
 });
 
+/**
+ * HUC-95 — Single-shot read endpoint that the Inngest
+ * `onboarding-questionnaire-submitted-notification` consumer
+ * hits once per submission event to resolve the recipient
+ * instructor list. Returns the widest object that needs to
+ * leave Convex (submission meta + parent onboarding id + the
+ * resolved `instructors[]` per-recipient) so the consumer
+ * doesn't have to make N follow-up calls in its own step
+ * runs.
+ *
+ * Auth: bearer `CONVEX_HTTP_KEY`, matching the existing
+ * `/onboarding/*` HTTP surface. The Inngest consumer holds
+ * the key in `apps/platform/.env*` and forwards it on every
+ * call (mirroring the cron at
+ * `onboarding-questionnaire-reminders.ts:scan`).
+ *
+ * Idempotency: the consumer re-reads `submission.notifiedInstructorAt`
+ * on its own entry so a re-delivery after the consumer crashes
+ * is harmless; this endpoint doesn't need a separate dedupe
+ * field.
+ */
+export const httpOnboardingSubmissionForInstructorNotification = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const body = (await request.json().catch(() => ({}))) as {
+      submissionId?: string;
+    };
+    if (
+      !body.submissionId ||
+      typeof body.submissionId !== "string"
+    ) {
+      return new Response(
+        JSON.stringify({ error: "submissionId required" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Read via the same internal query the action uses — keeps
+    // the field shape symmetric and gives us a single source of
+    // truth. Per Convex guidelines we use
+    // `ctx.runQuery(internal.<module>.<fn>, ...)` rather than
+    // reading `ctx.db` directly inside the action.
+    const submission:
+      | {
+          _id: string;
+          onboardingId: string;
+          studentClerkId: string;
+          status: "draft" | "submitted";
+          submittedAt: number | null;
+          notifiedInstructorAt: number | null;
+        }
+      | null = await ctx.runQuery(
+      (internal as any).onboardingQuestionnaire
+        .getSubmissionForInstructorNotification,
+      {
+        // We accept the string and force-cast to the typed id;
+        // the inner query will throw via `ctx.db.get` if the id
+        // is malformed, which we surface as a 404. The
+        // alternative would be to validate the id upfront via
+        // `convex/values` parsing, but `request.json()` is
+        // `unknown`-typed per Convex guidelines and a typed
+        // id-parse would require re-importing `v` here — not
+        // worth the indirection for an internal endpoint.
+        submissionId: body.submissionId as any,
+      }
+    );
+
+    if (!submission) {
+      return new Response(JSON.stringify({ error: "not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Hydrate the parent onboarding + per-instructor list. We
+    // pull the instructor `email` directly from the
+    // `instructors` table — `adminOnboardings.perInstructor`
+    // carries `instructorId` references, and the table holds a
+    // top-level `email` field (no join to `users` needed). If
+    // any per-instructor row is missing the email field (legacy
+    // import), the consumer treats that recipient as
+    // un-deliverable and continues.
+    const parent: { perInstructor: Array<{ instructorId: string }> } | null =
+      await ctx.db.get(submission.onboardingId);
+
+    const instructorIds = parent?.perInstructor?.length
+      ? Array.from(
+          new Set(parent.perInstructor.map((p) => p.instructorId))
+        )
+      : [];
+    const instructorRows = instructorIds.length
+      ? await Promise.all(
+          instructorIds.map((id) => ctx.db.get(id as any))
+        )
+      : [];
+    const instructors = instructorRows
+      .filter(
+        (r): r is { _id: string; name?: string; email?: string } =>
+          r !== null
+      )
+      .map((r) => ({
+        instructorId: r._id,
+        name: r.name ?? null,
+        email: r.email ?? null,
+      }));
+
+    return new Response(
+      JSON.stringify({
+        submission,
+        parentOnboardingId: submission.onboardingId,
+        instructors,
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+);
+
 http.route({
   path: "/onboarding/stale-questionnaire",
   method: "POST",
@@ -3543,6 +3667,12 @@ http.route({
   path: "/onboarding/mark-reminder-sent",
   method: "POST",
   handler: httpOnboardingMarkReminderSent,
+});
+
+http.route({
+  path: "/onboarding/submission-for-instructor-notification",
+  method: "POST",
+  handler: httpOnboardingSubmissionForInstructorNotification,
 });
 
 export default http;
