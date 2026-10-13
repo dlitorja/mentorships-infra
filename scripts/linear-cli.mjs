@@ -8,24 +8,47 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 const AUTH_PATHS = [
   join(homedir(), ".local/share/opencode/mcp-auth.json"),
   join(homedir(), ".config/opencode/mcp-auth.json"),
+  join(homedir(), ".local/share/opencode/auth/linear.json"),
+  join(homedir(), ".config/opencode/auth/linear.json"),
+  join(homedir(), ".local/share/opencode/mcp/linear/auth.json"),
+  join(homedir(), ".config/opencode/mcp/linear/auth.json"),
 ];
 
 async function readMcpAuth() {
   for (const path of AUTH_PATHS) {
-    try {
-      const raw = await readFile(path, "utf8");
-      const auth = JSON.parse(raw);
-      if (auth?.linear) return { entry: auth.linear, source: path };
-    } catch {}
+    const result = await readAuthEntry(path);
+    if (result) return { entry: result.entry, shape: result.shape, source: path };
   }
   return null;
 }
 
-async function writeMcpAuth(path, entry) {
-  const raw = await readFile(path, "utf8");
-  const auth = JSON.parse(raw);
-  auth.linear = entry;
-  await writeFile(path, JSON.stringify(auth, null, 2), { mode: 0o600 });
+async function readAuthEntry(path) {
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      if (parsed.tokens?.accessToken) return { entry: parsed, shape: "direct" };
+      if (parsed.linear) return { entry: parsed.linear, shape: "combined" };
+    }
+  } catch {}
+  return null;
+}
+
+async function writeMcpAuth(path, entry, shape = "combined") {
+  if (shape === "direct") {
+    await writeFile(path, JSON.stringify(entry, null, 2), { mode: 0o600 });
+    return;
+  }
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !parsed.tokens?.accessToken) {
+      parsed.linear = entry;
+      await writeFile(path, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+      return;
+    }
+  } catch {}
+  await writeFile(path, JSON.stringify({ linear: entry }, null, 2), { mode: 0o600 });
 }
 
 async function getToken() {
@@ -39,7 +62,8 @@ async function getToken() {
   return null;
 }
 
-async function tryRefresh(entry, source) {
+async function tryRefresh(cached) {
+  const entry = cached?.entry;
   if (!entry?.tokens?.refreshToken || !entry?.clientInfo?.clientId) return null;
   const refreshUrl = new URL(MCP_URL);
   refreshUrl.pathname = "/oauth/token";
@@ -68,7 +92,7 @@ async function tryRefresh(entry, source) {
     },
   };
   try {
-    await writeMcpAuth(source, updated);
+    await writeMcpAuth(cached.source, updated, cached.shape);
   } catch {}
   return json.access_token;
 }
@@ -121,7 +145,7 @@ class McpSession {
       if (res.status === 401 && this.cached) {
         const cachedRef = this.cached;
         this.cached = null;
-        const refreshed = await tryRefresh(cachedRef.entry, cachedRef.source);
+        const refreshed = await tryRefresh(cachedRef);
         if (refreshed) {
           this.token = refreshed;
           return this.call(method, params, id);
@@ -240,8 +264,15 @@ update-issue <id> [--state <name>] [--title <t>] [--description <d>]
   statuses [--team <key>]            List workflow states for a team
 
 Auth:
-  Reads the OAuth access token from opencode's MCP auth cache:
-    ~/.local/share/opencode/mcp-auth.json (or ~/.config/opencode/...)
+  Reads the OAuth access token from opencode's MCP auth cache. Tries these paths
+  in order, accepting both the V1 combined shape ({ server: entry }) and the
+  V2 per-server shape ({ tokens, clientInfo }):
+    ~/.local/share/opencode/mcp-auth.json
+    ~/.config/opencode/mcp-auth.json
+    ~/.local/share/opencode/auth/linear.json
+    ~/.config/opencode/auth/linear.json
+    ~/.local/share/opencode/mcp/linear/auth.json
+    ~/.config/opencode/mcp/linear/auth.json
   Run \`opencode mcp auth linear\` once to populate it. The token refreshes
   automatically; no manual key rotation is needed.
 
