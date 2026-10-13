@@ -21,6 +21,7 @@
     "test:unit": "vitest --config vitest.config.mjs",
     "test:unit:ui": "vitest --ui --config vitest.config.mjs",
     "test:convex": "vitest --config convex/vitest.config.mjs",
+    "route-mapping": "node scripts/convex-route-mapping.mjs",
     "db:generate": "cd packages/db && drizzle-kit generate",
     "db:migrate": "cd packages/db && drizzle-kit migrate",
     "db:studio": "cd packages/db && drizzle-kit studio",
