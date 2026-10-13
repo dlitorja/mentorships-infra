@@ -69,15 +69,45 @@ export default async function WorkspaceIdPage({
   const clerkUserId = await requireAuth();
   const token = await getConvexAuthToken();
 
-  const workspace = await fetchQuery(
-    api.workspaces.getWorkspaceByIdForUser,
-    { id: workspaceId },
-    { token: token ?? undefined }
-  );
+  // PR-A (Issue 4): the sidebar in `/workspace/[id]` previously
+  // received only `[workspace]` so instructors with multiple
+  // workspaces saw a single-entry sidebar when they landed via a
+  // deep link (ad-hoc call invite, recording-ready notification,
+  // session-reminder, etc.). Fetch the current row and the user's
+  // full workspace list in parallel — the picker route at
+  // `app/workspace/page.tsx:39-43` already does the same shape.
+  const [workspace, allWorkspaces] = await Promise.all([
+    fetchQuery(
+      api.workspaces.getWorkspaceByIdForUser,
+      { id: workspaceId },
+      { token: token ?? undefined }
+    ),
+    fetchQuery(
+      api.workspaces.getUserWorkspaces,
+      { ownerId: clerkUserId },
+      { token: token ?? undefined }
+    ),
+  ]);
 
   if (!workspace) {
     redirect("/workspace");
   }
+
+  // Greptile round-1 P1: ensure the current row is in the sidebar
+  // list even when `getUserWorkspaces` does not surface it. Admins
+  // can access any workspace by id (`getWorkspaceByIdForUser`
+  // authorises them), but `getUserWorkspaces` only returns rows
+  // owned by the admin or assigned to them as instructor — neither
+  // covers admin_student / admin_instructor workspaces where the
+  // admin is a participant but not owner. Without this merge the
+  // sidebar renders "Select a workspace to get started" even
+  // though the current page is authorised. Deduplicate on _id so
+  // a user who *does* own/instruct the current workspace doesn't
+  // see it twice.
+  const workspaces = [
+    workspace,
+    ...allWorkspaces.filter((w) => w._id !== workspaceId),
+  ];
 
   const userRole: UserRole = (await getServerUserRole(clerkUserId)).role;
 
@@ -100,7 +130,7 @@ export default async function WorkspaceIdPage({
     <ProtectedLayout currentPath="/workspace">
       <WorkspaceClientPage
         clerkUserId={clerkUserId}
-        workspaces={[workspace]}
+        workspaces={workspaces}
         userRole={userRole}
         initialWorkspaceId={workspaceId}
         initialJoinSessionId={joinSessionId}

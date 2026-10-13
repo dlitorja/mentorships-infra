@@ -77,6 +77,33 @@ function WorkspaceContent({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(
     initialWorkspaceId ?? null
   );
+
+  // PR-A fix (Greptile round-2 P1): once the sidebar can switch
+  // workspaces, `initialJoinSessionId` from the URL's `?join=` would
+  // otherwise apply to *every* selected workspace — the new
+  // `<VideoCallProvider>` mount queries that session by id and uses
+  // it as the active call, so the new workspace would show/auto-join
+  // the *previous* workspace's session. The deep link semantic is
+  // "go to /workspace/{A} and auto-join session X in A" — it does
+  // NOT carry over to /workspace/{B}. Clear the join prop whenever
+  // the selected workspace no longer matches the workspace the
+  // deep-link URL points to.
+  const effectiveInitialJoinSessionId =
+    initialJoinSessionId && selectedWorkspaceId === initialWorkspaceId
+      ? initialJoinSessionId
+      : undefined;
+  // PR-A fix (Greptile round-3 P2): same scope as the join-id gate above.
+  // The bell's `?videos={sessionId}` deep link targets a recording in
+  // workspace A; when the user switches to workspace B, B's
+  // `<RecordingDeepLinkHandler>` would still receive A's sessionId and
+  // load up to eight extra pages of B's recordings looking for a
+  // card that can't be there. Gate on `selectedWorkspaceId ===
+  // initialWorkspaceId` so the videos tab scrolls + opens on the deep
+  // link only while the original workspace is selected.
+  const effectiveInitialVideoSessionId =
+    initialVideoSessionId && selectedWorkspaceId === initialWorkspaceId
+      ? initialVideoSessionId
+      : undefined;
   // PR #3: when the bell deep-links to `?videos={sessionId}`,
   // open on the videos tab so the user lands directly on the
   // recording card that triggered the notification. Falls through
@@ -84,7 +111,7 @@ function WorkspaceContent({
   // present, so this is a non-breaking change for existing entry
   // points.
   const [activeTab, setActiveTab] = useState(
-    initialVideoSessionId ? "videos" : "chat"
+    effectiveInitialVideoSessionId ? "videos" : "chat"
   );
   // sessionId from the active call, passed down to Notes/Images/Links/Chat
   // composers for auto-tagging during the call. Read from
@@ -197,7 +224,7 @@ function WorkspaceContent({
         // session, and unmount cleanup of the old call would never fire.
         key={selectedWorkspaceId}
         workspaceId={selectedWorkspaceId}
-        initialJoinSessionId={initialJoinSessionId}
+        initialJoinSessionId={effectiveInitialJoinSessionId}
       >
         <WorkspaceInner
           clerkUserId={clerkUserId}
@@ -208,7 +235,7 @@ function WorkspaceContent({
           activeTab={activeTab}
           onChangeTab={setActiveTab}
           selectedWorkspace={selectedWorkspace}
-          initialVideoSessionId={initialVideoSessionId}
+          initialVideoSessionId={effectiveInitialVideoSessionId}
           activeSessionsByWorkspaceId={activeSessionsByWorkspaceId}
         />
         {/*
