@@ -168,6 +168,17 @@ export default function OnboardingQuestionnaireForm({
   // a third tab keeps beating us — only attempt the catch-up
   // re-fire once per save.
   const recoveryInFlight = useRef(false);
+  // HUC-93: tracks the moment of the user's last keystroke
+  // across the form. The closing-tab beacon sends this as
+  // `payloadCapturedAt` so the server's force:true recency
+  // gate can reject stale snapshots whose last-edit-time
+  // predates a fresher sibling tab's `existing.updatedAt`.
+  // Without this tracking we'd send `Date.now()` at beacon-
+  // build time, which would always pass the gate (the
+  // browser didn't time-travel between 9:00 and 9:30 just
+  // because the user was idle). See
+  // https://linear.app/.../HUC-93 §Race scenario, step 4-5.
+  const lastEditedAtRef = useRef<number | null>(null);
   const saveMutation = useMutation({
     mutationFn: () => {
       const a = answersRef.current;
@@ -420,9 +431,36 @@ export default function OnboardingQuestionnaireForm({
         // the flush has the same per-tab namespace as the
         // autosaves (round 20 P1 #2 fix).
         clientSaveIdCounter.current += 1;
-        
+
         const clientSaveId =
           clientSaveIdCounter.current;
+        // HUC-93 P1 (Greptile): when the form is hydrated
+        // from server-stored state and the user did NOT type
+        // anything, `lastEditedAtRef.current` is null. Sending
+        // the hydrated answers via `force: true` here would
+        // clobber a sibling tab's newer edits — the closing
+        // tab has nothing fresh to add. Stamp `lastSeenAt`
+        // only (empty payload triggers the route's seen-only
+        // path). Same fallback handling for the unmount
+        // handler below.
+        if (lastEditedAtRef.current == null) {
+          void fetch(url, {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          return;
+        }
+        // HUC-93: send the user's last-edit timestamp. The
+        // server-side `force: true` recency gate compares this
+        // against `existing.updatedAt` to bound the closing
+        // tab's stale-snapshot clobber race. We use the
+        // last-edit timestamp (not Date.now() at beacon-build
+        // time) so an idle tab doesn't accidentally pass the
+        // recency gate — see Linear HUC-93 race scenario step
+        // 4-5.
+        const payloadCapturedAt = lastEditedAtRef.current;
         void fetch(url, {
           method: "POST",
           keepalive: true,
@@ -431,6 +469,7 @@ export default function OnboardingQuestionnaireForm({
             answers: trimmedAnswers,
             inspirations,
             clientSaveId,
+            payloadCapturedAt,
           }),
         });
       } catch {
@@ -475,9 +514,30 @@ export default function OnboardingQuestionnaireForm({
           .filter((x) => x.answerText.length > 0);
         const inspirations = i.filter((x) => x.name.trim().length > 0);
         clientSaveIdCounter.current += 1;
-        
+
         const clientSaveId =
           clientSaveIdCounter.current;
+        // HUC-93 P1 (Greptile): the unmount handler is the
+        // mirror of the beforeunload beacon — if the form is
+        // hydrated and the user did NOT type anything, the
+        // (no-op) pending reference doesn't protect us; the
+        // server-side force:true gate would still let the
+        // hydrated answers clobber a sibling tab's newer
+        // edits. Same early-return as in `sendBeacon`: stamp
+        // lastSeenAt only.
+        if (lastEditedAtRef.current == null) {
+          void fetch(url, {
+            method: "POST",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          return;
+        }
+        // HUC-93: send last-edit timestamp — the mutation's
+        // force:true recency gate compares this against
+        // `existing.updatedAt`.
+        const payloadCapturedAt = lastEditedAtRef.current;
         // keepalive lets the request land even as the page
         // is being torn down by the navigation.
         void fetch(url, {
@@ -488,6 +548,7 @@ export default function OnboardingQuestionnaireForm({
             answers: trimmedAnswers,
             inspirations,
             clientSaveId,
+            payloadCapturedAt,
           }),
         });
       } catch {
@@ -726,9 +787,12 @@ export default function OnboardingQuestionnaireForm({
               <Textarea
                 id={`q-${q.id}`}
                 value={renderAnswers[q.id] ?? ""}
-                onChange={(e) =>
-                  setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))
-                }
+                onChange={(e) => {
+                  // HUC-93: stamp the last-edit time so the
+                  // beacon can send it as `payloadCapturedAt`.
+                  lastEditedAtRef.current = Date.now();
+                  setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }));
+                }}
                 placeholder={q.placeholder}
                 maxLength={q.maxLength}
                 rows={q.id === "goals" ? 6 : 4}
@@ -756,6 +820,8 @@ export default function OnboardingQuestionnaireForm({
               <Input
                 value={name}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  // HUC-93: stamp the last-edit time.
+                  lastEditedAtRef.current = Date.now();
                   setInspirations((prev) =>
                     prev.map((x, i) => (i === idx ? { name: e.target.value } : x))
                   );
@@ -768,9 +834,16 @@ export default function OnboardingQuestionnaireForm({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() =>
-                    setInspirations((prev) => prev.filter((_, i) => i !== idx))
-                  }
+                  onClick={() => {
+                    // HUC-93: tag-removal still counts as a form
+                    // mutation; stamp so the beacon reports an
+                    // accurate "last-edited-at". Without this an
+                    // idle tab that ONLY removed a row would look
+                    // "missing the last-edit" because the user
+                    // didn't actually type.
+                    lastEditedAtRef.current = Date.now();
+                    setInspirations((prev) => prev.filter((_, i) => i !== idx));
+                  }}
                   aria-label="Remove inspiration"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -782,9 +855,11 @@ export default function OnboardingQuestionnaireForm({
             inspirations.length < MAX_INSPIRATIONS && (
               <Button
                 variant="outline"
-                onClick={() =>
-                  setInspirations((prev) => [...prev, { name: "" }])
-                }
+                onClick={() => {
+                  // HUC-93: adding a row also counts.
+                  lastEditedAtRef.current = Date.now();
+                  setInspirations((prev) => [...prev, { name: "" }]);
+                }}
               >
                 Add inspiration
               </Button>

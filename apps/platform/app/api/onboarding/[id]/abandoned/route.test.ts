@@ -198,6 +198,76 @@ describe("POST /api/onboarding/[id]/abandoned", () => {
     expect(draftArgs.clientSaveId).toBe(0);
   });
 
+  // HUC-93: closing-tab beacons carry a `payloadCapturedAt`
+  // stamp so the mutation's `force: true` recency gate can
+  // reject stale snapshots. The route forwards it verbatim.
+  // Pin this so a regression that silently drops the field
+  // (e.g., a refactor that destructures it out by mistake)
+  // flips to fail.
+  it("HUC-93: forwards payloadCapturedAt to saveQuestionnaireDraft", async () => {
+    const { request, params } = makeBeaconRequest({
+      answers: [{ questionId: "how_did_you_hear", answerText: "closing" }],
+      inspirations: [{ name: "Closing" }],
+      clientSaveId: 7,
+      payloadCapturedAt: 1_700_000_000_000,
+    });
+
+    const response = await POST(request, { params });
+    expect(response.status).toBe(200);
+
+    expect(convexClient.mutation).toHaveBeenCalledTimes(2);
+    const [, draftArgs] = convexClient.mutation.mock.calls[0] as [any, any];
+    expect(draftArgs.force).toBe(true);
+    expect(draftArgs.payloadCapturedAt).toBe(1_700_000_000_000);
+  });
+
+  // HUC-93: when the body omits `payloadCapturedAt`, the route
+  // does NOT include the key. The mutation's force:true path
+  // will then throw at Convex (logged via `reportError`); the
+  // beacon still returns {ok:true}. This is the report-error
+  // path that surfaces a client regression.
+  it("HUC-93: omits payloadCapturedAt when not in body", async () => {
+    // Make the mutation throw on force:true without
+    // payloadCapturedAt — this is what
+    // `saveQuestionnaireDraft` does in handler-side check.
+    convexClient.mutation.mockImplementation(
+      async (ref: any, args: any) => {
+        if (
+          fnName(ref).includes("saveQuestionnaireDraft") &&
+          args.force === true &&
+          typeof args.payloadCapturedAt !== "number"
+        ) {
+          throw new Error("payloadCapturedAt is required when force: true");
+        }
+        return undefined;
+      }
+    );
+
+    const { request, params } = makeBeaconRequest({
+      answers: [{ questionId: "how_did_you_hear", answerText: "x" }],
+      clientSaveId: 3,
+      // intentionally NO payloadCapturedAt
+    });
+
+    const response = await POST(request, { params });
+    // Beacon is best-effort: the failure is logged but the
+    // request still returns {ok:true}.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+
+    // The save mutation was attempted with force:true and NO
+    // payloadCapturedAt key — pin the EXACT object shape so a
+    // refactor that adds/removes the key flips to fail.
+    const [draftRef, draftArgs] = convexClient.mutation.mock
+      .calls[0] as [any, any];
+    expect(fnName(draftRef)).toContain("saveQuestionnaireDraft");
+    expect(draftArgs.force).toBe(true);
+    expect(draftArgs).not.toHaveProperty("payloadCapturedAt");
+
+    // The throw is logged but the beacon doesn't 500.
+    expect(mockReportError).toHaveBeenCalled();
+  });
+
   it("treats a malformed body as an empty beacon (does not 500)", async () => {
     // Send a request whose body is NOT parseable JSON. The route
     // intentionally catches parse failures and treats them as

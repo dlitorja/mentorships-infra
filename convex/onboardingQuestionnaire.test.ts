@@ -663,6 +663,9 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
   // closing tab's beacon sends id=3, which would normally
   // be a no-op. With force:true the closing tab's payload
   // wins — it has the most recent user activity.
+  // HUC-93: NEW first save; no existing.updatedAt to gate
+  // against (the default is 0). payloadCapturedAt > 0 is
+  // accepted; here Date.now() is fine.
   await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -673,6 +676,10 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       clientSaveId: 10,
     });
 
+  // HUC-93: payloadCapturedAt is REQUIRED when force:true.
+  // We send a future timestamp so the recency gate passes
+  // (Date.now() + 1s > existing.updatedAt = "now" from the
+  // previous mutation invocation).
   const beacon = await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -682,6 +689,7 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       inspirations: [{ name: "Closing" }],
       clientSaveId: 3,
       force: true,
+      payloadCapturedAt: Date.now() + 1_000,
     });
   expect(beacon.accepted).toBe(true);
   // Greptile round-28 P1 #15: forced overwrites bump
@@ -897,6 +905,9 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
   // closing tab's beacon sends id=3, which would normally
   // be a no-op. With force:true the closing tab's payload
   // wins — it has the most recent user activity.
+  // HUC-93: NEW first save; no existing.updatedAt to gate
+  // against (the default is 0). payloadCapturedAt > 0 is
+  // accepted; here Date.now() is fine.
   await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -907,6 +918,10 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       clientSaveId: 10,
     });
 
+  // HUC-93: payloadCapturedAt is REQUIRED when force:true.
+  // We send a future timestamp so the recency gate passes
+  // (Date.now() + 1s > existing.updatedAt = "now" from the
+  // previous mutation invocation).
   const beacon = await t
     .withIdentity({ subject: studentId })
     .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
@@ -916,6 +931,7 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
       inspirations: [{ name: "Closing" }],
       clientSaveId: 3,
       force: true,
+      payloadCapturedAt: Date.now() + 1_000,
     });
   expect(beacon.accepted).toBe(true);
   // Greptile round-28 P1 #15: forced overwrites bump
@@ -935,6 +951,342 @@ test("saveQuestionnaireDraft force:true bypasses the older-id guard (tab-close b
     row?.answers.find((a: any) => a.questionId === "how_did_you_hear")?.answerText
   ).toBe("closing");
   expect(row?.inspirations[0]?.name).toBe("Closing");
+});
+
+
+// HUC-93: payload recency gate — the closing-tab beacon
+// captures the user's last-edit timestamp and forwards it as
+// `payloadCapturedAt`. The mutation's force:true path now
+// rejects (accepted:false, no write) when the snapshot is
+// strictly older than the server's `existing.updatedAt`.
+// Without this gate, a stale sibling tab whose latest edits
+// predate the active tab's could clobber the fresher edits.
+//
+// Helpers shared between the 4 spec cases below.
+async function seedRecencyFixture(
+  t: any,
+  partial: { tabAEarlierTimestamp: number; tabBLaterTimestamp: number }
+) {
+  const studentId = "user_student_recency";
+  const instructorId = await seedInstructor(t, {
+    name: "Inst",
+    slug: "inst-recency",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-recency@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [
+      { instructorId, isRenewal: false, sessionsPerInstructor: 4 },
+    ],
+  });
+  return { studentId, onboardingId };
+}
+
+test("HUC-93: force:true rejects when payloadCapturedAt < existing.updatedAt", async () => {
+  const t = convexTest(schema, modules);
+  const { studentId, onboardingId } = await seedRecencyFixture(t, {
+    tabAEarlierTimestamp: 0,
+    tabBLaterTimestamp: 0,
+  });
+
+  // Tab B (the fresh one) saves first. We later pin the
+  // server's `updatedAt` to a deterministic reference via
+  // ctx.db.patch so the stale-payload test does not rely on
+  // wall-clock arithmetic between the prior mutation's
+  // execution and the new beacon's arrival.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "tabB",
+        },
+      ],
+      inspirations: [{ name: "Tab B" }],
+      clientSaveId: 10,
+    });
+  // Greptile P2 (test:1015): pin `updatedAt` to a fixed
+  // reference. The prior version used `Date.now() - 1_000`
+  // which couples to wall-clock delta between the prior
+  // mutation and the Date.now() call site — a paused
+  // runnable for >1s flips the comparison. Same pattern as
+  // the equal/newer tests below.
+  const nowRef = Date.now() + 5_000;
+  await t.run(async (ctx: any) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q: any) =>
+        q.eq("onboardingId", onboardingId as any)
+      )
+      .first();
+    await ctx.db.patch(sub!._id, { updatedAt: nowRef });
+  });
+
+  // Tab A's beacon fires much later, but Tab A's snapshot
+  // timestamp is from when Tab A was last edited (BEFORE
+  // Tab B's save landed on the server). payloadCapturedAt
+  // < nowRef ⇒ reject.
+  const beacon = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "tabA-stale",
+        },
+      ],
+      inspirations: [{ name: "Tab A" }],
+      clientSaveId: 5,
+      force: true,
+      // Strictly older than the server's pinned `updatedAt`.
+      payloadCapturedAt: nowRef - 1_000,
+    });
+  expect(beacon.accepted).toBe(false);
+  // Same shape as the older-id-guard rejection: status:draft
+  // with the existing clientSaveId echoed back untouched.
+  expect(beacon.status).toBe("draft");
+  expect(beacon.storedClientSaveId).toBe(10);
+
+  // The row should still hold Tab B's payload — Tab A's
+  // stale snapshot was rejected and never wrote.
+  const row = await t
+    .withIdentity({ subject: studentId })
+    .query(api.onboardingQuestionnaire.getQuestionnaireForCurrentUser, {
+      onboardingId: onboardingId as any,
+    });
+  expect(row?.answers.find((a: any) => a.questionId === "how_did_you_hear")
+    ?.answerText).toBe("tabB");
+});
+
+test("HUC-93: force:true accepts when payloadCapturedAt === existing.updatedAt", async () => {
+  const t = convexTest(schema, modules);
+  const { studentId, onboardingId } = await seedRecencyFixture(t, {
+    tabAEarlierTimestamp: 0,
+    tabBLaterTimestamp: 0,
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "baseline",
+        },
+      ],
+      inspirations: [{ name: "Baseline" }],
+      clientSaveId: 7,
+    });
+
+  // Pin the server's updatedAt to a known value via a
+  // raw patch (sneaking around the mutation's auto-stamp).
+  const nowRef = Date.now() + 5_000;
+  await t.run(async (ctx: any) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q: any) =>
+        q.eq("onboardingId", onboardingId as any)
+      )
+      .first();
+    await ctx.db.patch(sub!._id, { updatedAt: nowRef });
+  });
+
+  // Tab A's snapshot was JUST before the other tab's save
+  // landed server-side, but we're conservative: capture-time
+  // is `equal` to the server's updatedAt — SPEC says equal
+  // is OK.
+  const beacon = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "tabA-equal",
+        },
+      ],
+      inspirations: [{ name: "Tab A" }],
+      clientSaveId: 3,
+      force: true,
+      payloadCapturedAt: nowRef,
+    });
+  expect(beacon.accepted).toBe(true);
+  expect(beacon.status).toBe("draft");
+  // Greptile round-28 P1 #15: forced overwrites bump
+  // stored to max(stored + 1, clientSaveId) regardless.
+  expect(beacon.storedClientSaveId).toBe(Math.max(7 + 1, 3));
+});
+
+test("HUC-93: force:true accepts and bumps stored when payloadCapturedAt > existing.updatedAt", async () => {
+  const t = convexTest(schema, modules);
+  const { studentId, onboardingId } = await seedRecencyFixture(t, {
+    tabAEarlierTimestamp: 0,
+    tabBLaterTimestamp: 0,
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "baseline",
+        },
+      ],
+      inspirations: [{ name: "Baseline" }],
+      clientSaveId: 5,
+    });
+
+  // Pin the server's updatedAt so we have a stable lower
+  // bound. Tab A's snapshot is NEWER than that bound, so
+  // force:true should accept and bump the stored counter.
+  const nowRef = Date.now() + 5_000;
+  await t.run(async (ctx: any) => {
+    const sub = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q: any) =>
+        q.eq("onboardingId", onboardingId as any)
+      )
+      .first();
+    await ctx.db.patch(sub!._id, { updatedAt: nowRef });
+  });
+
+  const beacon = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "tabA-newer",
+        },
+      ],
+      inspirations: [{ name: "Tab A" }],
+      clientSaveId: 4,
+      force: true,
+      payloadCapturedAt: nowRef + 2_000,
+    });
+  expect(beacon.accepted).toBe(true);
+  expect(beacon.status).toBe("draft");
+  expect(beacon.storedClientSaveId).toBe(Math.max(5 + 1, 4));
+});
+
+test("HUC-93: force:false path ignores payloadCapturedAt (existing strict-greater-than logic unchanged)", async () => {
+  const t = convexTest(schema, modules);
+  const { studentId, onboardingId } = await seedRecencyFixture(t, {
+    tabAEarlierTimestamp: 0,
+    tabBLaterTimestamp: 0,
+  });
+
+  // Server already has a more-recent save at id=10. The
+  // client save sends id=3 (older) without `force`, AND
+  // supplies a payloadCapturedAt that, if the gate were
+  // wired in, would be ignored for non-forced saves. The
+  // existing strict-greater-than guard rejects.
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "baseline",
+        },
+      ],
+      inspirations: [{ name: "Baseline" }],
+      clientSaveId: 10,
+    });
+
+  const result = await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "stale",
+        },
+      ],
+      inspirations: [{ name: "Stale" }],
+      clientSaveId: 3,
+      // explicitly NOT force. payloadCapturedAt is a
+      // forward-compatible annotation: the handler MUST
+      // ignore it on the non-forced path.
+      payloadCapturedAt: Date.now(),
+    });
+  expect(result.accepted).toBe(false);
+  expect(result.status).toBe("draft");
+  expect(result.storedClientSaveId).toBe(10);
+});
+
+test("HUC-93: force:true throws when payloadCapturedAt is missing", async () => {
+  const t = convexTest(schema, modules);
+  const { studentId, onboardingId } = await seedRecencyFixture(t, {
+    tabAEarlierTimestamp: 0,
+    tabBLaterTimestamp: 0,
+  });
+
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: [
+        {
+          questionId: "how_did_you_hear",
+          questionText: "How did you learn about this mentorship?",
+          answerText: "baseline",
+        },
+      ],
+      inspirations: [{ name: "Baseline" }],
+      clientSaveId: 5,
+    });
+
+  // force:true with no payloadCapturedAt is a contract
+  // violation: the closing-tab beacon MUST send a snapshot
+  // timestamp. Reject loudly so a client regression is
+  // visible in `reportError` rather than silently accepted.
+  await expect(
+    t
+      .withIdentity({ subject: studentId })
+      .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+        onboardingId: onboardingId as any,
+        questionnaireVersion: 1,
+        answers: [
+          {
+            questionId: "how_did_you_hear",
+            questionText: "How did you learn about this mentorship?",
+            answerText: "missing-ts",
+          },
+        ],
+        inspirations: [{ name: "Missing" }],
+        clientSaveId: 7,
+        force: true,
+        // intentionally omit payloadCapturedAt
+      })
+  ).rejects.toThrow(/payloadCapturedAt/);
 });
 
 test("saveQuestionnaireDraft seeds reminderCount: 0 on first insert (reminder-scan P2)", async () => {
