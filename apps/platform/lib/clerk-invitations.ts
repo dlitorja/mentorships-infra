@@ -29,6 +29,16 @@ export interface CreateStudentClerkInvitationOptions {
    * `/api/admin/students/invite` flow working unchanged.
    */
   onboardingId?: string;
+  /**
+   * PR-B (Issue 3): forward `ignoreExisting` to Clerk's
+   * `invitations.createInvitation`. Required for the resend flow
+   * because a fresh invitation for the same email would otherwise
+   * be rejected while the prior Clerk invitation is still active.
+   * Set true ONLY when the caller has already revoked or is about
+   * to revoke the prior invitation. Default false preserves
+   * legacy-create semantics ("don't double-invite").
+   */
+  ignoreExisting?: boolean;
 }
 
 export interface ClerkInvitationResult {
@@ -105,7 +115,13 @@ export async function createClerkInvitation(
 export async function createStudentClerkInvitation(
   options: CreateStudentClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
-  const { emailAddress, studentId, redirectUrl = `${APP_URL}/sign-up`, onboardingId } = options;
+  const {
+    emailAddress,
+    studentId,
+    redirectUrl = `${APP_URL}/sign-up`,
+    onboardingId,
+    ignoreExisting,
+  } = options;
 
   try {
     const client = await getClerkApi();
@@ -114,6 +130,12 @@ export async function createStudentClerkInvitation(
       emailAddress,
       redirectUrl,
       publicMetadata: buildStudentPublicMetadata({ studentId, onboardingId }),
+      // PR-B (Issue 3): the resend flow uses this — by the time we
+      // call it, the prior Clerk invitation has just been revoked
+      // (or is in the process of being revoked by best-effort catch
+      // around the Convex write). Without this flag Clerk returns
+      // "already invited" and the route 502s.
+      ignoreExisting: !!ignoreExisting,
     });
 
     return {

@@ -8,8 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Mail, ArrowLeft, Sparkles } from "lucide-react";
-import { getAdminStudentInvitations, createStudentInvitation, getAdminInstructors } from "@/lib/queries/api-client";
+import { Loader2, Mail, ArrowLeft, Sparkles, RefreshCw, X } from "lucide-react";
+import {
+  getAdminStudentInvitations,
+  createStudentInvitation,
+  getAdminInstructors,
+  resendStudentInvitation,
+  cancelStudentInvitation,
+} from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AdminOnboardingForm from "@/components/admin/admin-onboarding-form";
 
@@ -261,10 +267,56 @@ const FILTER_TO_TITLE: Record<string, string> = {
 
 function PendingInvitationsCard() {
   const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const { data: invitations, isLoading: isLoadingInvitations } = useQuery({
     queryKey: ["student-invitations", statusFilter],
     queryFn: () => fetchInvitations(statusFilter),
   });
+
+  // PR-B (Issue 3): resend goes through the new HTTP route at
+  // /api/admin/students/invitations/[id]/resend. The route chain
+  // mints Clerk first, patches the row, then best-effort revokes the
+  // prior Clerk invite. Refuses on terminal statuses (HTTP 409).
+  const resendMutation = useMutation({
+    mutationFn: (invitationId: string) => resendStudentInvitation(invitationId),
+    onSuccess: () => {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["student-invitations"] });
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "Failed to resend");
+    },
+  });
+
+  // PR-B (Issue 3) round-1 Greptile fix (P1 #4264777494): Cancel MUST
+  // run server-side because the prior direct-mutation flow left the
+  // Clerk invitation active and the recipient could still sign up.
+  // Going through `/api/admin/students/invitations/[id]/cancel` lets us
+  // call Clerk's `revokeInvitation` from the Node route handler. The
+  // Convex row's status flip is handled by the gated
+  // `updateStudentInvitationStatus` mutation inside the route.
+  const cancelMutation = useMutation({
+    mutationFn: ({ invitationId }: { invitationId: string; email: string }) =>
+      cancelStudentInvitation(invitationId),
+    onSuccess: () => {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ["student-invitations"] });
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "Failed to cancel");
+    },
+  });
+
+  // Buttons only render for `pending` and `expired` — both are
+  // resendable. Terminal states (`accepted`, `cancelled`) are
+  // deliberately inert so admins don't accidentally re-invite someone
+  // who already signed up or who was already cancelled in another session.
+  const canAct = (status: Invitation["status"]) =>
+    status === "pending" || status === "expired";
+
+  const isBusy = resendMutation.isPending || cancelMutation.isPending;
 
   return (
     <Card>
@@ -285,6 +337,11 @@ function PendingInvitationsCard() {
         </div>
       </CardHeader>
       <CardContent>
+        {actionError && (
+          <div className="mb-3 text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+            {actionError}
+          </div>
+        )}
         {isLoadingInvitations ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin" />
@@ -294,13 +351,69 @@ function PendingInvitationsCard() {
         ) : (
           <div className="space-y-3">
             {invitations?.items.map((invitation) => (
-              <div key={invitation.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div key={invitation.id} className="flex items-center justify-between gap-3 p-3 border rounded-lg">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{invitation.email}</div>
                   <div className="text-sm text-muted-foreground">{invitation.instructorName}</div>
                   <div className="text-xs text-muted-foreground">Expires: {new Date(invitation.expiresAt).toLocaleDateString()}</div>
                 </div>
-                <div className="ml-4"><InvitationStatusBadge status={invitation.status} /></div>
+                <div className="flex items-center gap-2">
+                  {canAct(invitation.status) ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => resendMutation.mutate(invitation.id)}
+                        disabled={isBusy}
+                        aria-label={`Resend invitation to ${invitation.email}`}
+                      >
+                        {resendMutation.isPending && resendMutation.variables === invitation.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span className="sr-only sm:not-sr-only sm:ml-1.5">Resend</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          // Greptile P2 #4264777511 (round 2 — moved out of
+                          // onMutate because React Query's `onMutate`
+                          // returning false does NOT skip `mutationFn`).
+                          // Confirmation must live in the click handler.
+                          // `window.confirm` is used here (not a styled
+                          // dialog) for PR-B; a polished dialog lands in a
+                          // follow-up.
+                          if (
+                            typeof window !== "undefined" &&
+                            !window.confirm(
+                              `Cancel the invitation sent to ${invitation.email}? This will revoke the live signup link and cannot be undone from this UI.`
+                            )
+                          ) {
+                            return;
+                          }
+                          cancelMutation.mutate({
+                            invitationId: invitation.id,
+                            email: invitation.email,
+                          });
+                        }}
+                        disabled={isBusy}
+                        aria-label={`Cancel invitation to ${invitation.email}`}
+                      >
+                        {cancelMutation.isPending && cancelMutation.variables?.invitationId === invitation.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="h-3.5 w-3.5" />
+                        )}
+                        <span className="sr-only sm:not-sr-only sm:ml-1.5">Cancel</span>
+                      </Button>
+                    </>
+                  ) : null}
+                  <InvitationStatusBadge status={invitation.status} />
+                </div>
               </div>
             ))}
           </div>

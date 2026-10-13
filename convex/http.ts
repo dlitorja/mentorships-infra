@@ -1693,6 +1693,102 @@ http.route({
 });
 
 /**
+ * PR-B (Issue 3): bearer-auth endpoints that back
+ * `apps/web/inngest/functions/clerk-user-linking.ts`. After
+ * `convex/studentInvitations.ts` closed the user-facing gates on
+ * `listStudentInvitations` / `updateStudentInvitationStatus`, the
+ * `clerk/user.created` Inngest function (which authenticates with
+ * `CONVEX_HTTP_KEY`, no Clerk user identity) can no longer call
+ * the public mutations directly. These endpoints authenticate the
+ * same way as the existing `/internal/link-*` family and dispatch
+ * to internals `studentInvitations.findPendingStudentInvitationByEmailInternal`
+ * and `studentInvitations.acceptStudentInvitationByIdInternal`.
+ */
+export const httpListPendingStudentInvitationsByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let email: string;
+  try {
+    ({ email } = (await request.json()) as { email: string });
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!email || typeof email !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const invitation = await ctx.runQuery(
+      internal.studentInvitations.findPendingStudentInvitationByEmailInternal,
+      { email }
+    );
+    return new Response(JSON.stringify({ invitation }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpAcceptStudentInvitationById = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let invitationId: string;
+  try {
+    ({ invitationId } = (await request.json()) as { invitationId: string });
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!invitationId || typeof invitationId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid invitationId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.studentInvitations.acceptStudentInvitationByIdInternal,
+      { invitationId: invitationId as Id<"studentInvitations"> }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/internal/student-invitations/list-pending-by-email",
+  method: "POST",
+  handler: httpListPendingStudentInvitationsByEmail,
+});
+
+http.route({
+  path: "/internal/student-invitations/accept-by-id",
+  method: "POST",
+  handler: httpAcceptStudentInvitationById,
+});
+
+/**
  * R14: bearer-auth HTTP endpoints for the secret-removal migration.
  * Each replaces a public action that previously required a `secret` arg
  * authenticated against a shared secret in both environments. Callers now

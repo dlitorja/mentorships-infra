@@ -1,9 +1,69 @@
-import { query, mutation } from "./_generated/server";
+import { internalMutation, internalQuery, query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { writeAuditLog } from "./auditLog";
+
+/**
+ * Gate all admin-or-support-only entry points.
+ *
+ * Mirrors the canonical pattern from `convex/admin.ts:7-18`
+ * (`isAdminUser`) plus the linked-admin fallback documented in
+ * `getMyRole` (`convex/admin.ts:60-83`). Specifically:
+ *   - First checks `by_userId` (the primary identity path).
+ *   - Falls back to `by_clerkId` so linked admins — staff whose
+ *     primary Clerk user is bound to a `student`/`instructor` row but
+ *     also has an admin entry keyed off `clerkId` — keep admin access.
+ *
+ * This matters in practice: PR-A's admin-merge work explicitly tracked
+ * a case where an admin's role lives on a row resolved only via
+ * `by_clerkId` (see `convex/admin.test.ts:93-160` for the linked-admin
+ * fixtures). Any admin gate that consults `by_userId` alone silently
+ * locks out those users, which Greptile flagged in PR-B round 1
+ * (discussion 4264777500).
+ *
+ * Returns `{ ok: true, role }` so callers can record the role in
+ * `auditLogs`; returns `{ ok: false }` for any other identity.
+ *
+ * Throw shape: `"Forbidden: admin or support role required"` so the
+ * HTTP-layer message mapping in apps/platform can detect it as a 403
+ * via substring match (matches the onboarding-resend error mapping).
+ */
+async function requireAdminOrSupport(
+  ctx: QueryCtx | MutationCtx,
+  userId: string
+): Promise<{ ok: true; role: "admin" | "support" } | { ok: false }> {
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  if (byUserId?.role === "admin") return { ok: true, role: "admin" };
+  if (byUserId?.role === "support") return { ok: true, role: "support" };
+  // Linked-admin case (PR-A admin-merge): multiple `users` rows may
+  // share one `clerkId`. The `by_clerkId` index is non-unique so we
+  // `.collect()` and scan every row before deciding. The first row
+  // found via `.first()` could be the non-admin primary account,
+  // silently locking out the linked admin.
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .collect();
+  for (const row of byClerkId) {
+    if (row.role === "admin") return { ok: true, role: "admin" };
+    if (row.role === "support") return { ok: true, role: "support" };
+  }
+  return { ok: false };
+}
 
 /**
  * Lists student invitations with optional filtering by status, instructor, and pagination.
  * Returns items with instructor details attached.
+ *
+ * R14 / PR-B (Issue 3): gated on admin-or-support — the prior
+ * implementation only required an authenticated identity, which means
+ * any signed-in user (student, instructor) could read every pending
+ * invitation row, including student email addresses — PII. The gate
+ * matches the `getAdminStudentInvitations` HTTP route's `requireRoleForApi("admin")`
+ * so the read surface can't be opened by skipping the route layer.
  */
 export const listStudentInvitations = query({
   args: {
@@ -15,6 +75,11 @@ export const listStudentInvitations = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return { items: [], total: 0 };
+
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
 
     let invitationsQuery = ctx.db.query("studentInvitations");
 
@@ -60,6 +125,14 @@ export const listStudentInvitations = query({
 /**
  * Creates a new student invitation for an instructor.
  * Prevents duplicate pending invitations for the same email and instructor combination.
+ *
+ * R14 / PR-B (Issue 3): gated on admin-or-support. Previously callable
+ * by any signed-in user, which let a non-admin create student invitation
+ * rows. The HTTP `/api/admin/students/invite` route already required
+ * admin, but the mutation had no second line of defense — anyone calling
+ * Convex directly could mint a row and an `updateStudentInvitationClerkId`
+ * pair on it, redirecting the invite to a different Clerk account. The
+ * gate closes that path.
  */
 export const createStudentInvitation = mutation({
   args: {
@@ -73,9 +146,14 @@ export const createStudentInvitation = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
+
     const existingPending = await ctx.db
       .query("studentInvitations")
-      .withIndex("by_email_instructorId", (q) => 
+      .withIndex("by_email_instructorId", (q) =>
         q.eq("email", args.email.toLowerCase()).eq("instructorId", args.instructorId)
       )
       .first();
@@ -98,18 +176,83 @@ export const createStudentInvitation = mutation({
 
 /**
  * Updates the status of a student invitation (pending, accepted, expired, cancelled).
- * Requires authentication.
+ * Requires admin or support role.
+ *
+ * PR-B (Issue 3): the prior gate was `if (!identity) throw new
+ * Error("Unauthorized")`, which let any signed-in user flip any
+ * invitation's status — a miscreant could cancel a legitimate
+ * invitation or revive a cancelled one. Refuse on `accepted`/`cancelled`
+ * resends but keep status flips available to admins so the UI's Cancel
+ * button can write directly from React Query without a separate route.
+ *
+ * Writes an `auditLogs` row so a future security review can replay who
+ * cancelled which invitation — the onboarding-resend pattern
+ * (`convex/adminOnboarding.ts:749-762`) does the same.
  */
 export const updateStudentInvitationStatus = mutation({
   args: {
     id: v.id("studentInvitations"),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
+    /**
+     * PR-B (Issue 3) round-2 Greptile fix (P1 on cancel/route.ts:119):
+     * optional precondition. If provided, the mutation refuses if the
+     * row's current `status` doesn't match. The cancel HTTP route
+     * passes `expectedStatus = row.status` (the value it observed on
+     * the lined read). If a parallel resend slipped between our read
+     * and our patch, the precondition fails, the route re-reads and
+     * either surfaces 409 or retries against the new state.
+     *
+     * Skipped when omitted (legacy callers; pre-PR-B migration scripts).
+     */
+    expectedStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("expired"),
+        v.literal("cancelled")
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
+
+    const row = await ctx.db.get(args.id);
+    if (!row) throw new Error("Student invitation not found");
+
+    if (args.expectedStatus && row.status !== args.expectedStatus) {
+      // Greptile round-2 P1 (cancel/route.ts:119): a parallel resend
+      // changed the row state between our read and our patch. Race
+      // lost — refuse rather than blindly overwrite. The caller can
+      // re-read and decide whether to retry.
+      throw new Error(
+        `Precondition mismatch: expected status='${args.expectedStatus}' but row has status='${row.status}'`
+      );
+    }
+
+    const previousStatus = row.status;
     await ctx.db.patch(args.id, { status: args.status });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "update_student_invitation_status",
+      targetType: "studentInvitation",
+      targetId: args.id,
+      details: `Status changed from ${previousStatus} to ${args.status} (instructorId=${row.instructorId}, email=${row.email})`,
+      metadata: {
+        previousStatus,
+        newStatus: args.status,
+        email: row.email,
+        instructorId: row.instructorId,
+      },
+    });
+
     return args.id;
   },
 });
@@ -117,6 +260,10 @@ export const updateStudentInvitationStatus = mutation({
 /**
  * Updates the clerkInvitationId of a student invitation.
  * Called after successfully creating a Clerk invitation to link them.
+ *
+ * PR-B (Issue 3): gated on admin-or-support. Previously any signed-in
+ * user could patch a different `clerkInvitationId` onto a row and
+ * effectively redirect the signup link. The gate closes that path.
  */
 export const updateStudentInvitationClerkId = mutation({
   args: {
@@ -127,14 +274,186 @@ export const updateStudentInvitationClerkId = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
+
+    const row = await ctx.db.get(args.invitationId);
+    if (!row) throw new Error("Student invitation not found");
+
+    const previousClerkId = row.clerkInvitationId ?? null;
     await ctx.db.patch(args.invitationId, { clerkInvitationId: args.clerkInvitationId });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "update_student_invitation_clerk_id",
+      targetType: "studentInvitation",
+      targetId: args.invitationId,
+      details: `Re-linked Clerk invitation (previous=${previousClerkId ?? "(none)"}, new=${args.clerkInvitationId}, email=${row.email})`,
+      metadata: {
+        previousClerkInvitationId: previousClerkId,
+        newClerkInvitationId: args.clerkInvitationId,
+        email: row.email,
+        instructorId: row.instructorId,
+      },
+    });
+
     return args.invitationId;
+  },
+});
+
+/**
+ * Resend an existing student invitation without creating a second row.
+ *
+ * - Pattern role: matches `convex/adminOnboarding.ts:704-771`
+ *   (`resendAdminOnboardingInvitation`). The HTTP route at
+ *   `apps/platform/app/api/admin/students/invitations/[id]/resend/route.ts`
+ *   mints a fresh Clerk invitation first, then calls this mutation to
+ *   patch the row's `clerkInvitationId`, `expiresAt`, and reset `status`
+ *   to `pending`. We never create a second row.
+ * - Idempotency: refuses if the row's current status is `accepted` or
+ *   `cancelled`. Both are terminal semantically — the student either
+ *   signed up (don't re-invite) or the admin cancelled (don't auto-
+ *   revive). `expired` and `pending` are resendable.
+ * - Audit log: writes one `resend_student_invitation` entry per call.
+ *
+ * The 7-day `expiresAt` matches the original `/api/admin/students/invite`
+ * POST (`apps/platform/app/api/admin/students/invite/route.ts:91`).
+ */
+export const resendStudentInvitation = mutation({
+  args: {
+    invitationId: v.id("studentInvitations"),
+    newClerkInvitationId: v.string(),
+    expiresAt: v.number(),
+    /**
+     * PR-B (Issue 3) round-2 Greptile fix (P1 on cancel/route.ts:119):
+     * optional precondition. If a parallel cancel flipped the row's
+     * status to `cancelled` between the route's read and the mutation's
+     * patch, this precondition catches it. Route reads → mints Clerk
+     * with `ignoreExisting: true` → patches row. If the status was
+     * flipped in between, the patch refuses, the route re-reads and
+     * revokes the orphaned Clerk invitation it had minted.
+     */
+    expectedStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("accepted"),
+        v.literal("expired"),
+        v.literal("cancelled")
+      )
+    ),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
+
+    const row = await ctx.db.get(args.invitationId);
+    if (!row) throw new Error("Student invitation not found");
+
+    if (row.status === "accepted" || row.status === "cancelled") {
+      throw new Error(
+        `Cannot resend invitation from terminal status '${row.status}'`
+      );
+    }
+
+    if (args.expectedStatus && row.status !== args.expectedStatus) {
+      // Greptile round-2 P1: race lost — refuse rather than overwrite.
+      throw new Error(
+        `Precondition mismatch: expected status='${args.expectedStatus}' but row has status='${row.status}'`
+      );
+    }
+
+    const previousClerkInvitationId = row.clerkInvitationId ?? null;
+    const previousStatus = row.status;
+
+    await ctx.db.patch(args.invitationId, {
+      clerkInvitationId: args.newClerkInvitationId,
+      expiresAt: args.expiresAt,
+      status: "pending",
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "resend_student_invitation",
+      targetType: "studentInvitation",
+      targetId: args.invitationId,
+      details: `Resent Clerk invitation (prev=${previousClerkInvitationId ?? "(none)"} new=${args.newClerkInvitationId}, prior status=${previousStatus})`,
+      metadata: {
+        previousClerkInvitationId,
+        newClerkInvitationId: args.newClerkInvitationId,
+        previousStatus,
+        newStatus: "pending",
+        email: row.email,
+        instructorId: row.instructorId,
+      },
+    });
+
+    return {
+      invitationId: args.invitationId,
+      previousStatus,
+      previousClerkInvitationId,
+      newClerkInvitationId: args.newClerkInvitationId,
+    };
+  },
+});
+
+/**
+ * Returns a single invitation by id for the resend route. Public but
+ * gated on admin-or-support — the resend route (and any future admin
+ * detail view) obtains the row without exposing PII to non-admins.
+ */
+export const getStudentInvitationById = query({
+  args: { id: v.id("studentInvitations") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const gate = await requireAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      throw new Error("Forbidden: admin or support role required");
+    }
+
+    const row = await ctx.db.get(args.id);
+    if (!row) return null;
+
+    return {
+      id: row._id,
+      email: row.email,
+      instructorId: row.instructorId,
+      clerkInvitationId: row.clerkInvitationId ?? null,
+      expiresAt: row.expiresAt,
+      status: row.status,
+      createdAt: row._creationTime,
+    };
   },
 });
 
 /**
  * Migrates a student invitation from legacy system.
  * Updates existing invitation if found by email and instructor, otherwise creates new.
+ *
+ * PR-B (Issue 3): migration-script callable. INTENTIONALLY left without
+ * a `requireAdminOrSupport` gate — callers here are `npx convex run`
+ * invocations from the legacy student-invitation migration CLI which
+ * authenticate with `CONVEX_DEPLOY_KEY` (deployment-admin) and have no
+ * Clerk user identity. Putting a `users.role` check here would break
+ * the migration CLI.
+ *
+ * Hardening path (future PR, NOT in scope here): convert this to an
+ * `internalMutation`-only export, add a bearer-auth HTTP endpoint at
+ * `/internal/migrate-student-invitation` mirroring the existing
+ * `httpCreateInstructorForClerkUser` precedent (`convex/http.ts:1704+`),
+ * and update the legacy migration CLI to use `convexServerCall` instead
+ * of `npx convex run`. That keeps `studentInvitations.createStudentInvitation`'s
+ * admin-gate airtight without breaking the one-shot CLI flow.
  */
 export const migrateInvitation = mutation({
   args: {
@@ -178,5 +497,111 @@ export const migrateInvitation = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+/**
+ * PR-B (Issue 3) internals used by `apps/web/inngest/functions/clerk-user-linking.ts`
+ * and the bearer-auth `convex/http.ts` endpoints. After the admin gate
+ * was added to `listStudentInvitations` / `updateStudentInvitationStatus`,
+ * the Inngest function (which runs without a Clerk user identity) could
+ * no longer call them. These internals — together with the matching
+ * `*_by_email` and `*_by_id` HTTP endpoints — let the Inngest function
+ * run its `clerk/user.created` link-student flow as a service-key actor.
+ */
+
+/** Find a pending student invitation by email (case-insensitive). */
+export const findPendingStudentInvitationByEmailInternal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args): Promise<{
+    id: string;
+    email: string;
+    instructorId: string;
+    clerkInvitationId: string | null;
+    expiresAt: number;
+    status: string;
+    createdAt: number;
+  } | null> => {
+    const normalized = args.email.toLowerCase();
+    const candidates = await ctx.db
+      .query("studentInvitations")
+      .withIndex("by_email", (q) => q.eq("email", normalized))
+      .collect();
+    const pending = candidates.find(
+      (inv) => inv.status === "pending" && inv.expiresAt > Date.now()
+    );
+    if (!pending) return null;
+    return {
+      id: pending._id,
+      email: pending.email,
+      instructorId: pending.instructorId,
+      clerkInvitationId: pending.clerkInvitationId ?? null,
+      expiresAt: pending.expiresAt,
+      status: pending.status,
+      createdAt: pending._creationTime,
+    };
+  },
+});
+
+/**
+ * Accept a pending student invitation by id.
+ *
+ * Greptile round-1 (PR-B discussion 4264777507) flagged that the
+ * previous implementation only refused `accepted` / `cancelled`
+ * statuses, so a row already flipped to `expired` between the
+ * worker's email lookup and the accept call would silently be
+ * re-flipped to `accepted`. This implementation requires `pending`
+ * explicitly and auto-expires past-due rows instead of accepting.
+ *
+ * Returns `{ accepted: true, previousStatus }` if the row was flipped.
+ * Otherwise returns `{ accepted: false, reason }` — the `reason`
+ * string is one of `"not_found"`, `terminal_<status>`, `"expired"`,
+ * or `"non_pending_<status>"`.
+ */
+export const acceptStudentInvitationByIdInternal = internalMutation({
+  args: { invitationId: v.id("studentInvitations") },
+  handler: async (ctx, args): Promise<{ accepted: true; previousStatus: string } | { accepted: false; reason: string }> => {
+    const row = await ctx.db.get(args.invitationId);
+    if (!row) return { accepted: false, reason: "not_found" };
+    // Only pending rows can be auto-accepted. accepted/cancelled/expired
+    // are all terminal — refuse explicitly. This also catches the race
+    // where another call marked the row expired between the worker's
+    // lookup and the accept patch.
+    if (row.status !== "pending") {
+      return { accepted: false, reason: `non_pending_${row.status}` };
+    }
+    if (row.expiresAt <= Date.now()) {
+      // Auto-expire past-due pending rows instead of letting them
+      // sign up after expiry. Audit log + status flip are best-effort;
+      // if the audit insert fails we still refuse the accept.
+      await ctx.db.patch(args.invitationId, { status: "expired" });
+      await writeAuditLog(ctx, {
+        actorId: "system:clerk-user-linking",
+        actorRole: "system",
+        action: "auto_expire_student_invitation",
+        targetType: "studentInvitation",
+        targetId: args.invitationId,
+        details: `Invitation was pending but past expiresAt (${row.expiresAt} vs now=${Date.now()}). Marked expired before accept attempt.`,
+        metadata: { email: row.email, instructorId: row.instructorId },
+      });
+      return { accepted: false, reason: "expired" };
+    }
+    const previousStatus = row.status;
+    await ctx.db.patch(args.invitationId, { status: "accepted" });
+    await writeAuditLog(ctx, {
+      actorId: "system:clerk-user-linking",
+      actorRole: "system",
+      action: "auto_accept_student_invitation",
+      targetType: "studentInvitation",
+      targetId: args.invitationId,
+      details: `Auto-accepted pending invitation on clerk/user.created`,
+      metadata: {
+        previousStatus,
+        newStatus: "accepted",
+        email: row.email,
+        instructorId: row.instructorId,
+      },
+    });
+    return { accepted: true, previousStatus };
   },
 });
