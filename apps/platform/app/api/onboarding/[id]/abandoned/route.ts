@@ -44,6 +44,17 @@ const beaconBodySchema = z
     // client sends with every save (autosave + tab-close
     // flush) so the server can reject out-of-order requests.
     clientSaveId: z.number().int().nonnegative().optional(),
+    // HUC-93: closing-tab snapshot timestamp. Captured by
+    // the form's beforeunload + unmount handlers at the
+    // moment they snapshot answers/inspirations, NOT at
+    // request-arrival time. The mutation uses this to gate
+    // `force: true` against `existing.updatedAt` so a stale
+    // tab can't clobber a fresher sibling tab's edits. The
+    // route forwards the field verbatim; if the client
+    // omits it and the route is asked to force:true, the
+    // mutation throws — which surfaces in `reportError`
+    // rather than silently accepting the write.
+    payloadCapturedAt: z.number().int().nonnegative().optional(),
   })
   .partial();
 
@@ -113,7 +124,15 @@ export async function POST(
           // in the meantime. Force the save so the closing
           // tab's latest edits land instead of being dropped
           // by the server's strict-greater-than guard.
+          // HUC-93: forwarded only when the client supplied
+          // a `payloadCapturedAt`. The form captures this at
+          // snapshot-build time on the closing tab; if the
+          // body parse fails we already short-circuit to an
+          // empty mutation skip above.
           force: true,
+          ...(typeof parsed.payloadCapturedAt === "number"
+            ? { payloadCapturedAt: parsed.payloadCapturedAt }
+            : {}),
         } as any
       );
     }

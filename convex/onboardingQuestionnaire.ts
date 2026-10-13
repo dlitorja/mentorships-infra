@@ -140,6 +140,18 @@ export const saveQuestionnaireDraft = mutation({
     // closing tab's payload wins. Limited to the abandoned
     // beacon path; never set from the autosave PATCH route.
     force: v.optional(v.boolean()),
+    // HUC-93: payload recency gate. The closing tab's beacon
+    // captures `Date.now()` when it snapshots the answers+
+    // inspirations on `beforeunload` (or component unmount)
+    // and forwards it as `payloadCapturedAt`. The force:true
+    // gate below rejects snapshots that are OLDER than the
+    // server's `existing.updatedAt` — without this, a stale
+    // tab that hasn't been editable for minutes could clobber
+    // a fresher sibling tab's recent edits. Required when
+    // `force === true`; ignored otherwise. Convex validators
+    // don't support conditional-required, so the runtime
+    // check lives in the handler.
+    payloadCapturedAt: v.optional(v.number()),
   },
   returns: v.object({
     submissionId: v.id("onboardingQuestionnaireSubmissions"),
@@ -208,6 +220,37 @@ export const saveQuestionnaireDraft = mutation({
     // stored + 1 (one above the highest known) and write
     // the payload. Subsequent saves with id > newStored
     // still win the race.
+    //
+    // HUC-93: payload recency gate. Before honouring the
+    // force:true bypass, require the client's snapshot
+    // timestamp (`payloadCapturedAt`) to be at least as new
+    // as the server's `existing.updatedAt`. Without this,
+    // the rare two-tab clobber above the guard could still
+    // happen: Tab B makes its last edit at T+25min, then
+    // Tab A's beacon fires at T+30min with Tab A's 9:00
+    // snapshot; force:true would let Tab A's stale payload
+    // overwrite Tab B's fresher edits. Reject with
+    // accepted:false so the closing tab can show an "unsaved"
+    // indicator instead of silent data loss.
+    if (existing && args.force === true) {
+      if (typeof args.payloadCapturedAt !== "number") {
+        // Required for force:true — refuse undocumented writes.
+        throw new Error(
+          "saveQuestionnaireDraft: `payloadCapturedAt` is required when `force: true` (closing-tab beacon must capture a snapshot timestamp before sending)."
+        );
+      }
+      // Equal or newer is OK (a tab whose user just stopped
+      // editing may very well have captured milliseconds
+      // before another tab's network write landed).
+      if (args.payloadCapturedAt < existing.updatedAt) {
+        return {
+          submissionId: existing._id,
+          status: "draft" as const,
+          storedClientSaveId: existing.lastClientSaveId ?? 0,
+          accepted: false,
+        };
+      }
+    }
     const stored = existing?.lastClientSaveId ?? 0;
     const forcedOverwrite = existing && args.force === true;
     if (
