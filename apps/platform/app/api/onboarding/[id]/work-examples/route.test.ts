@@ -74,7 +74,12 @@ describe("POST /api/onboarding/[id]/work-examples", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
-    convexClient.action.mockResolvedValue({ ok: true, status: "active" });
+    // `recordWorkExampleUpload` returns `null` (production return
+    // validator is `v.null()`). Greptile round-5 P2 #1: the
+    // previous mock used `{ ok: true, status: "active" }` —
+    // fabricated fields the production validator would reject,
+    // so a regression in the return shape would NOT trip this test.
+    convexClient.action.mockResolvedValue(null);
   });
 
   it("returns 401 when not authenticated", async () => {
@@ -104,7 +109,9 @@ describe("POST /api/onboarding/[id]/work-examples", () => {
     const response = await POST(request, { params });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, status: "active" });
+    // `recordWorkExampleUpload` returns `null`. The route forwards
+    // the return value; the JSON response body is therefore `null`.
+    expect(await response.json()).toBeNull();
 
     expect(convexClient.action).toHaveBeenCalledTimes(1);
     const [ref, args] = convexClient.action.mock.calls[0] as [any, any];

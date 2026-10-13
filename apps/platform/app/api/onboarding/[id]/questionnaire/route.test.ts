@@ -70,7 +70,11 @@ describe("GET /api/onboarding/[id]/questionnaire", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
-    convexClient.query.mockResolvedValue(null); // both queries return null by default
+    // `getQuestionnaireForCurrentUser` returns `null` when there is
+    // no submission yet (the real return type is `v.null() |
+    // v.object({...})`). Default to null so the 200 path uses
+    // `mockResolvedValueOnce(...)` below.
+    convexClient.query.mockResolvedValue(null);
   });
 
   it("returns 401 when not authenticated", async () => {
@@ -91,14 +95,32 @@ describe("GET /api/onboarding/[id]/questionnaire", () => {
   });
 
   it("returns {submission, workExamples} when the viewer is the assigned student", async () => {
+    // Matches the REAL return shape of
+    // `getQuestionnaireForCurrentUser`: a `submissionId`-keyed
+    // object with the canonical fields. Greptile round-5 P2 #1:
+    // the previous mock used an `_id` field the production
+    // validator rejects, so this test would never have caught a
+    // shape change.
     const submission = {
-      _id: "sub_1",
-      onboardingId,
-      status: "draft",
+      submissionId: "sub_1",
+      status: "draft" as const,
+      questionnaireVersion: ONBOARDING_QUESTIONNAIRE_VERSION,
       answers: [],
       inspirations: [],
+      updatedAt: 1234567890,
     };
-    const workExamples = [{ _id: "we_1", status: "active" }];
+    // Matches the REAL return shape of `listWorkExamples`.
+    const workExamples = [
+      {
+        _id: "we_1",
+        status: "active" as const,
+        fileName: "photo.jpg",
+        b2Key: "onboarding/uploads/abc/photo.jpg",
+        contentType: "image/jpeg",
+        size: 4096,
+        uploadedAt: 1234567890,
+      },
+    ];
     convexClient.query
       .mockResolvedValueOnce(submission)
       .mockResolvedValueOnce(workExamples);
@@ -177,7 +199,19 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
-    convexClient.mutation.mockResolvedValue({ _id: "sub_1", status: "draft" });
+    // `saveQuestionnaireDraft` returns the REAL canonical shape:
+//   { submissionId, status, storedClientSaveId, accepted }.
+// Greptile round-5 P2 #1: the previous mock used `_id` (a Convex
+// internal field, not part of the public return validator) and
+// dropped the `storedClientSaveId`/`accepted` fields, so a
+// refactor that flipped either would silently pass through CI.
+const draftMock: any = {
+  submissionId: "sub_draft_1",
+  status: "draft" as const,
+  storedClientSaveId: 9097,
+  accepted: true,
+};
+convexClient.mutation.mockResolvedValue(draftMock);
   });
 
   it("returns 401 when not authenticated", async () => {
@@ -250,7 +284,12 @@ describe("PATCH /api/onboarding/[id]/questionnaire", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      submission: { _id: "sub_1", status: "draft" },
+      submission: {
+        submissionId: "sub_draft_1",
+        status: "draft",
+        storedClientSaveId: 9097,
+        accepted: true,
+      },
     });
 
     expect(convexClient.mutation).toHaveBeenCalledTimes(1);

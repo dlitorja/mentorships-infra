@@ -76,9 +76,13 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
+    // `submitQuestionnaire` returns the REAL canonical shape:
+    //   { submissionId, submittedAt }.
+    // Greptile round-5 P2 #1: the previous mock used `_id` (a
+    // Convex internal field) and wrapped `status`, so a refactor
+    // that split the returned shape would silently pass.
     convexClient.mutation.mockResolvedValue({
-      _id: "sub_1",
-      status: "submitted",
+      submissionId: "sub_1",
       submittedAt: 1234567890,
     });
   });
@@ -123,7 +127,7 @@ describe("POST /api/onboarding/[id]/questionnaire/submit", () => {
     const response = await POST(request, { params });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      submission: { _id: "sub_1", status: "submitted", submittedAt: 1234567890 },
+      submission: { submissionId: "sub_1", submittedAt: 1234567890 },
     });
 
     expect(convexClient.mutation).toHaveBeenCalledTimes(1);

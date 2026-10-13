@@ -108,9 +108,13 @@ describe("GET /api/onboarding/[id]/work-examples/[exampleId]/download-url", () =
       _id: workExampleId,
       b2Key: "onboarding/uploads/abcdef/photo.jpg",
     });
+    // `getWorkExampleDownloadUrl` returns the REAL canonical shape:
+    //   { url }. Greptile round-5 P2 #1: the previous mock used
+    // `downloadUrl` / `expiresAt` — neither of which the production
+    // validator returns, so a refactor that renamed `url` → `href`
+    // would silently slip past this test.
     convexClient.action.mockResolvedValueOnce({
-      downloadUrl: "https://b2.example.com/dl?token=abc",
-      expiresAt: 1234567890,
+      url: "https://b2.example.com/dl?token=abc",
     });
 
     const { request, params } = makeDownloadRequest();
@@ -118,8 +122,7 @@ describe("GET /api/onboarding/[id]/work-examples/[exampleId]/download-url", () =
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      downloadUrl: "https://b2.example.com/dl?token=abc",
-      expiresAt: 1234567890,
+      url: "https://b2.example.com/dl?token=abc",
     });
 
     // Two-step: 1) resolve via query, 2) mint via action.

@@ -71,7 +71,11 @@ describe("DELETE /api/onboarding/[id]/work-examples/[exampleId]", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
-    convexClient.mutation.mockResolvedValue({ ok: true });
+    // `deleteWorkExample` returns `null` (the production return
+    // validator is `v.null()`). Greptile round-5 P2 #1: the
+    // previous mock used `{ ok: true }` — a fabricated field
+    // passed back to the client as the JSON response body.
+    convexClient.mutation.mockResolvedValue(null);
   });
 
   it("returns 401 when not authenticated", async () => {
@@ -100,8 +104,11 @@ describe("DELETE /api/onboarding/[id]/work-examples/[exampleId]", () => {
     const { request, params } = makeDeleteRequest();
     const response = await DELETE(request, { params });
 
+    // `deleteWorkExample` returns `null`. The route forwards the
+    // convex return value verbatim via `NextResponse.json(result)`,
+    // so the JSON response body is also `null`.
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
+    expect(await response.json()).toBeNull();
 
     expect(convexClient.mutation).toHaveBeenCalledTimes(1);
     const [ref, args] = convexClient.mutation.mock.calls[0] as [any, any];

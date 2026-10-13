@@ -79,9 +79,17 @@ describe("POST /api/onboarding/[id]/work-examples/upload-url", () => {
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ userId: "user_student_alice" } as any);
     mockGetAuthenticatedConvexClient.mockResolvedValue(convexClient);
-    // Action returns the canonical shape: a URL + a reserved workExampleId.
+    // `generateWorkExampleUploadUrl` returns the REAL canonical
+    // shape:
+    //   { uploadUrl, b2Key, fileId, workExampleId }.
+    // Greptile round-5 P2 #1: the previous mock dropped `b2Key`
+    // and `fileId`. A future refactor that split the prefix-
+    // computation or the fileId-mint flow would NOT slip past
+    // this test against the production validator.
     convexClient.action.mockResolvedValue({
       uploadUrl: "https://b2.example.com/upload-url",
+      b2Key: "onboarding/uploads/abc/photo.jpg",
+      fileId: "upload-uuid-1",
       workExampleId: "wx12345678901",
     });
   });
@@ -155,8 +163,12 @@ describe("POST /api/onboarding/[id]/work-examples/upload-url", () => {
     const response = await POST(request, { params });
 
     expect(response.status).toBe(200);
+    // Route forwards the action's return value verbatim — the full
+    // canonical shape (uploadUrl, b2Key, fileId, workExampleId).
     expect(await response.json()).toEqual({
       uploadUrl: "https://b2.example.com/upload-url",
+      b2Key: "onboarding/uploads/abc/photo.jpg",
+      fileId: "upload-uuid-1",
       workExampleId: "wx12345678901",
     });
 
