@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -379,7 +380,7 @@ function PendingInvitationsCard() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => cancelMutation.mutate({ id: invitation.id, status: "cancelled" })}
+                        onClick={() => cancelMutation.mutate({ id: invitation.id as Id<"studentInvitations">, status: "cancelled" })}
                         disabled={isBusy}
                         aria-label={`Cancel invitation to ${invitation.email}`}
                       >

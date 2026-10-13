@@ -140,11 +140,14 @@ export async function POST(
         const client = await clerkClient();
         await client.invitations.revokeInvitation(previousClerkInvitationId);
       } catch (revokeErr) {
-        reportError(revokeErr, {
+        reportError({
           source: "/api/admin/students/invitations/[id]/resend",
-          stage: "revoke_prior_clerk_invitation",
-          invitationId,
-          previousClerkInvitationId,
+          error: revokeErr,
+          context: {
+            stage: "revoke_prior_clerk_invitation",
+            invitationId,
+            previousClerkInvitationId,
+          },
         });
       }
     }
@@ -172,8 +175,9 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    reportError(err, {
+    reportError({
       source: "/api/admin/students/invitations/[id]/resend",
+      error: err,
     });
     return NextResponse.json(
       { error: message },
