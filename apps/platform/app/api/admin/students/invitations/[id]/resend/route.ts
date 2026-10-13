@@ -11,38 +11,6 @@ import { convexIdSchema } from "@/lib/validators";
 import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 
 /**
- * Strict Clerk revoke. Treats "already not active" errors (404,
- * already-revoked, not-found) as success so we can proceed to patch
- * the underlying Convex row. Re-throws anything else.
- *
- * Used by both resend and cancel routes. Mirrors
- * `apps/platform/app/api/admin/students/invitations/[id]/cancel/route.ts:strictRevokeOrThrow`.
- * Could be promoted to `apps/platform/lib/clerk-invitations.ts` if
- * a third caller emerges.
- */
-async function strictRevokeOrThrow(clerkInvitationId: string): Promise<true> {
-  try {
-    const client = await clerkClient();
-    await client.invitations.revokeInvitation(clerkInvitationId);
-    return true;
-  } catch (err) {
-    const status = (err as { status?: number })?.status ?? null;
-    const message = err instanceof Error ? err.message : String(err);
-    const lowered = message.toLowerCase();
-    const isAlreadyNotActive =
-      status === 404 ||
-      status === 422 ||
-      lowered.includes("already revoked") ||
-      lowered.includes("not found") ||
-      lowered.includes("does not exist") ||
-      lowered.includes("already accepted") ||
-      lowered.includes("already used");
-    if (isAlreadyNotActive) return true;
-    throw err;
-  }
-}
-
-/**
  * Resend a single `studentInvitations` row's Clerk invitation.
  *
  * Mirrors `apps/platform/app/api/admin/onboardings/[id]/resend-invitation/route.ts`
@@ -99,19 +67,36 @@ async function strictRevokeOrThrow(clerkInvitationId: string): Promise<true> {
  */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-async function bestEffortRevoke(invitationId: string): Promise<void> {
+/**
+ * Strict Clerk revoke (pre-mint step). Treats "already not active"
+ * errors (404, already-revoked, not-found, 422) as success so we can
+ * proceed to mint a replacement. Re-throws anything else — aborts the
+ * resend rather than minting then orphaning the previous link.
+ *
+ * Greptile round-3 P1 (resend/route.ts:168): if the previous link
+ * couldn't be revoked and we still minted with ignoreExisting:true,
+ * the prior emailed link stays live. A later Cancel would only revoke
+ * the new stored ID, leaving admin-issued invitations usable.
+ */
+async function strictRevokeOrThrow(clerkInvitationId: string): Promise<true> {
   try {
     const client = await clerkClient();
-    await client.invitations.revokeInvitation(invitationId);
+    await client.invitations.revokeInvitation(clerkInvitationId);
+    return true;
   } catch (err) {
-    reportError({
-      source: "/api/admin/students/invitations/[id]/resend",
-      error: err,
-      context: {
-        stage: "best_effort_revoke",
-        clerkInvitationId: invitationId,
-      },
-    });
+    const status = (err as { status?: number })?.status ?? null;
+    const message = err instanceof Error ? err.message : String(err);
+    const lowered = message.toLowerCase();
+    const isAlreadyNotActive =
+      status === 404 ||
+      status === 422 ||
+      lowered.includes("already revoked") ||
+      lowered.includes("not found") ||
+      lowered.includes("does not exist") ||
+      lowered.includes("already accepted") ||
+      lowered.includes("already used");
+    if (isAlreadyNotActive) return true;
+    throw err;
   }
 }
 
@@ -162,12 +147,14 @@ export async function POST(
     }
 
     // Step 1: revoke the previous Clerk invitation FIRST so the new
-    // mint isn't rejected with "already invited". Best-effort — if
-    // Clerk 404s the prior invitation (e.g. already revoked, or it
-    // never made it through), we still mint and continue.
+    // mint isn't rejected with "already invited". STRICT — if the previous
+    // Clerk invitation can't be revoked (other than "already
+    // inactive"), abort the resend. Greptile round-3 P1: otherwise the
+    // prior link stays live and a later Cancel only revokes the new
+    // minted one, leaving the old link usable for sign-up.
     const previousClerkInvitationId = row.clerkInvitationId;
     if (previousClerkInvitationId) {
-      await bestEffortRevoke(previousClerkInvitationId);
+      await strictRevokeOrThrow(previousClerkInvitationId);
     }
 
     // Step 2: mint a fresh Clerk invitation. `ignoreExisting: true`
