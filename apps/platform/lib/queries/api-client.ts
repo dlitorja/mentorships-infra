@@ -1476,6 +1476,34 @@ export async function resendStudentInvitation(invitationId: string) {
 }
 
 /**
+ * Cancel a pending student invitation AND revoke the live Clerk signup
+ * link so the recipient cannot still sign up.
+ *
+ * PR-B (Issue 3) round-1 Greptile fix (P1 #4264777494): the first
+ * iteration of Cancel flipped `studentInvitations.status` to
+ * `cancelled` via a direct Convex mutation from the React component —
+ * but that left the Clerk invitation active, so the recipient could
+ * still complete Clerk `SignUp`. Status flips from the client can't
+ * revoke Clerk; only a Node route handler can. This wrapper calls the
+ * new HTTP route at
+ * apps/platform/app/api/admin/students/invitations/[id]/cancel/route.ts
+ * which revokes Clerk FIRST then patches the Convex row.
+ *
+ * Idempotent on already-cancelled (`newStatus === previousStatus`).
+ * Refuses on `accepted` with HTTP 409 ("cannot orphan a real account").
+ */
+export async function cancelStudentInvitation(invitationId: string) {
+  return apiFetch<{
+    invitationId: string;
+    previousClerkInvitationId: string | null;
+    previousStatus: string;
+    newStatus: "cancelled" | string;
+  }>(ApiRoutes.adminStudentInvitationCancel(invitationId), {
+    method: "POST",
+  });
+}
+
+/**
  * Admin workspaces
  */
 

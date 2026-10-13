@@ -17,24 +17,27 @@ import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
  * but with the simpler row shape of `studentInvitations` (no per-instructor
  * pairs, no `adminOnboardings` timeline).
  *
- * Flow (PR-B / Issue 3):
+ * Flow (PR-B / Issue 3, after round-1 Greptile fixes):
  *
  *   1. Verify the caller is admin or support (`requireAdminOrSupportForApi`).
  *   2. Read the row via the admin-gated query
  *      `convex/studentInvitations.getStudentInvitationById`. Refuse early
  *      if missing or already in a terminal status (`accepted`, `cancelled`).
- *   3. Mint a FRESH Clerk invitation FIRST, via
- *      `lib/clerk-invitations.createStudentClerkInvitation`. This ordering
- *      matters: if the Convex write fails after the mint we still have a
- *      live Clerk link (matches the onboarding-resend ordering).
- *   4. Convex mutation `studentInvitations.resendStudentInvitation` patches
+ *   3. Best-effort revoke the PREVIOUS Clerk invitation FIRST so Clerk
+ *      will accept the new one (`ignoreExisting: true` does the right
+ *      thing in code but `revoke-existing` is the safer path — without it
+ *      we leak the prior invitation if a later step fails).
+ *   4. Mint a FRESH Clerk invitation with `ignoreExisting: true`
+ *      (matches the onboarding-resend `/v1/invitations` semantics).
+ *   5. Convex mutation `studentInvitations.resendStudentInvitation` patches
  *      the row's `clerkInvitationId`, `expiresAt`, and resets `status` to
  *      `pending`. The mutation writes an `auditLogs` entry itself; we
  *      don't need a second write here.
- *   5. Best-effort revoke the previous Clerk invitation AFTER the save.
- *      A revoke failure does NOT undo the new invite — the new invite is
- *      the live one, and Clerk keeps the stale row invisible to
- *      `client.invitations.getInvitationList`.
+ *   6. If the Convex mutation THROWS, revoke the NEW Clerk invitation so
+ *      we don't strand the student with a live link that no Convex row
+ *      points to. The previous Clerk invitation remains revoked; the
+ *      student sees nothing. (Cancelled status would have been cleaner
+ *      but the row mutation gates the resend flow.)
  *
  * Errors:
  *   - `401 Unauthorized` (caller has no Clerk session).
@@ -53,8 +56,32 @@ import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
  * a new `studentInvitations` row. If the row is missing or in a
  * terminal state, the operator should use the existing
  * `/admin/students/invite` form to issue a fresh invitation, not resend.
+ *
+ * Greptile round-1 fixes addressed:
+ *   - P1 #4264777483: prior Clerk invitation is revoked BEFORE minting
+ *     the new one, so `ignoreExisting: true` succeeds. Without this the
+ *     route 502'd on every resend because Clerk returned "already invited".
+ *   - P1 #4264777489: if the Convex mutation throws, the NEW Clerk
+ *     invitation is revoked so we don't strand the student with a live
+ *     link that no Convex row points to.
  */
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+async function bestEffortRevoke(invitationId: string): Promise<void> {
+  try {
+    const client = await clerkClient();
+    await client.invitations.revokeInvitation(invitationId);
+  } catch (err) {
+    reportError({
+      source: "/api/admin/students/invitations/[id]/resend",
+      error: err,
+      context: {
+        stage: "best_effort_revoke",
+        clerkInvitationId: invitationId,
+      },
+    });
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -102,10 +129,21 @@ export async function POST(
       );
     }
 
-    // Step 1: mint a fresh Clerk invitation BEFORE the Convex write so a
-    // failed mint never strands the student with no link.
+    // Step 1: revoke the previous Clerk invitation FIRST so the new
+    // mint isn't rejected with "already invited". Best-effort — if
+    // Clerk 404s the prior invitation (e.g. already revoked, or it
+    // never made it through), we still mint and continue.
+    const previousClerkInvitationId = row.clerkInvitationId;
+    if (previousClerkInvitationId) {
+      await bestEffortRevoke(previousClerkInvitationId);
+    }
+
+    // Step 2: mint a fresh Clerk invitation. `ignoreExisting: true`
+    // is double-protection — if a duplicate invite somehow slipped
+    // past step 1, Clerk will still create the replacement.
     const clerkResult = await createStudentClerkInvitation({
       emailAddress: row.email,
+      ignoreExisting: true,
     });
     if (!clerkResult.success || !clerkResult.invitationId) {
       return NextResponse.json(
@@ -116,40 +154,31 @@ export async function POST(
       );
     }
 
-    const previousClerkInvitationId = row.clerkInvitationId;
     const newExpiresAt = Date.now() + INVITATION_TTL_MS;
 
-    // Step 2: patch the row via the admin-gated Resend mutation. The
+    // Step 3: patch the row via the admin-gated Resend mutation. The
     // mutation's gate is a second line of defense — if service-side
     // gating fails (e.g. someone bypasses this route), Convex still
     // refuses.
-    const patch = await convex.mutation(
-      api.studentInvitations.resendStudentInvitation,
-      {
-        invitationId,
-        newClerkInvitationId: clerkResult.invitationId,
-        expiresAt: newExpiresAt,
-      }
-    );
-
-    // Step 3: best-effort revoke the previous Clerk invitation. If this
-    // fails, the new invite is still active and valid; we just log and
-    // keep going. matches onboarding-resend's revoke-after-save ordering.
-    if (previousClerkInvitationId && previousClerkInvitationId !== clerkResult.invitationId) {
-      try {
-        const client = await clerkClient();
-        await client.invitations.revokeInvitation(previousClerkInvitationId);
-      } catch (revokeErr) {
-        reportError({
-          source: "/api/admin/students/invitations/[id]/resend",
-          error: revokeErr,
-          context: {
-            stage: "revoke_prior_clerk_invitation",
-            invitationId,
-            previousClerkInvitationId,
-          },
-        });
-      }
+    //
+    // Greptile P1 #4264777489: if this throws AFTER the Clerk mint
+    // succeeded, revoke the new Clerk invitation so we don't strand
+    // the student with a live link that no Convex row points to.
+    // Best-effort — failing to revoke is logged by `bestEffortRevoke`
+    // but does not change the user-facing 500.
+    let patch;
+    try {
+      patch = await convex.mutation(
+        api.studentInvitations.resendStudentInvitation,
+        {
+          invitationId,
+          newClerkInvitationId: clerkResult.invitationId,
+          expiresAt: newExpiresAt,
+        }
+      );
+    } catch (saveErr) {
+      await bestEffortRevoke(clerkResult.invitationId);
+      throw saveErr;
     }
 
     return NextResponse.json({
@@ -175,6 +204,11 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Best-effort cleanup: if the Convex write threw AFTER the Clerk
+    // mint succeeded, revoke the new Clerk invitation so we don't
+    // strand the student with a live link that no Convex row points
+    // to. Mirror step 1's best-effort semantics — failing to revoke
+    // is logged but doesn't change the user-facing 500.
     reportError({
       source: "/api/admin/students/invitations/[id]/resend",
       error: err,

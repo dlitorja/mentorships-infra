@@ -3,9 +3,6 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useConvexMutation } from "@convex-dev/react-query";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +14,7 @@ import {
   createStudentInvitation,
   getAdminInstructors,
   resendStudentInvitation,
+  cancelStudentInvitation,
 } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AdminOnboardingForm from "@/components/admin/admin-onboarding-form";
@@ -292,20 +290,35 @@ function PendingInvitationsCard() {
     },
   });
 
-  // PR-B (Issue 3): cancel calls the admin-gated Convex mutation
-  // `studentInvitations.updateStudentInvitationStatus` directly from the
-  // client (no HTTP route needed — the mutation's `requireAdminOrSupport`
-  // gate is the second line of defense). Bypasses the `createStudentInvitation`
-  // `(email, instructorId)+pending` duplicate check by writing
-  // `status: "cancelled"` directly via patch semantics — the same row
-  // exists, just with a terminal status.
+  // PR-B (Issue 3) round-1 Greptile fix (P1 #4264777494): Cancel MUST
+  // run server-side because the prior direct-mutation flow left the
+  // Clerk invitation active and the recipient could still sign up.
+  // Going through `/api/admin/students/invitations/[id]/cancel` lets us
+  // call Clerk's `revokeInvitation` from the Node route handler. The
+  // Convex row's status flip is handled by the gated
+  // `updateStudentInvitationStatus` mutation inside the route.
   const cancelMutation = useMutation({
-    mutationFn: useConvexMutation(api.studentInvitations.updateStudentInvitationStatus),
+    mutationFn: ({ invitationId }: { invitationId: string; email: string }) =>
+      cancelStudentInvitation(invitationId),
+    onMutate: ({ email }) => {
+      // Greptile P2 #4264777511: require a confirmation before flipping
+      // status. `confirm()` returns true/false synchronously. We use
+      // `window.confirm` (not a styled dialog) for PR-B — a polished
+      // confirmation dialog can land in a follow-up.
+      if (typeof window !== "undefined") {
+        return window.confirm(
+          `Cancel the invitation sent to ${email}? This will revoke the live signup link and cannot be undone from this UI.`
+        );
+      }
+      return true;
+    },
     onSuccess: () => {
       setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["student-invitations"] });
     },
-    onError: (err) => {
+    onError: (err, _variables, confirmed) => {
+      // Don't surface "user clicked Cancel" as an error.
+      if (confirmed === false) return;
       setActionError(err instanceof Error ? err.message : "Failed to cancel");
     },
   });
@@ -380,11 +393,11 @@ function PendingInvitationsCard() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => cancelMutation.mutate({ id: invitation.id as Id<"studentInvitations">, status: "cancelled" })}
+                        onClick={() => cancelMutation.mutate({ invitationId: invitation.id, email: invitation.email })}
                         disabled={isBusy}
                         aria-label={`Cancel invitation to ${invitation.email}`}
                       >
-                        {cancelMutation.isPending && cancelMutation.variables?.id === invitation.id ? (
+                        {cancelMutation.isPending && cancelMutation.variables?.invitationId === invitation.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <X className="h-3.5 w-3.5" />

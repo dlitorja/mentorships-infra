@@ -6,7 +6,21 @@ import { writeAuditLog } from "./auditLog";
 /**
  * Gate all admin-or-support-only entry points.
  *
- * Mirrors the canonical pattern in `convex/adminOnboarding.ts:152-163`.
+ * Mirrors the canonical pattern from `convex/admin.ts:7-18`
+ * (`isAdminUser`) plus the linked-admin fallback documented in
+ * `getMyRole` (`convex/admin.ts:60-83`). Specifically:
+ *   - First checks `by_userId` (the primary identity path).
+ *   - Falls back to `by_clerkId` so linked admins — staff whose
+ *     primary Clerk user is bound to a `student`/`instructor` row but
+ *     also has an admin entry keyed off `clerkId` — keep admin access.
+ *
+ * This matters in practice: PR-A's admin-merge work explicitly tracked
+ * a case where an admin's role lives on a row resolved only via
+ * `by_clerkId` (see `convex/admin.test.ts:93-160` for the linked-admin
+ * fixtures). Any admin gate that consults `by_userId` alone silently
+ * locks out those users, which Greptile flagged in PR-B round 1
+ * (discussion 4264777500).
+ *
  * Returns `{ ok: true, role }` so callers can record the role in
  * `auditLogs`; returns `{ ok: false }` for any other identity.
  *
@@ -18,12 +32,25 @@ async function requireAdminOrSupport(
   ctx: QueryCtx | MutationCtx,
   userId: string
 ): Promise<{ ok: true; role: "admin" | "support" } | { ok: false }> {
-  const user = await ctx.db
+  const byUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  if (user?.role === "admin") return { ok: true, role: "admin" };
-  if (user?.role === "support") return { ok: true, role: "support" };
+  if (byUserId?.role === "admin") return { ok: true, role: "admin" };
+  if (byUserId?.role === "support") return { ok: true, role: "support" };
+  // Linked-admin case (PR-A admin-merge): multiple `users` rows may
+  // share one `clerkId`. The `by_clerkId` index is non-unique so we
+  // `.collect()` and scan every row before deciding. The first row
+  // found via `.first()` could be the non-admin primary account,
+  // silently locking out the linked admin.
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .collect();
+  for (const row of byClerkId) {
+    if (row.role === "admin") return { ok: true, role: "admin" };
+    if (row.role === "support") return { ok: true, role: "support" };
+  }
   return { ok: false };
 }
 
@@ -463,18 +490,37 @@ export const findPendingStudentInvitationByEmailInternal = internalQuery({
   },
 });
 
-/** Accept a pending student invitation by id. Returns true if the row was flipped, false if it was missing or already terminal. */
+/**
+ * Accept a pending student invitation by id.
+ *
+ * Greptile round-1 (PR-B discussion 4264777507) flagged that the
+ * previous implementation only refused `accepted` / `cancelled`
+ * statuses, so a row already flipped to `expired` between the
+ * worker's email lookup and the accept call would silently be
+ * re-flipped to `accepted`. This implementation requires `pending`
+ * explicitly and auto-expires past-due rows instead of accepting.
+ *
+ * Returns `{ accepted: true, previousStatus }` if the row was flipped.
+ * Otherwise returns `{ accepted: false, reason }` — the `reason`
+ * string is one of `"not_found"`, `terminal_<status>`, `"expired"`,
+ * or `"non_pending_<status>"`.
+ */
 export const acceptStudentInvitationByIdInternal = internalMutation({
   args: { invitationId: v.id("studentInvitations") },
   handler: async (ctx, args): Promise<{ accepted: true; previousStatus: string } | { accepted: false; reason: string }> => {
     const row = await ctx.db.get(args.invitationId);
     if (!row) return { accepted: false, reason: "not_found" };
-    if (row.status === "accepted" || row.status === "cancelled") {
-      return { accepted: false, reason: `terminal_${row.status}` };
+    // Only pending rows can be auto-accepted. accepted/cancelled/expired
+    // are all terminal — refuse explicitly. This also catches the race
+    // where another call marked the row expired between the worker's
+    // lookup and the accept patch.
+    if (row.status !== "pending") {
+      return { accepted: false, reason: `non_pending_${row.status}` };
     }
-    if (row.expiresAt <= Date.now() && row.status === "pending") {
-      // Per spec, letting an expired+pending row be silently auto-accepted
-      // would let a stale invite signed up after expiry. Flip to `expired`.
+    if (row.expiresAt <= Date.now()) {
+      // Auto-expire past-due pending rows instead of letting them
+      // sign up after expiry. Audit log + status flip are best-effort;
+      // if the audit insert fails we still refuse the accept.
       await ctx.db.patch(args.invitationId, { status: "expired" });
       await writeAuditLog(ctx, {
         actorId: "system:clerk-user-linking",

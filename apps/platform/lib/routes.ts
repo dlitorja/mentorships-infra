@@ -40,6 +40,13 @@ export const ApiRoutes = {
   // row. Patches the existing row in place; never creates a second row.
   adminStudentInvitationResend: (invitationId: string) =>
     `/api/admin/students/invitations/${encodeURIComponent(invitationId)}/resend`,
+  // PR-B (Issue 3) round-1 Greptile fix (P1 #4264777494): Cancel flows
+  // through a Node route so the handler can call Clerk's
+  // `revokeInvitation` from the server. The gated Convex mutation runs
+  // AFTER the Clerk revoke so the recipient cannot sign up via the live
+  // link. Idempotent on already-cancelled.
+  adminStudentInvitationCancel: (invitationId: string) =>
+    `/api/admin/students/invitations/${encodeURIComponent(invitationId)}/cancel`,
 
   // Admin workspaces
   adminWorkspaces: "/api/admin/workspaces",

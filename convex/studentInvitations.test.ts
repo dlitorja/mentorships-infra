@@ -530,5 +530,88 @@ test("acceptStudentInvitationByIdInternal: refuses terminal status", async () =>
     internal.studentInvitations.acceptStudentInvitationByIdInternal,
     { invitationId: id }
   );
-  expect(result).toEqual({ accepted: false, reason: "terminal_cancelled" });
+  expect(result).toEqual({ accepted: false, reason: "non_pending_cancelled" });
+});
+
+// Greptile P1 #4264777507: an already-expired row must NEVER be flipped
+// back to accepted. The previous implementation only refused accepted
+// and cancelled, so a row that another call marked `expired` between
+// the worker's lookup and the accept patch was silently re-flipped.
+test("acceptStudentInvitationByIdInternal: refuses already-expired row (does not re-accept)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "link-b-expired");
+
+  // Seed via migrateInvitation with `status: "expired"` directly, not
+  // through the expiresAt shortcut (which would re-write "pending").
+  await t.mutation(api.studentInvitations.migrateInvitation, {
+    id: "legacy_sam",
+    email: "sam@example.com",
+    instructorId: instructorId as unknown as import("./_generated/dataModel").Id<"instructors">,
+    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    status: "expired",
+  });
+
+  const rows = await t.run(async (ctx) =>
+    await ctx.db.query("studentInvitations").collect()
+  );
+  const id = rows[0]._id;
+
+  const result = await t.mutation(
+    internal.studentInvitations.acceptStudentInvitationByIdInternal,
+    { invitationId: id }
+  );
+  expect(result).toEqual({ accepted: false, reason: "non_pending_expired" });
+
+  // Confirm the row was NOT mutated back to accepted.
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.status).toBe("expired");
+});
+
+// Greptile P1 #4264777500: a "linked admin" whose role is stored on a
+// `users` row found through `by_clerkId` rather than `by_userId` must
+// still pass the admin gate. PR-A's admin-merge work explicitly
+// tracked this case (see `convex/admin.test.ts:93-160`).
+test("requireAdminOrSupport (admin-gated mutations): linked admin via by_clerkId is permitted", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, "linked-b-clerkId");
+
+  // Seed TWO users rows sharing one Clerk userId. The first row has a
+  // non-admin role (instructor), the second has `admin`. The gate
+  // should look across both indexes and accept whichever row has the
+  // admin role.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "clerk_user_linked_b",
+      clerkId: "clerk_user_linked_b",
+      email: "linked-admin@example.com",
+      role: "instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: "clerk_user_linked_b_NODE_2",
+      clerkId: "clerk_user_linked_b",
+      email: "linked-admin-2@example.com",
+      role: "admin",
+    });
+  });
+  await seedStudentInvitation(t, {
+    email: "linked-b@example.com",
+    instructorId,
+    status: "pending",
+  });
+
+  const rows = await t.run(async (ctx) =>
+    await ctx.db.query("studentInvitations").collect()
+  );
+  const id = rows[0]._id;
+
+  // Should NOT throw — the gate finds the admin row via by_clerkId.
+  await t
+    .withIdentity({ subject: "clerk_user_linked_b" })
+    .mutation(api.studentInvitations.updateStudentInvitationStatus, {
+      id: id as unknown as import("./_generated/dataModel").Id<"studentInvitations">,
+      status: "cancelled",
+    });
+
+  const row = await t.run(async (ctx) => await ctx.db.get(id));
+  expect(row?.status).toBe("cancelled");
 });
