@@ -1,13 +1,13 @@
 # Onboarding Follow-ups (PR 12 — post-merge remediations)
 
-**Status:** drafted 2026-10-12. Arc state (2026-10-13): **3/4 shipped**, HUC-95 remaining.
+**Status:** drafted 2026-10-12. Arc state (2026-10-13): **4/4 shipped**, HUC-95 merged; surrounding verification issues in prod Phase-1 windows.
 
 | Linear | Topic | PR # | Squash commit | Status |
 |---|---|---|---|---|
 | HUC-92 | Webhook race (`user.created` lag) | PR #923 | `70e6b2ae` | shipped (2026-10-13) — verification HUC-96 in prod Phase-1 window |
 | HUC-94 | `route.test.ts` for `/api/onboarding/*` + conformance reporter | PR #924 | `601e6f90` | shipped (2026-10-13) |
 | HUC-93 | `force:true` recency gate (two-tab clobber race) | PR #925 | `54a755e9` | shipped (2026-10-13) — verification HUC-97 in prod Phase-1 window |
-| HUC-95 | Notify assigned instructor(s) on questionnaire submit | pending | — | Backlog |
+| HUC-95 | Notify assigned instructor(s) on questionnaire submit | PR #926 | `2389449d` | shipped (2026-10-13) — verification HUC-98 in prod Phase-1 window |
 
 **Scope source:** external review of merged PR #915 + PR #916 (`apps/platform`, `convex/`).
 **Target branch:** `main` (each issue becomes its own PR; no combine unless noted).
