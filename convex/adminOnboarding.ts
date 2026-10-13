@@ -1963,6 +1963,21 @@ export const claimOnboardingByEmail = internalMutation({
   args: {
     email: v.string(),
     clerkUserId: v.string(),
+    // HUC-92: when `true`, the mutation REFUSES to overwrite a row
+    // whose `assignedStudentClerkId` is set to a DIFFERENT Clerk
+    // user. Used by the public self-heal wrapper
+    // (`claimOnboardingByEmailForCurrentUser`) so a hostile
+    // signed-in caller cannot casually kick a legitimate student
+    // off a row whose email happens to match theirs.
+    //
+    // Optional + default `false` to keep the HTTP webhook's
+    // `user.created` behavior unchanged. The webhook runs once per
+    // sign-up; at that point the row is unassigned (the user is
+    // brand new) so the guard would have been a no-op for the
+    // happy path. Keep the legacy overwrite semantics so existing
+    // audit-log assertions ("the clerk userId FLIPPED on this row")
+    // don't drift between webhook and self-heal callers.
+    requireUnassignedOrSelfOwned: v.optional(v.boolean()),
   },
   returns: v.object({
     claimedOnboardingId: v.union(v.id("adminOnboardings"), v.null()),
@@ -2006,6 +2021,21 @@ export const claimOnboardingByEmail = internalMutation({
       return { claimedOnboardingId: target._id, matchedCount: rows.length, skippedCompletedCount };
     }
 
+    // HUC-92 P1 guard: when the public self-heal wrapper calls with
+    // the strict guard on, refuse to overwrite an assignment that
+    // belongs to a different Clerk user. Same-account retries are
+    // handled by the equality short-circuit above; different-account
+    // hits here should return null so the page renders its 404 path
+    // (and the audit log is silently clean — no spurious
+    // `student_claim_onboarding` event for the refused case).
+    if (
+      args.requireUnassignedOrSelfOwned &&
+      target.assignedStudentClerkId !== undefined &&
+      target.assignedStudentClerkId !== args.clerkUserId
+    ) {
+      return { claimedOnboardingId: null, matchedCount: rows.length, skippedCompletedCount };
+    }
+
     await ctx.db.patch(target._id, {
       assignedStudentClerkId: args.clerkUserId,
     });
@@ -2024,10 +2054,89 @@ export const claimOnboardingByEmail = internalMutation({
         email: normalizedEmail,
         clerkUserId: args.clerkUserId,
         claimedStatus: target.status,
+        requireUnassignedOrSelfOwned: !!args.requireUnassignedOrSelfOwned,
       },
     });
 
     return { claimedOnboardingId: target._id, matchedCount: rows.length, skippedCompletedCount };
+  },
+});
+
+/**
+ * PR 12 PR 4b follow-up (HUC-92) — Self-healing variant of
+ * `claimOnboardingByEmail` that derives BOTH the email and the
+ * `clerkUserId` from `ctx.auth.getUserIdentity()` server-side.
+ *
+ * Empty args by design: the wrapper pulls `identity.email` and
+ * `identity.subject` from the Clerk-backed JWT, so a hostile
+ * client cannot impersonate a different student to claim a row
+ * they don't own. The browser surface is the empty `{}` because we
+ * never trust client-supplied identity.
+ *
+ * Why this exists: until the `user.created` Clerk webhook reaches
+ * Convex, `adminOnboardings.assignedStudentClerkId` stays
+ * `undefined` for a freshly-signed-up student. The page server
+ * component (`apps/platform/app/onboarding/[id]/page.tsx`) calls
+ * `getOnboardingView(id)` first; if the row exists but the
+ * webhook hasn't landed, the auth gate (`canViewOnboarding`)
+ * returns `null` because the assigned-student match fails. The
+ * student then eats a bare 404 right at the highest-intent moment
+ * ("just signed up, where's my onboarding?"). This wrapper lets
+ * the page self-heal that race.
+ *
+ * Idempotent: a second call from the same identity is a no-op
+ * because the inner mutation (`claimOnboardingByEmail`) is itself
+ * idempotent on `(email, clerkUserId)`. Returns the same shape as
+ * the inner mutation so the page can decide whether to redirect,
+ * re-query, or fall through to `notFound()` based on the returned
+ * id.
+ */
+export const claimOnboardingByEmailForCurrentUser = mutation({
+  args: {},
+  returns: v.object({
+    claimedOnboardingId: v.union(v.id("adminOnboardings"), v.null()),
+    matchedCount: v.number(),
+    skippedCompletedCount: v.number(),
+  }),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      // Unauthenticated callers cannot claim anything. The page's
+      // `userId = await auth()` gate should short-circuit before
+      // we ever reach here; we replicate the gate as a
+      // defense-in-depth so a stale Convex token can't reach an
+      // unauthenticated handler. Returning `null` lets the page
+      // render the existing 404 without leaking row existence.
+      return { claimedOnboardingId: null, matchedCount: 0, skippedCompletedCount: 0 };
+    }
+    const email = identity.email;
+    if (!email) {
+      // Clerk JWT has no email claim (rare; e.g. a custom JWT
+      // template that omits `email`). Without the email we can't
+      // match the row, so bail out cleanly with nulls — same
+      // shape callers already handle.
+      return { claimedOnboardingId: null, matchedCount: 0, skippedCompletedCount: 0 };
+    }
+    // Same-file `ctx.runMutation` requires a typed variable per Convex
+    // guidelines (see `convex/_generated/ai/guidelines.md` — the
+    // rationale is a TS circularity around the inferred function
+    // schema vs. handler return). We pass HUC-92's strict guard
+    // here: the public wrapper is callable at any time by any
+    // signed-in user, so it must REFUSE to overwrite an
+    // already-assigned row that belongs to a different Clerk
+    // account (the webhook path keeps the legacy
+    // `requireUnassignedOrSelfOwned = undefined` semantics since
+    // `user.created` always sees an unassigned row).
+    const innerResult: {
+      claimedOnboardingId: Id<"adminOnboardings"> | null;
+      matchedCount: number;
+      skippedCompletedCount: number;
+    } = await ctx.runMutation(internal.adminOnboarding.claimOnboardingByEmail, {
+      email,
+      clerkUserId: identity.subject,
+      requireUnassignedOrSelfOwned: true,
+    });
+    return innerResult;
   },
 });
 

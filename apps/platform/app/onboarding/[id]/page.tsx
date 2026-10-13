@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -64,13 +64,57 @@ export default async function OnboardingStatusPage({
   const { userId } = await auth();
   const token = await getConvexAuthToken();
 
-  const view = id
-    ? await fetchQuery(
+  let view: Awaited<ReturnType<typeof fetchQuery<typeof api.adminOnboarding.getOnboardingView>>> | null =
+    id && token
+      ? await fetchQuery(
+          api.adminOnboarding.getOnboardingView,
+          { onboardingId: id },
+          { token }
+        ).catch(() => null)
+      : null;
+
+  // HUC-92: webhook race self-heal. If the signed-in student
+  // can't see the row they were invited to, the most likely
+  // cause is that the `user.created` Clerk webhook that calls
+  // `claimOnboardingByEmail` from `convex/http.ts` hasn't landed
+  // yet. Inline-call the public wrapper so the student doesn't
+  // eat a 404 at the highest-intent moment ("just signed up,
+  // where's my onboarding?"). The wrapper reads email +
+  // `clerkUserId` from `ctx.auth`, so the browser can't
+  // impersonate a different identity. A second invocation from
+  // the same identity is a no-op (the inner mutation is
+  // idempotent), so retrying is safe.
+  if (view === null && userId && id && token) {
+    const fallback = {
+      claimedOnboardingId: null as Id<"adminOnboardings"> | null,
+      matchedCount: 0,
+      skippedCompletedCount: 0,
+    };
+    const claim = await fetchMutation(
+      api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
+      {},
+      { token }
+    ).catch(() => fallback);
+    const claimed = claim.claimedOnboardingId;
+    if (claimed && claimed !== id) {
+      // The most-recent non-cancelled `adminOnboardings` row
+      // matching the student's email isn't THIS URL row (e.g. a
+      // fresher re-invite has been queued since the original
+      // invite). Redirect so the student lands on the status
+      // page for the row that's actually theirs rather than a
+      // stale URL.
+      redirect(`/onboarding/${claimed}`);
+    }
+    if (claimed && claimed === id) {
+      // Re-query: the row is now claimed by us, so the auth gate
+      // will admit the student and the view will hydrate.
+      view = await fetchQuery(
         api.adminOnboarding.getOnboardingView,
         { onboardingId: id },
-        { token: token ?? undefined }
-      ).catch(() => null)
-    : null;
+        { token }
+      ).catch(() => null);
+    }
+  }
 
   if (!userId || !view) {
     notFound();
