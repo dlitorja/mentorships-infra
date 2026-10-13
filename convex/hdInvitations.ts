@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation, internalQuery, action, httpAction, QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { writeAuditLog } from "./auditLog";
 
 async function getAdminUser(ctx: QueryCtx | MutationCtx, identitySubject: string): Promise<Doc<"users"> | null> {
@@ -402,6 +402,22 @@ export const deleteHdInvitation = mutation({
   },
 });
 
+type AcceptHdInvitationFromClerkResult =
+  | { success: false; reason: "unauthorized" | "no_pending_invitation" }
+  | {
+      success: false;
+      reason: "instructor_already_linked";
+      existingInstructorId: Id<"instructors">;
+      existingClerkUserId: string;
+    }
+  | {
+      success: false;
+      reason: "user_already_linked";
+      existingUserId: Id<"users">;
+      existingClerkUserId: string;
+    }
+  | { success: true; reused: boolean };
+
 export const acceptHdInvitationFromClerk = action({
   args: {
     email: v.string(),
@@ -410,7 +426,7 @@ export const acceptHdInvitationFromClerk = action({
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<AcceptHdInvitationFromClerkResult> => {
     const expectedSecret = process.env.CONVEX_WEBHOOK_SECRET;
     if (!expectedSecret || args.webhookSecret !== expectedSecret) {
       return { success: false, reason: "unauthorized" };
@@ -418,20 +434,41 @@ export const acceptHdInvitationFromClerk = action({
 
     const emailLower = args.email.toLowerCase().trim();
 
-    const invitation = await ctx.runQuery(internal.hdInvitations.getPendingInvitationByEmailInternal, {
-      email: emailLower,
-    });
+    const invitation: Doc<"hdInvitations"> | null = await ctx.runQuery(
+      internal.hdInvitations.getPendingInvitationByEmailInternal,
+      { email: emailLower }
+    );
 
     if (!invitation) {
       return { success: false, reason: "no_pending_invitation" };
     }
 
-    await ctx.runMutation(internal.hdInvitations.markInvitationAccepted, {
-      invitationId: invitation._id,
-      clerkUserId: args.clerkUserId,
-    });
+    const accepted: MarkInvitationAcceptedResult = await ctx.runMutation(
+      internal.hdInvitations.markInvitationAccepted,
+      {
+        invitationId: invitation._id,
+        clerkUserId: args.clerkUserId,
+      }
+    );
 
-    return { success: true };
+    if (!accepted.success) {
+      if (accepted.reason === "instructor_already_linked") {
+        return {
+          success: false,
+          reason: "instructor_already_linked",
+          existingInstructorId: accepted.existingInstructorId,
+          existingClerkUserId: accepted.existingClerkUserId,
+        };
+      }
+      return {
+        success: false,
+        reason: "user_already_linked",
+        existingUserId: accepted.existingUserId,
+        existingClerkUserId: accepted.existingClerkUserId,
+      };
+    }
+
+    return { success: true, reused: accepted.reused };
   },
 });
 
@@ -452,49 +489,200 @@ export const getPendingInvitationByEmailInternal = internalQuery({
   },
 });
 
+const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;
+
+function isClerkUserId(id: string | undefined): boolean {
+  return typeof id === "string" && CLERK_USER_ID_PATTERN.test(id);
+}
+
+type MarkInvitationAcceptedResult =
+  | { success: true; reused: boolean }
+  | {
+      success: false;
+      reason: "instructor_already_linked";
+      existingInstructorId: Id<"instructors">;
+      existingClerkUserId: string;
+    }
+  | {
+      success: false;
+      reason: "user_already_linked";
+      existingUserId: Id<"users">;
+      existingClerkUserId: string;
+    };
+
 export const markInvitationAccepted = internalMutation({
   args: {
     invitationId: v.id("hdInvitations"),
     clerkUserId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<MarkInvitationAcceptedResult> => {
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation) {
       throw new Error("Invitation not found");
     }
-
-    await ctx.db.patch(args.invitationId, {
-      status: "accepted",
-      clerkInvitationId: args.clerkUserId,
-      updatedAt: Date.now(),
-    });
 
     const existingUser = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkUserId))
       .first();
 
-    if (!existingUser) {
-      await ctx.db.insert("users", {
-        userId: args.clerkUserId,
-        email: invitation.email,
-        clerkId: args.clerkUserId,
-        role: invitation.role,
-        firstName: undefined,
-        lastName: undefined,
+    if (existingUser) {
+      await ctx.db.patch(args.invitationId, {
+        status: "accepted",
+        clerkInvitationId: args.clerkUserId,
+        updatedAt: Date.now(),
       });
+      return { success: true, reused: true };
+    }
 
+    const normalizedEmail = invitation.email.toLowerCase();
+
+    const usersByEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .collect();
+    const liveUsersByEmail = usersByEmail.filter((u) => u.deletedAt === undefined);
+
+    let liveInstructorByEmail: Doc<"instructors"> | null = null;
+    if (invitation.role === "instructor") {
+      const instructorsByEmail = await ctx.db
+        .query("instructors")
+        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+        .collect();
+      const liveInstructorsByEmail = instructorsByEmail.filter(
+        (i) => i.deletedAt === undefined,
+      );
+      const conflictingInstructor = liveInstructorsByEmail.find(
+        (i) => isClerkUserId(i.userId ?? undefined) && i.userId !== args.clerkUserId,
+      );
+      if (conflictingInstructor) {
+        const existingClerkUserId = conflictingInstructor.userId;
+        if (!existingClerkUserId) {
+          throw new Error(
+            `hdInvitations.markInvitationAccepted: refused on instructor ${conflictingInstructor._id} for ${normalizedEmail} but existingClerkUserId is undefined`,
+          );
+        }
+        await writeAuditLog(ctx, {
+          actorId: "system",
+          actorRole: "system",
+          action: "hd_invitation_instructor_linking_refused",
+          targetType: "instructor",
+          targetId: conflictingInstructor._id,
+          details:
+            `Invitation ${args.invitationId} refused: instructor ${conflictingInstructor._id} (${normalizedEmail}) is already linked to Clerk user ${existingClerkUserId}; cannot relink to new Clerk user ${args.clerkUserId}. Run internal.adminMigration.reassignInstructorFromDuplicate to fix.`,
+          metadata: {
+            invitationId: args.invitationId,
+            email: normalizedEmail,
+            existingInstructorId: conflictingInstructor._id,
+            existingClerkUserId,
+            newClerkUserId: args.clerkUserId,
+            conflictingInstructorCount: liveInstructorsByEmail.length,
+          },
+        });
+        return {
+          success: false,
+          reason: "instructor_already_linked",
+          existingInstructorId: conflictingInstructor._id,
+          existingClerkUserId,
+        };
+      }
+      const matchingInstructor = liveInstructorsByEmail.find(
+        (i) => i.userId === args.clerkUserId,
+      );
+      const placeholderInstructor = liveInstructorsByEmail.find(
+        (i) => !isClerkUserId(i.userId ?? undefined),
+      );
+      liveInstructorByEmail = matchingInstructor ?? placeholderInstructor ?? null;
+    }
+
+    const conflictingUser = liveUsersByEmail.find(
+      (u) => isClerkUserId(u.clerkId) && u.clerkId !== args.clerkUserId,
+    );
+    if (conflictingUser) {
       await writeAuditLog(ctx, {
         actorId: "system",
         actorRole: "system",
-        action: "create_user_from_invitation",
+        action: "hd_invitation_user_linking_refused",
         targetType: "user",
-        targetId: args.clerkUserId,
-        details: `Created user from invitation ${args.invitationId} (role: ${invitation.role})`,
-        metadata: { email: invitation.email, role: invitation.role, invitationId: args.invitationId },
+        targetId: conflictingUser._id,
+        details:
+          `Invitation ${args.invitationId} refused: user ${conflictingUser._id} (${normalizedEmail}) is already linked to Clerk user ${conflictingUser.clerkId}; cannot relink to new Clerk user ${args.clerkUserId}.`,
+        metadata: {
+          invitationId: args.invitationId,
+          email: normalizedEmail,
+          existingUserId: conflictingUser._id,
+          existingClerkUserId: conflictingUser.clerkId,
+          newClerkUserId: args.clerkUserId,
+          conflictingUserCount: liveUsersByEmail.length,
+        },
       });
+      return {
+        success: false,
+        reason: "user_already_linked",
+        existingUserId: conflictingUser._id,
+        existingClerkUserId: conflictingUser.clerkId,
+      };
+    }
 
-      if (invitation.role === "instructor") {
+    await ctx.db.insert("users", {
+      userId: args.clerkUserId,
+      email: invitation.email,
+      clerkId: args.clerkUserId,
+      role: invitation.role,
+      firstName: undefined,
+      lastName: undefined,
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: "system",
+      actorRole: "system",
+      action: "create_user_from_invitation",
+      targetType: "user",
+      targetId: args.clerkUserId,
+      details: `Created user from invitation ${args.invitationId} (role: ${invitation.role})`,
+      metadata: { email: invitation.email, role: invitation.role, invitationId: args.invitationId },
+    });
+
+    if (invitation.role === "instructor") {
+      if (liveInstructorByEmail && liveInstructorByEmail.deletedAt === undefined) {
+        if (liveInstructorByEmail.userId !== args.clerkUserId) {
+          await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
+            instructorId: liveInstructorByEmail._id,
+            legacyInstructorRef: (liveInstructorByEmail as any).legacyInstructorRef ?? (liveInstructorByEmail as any).legacyId,
+            userId: args.clerkUserId,
+          });
+
+          await writeAuditLog(ctx, {
+            actorId: "system",
+            actorRole: "system",
+            action: "link_existing_instructor_to_new_clerk_user_from_invitation",
+            targetType: "instructor",
+            targetId: liveInstructorByEmail._id,
+            details: `Reused existing instructor ${liveInstructorByEmail._id} (${normalizedEmail}) for invitation ${args.invitationId}; updated userId to ${args.clerkUserId}`,
+            metadata: {
+              invitationId: args.invitationId,
+              email: normalizedEmail,
+              instructorId: liveInstructorByEmail._id,
+              clerkUserId: args.clerkUserId,
+            },
+          });
+        } else {
+          await writeAuditLog(ctx, {
+            actorId: "system",
+            actorRole: "system",
+            action: "hd_invitation_instructor_already_linked_to_user",
+            targetType: "instructor",
+            targetId: liveInstructorByEmail._id,
+            details: `Instructor ${liveInstructorByEmail._id} (${normalizedEmail}) was already linked to Clerk user ${args.clerkUserId}; invitation ${args.invitationId} accepted without relinking`,
+            metadata: {
+              invitationId: args.invitationId,
+              email: normalizedEmail,
+              instructorId: liveInstructorByEmail._id,
+              clerkUserId: args.clerkUserId,
+            },
+          });
+        }
+      } else {
         await ctx.runMutation(internal.instructors.createInstructorInternal, {
           userId: args.clerkUserId,
           name: invitation.email,
@@ -503,11 +691,19 @@ export const markInvitationAccepted = internalMutation({
           isNew: true,
         });
       }
-
-      await ctx.runMutation(internal.workspaces.linkWorkspacesByEmail, {
-        clerkUserId: args.clerkUserId,
-        email: invitation.email,
-      });
     }
+
+    await ctx.runMutation(internal.workspaces.linkWorkspacesByEmail, {
+      clerkUserId: args.clerkUserId,
+      email: invitation.email,
+    });
+
+    await ctx.db.patch(args.invitationId, {
+      status: "accepted",
+      clerkInvitationId: args.clerkUserId,
+      updatedAt: Date.now(),
+    });
+
+    return { success: true, reused: liveInstructorByEmail !== null };
   },
 });
