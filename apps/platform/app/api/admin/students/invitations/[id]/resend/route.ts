@@ -205,16 +205,56 @@ export async function POST(
     } catch (saveErr) {
       // Precondition mismatch (race lost) or any Convex write failure
       // — either way the new Clerk invite is orphaned. Revoke it
-      // strictly; if revoke itself fails we'll surface upstream.
-      try {
-        await strictRevokeOrThrow(clerkResult.invitationId);
-      } catch (revokeErr) {
+      // strictly with an in-process retry-with-backoff. Greptile
+      // round-4 P1 (resend/route.ts:211): a transient Clerk failure
+      // (network blip, brief rate limit) shouldn't strand a live
+      // signup link. We retry up to ~7.5s of wall time before giving
+      // up and surfacing upstream; if we give up, this is logged with
+      // the orphan ID so an operator / future cleanup job can pick it
+      // up from the audit pipeline. Durability beyond this is for a
+      // follow-up cleanup-targets table.
+      const ORPHAN_REVOKE_DEADLINE_MS = 7_500;
+      const ORPHAN_REVOKE_BASE_DELAY_MS = 500;
+      const orphanStart = Date.now();
+      let orphanRevoked = false;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await strictRevokeOrThrow(clerkResult.invitationId);
+          orphanRevoked = true;
+          break;
+        } catch (revokeErr) {
+          if (Date.now() - orphanStart >= ORPHAN_REVOKE_DEADLINE_MS) {
+            reportError({
+              source: "/api/admin/students/invitations/[id]/resend",
+              error: revokeErr,
+              context: {
+                stage: "rescue_revoke_after_save_failure_exhausted",
+                clerkInvitationId: clerkResult.invitationId,
+                attempts: attempt + 1,
+                deadlineMs: ORPHAN_REVOKE_DEADLINE_MS,
+              },
+            });
+            break;
+          }
+          // Exponential backoff: 500ms, 1s, 2s, 4s. Bounded by the
+          // deadline so the operator-facing error response stays
+          // timely. We swallow each transient error in the report
+          // channel only on the final attempt.
+          const delayMs = ORPHAN_REVOKE_BASE_DELAY_MS * 2 ** attempt;
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+      if (!orphanRevoked) {
+        // Surface so the operator sees 502 + the underlying save error.
+        // The orphan stays live until a manual clerk rollback or a
+        // future scheduled cleanup job finds it.
         reportError({
           source: "/api/admin/students/invitations/[id]/resend",
-          error: revokeErr,
+          error: saveErr,
           context: {
-            stage: "rescue_revoke_after_save_failure",
+            stage: "orphan_revocation_uncertain",
             clerkInvitationId: clerkResult.invitationId,
+            note: "Convex save failed and the rescue revoke did not confirm before the deadline. The Clerk invitation may still be live; manual cleanup required.",
           },
         });
       }
