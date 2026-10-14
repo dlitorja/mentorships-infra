@@ -4,7 +4,11 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError, isArchivedWorkspaceBookingError } from "@/lib/errors";
+import {
+  isUnauthorizedError,
+  isArchivedWorkspaceBookingError,
+  getWorkspaceBookingErrorCode,
+} from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -341,9 +345,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // the `reason` so the series UI can render it directly
         // without re-deriving).
         if (isArchivedWorkspaceBookingError(err)) {
-          const code =
-            (err as Error & { data?: { code?: string; message?: string } })
-              .data?.code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
+          // Use the typed helper so the discriminator is narrowed to
+          // one of the four `WorkspaceBookingErrorCode` runtime codes
+          // (Vercel build rejects a plain `string` here even though
+          // the repo-level typecheck accepts it via `--skipLibCheck`).
+          const code = getWorkspaceBookingErrorCode(err);
           const reason =
             (err as Error & { data?: { code?: string; message?: string } })
               .data?.message ??
@@ -352,7 +358,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             weekOffset: i,
             status: "skipped",
             reason,
-            code,
+            code: code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING",
           });
           continue;
         }

@@ -4,7 +4,11 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError, isArchivedWorkspaceBookingError } from "@/lib/errors";
+import {
+  isUnauthorizedError,
+  isArchivedWorkspaceBookingError,
+  getWorkspaceBookingErrorCode,
+} from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -337,8 +341,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // typed code is forwarded verbatim so the UI can render the
     // right CTA (unarchive button vs. buy-new-pack link).
     if (isArchivedWorkspaceBookingError(error)) {
-      const code = (error as Error & { data?: { code?: string; message?: string } })
-        .data?.code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
+      // Use the typed helper so the discriminator narrows to one of
+      // the four `WorkspaceBookingErrorCode` runtime codes (the Vercel
+      // build rejects a plain `string` here even though the repo-level
+      // typecheck passes via `--skipLibCheck`).
+      const code =
+        getWorkspaceBookingErrorCode(error) ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
       const serverMessage =
         (error as Error & { data?: { code?: string; message?: string } })
           .data?.message ?? undefined;
