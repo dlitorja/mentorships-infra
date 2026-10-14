@@ -1120,6 +1120,67 @@ test("createSession via pack-lookup rejects when workspace is archived", async (
   ).rejects.toThrow(/No active workspace/i);
 });
 
+// PR-D Greptile P1 follow-up (regression guard): when the
+// pack-lookup finds an archived workspace and there is ALSO a
+// different active pair for the same student + instructor,
+// `resolveWorkspaceForNewSession` must refuse rather than
+// silently moving the session into the active pair. The original
+// shape fell through to the active-pair branch whenever the
+// pack-found workspace wasn't active, which double-listed the
+// student under the wrong workspace.
+test("createSession rejects archived-pack-workspace even when a different active pair exists", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_pack_lookup_active_pair";
+  const instructorUserId = "user_instructor_pack_lookup_active_pair";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "pack-archive-active-pair@example.com",
+    instructorUserId,
+    instructorName: "Pack Archive Active Pair Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { sessionPackId, seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  // Pack is wired to a workspace that we IMMEDIATELY archive.
+  await seedWorkspace(t, {
+    name: "Pack-Tied Archive",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+  // ALSO seed a different active pair for the same student +
+  // instructor so the original buggy code would have happily
+  // resolved to THIS workspace. The fix must refuse the
+  // session entirely.
+  await seedWorkspace(t, {
+    name: "Pair-Only Active",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+  });
+  await expect(
+    t
+      .withIdentity({ subject: instructorUserId })
+      .mutation(api.sessions.createSession, {
+        instructorId: instructorId as never,
+        studentId: studentUserId,
+        sessionPackId: sessionPackId as never,
+        scheduledAt: Date.now() + 60_000,
+      })
+  ).rejects.toThrow(/No active workspace/i);
+});
+
 // Greptile Round-3 #3 — when a student has BOTH an active and an archived
 // workspace for the same instructor, `resolveWorkspaceForNewSession`'s
 // pair lookup must NOT include the archived pair in the count check.
