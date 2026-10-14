@@ -1,5 +1,5 @@
 import { query, mutation, type MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /** Fetch a booking by id */
@@ -87,9 +87,18 @@ export const createPending = mutation({
         (w) => w.archivedAt === undefined && w.endedAt === undefined
       );
       if (!hasActivePair) {
-        throw new Error(
-          "Cannot book against this instructor: all of your mentorship workspaces with them are archived or ended. Unarchive or open a new workspace first."
-        );
+        // Greptile round-7 P2: throw a NAMED ConvexError so the
+        // HTTP booking routes can map it to a 409 with the friendly
+        // unarchive prompt instead of letting it bubble up as a
+        // generic /api/bookings -> 500 "Failed to create booking".
+        // The shape { code, message } matches the pattern used by
+        // `convex/sessions.ts` (line ~1678 e.g. `VIDEO_SESSION_NOT_FOUND`)
+        // which both server logs and the booking route can inspect.
+        throw new ConvexError({
+          code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
+          message:
+            "Cannot book against this instructor: all of your mentorship workspaces with them are archived or ended. Unarchive or open a new workspace first.",
+        });
       }
     }
 

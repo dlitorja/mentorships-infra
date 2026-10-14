@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isArchivedWorkspaceBookingError } from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -323,6 +323,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
       } catch (err) {
+        // PR-C (Greptile round-7 P2): the calendar-booking guard in
+        // `convex/bookings.createPending` throws a typed
+        // `ConvexError({ code: "WORKSPACE_ARCHIVED_FOR_BOOKING", ... })`.
+        // Surface it as a per-slot skip with a friendly unarchive
+        // prompt so the series UI can show actionable copy rather than
+        // an "unexpected error" message.
+        if (isArchivedWorkspaceBookingError(err)) {
+          results.push({
+            weekOffset: i,
+            status: "skipped",
+            reason:
+              "Your mentorship with this instructor is archived or ended. Unarchive the workspace and re-submit to schedule this slot.",
+            code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
+          });
+          continue;
+        }
         console.error("Series iteration failed:", err);
         results.push({ weekOffset: i, status: "skipped", reason: "Unexpected error" });
       }

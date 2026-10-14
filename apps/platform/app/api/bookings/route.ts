@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isArchivedWorkspaceBookingError } from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -326,6 +326,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // PR-C (Greptile round-7 P2): the calendar-booking guard in
+    // `convex/bookings.createPending` throws a typed
+    // `ConvexError({ code: "WORKSPACE_ARCHIVED_FOR_BOOKING", ... })`.
+    // Map it to a 409 with the friendly unarchive prompt so the
+    // student gets actionable UX instead of a generic 500.
+    if (isArchivedWorkspaceBookingError(error)) {
+      console.info("Booking rejected - caller's only workspace with the instructor is archived or ended:", error);
+      return NextResponse.json(
+        {
+          error:
+            "This mentorship is archived or ended. Unarchive the workspace, then re-submit the booking.",
+          code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
+        },
+        { status: 409 }
+      );
     }
     console.error("Booking create error:", error);
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });

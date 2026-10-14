@@ -483,4 +483,42 @@ test("bookings.createPending FRESH (no previous) booking after caller archives t
   ).rejects.toThrow(/archived or ended/);
 });
 
+test("bookings.createPending throws a typed ConvexError with WORKSPACE_ARCHIVED_FOR_BOOKING (round-7 P2)", async () => {
+  // Greptile round-7 P2: the previous throw was a plain Error, so
+  // the HTTP booking routes caught it as a generic 500. After the
+  // fix the throw is a typed `ConvexError({ code, message })` so
+  // the routes can detect and return a 409 with the friendly copy.
+  const STUDENT = "user_student_archived_r7";
+  const INSTRUCTOR_USER = "user_instructor_archived_r7";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "student-r7@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    archivedAt: Date.now() - 1000,
+  });
+  const studentClient = t.withIdentity({ subject: STUDENT });
+  try {
+    await studentClient.mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_r7_typed_error_1",
+    });
+    throw new Error("createPending should have thrown");
+  } catch (e) {
+    // ConvexError surfaces as an Error subclass with `.data = { code, message }`.
+    const convexErr = e as Error & { data?: { code?: string; message?: string } };
+    expect(convexErr).toBeInstanceOf(Error);
+    expect(convexErr.data?.code).toBe("WORKSPACE_ARCHIVED_FOR_BOOKING");
+    expect(convexErr.data?.message).toMatch(/archived or ended/);
+    // The friendly unarchive copy must be preserved verbatim.
+    expect(convexErr.data?.message).toMatch(/Unarchive or open a new workspace first/);
+  }
+});
+
+
 
