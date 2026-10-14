@@ -66,7 +66,7 @@ async function tryRefresh(cached) {
   const entry = cached?.entry;
   if (!entry?.tokens?.refreshToken || !entry?.clientInfo?.clientId) return null;
   const refreshUrl = new URL(MCP_URL);
-  refreshUrl.pathname = "/oauth/token";
+  refreshUrl.pathname = "/token";
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: entry.tokens.refreshToken,
