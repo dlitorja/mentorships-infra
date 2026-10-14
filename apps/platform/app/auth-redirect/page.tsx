@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
@@ -30,18 +31,33 @@ async function resolveRedirect({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }): Promise<never> {
   const { userId, sessionClaims } = await auth();
-  const requested = await resolveRequestedRedirect(searchParams);
+  // PR-E: cookie store acts as a fallback for the
+  // post-signin return — Clerk strips `redirect_url` from the
+  // bounce (see `forceRedirectUrl` discussion below). Read
+  // cookies() BEFORE auth() ordering to keep the await chain
+  // explicit.
+  const cookieRequested = await resolveCookieRequested();
+  const requested =
+    (await resolveRequestedRedirect(searchParams)) ?? cookieRequested;
 
   if (!userId) {
-    // Preserve the requested destination through sign-in so
-    // the post-auth redirect lands the user on the page they
-    // asked for (used by reminder emails linking back to a
-    // specific draft).
-    redirect(
-      requested
-        ? `/sign-in?redirect_url=${encodeURIComponent(requested)}`
-        : "/sign-in"
-    );
+    // PR-E (Issue 5): preserve the requested destination across
+    // the Clerk sign-in bounce. Clerk's <SignIn> component sets
+    // `forceRedirectUrl="/auth-redirect"`, which strips the
+    // `redirect_url` query on /sign-in during the round-trip and
+    // ALWAYS sends users back to the bare /auth-redirect. We
+    // therefore persist the destination in an HttpOnly cookie
+    // via `/api/auth/bounce-redirect` and read it back from the
+    // cookie store on the post-signin return. See
+    // `apps/platform/app/api/auth/bounce-redirect/route.ts` and
+    // `HUC-103` description for the full flow + T1–T4 tampering
+    // tests.
+    if (requested) {
+      redirect(
+        `/api/auth/bounce-redirect?redirect_url=${encodeURIComponent(requested)}`,
+      );
+    }
+    redirect("/sign-in");
   }
 
   // Fast path: prefer role from session claims to avoid Clerk API latency
@@ -153,23 +169,54 @@ async function resolveRequestedRedirect(
   );
   const raw = params.redirect_url;
   const value = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof value !== "string" || !value.startsWith("/")) return null;
-  // Whitelist internal onboarding paths so a forged query
-  // can't redirect off-site.
+  return whitelistedRedirectValue(value);
+}
+
+/**
+ * PR-E cookie-store fallback. The bounce-redirect route handler
+ * sets a short-TTL HttpOnly cookie with the requested destination
+ * before redirecting to /sign-in. After Clerk sends the user back
+ * to the bare /auth-redirect (no `redirect_url` query), this
+ * helper is the source of the destination.
+ *
+ * Returns null if the cookie is missing OR fails the same
+ * whitelist as `resolveRequestedRedirect` — defense in depth so a
+ * stale cookie set by a deleted PR cannot accidentally redirect
+ * off-site.
+ */
+const AUTH_REDIRECT_COOKIE = "auth-redirect-target";
+
+async function resolveCookieRequested(): Promise<string | null> {
+  const store = await cookies();
+  const raw = store.get(AUTH_REDIRECT_COOKIE)?.value;
+  return whitelistedRedirectValue(raw);
+}
+
+/**
+ * Single source of truth for the auth-redirect path whitelist.
+ * Used by both `resolveRequestedRedirect` (search-param-driven)
+ * and `resolveCookieRequested` (cookie-driven). HUC-103 T4
+ * establishes the tampering-resistance assertions.
+ */
+function whitelistedRedirectValue(
+  value: string | string[] | undefined,
+): string | null {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (typeof candidate !== "string" || !candidate.startsWith("/")) return null;
+  // Protocol-relative URL guard (`//evil.example.com` starts
+  // with `/` but is off-site).
+  if (candidate.startsWith("//")) return null;
   if (
-    value.startsWith("/onboarding/") &&
-    !value.startsWith("/onboarding/../")
+    candidate.startsWith("/onboarding/") &&
+    !candidate.startsWith("/onboarding/../")
   ) {
-    return value;
+    return candidate;
   }
-  // PR-E: notification-email deep links wrap `/workspace/<id>?…`
-  // through /auth-redirect. Same protection as the onboarding
-  // case — reject the `../` path-traversal escape.
   if (
-    value.startsWith("/workspace/") &&
-    !value.startsWith("/workspace/../")
+    candidate.startsWith("/workspace/") &&
+    !candidate.startsWith("/workspace/../")
   ) {
-    return value;
+    return candidate;
   }
   return null;
 }
