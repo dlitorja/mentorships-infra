@@ -5,7 +5,7 @@ import { ConvexQueryClient } from "@convex-dev/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useConvexAuth } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
@@ -28,11 +28,44 @@ if (convexUrl) {
 export { convexClient, convexQueryClient };
 
 /**
- * Once Clerk populates the auth token, re-run any convex-backed
- * queries. The library's auth-token change only refreshes
- * subscriptions that are already wired; queries mounted while
- * `isAuthenticated` was false were skipped server-side and need
- * an explicit kick.
+ * PR-D (Issue 1): synchronise the authenticated Clerk user's row
+ * into the Convex `users` table as soon as Convex auth resolves.
+ *
+ * Synchronisation matters because instructor-dashboard queries
+ * (e.g. `getInstructorStudentsWithRemainingSessions`) join
+ * `seatReservations.userId` against `users.userId` for the
+ * first/last/email columns that show up as the row headline.
+ * Without a row in `users`, the headline collapses to the raw
+ * Clerk id (e.g. `user_abc123def`) — instructors reported this
+ * in production feedback as a UX cliff.
+ *
+ * The /api/auth/sync route reads Clerk user data server-side,
+ * invokes the public `api.users.syncUser` mutation with a freshly
+ * minted Convex JWT, and Convex upserts the `users` row keyed by
+ * `clerkId` (see `isOwnedByIdentity` in `convex/users.ts` for the
+ * resolved-account semantics; migration / placeholder rows get
+ * patched on the first authenticated call). This component just
+ * kicks that POST once per signed-in session.
+ *
+ * NOTE: unlike the marketing provider, this component deliberately
+ * reads only `useConvexAuth()` and does NOT import `useClerkAuth`
+ * from `@clerk/nextjs`. The `apps/platform/AGENTS.md` Clerk Changes
+ * Policy restricts touching Clerk configuration / React code;
+ * marketing's role-based dedup requires reading `sessionClaims`,
+ * which is unnecessary here — `syncUser` is idempotent, so an
+ * extra POST on each false→true auth transition is harmless.
+ * Same outcome without the Clerk hook import.
+ */
+
+/**
+ * Once Clerk populates the auth token:
+ *   1. POST /api/auth/sync so a Clerk user with seats but no
+ *      `users` row gets one written before the dashboard query
+ *      subscribes (otherwise the headline is a raw Clerk id).
+ *   2. Re-run any convex-backed queries. The library's auth-token
+ *      change only refreshes subscriptions that were already
+ *      wired; queries mounted while `isAuthenticated` was false
+ *      need an explicit kick.
  *
  * Lives in its own component so `useConvexAuth()` is only called
  * when a `ConvexProvider` (typically `ConvexProviderWithClerk`)
@@ -41,17 +74,53 @@ export { convexClient, convexQueryClient };
  * `useConvex()` is `undefined` and we skip mounting this child.
  */
 function AuthDrivenInvalidator({ queryClient }: { queryClient: QueryClient }) {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading: convexAuthLoading } = useConvexAuth();
+
+  // Track whether we've already kicked the sync for the current
+  // signed-in session. `useConvexAuth()` flips `isAuthenticated`
+  // when the JWT rotates between users (sign-in, sign-out +
+  // different-user sign-in), so resetting the flag on auth-off
+  // ensures a fresh sign-in always re-syncs.
+  const lastSyncedRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (convexAuthLoading) return;
+    if (!isAuthenticated) {
+      // Reset on sign-out so a fresh sign-in (same user OR a
+      // different account in the same browser) triggers a POST.
+      lastSyncedRef.current = false;
+      return;
+    }
+    if (lastSyncedRef.current) return;
+    lastSyncedRef.current = true;
+
+    // Kick any convex-backed queries that mounted before auth was ready.
     queryClient.invalidateQueries({
       predicate: (query) => {
         const first = query.queryKey[0];
         return first === "convexQuery" || first === "convexAction";
       },
     });
-  }, [isAuthenticated, queryClient]);
+
+    // Fire-and-forget POST. `syncUser` is idempotent; the route
+    // is best-effort — a transient failure will leave the row
+    // unsynced for this page view but the next mount / page-load
+    // that flips `isAuthenticated` will retry (we reset on
+    // sign-out, and a hard reload gives us a fresh ref with
+    // `lastSyncedRef.current === false`).
+    fetch("/api/auth/sync", { method: "GET", credentials: "same-origin" })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          console.error(
+            `[AuthDrivenInvalidator] auth sync failed: ${res.status} ${text.slice(0, 200)}`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[AuthDrivenInvalidator] auth sync threw:", err);
+      });
+  }, [convexAuthLoading, isAuthenticated, queryClient]);
 
   return null;
 }

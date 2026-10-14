@@ -916,6 +916,86 @@ test("getInstructorStudentsWithRemainingSessions drops archive-only students", a
   expect(afterRows).toHaveLength(0);
 });
 
+// PR-D (Issue 1): locks in the data-side contract that the
+// instructor dashboard "Unnamed student" + Clerk id fallback
+// depends on. When a Clerk account holds a session pack / seat
+// reservation but does not yet have a `users` row (e.g. the
+// entry point that issued the pack did not call
+// `process-stripe-checkout` -> /users/create before /api/auth/sync
+// could run), the seat must still surface on the active list with
+// `studentEmail/FirstName/LastName === null` so the dashboard can
+// render the fallback headline + always-on Clerk id column.
+//
+// Regression test for the production upgrade described in
+// `docs/plans/2026-10-13-workspace-dashboard-fixes.md` Issue 1.
+test("getInstructorStudentsWithRemainingSessions surfaces no-user rows with null fields", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_no_users_row";
+  const instructorUserId = "user_instructor_no_users_row";
+  // Seed ONLY the instructor + seat reservation + session pack;
+  // critically, do NOT insert a row into `users` for this
+  // student clerk id. This mirrors the live failure mode
+  // (`/api/auth/sync` not yet having been POSTed for this Clerk
+  // account at the moment the dashboard subscribed).
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: instructorUserId,
+      email: "instructor-no-users@example.com",
+      name: "No-Users Instructor",
+    });
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: studentUserId,
+      instructorId: id,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      status: "active",
+    });
+    await ctx.db.insert("seatReservations", {
+      userId: studentUserId,
+      instructorId: id,
+      sessionPackId,
+      status: "active",
+      seatExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    // Sanity: confirm there is no `users` row for this student.
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", studentUserId))
+      .first();
+    if (existingUser) {
+      throw new Error(
+        "test fixture invariant: expected no users row for the student clerkId",
+      );
+    }
+    return id;
+  });
+
+  const rows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId: instructorId as never,
+      limit: 10,
+    });
+  // The seat must still show up so the instructor can see + click
+  // into the student's row. The dashboard's
+  // `getStudentHeadline` falls back to "Unnamed student" when
+  // every name/email field is null.
+  expect(rows).toHaveLength(1);
+  const [row] = rows;
+  expect(row.userId).toBe(studentUserId);
+  expect(row.studentEmail).toBeNull();
+  expect(row.studentFirstName).toBeNull();
+  expect(row.studentLastName).toBeNull();
+  // hasSessionPack + remainingSessions still populated so the
+  // status badge logic doesn't fall back to "No active pack".
+  expect(row.hasSessionPack).toBe(true);
+  expect(row.remainingSessions).toBe(4);
+  expect(row.totalSessions).toBe(4);
+});
+
+
 // Greptile P1 #3 — pack-backed session creation rejects archived
 // workspaces via `resolveWorkspaceForNewSession`'s
 // `archivedAt === undefined` gate. Without the gate a fresh
