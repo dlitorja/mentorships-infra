@@ -35,6 +35,15 @@ type ResultItem = {
   reason?: string;
   bookingId?: string;
   reconciliationNeeded?: boolean;
+  // PR-C (Greptile round-8 P2): discriminated codes for the typed
+  // workspace blocker surfaced by `convex/bookings.createPending`.
+  // Optional because existing skip reasons (calendar conflicts, freebusy
+  // errors, etc.) don't carry one. The UI only renders `code` when set.
+  code?:
+    | "WORKSPACE_ARCHIVED_FOR_BOOKING"
+    | "WORKSPACE_ENDED_FOR_BOOKING"
+    | "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING"
+    | "WORKSPACE_INACTIVE_FOR_BOOKING";
 };
 
 /**
