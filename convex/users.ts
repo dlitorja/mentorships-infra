@@ -533,6 +533,7 @@ export const syncUser = mutation({
       };
 
       // Harden role updates: prevent privilege escalation from clients
+      // AND privilege downgrade when the current role is admin.
       if (args.role) {
         const requested = args.role;
 
@@ -551,11 +552,33 @@ export const syncUser = mutation({
             .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
             .first();
           if (hasInstructor) {
-            updates.role = "instructor";
+            // PR-D (Issue 1) Greptile P1 follow-up: refuse to
+            // downgrade an admin via client-side sync. The
+            // /api/auth/sync route forwards Clerk's
+            // publicMetadata.role verbatim; if an admin's
+            // metadata is stale (e.g., admin promotion happened
+            // through the platform dashboard's updateUserRole +
+            // setUserRoleTrusted path instead of via Clerk
+            // metadata) the next /api/auth/sync POST would
+            // downgrade the row back to whatever Clerk says.
+            // Admin role can only be revoked via the trusted
+            // internal mutation `setUserRoleTrusted` so the
+            // audit log captures the change.
+            if (currentRole === "admin") {
+              updates.role = "admin";
+            } else {
+              updates.role = "instructor";
+            }
           }
         } else if (requested === "student" || requested === "video_editor") {
-          // Downgrades or non-admin roles are allowed
-          updates.role = requested;
+          // Same PR-D Greptile P1 guard: if the user is already
+          // admin, refuse the client-side downgrade. Admin role
+          // is revocable only through `setUserRoleTrusted`.
+          if (currentRole === "admin") {
+            updates.role = "admin";
+          } else {
+            updates.role = requested;
+          }
         }
       }
 

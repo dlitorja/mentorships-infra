@@ -854,3 +854,92 @@ test("syncUser: owner's row is found even if NOT first in by_email (P1 #19)", as
   });
   expect(other?.firstName).toBeUndefined();
 });
+
+// ---------------------------------------------------------------------------
+// syncUser role downgrades are now REFUSED for admin rows.
+//
+// PR-D (Issue 1) Greptile P1 follow-up: when a Clerk account was promoted
+// to admin via the platform's admin path
+// (updateUserRole → setUserRoleTrusted audit-logged) without Clerk
+// publicMetadata.role being touched, the next auto-fired /api/auth/sync
+// POST would forward `role: "student"` from the stale Clerk metadata
+// and syncUser would downgrade the row back to student. Admin role is
+// only revocable through the trusted internal mutation
+// `setUserRoleTrusted` so the audit log captures the change.
+// ---------------------------------------------------------------------------
+
+test("syncUser: refuses to downgrade admin to student via client-side sync", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_no_downgrade";
+  const email = "admin-downgrade-student@example.com";
+  // Seed a row that's already admin (e.g., promoted through
+  // setUserRoleTrusted after a /admin grant).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "admin",
+    });
+  });
+  // Forward the stale Clerk metadata value (still "student" because
+  // the promotion path went through setUserRoleTrusted, not Clerk).
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "student" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  // The role must STAY admin; client-side sync cannot revoke it.
+  expect(row?.role).toBe("admin");
+});
+
+test("syncUser: refuses to downgrade admin to instructor via client-side sync", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_no_instr_downgrade";
+  const email = "admin-downgrade-instructor@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "admin",
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "instructor" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("admin");
+});
+
+test("syncUser: still downgrades stale non-admin rows (existing behavior preserved)", async () => {
+  // Sanity check: the new guard must NOT block legitimate
+  // downgrades when currentRole !== "admin". A student whose
+  // Clerk metadata role went away (e.g., the role was removed
+  // by a support admin) should still resolve to the latest
+  // forwarded value.
+  const t = convexTest(schema, modules);
+  const subject = "user_student_downgrade_ok";
+  const email = "student-downgrade-ok@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "instructor",
+    });
+  });
+  // Forward "video_editor" via Clerk metadata; syncUser must
+  // accept the new role because currentRole === "instructor"
+  // is not admin.
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "video_editor" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("video_editor");
+});
