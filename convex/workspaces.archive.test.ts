@@ -1039,3 +1039,116 @@ test("createSession via pack-lookup rejects when workspace is archived", async (
       })
   ).rejects.toThrow(/No active workspace/i);
 });
+
+// Greptile Round-3 #3 — when a student has BOTH an active and an archived
+// workspace for the same instructor, `resolveWorkspaceForNewSession`'s
+// pair lookup must NOT include the archived pair in the count check.
+// Before the round-3 fix the pair lookup applied
+// `by_instructorId_and_ownerId_and_type_and_endedAt_and_deletedAt`
+// .take(2) — both rows matched, `length === 2`, the function rejected.
+// After: the pair lookup adds `.filter(archivedAt === undefined)` and
+// then `.take(2)`, so the count drops back to the active one and
+// `createSession` succeeds.
+test("createSession succeeds when student has 1 active + 1 archived pair", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_archive_plus_active";
+  const instructorUserId = "user_instructor_archive_plus_active";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "archive-plus-active@example.com",
+    instructorUserId,
+    instructorName: "Archive+Active Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  // Insert an old archived pair first.
+  await seedWorkspace(t, {
+    name: "Old Archive",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    archivedAt: Date.now() - 60 * 24 * 60 * 60 * 1000,
+    archivedBy: instructorUserId,
+  });
+  // Insert a fresh active pair.
+  const activePairId = await seedWorkspace(t, {
+    name: "Newly Active",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+  });
+
+  // Now a fresh session pack + seat with no workspace link — the
+  // pack-lookup returns null, forcing the function through the
+  // pair-lookup branch.
+  const { sessionPackId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+
+  // Before round-3 this would reject ("No active workspace"). The
+  // filtered pair-lookup returns the active pair, so createSession
+  // succeeds and the session's workspaceId points at the active one.
+  const created = await t
+    .withIdentity({ subject: instructorUserId })
+    .mutation(api.sessions.createSession, {
+      instructorId: instructorId as never,
+      studentId: studentUserId,
+      sessionPackId: sessionPackId as never,
+      scheduledAt: Date.now() + 60_000,
+    });
+  expect(created).toBeDefined();
+  // `createSession` returns the inserted sessions row's `_id`
+  // directly, not the `{ sessionId }` wrapper some other mutations
+  // use. Verify the new session actually points at the active
+  // pair (and not the archived one).
+  const newSession = await t.run(
+    async (ctx) => await ctx.db.get(created as never)
+  );
+  expect(newSession?.workspaceId).toBe(activePairId);
+});
+
+// Greptile Round-3 #2 — `startAdhocCall` rejects archived workspaces on
+// the backend. Mirror the gate in `convex/sessions.ts:3000-3010` so a
+// raw `startAdhocCall` from the client cannot bypass the
+// `assertCanToggleArchive` archive UI by going through the ad-hoc
+// call surface directly.
+test("startAdhocCall rejects when workspace is archived", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_archive_adhoc";
+  const instructorUserId = "user_instructor_archive_adhoc";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "adhoc@example.com",
+    instructorUserId,
+    instructorName: "Adhoc Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const archivedWsId = await seedWorkspace(t, {
+    name: "Archived Adhoc",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+  await expect(
+    t
+      .withIdentity({ subject: instructorUserId })
+      .mutation(api.sessions.startAdhocCall, {
+        workspaceId: archivedWsId,
+        recordingConsent: true,
+      })
+  ).rejects.toThrow(/ended, deleted, or archived/i);
+});

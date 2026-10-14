@@ -596,9 +596,22 @@ function WorkspaceInner({
               {!isInCall && (
                 <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
                   <CallStatusPill />
-                  {selectedWorkspace && (
-                    <StartAdhocButton workspaceId={selectedWorkspace._id} />
-                  )}
+                  {/*
+                   * PR archive-gating: hide StartAdhocButton when the
+                   * selected workspace is archived. The backend
+                   * also gates `startAdhocCall` on `archivedAt === undefined`
+                   * (see `convex/sessions.ts:3000-3010`) so a hidden
+                   * button is purely cosmetic — but a participant
+                   * clicking an offered button would just hit a generic
+                   * "Workspace is ended, deleted, or archived" toast
+                   * that doesn't tell them their archive is the cause,
+                   * so we hide it for parity with the badge strip below
+                   * the title.
+                   */}
+                  {selectedWorkspace &&
+                    selectedWorkspace.archivedAt === undefined && (
+                      <StartAdhocButton workspaceId={selectedWorkspace._id} />
+                    )}
                   {selectedWorkspace.sessionPackId && (
                     <SessionCountControls
                       sessionPackId={selectedWorkspace.sessionPackId}

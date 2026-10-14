@@ -2997,10 +2997,19 @@ export const startAdhocCall = mutation({
         message: "Workspace not found",
       });
     }
-    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+    if (
+      workspace.endedAt !== undefined ||
+      workspace.deletedAt !== undefined ||
+      workspace.archivedAt !== undefined
+    ) {
       throw new ConvexError({
         code: "VIDEO_SESSION_NOT_FOUND",
-        message: "Workspace is ended or deleted",
+        // PR archive-gating: an archived workspace is no longer
+        // bookable, so an attempted ad-hoc call returns the same
+        // generic error code as ended/deleted rather than leaking
+        // the new archive state. The message mirrors the read
+        // path so a debugger sees the same language everywhere.
+        message: "Workspace is ended, deleted, or archived",
       });
     }
     if (workspace.instructorId === undefined) {

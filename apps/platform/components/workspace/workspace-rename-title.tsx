@@ -260,40 +260,45 @@ export function WorkspaceRenameTitle({
           )}
           {/*
            * PR archive-gating: archive/unarchive inline icon button.
-           * Mutually exclusive — only one is rendered. Both go through
-           * confirmation dialogs owned by the parent so the destructive
-           * path keeps its own copy ("moves to dashboard's Archived
-           * Mentorships card, no longer bookable, data preserved") and
-           * the reason path reads as plain restore ("future session
-           * packs resume booking against this workspace"). The
-           * icon-button styling matches the rename pencil so the trio
-           * of affordances sits on the same horizontal axis without
-           * competing visual weight.
+           * Either may be independently rendered — the parent only
+           * passes `onArchiveRequest` when the workspace is in a
+           * type / state that allows archive (mentorship + not ended),
+           * and only passes `onUnarchiveRequest` when the workspace
+           * was previously archived. The unchanged parent's other
+           * gating (admin_* types, ended-not-archived) naturally
+           * hides the button for invalid cases. Critically, when a
+           * workspace is archived AND ended (e.g. a participant
+           * archived the workspace and then the seat subsequently
+           * expired), the parent passes ONLY `onUnarchiveRequest`
+           * — the Backup restore path remains reachable even though
+           * the Archive direction is closed by `archiveWorkspaceImpl`.
+           * That state is reachable in production (seat expiry on an
+           * archived workspace) and we must not orphan the workspace
+           * with no inline unarchive control.
            */}
-          {onArchiveRequest && onUnarchiveRequest && (
-            archivedAt === undefined ? (
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
-                onClick={onArchiveRequest}
-                aria-label="Archive workspace"
-                title="Archive this workspace"
-              >
-                <Archive className="h-3.5 w-3.5" />
-                <span>Archive</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
-                onClick={onUnarchiveRequest}
-                aria-label="Unarchive workspace"
-                title="Restore this workspace to active state"
-              >
-                <ArchiveRestore className="h-3.5 w-3.5" />
-                <span>Unarchive</span>
-              </button>
-            )
+          {archivedAt === undefined && onArchiveRequest && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+              onClick={onArchiveRequest}
+              aria-label="Archive workspace"
+              title="Archive this workspace"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span>Archive</span>
+            </button>
+          )}
+          {archivedAt !== undefined && onUnarchiveRequest && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+              onClick={onUnarchiveRequest}
+              aria-label="Unarchive workspace"
+              title="Restore this workspace to active state"
+            >
+              <ArchiveRestore className="h-3.5 w-3.5" />
+              <span>Unarchive</span>
+            </button>
           )}
         </>
       )}
