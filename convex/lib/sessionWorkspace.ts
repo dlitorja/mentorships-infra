@@ -95,14 +95,30 @@ export async function resolveWorkspaceForNewSession(
     ...args,
     workspaceId: undefined,
   };
-  const workspace = await resolveWorkspaceThroughPack(ctx, session);
-  if (
-    workspace &&
-    workspace.deletedAt === undefined &&
-    workspace.endedAt === undefined &&
-    workspace.archivedAt === undefined
-  ) {
-    return workspace;
+
+  // PR-D (Issue 1) follow-up to PR-C: when the pack-lookup
+  // resolves a workspace the session is bound to (via the pack's
+  // seatReservationId), a non-active workspace MUST block the
+  // booking. Earlier we fell through to the pair-lookup branch
+  // whenever the pack-found workspace was archived/ended/deleted,
+  // which would happily pick a DIFFERENT active pair for the same
+  // student + instructor — moving the session out of its pack's
+  // workspace into some unrelated active pair. Greptile round on
+  // \`fix/dashboard-sync\` flagged this as a silent double-list
+  // bug; the fix is to refuse the session unless the pack either
+  // (a) resolves nothing (no workspace linked yet — fall through
+  // to the pair branch) or (b) resolves an active workspace
+  // (eager return).
+  const packWorkspace = await resolveWorkspaceThroughPack(ctx, session);
+  if (packWorkspace) {
+    if (
+      packWorkspace.deletedAt === undefined &&
+      packWorkspace.endedAt === undefined &&
+      packWorkspace.archivedAt === undefined
+    ) {
+      return packWorkspace;
+    }
+    return null;
   }
 
   const findActivePairWorkspaces = (type: "mentorship" | undefined) =>

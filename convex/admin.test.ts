@@ -854,3 +854,242 @@ test("syncUser: owner's row is found even if NOT first in by_email (P1 #19)", as
   });
   expect(other?.firstName).toBeUndefined();
 });
+
+// ---------------------------------------------------------------------------
+// syncUser role downgrades are now REFUSED for admin rows.
+//
+// PR-D (Issue 1) Greptile P1 follow-up: when a Clerk account was promoted
+// to admin via the platform's admin path
+// (updateUserRole → setUserRoleTrusted audit-logged) without Clerk
+// publicMetadata.role being touched, the next auto-fired /api/auth/sync
+// POST would forward `role: "student"` from the stale Clerk metadata
+// and syncUser would downgrade the row back to student. Admin role is
+// only revocable through the trusted internal mutation
+// `setUserRoleTrusted` so the audit log captures the change.
+// ---------------------------------------------------------------------------
+
+test("syncUser: refuses to downgrade admin to student via client-side sync", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_no_downgrade";
+  const email = "admin-downgrade-student@example.com";
+  // Seed a row that's already admin (e.g., promoted through
+  // setUserRoleTrusted after a /admin grant).
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "admin",
+    });
+  });
+  // Forward the stale Clerk metadata value (still "student" because
+  // the promotion path went through setUserRoleTrusted, not Clerk).
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "student" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  // The role must STAY admin; client-side sync cannot revoke it.
+  expect(row?.role).toBe("admin");
+});
+
+test("syncUser: refuses to downgrade admin to instructor via client-side sync", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_admin_no_instr_downgrade";
+  const email = "admin-downgrade-instructor@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "admin",
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "instructor" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("admin");
+});
+
+// PR-D Greptile round-3 (GitHub bot, review comment ~4273002412):
+// the previous round-2 fix only protected `admin` rows. `instructor`
+// and `video_editor` trusted assignments were still being overwritten
+// with stale Clerk metadata values. Extend the guard so client-side
+// sync preserves any non-null trusted role; role changes flow through
+// `setUserRoleTrusted` for the audit log.
+test("syncUser: refuses to overwrite trusted instructor role with stale student metadata", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_trusted_instructor_no_student";
+  const email = "instructor-trusted@example.com";
+  // Seed both an instructors row (the role's "leash") AND a users
+  // row whose current role is `instructor` — the trusted assignment
+  // pre-dates any Clerk metadata update.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", {
+      userId: subject,
+      name: "Trusted Instructor",
+    });
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "instructor",
+    });
+  });
+  // Forward stale Clerk metadata — Clerk still says "student".
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "student" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  // Role must STAY instructor — syncUser cannot demote a trusted
+  // assignment via stale Clerk metadata.
+  expect(row?.role).toBe("instructor");
+});
+
+test("syncUser: refuses to overwrite trusted video_editor role with stale student metadata", async () => {
+  const t = convexTest(schema, modules);
+  const subject = "user_trusted_video_editor_no_student";
+  const email = "video-editor-trusted@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "video_editor",
+    });
+  });
+  // Forward stale Clerk metadata — e.g., user revoked their
+  // video_editor in Clerk but the admin path set the Convex role.
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "student" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("video_editor");
+});
+
+test("syncUser: refuses to overwrite trusted student with stale instructor metadata when no current instructors row exists", async () => {
+  // The instructor-handling branch refuses when the user has no
+  // matching `instructors` row, but ALSO must refuse overwriting
+  // a trusted `student` role with an instructor claim even if some
+  // unrelated instructor record happened to exist. Pinned to
+  // match the current rule: instructor assignment requires
+  // `currentRole === undefined || currentRole === "instructor"`,
+  // i.e., NEVER overwrite a student assignment with an instructor
+  // claim.
+  const t = convexTest(schema, modules);
+  const subject = "user_trusted_student_no_instr_overwrite";
+  const email = "student-trusted-instr-claim@example.com";
+  await t.run(async (ctx) => {
+    // Has an instructor row (the privilege leash) BUT also a
+    // trusted student assignment on the user. This is the
+    // ambiguous case the round-3 fix resolves.
+    await ctx.db.insert("instructors", {
+      userId: subject,
+      name: "Ambiguous Identity",
+    });
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "student",
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "instructor" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  // Trusted student assignment wins; refuse the instructor claim.
+  expect(row?.role).toBe("student");
+});
+
+test("syncUser: assigns first-time role for unassigned legacy rows", async () => {
+  // Round-3 sanity check: an unassigned row (role field
+  // undefined) MUST still accept Clerk's forwarded role. Without
+  // this branch, every legacy user would be stuck as undefined
+  // forever even on the first sync. (currentRole === undefined
+  // is the only assignment-eligible state across all branches.)
+  const t = convexTest(schema, modules);
+  const subject = "user_unassigned_first_sync";
+  const email = "unassigned-first-sync@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      // role omitted / undefined
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "student" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("student");
+});
+
+test("syncUser: refuses non-idempotent role changes between non-null roles (round-3 policy)", async () => {
+  // PR-D round-3 follow-up to round-2: client-side sync NEVER
+  // rewrites a non-null role to a different non-null role, even
+  // when BOTH are non-admin. Instructor -> video_editor
+  // transitions must go through `setUserRoleTrusted`. The
+  // round-2 test that asserted instructor -> video_editor was
+  // permitted documented the OLD (unsafe) policy; this case is
+  // now pinned to the round-3 contract.
+  const t = convexTest(schema, modules);
+  const subject = "user_instr_no_video_overwrite";
+  const email = "instr-no-video-overwrite@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "instructor",
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "video_editor" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  // Round-3 contract: trusted instructor assignment is preserved.
+  expect(row?.role).toBe("instructor");
+});
+
+test("syncUser: idempotent re-sync with matching role is a no-op", async () => {
+  // Sanity check for the round-3 idempotent branch: if the
+  // forwarded role matches the trusted role, the patch should
+  // keep it (and not, e.g., accidentally NULL the field). This
+  // pins the "currentRole === requested" branch.
+  const t = convexTest(schema, modules);
+  const subject = "user_idempotent_resync";
+  const email = "idempotent-resync@example.com";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: subject,
+      clerkId: subject,
+      email,
+      role: "instructor",
+      firstName: "Idempotent",
+    });
+  });
+  await t
+    .withIdentity({ subject, email })
+    .mutation(api.users.syncUser, { role: "instructor", firstName: "Idempotent" });
+  const row = await t.run(async (ctx) =>
+    ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", subject)).first()
+  );
+  expect(row?.role).toBe("instructor");
+  expect(row?.firstName).toBe("Idempotent");
+});

@@ -916,6 +916,86 @@ test("getInstructorStudentsWithRemainingSessions drops archive-only students", a
   expect(afterRows).toHaveLength(0);
 });
 
+// PR-D (Issue 1): locks in the data-side contract that the
+// instructor dashboard "Unnamed student" + Clerk id fallback
+// depends on. When a Clerk account holds a session pack / seat
+// reservation but does not yet have a `users` row (e.g. the
+// entry point that issued the pack did not call
+// `process-stripe-checkout` -> /users/create before /api/auth/sync
+// could run), the seat must still surface on the active list with
+// `studentEmail/FirstName/LastName === null` so the dashboard can
+// render the fallback headline + always-on Clerk id column.
+//
+// Regression test for the production upgrade described in
+// `docs/plans/2026-10-13-workspace-dashboard-fixes.md` Issue 1.
+test("getInstructorStudentsWithRemainingSessions surfaces no-user rows with null fields", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_no_users_row";
+  const instructorUserId = "user_instructor_no_users_row";
+  // Seed ONLY the instructor + seat reservation + session pack;
+  // critically, do NOT insert a row into `users` for this
+  // student clerk id. This mirrors the live failure mode
+  // (`/api/auth/sync` not yet having been POSTed for this Clerk
+  // account at the moment the dashboard subscribed).
+  const instructorId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("instructors", {
+      userId: instructorUserId,
+      email: "instructor-no-users@example.com",
+      name: "No-Users Instructor",
+    });
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: studentUserId,
+      instructorId: id,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      status: "active",
+    });
+    await ctx.db.insert("seatReservations", {
+      userId: studentUserId,
+      instructorId: id,
+      sessionPackId,
+      status: "active",
+      seatExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    // Sanity: confirm there is no `users` row for this student.
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", studentUserId))
+      .first();
+    if (existingUser) {
+      throw new Error(
+        "test fixture invariant: expected no users row for the student clerkId",
+      );
+    }
+    return id;
+  });
+
+  const rows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId: instructorId as never,
+      limit: 10,
+    });
+  // The seat must still show up so the instructor can see + click
+  // into the student's row. The dashboard's
+  // `getStudentHeadline` falls back to "Unnamed student" when
+  // every name/email field is null.
+  expect(rows).toHaveLength(1);
+  const [row] = rows;
+  expect(row.userId).toBe(studentUserId);
+  expect(row.studentEmail).toBeNull();
+  expect(row.studentFirstName).toBeNull();
+  expect(row.studentLastName).toBeNull();
+  // hasSessionPack + remainingSessions still populated so the
+  // status badge logic doesn't fall back to "No active pack".
+  expect(row.hasSessionPack).toBe(true);
+  expect(row.remainingSessions).toBe(4);
+  expect(row.totalSessions).toBe(4);
+});
+
+
 // Greptile P1 #3 — pack-backed session creation rejects archived
 // workspaces via `resolveWorkspaceForNewSession`'s
 // `archivedAt === undefined` gate. Without the gate a fresh
@@ -1028,6 +1108,67 @@ test("createSession via pack-lookup rejects when workspace is archived", async (
     archivedBy: instructorUserId,
   });
 
+  await expect(
+    t
+      .withIdentity({ subject: instructorUserId })
+      .mutation(api.sessions.createSession, {
+        instructorId: instructorId as never,
+        studentId: studentUserId,
+        sessionPackId: sessionPackId as never,
+        scheduledAt: Date.now() + 60_000,
+      })
+  ).rejects.toThrow(/No active workspace/i);
+});
+
+// PR-D Greptile P1 follow-up (regression guard): when the
+// pack-lookup finds an archived workspace and there is ALSO a
+// different active pair for the same student + instructor,
+// `resolveWorkspaceForNewSession` must refuse rather than
+// silently moving the session into the active pair. The original
+// shape fell through to the active-pair branch whenever the
+// pack-found workspace wasn't active, which double-listed the
+// student under the wrong workspace.
+test("createSession rejects archived-pack-workspace even when a different active pair exists", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_pack_lookup_active_pair";
+  const instructorUserId = "user_instructor_pack_lookup_active_pair";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "pack-archive-active-pair@example.com",
+    instructorUserId,
+    instructorName: "Pack Archive Active Pair Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { sessionPackId, seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  // Pack is wired to a workspace that we IMMEDIATELY archive.
+  await seedWorkspace(t, {
+    name: "Pack-Tied Archive",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+  // ALSO seed a different active pair for the same student +
+  // instructor so the original buggy code would have happily
+  // resolved to THIS workspace. The fix must refuse the
+  // session entirely.
+  await seedWorkspace(t, {
+    name: "Pair-Only Active",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+  });
   await expect(
     t
       .withIdentity({ subject: instructorUserId })
