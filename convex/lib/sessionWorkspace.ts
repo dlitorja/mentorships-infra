@@ -73,7 +73,16 @@ export async function resolveSessionWorkspace(
     : null;
 }
 
-/** Resolves the active workspace that owns a new pack-backed session. */
+/**
+ * PR archive-gating: also resolves the active workspace that owns a
+ * new pack-backed session, but now rejects archived workspaces on
+ * both code paths so a fresh ad-hoc / scheduled session cannot be
+ * booked against a workspace a participant has archived. Reads
+ * remain unchanged — existing sessions that already point at an
+ * archived workspace keep resolving, since the workspace stays
+ * readable for chat-history context even when booking is gated.
+ */
+
 export async function resolveWorkspaceForNewSession(
   ctx: DatabaseCtx,
   args: {
@@ -90,7 +99,8 @@ export async function resolveWorkspaceForNewSession(
   if (
     workspace &&
     workspace.deletedAt === undefined &&
-    workspace.endedAt === undefined
+    workspace.endedAt === undefined &&
+    workspace.archivedAt === undefined
   ) {
     return workspace;
   }
@@ -120,7 +130,8 @@ export async function resolveWorkspaceForNewSession(
     activePairWorkspaces.length !== 1 ||
     !activeWorkspace ||
     activeWorkspace.deletedAt !== undefined ||
-    activeWorkspace.endedAt !== undefined
+    activeWorkspace.endedAt !== undefined ||
+    activeWorkspace.archivedAt !== undefined
   ) {
     return null;
   }

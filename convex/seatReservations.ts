@@ -223,7 +223,47 @@ export const getInstructorStudentsWithRemainingSessions = query({
       workspaceId: workspaceByUserId.get(row.userId) ?? null,
     }));
 
-    const userIdsWithSeats = new Set(dedupedSeatRows.map((row) => row.userId));
+    // PR archive-gating: drop a seat row whose ONLY non-deleted
+    // workspace pair for this instructor is archived (the
+    // `resolveActiveWorkspaceForPair` lookup above returns `null`
+    // for an archived pair, so `workspaceByUserId.get(row.userId) ===
+    // null` could be either "no pair" or "only-archived pair").
+    // The student is then promoted to the Archived Mentorships
+    // card — the instructor dashboard's "Active Mentorships"
+    // card is the active-only surface, so a student whose only
+    // workspace is archived should not double-list.
+    const allInstructorWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId", (q) =>
+        q.eq("instructorId", args.instructorId)
+      )
+      .collect();
+    const studentWorkplacesByUserId = new Map<string, typeof allInstructorWorkspaces>();
+    for (const ws of allInstructorWorkspaces) {
+      if (ws.deletedAt !== undefined) continue;
+      const bucket = studentWorkplacesByUserId.get(ws.ownerId) ?? [];
+      bucket.push(ws);
+      studentWorkplacesByUserId.set(ws.ownerId, bucket);
+    }
+    const archiveOnlyStudentIds = new Set<string>();
+    for (const row of dedupedSeatRowsWithWorkspace) {
+      if (row.workspaceId !== null) continue; // has an active pair, keep
+      const candidates = studentWorkplacesByUserId.get(row.userId);
+      if (!candidates || candidates.length === 0) continue; // no pair at all
+      const hasActivePair = candidates.some(
+        (w) =>
+          w.archivedAt === undefined &&
+          (w.type === undefined || w.type === "mentorship")
+      );
+      if (!hasActivePair) {
+        archiveOnlyStudentIds.add(row.userId);
+      }
+    }
+    const dedupedSeatRowsVisible = dedupedSeatRowsWithWorkspace.filter(
+      (row) => !archiveOnlyStudentIds.has(row.userId)
+    );
+
+    const userIdsWithSeats = new Set(dedupedSeatRowsVisible.map((row) => row.userId));
     const workspaces = await ctx.db
       .query("workspaces")
       .withIndex("by_instructorId_deletedAt", (q) =>
@@ -238,8 +278,13 @@ export const getInstructorStudentsWithRemainingSessions = query({
       // do NOT skip workspaces whose seatReservationId points at a
       // released/expired seat, otherwise a student who transitions from
       // seat to workspace would silently fall off the dashboard.
+      //
+      // PR archive-gating: also skip archived workspaces since they live
+      // on the Archived Mentorships card and would otherwise double-list
+      // the same student.
       if (
         workspace.endedAt ||
+        workspace.archivedAt !== undefined ||
         (workspace.seatReservationId !== undefined &&
           activeSeatReservationIds.has(workspace.seatReservationId)) ||
         (workspace.type !== undefined && workspace.type !== "mentorship") ||
@@ -313,7 +358,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
       };
     });
 
-    return [...dedupedSeatRowsWithWorkspace, ...workspaceRows]
+    return [...dedupedSeatRowsVisible, ...workspaceRows]
       .sort((a, b) => {
         // Workspace-only rows are a background state, not urgent — push them to
         // the end so they don't interleave with seat-based students who are

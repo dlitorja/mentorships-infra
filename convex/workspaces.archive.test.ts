@@ -40,6 +40,36 @@ async function seedStudentInstructor(
   });
 }
 
+/**
+ * Helper for tests that mirror the dashboard's "Active Mentorships"
+ * path — insert an active seat reservation + a session pack
+ * (consistent with `convex/seatReservations.ts:123-136`).
+ */
+async function seedActiveSeatAndPack(
+  t: ReturnType<typeof convexTest>,
+  args: { studentUserId: string; instructorId: string }
+) {
+  return await t.run(async (ctx) => {
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: args.studentUserId,
+      instructorId: args.instructorId as never,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      status: "active",
+    });
+    const seatReservationId = await ctx.db.insert("seatReservations", {
+      userId: args.studentUserId,
+      instructorId: args.instructorId as never,
+      sessionPackId,
+      status: "active",
+      seatExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    return { sessionPackId, seatReservationId };
+  });
+}
+
 async function seedWorkspace(
   t: ReturnType<typeof convexTest>,
   opts: {
@@ -754,4 +784,205 @@ test("getInstructorArchivedMentorshipsInternal returns rows to admin context", a
   expect(list).toHaveLength(1);
   expect(list[0].workspaceName).toBe("Internal Card");
   expect(list[0].archivedBy).toBe(instructorUserId);
+});
+
+// Greptile P2 #6 — legacy rows with `type` unset must appear in the
+// Archived Mentorships card too (strict `eq("mentorship")` would
+// silently drop them).
+test("getInstructorArchivedMentorships includes legacy rows with no type", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_legacy_type";
+  const instructorUserId = "user_instructor_legacy_type";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "legacy@example.com",
+    instructorUserId,
+    instructorName: "Legacy Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  // Note: no `type` set — represents a pre-`type`-field workspace.
+  await seedWorkspace(t, {
+    name: "Legacy Archived",
+    ownerId: studentUserId,
+    instructorId,
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+
+  const list = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.workspaces.getInstructorArchivedMentorships, { instructorId });
+  expect(list).toHaveLength(1);
+  expect(list[0].workspaceName).toBe("Legacy Archived");
+});
+
+// Greptile P2 #7 — soft-deleted rows must not appear in the Archived
+// Mentorships card (their Open link would redirect away).
+test("getInstructorArchivedMentorships excludes soft-deleted rows", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_deleted_archive";
+  const instructorUserId = "user_instructor_deleted_archive";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "deleted@example.com",
+    instructorUserId,
+    instructorName: "Deleted Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  await seedWorkspace(t, {
+    name: "Deleted Archived",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+    deletedAt: Date.now(),
+  });
+
+  const list = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.workspaces.getInstructorArchivedMentorships, { instructorId });
+  expect(list).toHaveLength(0);
+});
+
+// Greptile P1 #1 — when a student's ONLY seat-eligible workspace
+// pair is archived, the student must NOT appear in
+// getInstructorStudentsWithRemainingSessions (i.e., the active list).
+test("getInstructorStudentsWithRemainingSessions drops archive-only students", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_archive_only";
+  const instructorUserId = "user_instructor_archive_only";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "archive-only@example.com",
+    instructorUserId,
+    instructorName: "Archive-Only Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  // Insert a session pack + active seat reservation so the row WOULD
+  // show up on the active list, BUT pair it with no workspace so the
+  // student is genuinely active (no pair, no archive conflict).
+  await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  // Sanity check: no pair, the row IS active.
+  const activeRows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId: instructorId as never,
+      limit: 10,
+    });
+  expect(activeRows).toHaveLength(1);
+  expect(activeRows[0].workspaceId).toBeNull();
+
+  // Now archive the workspace pair for this student and verify the
+  // student drops out of the active list (since they have only
+  // an archived pair with this instructor).
+  await seedWorkspace(t, {
+    name: "Archived Pair",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+  const afterRows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId: instructorId as never,
+      limit: 10,
+    });
+  expect(afterRows).toHaveLength(0);
+});
+
+// Greptile P1 #3 — pack-backed session creation rejects archived
+// workspaces via `resolveWorkspaceForNewSession`'s
+// `archivedAt === undefined` gate. Without the gate a fresh
+// session would write `workspaceId: archivedWs._id` into
+// `sessions`, which then resolves through the read path that
+// excludes archive (so the live workspace still sees the active
+// chat) but the booking system has a row pointing at a hidden
+// archive — exactly the "silent double-list" failure mode.
+test("createSession rejects when only workspace pair is archived", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_archive_booking";
+  const instructorUserId = "user_instructor_archive_booking";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "booking@example.com",
+    instructorUserId,
+    instructorName: "Booking Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { sessionPackId, seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  // Pre-archive pairing: workspace exists, active, points at the seat.
+  const activeWsId = await seedWorkspace(t, {
+    name: "Booking Active",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+  });
+  // Sanity: createSession succeeds while the workspace is active.
+  const created = await t
+    .withIdentity({ subject: instructorUserId })
+    .mutation(api.sessions.createSession, {
+      instructorId: instructorId as never,
+      studentId: studentUserId,
+      sessionPackId,
+      scheduledAt: Date.now() + 60_000,
+    });
+  expect(created).toBeDefined();
+
+  // Patch the workspace to archive. Subsequent createSession calls
+  // (using a fresh sessionPack — we used the original above) must
+  // throw because `resolveWorkspaceForNewSession` returns null.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(activeWsId, {
+      archivedAt: Date.now(),
+      archivedBy: instructorUserId,
+    });
+  });
+  const newPack = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  await expect(
+    t
+      .withIdentity({ subject: instructorUserId })
+      .mutation(api.sessions.createSession, {
+        instructorId: instructorId as never,
+        studentId: studentUserId,
+        sessionPackId: newPack.sessionPackId as never,
+        scheduledAt: Date.now() + 60_000,
+      })
+  ).rejects.toThrow(/No active workspace/i);
 });

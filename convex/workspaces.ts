@@ -713,12 +713,27 @@ export const getInstructorArchivedMentorships = query({
       .withIndex("by_instructorId_archivedAt", (q) =>
         q.eq("instructorId", args.instructorId).gt("archivedAt", 0)
       )
-      // Index range scan is already bounded to this instructor's
-      // archive list. The `type` predicate is post-filter because
-      // `by_instructorId_archivedAt` cannot include it; an
-      // admin-instructor/admin-student workspace would otherwise
-      // surface on the participant-facing dashboard card.
-      .filter((q) => q.eq(q.field("type"), "mentorship"))
+      // PR archive-gating: post-filter predicates that the index
+      // cannot include. Both are correctness fixes against the
+      // dashboard surface.
+      //
+      // 1. Type: include `mentorship` workspaces AND legacy rows
+      //    with `type` unset (assertCanToggleArchive allows
+      //    participants to archive them, and createWorkspaceImpl
+      //    still inserts rows without a type — older workspaces
+      //    predate the type field). Strict `eq("mentorship")` would
+      //    silently drop them from the Archived card.
+      // 2. deletedAt: an admin can soft-delete an already-archived
+      //    workspace without clearing archivedAt; the resulting row
+      //    would still match this lookup. Excluding deleted rows
+      //    keeps the dashboard card's Open link from pointing at a
+      //    workspace whose `/workspace/[id]` page redirects away
+      //    (`getWorkspaceByIdForUser` rejects deleted).
+      .filter((q) => q.or(
+        q.eq(q.field("type"), "mentorship"),
+        q.eq(q.field("type"), undefined)
+      ))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .collect();
 
     const enriched = await Promise.all(
@@ -774,6 +789,15 @@ export const getInstructorArchivedMentorshipsInternal = internalQuery({
       .withIndex("by_instructorId_archivedAt", (q) =>
         q.eq("instructorId", args.instructorId).gt("archivedAt", 0)
       )
+      // PR archive-gating: keep the internal counterpart symmetric
+      // with the public query so scripts / migrations that walk the
+      // archive see the same deletedAt + type surface (and don't
+      // accidentally enumerate "deleted-but-archived" zombie rows).
+      .filter((q) => q.or(
+        q.eq(q.field("type"), "mentorship"),
+        q.eq(q.field("type"), undefined)
+      ))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .collect();
     return rows.map((row) => ({
       _id: row._id,
@@ -782,6 +806,7 @@ export const getInstructorArchivedMentorshipsInternal = internalQuery({
       workspaceName: row.name,
       ownerId: row.ownerId,
       type: row.type ?? null,
+      deletedAt: row.deletedAt ?? null,
     }));
   },
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { MessageSquare } from "lucide-react";
@@ -313,6 +314,14 @@ function WorkspaceInner({
   const [unarchiveDialogOpen, setUnarchiveDialogOpen] = useState(false);
   const archiveMutation = useArchiveWorkspace();
   const unarchiveMutation = useUnarchiveWorkspace();
+  // PR archive-gating: the `WorkspaceRenameTitle` / sidebar live on
+  // server-rendered props fed from the parent page component's
+  // `fetchQuery` call. The TanStack mutations already invalidate
+  // the convex query keys, but a server prop refresh also has to
+  // happen so the page re-runs `/workspace/[id]/page.tsx` and the
+  // sidebar/header reflect the new `archivedAt` value. Mirror the
+  // pattern in `workspace-rename-title.tsx`'s rename commit.
+  const router = useRouter();
   // Stable workspace id captured at the moment the dialog opens so
   // a late-resolving mutation cannot race a workspace switch (a
   // user's archival intent is locked to the workspace they were
@@ -507,14 +516,33 @@ function WorkspaceInner({
                         userRole === "instructor" || userRole === "student"
                       }
                       archivedAt={selectedWorkspace.archivedAt}
-                      onArchiveRequest={() => {
-                        archiveTargetIdRef.current = selectedWorkspace._id;
-                        setArchiveDialogOpen(true);
-                      }}
-                      onUnarchiveRequest={() => {
-                        unarchiveTargetIdRef.current = selectedWorkspace._id;
-                        setUnarchiveDialogOpen(true);
-                      }}
+                      // PR archive-gating: only pass archive callbacks
+                      // for workspace types the current caller can
+                      // actually toggle. `admin_student` / `admin_instructor`
+                      // workspaces are staff comms threads (`ensureAdminStudentWorkspace`
+                      // / `ensureAdminInstructorWorkspace`) — participants
+                      // can open them but cannot archive; admins do via
+                      // the admin delete surface. Without this gate the
+                      // button is offered and silently fails the
+                      // `assertCanToggleArchive` check.
+                      onArchiveRequest={
+                        selectedWorkspace.type === undefined ||
+                        selectedWorkspace.type === "mentorship"
+                          ? () => {
+                              archiveTargetIdRef.current = selectedWorkspace._id;
+                              setArchiveDialogOpen(true);
+                            }
+                          : undefined
+                      }
+                      onUnarchiveRequest={
+                        selectedWorkspace.type === undefined ||
+                        selectedWorkspace.type === "mentorship"
+                          ? () => {
+                              unarchiveTargetIdRef.current = selectedWorkspace._id;
+                              setUnarchiveDialogOpen(true);
+                            }
+                          : undefined
+                      }
                     />
                     {/*
                      * PR archive-gating: muted "Archived" badge strip
@@ -522,12 +550,13 @@ function WorkspaceInner({
                      * workspace they previously archived. Restates
                      * the visual state already shown in the sidebar
                      * + drawer card row so the inner context catches
-                     * up with the user's mental model. The strip
-                     * also serves the inverse UX purpose: without it
-                     * the title alone would render identically to an
-                     * active workspace, leaving participants asking
-                     * why their booking attempts were silently
-                     * dropped.
+                     * up with the user's mental model. The wording
+                     * is intentionally scoped to "no longer
+                     * bookable" rather than "read-only" because
+                     * participants can still post chats / send notes
+                     * after archive — only new session booking is
+                     * gated (`resolveWorkspaceForNewSession` returns
+                     * null for archived workspaces).
                      */}
                     {selectedWorkspace.archivedAt !== undefined && (
                       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -538,8 +567,10 @@ function WorkspaceInner({
                           Archived
                         </Badge>
                         <span>
-                          This workspace is read-only and is no longer bookable. Use
-                          Unarchive to restore it.
+                          This workspace is no longer bookable, but prior
+                          conversations and notes are preserved. Use
+                          <strong> Unarchive</strong> to restore it for new
+                          sessions.
                         </span>
                       </div>
                     )}
@@ -692,6 +723,14 @@ function WorkspaceInner({
                   {
                     onSuccess: () => {
                       setArchiveDialogOpen(false);
+                      // Re-run the server component so the sidebar /
+                      // header card re-fetch the workspace list with
+                      // the new `archivedAt` value, the muted row
+                      // styling flips from active to archived (or
+                      // vice-versa), and the title bar stops showing
+                      // a stale "Archive" button after the workspace
+                      // is already archived.
+                      router.refresh();
                     },
                     onError: (error) => {
                       toast.error("Could not archive workspace", {
@@ -750,6 +789,13 @@ function WorkspaceInner({
                   {
                     onSuccess: () => {
                       setUnarchiveDialogOpen(false);
+                      // Re-run the server component so the sidebar /
+                      // header card re-fetch with the new state —
+                      // see the archive `onSuccess` block for the
+                      // full rationale. The same argument applies to
+                      // unarchive (the muted row should un-mute and
+                      // the title button swap back).
+                      router.refresh();
                     },
                     onError: (error) => {
                       toast.error("Could not unarchive workspace", {
