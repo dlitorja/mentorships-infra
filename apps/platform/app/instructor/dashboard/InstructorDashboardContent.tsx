@@ -99,30 +99,40 @@ export function InstructorDashboardContent({
                 headlineIsFallback
                   ? !!row.studentEmail
                   : !!row.studentEmail && headline !== row.studentEmail;
+              const rowHref = row.workspaceId
+                ? `/workspace/${row.workspaceId}`
+                : `/instructor/students/${row.userId}`;
+              // Greptile P2: nesting the Clerk id cell inside the row's
+              // `<Link>` caused the copy button's click to also navigate to
+              // the student page (the cell's button doesn't call
+              // preventDefault, and the click bubbles to the anchor). Scope
+              // the link to just the headline + email cluster; the Clerk id
+              // block stays as a sibling so its copy button keeps working
+              // without triggering the row navigation.
               return (
-                <Link
+                <div
                   key={row.seatId ?? row.workspaceId ?? row.userId}
-                  href={
-                    row.workspaceId
-                      ? `/workspace/${row.workspaceId}`
-                      : `/instructor/students/${row.userId}`
-                  }
                   className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium">
-                      {headline}
-                      {headlineIsFallback && (
-                        <span className="ml-2 align-middle text-xs font-normal text-muted-foreground">
-                          (no name yet)
-                        </span>
-                      )}
-                    </p>
-                    {showEmailSubline && (
-                      <p className="truncate text-sm text-muted-foreground">
-                        {row.studentEmail}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <Link
+                      href={rowHref}
+                      className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <p className="font-medium">
+                        {headline}
+                        {headlineIsFallback && (
+                          <span className="ml-2 align-middle text-xs font-normal text-muted-foreground">
+                            (no name yet)
+                          </span>
+                        )}
                       </p>
-                    )}
+                      {showEmailSubline && (
+                        <p className="truncate text-sm text-muted-foreground">
+                          {row.studentEmail}
+                        </p>
+                      )}
+                    </Link>
                     <ClerkUserIdCell
                       id={row.userId}
                       label="Clerk id"
@@ -142,7 +152,7 @@ export function InstructorDashboardContent({
                     )}
                     {row.status === "grace" && <Badge variant="outline">{row.status}</Badge>}
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
