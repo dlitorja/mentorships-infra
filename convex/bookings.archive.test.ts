@@ -404,3 +404,83 @@ test("bookings.createPending accepts an admin caller with an archived pair (admi
   });
 });
 
+test("bookings.createPending idempotent RETRY after caller archives their only workspace (round-6 P2)", async () => {
+  // Greptile round-6 P2: a student who created a pending booking
+  // then archives their only workspace pair with the instructor
+  // and retries the same POST with the same `idempotencyKey` must
+  // receive the canonical `conflict: true, bookingId: <existing>`
+  // response \u2014 NOT a generic 500 from the archive guard.
+  //
+  // After the reorder, the idempotency lookup runs FIRST and short-
+  // circuits before the archive guard. The booking still exists and
+  // the retry resolves it cleanly.
+  const STUDENT = "user_student_archive_after_book";
+  const INSTRUCTOR_USER = "user_instructor_archive_after_book";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "student-archive-after@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  const wsId = await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+  });
+  const studentClient = t.withIdentity({ subject: STUDENT });
+  // 1. First createPending succeeds (active pair).
+  const first = await studentClient.mutation(api.bookings.createPending, {
+    instructorId: instructorId as never,
+    ...baseCreatePendingArgs,
+    idempotencyKey: "ik_round6_retry_1",
+  });
+  expect(first).toEqual({ conflict: false, bookingId: expect.any(String) });
+
+  // 2. Caller archives the workspace.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(wsId, { archivedAt: Date.now() });
+  });
+
+  // 3. Same POST retried with same idempotencyKey returns the
+  //    EXISTING booking as conflict \u2014 the archive guard does NOT fire
+  //    because the idempotency lookup short-circuits first.
+  const retry = await studentClient.mutation(api.bookings.createPending, {
+    instructorId: instructorId as never,
+    ...baseCreatePendingArgs,
+    idempotencyKey: "ik_round6_retry_1",
+  });
+  expect(retry).toEqual({
+    conflict: true,
+    bookingId: first.bookingId,
+  });
+});
+
+test("bookings.createPending FRESH (no previous) booking after caller archives their only workspace still rejects", async () => {
+  // Companion to the round-6 P2 test \u2014 if the caller truly has no
+  // previous booking (no idempotency match), and they have just
+  // archived their only pair, the archive guard fires on the new
+  // booking attempt. Idempotency alone does NOT bypass the archive
+  // guard for genuinely fresh creation.
+  const STUDENT = "user_student_fresh_after_archive";
+  const INSTRUCTOR_USER = "user_instructor_fresh_after_archive";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "student-fresh-after@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    archivedAt: Date.now() - 1000,
+  });
+  const studentClient = t.withIdentity({ subject: STUDENT });
+  await expect(
+    studentClient.mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_fresh_after_archive_1",
+    })
+  ).rejects.toThrow(/archived or ended/);
+});
+
+

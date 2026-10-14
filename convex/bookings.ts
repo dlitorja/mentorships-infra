@@ -33,6 +33,23 @@ export const createPending = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+
+    // Idempotency check FIRST \u2014 Greptile round-6 P2:
+    // If a previous call already created (or confirmed) a booking
+    // for this `idempotencyKey`, return that row immediately without
+    // re-running any mutable state checks. A student who archives
+    // their only workspace mid-flight then retries the POST should
+    // still get the canonical "your booking already exists" response
+    // \u2014 not a generic 500. The archive guard below only fires on
+    // genuinely NEW booking creation.
+    const existing = await ctx.db
+      .query("bookings")
+      .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", args.idempotencyKey))
+      .first();
+    if (existing && (existing.status === "pending" || existing.status === "confirmed")) {
+      return { conflict: true as const, bookingId: existing._id };
+    }
+
     // PR archive-gating: a caller whose ONLY eligible workspace pair
     // with this instructor is archived or ended should not be able to
     // submit a fresh calendar booking. The archive UI explicitly says
@@ -74,15 +91,6 @@ export const createPending = mutation({
           "Cannot book against this instructor: all of your mentorship workspaces with them are archived or ended. Unarchive or open a new workspace first."
         );
       }
-    }
-
-    // Enforce single booking per idempotency key
-    const existing = await ctx.db
-      .query("bookings")
-      .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", args.idempotencyKey))
-      .first();
-    if (existing && (existing.status === "pending" || existing.status === "confirmed")) {
-      return { conflict: true as const, bookingId: existing._id };
     }
 
     const id = await ctx.db.insert("bookings", {
