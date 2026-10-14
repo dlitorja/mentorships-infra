@@ -81,6 +81,7 @@ async function seedWorkspace(
     endedAt?: number;
     archivedAt?: number;
     archivedBy?: string;
+    seatReservationId?: string;
   }
 ) {
   return await t.run(async (ctx) => {
@@ -96,6 +97,7 @@ async function seedWorkspace(
       endedAt: opts.endedAt,
       archivedAt: opts.archivedAt,
       archivedBy: opts.archivedBy,
+      seatReservationId: opts.seatReservationId as never,
     });
   });
 }
@@ -982,6 +984,57 @@ test("createSession rejects when only workspace pair is archived", async () => {
         instructorId: instructorId as never,
         studentId: studentUserId,
         sessionPackId: newPack.sessionPackId as never,
+        scheduledAt: Date.now() + 60_000,
+      })
+  ).rejects.toThrow(/No active workspace/i);
+});
+
+// Greptile Round-2 #2 — explicitly exercise the pack-lookup path in
+// `resolveWorkspaceForNewSession`. The test above only proves
+// the pair-lookup predicate works; if the pack-lookup regresses,
+// this assertion would still pass. Link the pack to the
+// archived workspace via `seatReservationId` so the pack path
+// resolves the (now-archived) workspace and rejects.
+test("createSession via pack-lookup rejects when workspace is archived", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_pack_lookup";
+  const instructorUserId = "user_instructor_pack_lookup";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "pack-lookup@example.com",
+    instructorUserId,
+    instructorName: "Pack Lookup Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { sessionPackId, seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  // Workspace is paired with the seat so the pack-lookup path resolves
+  // this exact workspace when `createSession` runs.
+  await seedWorkspace(t, {
+    name: "Pack-Lookup Archived",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+
+  await expect(
+    t
+      .withIdentity({ subject: instructorUserId })
+      .mutation(api.sessions.createSession, {
+        instructorId: instructorId as never,
+        studentId: studentUserId,
+        sessionPackId: sessionPackId as never,
         scheduledAt: Date.now() + 60_000,
       })
   ).rejects.toThrow(/No active workspace/i);

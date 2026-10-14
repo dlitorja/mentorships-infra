@@ -517,17 +517,24 @@ function WorkspaceInner({
                       }
                       archivedAt={selectedWorkspace.archivedAt}
                       // PR archive-gating: only pass archive callbacks
-                      // for workspace types the current caller can
-                      // actually toggle. `admin_student` / `admin_instructor`
-                      // workspaces are staff comms threads (`ensureAdminStudentWorkspace`
-                      // / `ensureAdminInstructorWorkspace`) — participants
-                      // can open them but cannot archive; admins do via
-                      // the admin delete surface. Without this gate the
-                      // button is offered and silently fails the
-                      // `assertCanToggleArchive` check.
+                      // for workspace types AND states the current
+                      // caller can actually toggle. `admin_student` /
+                      // `admin_instructor` workspaces are staff comms
+                      // threads (`ensureAdminStudentWorkspace` /
+                      // `ensureAdminInstructorWorkspace`) —
+                      // participants can open them but cannot archive;
+                      // admins do via the admin delete surface. Ended
+                      // workspaces (`endedAt !== undefined`) are also
+                      // blocked by `archiveWorkspaceImpl` so the
+                      // Archive button is suppressed — but the
+                      // Unarchive button stays available so a
+                      // previously-archive-then-ended record can
+                      // still be restored, since `unarchiveWorkspaceImpl`
+                      // does not gate on `endedAt`.
                       onArchiveRequest={
-                        selectedWorkspace.type === undefined ||
-                        selectedWorkspace.type === "mentorship"
+                        (selectedWorkspace.type === undefined ||
+                          selectedWorkspace.type === "mentorship") &&
+                        selectedWorkspace.endedAt === undefined
                           ? () => {
                               archiveTargetIdRef.current = selectedWorkspace._id;
                               setArchiveDialogOpen(true);
