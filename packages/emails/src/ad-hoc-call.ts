@@ -1,4 +1,5 @@
 import { getBaseUrl } from "./send";
+import { buildAuthRedirectUrl } from "./auth-redirect-link";
 
 function escapeHtml(value: string): string {
   return value
@@ -15,9 +16,17 @@ function escapeHtml(value: string): string {
  *
  * Sent when EITHER party on a workspace starts an ad-hoc
  * mentorship call (PR #797 extended this beyond instructor-only),
- * and the recipient is offline / away from the workspace UI. The
- * email deep-links to `/workspace/{workspaceId}?join={sessionId}`
- * so a single click lands the recipient in the join modal.
+ * and the recipient is offline / away from the workspace UI.
+ *
+ * PR-E (Issue 5): the deep-link target is now wrapped with
+ * `buildAuthRedirectUrl(baseUrl, '/workspace/{workspaceId}?join={sessionId}')`,
+ * i.e. rendered as `${baseUrl}/auth-redirect?redirect_url=…`. The
+ * wrapping preserves the destination across the signed-out →
+ * signed-in bounce — previously bare `${baseUrl}/workspace/<id>…`
+ * links dropped into the role-driven default because Clerk's
+ * sign-in page sits between the link click and the workspace
+ * page. The auth-redirect route's whitelist already accepts
+ * `/workspace/` (extended in this same PR).
  *
  * The caller's display name and workspace name are interpolated
  * so the email reads as a personal invite rather than a generic
@@ -47,7 +56,10 @@ export function buildAdHocCallInviteEmail(args: {
   workspaceId: string;
   sessionId: string;
 }) {
-  const joinUrl = `${getBaseUrl()}/workspace/${args.workspaceId}?join=${args.sessionId}`;
+  const joinUrl = buildAuthRedirectUrl(
+    getBaseUrl(),
+    `/workspace/${args.workspaceId}?join=${args.sessionId}`,
+  );
   const callerPronoun =
     args.callerRole === "instructor" ? "Your instructor" : "Your student";
   const trimmedName = args.callerName.trim();

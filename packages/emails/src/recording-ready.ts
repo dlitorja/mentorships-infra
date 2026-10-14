@@ -1,4 +1,5 @@
 import { getBaseUrl } from "./send";
+import { buildAuthRedirectUrl } from "./auth-redirect-link";
 
 function escapeHtml(value: string): string {
   return value
@@ -26,10 +27,18 @@ export type RecordingReadyEmailPayload = {
  * `session-changes.ts` (HTML inline-styled, plain-text fallback,
  * workspace-scoped deep link).
  *
- * The deep-link target is `${baseUrl}/workspace/{workspaceId}?videos={sessionId}`.
- * The `?videos={sessionId}` query param will be honoured by PR #3
- * (the Videos tab scroll-into-view wiring). For PR #2 the link
- * simply lands on the Videos tab — opening it from email is fine.
+ * PR-E (Issue 5): the deep-link target is now wrapped with
+ * `buildAuthRedirectUrl(baseUrl, '/workspace/{workspaceId}?videos={sessionId}')`,
+ * i.e. rendered as `${baseUrl}/auth-redirect?redirect_url=…`.
+ * The wrapping preserves the destination through the signed-out →
+ * signed-in bounce — previously bare `${baseUrl}/workspace/<id>…`
+ * links dropped into the role-driven default because Clerk's sign-in
+ * page sits between the link click and the workspace page. The
+ * auth-redirect route's whitelist already accepts `/workspace/`
+ * (extended in this same PR). The `?videos={sessionId}` query
+ * param will be honoured by PR #3 (the Videos tab scroll-into-view
+ * wiring). For PR #2 the link simply lands on the Videos tab —
+ * opening it from email is fine.
  *
  * @param args.studentEmail - Recipient email address (unused — kept for parity with `SessionEmailPayload`)
  * @param args.studentName - Greetee first name; falls back to "there" when missing
@@ -46,7 +55,10 @@ export function buildRecordingReadyEmail(args: {
   sessionId: string;
 }): RecordingReadyEmailPayload {
   const greetingName = args.studentName?.trim() || "there";
-  const recordingsUrl = `${getBaseUrl()}/workspace/${args.workspaceId}?videos=${args.sessionId}`;
+  const recordingsUrl = buildAuthRedirectUrl(
+    getBaseUrl(),
+    `/workspace/${args.workspaceId}?videos=${args.sessionId}`,
+  );
 
   const subject = "Your session recording is ready to view";
 

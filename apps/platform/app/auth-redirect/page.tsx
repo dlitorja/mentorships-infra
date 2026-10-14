@@ -136,6 +136,13 @@ export default function AuthRedirectPage({
  * it's an internal onboarding path, use it instead of the
  * role-driven default. Whitelist the prefix so a forged
  * query can't redirect off-site.
+ *
+ * PR-E (Issue 5): the same wrapper is now applied to
+ * notification emails (recording-ready, ad-hoc-call invite)
+ * that deep-link to `/workspace/<id>?…`. Extend the whitelist
+ * to `/workspace/` so the destination survives the auth
+ * bounce. Same prefix-`/` guard as the onboarding case (no
+ * off-site redirect, no path-traversal escape via `../`).
  */
 async function resolveRequestedRedirect(
   searchParams?: Promise<Record<string, string | string[] | undefined>>
@@ -152,6 +159,15 @@ async function resolveRequestedRedirect(
   if (
     value.startsWith("/onboarding/") &&
     !value.startsWith("/onboarding/../")
+  ) {
+    return value;
+  }
+  // PR-E: notification-email deep links wrap `/workspace/<id>?…`
+  // through /auth-redirect. Same protection as the onboarding
+  // case — reject the `../` path-traversal escape.
+  if (
+    value.startsWith("/workspace/") &&
+    !value.startsWith("/workspace/../")
   ) {
     return value;
   }
