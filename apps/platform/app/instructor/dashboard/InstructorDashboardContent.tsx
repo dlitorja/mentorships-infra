@@ -44,7 +44,7 @@ export function InstructorDashboardContent({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Students & Remaining Sessions</CardTitle>
+        <CardTitle>Active Mentorships</CardTitle>
         <CardDescription>
           Active student session packs, sorted by lowest remaining sessions first.
           {studentRows.length >= STUDENT_LIST_LIMIT && (

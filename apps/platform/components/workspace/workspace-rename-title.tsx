@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useSetWorkspaceAlias } from "@/lib/queries/convex/use-workspaces";
@@ -18,6 +18,22 @@ interface WorkspaceRenameTitleProps {
    * a "reset to default" hint.
    */
   canRename: boolean;
+  /**
+   * PR archive-gating: workspace's archive timestamp. When `undefined`
+   * we render the "Archive" icon button; when set we render the
+   * "Unarchive" button instead. Mutually exclusive — never both.
+   */
+  archivedAt?: number;
+  /**
+   * PR archive-gating: parent owns the confirmation dialog for
+   * archive / unarchive actions. Clicking the inline button
+   * invokes these callbacks with no side effects of its own so
+   * the dialog (with copy explaining the dashboard surface change
+   * + non-bookable transition) lives next to the mutation hooks
+   * in `workspace-client-page.tsx`.
+   */
+  onArchiveRequest?: () => void;
+  onUnarchiveRequest?: () => void;
   className?: string;
 }
 
@@ -65,6 +81,9 @@ export function WorkspaceRenameTitle({
   displayName,
   defaultName,
   canRename,
+  archivedAt,
+  onArchiveRequest,
+  onUnarchiveRequest,
   className,
 }: WorkspaceRenameTitleProps) {
   const [editing, setEditing] = useState(false);
@@ -238,6 +257,43 @@ export function WorkspaceRenameTitle({
             >
               Reset
             </button>
+          )}
+          {/*
+           * PR archive-gating: archive/unarchive inline icon button.
+           * Mutually exclusive — only one is rendered. Both go through
+           * confirmation dialogs owned by the parent so the destructive
+           * path keeps its own copy ("moves to dashboard's Archived
+           * Mentorships card, no longer bookable, data preserved") and
+           * the reason path reads as plain restore ("future session
+           * packs resume booking against this workspace"). The
+           * icon-button styling matches the rename pencil so the trio
+           * of affordances sits on the same horizontal axis without
+           * competing visual weight.
+           */}
+          {onArchiveRequest && onUnarchiveRequest && (
+            archivedAt === undefined ? (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+                onClick={onArchiveRequest}
+                aria-label="Archive workspace"
+                title="Archive this workspace"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                <span>Archive</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+                onClick={onUnarchiveRequest}
+                aria-label="Unarchive workspace"
+                title="Restore this workspace to active state"
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+                <span>Unarchive</span>
+              </button>
+            )
           )}
         </>
       )}

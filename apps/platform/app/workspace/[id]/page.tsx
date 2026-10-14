@@ -76,6 +76,12 @@ export default async function WorkspaceIdPage({
   // session-reminder, etc.). Fetch the current row and the user's
   // full workspace list in parallel — the picker route at
   // `app/workspace/page.tsx:39-43` already does the same shape.
+  //
+  // PR archive-gating: `getUserWorkspaces` is asked to include
+  // archived rows so the sidebar surfaces the muted entries and
+  // the user can navigate directly to one of them via the
+  // existing switch mechanism. The picker route in
+  // `app/workspace/page.tsx` does the same — see its comment.
   const [workspace, allWorkspaces] = await Promise.all([
     fetchQuery(
       api.workspaces.getWorkspaceByIdForUser,
@@ -84,7 +90,7 @@ export default async function WorkspaceIdPage({
     ),
     fetchQuery(
       api.workspaces.getUserWorkspaces,
-      { ownerId: clerkUserId },
+      { ownerId: clerkUserId, includeArchived: true },
       { token: token ?? undefined }
     ),
   ]);

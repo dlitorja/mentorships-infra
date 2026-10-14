@@ -5,6 +5,7 @@ import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
+import { writeAuditLog } from "./auditLog";
 
 import {
   WORKSPACE_IMAGE_CAPS,
@@ -467,7 +468,10 @@ export async function resolveActiveWorkspaceForPair(
     .collect();
 
   const active = candidates.find(
-    (w) => w.deletedAt === undefined && w.endedAt === undefined
+    (w) =>
+      w.deletedAt === undefined &&
+      w.endedAt === undefined &&
+      w.archivedAt === undefined
   );
   return active ?? null;
 }
@@ -559,9 +563,25 @@ export const getWorkspaceByIdForUser = query({
   },
 });
 
-/** Returns all workspaces owned by a user OR where the user is the instructor. Requires auth. */
+/**
+ * Returns all workspaces owned by a user OR where the user is the
+ * instructor. Requires auth.
+ *
+ * PR archive-gating: by default, archived workspaces are excluded
+ * from the result. Callers that need to surface archived rows
+ * (the `/workspace` picker and the `/workspace/[id]` sidebar)
+ * pass `includeArchived: true` so archived workspaces remain
+ * navigable — the spec calls this out as the "should not be
+ * inaccessible" half of the design intent. The picker
+ * auto-redirect-on-one-workspace gate additionally checks
+ * `archivedAt === undefined` so a user whose only workspace is
+ * archived does NOT get bounced into the hidden archive.
+ */
 export const getUserWorkspaces = query({
-  args: { ownerId: v.string() },
+  args: {
+    ownerId: v.string(),
+    includeArchived: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -594,6 +614,10 @@ export const getUserWorkspaces = query({
       seen.add(w._id);
       // Exclude soft-deleted workspaces
       if (w.deletedAt) return false;
+      // PR archive-gating: archived workspaces default to hidden.
+      // Opt in via `includeArchived` so the sidebar/picker can still
+      // surface them as muted entries.
+      if (!args.includeArchived && w.archivedAt !== undefined) return false;
       return true;
     });
 
@@ -622,18 +646,143 @@ export const getUserWorkspaces = query({
   },
 });
 
-/** Returns all workspaces assigned to an instructor. Requires auth. */
+/**
+ * Returns all workspaces assigned to an instructor. Requires auth.
+ *
+ * PR archive-gating: archived rows are excluded by default; pass
+ * `includeArchived: true` to surface them (used by admin tooling
+ * and the dashboard's "Archived Workspaces" surface — though the
+ * dashboard reads via `getInstructorArchivedMentorships`, which
+ * already pre-filters to archived + mentorship on the new index).
+ */
 export const getInstructorWorkspaces = query({
-  args: { instructorId: v.id("instructors") },
+  args: {
+    instructorId: v.id("instructors"),
+    includeArchived: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return [];
     }
-    return await ctx.db
+    const all = await ctx.db
       .query("workspaces")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
+    return args.includeArchived
+      ? all
+      : all.filter((w) => w.archivedAt === undefined);
+  },
+});
+
+/**
+ * PR archive-gating: returns archived mentorship workspaces for one
+ * instructor, joined with the student's `users` row so the dashboard
+ * card can render their first/last/email directly without a second
+ * round-trip. Backs the `ArchivedMentorshipsCard` on
+ * `/instructor/dashboard`.
+ *
+ * Uses the new `by_instructorId_archivedAt` index to scope to a
+ * single instructor's archive list (unbounded scan otherwise). Posts
+ * a `q.eq("type", "mentorship")` filter so `admin_student` /
+ * `admin_instructor` rows (also archiveable by admins) don't bleed
+ * onto the instructor-facing card.
+ *
+ * The student row is fetched via `by_userId` so a missing `users`
+ * row yields `null` for the names (rather than throwing) — the
+ * dashboard card already handles the un-named student case via the
+ * Issue-1 display work that lives in `InstructorDashboardContent`.
+ *
+ * Caller must be the instructor whose archive list they're reading
+ * — same identity check shape as
+ * `getInstructorStudentsWithRemainingSessions:111-119`.
+ */
+export const getInstructorArchivedMentorships = query({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== identity.subject) {
+      return [];
+    }
+    const rows = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_archivedAt", (q) =>
+        q.eq("instructorId", args.instructorId).gt("archivedAt", 0)
+      )
+      // Index range scan is already bounded to this instructor's
+      // archive list. The `type` predicate is post-filter because
+      // `by_instructorId_archivedAt` cannot include it; an
+      // admin-instructor/admin-student workspace would otherwise
+      // surface on the participant-facing dashboard card.
+      .filter((q) => q.eq(q.field("type"), "mentorship"))
+      .collect();
+
+    const enriched = await Promise.all(
+      rows.map(async (row) => {
+        const student = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", row.ownerId))
+          .first();
+        // Per-user alias — same fall-through as
+        // `resolveWorkspaceDisplayName`. The dashboard renders the
+        // alias if set, otherwise the workspace's default name.
+        const aliased = await ctx.db
+          .query("workspaceAliases")
+          .withIndex("by_workspaceId_userId", (q) =>
+            q.eq("workspaceId", row._id).eq("userId", identity.subject)
+          )
+          .first();
+        const workspaceDisplayName =
+          (aliased?.alias ?? "").trim() || row.name;
+        return {
+          _id: row._id,
+          archivedAt: row.archivedAt!,
+          archivedBy: row.archivedBy ?? null,
+          workspaceName: row.name,
+          workspaceDisplayName,
+          studentUserId: row.ownerId,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+          studentEmail: student?.email ?? null,
+        };
+      })
+    );
+    // Newest-archived-first — mirrors the inbox-like convention of
+    // the upstream AuditLog paginator (so a user returning to the
+    // card sees the most-recent archive at the top).
+    return enriched.sort((a, b) => b.archivedAt - a.archivedAt);
+  },
+});
+
+/**
+ * PR archive-gating: internal-only counterpart to
+ * `getInstructorArchivedMentorships` for scripts / migrations
+ * that need to enumerate an instructor's archive without going
+ * through the auth-gated read path. Returns the raw shape
+ * (without student alias enrichment) — callers that need a
+ * full row can join against `users` themselves.
+ */
+export const getInstructorArchivedMentorshipsInternal = internalQuery({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_archivedAt", (q) =>
+        q.eq("instructorId", args.instructorId).gt("archivedAt", 0)
+      )
+      .collect();
+    return rows.map((row) => ({
+      _id: row._id,
+      archivedAt: row.archivedAt!,
+      archivedBy: row.archivedBy ?? null,
+      workspaceName: row.name,
+      ownerId: row.ownerId,
+      type: row.type ?? null,
+    }));
   },
 });
 
@@ -855,6 +1004,119 @@ async function deleteWorkspaceImpl(
   await ctx.db.patch(args.id, { deletedAt: Date.now() });
 }
 
+/**
+ * PR archive-gating: low-level archive write shared by the public
+ * `archiveWorkspace` mutation and the internal cleanup path.
+ *
+ * Idempotent for the already-archived case — second call returns
+ * `alreadyArchived: true` without touching the row, so a retry
+ * (network blip, double-click) cannot flip `archivedBy` retroactively.
+ *
+ * Preconditions: rejects soft-deleted or ended workspaces. `deletedAt`
+ * is destructive (admin-only path) — archiving one would let a
+ * participant bypass the admin's "gone" intent. `endedAt` works
+ * inside the 18-month retention window and has its own visibility
+ * rules; mixing the two flags would be confusing for admins
+ * reading the workspace row.
+ *
+ * No role check here — the public wrapper enforces the gate, and
+ * the `*Internal` variant is reserved for trusted callers (cleanup
+ * cron, migrations).
+ */
+async function archiveWorkspaceImpl(
+  ctx: MutationCtx,
+  args: { id: Id<"workspaces">; archivedBy: string }
+): Promise<{ alreadyArchived: boolean; archivedAt: number }> {
+  const workspace = await ctx.db.get(args.id);
+  if (!workspace) {
+    throw new ConvexError("Workspace not found");
+  }
+  if (workspace.deletedAt !== undefined) {
+    throw new ConvexError("Workspace has been deleted");
+  }
+  if (workspace.endedAt !== undefined) {
+    throw new ConvexError("Ended workspaces cannot be archived");
+  }
+  if (workspace.archivedAt !== undefined) {
+    return { alreadyArchived: true, archivedAt: workspace.archivedAt };
+  }
+  const now = Date.now();
+  await ctx.db.patch(args.id, {
+    archivedAt: now,
+    archivedBy: args.archivedBy,
+  });
+  return { alreadyArchived: false, archivedAt: now };
+}
+
+/**
+ * PR archive-gating: low-level unarchive write. Symmetric to
+ * `archiveWorkspaceImpl` — idempotent on already-active rows so
+ * a double-click from the "Unarchive" button cannot race the
+ * archive state back into an inconsistent shape.
+ *
+ * `archivedBy` is cleared alongside `archivedAt` so the row
+ * reads as fresh on the next archive.
+ */
+async function unarchiveWorkspaceImpl(
+  ctx: MutationCtx,
+  args: { id: Id<"workspaces"> }
+): Promise<{ alreadyActive: boolean }> {
+  const workspace = await ctx.db.get(args.id);
+  if (!workspace) {
+    throw new ConvexError("Workspace not found");
+  }
+  if (workspace.deletedAt !== undefined) {
+    throw new ConvexError("Workspace has been deleted");
+  }
+  if (workspace.archivedAt === undefined) {
+    return { alreadyActive: true };
+  }
+  await ctx.db.patch(args.id, {
+    archivedAt: undefined,
+    archivedBy: undefined,
+  });
+  return { alreadyActive: false };
+}
+
+/**
+ * PR archive-gating: per-workspace-type authorization for both
+ * `archiveWorkspace` and `unarchiveWorkspace`. Reflects the same
+ * gating decision as the UI — the action button is rendered only
+ * when this returns true:
+ *
+ * - `mentorship` workspaces (or legacy rows with `type` unset, which
+ *   the rest of the codebase treats as mentorship): the instructor
+ *   and the student paired on the workspace can both archive. Admins
+ *   pass through too (the existing admin delete path covers that
+ *   surface — they just see no smaller-scoped mutate action here).
+ * - `admin_student` / `admin_instructor` workspaces are staff comms
+ *   threads (`ensureAdminStudentWorkspace` / `ensureAdminInstructorWorkspace`).
+ *   Letting the participant archive them would silently strand
+ *   ongoing admin coordination on a refund dispute, retention
+ *   failsafe, or follow-up reminder. Admin-only — use the existing
+ *   admin delete surface for these.
+ */
+async function assertCanToggleArchive(
+  ctx: WorkspaceCtx,
+  workspace: Pick<Doc<"workspaces">, "_id" | "type" | "ownerId" | "instructorId">,
+  callerId: string
+): Promise<Exclude<WorkspaceRole, null>> {
+  const role = await getWorkspaceRole(ctx, workspace, callerId);
+  if (!role) {
+    throw new Error("Not authorized to access this workspace");
+  }
+  const isMentorship =
+    workspace.type === undefined || workspace.type === "mentorship";
+  const allowed =
+    isMentorship
+      ? role === "instructor" || role === "student" || role === "admin"
+      : role === "admin";
+  if (!allowed) {
+    throw new Error("Not authorized to archive this workspace");
+  }
+  return role;
+}
+
 /** Creates a new workspace with the given owner, instructor, and settings. Admin-only. */
 export const createWorkspace = mutation({
   args: createWorkspaceArgs,
@@ -882,6 +1144,82 @@ export const deleteWorkspace = mutation({
   },
 });
 
+/**
+ * PR archive-gating: marks a mentorship workspace as archived.
+ * Idempotent — a second call returns `{ alreadyArchived: true }`
+ * without re-patching the row. Gate keeps the admin-only
+ * `deleteWorkspace` surface as the path of record for destructive
+ * cleanup; archive is reversible, narrower scope, and reachable
+ * from each participant's own UI.
+ */
+export const archiveWorkspace = mutation({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const workspace = await ctx.db.get(args.id);
+    if (!workspace) {
+      throw new ConvexError("Workspace not found");
+    }
+    const role = await assertCanToggleArchive(ctx, workspace, identity.subject);
+    const impl = await archiveWorkspaceImpl(ctx, {
+      id: args.id,
+      archivedBy: identity.subject,
+    });
+    if (!impl.alreadyArchived) {
+      // Audit log only on a real state transition. The audit row keys
+      // off `targetType: "workspace"` and `action: "archive_workspace"`
+      // so admins can find every flip via `listAuditLogs` — distinct
+      // from the existing workspace-level `workspaceAuditLogs` table
+      // (which targets admin-only inspection, not participant actions).
+      await writeAuditLog(ctx, {
+        actorId: identity.subject,
+        actorRole: role,
+        action: "archive_workspace",
+        targetType: "workspace",
+        targetId: args.id,
+        details: `archived workspace "${workspace.name}"`,
+      });
+    }
+    return impl;
+  },
+});
+
+/**
+ * PR archive-gating: reverses `archiveWorkspace`. Same gate
+ * applies — participants and admins can both toggle the flag,
+ * but `admin_*` workspace types remain admin-only. Idempotent
+ * on already-active rows (`alreadyActive: true`).
+ */
+export const unarchiveWorkspace = mutation({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const workspace = await ctx.db.get(args.id);
+    if (!workspace) {
+      throw new ConvexError("Workspace not found");
+    }
+    const role = await assertCanToggleArchive(ctx, workspace, identity.subject);
+    const impl = await unarchiveWorkspaceImpl(ctx, { id: args.id });
+    if (!impl.alreadyActive) {
+      await writeAuditLog(ctx, {
+        actorId: identity.subject,
+        actorRole: role,
+        action: "unarchive_workspace",
+        targetType: "workspace",
+        targetId: args.id,
+        details: `unarchived workspace "${workspace.name}"`,
+      });
+    }
+    return impl;
+  },
+});
+
 /** Internal variant of createWorkspace for trusted scripts and other Convex functions. */
 export const createWorkspaceInternal = internalMutation({
   args: createWorkspaceArgs,
@@ -903,6 +1241,34 @@ export const deleteWorkspaceInternal = internalMutation({
   args: deleteWorkspaceArgs,
   handler: async (ctx, args) => {
     return await deleteWorkspaceImpl(ctx, args);
+  },
+});
+
+/**
+ * PR archive-gating: trusted internal archive write. No role check
+ * (reserved for cleanup cron / data migration). Still respects the
+ * `deletedAt` / `endedAt` / already-archived preconditions in the
+ * impl. `archivedBy` is stamped `system` for internal callers — no
+ * Clerk actor identity is available in this code path.
+ */
+export const archiveWorkspaceInternal = internalMutation({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    return await archiveWorkspaceImpl(ctx, {
+      id: args.id,
+      archivedBy: "system",
+    });
+  },
+});
+
+/**
+ * PR archive-gating: trusted internal unarchive write. Inverse of
+ * `archiveWorkspaceInternal`; same trust/no-role posture.
+ */
+export const unarchiveWorkspaceInternal = internalMutation({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    return await unarchiveWorkspaceImpl(ctx, { id: args.id });
   },
 });
 

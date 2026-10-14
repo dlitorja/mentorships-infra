@@ -669,6 +669,75 @@ export function useSetWorkspaceAlias() {
 }
 
 /**
+ * PR archive-gating: client-side wrapper for `api.workspaces.archiveWorkspace`.
+ * The parent (`WorkspaceRenameTitle`) renders an "Archive" icon button that
+ * fires this mutation through a confirmation dialog owned by the workspace
+ * content shell. On success we invalidate every read path that lists a
+ * workspace (sidebar, picker, header card, dashboard) plus the dedicated
+ * `getInstructorArchivedMentorships` card so the workspace flips into the
+ * dashboard's archived surface and out of the active one in the same render.
+ *
+ * Mirror of `useSetWorkspaceAlias` above — same invalidation set, plus
+ * `getInstructorArchivedMentorships` because the dashboard's archived card
+ * consumes that key directly.
+ */
+export function useArchiveWorkspace() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.archiveWorkspace),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceById"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceByIdForUser"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorArchivedMentorships"],
+      });
+    },
+  });
+}
+
+/**
+ * PR archive-gating: client-side wrapper for `api.workspaces.unarchiveWorkspace`.
+ * Same invalidation surface as `useArchiveWorkspace` — toggling either
+ * direction must re-fetch every read path so the sidebar / picker / badge
+ * strip / dashboard cards all reflect the new state synchronously.
+ */
+export function useUnarchiveWorkspace() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.unarchiveWorkspace),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceById"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceByIdForUser"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorArchivedMentorships"],
+      });
+    },
+  });
+}
+
+/**
  * Represents a workspace export job (ZIP, PDF, or Markdown).
  */
 export interface WorkspaceExport {

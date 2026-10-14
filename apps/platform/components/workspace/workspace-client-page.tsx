@@ -8,6 +8,7 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,7 +42,8 @@ import {
   ChatDataProvider,
   type ChatMessageRow,
 } from "@/components/workspace/chat-data-context";
-import { useWorkspaceMessagesPaginated } from "@/lib/queries/convex/use-workspaces";
+import { useWorkspaceMessagesPaginated, useArchiveWorkspace, useUnarchiveWorkspace } from "@/lib/queries/convex/use-workspaces";
+import { toast } from "sonner";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -54,6 +56,14 @@ type UserWorkspace = {
   sessionPackId?: Id<"sessionPacks">;
   endedAt?: number;
   type?: "mentorship" | "admin_student" | "admin_instructor";
+  /**
+   * PR archive-gating: archive timestamp from `convex/workspaces.ts`.
+   * Read-only mirror of the row's `archivedAt`. Sidebar / picker
+   * use this to mute the row + suppress the LIVE indicator; the
+   * inner surface (WorkspaceInner) uses it to render the "Archived"
+   * badge strip below the title.
+   */
+  archivedAt?: number;
 };
 
 /**
@@ -293,6 +303,23 @@ function WorkspaceInner({
   const activeSessionId: Id<"sessions"> | null =
     session?.sessionId ?? null;
   const isInCall = useIsInCall();
+  // PR archive-gating: confirmation-dialog state for the archive /
+  // unarchive buttons rendered inside `<WorkspaceRenameTitle>`. The
+  // mutation hooks invalidate every workspace read path on success
+  // so the sidebar / picker / dashboard cards re-render the new
+  // state synchronously (see `useArchiveWorkspace` /
+  // `useUnarchiveWorkspace` for the invalidation set).
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [unarchiveDialogOpen, setUnarchiveDialogOpen] = useState(false);
+  const archiveMutation = useArchiveWorkspace();
+  const unarchiveMutation = useUnarchiveWorkspace();
+  // Stable workspace id captured at the moment the dialog opens so
+  // a late-resolving mutation cannot race a workspace switch (a
+  // user's archival intent is locked to the workspace they were
+  // viewing when they clicked, not whichever the URL points to
+  // when the response comes back).
+  const archiveTargetIdRef = useRef<Id<"workspaces"> | null>(null);
+  const unarchiveTargetIdRef = useRef<Id<"workspaces"> | null>(null);
   // PR #4b-fix: confirm a workspace switch while a call is active.
   // `<VideoCallProvider>` is keyed by `selectedWorkspaceId`, so a
   // workspace change would otherwise unmount the Daily call
@@ -339,43 +366,65 @@ function WorkspaceInner({
             <CardContent className="pt-0">
               {workspaces && workspaces.length > 0 ? (
                 <div className="space-y-1">
-                  {workspaces.map((workspace: UserWorkspace) => (
-                    <button
-                      key={workspace._id}
-                      onClick={() => requestSwitch(workspace._id)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                        selectedWorkspaceId === workspace._id
-                          ? "bg-primary text-primary-foreground"
-                          : "hover:bg-muted"
-                      }`}
-                    >
-                      <div className="flex items-center">
-                        <div className="font-medium truncate flex-1">
-                          {workspace.displayName ?? workspace.name}
-                        </div>
-                        {activeSessionsByWorkspaceId[workspace._id]?.status === "active" && (
-                          <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground shrink-0">
-                            <span className="relative flex h-1.5 w-1.5">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                              <span className="relative inline-flex h-full w-full rounded-full bg-white" />
+                  {workspaces.map((workspace: UserWorkspace) => {
+                    // PR archive-gating: archived rows get opacity-60
+                    // + an inline "Archived" badge, and we SUPPRESS
+                    // the LIVE indicator even if the session is
+                    // active — once archived the workspace is no
+                    // longer bookable so a "live" ping would mislead
+                    // participants into trying to join a session
+                    // they're not part of.
+                    const isArchived = workspace.archivedAt !== undefined;
+                    const isLive =
+                      !isArchived &&
+                      activeSessionsByWorkspaceId[workspace._id]?.status === "active";
+                    return (
+                      <button
+                        key={workspace._id}
+                        onClick={() => requestSwitch(workspace._id)}
+                        className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                          selectedWorkspaceId === workspace._id
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-muted"
+                        } ${isArchived ? "opacity-60" : ""}`}
+                      >
+                        <div className="flex items-center">
+                          <div className="font-medium truncate flex-1">
+                            {workspace.displayName ?? workspace.name}
+                          </div>
+                          {isArchived && (
+                            <Badge
+                              variant="secondary"
+                              className="ml-2 shrink-0 text-[10px] uppercase tracking-wide"
+                              aria-label="Archived workspace"
+                            >
+                              Archived
+                            </Badge>
+                          )}
+                          {isLive && (
+                            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-bold text-destructive-foreground shrink-0">
+                              <span className="relative flex h-1.5 w-1.5">
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                                <span className="relative inline-flex h-full w-full rounded-full bg-white" />
+                              </span>
+                              LIVE
                             </span>
-                            LIVE
-                          </span>
-                        )}
-                        {/* PR #4c-2: red dot on the workspace picker
-                         * row when an ad-hoc call invite is active
-                         * for the current user in this workspace. */}
-                        <WorkspaceRowBadge workspaceId={workspace._id} />
-                      </div>
-                      <div className="text-xs opacity-70 truncate">
-                        {workspace.type === "admin_student"
-                          ? "Admin workspace"
-                          : workspace.type === "admin_instructor"
-                            ? "Instructor workspace"
-                            : "Mentorship workspace"}
-                      </div>
-                    </button>
-                  ))}
+                          )}
+                          {/* PR #4c-2: red dot on the workspace picker
+                           * row when an ad-hoc call invite is active
+                           * for the current user in this workspace. */}
+                          <WorkspaceRowBadge workspaceId={workspace._id} />
+                        </div>
+                        <div className="text-xs opacity-70 truncate">
+                          {workspace.type === "admin_student"
+                            ? "Admin workspace"
+                            : workspace.type === "admin_instructor"
+                              ? "Instructor workspace"
+                              : "Mentorship workspace"}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
@@ -457,7 +506,43 @@ function WorkspaceInner({
                       canRename={
                         userRole === "instructor" || userRole === "student"
                       }
+                      archivedAt={selectedWorkspace.archivedAt}
+                      onArchiveRequest={() => {
+                        archiveTargetIdRef.current = selectedWorkspace._id;
+                        setArchiveDialogOpen(true);
+                      }}
+                      onUnarchiveRequest={() => {
+                        unarchiveTargetIdRef.current = selectedWorkspace._id;
+                        setUnarchiveDialogOpen(true);
+                      }}
                     />
+                    {/*
+                     * PR archive-gating: muted "Archived" badge strip
+                     * below the title when the participant opens a
+                     * workspace they previously archived. Restates
+                     * the visual state already shown in the sidebar
+                     * + drawer card row so the inner context catches
+                     * up with the user's mental model. The strip
+                     * also serves the inverse UX purpose: without it
+                     * the title alone would render identically to an
+                     * active workspace, leaving participants asking
+                     * why their booking attempts were silently
+                     * dropped.
+                     */}
+                    {selectedWorkspace.archivedAt !== undefined && (
+                      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge
+                          variant="secondary"
+                          className="uppercase tracking-wide text-[10px]"
+                        >
+                          Archived
+                        </Badge>
+                        <span>
+                          This workspace is read-only and is no longer bookable. Use
+                          Unarchive to restore it.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardHeader>
@@ -549,6 +634,140 @@ function WorkspaceInner({
           onChangeTab={onChangeTab}
         />
       )}
+      {/*
+       * PR archive-gating: confirmation dialogs for the
+       * archive / unarchive buttons rendered inside
+       * `<WorkspaceRenameTitle>`. Both dialogs are uncontrolled
+       * outside Radix (`open` + `onOpenChange`), use the same
+       * focus-trap / Escape-to-dismiss behavior as the existing
+       * leave-call dialog above, and run their respective
+       * mutations on the user-clicked Confirm action.
+       *
+       * `archiveTargetIdRef.current` / `unarchiveTargetIdRef.current`
+       * snapshot the workspace id at dialog-open time so a
+       * late-resolving mutation cannot archive a workspace the
+       * user has since navigated away from via the sidebar's
+       * `pendingSwitchTo` flow or the `/workspace/[id]` redirect.
+       */}
+      <Dialog
+        open={archiveDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            archiveTargetIdRef.current = null;
+          }
+          setArchiveDialogOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archive this workspace?</DialogTitle>
+            <DialogDescription>
+              The workspace moves to your dashboard&apos;s{" "}
+              <strong>Archived Mentorships</strong> card. It stays readable here
+              for things like chat history, but new session packs won&apos;t book
+              against it and the row becomes muted in the picker sidebar. Any
+              existing data — messages, notes, images, files — is preserved. You
+              can restore the workspace anytime with <strong>Unarchive</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setArchiveDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={archiveMutation.isPending}
+              onClick={() => {
+                const targetId = archiveTargetIdRef.current;
+                if (!targetId) {
+                  setArchiveDialogOpen(false);
+                  return;
+                }
+                archiveMutation.mutate(
+                  { id: targetId },
+                  {
+                    onSuccess: () => {
+                      setArchiveDialogOpen(false);
+                    },
+                    onError: (error) => {
+                      toast.error("Could not archive workspace", {
+                        description:
+                          error instanceof Error ? error.message : String(error),
+                      });
+                    },
+                  }
+                );
+              }}
+            >
+              {archiveMutation.isPending ? "Archiving…" : "Archive workspace"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={unarchiveDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            unarchiveTargetIdRef.current = null;
+          }
+          setUnarchiveDialogOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unarchive this workspace?</DialogTitle>
+            <DialogDescription>
+              The workspace becomes active again — it returns to your
+              instructor dashboard&apos;s <strong>Active Mentorships</strong> card,
+              new session packs can book against it, and the sidebar row loses
+              its muted styling. Existing data is unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUnarchiveDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={unarchiveMutation.isPending}
+              onClick={() => {
+                const targetId = unarchiveTargetIdRef.current;
+                if (!targetId) {
+                  setUnarchiveDialogOpen(false);
+                  return;
+                }
+                unarchiveMutation.mutate(
+                  { id: targetId },
+                  {
+                    onSuccess: () => {
+                      setUnarchiveDialogOpen(false);
+                    },
+                    onError: (error) => {
+                      toast.error("Could not unarchive workspace", {
+                        description:
+                          error instanceof Error ? error.message : String(error),
+                      });
+                    },
+                  }
+                );
+              }}
+            >
+              {unarchiveMutation.isPending
+                ? "Restoring…"
+                : "Restore workspace"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
