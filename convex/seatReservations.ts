@@ -232,15 +232,22 @@ export const getInstructorStudentsWithRemainingSessions = query({
     // card — the instructor dashboard's "Active Mentorships"
     // card is the active-only surface, so a student whose only
     // workspace is archived should not double-list.
-    const allInstructorWorkspaces = await ctx.db
+    // Greptile round-4 #2: reuse the `by_instructorId_deletedAt`
+    // read for both the archive-only classifier (this block) and
+    // the workspace-only loop (below). We need exactly the same
+    // set of rows in both places — non-deleted instructor
+    // workspaces — so a single `by_instructorId_deletedAt` read
+    // back-feeds both buckets. The deletedAt post-filter is the
+    // only constraint either path needs; the workspace-only loop
+    // already excludes deleted rows in its downstream consumers.
+    const workspaces = await ctx.db
       .query("workspaces")
-      .withIndex("by_instructorId", (q) =>
-        q.eq("instructorId", args.instructorId)
+      .withIndex("by_instructorId_deletedAt", (q) =>
+        q.eq("instructorId", args.instructorId).eq("deletedAt", undefined)
       )
       .collect();
-    const studentWorkplacesByUserId = new Map<string, typeof allInstructorWorkspaces>();
-    for (const ws of allInstructorWorkspaces) {
-      if (ws.deletedAt !== undefined) continue;
+    const studentWorkplacesByUserId = new Map<string, typeof workspaces>();
+    for (const ws of workspaces) {
       const bucket = studentWorkplacesByUserId.get(ws.ownerId) ?? [];
       bucket.push(ws);
       studentWorkplacesByUserId.set(ws.ownerId, bucket);
@@ -264,12 +271,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
     );
 
     const userIdsWithSeats = new Set(dedupedSeatRowsVisible.map((row) => row.userId));
-    const workspaces = await ctx.db
-      .query("workspaces")
-      .withIndex("by_instructorId_deletedAt", (q) =>
-        q.eq("instructorId", args.instructorId).eq("deletedAt", undefined)
-      )
-      .collect();
+    // (workspaces already loaded above — see Greptile round-4 #2)
 
     const workspaceByOwnerId = new Map<string, (typeof workspaces)[number]>();
     for (const workspace of workspaces) {

@@ -33,6 +33,52 @@ export const createPending = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    // PR archive-gating: a student whose ONLY mentorship workspace
+    // pair with this instructor is archived should not be able to
+    // submit a fresh calendar booking. The archive UI explicitly says
+    // "this workspace is no longer bookable", so creating a calendar
+    // event then confirming it would silently contradict the user's
+    // intent. Admins and instructors BYPASS this check — they can
+    // still book on a student's behalf even when the student has
+    // archived the relationship (manual reconciliation scenarios
+    // call for this; e.g. an admin scheduling a follow-up on a
+    // refund dispute). The check fires only when an archived pair
+    // is the caller's ONLY ownership relationship with the
+    // instructor; if the caller has an active pair, the booking
+    // proceeds normally.
+    const callerWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", identity.subject))
+      .collect();
+    let callerRole: "student" | "instructor" | "admin" | "unknown" =
+      "unknown";
+    const callerUserRow = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (callerUserRow?.role === "student") callerRole = "student";
+    if (callerUserRow?.role === "instructor") callerRole = "instructor";
+    if (callerUserRow?.role === "admin" || callerUserRow?.role === "support") {
+      callerRole = "admin";
+    }
+    const callerIsStudent = callerRole === "student";
+    const instructorPairs = callerWorkspaces.filter(
+      (w) =>
+        w.instructorId === args.instructorId &&
+        w.deletedAt === undefined &&
+        (w.type === undefined || w.type === "mentorship")
+    );
+    if (callerIsStudent && instructorPairs.length > 0) {
+      const hasActivePair = instructorPairs.some(
+        (w) => w.archivedAt === undefined && w.endedAt === undefined
+      );
+      if (!hasActivePair) {
+        throw new Error(
+          "Cannot book against this instructor: all of your mentorship workspaces with them are archived or ended. Unarchive or open a new workspace first."
+        );
+      }
+    }
+
     // Enforce single booking per idempotency key
     const existing = await ctx.db
       .query("bookings")
