@@ -1152,3 +1152,117 @@ test("startAdhocCall rejects when workspace is archived", async () => {
       })
   ).rejects.toThrow(/ended, deleted, or archived/i);
 });
+// Greptile round-11 P2: resolveSessionWorkspaceForPair on read paths
+// preserves the calendar's deep-link to the archived workspace.
+
+test("resolveSessionWorkspaceForPair (round-11) returns the active pair when one exists", async () => {
+  const t = convexTest(schema, modules);
+  const STUDENT = "user_r11_student_active";
+  const INSTRUCTOR_USER = "user_r11_instructor_active";
+  const { instructorId } = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: STUDENT,
+      clerkId: STUDENT,
+      email: "r11-active@example.test",
+      firstName: "R11",
+      lastName: "Active",
+      role: "student",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_USER,
+      email: "r11-active@example.test",
+      name: "R11 Active Instructor",
+    });
+    return { instructorId };
+  });
+  // Older archived pair first.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaces", {
+      name: "R11 Archived",
+      ownerId: STUDENT,
+      instructorId: instructorId as never,
+      type: "mentorship",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      archivedAt: Date.now() - 60_000,
+      archivedBy: INSTRUCTOR_USER,
+    });
+  });
+  const activeId = await seedWorkspace(t, {
+    name: "R11 Active",
+    ownerId: STUDENT,
+    instructorId,
+    type: "mentorship",
+  });
+  // Seed a session whose `workspaceId` is missing.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("sessions", {
+      studentId: STUDENT,
+      instructorId: instructorId as never,
+      scheduledAt: Date.now() + 24 * 60 * 60 * 1000,
+      status: "scheduled",
+      recordingConsent: true,
+    });
+  });
+  const sessions = await t
+    .withIdentity({ subject: STUDENT })
+    .query(api.sessions.getUpcomingSessions, {
+      studentId: STUDENT,
+      limit: 10,
+    });
+  expect(sessions).toHaveLength(1);
+  expect((sessions[0] as { workspaceId?: string }).workspaceId).toBe(activeId);
+});
+
+test("resolveSessionWorkspaceForPair (round-11) falls back to the archived workspace when only that exists", async () => {
+  const t = convexTest(schema, modules);
+  const STUDENT = "user_r11_student_archived_only";
+  const INSTRUCTOR_USER = "user_r11_instructor_archived_only";
+  const { instructorId } = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: STUDENT,
+      clerkId: STUDENT,
+      email: "r11-archived-only@example.test",
+      firstName: "R11",
+      lastName: "Archived",
+      role: "student",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_USER,
+      email: "r11-archived-only@example.test",
+      name: "R11 Archived-Only Instructor",
+    });
+    return { instructorId };
+  });
+  const archivedId = await t.run(async (ctx) => {
+    return await ctx.db.insert("workspaces", {
+      name: "R11 Archived Only",
+      ownerId: STUDENT,
+      instructorId: instructorId as never,
+      type: "mentorship",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      archivedAt: Date.now() - 60_000,
+      archivedBy: INSTRUCTOR_USER,
+    });
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("sessions", {
+      studentId: STUDENT,
+      instructorId: instructorId as never,
+      scheduledAt: Date.now() + 24 * 60 * 60 * 1000,
+      status: "scheduled",
+      recordingConsent: true,
+    });
+  });
+  const sessions = await t
+    .withIdentity({ subject: STUDENT })
+    .query(api.sessions.getUpcomingSessions, {
+      studentId: STUDENT,
+      limit: 10,
+    });
+  expect(sessions).toHaveLength(1);
+  expect((sessions[0] as { workspaceId?: string }).workspaceId).toBe(archivedId);
+});

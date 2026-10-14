@@ -454,6 +454,59 @@ export async function assertParticipantForSession(
  * index does not narrow to a single row — historically the same
  * pair could end and re-open a new workspace, so we sort in memory.
  */
+/**
+ * Like `resolveActiveWorkspaceForPair`, but does NOT filter by archive
+ * state. Used to backfill `workspaceId` on read-paths for EXISTING
+ * sessions, where the goal is to surface the workspace ID the
+ * session was originally created against so the calendar can
+ * deep-link the student back into the workspace panel.
+ *
+ * Greptile round-11 P2: `resolveActiveWorkspaceForPair` excludes
+ * archived workspaces. When the student archives their only
+ * workspace AFTER a session was created (or for older sessions
+ * that never had `sessions.workspaceId` saved), the calendar's
+ * "Open workspace" link silently disappears -- even though the
+ * workspace itself is still readable through the sidebar.
+ *
+ * Prefer the active (non-archived, non-ended) workspace when
+ * present (so a returned-from-archive student lands back on the
+ * live view), otherwise fall back to the most-recently-created
+ * non-deleted archived or ended workspace so the student still
+ * has a link -- the sidebar / picker already render muted entries
+ * for archived workspaces via `getUserWorkspaces({ includeArchived: true })`
+ * so they are reachable separately.
+ */
+export async function resolveSessionWorkspaceForPair(
+  ctx: QueryCtx,
+  args: { instructorId: Id<"instructors">; studentUserId: string }
+): Promise<Doc<"workspaces"> | null> {
+  const candidates = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId_ownerId", (q) =>
+      q
+        .eq("instructorId", args.instructorId)
+        .eq("ownerId", args.studentUserId)
+    )
+    .collect();
+
+  const nonDeleted = candidates.filter((w) => w.deletedAt === undefined);
+  if (nonDeleted.length === 0) return null;
+
+  // Prefer the active pair first.
+  const active = nonDeleted.find(
+    (w) => w.archivedAt === undefined && w.endedAt === undefined
+  );
+  if (active) return active;
+
+  // Otherwise pick the most-recently-created non-deleted pair so the
+  // calendar's "Open workspace" deep link still points at the same
+  // archived workspace the student can see in the sidebar / picker.
+  const sorted = [...nonDeleted].sort(
+    (a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0)
+  );
+  return sorted[0] ?? null;
+}
+
 export async function resolveActiveWorkspaceForPair(
   ctx: QueryCtx,
   args: { instructorId: Id<"instructors">; studentUserId: string }
