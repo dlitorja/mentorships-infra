@@ -532,8 +532,23 @@ export const syncUser = mutation({
         timeZone: args.timeZone ?? existingByEmail.timeZone,
       };
 
-      // Harden role updates: prevent privilege escalation from clients
-      // AND privilege downgrade when the current role is admin.
+      // Harden role updates: prevent privilege escalation from
+      // clients AND privilege/role downgrades across ALL trusted
+      // roles (admin, instructor, video_editor, student). The
+      // /api/auth/sync route forwards Clerk's publicMetadata.role
+      // verbatim; if any role assignment happened outside Clerk
+      // metadata (admin via setUserRoleTrusted, video_editor via
+      // admin grant, instructor re-elevated from a prior student)
+      // the next /api/auth/sync POST would otherwise stomp the
+      // trusted assignment with whatever stale role Clerk still
+      // claims.
+      //
+      // Rule: client-side sync only ever sets role to `requested`
+      // when `currentRole` is undefined (legacy / unassigned) OR
+      // matches `requested` (idempotent re-sync). Any other
+      // current value is treated as a trusted assignment and is
+      // preserved — role changes flow through `setUserRoleTrusted`
+      // so the audit log records them.
       if (args.role) {
         const requested = args.role;
 
@@ -541,42 +556,37 @@ export const syncUser = mutation({
         const currentRole = existingByEmail.role as Doc<"users">["role"] | undefined;
 
         if (requested === "admin") {
-          // Only allow setting to admin if already admin (idempotent) — no elevation here
+          // Only allow setting to admin if already admin (idempotent) —
+          // no escalation here, and no demotion-from-admin via
+          // client-side sync.
           if (currentRole === "admin") {
             updates.role = currentRole;
           }
         } else if (requested === "instructor") {
-          // Allow instructor role if an instructor record exists for this user
+          // Allow instructor role only when (a) we already have an
+          // `instructors` row for this user (the privilege leash),
+          // and (b) the current role is undefined (legacy / first
+          // assignment) or already instructor (idempotent re-sync).
+          // Otherwise the current role is a trusted assignment from
+          // `setUserRoleTrusted` (admin / video_editor / student)
+          // and we keep it.
           const hasInstructor = await ctx.db
             .query("instructors")
             .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
             .first();
-          if (hasInstructor) {
-            // PR-D (Issue 1) Greptile P1 follow-up: refuse to
-            // downgrade an admin via client-side sync. The
-            // /api/auth/sync route forwards Clerk's
-            // publicMetadata.role verbatim; if an admin's
-            // metadata is stale (e.g., admin promotion happened
-            // through the platform dashboard's updateUserRole +
-            // setUserRoleTrusted path instead of via Clerk
-            // metadata) the next /api/auth/sync POST would
-            // downgrade the row back to whatever Clerk says.
-            // Admin role can only be revoked via the trusted
-            // internal mutation `setUserRoleTrusted` so the
-            // audit log captures the change.
-            if (currentRole === "admin") {
-              updates.role = "admin";
-            } else {
-              updates.role = "instructor";
-            }
+          if (
+            hasInstructor &&
+            (currentRole === undefined || currentRole === "instructor")
+          ) {
+            updates.role = "instructor";
           }
         } else if (requested === "student" || requested === "video_editor") {
-          // Same PR-D Greptile P1 guard: if the user is already
-          // admin, refuse the client-side downgrade. Admin role
-          // is revocable only through `setUserRoleTrusted`.
-          if (currentRole === "admin") {
-            updates.role = "admin";
-          } else {
+          // First-time assignment (currentRole === undefined)
+          // or idempotent re-sync (currentRole === requested).
+          // Any other currentRole is a trusted assignment and is
+          // preserved — syncUser cannot demote video_editor or
+          // instructor or admin via stale Clerk metadata.
+          if (currentRole === undefined || currentRole === requested) {
             updates.role = requested;
           }
         }
