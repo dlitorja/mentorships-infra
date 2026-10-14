@@ -202,10 +202,20 @@ const isPublicApiRoute = createRouteMatcher([
   "/api/seats/availability(.*)", // Public seat availability endpoint
   "/api/contacts", // Public contact form endpoint
   "/api/waitlist", // Allows unauth POST (GET route enforces auth itself)
-  
+
   // Public checkout endpoints: we collect email/name and upsert user on server
   // CSRF and rate limits still apply before route execution
   "/api/checkout(.*)",
+
+  // PR-E (Issue 5): the bounce-redirect route handler sets an
+  // HttpOnly cookie with the requested destination and 307s to
+  // bare /sign-in. Rate-limiting still applies (auth policy at
+  // line 299). The cookie is short-TTL, scoped to /auth-redirect,
+  // and only persists paths that pass the auth-redirect whitelist
+  // (`whitelistedRedirectValue` in `app/auth-redirect/page.tsx`).
+  // Excluding this here would break Greptile round-2 P1 (signed-
+  // out recipients get a 401 instead of the bounce cookie).
+  "/api/auth/bounce-redirect",
 ]);
 
 /**
