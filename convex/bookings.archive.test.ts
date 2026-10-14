@@ -148,7 +148,7 @@ test("bookings.createPending rejects a student whose ONLY mentorship pair is arc
       ...baseCreatePendingArgs,
       idempotencyKey: "ik_student_archived_1",
     })
-  ).rejects.toThrow(/archived or ended/);
+  ).rejects.toThrow(/(archived|session pack.*ended)/);
 });
 
 test("bookings.createPending rejects a student whose only pair is ended (endedAt set)", async () => {
@@ -174,7 +174,7 @@ test("bookings.createPending rejects a student whose only pair is ended (endedAt
       ...baseCreatePendingArgs,
       idempotencyKey: "ik_student_ended_1",
     })
-  ).rejects.toThrow(/archived or ended/);
+  ).rejects.toThrow(/(archived|session pack.*ended)/);
 });
 
 test("bookings.createPending accepts when student has 1 active + 1 archived pair (active pair wins)", async () => {
@@ -306,7 +306,7 @@ test("bookings.createPending rejects when caller has NO users row but owns an ar
       ...baseCreatePendingArgs,
       idempotencyKey: "ik_no_profile_archived_1",
     })
-  ).rejects.toThrow(/archived or ended/);
+  ).rejects.toThrow(/(archived|session pack.*ended)/);
 });
 
 test("bookings.createPending rejects when caller has a users row with UNSET role but owns an archived pair", async () => {
@@ -355,7 +355,7 @@ test("bookings.createPending rejects when caller has a users row with UNSET role
       ...baseCreatePendingArgs,
       idempotencyKey: "ik_unset_role_archived_1",
     })
-  ).rejects.toThrow(/archived or ended/);
+  ).rejects.toThrow(/(archived|session pack.*ended)/);
 });
 
 test("bookings.createPending accepts an admin caller with an archived pair (admin bypass)", async () => {
@@ -480,7 +480,7 @@ test("bookings.createPending FRESH (no previous) booking after caller archives t
       ...baseCreatePendingArgs,
       idempotencyKey: "ik_fresh_after_archive_1",
     })
-  ).rejects.toThrow(/archived or ended/);
+  ).rejects.toThrow(/(archived|session pack.*ended)/);
 });
 
 test("bookings.createPending throws a typed ConvexError with WORKSPACE_ARCHIVED_FOR_BOOKING (round-7 P2)", async () => {
@@ -514,11 +514,136 @@ test("bookings.createPending throws a typed ConvexError with WORKSPACE_ARCHIVED_
     const convexErr = e as Error & { data?: { code?: string; message?: string } };
     expect(convexErr).toBeInstanceOf(Error);
     expect(convexErr.data?.code).toBe("WORKSPACE_ARCHIVED_FOR_BOOKING");
-    expect(convexErr.data?.message).toMatch(/archived or ended/);
-    // The friendly unarchive copy must be preserved verbatim.
-    expect(convexErr.data?.message).toMatch(/Unarchive or open a new workspace first/);
+    // Greptile round-8: verify the typed message exactly matches the
+    // archived-only copy. The other failure shapes surface different
+    // codes + messages -- see the dedicated tests below.
+    expect(convexErr.data?.message).toContain("archived");
+    expect(convexErr.data?.message).toMatch(/Unarchive the workspace, then re-submit/);
   }
 });
+test("bookings.createPending: archived-only pair surfaces WORKSPACE_ARCHIVED_FOR_BOOKING (round-8)", async () => {
+  const STUDENT = "user_student_r8_archived";
+  const INSTRUCTOR_USER = "user_instructor_r8_archived";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "r8-archived@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    archivedAt: Date.now() - 1000,
+  });
+  try {
+    await t.withIdentity({ subject: STUDENT }).mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_r8_archived_only",
+    });
+    throw new Error("createPending should have thrown");
+  } catch (e) {
+    const convexErr = e as Error & { data?: { code?: string; message?: string } };
+    expect(convexErr.data?.code).toBe("WORKSPACE_ARCHIVED_FOR_BOOKING");
+    expect(convexErr.data?.message).toContain("archived");
+    expect(convexErr.data?.message).toMatch(/Unarchive the workspace, then re-submit/);
+  }
+});
+
+
+test("bookings.createPending: ended-only pair surfaces WORKSPACE_ENDED_FOR_BOOKING (round-8)", async () => {
+  const STUDENT = "user_student_r8_ended";
+  const INSTRUCTOR_USER = "user_instructor_r8_ended";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "r8-ended@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    endedAt: Date.now() - 5000,
+  });
+  try {
+    await t.withIdentity({ subject: STUDENT }).mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_r8_ended_only",
+    });
+    throw new Error("createPending should have thrown");
+  } catch (e) {
+    const convexErr = e as Error & { data?: { code?: string; message?: string } };
+    expect(convexErr.data?.code).toBe("WORKSPACE_ENDED_FOR_BOOKING");
+    expect(convexErr.data?.message).toMatch(/session pack.*ended/);
+    expect(convexErr.data?.message).toMatch(/Buy a new session pack/);
+  }
+});
+
+
+test("bookings.createPending: archived AND ended pair surfaces WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING (round-8)", async () => {
+  const STUDENT = "user_student_r8_both";
+  const INSTRUCTOR_USER = "user_instructor_r8_both";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "r8-both@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    archivedAt: Date.now() - 2000,
+    endedAt: Date.now() - 1000,
+  });
+  try {
+    await t.withIdentity({ subject: STUDENT }).mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_r8_both",
+    });
+    throw new Error("createPending should have thrown");
+  } catch (e) {
+    const convexErr = e as Error & { data?: { code?: string; message?: string } };
+    expect(convexErr.data?.code).toBe("WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING");
+    expect(convexErr.data?.message).toMatch(/archived AND/);
+    expect(convexErr.data?.message).toMatch(/Buy a new session pack/);
+  }
+});
+
+
+test("bookings.createPending: 1 active + 1 archived pair still allows the booking (regression cover)", async () => {
+  // Round-8 regression: when the caller has a MIX of pairs (one
+  // active, one archived), the rejection does not fire at all
+  // because `hasActivePair` is true. Behaviour unchanged.
+  const STUDENT = "user_student_r8_mixed";
+  const INSTRUCTOR_USER = "user_instructor_r8_mixed";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await seedStudentInstructor(t, {
+    studentUserId: STUDENT,
+    studentEmail: "r8-mixed@example.test",
+    instructorUserId: INSTRUCTOR_USER,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+    archivedAt: Date.now() - 1000 * 60 * 60,
+  });
+  await seedMentorshipWorkspace(t, {
+    ownerId: STUDENT,
+    instructorId,
+  });
+  const result = await t.withIdentity({ subject: STUDENT }).mutation(
+    api.bookings.createPending,
+    {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_r8_mixed_active",
+    }
+  );
+  expect(result).toEqual({ conflict: false, bookingId: expect.any(String) });
+});
+
 
 
 

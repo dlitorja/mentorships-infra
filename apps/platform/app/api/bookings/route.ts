@@ -327,18 +327,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    // PR-C (Greptile round-7 P2): the calendar-booking guard in
-    // `convex/bookings.createPending` throws a typed
-    // `ConvexError({ code: "WORKSPACE_ARCHIVED_FOR_BOOKING", ... })`.
-    // Map it to a 409 with the friendly unarchive prompt so the
-    // student gets actionable UX instead of a generic 500.
+    // PR-C (Greptile round-7 + round-8): the calendar-booking guard
+    // in `convex/bookings.createPending` throws one of four typed
+    // `ConvexError` codes that discriminate the inactive-workspace
+    // shape (archive / ended / both / mixed). The ConvexError\'s
+    // `.data.message` is the author-of-truth copy; the route\'s
+    // hard-coded copy here is a redundancy in case that data shape
+    // is ever lost (e.g. raw text on a misconfigured client). The
+    // typed code is forwarded verbatim so the UI can render the
+    // right CTA (unarchive button vs. buy-new-pack link).
     if (isArchivedWorkspaceBookingError(error)) {
-      console.info("Booking rejected - caller's only workspace with the instructor is archived or ended:", error);
+      const code = (error as Error & { data?: { code?: string; message?: string } })
+        .data?.code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
+      const serverMessage =
+        (error as Error & { data?: { code?: string; message?: string } })
+          .data?.message ?? undefined;
+      console.info(
+        "Booking rejected \u2014 caller\'s only workspace with the instructor is inactive (code=" + code + "):",
+        error
+      );
       return NextResponse.json(
         {
           error:
-            "This mentorship is archived or ended. Unarchive the workspace, then re-submit the booking.",
-          code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
+            serverMessage ??
+            "This mentorship is currently inactive with this instructor. See the workspace panel for next steps.",
+          code,
         },
         { status: 409 }
       );

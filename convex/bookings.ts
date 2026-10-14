@@ -94,11 +94,47 @@ export const createPending = mutation({
         // The shape { code, message } matches the pattern used by
         // `convex/sessions.ts` (line ~1678 e.g. `VIDEO_SESSION_NOT_FOUND`)
         // which both server logs and the booking route can inspect.
-        throw new ConvexError({
-          code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
-          message:
-            "Cannot book against this instructor: all of your mentorship workspaces with them are archived or ended. Unarchive or open a new workspace first.",
-        });
+        // Greptile round-8 P2: distinguish the four failure shapes
+        // so the student gets actionable copy. `unarchiveWorkspaceImpl`
+        // clears ONLY `archivedAt` / `archivedBy` (not `endedAt`), so
+        // the original generic "unarchive / open a new workspace" copy
+        // was misleading for end-of-pack cases where there is no
+        // archive state to undo. We now surface a tailored message +
+        // a discriminator field on the ConvexError so the HTTP layer
+        // can render the right CTA without re-deriving the shape.
+        const allArchivedOnly = instructorPairs.every(
+          (w) => w.archivedAt !== undefined && w.endedAt === undefined
+        );
+        const allEndedOnly = instructorPairs.every(
+          (w) => w.endedAt !== undefined && w.archivedAt === undefined
+        );
+        const allBoth = instructorPairs.every(
+          (w) => w.archivedAt !== undefined && w.endedAt !== undefined
+        );
+        let code:
+          | "WORKSPACE_ARCHIVED_FOR_BOOKING"
+          | "WORKSPACE_ENDED_FOR_BOOKING"
+          | "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING"
+          | "WORKSPACE_INACTIVE_FOR_BOOKING";
+        let message: string;
+        if (allArchivedOnly) {
+          code = "WORKSPACE_ARCHIVED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: all of your mentorship workspaces with them are archived. Unarchive the workspace, then re-submit the booking.";
+        } else if (allEndedOnly) {
+          code = "WORKSPACE_ENDED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: your session pack with them has ended. Buy a new session pack or open a new workspace to book a session.";
+        } else if (allBoth) {
+          code = "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: all of your workspaces are archived AND your session pack has ended. Buy a new session pack or contact support.";
+        } else {
+          code = "WORKSPACE_INACTIVE_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: none of your mentorship workspaces with them are active. Unarchive the archived ones and buy a new pack for the ended ones.";
+        }
+        throw new ConvexError({ code, message });
       }
     }
 

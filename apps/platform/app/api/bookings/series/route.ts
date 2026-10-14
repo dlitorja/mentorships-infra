@@ -323,19 +323,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
       } catch (err) {
-        // PR-C (Greptile round-7 P2): the calendar-booking guard in
-        // `convex/bookings.createPending` throws a typed
-        // `ConvexError({ code: "WORKSPACE_ARCHIVED_FOR_BOOKING", ... })`.
-        // Surface it as a per-slot skip with a friendly unarchive
-        // prompt so the series UI can show actionable copy rather than
-        // an "unexpected error" message.
+        // PR-C (Greptile round-7 + round-8): the calendar-booking
+        // guard in `convex/bookings.createPending` throws one of
+        // four typed `ConvexError` codes that discriminate the
+        // inactive-workspace shape (archive / ended / both / mixed).
+        // Surface each as a per-slot skip with the typed code + the
+        // friendly copy the server already produced (forwarded as
+        // the `reason` so the series UI can render it directly
+        // without re-deriving).
         if (isArchivedWorkspaceBookingError(err)) {
+          const code =
+            (err as Error & { data?: { code?: string; message?: string } })
+              .data?.code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
+          const reason =
+            (err as Error & { data?: { code?: string; message?: string } })
+              .data?.message ??
+            "This mentorship is currently inactive with this instructor.";
           results.push({
             weekOffset: i,
             status: "skipped",
-            reason:
-              "Your mentorship with this instructor is archived or ended. Unarchive the workspace and re-submit to schedule this slot.",
-            code: "WORKSPACE_ARCHIVED_FOR_BOOKING",
+            reason,
+            code,
           });
           continue;
         }
