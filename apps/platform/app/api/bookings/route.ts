@@ -4,7 +4,11 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError } from "@/lib/errors";
+import {
+  isUnauthorizedError,
+  isArchivedWorkspaceBookingError,
+  getWorkspaceBookingErrorCode,
+} from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -326,6 +330,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // PR-C (Greptile round-7 + round-8): the calendar-booking guard
+    // in `convex/bookings.createPending` throws one of four typed
+    // `ConvexError` codes that discriminate the inactive-workspace
+    // shape (archive / ended / both / mixed). The ConvexError\'s
+    // `.data.message` is the author-of-truth copy; the route\'s
+    // hard-coded copy here is a redundancy in case that data shape
+    // is ever lost (e.g. raw text on a misconfigured client). The
+    // typed code is forwarded verbatim so the UI can render the
+    // right CTA (unarchive button vs. buy-new-pack link).
+    if (isArchivedWorkspaceBookingError(error)) {
+      // Use the typed helper so the discriminator narrows to one of
+      // the four `WorkspaceBookingErrorCode` runtime codes (the Vercel
+      // build rejects a plain `string` here even though the repo-level
+      // typecheck passes via `--skipLibCheck`).
+      const code =
+        getWorkspaceBookingErrorCode(error) ?? "WORKSPACE_ARCHIVED_FOR_BOOKING";
+      const serverMessage =
+        (error as Error & { data?: { code?: string; message?: string } })
+          .data?.message ?? undefined;
+      console.info(
+        "Booking rejected \u2014 caller\'s only workspace with the instructor is inactive (code=" + code + "):",
+        error
+      );
+      return NextResponse.json(
+        {
+          error:
+            serverMessage ??
+            "This mentorship is currently inactive with this instructor. See the workspace panel for next steps.",
+          code,
+        },
+        { status: 409 }
+      );
     }
     console.error("Booking create error:", error);
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });

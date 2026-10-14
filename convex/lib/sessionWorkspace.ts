@@ -73,7 +73,16 @@ export async function resolveSessionWorkspace(
     : null;
 }
 
-/** Resolves the active workspace that owns a new pack-backed session. */
+/**
+ * PR archive-gating: also resolves the active workspace that owns a
+ * new pack-backed session, but now rejects archived workspaces on
+ * both code paths so a fresh ad-hoc / scheduled session cannot be
+ * booked against a workspace a participant has archived. Reads
+ * remain unchanged — existing sessions that already point at an
+ * archived workspace keep resolving, since the workspace stays
+ * readable for chat-history context even when booking is gated.
+ */
+
 export async function resolveWorkspaceForNewSession(
   ctx: DatabaseCtx,
   args: {
@@ -90,12 +99,22 @@ export async function resolveWorkspaceForNewSession(
   if (
     workspace &&
     workspace.deletedAt === undefined &&
-    workspace.endedAt === undefined
+    workspace.endedAt === undefined &&
+    workspace.archivedAt === undefined
   ) {
     return workspace;
   }
 
   const findActivePairWorkspaces = (type: "mentorship" | undefined) =>
+    // PR archive-gating: take(10) before the archivedAt filter so
+    // we don't trim a candidate set that still contains the active
+    // pair. In practice the per-instructor per-student per-type pair
+    // is exactly one row, so 10 is generous. By filtering
+    // `archivedAt === undefined` and then taking 2, an old
+    // archive + new active pair resolves to length=1 (the active
+    // workspace), not length=2 (both), so the existing length-check
+    // predicate continues to express "exactly one active pair
+    // exists for this student + instructor".
     ctx.db
       .query("workspaces")
       .withIndex(
@@ -108,6 +127,7 @@ export async function resolveWorkspaceForNewSession(
             .eq("endedAt", undefined)
             .eq("deletedAt", undefined)
       )
+      .filter((q) => q.eq(q.field("archivedAt"), undefined))
       .take(2);
   const activePairWorkspaces = (
     await Promise.all([
@@ -120,7 +140,8 @@ export async function resolveWorkspaceForNewSession(
     activePairWorkspaces.length !== 1 ||
     !activeWorkspace ||
     activeWorkspace.deletedAt !== undefined ||
-    activeWorkspace.endedAt !== undefined
+    activeWorkspace.endedAt !== undefined ||
+    activeWorkspace.archivedAt !== undefined
   ) {
     return null;
   }

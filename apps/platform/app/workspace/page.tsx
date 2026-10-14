@@ -36,13 +36,24 @@ export default async function WorkspacePage() {
 
   const clerkUserId = await requireAuth();
   const token = await getConvexAuthToken();
+  // PR archive-gating: the picker surfaces ALL of the user's
+  // workspaces (active + archived) as muted rows. We pass
+  // `includeArchived: true` so the archived entry stays
+  // navigable per the spec's "should not be inaccessible"
+  // principle. The single-workspace redirect below additionally
+  // skips the auto-bounce when the only workspace is already
+  // archived — we don't redirect into a hidden archive.
   const workspaces = await fetchQuery(
     api.workspaces.getUserWorkspaces,
-    { ownerId: clerkUserId },
+    { ownerId: clerkUserId, includeArchived: true },
     { token: token ?? undefined }
   );
 
-  if (workspaces && workspaces.length === 1) {
+  if (
+    workspaces &&
+    workspaces.length === 1 &&
+    workspaces[0].archivedAt === undefined
+  ) {
     redirect(`/workspace/${workspaces[0]._id}`);
   }
 

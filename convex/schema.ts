@@ -373,9 +373,29 @@ export default defineSchema({
     studentImageCount: v.number(),
     instructorImageCount: v.number(),
     type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_student"), v.literal("admin_instructor"))),
+    // PR archive-gating: instructor- or participant-driven archive flag
+    // (distinct from the admin-only `deletedAt` soft-delete). When
+    // `archivedAt === undefined` the workspace is active and bookable;
+    // when set, `resolveActiveWorkspaceForPair` excludes it from booking
+    // flows (so a session pack never points to an archived workspace),
+    // but the workspace is still readable from the sidebar / picker so
+    // an instructor can return and unarchive. `archivedBy` records the
+    // Clerk subject that toggled the flag; cleared together with
+    // `archivedAt` on unarchive via `unarchiveWorkspaceImpl`.
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.string()),
   }).index("by_ownerId", ["ownerId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_instructorId_deletedAt", ["instructorId", "deletedAt"])
+    // PR archive-gating: lets `getInstructorArchivedMentorships` filter
+    // on `eq("instructorId", X).gt("archivedAt", 0)` in one indexed read
+    // without a full-table scan. UNSTAGED — the `workspaces` table holds
+    // one row per paying student (hundreds to low thousands in
+    // production) and Convex's automatic backfill on a small table is
+    // well under a minute. If production row count ever crosses ~50k,
+    // change to `staged: true` here and remove the flag in a follow-up
+    // deploy (Additive — no migration needed).
+    .index("by_instructorId_archivedAt", ["instructorId", "archivedAt"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
     .index("by_type", ["type"])

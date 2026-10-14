@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useSetWorkspaceAlias } from "@/lib/queries/convex/use-workspaces";
@@ -18,6 +18,22 @@ interface WorkspaceRenameTitleProps {
    * a "reset to default" hint.
    */
   canRename: boolean;
+  /**
+   * PR archive-gating: workspace's archive timestamp. When `undefined`
+   * we render the "Archive" icon button; when set we render the
+   * "Unarchive" button instead. Mutually exclusive — never both.
+   */
+  archivedAt?: number;
+  /**
+   * PR archive-gating: parent owns the confirmation dialog for
+   * archive / unarchive actions. Clicking the inline button
+   * invokes these callbacks with no side effects of its own so
+   * the dialog (with copy explaining the dashboard surface change
+   * + non-bookable transition) lives next to the mutation hooks
+   * in `workspace-client-page.tsx`.
+   */
+  onArchiveRequest?: () => void;
+  onUnarchiveRequest?: () => void;
   className?: string;
 }
 
@@ -65,6 +81,9 @@ export function WorkspaceRenameTitle({
   displayName,
   defaultName,
   canRename,
+  archivedAt,
+  onArchiveRequest,
+  onUnarchiveRequest,
   className,
 }: WorkspaceRenameTitleProps) {
   const [editing, setEditing] = useState(false);
@@ -237,6 +256,48 @@ export function WorkspaceRenameTitle({
               title={`Reset to default: ${defaultName}`}
             >
               Reset
+            </button>
+          )}
+          {/*
+           * PR archive-gating: archive/unarchive inline icon button.
+           * Either may be independently rendered — the parent only
+           * passes `onArchiveRequest` when the workspace is in a
+           * type / state that allows archive (mentorship + not ended),
+           * and only passes `onUnarchiveRequest` when the workspace
+           * was previously archived. The unchanged parent's other
+           * gating (admin_* types, ended-not-archived) naturally
+           * hides the button for invalid cases. Critically, when a
+           * workspace is archived AND ended (e.g. a participant
+           * archived the workspace and then the seat subsequently
+           * expired), the parent passes ONLY `onUnarchiveRequest`
+           * — the Backup restore path remains reachable even though
+           * the Archive direction is closed by `archiveWorkspaceImpl`.
+           * That state is reachable in production (seat expiry on an
+           * archived workspace) and we must not orphan the workspace
+           * with no inline unarchive control.
+           */}
+          {archivedAt === undefined && onArchiveRequest && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+              onClick={onArchiveRequest}
+              aria-label="Archive workspace"
+              title="Archive this workspace"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span>Archive</span>
+            </button>
+          )}
+          {archivedAt !== undefined && onUnarchiveRequest && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 inline-flex items-center gap-1.5"
+              onClick={onUnarchiveRequest}
+              aria-label="Unarchive workspace"
+              title="Restore this workspace to active state"
+            >
+              <ArchiveRestore className="h-3.5 w-3.5" />
+              <span>Unarchive</span>
             </button>
           )}
         </>

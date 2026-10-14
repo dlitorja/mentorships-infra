@@ -4,7 +4,10 @@ import { internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
-import { resolveActiveWorkspaceForPair } from "./workspaces";
+import {
+  resolveActiveWorkspaceForPair,
+  resolveSessionWorkspaceForPair,
+} from "./workspaces";
 import {
   resolveSessionWorkspace,
   resolveWorkspaceForNewSession,
@@ -325,7 +328,13 @@ export const getUpcomingSessions = query({
     const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
     await Promise.all(
       uniqueInstructorIds.map(async (instructorId) => {
-        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+        // Greptile round-11 P2: use the loose helper so the
+        // session's `workspaceId` still resolves to the
+        // archived / ended workspace when the live one is
+        // gone, preserving the calendar's "Open workspace"
+        // deep link. New bookings still go through
+        // `resolveActiveWorkspaceForPair` (strict).
+        const workspace = await resolveSessionWorkspaceForPair(ctx, {
           instructorId,
           studentUserId: args.studentId,
         });
@@ -374,7 +383,10 @@ export const getUpcomingSessionsWithInstructor = query({
     const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
     await Promise.all(
       uniqueInstructorIds.map(async (instructorId) => {
-        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+        // Greptile round-11 P2: see getUpcomingSessionsBasic
+        // for rationale. Prefer the loose helper on read paths
+        // so archived-session deep links still resolve.
+        const workspace = await resolveSessionWorkspaceForPair(ctx, {
           instructorId,
           studentUserId: args.studentId,
         });
@@ -505,7 +517,10 @@ export const getAllStudentSessionsWithInstructor = query({
     const workspaceByInstructorId = new Map<Id<"instructors">, Doc<"workspaces"> | null>();
     await Promise.all(
       uniqueInstructorIds.map(async (instructorId) => {
-        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+        // Greptile round-11 P2: see getUpcomingSessionsBasic
+        // for rationale. Prefer the loose helper on read paths
+        // so archived-session deep links still resolve.
+        const workspace = await resolveSessionWorkspaceForPair(ctx, {
           instructorId,
           studentUserId: args.studentId,
         });
@@ -2997,10 +3012,19 @@ export const startAdhocCall = mutation({
         message: "Workspace not found",
       });
     }
-    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+    if (
+      workspace.endedAt !== undefined ||
+      workspace.deletedAt !== undefined ||
+      workspace.archivedAt !== undefined
+    ) {
       throw new ConvexError({
         code: "VIDEO_SESSION_NOT_FOUND",
-        message: "Workspace is ended or deleted",
+        // PR archive-gating: an archived workspace is no longer
+        // bookable, so an attempted ad-hoc call returns the same
+        // generic error code as ended/deleted rather than leaking
+        // the new archive state. The message mirrors the read
+        // path so a debugger sees the same language everywhere.
+        message: "Workspace is ended, deleted, or archived",
       });
     }
     if (workspace.instructorId === undefined) {

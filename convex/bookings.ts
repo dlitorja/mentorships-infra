@@ -1,5 +1,5 @@
-import { query, mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { query, mutation, type MutationCtx } from "./_generated/server";
+import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /** Fetch a booking by id */
@@ -33,13 +33,109 @@ export const createPending = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    // Enforce single booking per idempotency key
+
+    // Idempotency check FIRST \u2014 Greptile round-6 P2:
+    // If a previous call already created (or confirmed) a booking
+    // for this `idempotencyKey`, return that row immediately without
+    // re-running any mutable state checks. A student who archives
+    // their only workspace mid-flight then retries the POST should
+    // still get the canonical "your booking already exists" response
+    // \u2014 not a generic 500. The archive guard below only fires on
+    // genuinely NEW booking creation.
     const existing = await ctx.db
       .query("bookings")
       .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", args.idempotencyKey))
       .first();
     if (existing && (existing.status === "pending" || existing.status === "confirmed")) {
       return { conflict: true as const, bookingId: existing._id };
+    }
+
+    // PR archive-gating: a caller whose ONLY eligible workspace pair
+    // with this instructor is archived or ended should not be able to
+    // submit a fresh calendar booking. The archive UI explicitly says
+    // "this workspace is no longer bookable", so creating a calendar
+    // event then confirming it would silently contradict the user's
+    // intent. The check is positive on workspace ownership — we apply
+    // it whenever the caller owns any eligible pair with this
+    // instructor — and bypasses it ONLY when the caller is a confirmed
+    // staff member (admin / support / instructor) per their `users`
+    // row role. Staff may still book on a student's behalf even when
+    // the student has archived the relationship (manual reconciliation
+    // scenarios call for this; e.g. an admin scheduling a follow-up
+    // on a refund dispute).
+    //
+    // Greptile round-5 #1: do NOT rely on `users.role === "student"`
+    // as the gate. The user's row may be missing (early-in-onboarding
+    // students whose Clerk subject is linked to a `workspaces.ownerId`
+    // but not yet to a full profile) or have an unset role. Treating
+    // those callers as "not a student" silently skips the archive
+    // check. Workspace ownership IS the structural truth and is the
+    // only durable check we can rely on.
+    const callerIsStaff = await isStaffCaller(ctx, identity.subject);
+    const callerPairs = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", identity.subject))
+      .collect();
+    const instructorPairs = callerPairs.filter(
+      (w) =>
+        w.instructorId === args.instructorId &&
+        w.deletedAt === undefined &&
+        (w.type === undefined || w.type === "mentorship")
+    );
+    if (!callerIsStaff && instructorPairs.length > 0) {
+      const hasActivePair = instructorPairs.some(
+        (w) => w.archivedAt === undefined && w.endedAt === undefined
+      );
+      if (!hasActivePair) {
+        // Greptile round-7 P2: throw a NAMED ConvexError so the
+        // HTTP booking routes can map it to a 409 with the friendly
+        // unarchive prompt instead of letting it bubble up as a
+        // generic /api/bookings -> 500 "Failed to create booking".
+        // The shape { code, message } matches the pattern used by
+        // `convex/sessions.ts` (line ~1678 e.g. `VIDEO_SESSION_NOT_FOUND`)
+        // which both server logs and the booking route can inspect.
+        // Greptile round-8 P2: distinguish the four failure shapes
+        // so the student gets actionable copy. `unarchiveWorkspaceImpl`
+        // clears ONLY `archivedAt` / `archivedBy` (not `endedAt`), so
+        // the original generic "unarchive / open a new workspace" copy
+        // was misleading for end-of-pack cases where there is no
+        // archive state to undo. We now surface a tailored message +
+        // a discriminator field on the ConvexError so the HTTP layer
+        // can render the right CTA without re-deriving the shape.
+        const allArchivedOnly = instructorPairs.every(
+          (w) => w.archivedAt !== undefined && w.endedAt === undefined
+        );
+        const allEndedOnly = instructorPairs.every(
+          (w) => w.endedAt !== undefined && w.archivedAt === undefined
+        );
+        const allBoth = instructorPairs.every(
+          (w) => w.archivedAt !== undefined && w.endedAt !== undefined
+        );
+        let code:
+          | "WORKSPACE_ARCHIVED_FOR_BOOKING"
+          | "WORKSPACE_ENDED_FOR_BOOKING"
+          | "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING"
+          | "WORKSPACE_INACTIVE_FOR_BOOKING";
+        let message: string;
+        if (allArchivedOnly) {
+          code = "WORKSPACE_ARCHIVED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: all of your mentorship workspaces with them are archived. Unarchive the workspace, then re-submit the booking.";
+        } else if (allEndedOnly) {
+          code = "WORKSPACE_ENDED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: your session pack with them has ended. Buy a new session pack or open a new workspace to book a session.";
+        } else if (allBoth) {
+          code = "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: all of your workspaces are archived AND your session pack has ended. Buy a new session pack or contact support.";
+        } else {
+          code = "WORKSPACE_INACTIVE_FOR_BOOKING";
+          message =
+            "Cannot book against this instructor: none of your mentorship workspaces with them are active. Unarchive the archived ones and buy a new pack for the ended ones.";
+        }
+        throw new ConvexError({ code, message });
+      }
     }
 
     const id = await ctx.db.insert("bookings", {
@@ -58,6 +154,28 @@ export const createPending = mutation({
     return { conflict: false as const, bookingId: id };
   },
 });
+
+/**
+ * Internal helper used by booking / ad-hoc writer paths to identify a
+ * caller who OPERATIONALLY counts as staff. Returns true when the
+ * caller has a `users` row whose role is `admin`, `support`, or
+ * `instructor`. Missing rows or unset roles return false — we never
+ * assume staff from absence.
+ *
+ * Used by `createPending` (booking guard), `startAdhocCall` (ad-hoc
+ * call gate), and any future writer path that needs to distinguish a
+ * participant-driven write (subject to the archive guard) from a
+ * staff-driven write (which can book / start calls against archived
+ * relationships for manual reconciliation).
+ */
+async function isStaffCaller(ctx: MutationCtx, clerkSubject: string): Promise<boolean> {
+  const callerUserRow = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", clerkSubject))
+    .first();
+  const role = callerUserRow?.role;
+  return role === "admin" || role === "support" || role === "instructor";
+}
 
 /** Confirm a pending booking by attaching calendar info */
 export const confirm = mutation({

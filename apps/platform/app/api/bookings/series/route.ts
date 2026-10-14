@@ -4,7 +4,11 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
-import { isUnauthorizedError } from "@/lib/errors";
+import {
+  isUnauthorizedError,
+  isArchivedWorkspaceBookingError,
+  getWorkspaceBookingErrorCode,
+} from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -35,6 +39,15 @@ type ResultItem = {
   reason?: string;
   bookingId?: string;
   reconciliationNeeded?: boolean;
+  // PR-C (Greptile round-8 P2): discriminated codes for the typed
+  // workspace blocker surfaced by `convex/bookings.createPending`.
+  // Optional because existing skip reasons (calendar conflicts, freebusy
+  // errors, etc.) don't carry one. The UI only renders `code` when set.
+  code?:
+    | "WORKSPACE_ARCHIVED_FOR_BOOKING"
+    | "WORKSPACE_ENDED_FOR_BOOKING"
+    | "WORKSPACE_ARCHIVED_AND_ENDED_FOR_BOOKING"
+    | "WORKSPACE_INACTIVE_FOR_BOOKING";
 };
 
 /**
@@ -323,6 +336,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         }
       } catch (err) {
+        // PR-C (Greptile round-7 + round-8): the calendar-booking
+        // guard in `convex/bookings.createPending` throws one of
+        // four typed `ConvexError` codes that discriminate the
+        // inactive-workspace shape (archive / ended / both / mixed).
+        // Surface each as a per-slot skip with the typed code + the
+        // friendly copy the server already produced (forwarded as
+        // the `reason` so the series UI can render it directly
+        // without re-deriving).
+        if (isArchivedWorkspaceBookingError(err)) {
+          // Use the typed helper so the discriminator is narrowed to
+          // one of the four `WorkspaceBookingErrorCode` runtime codes
+          // (Vercel build rejects a plain `string` here even though
+          // the repo-level typecheck accepts it via `--skipLibCheck`).
+          const code = getWorkspaceBookingErrorCode(err);
+          const reason =
+            (err as Error & { data?: { code?: string; message?: string } })
+              .data?.message ??
+            "This mentorship is currently inactive with this instructor.";
+          results.push({
+            weekOffset: i,
+            status: "skipped",
+            reason,
+            code: code ?? "WORKSPACE_ARCHIVED_FOR_BOOKING",
+          });
+          continue;
+        }
         console.error("Series iteration failed:", err);
         results.push({ weekOffset: i, status: "skipped", reason: "Unexpected error" });
       }
