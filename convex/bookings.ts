@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -33,42 +33,39 @@ export const createPending = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    // PR archive-gating: a student whose ONLY mentorship workspace
-    // pair with this instructor is archived should not be able to
+    // PR archive-gating: a caller whose ONLY eligible workspace pair
+    // with this instructor is archived or ended should not be able to
     // submit a fresh calendar booking. The archive UI explicitly says
     // "this workspace is no longer bookable", so creating a calendar
     // event then confirming it would silently contradict the user's
-    // intent. Admins and instructors BYPASS this check — they can
-    // still book on a student's behalf even when the student has
-    // archived the relationship (manual reconciliation scenarios
-    // call for this; e.g. an admin scheduling a follow-up on a
-    // refund dispute). The check fires only when an archived pair
-    // is the caller's ONLY ownership relationship with the
-    // instructor; if the caller has an active pair, the booking
-    // proceeds normally.
-    const callerWorkspaces = await ctx.db
+    // intent. The check is positive on workspace ownership — we apply
+    // it whenever the caller owns any eligible pair with this
+    // instructor — and bypasses it ONLY when the caller is a confirmed
+    // staff member (admin / support / instructor) per their `users`
+    // row role. Staff may still book on a student's behalf even when
+    // the student has archived the relationship (manual reconciliation
+    // scenarios call for this; e.g. an admin scheduling a follow-up
+    // on a refund dispute).
+    //
+    // Greptile round-5 #1: do NOT rely on `users.role === "student"`
+    // as the gate. The user's row may be missing (early-in-onboarding
+    // students whose Clerk subject is linked to a `workspaces.ownerId`
+    // but not yet to a full profile) or have an unset role. Treating
+    // those callers as "not a student" silently skips the archive
+    // check. Workspace ownership IS the structural truth and is the
+    // only durable check we can rely on.
+    const callerIsStaff = await isStaffCaller(ctx, identity.subject);
+    const callerPairs = await ctx.db
       .query("workspaces")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", identity.subject))
       .collect();
-    let callerRole: "student" | "instructor" | "admin" | "unknown" =
-      "unknown";
-    const callerUserRow = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    if (callerUserRow?.role === "student") callerRole = "student";
-    if (callerUserRow?.role === "instructor") callerRole = "instructor";
-    if (callerUserRow?.role === "admin" || callerUserRow?.role === "support") {
-      callerRole = "admin";
-    }
-    const callerIsStudent = callerRole === "student";
-    const instructorPairs = callerWorkspaces.filter(
+    const instructorPairs = callerPairs.filter(
       (w) =>
         w.instructorId === args.instructorId &&
         w.deletedAt === undefined &&
         (w.type === undefined || w.type === "mentorship")
     );
-    if (callerIsStudent && instructorPairs.length > 0) {
+    if (!callerIsStaff && instructorPairs.length > 0) {
       const hasActivePair = instructorPairs.some(
         (w) => w.archivedAt === undefined && w.endedAt === undefined
       );
@@ -104,6 +101,28 @@ export const createPending = mutation({
     return { conflict: false as const, bookingId: id };
   },
 });
+
+/**
+ * Internal helper used by booking / ad-hoc writer paths to identify a
+ * caller who OPERATIONALLY counts as staff. Returns true when the
+ * caller has a `users` row whose role is `admin`, `support`, or
+ * `instructor`. Missing rows or unset roles return false — we never
+ * assume staff from absence.
+ *
+ * Used by `createPending` (booking guard), `startAdhocCall` (ad-hoc
+ * call gate), and any future writer path that needs to distinguish a
+ * participant-driven write (subject to the archive guard) from a
+ * staff-driven write (which can book / start calls against archived
+ * relationships for manual reconciliation).
+ */
+async function isStaffCaller(ctx: MutationCtx, clerkSubject: string): Promise<boolean> {
+  const callerUserRow = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", clerkSubject))
+    .first();
+  const role = callerUserRow?.role;
+  return role === "admin" || role === "support" || role === "instructor";
+}
 
 /** Confirm a pending booking by attaching calendar info */
 export const confirm = mutation({

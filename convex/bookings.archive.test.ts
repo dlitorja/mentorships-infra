@@ -264,3 +264,143 @@ test("bookings.createPending accepts a caller with an archived pair when they ha
     bookingId: expect.any(String),
   });
 });
+
+test("bookings.createPending rejects when caller has NO users row but owns an archived pair (missing-profile guard)", async () => {
+  // Greptile round-5 #1: the original gate relied on
+  // `users.role === "student"` as the trigger. A user whose Clerk
+  // subject IS the ownerId of an archived workspace but who has not
+  // yet completed onboarding (no `users` row, or a `users` row with
+  // an unset role) would silently bypass the archive guard.
+  //
+  // The fix changes the heuristic: gate on workspace OWNERSHIP (a
+  // positive check) and bypass only when the user is CONFIRMED staff
+  // (admin / support / instructor). After the fix, this case rejects.
+  const STUDENT_CLERK = "user_student_no_profile";
+  const INSTRUCTOR_USER = "user_instructor_no_profile";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await t.run(async (ctx) => {
+    // Seed the instructor row only — no `users` row for the student.
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_USER,
+      email: "instructor-noProfile@example.test",
+      name: "Test Instructor",
+    });
+    return { instructorId };
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaces", {
+      name: "Archived pair (— student has no profile)",
+      ownerId: STUDENT_CLERK, // mock identity subject is the owner
+      instructorId: instructorId as never,
+      type: "mentorship",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      archivedAt: Date.now() - 1000,
+    });
+  });
+  const studentClient = t.withIdentity({ subject: STUDENT_CLERK });
+  await expect(
+    studentClient.mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_no_profile_archived_1",
+    })
+  ).rejects.toThrow(/archived or ended/);
+});
+
+test("bookings.createPending rejects when caller has a users row with UNSET role but owns an archived pair", async () => {
+  // Greptile round-5 #1 companion: a student with a `users` row but
+  // an unset role field (e.g. legacy / migration in-progress) should
+  // still get the archive guard. The role field is OPTIONAL, so the
+  // absence of `role` must not be treated as "not a student".
+  const STUDENT_CLERK = "user_student_unset_role";
+  const INSTRUCTOR_USER = "user_instructor_unset_role";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await t.run(async (ctx) => {
+    // The role field on `users` is optional per the schema. Insert a
+    // row whose role is explicitly absent so the cast-heuristic of the
+    // original gating code (`role === "student"` => check the archive)
+    // would have silently bypassed the guard.
+    await ctx.db.insert("users", {
+      userId: STUDENT_CLERK,
+      clerkId: STUDENT_CLERK,
+      email: "unset-role@example.test",
+      firstName: "Test",
+      lastName: "Student",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_USER,
+      email: "instructor-unsetRole@example.test",
+      name: "Test Instructor",
+    });
+    return { instructorId };
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaces", {
+      name: "Archived pair (— student has unset role)",
+      ownerId: STUDENT_CLERK,
+      instructorId: instructorId as never,
+      type: "mentorship",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      archivedAt: Date.now() - 1000,
+    });
+  });
+  const studentClient = t.withIdentity({ subject: STUDENT_CLERK });
+  await expect(
+    studentClient.mutation(api.bookings.createPending, {
+      instructorId: instructorId as never,
+      ...baseCreatePendingArgs,
+      idempotencyKey: "ik_unset_role_archived_1",
+    })
+  ).rejects.toThrow(/archived or ended/);
+});
+
+test("bookings.createPending accepts an admin caller with an archived pair (admin bypass)", async () => {
+  // The admin bypass uses positive role identification — confirm
+  // an "admin" user can still book against an archived relationship.
+  const ADMIN_CLERK = "user_admin_archived";
+  const INSTRUCTOR_USER = "user_instructor_admin";
+  const t = convexTest(schema, modules);
+  const { instructorId } = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: ADMIN_CLERK,
+      clerkId: ADMIN_CLERK,
+      email: "admin-bypass@example.test",
+      firstName: "Test",
+      lastName: "Admin",
+      role: "admin",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_USER,
+      email: "instructor-admin@example.test",
+      name: "Target Instructor",
+    });
+    return { instructorId };
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaces", {
+      name: "Archived pair (— admin scheduling follow-up)",
+      ownerId: ADMIN_CLERK,
+      instructorId: instructorId as never,
+      type: "mentorship",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+      archivedAt: Date.now() - 1000,
+    });
+  });
+  const adminClient = t.withIdentity({ subject: ADMIN_CLERK });
+  const result = await adminClient.mutation(api.bookings.createPending, {
+    instructorId: instructorId as never,
+    ...baseCreatePendingArgs,
+    idempotencyKey: "ik_admin_bypass_1",
+  });
+  expect(result).toEqual({
+    conflict: false,
+    bookingId: expect.any(String),
+  });
+});
+
