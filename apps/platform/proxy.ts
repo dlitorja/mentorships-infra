@@ -526,90 +526,77 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
           // outage doesn't deadlock the request thread; default to
           // allow on timeout (loud telemetry, not a 500 on the
           // student).
-          const token = await authResult.getToken({ template: "convex" });
-          if (token) {
-            // Lazy-import the convex client to avoid spinning it up
-            // on the dominant case (admin/instructor traffic that
-            // doesn't trip the role check above). Editor bundle sees
-            // a thin import; middleware runtime pays only the cost
-            // when we land in this branch.
+          //
+          // Greptile P2 follow-up: pull `authResult.getToken(...)`
+          // and the Convex client setup INSIDE the race window so
+          // a slow Clerk SDK call doesn't push past the 800ms budget
+          // before the race even starts. Same sentinel pattern.
+          const TIMEOUT_SENTINEL = { __timeout: true } as const;
+          type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
+          const gateCheck = async (): Promise<GateEnv | null> => {
+            const token = await authResult.getToken({ template: "convex" });
+            if (!token) return null;
             const { ConvexHttpClient } = await import("convex/browser");
             const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-            if (convexUrl) {
-              const client = new ConvexHttpClient(convexUrl);
-              client.setAuth(token);
-              const { api } = await import("@/convex/_generated/api");
+            if (!convexUrl) return null;
+            const client = new ConvexHttpClient(convexUrl);
+            client.setAuth(token);
+            const { api } = await import("@/convex/_generated/api");
+            await client
+              .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
+              .catch(() => null);
+            return (await client.query(
+              api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+              {}
+            )) as GateEnv | null;
+          };
+          const raced: GateEnv | null | TimeoutSentinel =
+            await Promise.race<GateEnv | null | TimeoutSentinel>([
+              gateCheck(),
+              new Promise<TimeoutSentinel>((resolve) =>
+                setTimeout(() => resolve(TIMEOUT_SENTINEL), 800),
+              ),
+            ]);
+          let gate: GateEnv | null;
+          if (raced === TIMEOUT_SENTINEL) {
+            // Greptile P2 follow-up: fire-and-forget the
+            // observability call so we don't add latency after
+            // the 800ms budget has already elapsed. See block
+            // comment above for rationale.
+            void reportError({
+              source: "proxy.onboarding-gate",
+              error: new Error(
+                "Convex gate query exceeded 800ms budget; falling through to allow",
+              ),
+              message:
+                "Onboarding gate check timed out — request allowed past gate on best-effort basis",
+              level: "warn",
+              context: { userId, pathname },
+            }).catch(() => null);
+            gate = null;
+          } else {
+            // `raced` is narrowed to `GateEnv | null` here.
+            gate = raced as GateEnv | null;
+          }
 
-              async function gateCheck(): Promise<GateEnv | null> {
-                await client
-                  .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
-                  .catch(() => null);
-                return (await client.query(
-                  api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
-                  {}
-                )) as GateEnv | null;
-              }
-
-              // Greptile P2 fix: distinguish a timeout outcome from a
-              // successful fall-through-to-allow. A naive `Promise.race`
-              // with `setTimeout(() => null)` swallows the timeout
-              // silently — observers see the same null `gate` as a
-              // legitimate "student is un-gated" result and the gate
-              // silently defeats itself during a Convex slowdown with
-              // no log line. We use a sentinel object to tag the
-              // timeout case and emit a `reportWarn` before allowing
-              // the request through.
-              const TIMEOUT_SENTINEL = { __timeout: true } as const;
-              type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
-              const raced: GateEnv | null | TimeoutSentinel =
-                await Promise.race<GateEnv | null | TimeoutSentinel>([
-                  gateCheck(),
-                  new Promise<TimeoutSentinel>((resolve) =>
-                    setTimeout(() => resolve(TIMEOUT_SENTINEL), 800),
-                  ),
-                ]);
-              let gate: GateEnv | null;
-              if (raced === TIMEOUT_SENTINEL) {
-                // Greptile P2 follow-up: fire-and-forget the
-                // observability call so we don't add latency after
-                // the 800ms budget has already elapsed. See block
-                // comment above for rationale.
-                void reportError({
-                  source: "proxy.onboarding-gate",
-                  error: new Error(
-                    "Convex gate query exceeded 800ms budget; falling through to allow",
-                  ),
-                  message:
-                    "Onboarding gate check timed out — request allowed past gate on best-effort basis",
-                  level: "warn",
-                  context: { userId, pathname },
-                }).catch(() => null);
-                gate = null;
-              } else {
-                // `raced` is narrowed to `GateEnv | null` here.
-                gate = raced as GateEnv | null;
-              }
-
-              if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
-                // Greptile P2 follow-up: fire-and-forget the
-                // observability call. The redirect itself is what
-                // matters for the student; the log line is best-
-                // effort. See block comment above for rationale.
-                void reportInfo({
-                  source: "proxy.onboarding-gate",
-                  message: "Student gated — redirected to /onboarding/[id]",
-                  context: {
-                    event: "redirected",
-                    userId,
-                    pathname,
-                    onboardingId: gate.onboardingId,
-                    rowStatus: gate.rowStatus,
-                  },
-                }).catch(() => null);
-                const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
-                return NextResponse.redirect(redirect);
-              }
-            }
+          if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
+            // Greptile P2 follow-up: fire-and-forget the
+            // observability call. The redirect itself is what
+            // matters for the student; the log line is best-
+            // effort. See block comment above for rationale.
+            void reportInfo({
+              source: "proxy.onboarding-gate",
+              message: "Student gated — redirected to /onboarding/[id]",
+              context: {
+                event: "redirected",
+                userId,
+                pathname,
+                onboardingId: gate.onboardingId,
+                rowStatus: gate.rowStatus,
+              },
+            }).catch(() => null);
+            const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
+            return NextResponse.redirect(redirect);
           }
         }
       } catch (err) {
