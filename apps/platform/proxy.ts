@@ -195,7 +195,12 @@ const isAdminRoute = createRouteMatcher([
  *
  * The "gated" set is the set of protected routes that a student
  * who has not yet completed onboarding MUST NOT be allowed to
- * navigate to. Currently: workspace, sessions, calendar, settings.
+ * navigate to. Currently: workspace, sessions, calendar, settings,
+ * AND the `/dashboard/workspaces/[id]` deep-link surface that the
+ * admin-onboarding student email renders (R6 / PR 15). Without
+ * the deep-link, a student could open the workspace from the
+ * onboarding email without finishing the questionnaire.
+ *
  * The dashboard and onboarding pages stay open as the "soft gate"
  * surface (banner + CTA). The list of instructors (browsing
  * mentors) is intentionally NOT gated so a student who has been
@@ -207,14 +212,18 @@ const isOnboardingGatedPath = createRouteMatcher([
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",
+  "/dashboard/workspaces/(.*)", // R6: admin-onboarding email deep-link
 ]);
 
 /**
  * Pages that are always allowed even when the onboarding gate would
- * otherwise trip — the student lands here to finish setup.
+ * otherwise trip — the student lands here to finish setup. Note the
+ * `/dashboard` exception is intentionally narrow (NO `(.*)`); the
+ * workspace deep-link under `/dashboard/workspaces/...` lives in
+ * the gated set above.
  */
 const isOnboardingAllowedPath = createRouteMatcher([
-  "/dashboard(.*)",
+  "/dashboard", // bare root only; sub-paths (workspaces, instructor) are gated
   "/onboarding(.*)",
   "/instructors(.*)", // browse pages are always open
   "/settings/identity(.*)", // allow password reset / sign-out
@@ -458,6 +467,14 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       try {
         // Resolve role. We don't gate instructors / admins / support.
         // Students trip the gate; everyone else bypasses.
+        //
+        // Greptile P1 fix: a missing-role user must default to "student"
+        // (the same fallback as `getServerUserRole` in
+        // `lib/auth-helpers.ts`) rather than passing through the gate
+        // silently. Without this, a student whose Clerk
+        // `publicMetadata.role` is unset — common for legacy /
+        // admin-created accounts (HUC-47) — skips the gate on every
+        // navigation.
         const claimsRole = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
         let role: string | undefined = typeof claimsRole === "string" ? claimsRole : undefined;
         if (!role) {
@@ -468,8 +485,17 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
               ? clerkUser.publicMetadata.role
               : undefined;
           } catch {
-            role = undefined;
+            // Mirror `getServerUserRole` exactly: even on Clerk API
+            // failure, default to "student" so we don't lose a gated
+            // student to a transient outage.
+            role = "student";
           }
+        }
+        // Final fallback for the no-claim / no-publicMetadata case
+        // (matches `getServerUserRole`'s "Clerk succeeded but role key
+        // missing" branch above).
+        if (!role) {
+          role = "student";
         }
 
         if (role === "student") {
@@ -514,10 +540,41 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
                 )) as GateEnv | null;
               }
 
-              const gate: GateEnv | null = await Promise.race<GateEnv | null>([
-                gateCheck(),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 800)),
-              ]);
+              // Greptile P2 fix: distinguish a timeout outcome from a
+              // successful fall-through-to-allow. A naive `Promise.race`
+              // with `setTimeout(() => null)` swallows the timeout
+              // silently — observers see the same null `gate` as a
+              // legitimate "student is un-gated" result and the gate
+              // silently defeats itself during a Convex slowdown with
+              // no log line. We use a sentinel object to tag the
+              // timeout case and emit a `reportWarn` before allowing
+              // the request through.
+              const TIMEOUT_SENTINEL = { __timeout: true } as const;
+              type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
+              const raced: GateEnv | null | TimeoutSentinel =
+                await Promise.race<GateEnv | null | TimeoutSentinel>([
+                  gateCheck(),
+                  new Promise<TimeoutSentinel>((resolve) =>
+                    setTimeout(() => resolve(TIMEOUT_SENTINEL), 800),
+                  ),
+                ]);
+              let gate: GateEnv | null;
+              if (raced === TIMEOUT_SENTINEL) {
+                await reportError({
+                  source: "proxy.onboarding-gate",
+                  error: new Error(
+                    "Convex gate query exceeded 800ms budget; falling through to allow",
+                  ),
+                  message:
+                    "Onboarding gate check timed out — request allowed past gate on best-effort basis",
+                  level: "warn",
+                  context: { userId, pathname },
+                });
+                gate = null;
+              } else {
+                // `raced` is narrowed to `GateEnv | null` here.
+                gate = raced as GateEnv | null;
+              }
 
               if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
                 await reportInfo({

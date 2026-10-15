@@ -2228,6 +2228,19 @@ export const getStudentOnboardingGateForCurrentUser = query({
       };
     }
 
+    // Greptile P1 fix: gate is keyed to the MOST-RECENT non-cancelled
+    // `adminOnboardings` row, not on iterating older rows whose
+    // questionnaire is missing. Older rows for a returning student
+    // are historical; we don't want a stale `processing` row from
+    // a prior term to re-block the student after they've finished
+    // their current questionnaire.
+    //
+    // Read strategy: `.collect()` reads every row in the index
+    // partition for this Clerk userId in one read. Real students
+    // have a few dozen onboardings at most; well under the per-
+    // handler read limit. We then pick the first non-cancelled
+    // row from the `desc`-ordered result (which is already sorted
+    // newest-first via the index).
     const rows = await ctx.db
       .query("adminOnboardings")
       .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
@@ -2236,58 +2249,68 @@ export const getStudentOnboardingGateForCurrentUser = query({
       .order("desc")
       .collect();
 
-    for (const row of rows) {
-      if (row.status === "cancelled") {
-        // Cancelled = terminal-abandoned, treat as "no gate"; student's
-        // not enrolled anymore.
-        continue;
-      }
+    const mostRecentNonCancelled =
+      rows.find((row) => row.status !== "cancelled") ?? null;
 
-      const submission = await ctx.db
-        .query("onboardingQuestionnaireSubmissions")
-        .withIndex("by_onboardingId", (q) => q.eq("onboardingId", row._id))
-        .first();
-
-      const questionnaireSubmitted = submission?.status === "submitted";
-
-      if (questionnaireSubmitted) {
-        // Most recent row has its work done; older rows would only be
-        // historical and not actionable.
-        continue;
-      }
-
-      // Build a context-aware reason text so the banner and dashboard
-      // welcome card can render in plain language.
-      let reason: string;
-      if (row.status === "failed") {
-        reason =
-          "Your onboarding setup hit a snag. Your administrator will retry shortly — once it's fixed, head back to finish the questionnaire.";
-      } else if (row.status === "queued" || row.status === "processing") {
-        reason =
-          "We're preparing your workspaces. While we set things up, take a few minutes to answer some questions so your instructor knows what to focus on.";
-      } else {
-        // row.status === "completed" but questionnaire not submitted —
-        // returning student: workspaces exist but their answers
-        // haven't been recorded for this term.
-        reason =
-          "Your workspaces are ready. Tell your instructor a little about your goals before booking your first session.";
-      }
-
+    if (!mostRecentNonCancelled) {
+      // All rows are terminal-cancelled or there are none. Either
+      // way the student is not enrolled; don't gate.
       return {
-        requiresOnboardingCompletion: true,
-        onboardingId: row._id,
-        rowStatus: row.status,
-        questionnaireSubmitted,
-        reason,
+        requiresOnboardingCompletion: false,
+        onboardingId: null,
+        rowStatus: null,
+        questionnaireSubmitted: true,
+        reason: null,
       };
     }
 
+    const submission = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", mostRecentNonCancelled._id),
+      )
+      .first();
+
+    const questionnaireSubmitted = submission?.status === "submitted";
+
+    if (questionnaireSubmitted) {
+      // The most-recent non-cancelled row has its questionnaire done.
+      // Older rows are historical; we do not gate.
+      return {
+        requiresOnboardingCompletion: false,
+        onboardingId: null,
+        rowStatus: mostRecentNonCancelled.status,
+        questionnaireSubmitted: true,
+        reason: null,
+      };
+    }
+
+    // Build a context-aware reason text so the banner and dashboard
+    // welcome card can render in plain language.
+    let reason: string;
+    if (mostRecentNonCancelled.status === "failed") {
+      reason =
+        "Your onboarding setup hit a snag. Your administrator will retry shortly — once it's fixed, head back to finish the questionnaire.";
+    } else if (
+      mostRecentNonCancelled.status === "queued" ||
+      mostRecentNonCancelled.status === "processing"
+    ) {
+      reason =
+        "We're preparing your workspaces. While we set things up, take a few minutes to answer some questions so your instructor knows what to focus on.";
+    } else {
+      // status === "completed" but questionnaire not submitted —
+      // returning student: workspaces exist but their answers
+      // haven't been recorded for this term.
+      reason =
+        "Your workspaces are ready. Tell your instructor a little about your goals before booking your first session.";
+    }
+
     return {
-      requiresOnboardingCompletion: false,
-      onboardingId: null,
-      rowStatus: null,
-      questionnaireSubmitted: true,
-      reason: null,
+      requiresOnboardingCompletion: true,
+      onboardingId: mostRecentNonCancelled._id,
+      rowStatus: mostRecentNonCancelled.status,
+      questionnaireSubmitted: false,
+      reason,
     };
   },
 });

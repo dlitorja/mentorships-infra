@@ -889,3 +889,56 @@ test("getStudentOnboardingGateForCurrentUser: historical completed row falls thr
   expect(result.onboardingId).toBe(activeId);
   expect(result.rowStatus).toBe("processing");
 });
+
+test("getStudentOnboardingGateForCurrentUser: newest submitted row clears the gate even when older rows are incomplete", async () => {
+  // Greptile P1 follow-up: a returning student may have multiple
+  // `adminOnboardings` rows assigned to them. The NEWEST non-cancelled
+  // row's questionnaire submission is the single source of truth —
+  // older rows are historical and should NOT re-block the student
+  // after they've finished their current term. (Originally the
+  // query iterated `.order("desc")` and tripped on the first
+  // incomplete older row, which is wrong.)
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_newest_submitted";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate I", slug: "inst-gate-i" });
+    // Older row: completed term, but questionnaire draft was never
+    // submitted before the term rolled over.
+    const historicalId = await seedAdminOnboarding(ctx, {
+      email: "gate-i@example.com",
+      status: "completed",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now() - 2_000_000,
+      perInstructor: [{ instructorId, isRenewal: true }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId: historicalId,
+      studentClerkId,
+      status: "draft", // never submitted for the historical term
+    });
+    // Newest row: fresh admin onboarding (this term), status
+    // `processing`, and the questionnaire has been submitted.
+    const newestId = await seedAdminOnboarding(ctx, {
+      email: "gate-i@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now(),
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId: newestId,
+      studentClerkId,
+      status: "submitted",
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-i@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  // Newest non-cancelled row's questionnaire is submitted → no gate,
+  // even though the historical row still has a draft.
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+  expect(result.questionnaireSubmitted).toBe(true);
+});
