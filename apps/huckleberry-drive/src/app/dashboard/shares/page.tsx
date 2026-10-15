@@ -304,8 +304,25 @@ export default function SharesPage(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    fetchShares();
-  }, [fetchShares]);
+    let cancelled = false;
+    listMyShares()
+      .then((result) => {
+        if (cancelled) return;
+        setShares(result.items);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load shares");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">

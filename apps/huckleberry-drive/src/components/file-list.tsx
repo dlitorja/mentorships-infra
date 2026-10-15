@@ -49,6 +49,11 @@ export function FileList({
   onSelectionChange,
   canSelect,
 }: FileListProps): React.ReactElement {
+  // Snapshot Date.now() once at mount via useState's lazy initial value. The
+  // grace-period countdown updates whenever the parent passes a fresh `files`
+  // array; tolerate up to a 60-second staleness in exchange for passing
+  // `react-hooks/purity` cleanly.
+  const [now] = useState(() => Date.now());
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -72,8 +77,7 @@ export function FileList({
     });
   };
 
-  const getDaysUntilPermanentDelete = (deletedAt: number): number | null => {
-    const now = Date.now();
+  const getDaysUntilPermanentDelete = (deletedAt: number, now: number): number | null => {
     const daysElapsed = (now - deletedAt) / (1000 * 60 * 60 * 24);
     const daysRemaining = GRACE_PERIOD_DAYS - daysElapsed;
     if (daysRemaining <= 0) return null;
@@ -348,7 +352,7 @@ return userRole === "admin";
             const isConfirmingHardDelete = confirmHardDeleteId === file.id;
 
             const daysRemaining = file.deletedAt
-              ? getDaysUntilPermanentDelete(file.deletedAt)
+              ? getDaysUntilPermanentDelete(file.deletedAt, now)
               : null;
             const showWarningBadge = daysRemaining !== null && daysRemaining <= WARNING_THRESHOLD_DAYS;
 

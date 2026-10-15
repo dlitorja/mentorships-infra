@@ -35,22 +35,40 @@ export default function AdminInvitationsPage(): React.ReactElement {
   const [showConfirmCancel, setShowConfirmCancel] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
 
-  const fetchInvitations = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const result: InvitationListResponse = await listHdInvitations();
-      setInvitations(result.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load invitations");
-    } finally {
-      setIsLoading(false);
-    }
+  const refreshInvitations = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    return listHdInvitations()
+      .then((result) => {
+        setInvitations(result.items);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load invitations");
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    fetchInvitations();
-  }, [fetchInvitations]);
+    let cancelled = false;
+    listHdInvitations()
+      .then((result: InvitationListResponse) => {
+        if (cancelled) return;
+        setInvitations(result.items);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load invitations");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSendInvitation = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,39 +92,39 @@ export default function AdminInvitationsPage(): React.ReactElement {
       setEmailInput("");
       setSuccessMessage(`Invitation sent to ${trimmedEmail} as ${ROLE_LABELS[roleInput]}`);
       setTimeout(() => setSuccessMessage(null), 3000);
-      await fetchInvitations();
+      await refreshInvitations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send invitation");
     } finally {
       setIsSending(false);
     }
-  }, [emailInput, roleInput, fetchInvitations]);
+  }, [emailInput, roleInput, refreshInvitations]);
 
   const handleCancelInvitation = useCallback(async (invitationId: string) => {
     try {
       setIsCancelling(invitationId);
       await cancelHdInvitation(invitationId);
       setShowConfirmCancel(null);
-      await fetchInvitations();
+      await refreshInvitations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel invitation");
     } finally {
       setIsCancelling(null);
     }
-  }, [fetchInvitations]);
+  }, [refreshInvitations]);
 
   const handleDeleteInvitation = useCallback(async (invitationId: string) => {
     try {
       setIsDeleting(invitationId);
       await deleteHdInvitation(invitationId);
       setShowConfirmDelete(null);
-      await fetchInvitations();
+      await refreshInvitations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete invitation");
     } finally {
       setIsDeleting(null);
     }
-  }, [fetchInvitations]);
+  }, [refreshInvitations]);
 
   const handleResendInvitation = useCallback(async (invitationId: string): Promise<void> => {
     try {
@@ -124,11 +142,11 @@ export default function AdminInvitationsPage(): React.ReactElement {
     }
 
     try {
-      await fetchInvitations();
+      await refreshInvitations();
     } catch {
       setError("Invitation resent but failed to refresh the list");
     }
-  }, [fetchInvitations]);
+  }, [refreshInvitations]);
 
   const filteredInvitations = statusFilter === "all"
     ? invitations
@@ -296,7 +314,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center">
           <p className="text-red-400">{error}</p>
           <button
-            onClick={fetchInvitations}
+            onClick={refreshInvitations}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry

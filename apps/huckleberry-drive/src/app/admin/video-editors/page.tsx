@@ -151,11 +151,13 @@ function QuotaInput({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setValue(
-      assignment.assignment.storageQuotaBytes === undefined
-        ? ""
-        : bytesToGB(assignment.assignment.storageQuotaBytes)
-    );
+    Promise.resolve().then(() => {
+      setValue(
+        assignment.assignment.storageQuotaBytes === undefined
+          ? ""
+          : bytesToGB(assignment.assignment.storageQuotaBytes)
+      );
+    });
   }, [assignment.assignment.storageQuotaBytes]);
 
   const handleSave = useCallback(async () => {
@@ -360,8 +362,25 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    fetchEditors();
-  }, [fetchEditors]);
+    let cancelled = false;
+    getVideoEditors()
+      .then((result) => {
+        if (cancelled) return;
+        setEditors(result.editors);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load video editors");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSaved = useCallback((message = "Quota updated successfully") => {
     setSuccessMessage(message);

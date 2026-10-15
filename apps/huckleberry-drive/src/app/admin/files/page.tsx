@@ -89,66 +89,108 @@ setDownloadingIds((prev) => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const fetchInstructors = useCallback(async () => {
+  const loadMoreFiles = useCallback(async () => {
+    if (pagination.cursor === null) return;
     try {
-      const data = await getAdminInstructors();
-      setInstructors(data);
-    } catch (err) {
-      console.error("Failed to fetch instructors:", err);
-    }
-  }, []);
-
-  const fetchFiles = useCallback(async (cursor?: number, append = false) => {
-    try {
-      if (!append) setIsLoading(true);
-      else setIsLoadingMore(true);
-      setError(null);
-
+      setIsLoadingMore(true);
       const params: Parameters<typeof listFilesWithParams>[0] = {
         status: statusFilter === "all" ? undefined : statusFilter,
         search: debouncedSearch || undefined,
-        cursor,
+        cursor: pagination.cursor,
         limit: 50,
       };
-
       if (instructorFilter) {
         params.instructorId = instructorFilter;
       }
-
       const result: FileListResponse = await listFilesWithParams(params);
-
-      if (append) {
-        setFiles((prev) => [...(prev || []), ...result.files]);
-      } else {
-        setFiles(result.files);
-      }
+      setFiles((prev) => [...(prev || []), ...result.files]);
       setPagination(result.pagination);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load more files");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [instructorFilter, statusFilter, debouncedSearch, pagination.cursor]);
+
+  const refreshFiles = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Parameters<typeof listFilesWithParams>[0] = {
+        status: statusFilter === "all" ? undefined : statusFilter,
+        search: debouncedSearch || undefined,
+        limit: 50,
+      };
+      if (instructorFilter) {
+        params.instructorId = instructorFilter;
+      }
+      const result: FileListResponse = await listFilesWithParams(params);
+      setFiles(result.files);
+      setPagination(result.pagination);
+      setSelectedFileIds(new Set());
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load files");
     } finally {
       setIsLoading(false);
-      setIsLoadingMore(false);
     }
   }, [instructorFilter, statusFilter, debouncedSearch]);
 
   useEffect(() => {
-    fetchInstructors();
-  }, [fetchInstructors]);
+    let cancelled = false;
+    getAdminInstructors()
+      .then((data) => {
+        if (cancelled) return;
+        setInstructors(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to fetch instructors:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
+    let cancelled = false;
+    const params: Parameters<typeof listFilesWithParams>[0] = {
+      status: statusFilter === "all" ? undefined : statusFilter,
+      search: debouncedSearch || undefined,
+      limit: 50,
+    };
+    if (instructorFilter) {
+      params.instructorId = instructorFilter;
+    }
+    listFilesWithParams(params)
+      .then((result: FileListResponse) => {
+        if (cancelled) return;
+        setFiles(result.files);
+        setPagination(result.pagination);
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load files");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [instructorFilter, statusFilter, debouncedSearch]);
 
   const handleLoadMore = useCallback(() => {
     if (pagination.cursor !== null) {
-      fetchFiles(pagination.cursor, true);
+      loadMoreFiles();
     }
-  }, [pagination.cursor, fetchFiles]);
+  }, [pagination.cursor, loadMoreFiles]);
 
   const handleFilesChange = useCallback(() => {
     setSelectedFileIds(new Set());
-    fetchFiles();
-  }, [fetchFiles]);
+    refreshFiles();
+  }, [refreshFiles]);
 
   const handleHardDelete = useCallback(async (fileId: string) => {
     setIsHardDeleting(true);
@@ -379,7 +421,7 @@ setSelectedFileIds(new Set());
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center">
           <p className="text-red-400">{error}</p>
           <button
-            onClick={() => fetchFiles()}
+            onClick={() => void refreshFiles()}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry

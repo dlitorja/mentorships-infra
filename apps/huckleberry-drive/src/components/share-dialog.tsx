@@ -22,13 +22,14 @@ export function ShareDialog({ uploadId, originalName, open, onClose }: ShareDial
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    Promise.resolve().then(() => {
       setLabel("");
       setExpiry(30);
       setShareUrl(null);
       setError(null);
       setCopied(false);
-    }
+    });
   }, [open]);
 
   const handleCreate = useCallback(async () => {

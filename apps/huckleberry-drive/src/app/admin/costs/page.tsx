@@ -45,26 +45,38 @@ export default function CostsPage(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchCosts = async () => {
-    try {
-      setError(null);
-      const data = await getCosts();
-      setCosts([data.currentMonth, ...data.historical]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load costs");
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  };
-
   useEffect(() => {
-    fetchCosts();
+    let cancelled = false;
+    getCosts()
+      .then((data) => {
+        if (cancelled) return;
+        setCosts([data.currentMonth, ...data.historical]);
+        setError(null);
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load costs");
+        setIsLoading(false);
+        setIsRefreshing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchCosts();
+    getCosts()
+      .then((data) => {
+        setCosts([data.currentMonth, ...data.historical]);
+        setError(null);
+        setIsRefreshing(false);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load costs");
+        setIsRefreshing(false);
+      });
   };
 
   if (isLoading) {

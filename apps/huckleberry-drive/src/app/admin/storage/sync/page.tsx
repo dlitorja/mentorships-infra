@@ -66,8 +66,30 @@ export default function StorageSyncPage(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    fetchSyncStatus();
-  }, [fetchSyncStatus]);
+    let cancelled = false;
+    fetch("/api/storage/sync-status")
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        return await response.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setSyncStatus(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to fetch sync status");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleCleanup = useCallback(async () => {
     if (!confirm("This will permanently delete all expired files. Continue?")) {
