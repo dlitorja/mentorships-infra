@@ -534,6 +534,47 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
           const TIMEOUT_SENTINEL = { __timeout: true } as const;
           type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
           const gateCheck = async (): Promise<GateEnv | null> => {
+            // Greptile round-5 P1: when `role` resolved to "student"
+            // purely because the Clerk `publicMetadata.role` claim
+            // is missing, probe the Convex `instructors` table for
+            // an active record before defaulting. A legacy
+            // instructor whose Clerk role key was never written
+            // (common for admin-created accounts, see HUC-47)
+            // would otherwise get redirected into their old
+            // student-shape questionnaire. The probe is gated to
+            // the missing-claim case, so the production hot path
+            // is unchanged.
+            if (!claimsRole) {
+              try {
+                const probeToken = await authResult.getToken({ template: "convex" });
+                if (probeToken) {
+                  const { ConvexHttpClient } = await import("convex/browser");
+                  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+                  if (convexUrl) {
+                    const probeClient = new ConvexHttpClient(convexUrl);
+                    probeClient.setAuth(probeToken);
+                    const { api } = await import("@/convex/_generated/api");
+                    const instructorRecord = (await probeClient.query(
+                      api.instructors.getInstructorByUserId,
+                      { userId },
+                    )) as { _id: string } | null;
+                    if (instructorRecord) {
+                      // Verified instructor with no Clerk role
+                      // claim — bypass the gate entirely. Mirrors
+                      // the same convention that
+                      // `getServerUserRole` uses to widen access
+                      // for admin-created instructor accounts.
+                      return null;
+                    }
+                  }
+                }
+              } catch {
+                // Convex outage for the instructor-record probe:
+                // fall through; role stays at the existing default
+                // (matches the no-publicMetadata role fallback).
+              }
+            }
+            if (role !== "student") return null;
             const token = await authResult.getToken({ template: "convex" });
             if (!token) return null;
             const { ConvexHttpClient } = await import("convex/browser");
