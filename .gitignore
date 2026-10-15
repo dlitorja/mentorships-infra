@@ -118,3 +118,10 @@ local/
 convex/_generated/ai/
 skills-lock.json
 .env*
+
+# packages/security — TS source emits next-to-source under `src/`.
+# These are local tsc -b --force outputs; not part of the package contract.
+packages/security/src/*.d.ts
+packages/security/src/*.d.ts.map
+packages/security/src/*.js
+packages/security/src/*.js.map
