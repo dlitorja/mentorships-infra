@@ -47,6 +47,7 @@ async function seedAdminOnboarding(
     perInstructor: Array<{ instructorId: string; isRenewal: boolean }>;
     timeline?: Array<{ at: number; event: string; actorUserId?: string; details?: string }>;
     failureReason?: string;
+    createdAt?: number;
   }
 ): Promise<string> {
   return await ctx.db.insert("adminOnboardings", {
@@ -66,7 +67,11 @@ async function seedAdminOnboarding(
     isSeparateStudentRecord: false,
     existingWorkspaceIds: [],
     timeline: args.timeline ?? [{ at: Date.now(), event: "queued" }],
-    createdAt: Date.now(),
+    // Greptile P2 follow-up: the historical-fixture tests now
+    // require explicit `createdAt` to set up the older/newer order
+    // they assert on. Honor the caller-supplied value so the older
+    // row truly lands earlier than the newer one in the index.
+    createdAt: args.createdAt ?? Date.now(),
   });
 }
 

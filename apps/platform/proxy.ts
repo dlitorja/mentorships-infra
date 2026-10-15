@@ -458,6 +458,24 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
     //     to students.
     //   - paths the gate is ALLOWED through (dashboard, onboarding,
     //     /instructors browse, /settings/identity).
+    //
+    // Greptile P2 follow-up: observability calls (`reportInfo` /
+    // `reportError`) can include `await sendToAxiom(...)` which has
+    // a ~3s timeout in production. Awaiting synchronously in the
+    // gate path adds latency after the gate's 800ms budget has
+    // already elapsed. Fire-and-forget (`.catch(() => {})`) on each
+    // call so the response returns immediately while the log lands
+    // asynchronously. The observability helpers already swallow
+    // errors internally, so the failure mode is "no log line", not
+    // a student 500.
+    type GateEnv = {
+      requiresOnboardingCompletion: boolean;
+      onboardingId: string | null;
+      rowStatus: string | null;
+      questionnaireSubmitted: boolean;
+      reason: string | null;
+    };
+
     if (
       userId &&
       isOnboardingGatedPath(req) &&
@@ -522,14 +540,6 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
               client.setAuth(token);
               const { api } = await import("@/convex/_generated/api");
 
-              type GateEnv = {
-                requiresOnboardingCompletion: boolean;
-                onboardingId: string | null;
-                rowStatus: string | null;
-                questionnaireSubmitted: boolean;
-                reason: string | null;
-              };
-
               async function gateCheck(): Promise<GateEnv | null> {
                 await client
                   .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
@@ -560,7 +570,11 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
                 ]);
               let gate: GateEnv | null;
               if (raced === TIMEOUT_SENTINEL) {
-                await reportError({
+                // Greptile P2 follow-up: fire-and-forget the
+                // observability call so we don't add latency after
+                // the 800ms budget has already elapsed. See block
+                // comment above for rationale.
+                void reportError({
                   source: "proxy.onboarding-gate",
                   error: new Error(
                     "Convex gate query exceeded 800ms budget; falling through to allow",
@@ -569,7 +583,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
                     "Onboarding gate check timed out — request allowed past gate on best-effort basis",
                   level: "warn",
                   context: { userId, pathname },
-                });
+                }).catch(() => null);
                 gate = null;
               } else {
                 // `raced` is narrowed to `GateEnv | null` here.
@@ -577,7 +591,11 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
               }
 
               if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
-                await reportInfo({
+                // Greptile P2 follow-up: fire-and-forget the
+                // observability call. The redirect itself is what
+                // matters for the student; the log line is best-
+                // effort. See block comment above for rationale.
+                void reportInfo({
                   source: "proxy.onboarding-gate",
                   message: "Student gated — redirected to /onboarding/[id]",
                   context: {
@@ -587,7 +605,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
                     onboardingId: gate.onboardingId,
                     rowStatus: gate.rowStatus,
                   },
-                });
+                }).catch(() => null);
                 const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
                 return NextResponse.redirect(redirect);
               }
@@ -598,13 +616,15 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
         // Never 500 the student on a gate-side bug; log and fall
         // through to allow. Defensive: a Convex outage should not
         // brick navigation.
-        await reportError({
+        // Fire-and-forget: see Greptile P2 note in the gate's
+        // block comment above.
+        void reportError({
           source: "proxy.onboarding-gate",
           error: err instanceof Error ? err : new Error(String(err)),
           message: "Onboarding gate check threw; falling through to allow",
           level: "warn",
           context: { userId, pathname },
-        });
+        }).catch(() => null);
       }
     }
   }
