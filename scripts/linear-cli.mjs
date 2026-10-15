@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 const MCP_URL = "https://mcp.linear.app/mcp";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
+const LINEAR_ISSUER = "https://mcp.linear.app";
 const AUTH_PATHS = [
   join(homedir(), ".local/share/opencode/mcp-auth.json"),
   join(homedir(), ".config/opencode/mcp-auth.json"),
@@ -13,11 +14,76 @@ const AUTH_PATHS = [
   join(homedir(), ".local/share/opencode/mcp/linear/auth.json"),
   join(homedir(), ".config/opencode/mcp/linear/auth.json"),
 ];
+const OPENCODE_DB_PATHS = [
+  join(homedir(), ".local/share/opencode/opencode.db"),
+  join(homedir(), ".config/opencode/opencode.db"),
+];
 
 async function readMcpAuth() {
   for (const path of AUTH_PATHS) {
     const result = await readAuthEntry(path);
-    if (result) return { entry: result.entry, shape: result.shape, source: path };
+    if (result) return { entry: result.entry, shape: result.shape, source: path, writable: true };
+  }
+  return null;
+}
+
+// Read the Linear credential from opencode's SQLite credential table. In
+// OpenCode v2.x the OAuth-completed `opencode mcp auth linear` writes the
+// fresh tokens here, not into the per-server JSON cache that mcp-remote would
+// use. The wrapper falls back to this lookup only when no JSON cache is
+// populated. Tokens sourced from opencode.db are not written back here on
+// refresh (the wrapper can't safely update an opaque SQLite row); if the
+// access token expires mid-session, the user must re-run
+// `opencode mcp auth linear` to refresh.
+async function readOpencodeDbCredential() {
+  for (const dbPath of OPENCODE_DB_PATHS) {
+    let db;
+    try {
+      const { existsSync } = await import("node:fs");
+      if (!existsSync(dbPath)) continue;
+      const sqlite = await import("node:sqlite");
+      const DatabaseSync = sqlite?.DatabaseSync;
+      if (typeof DatabaseSync !== "function") continue;
+      db = new DatabaseSync(dbPath, { readOnly: true });
+    } catch {
+      continue;
+    }
+    try {
+      // Pick the most-recently-updated credential whose persisted value
+      // references the Linear issuer URL. `credential.value` is a JSON
+      // blob whose `metadata.issuer` is the issuer URL.
+      const row = db
+        .prepare(
+          "SELECT value FROM credential WHERE value LIKE '%' || ? || '%' ORDER BY time_updated DESC LIMIT 1"
+        )
+        .get(LINEAR_ISSUER);
+      if (!row?.value) continue;
+      const blob = JSON.parse(row.value);
+      if (!blob?.access || blob.type !== "oauth") continue;
+      const md = blob.metadata ?? {};
+      return {
+        entry: {
+          tokens: {
+            accessToken: blob.access,
+            refreshToken: blob.refresh,
+            expiresAt: typeof blob.expires === "number" ? Math.floor(blob.expires / 1000) : 0,
+            scope: md.scope,
+          },
+          clientInfo: {
+            clientId: md.client?.client_id,
+          },
+          serverUrl: md.serverUrl,
+          issuer: md.issuer,
+        },
+        shape: "opencode-db",
+        source: `opencode.db credential@${dbPath}`,
+        writable: false,
+      };
+    } catch {
+      // fall through to next dbPath
+    } finally {
+      try { db?.close(); } catch {}
+    }
   }
   return null;
 }
@@ -27,8 +93,8 @@ async function readAuthEntry(path) {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
-      if (parsed.tokens?.accessToken) return { entry: parsed, shape: "direct" };
-      if (parsed.linear) return { entry: parsed.linear, shape: "combined" };
+      if (parsed.tokens?.accessToken) return { entry: parsed, shape: "direct", source: path, writable: true };
+      if (parsed.linear) return { entry: parsed.linear, shape: "combined", source: path, writable: true };
     }
   } catch {}
   return null;
@@ -53,8 +119,39 @@ async function writeMcpAuth(path, entry, shape = "combined") {
 
 async function getToken() {
   const cached = await readMcpAuth();
+  // Skip file-based cache if its access token is already past its expiry —
+  // a stale entry will just trigger an avoidable 401 round-trip and force a
+  // refresh-token dance that, for V1 paths, may fail because the refresh
+  // token is itself no longer valid. Fall through to opencode.db instead.
+  const cachedExpiry = cached?.entry?.tokens?.expiresAt;
+  const cachedExpired =
+    typeof cachedExpiry === "number" && cachedExpiry > 0 && Date.now() / 1000 > cachedExpiry;
+  if (cached?.entry?.tokens?.accessToken && !cachedExpired) {
+    return {
+      token: cached.entry.tokens.accessToken,
+      source: cached.source,
+      cached,
+      writable: cached.writable !== false,
+    };
+  }
+  const dbCached = await readOpencodeDbCredential();
+  if (dbCached?.entry?.tokens?.accessToken) {
+    return {
+      token: dbCached.entry.tokens.accessToken,
+      source: dbCached.source,
+      cached: dbCached,
+      writable: false,
+    };
+  }
+  // Expired file-based cache record exists; surface it for the 401 path so
+  // tryRefresh can attempt a token refresh and re-write the JSON file.
   if (cached?.entry?.tokens?.accessToken) {
-    return { token: cached.entry.tokens.accessToken, source: cached.source, cached };
+    return {
+      token: cached.entry.tokens.accessToken,
+      source: cached.source,
+      cached,
+      writable: cached.writable !== false,
+    };
   }
   if (process.env.LINEAR_API_KEY) {
     return { token: process.env.LINEAR_API_KEY, source: "LINEAR_API_KEY env var", cached: null };
@@ -65,8 +162,13 @@ async function getToken() {
 async function tryRefresh(cached) {
   const entry = cached?.entry;
   if (!entry?.tokens?.refreshToken || !entry?.clientInfo?.clientId) return null;
+  if (cached.writable === false) {
+    // Token sourced from opencode.db; the wrapper can't safely write back.
+    // The user must re-run `opencode mcp auth linear` to refresh.
+    return null;
+  }
   const refreshUrl = new URL(MCP_URL);
-  refreshUrl.pathname = "/token";
+  refreshUrl.pathname = "/oauth/token";
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: entry.tokens.refreshToken,
@@ -275,6 +377,11 @@ Auth:
     ~/.config/opencode/mcp/linear/auth.json
   Run \`opencode mcp auth linear\` once to populate it. The token refreshes
   automatically; no manual key rotation is needed.
+
+  If none of those have a usable token, falls back to opencode's SQLite store:
+    ~/.local/share/opencode/opencode.db (credential table, label=linear)
+  Tokens sourced from opencode.db cannot be refreshed in-place by this
+  script; re-run \`opencode mcp auth linear\` to get a new access token.
 
 Examples:
   linear teams
