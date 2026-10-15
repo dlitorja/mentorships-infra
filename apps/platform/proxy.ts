@@ -554,15 +554,23 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
                     const probeClient = new ConvexHttpClient(convexUrl);
                     probeClient.setAuth(probeToken);
                     const { api } = await import("@/convex/_generated/api");
+                    // Greptile round-6 P1: filter out soft-deleted
+                    // instructor records — `getInstructorByUserId`
+                    // returns them too, but a soft-deleted
+                    // instructor shouldn't bypass the student
+                    // gate (otherwise a former instructor can
+                    // slip through the onboarding check). Mirror
+                    // `hasInstructorRecord` in
+                    // `lib/auth-helpers.ts` exactly.
                     const instructorRecord = (await probeClient.query(
                       api.instructors.getInstructorByUserId,
                       { userId },
-                    )) as { _id: string } | null;
-                    if (instructorRecord) {
-                      // Verified instructor with no Clerk role
-                      // claim — bypass the gate entirely. Mirrors
-                      // the same convention that
-                      // `getServerUserRole` uses to widen access
+                    )) as { _id: string; deletedAt?: number } | null;
+                    if (instructorRecord && instructorRecord.deletedAt === undefined) {
+                      // Verified ACTIVE instructor with no Clerk
+                      // role claim — bypass the gate entirely.
+                      // Mirrors the same convention that
+                      // `hasInstructorRecord` uses to widen access
                       // for admin-created instructor accounts.
                       return null;
                     }
