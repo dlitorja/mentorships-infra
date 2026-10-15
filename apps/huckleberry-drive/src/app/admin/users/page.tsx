@@ -106,8 +106,30 @@ export default function AdminUsersPage(): React.ReactElement {
   }, [activeCursor, activeIsDone, activeTab, deletedCursor, deletedIsDone, isLoadingMore]);
 
   useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+    let cancelled = false;
+    getAdminUsers()
+      .then((result) => {
+        if (cancelled) return;
+        setActiveUsers(result.active);
+        setDeletedUsers(result.deleted);
+        setActiveCursor(result.activeContinueCursor);
+        setDeletedCursor(result.deletedContinueCursor);
+        setActiveIsDone(result.activeIsDone);
+        setDeletedIsDone(result.deletedIsDone);
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load users");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRoleChange = useCallback(async (userId: string, newRole: UserRole) => {
     try {

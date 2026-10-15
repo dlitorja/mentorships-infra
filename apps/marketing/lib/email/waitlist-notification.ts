@@ -26,7 +26,9 @@ function escapeHtml(value: string): string {
 }
 
 function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]/g, "").replace(/[\x00-\x1F\x7F]/g, "");
+  return value.replace(/[\r\n]/g, "")
+    // eslint-disable-next-line no-control-regex -- sanitizeHeaderValue() is a defense-in-depth filter that strips C0 control chars (including \x00 NULL) to prevent SMTP header injection per RFC 5322 §3.2.3. The regex character class is the explicit intent; matches are removed, not consumed as input to the regex engine.
+    .replace(/[\x00-\x1F\x7F]/g, "");
 }
 
 export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): {

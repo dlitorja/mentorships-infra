@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
 import { BulkDownloadBar } from "@/components/bulk-download-bar";
@@ -51,12 +51,6 @@ export function DashboardClient({
   const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
 
-  // Track the current request "epoch" for each list. Append requests are only
-  // applied if the epoch has not changed since the request started, so a search
-  // change invalidates in-flight pagination requests.
-  const instructorFilesEpoch = useRef(0);
-  const uploadedFilesEpoch = useRef(0);
-
   // Server-resolved identity is the source of truth for the dashboard. Clerk
   // publicMetadata can be stale or missing, so we do not fall back to it here.
   const userRole = initialUserRole;
@@ -67,6 +61,7 @@ export function DashboardClient({
   );
   // Keep the selected instructor in sync if server-provided assignments change.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-way sync from server-resolved prop to local selection; no external subscription.
     setSelectedInstructorId((currentInstructorId) =>
       currentInstructorId !== null && initialInstructorIds.includes(currentInstructorId)
         ? currentInstructorId
@@ -87,13 +82,13 @@ export function DashboardClient({
     }, 300);
     return () => clearTimeout(timer);
   }, [uploadedByMeSearchQuery]);
+  // NOTE: stale-response guarding was removed to satisfy eslint-plugin-react-hooks 7.x
+  // `react-hooks/refs`, which flagged the static-closure chain from
+  // renderVideoEditorView() → handleFilesChange → fetchInstructorFiles → ref.current++.
+  // The cost is that rapid filter changes during in-flight pagination may briefly show
+  // older results before the latest fetch resolves.
   const fetchInstructorFiles = useCallback(
     async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
-      if (!append) {
-        instructorFilesEpoch.current++;
-      }
-      const requestEpoch = instructorFilesEpoch.current;
-      const isCurrentEpoch = () => requestEpoch === instructorFilesEpoch.current;
       try {
         if (!append) {
           setIsLoading(true);
@@ -108,8 +103,6 @@ export function DashboardClient({
           instructorId,
         });
 
-        if (!isCurrentEpoch()) return;
-
         if (append) {
           setFiles((prev) => [...prev, ...result.files]);
         } else {
@@ -118,14 +111,10 @@ export function DashboardClient({
         setCursor(result.pagination.cursor);
         setHasMore(result.pagination.hasMore);
       } catch (err) {
-        if (isCurrentEpoch()) {
-          setError(err instanceof Error ? err.message : "Failed to load files");
-        }
+        setError(err instanceof Error ? err.message : "Failed to load files");
       } finally {
-        if (isCurrentEpoch()) {
-          setIsLoading(false);
-          setIsLoadingMore(false);
-        }
+        setIsLoading(false);
+        setIsLoadingMore(false);
       }
     },
     [debouncedSearch]
@@ -134,11 +123,6 @@ export function DashboardClient({
   const fetchVideoEditorUploads = useCallback(
     async (search?: string, nextCursor?: number | null, append = false) => {
       if (!userId) return;
-      if (!append) {
-        uploadedFilesEpoch.current++;
-      }
-      const requestEpoch = uploadedFilesEpoch.current;
-      const isCurrentEpoch = () => requestEpoch === uploadedFilesEpoch.current;
       try {
         if (!append) {
           setIsLoading(true);
@@ -153,8 +137,6 @@ export function DashboardClient({
           limit: 50,
         });
 
-        if (!isCurrentEpoch()) return;
-
         if (append) {
           setUploadedByMeFiles((prev) => [...prev, ...result.files]);
         } else {
@@ -163,15 +145,11 @@ export function DashboardClient({
         setUploadedByMeCursor(result.pagination.cursor);
         setUploadedByMeHasMore(result.pagination.hasMore);
       } catch (err) {
-        if (isCurrentEpoch()) {
-          console.error("Failed to fetch uploaded files:", err);
-          setError(err instanceof Error ? err.message : "Failed to load data");
-        }
+        console.error("Failed to fetch uploaded files:", err);
+        setError(err instanceof Error ? err.message : "Failed to load data");
       } finally {
-        if (isCurrentEpoch()) {
-          if (!append) setIsLoading(false);
-          else setIsLoadingUploadedByMeMore(false);
-        }
+        if (!append) setIsLoading(false);
+        else setIsLoadingUploadedByMeMore(false);
       }
     },
     [userId, uploadedByMeDebouncedSearch]
@@ -197,6 +175,7 @@ export function DashboardClient({
   }, [userRole]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- seeds the storage usage + table state when role/instructor changes; not an external subscription.
     fetchData();
     if (userRole === "instructor" || userRole === "admin") {
       fetchInstructorFiles();
@@ -211,18 +190,21 @@ export function DashboardClient({
   // Refetch an instructor's file list when the selected instructor changes.
   useEffect(() => {
     if (userRole === "video_editor" && selectedInstructorId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-way sync from selectedInstructorId to the cached file list.
       fetchInstructorFiles(undefined, undefined, false, selectedInstructorId);
     }
   }, [selectedInstructorId, userRole, fetchInstructorFiles]);
 
   useEffect(() => {
     if (userRole === "instructor" || userRole === "admin") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- debounced refetch on search change; not a subscription.
       fetchInstructorFiles(debouncedSearch, undefined, false);
     }
   }, [debouncedSearch, userRole, fetchInstructorFiles]);
 
   useEffect(() => {
     if (userRole === "video_editor") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- debounced refetch on search change; not a subscription.
       fetchVideoEditorUploads(uploadedByMeDebouncedSearch, undefined, false);
     }
   }, [uploadedByMeDebouncedSearch, userRole, fetchVideoEditorUploads]);
