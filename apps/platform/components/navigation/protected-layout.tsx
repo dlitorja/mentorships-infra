@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
 import { requireAuth } from "@/lib/auth";
 import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { Button } from "@/components/ui/button";
@@ -37,10 +38,33 @@ interface ProtectedLayoutProps {
  */
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
   const userId = await requireAuth();
+  const sessionAuth = await auth();
   const token = await getConvexAuthToken();
   const instructorRecord = token
     ? await fetchQuery(api.instructors.getInstructorByUserId, { userId }, { token })
     : null;
+
+  // Greptile P2 follow-up: read the role from the Clerk session claim
+  // so we can decide whether the gate even fires. Mirrors
+  // `proxy.ts`'s role-default-to-student fallback for legacy accounts
+  // (`getServerUserRole` in `lib/auth-helpers.ts`).
+  const claimsRoleMetadata = (
+    sessionAuth.sessionClaims?.publicMetadata as Record<string, unknown> | undefined
+  )?.role;
+  const claimsRole =
+    typeof claimsRoleMetadata === "string" ? claimsRoleMetadata : undefined;
+  // Mirror `getServerUserRole`: a missing role claim default to
+  // "student" so the gate treats legacy / admin-created accounts
+  // as students. Widen via `instructorRecord` for verified
+  // instructors regardless of claim state.
+  const likelyRole: "student" | "instructor" | "admin" | "other" =
+    instructorRecord
+      ? "instructor"
+      : claimsRole === "admin"
+        ? "admin"
+        : claimsRole === "instructor"
+          ? "instructor"
+          : "student";
 
   // PR 12 PR E (Follow-up) — Soft gate: server-side prefetch the
   // onboarding gate envelope so it lands in the React Query cache
@@ -55,41 +79,55 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   // gets matched to their `adminOnboardings` row. The mutation
   // is idempotent on `(email, clerkUserId)` per HUC-92.
   //
-  // Best-effort fetch — a transient Convex outage just means the
-  // banner doesn't render; no 500 to the student.
-  const gate: StudentOnboardingGateEnvelope = token
-    ? await (async () => {
-        // Lazy-load the convex server client only on this branch —
-        // dominant case (admin/instructor) won't pay the cost.
-        try {
-          const { fetchMutation } = await import("convex/nextjs");
-          await fetchMutation(
-            api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
-            {},
-            { token }
+  // Greptile P2 follow-up: only fetch the student-shape envelope
+  // for users whose role is "student". Instructors and admins
+  // can have a historical unfinished onboarding in their account
+  // (e.g. they were once an admin-onboarding-targeted "student"
+  // before promotion) and we don't want to render a "Finish
+  // onboarding" banner on their workspace pages.
+  //
+  // Best-effort fetch with a deadline — wraps the claim+query
+  // round-trip in a Promise.race so a slow Convex response
+  // (proxy.ts already gave up after 800ms) doesn't drag the
+  // page render here. Default envelope = "no gate" so the
+  // banner stays hidden without an explicit decision.
+  const SAFE_DEFAULT: StudentOnboardingGateEnvelope = {
+    requiresOnboardingCompletion: false,
+    onboardingId: null,
+    rowStatus: null,
+    questionnaireSubmitted: true,
+    reason: null,
+  };
+  const gate: StudentOnboardingGateEnvelope =
+    token && likelyRole === "student"
+      ? await (async () => {
+          const TIMEOUT_MS = 800;
+          const fallbackPromise = new Promise<StudentOnboardingGateEnvelope>(
+            (resolve) => setTimeout(() => resolve(SAFE_DEFAULT), TIMEOUT_MS),
           );
-        } catch {
-          // best-effort claim; fall through to gated query anyway
-        }
-        return await fetchQuery(
-          api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
-          {},
-          { token }
-        );
-      })().catch(() => ({
-        requiresOnboardingCompletion: false,
-        onboardingId: null,
-        rowStatus: null,
-        questionnaireSubmitted: true,
-        reason: null,
-      }))
-    : {
-        requiresOnboardingCompletion: false,
-        onboardingId: null,
-        rowStatus: null,
-        questionnaireSubmitted: true,
-        reason: null,
-      };
+          const gatePromise = (async (): Promise<StudentOnboardingGateEnvelope> => {
+            try {
+              const { fetchMutation } = await import("convex/nextjs");
+              await fetchMutation(
+                api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
+                {},
+                { token }
+              );
+            } catch {
+              // best-effort claim; fall through to query anyway
+            }
+            return (await fetchQuery(
+              api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+              {},
+              { token }
+            )) as StudentOnboardingGateEnvelope;
+          })();
+          return await Promise.race<StudentOnboardingGateEnvelope>([
+            gatePromise,
+            fallbackPromise,
+          ]);
+        })()
+      : SAFE_DEFAULT;
 
   // Workspace is always the first/top nav item, followed by the role-specific
   // dashboard. Instructor/student-specific pages are intentionally hidden while
