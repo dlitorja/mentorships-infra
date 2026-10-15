@@ -2141,6 +2141,158 @@ export const claimOnboardingByEmailForCurrentUser = mutation({
 });
 
 /**
+ * PR 12 PR E (Follow-up) — In-app onboarding gate query.
+ *
+ * Public query: asks "should the currently signed-in student be
+ * redirected to /onboarding/[id] before being allowed to use the
+ * rest of the app?". Returns a small typed envelope that the
+ * platform proxy middleware, ProtectedLayout banner, and dashboard
+ * welcome card all consume.
+ *
+ * Why this exists separately from `getIncompleteOnboardingForCurrentUser`:
+ * the latter is a redirect helper (returns JUST the id, used by `/auth-
+ * redirect` and `/sign-up-redirect` to push the student into the
+ * onboarding page). The gate query is a runtime check that fires on
+ * EVERY navigation the student makes — the proxy uses it to short-
+ * circuit 307 to `/onboarding/[id]` before any other layout renders.
+ *
+ * Caller-side self-heal contract:
+ *   The query is intentionally READ-ONLY — Convex queries cannot
+ *   call `ctx.runMutation`, so the self-heal claim must run from
+ *   the caller BEFORE the gate query fires. The platform proxy
+ *   middleware, the layout server component, and the dashboard
+ *   client component all call
+ *   `api.adminOnboarding.claimOnboardingByEmailForCurrentUser`
+ *   (a public mutation, idempotent on `(email, clerkUserId)`)
+ *   before invoking this query. The same convention is already
+ *   used by `app/onboarding/[id]/page.tsx:87-117`.
+ *
+ *   If the caller forgets to claim, a freshly-signed-up student
+ *   whose `user.created` Clerk webhook hasn't reached Convex yet
+ *   will fall through the gate (no `assignedStudentClerkId === self`
+ *   row → returns false). Acceptable: in production the gate
+ *   is always defended with a prior claim from the layout.
+ *
+ * "Complete" semantics (the simplest acceptable definition):
+ *   - Student has at least one non-cancelled `adminOnboardings` row
+ *     assigned to their Clerk userId.
+ *   - AND the most-recent non-cancelled row's questionnaire has
+ *     `status === "submitted"`.
+ *
+ * The "most-recent non-cancelled" wording matters because a returning
+ * student can have multiple historical rows; we always read the
+ * freshest one. We do NOT additionally require `row.status === "completed"`
+ * because returning students may have submission-without-worker-success
+ * states and vice versa — the questionnaire is the actionable
+ * user-facing work, so we gate on the questionnaire and not on the
+ * server-side provisioning state.
+ *
+ * Read strategy: `.collect()` reads every row in the index partition
+ * for this Clerk userId in one read. Same bounds as
+ * `claimOnboardingByEmail` — a real student has a few dozen onboardings
+ * at most; well under the per-handler read limit.
+ *
+ * Time: this does NOT depend on `Date.now()` because all the relevant
+ * state (assigned userId, questionnaire status, row status) is on the
+ * row itself; no TTL window needed.
+ */
+export const getStudentOnboardingGateForCurrentUser = query({
+  args: {},
+  returns: v.object({
+    requiresOnboardingCompletion: v.boolean(),
+    onboardingId: v.union(v.id("adminOnboardings"), v.null()),
+    rowStatus: v.union(
+      v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled"),
+      ),
+      v.null(),
+    ),
+    questionnaireSubmitted: v.boolean(),
+    reason: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      // Anonymous callers never see the gate; sign-in redirects handle
+      // this case above us.
+      return {
+        requiresOnboardingCompletion: false,
+        onboardingId: null,
+        rowStatus: null,
+        questionnaireSubmitted: true,
+        reason: null,
+      };
+    }
+
+    const rows = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_assignedStudentClerkId_createdAt", (q) =>
+        q.eq("assignedStudentClerkId", identity.subject),
+      )
+      .order("desc")
+      .collect();
+
+    for (const row of rows) {
+      if (row.status === "cancelled") {
+        // Cancelled = terminal-abandoned, treat as "no gate"; student's
+        // not enrolled anymore.
+        continue;
+      }
+
+      const submission = await ctx.db
+        .query("onboardingQuestionnaireSubmissions")
+        .withIndex("by_onboardingId", (q) => q.eq("onboardingId", row._id))
+        .first();
+
+      const questionnaireSubmitted = submission?.status === "submitted";
+
+      if (questionnaireSubmitted) {
+        // Most recent row has its work done; older rows would only be
+        // historical and not actionable.
+        continue;
+      }
+
+      // Build a context-aware reason text so the banner and dashboard
+      // welcome card can render in plain language.
+      let reason: string;
+      if (row.status === "failed") {
+        reason =
+          "Your onboarding setup hit a snag. Your administrator will retry shortly — once it's fixed, head back to finish the questionnaire.";
+      } else if (row.status === "queued" || row.status === "processing") {
+        reason =
+          "We're preparing your workspaces. While we set things up, take a few minutes to answer some questions so your instructor knows what to focus on.";
+      } else {
+        // row.status === "completed" but questionnaire not submitted —
+        // returning student: workspaces exist but their answers
+        // haven't been recorded for this term.
+        reason =
+          "Your workspaces are ready. Tell your instructor a little about your goals before booking your first session.";
+      }
+
+      return {
+        requiresOnboardingCompletion: true,
+        onboardingId: row._id,
+        rowStatus: row.status,
+        questionnaireSubmitted,
+        reason,
+      };
+    }
+
+    return {
+      requiresOnboardingCompletion: false,
+      onboardingId: null,
+      rowStatus: null,
+      questionnaireSubmitted: true,
+      reason: null,
+    };
+  },
+});
+
+/**
  * PR 12 PR 3 — Auth gate helper for the status page.
  *
  * Returns the viewer's role if they may view the given onboarding row,

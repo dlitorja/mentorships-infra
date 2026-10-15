@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 
 /**
  * Strip trailing slash from URL for consistent comparison
@@ -188,6 +188,36 @@ const isProtectedRoute = createRouteMatcher([
  */
 const isAdminRoute = createRouteMatcher([
   "/admin(.*)",
+]);
+
+/**
+ * PR 12 PR E (Follow-up) — Onboarding gate path matchers.
+ *
+ * The "gated" set is the set of protected routes that a student
+ * who has not yet completed onboarding MUST NOT be allowed to
+ * navigate to. Currently: workspace, sessions, calendar, settings.
+ * The dashboard and onboarding pages stay open as the "soft gate"
+ * surface (banner + CTA). The list of instructors (browsing
+ * mentors) is intentionally NOT gated so a student who has been
+ * invited but never finished questionnaire can still discover
+ * their match before being forced to write answers.
+ */
+const isOnboardingGatedPath = createRouteMatcher([
+  "/workspace(.*)",
+  "/sessions(.*)",
+  "/calendar(.*)",
+  "/settings(.*)",
+]);
+
+/**
+ * Pages that are always allowed even when the onboarding gate would
+ * otherwise trip — the student lands here to finish setup.
+ */
+const isOnboardingAllowedPath = createRouteMatcher([
+  "/dashboard(.*)",
+  "/onboarding(.*)",
+  "/instructors(.*)", // browse pages are always open
+  "/settings/identity(.*)", // allow password reset / sign-out
 ]);
 
 /**
@@ -398,6 +428,126 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       }
       if (role === "instructor") {
         return NextResponse.redirect(new URL("/instructor/dashboard", req.url));
+      }
+    }
+
+    // PR 12 PR E (Follow-up) — Student onboarding gate.
+    //
+    // A student who has a freshly-claimed row but has not yet
+    // submitted the onboarding questionnaire must not be allowed
+    // past the gated paths (`/workspace`, `/sessions`, etc.) on
+    // the assumption that those worksurfaces depend on answers
+    // that's not on file yet.
+    //
+    // Skip conditions:
+    //   - `TEST_WEBHOOK_BYPASS=true` — Kernel-backed Playwright
+    //     project runs E2E without finished state, so we read the
+    //     same env var used by the webhook route and fall through.
+    //     Is named after a webhook variable because the gate was
+    //     designed alongside the Stripe webhook rework.
+    //   - instructor/admin/support roles — the gate only applies
+    //     to students.
+    //   - paths the gate is ALLOWED through (dashboard, onboarding,
+    //     /instructors browse, /settings/identity).
+    if (
+      userId &&
+      isOnboardingGatedPath(req) &&
+      !isOnboardingAllowedPath(req) &&
+      process.env.TEST_WEBHOOK_BYPASS !== "true"
+    ) {
+      try {
+        // Resolve role. We don't gate instructors / admins / support.
+        // Students trip the gate; everyone else bypasses.
+        const claimsRole = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+        let role: string | undefined = typeof claimsRole === "string" ? claimsRole : undefined;
+        if (!role) {
+          try {
+            const clerk = await clerkClient();
+            const clerkUser = await clerk.users.getUser(userId);
+            role = typeof clerkUser.publicMetadata?.role === "string"
+              ? clerkUser.publicMetadata.role
+              : undefined;
+          } catch {
+            role = undefined;
+          }
+        }
+
+        if (role === "student") {
+          // Hit Convex for the gate decision. The query itself is
+          // READ-ONLY — `ctx.runMutation` is forbidden in queries, so
+          // the caller-side self-heal claim runs FIRST so a freshly-
+          // signed-up student gets matched to their row even before
+          // the Clerk webhook lands. Both calls share the convex token
+          // and are wrapped in a single timeout race so a Convex
+          // outage doesn't deadlock the request thread; default to
+          // allow on timeout (loud telemetry, not a 500 on the
+          // student).
+          const token = await authResult.getToken({ template: "convex" });
+          if (token) {
+            // Lazy-import the convex client to avoid spinning it up
+            // on the dominant case (admin/instructor traffic that
+            // doesn't trip the role check above). Editor bundle sees
+            // a thin import; middleware runtime pays only the cost
+            // when we land in this branch.
+            const { ConvexHttpClient } = await import("convex/browser");
+            const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+            if (convexUrl) {
+              const client = new ConvexHttpClient(convexUrl);
+              client.setAuth(token);
+              const { api } = await import("@/convex/_generated/api");
+
+              type GateEnv = {
+                requiresOnboardingCompletion: boolean;
+                onboardingId: string | null;
+                rowStatus: string | null;
+                questionnaireSubmitted: boolean;
+                reason: string | null;
+              };
+
+              async function gateCheck(): Promise<GateEnv | null> {
+                await client
+                  .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
+                  .catch(() => null);
+                return (await client.query(
+                  api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+                  {}
+                )) as GateEnv | null;
+              }
+
+              const gate: GateEnv | null = await Promise.race<GateEnv | null>([
+                gateCheck(),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 800)),
+              ]);
+
+              if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
+                await reportInfo({
+                  source: "proxy.onboarding-gate",
+                  message: "Student gated — redirected to /onboarding/[id]",
+                  context: {
+                    event: "redirected",
+                    userId,
+                    pathname,
+                    onboardingId: gate.onboardingId,
+                    rowStatus: gate.rowStatus,
+                  },
+                });
+                const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
+                return NextResponse.redirect(redirect);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Never 500 the student on a gate-side bug; log and fall
+        // through to allow. Defensive: a Convex outage should not
+        // brick navigation.
+        await reportError({
+          source: "proxy.onboarding-gate",
+          error: err instanceof Error ? err : new Error(String(err)),
+          message: "Onboarding gate check threw; falling through to allow",
+          level: "warn",
+          context: { userId, pathname },
+        });
       }
     }
   }

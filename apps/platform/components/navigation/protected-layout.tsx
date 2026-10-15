@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { IncomingCallToast } from "@/components/notifications/incoming-call-toast";
+import { OnboardingGateBanner } from "@/components/onboarding/onboarding-gate-banner";
+import type { StudentOnboardingGateEnvelope } from "@/components/onboarding/onboarding-gate-banner";
 
 interface NavItem {
   href: string;
@@ -39,6 +41,55 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   const instructorRecord = token
     ? await fetchQuery(api.instructors.getInstructorByUserId, { userId }, { token })
     : null;
+
+  // PR 12 PR E (Follow-up) — Soft gate: server-side prefetch the
+  // onboarding gate envelope so it lands in the React Query cache
+  // before the client banner reads it. The hard gate (proxy.ts
+  // 307 redirect) is the source of truth for navigation; this
+  // banner is the in-app affordance once a gated student reaches
+  // an allowed page (dashboard, browse-instructors, settings/identity).
+  //
+  // The query is READ-ONLY (Convex queries can't run mutations),
+  // so we self-heal via the public mutation FIRST so a freshly-
+  // signed-up student whose Clerk webhook hasn't landed yet still
+  // gets matched to their `adminOnboardings` row. The mutation
+  // is idempotent on `(email, clerkUserId)` per HUC-92.
+  //
+  // Best-effort fetch — a transient Convex outage just means the
+  // banner doesn't render; no 500 to the student.
+  const gate: StudentOnboardingGateEnvelope = token
+    ? await (async () => {
+        // Lazy-load the convex server client only on this branch —
+        // dominant case (admin/instructor) won't pay the cost.
+        try {
+          const { fetchMutation } = await import("convex/nextjs");
+          await fetchMutation(
+            api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
+            {},
+            { token }
+          );
+        } catch {
+          // best-effort claim; fall through to gated query anyway
+        }
+        return await fetchQuery(
+          api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+          {},
+          { token }
+        );
+      })().catch(() => ({
+        requiresOnboardingCompletion: false,
+        onboardingId: null,
+        rowStatus: null,
+        questionnaireSubmitted: true,
+        reason: null,
+      }))
+    : {
+        requiresOnboardingCompletion: false,
+        onboardingId: null,
+        rowStatus: null,
+        questionnaireSubmitted: true,
+        reason: null,
+      };
 
   // Workspace is always the first/top nav item, followed by the role-specific
   // dashboard. Instructor/student-specific pages are intentionally hidden while
@@ -86,7 +137,16 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
       {/* Main Content */}
       <div className="ml-64">
         {/* Page Content */}
-        <main className="p-6">{children}</main>
+        <main className="p-6">
+          {/* PR 12 PR E (Follow-up) — Soft-gate banner above page
+           * children so a gated student sees the unfinished-
+           * onboarding message inside every protected surface
+           * (workspace, settings, sessions, calendar). The hard
+           * 307 in proxy.ts is the source of truth for
+           * navigation; this banner is the in-app nudge. */}
+          <OnboardingGateBanner gate={gate} />
+          {children}
+        </main>
       </div>
 
       {/* PR #4c-2: invisible global listener that fires Sonner toasts

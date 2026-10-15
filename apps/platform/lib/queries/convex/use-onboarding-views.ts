@@ -72,3 +72,43 @@ export function useOnboardingView(
 export function useIncompleteOnboardingForCurrentUser(): UseQueryResult<Id<"adminOnboardings"> | null, Error> {
   return useQuery(convexQuery(api.adminOnboarding.getIncompleteOnboardingForCurrentUser, {}));
 }
+
+/**
+ * PR 12 PR E (Follow-up) — TanStack Query wrapper around
+ * `convex.adminOnboarding.getStudentOnboardingGateForCurrentUser`.
+ *
+ * Returns a small typed envelope that the proxy.ts middleware,
+ * the `ProtectedLayout` banner, and the dashboard welcome card
+ * all consume to decide whether the currently signed-in student
+ * is allowed past the gate.
+ *
+ * The hook itself is a thin pass-through; the heavy lifting (self-
+ * heal claim + read) is up in Convex so the gate decision is one
+ * server round-trip away from any rendered page.
+ *
+ * Note: this hook is fetched from BOTH server components (the layout
+ * does `prefetchQuery`, see `app/layout.tsx`) and client components.
+ * For client-only contexts, callers should respect the
+ * `enabled` flag if they want to suppress the query under specific
+ * conditions (admin/instructor identities skip the gate entirely).
+ */
+export type StudentOnboardingGate = {
+  requiresOnboardingCompletion: boolean;
+  onboardingId: Id<"adminOnboardings"> | null;
+  rowStatus: OnboardingStatus | null;
+  questionnaireSubmitted: boolean;
+  reason: string | null;
+};
+
+export function useStudentOnboardingGateForCurrentUser(
+  options: { enabled?: boolean } = {}
+): UseQueryResult<StudentOnboardingGate, Error> {
+  const query = convexQuery(
+    api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+    {}
+  );
+  return useQuery({
+    ...query,
+    enabled: options.enabled ?? true,
+  });
+}
