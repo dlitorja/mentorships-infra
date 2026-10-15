@@ -102,30 +102,38 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
     token && likelyRole === "student"
       ? await (async () => {
           const TIMEOUT_MS = 800;
-          const fallbackPromise = new Promise<StudentOnboardingGateEnvelope>(
-            (resolve) => setTimeout(() => resolve(SAFE_DEFAULT), TIMEOUT_MS),
-          );
-          const gatePromise = (async (): Promise<StudentOnboardingGateEnvelope> => {
-            try {
-              const { fetchMutation } = await import("convex/nextjs");
-              await fetchMutation(
-                api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
+          // Greptile P1 follow-up: any thrown error inside the
+          // lookup must not break the protected page — the gate is
+          // a soft affordance. Wrap the whole race in a try/catch
+          // that always falls through to SAFE_DEFAULT.
+          try {
+            const fallbackPromise = new Promise<StudentOnboardingGateEnvelope>(
+              (resolve) => setTimeout(() => resolve(SAFE_DEFAULT), TIMEOUT_MS),
+            );
+            const gatePromise = (async (): Promise<StudentOnboardingGateEnvelope> => {
+              try {
+                const { fetchMutation } = await import("convex/nextjs");
+                await fetchMutation(
+                  api.adminOnboarding.claimOnboardingByEmailForCurrentUser,
+                  {},
+                  { token }
+                );
+              } catch {
+                // best-effort claim; fall through to query anyway
+              }
+              return (await fetchQuery(
+                api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
                 {},
                 { token }
-              );
-            } catch {
-              // best-effort claim; fall through to query anyway
-            }
-            return (await fetchQuery(
-              api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
-              {},
-              { token }
-            )) as StudentOnboardingGateEnvelope;
-          })();
-          return await Promise.race<StudentOnboardingGateEnvelope>([
-            gatePromise,
-            fallbackPromise,
-          ]);
+              )) as StudentOnboardingGateEnvelope;
+            })();
+            return await Promise.race<StudentOnboardingGateEnvelope>([
+              gatePromise,
+              fallbackPromise,
+            ]);
+          } catch {
+            return SAFE_DEFAULT;
+          }
         })()
       : SAFE_DEFAULT;
 
