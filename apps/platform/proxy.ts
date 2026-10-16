@@ -483,170 +483,172 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       process.env.TEST_WEBHOOK_BYPASS !== "true"
     ) {
       try {
-        // Resolve role. We don't gate instructors / admins / support.
-        // Students trip the gate; everyone else bypasses.
+        // Hit Convex for the gate decision. The query is READ-ONLY —
+        // `ctx.runMutation` is forbidden in queries, so the caller-
+        // side self-heal claim runs FIRST so a freshly-signed-up
+        // student gets matched to their row even before the Clerk
+        // webhook lands. Both calls plus the role lookup are wrapped
+        // in a single 800ms timeout race so a Clerk SDK stall, a
+        // Convex outage, or any combination cannot push past the
+        // budget. Default to allow on timeout (loud telemetry, not
+        // a 500 on the student).
         //
-        // Greptile P1 fix: a missing-role user must default to "student"
-        // (the same fallback as `getServerUserRole` in
-        // `lib/auth-helpers.ts`) rather than passing through the gate
-        // silently. Without this, a student whose Clerk
-        // `publicMetadata.role` is unset — common for legacy /
-        // admin-created accounts (HUC-47) — skips the gate on every
-        // navigation.
-        const claimsRole = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-        let role: string | undefined = typeof claimsRole === "string" ? claimsRole : undefined;
-        if (!role) {
-          try {
-            const clerk = await clerkClient();
-            const clerkUser = await clerk.users.getUser(userId);
-            role = typeof clerkUser.publicMetadata?.role === "string"
-              ? clerkUser.publicMetadata.role
-              : undefined;
-          } catch {
-            // Mirror `getServerUserRole` exactly: even on Clerk API
-            // failure, default to "student" so we don't lose a gated
-            // student to a transient outage.
+        // Greptile round-9 P2: the role-lookup path (`clerk.users.getUser`)
+        // used to run BEFORE the race started, so a slow Clerk API
+        // could push the whole gate way past 800ms. The role check,
+        // the missing-claim instructor probe, the claim mutation,
+        // and the gate query all live inside `gateCheck()` now so
+        // the deadline covers the entire chain.
+        const TIMEOUT_SENTINEL = { __timeout: true } as const;
+        type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
+        const gateCheck = async (): Promise<GateEnv | null> => {
+          // Resolve the role. We don't gate instructors / admins
+          // / support — students trip the gate, everyone else
+          // bypasses.
+          //
+          // Greptile round-1 P1: a missing-role user must default
+          // to "student" (matching `getServerUserRole` in
+          // `lib/auth-helpers.ts`) rather than passing through
+          // silently. Without this, a student whose Clerk
+          // `publicMetadata.role` is unset — common for legacy /
+          // admin-created accounts (HUC-47) — would skip the gate
+          // on every navigation.
+          const claimsRoleRaw = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+          const claimsRole =
+            typeof claimsRoleRaw === "string" ? claimsRoleRaw : undefined;
+          let role: string | undefined = claimsRole;
+          if (!role) {
+            try {
+              const clerk = await clerkClient();
+              const clerkUser = await clerk.users.getUser(userId);
+              role = typeof clerkUser.publicMetadata?.role === "string"
+                ? clerkUser.publicMetadata.role
+                : undefined;
+            } catch {
+              // Mirror `getServerUserRole` exactly: even on Clerk
+              // API failure, default to "student" so we don't lose
+              // a gated student to a transient outage.
+              role = "student";
+            }
+          }
+          if (!role) {
             role = "student";
           }
-        }
-        // Final fallback for the no-claim / no-publicMetadata case
-        // (matches `getServerUserRole`'s "Clerk succeeded but role key
-        // missing" branch above).
-        if (!role) {
-          role = "student";
-        }
 
-        if (role === "student") {
-          // Hit Convex for the gate decision. The query itself is
-          // READ-ONLY — `ctx.runMutation` is forbidden in queries, so
-          // the caller-side self-heal claim runs FIRST so a freshly-
-          // signed-up student gets matched to their row even before
-          // the Clerk webhook lands. Both calls share the convex token
-          // and are wrapped in a single timeout race so a Convex
-          // outage doesn't deadlock the request thread; default to
-          // allow on timeout (loud telemetry, not a 500 on the
-          // student).
-          //
-          // Greptile P2 follow-up: pull `authResult.getToken(...)`
-          // and the Convex client setup INSIDE the race window so
-          // a slow Clerk SDK call doesn't push past the 800ms budget
-          // before the race even starts. Same sentinel pattern.
-          const TIMEOUT_SENTINEL = { __timeout: true } as const;
-          type TimeoutSentinel = typeof TIMEOUT_SENTINEL;
-          const gateCheck = async (): Promise<GateEnv | null> => {
-            // Greptile round-5 P1: when `role` resolved to "student"
-            // purely because the Clerk `publicMetadata.role` claim
-            // is missing, probe the Convex `instructors` table for
-            // an active record before defaulting. A legacy
-            // instructor whose Clerk role key was never written
-            // (common for admin-created accounts, see HUC-47)
-            // would otherwise get redirected into their old
-            // student-shape questionnaire. The probe is gated to
-            // the missing-claim case, so the production hot path
-            // is unchanged.
-            if (!claimsRole) {
-              try {
-                const probeToken = await authResult.getToken({ template: "convex" });
-                if (probeToken) {
-                  const { ConvexHttpClient } = await import("convex/browser");
-                  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-                  if (convexUrl) {
-                    const probeClient = new ConvexHttpClient(convexUrl);
-                    probeClient.setAuth(probeToken);
-                    const { api } = await import("@/convex/_generated/api");
-                    // Greptile round-6 P1: filter out soft-deleted
-                    // instructor records — `getInstructorByUserId`
-                    // returns them too, but a soft-deleted
-                    // instructor shouldn't bypass the student
-                    // gate (otherwise a former instructor can
-                    // slip through the onboarding check). Mirror
-                    // `hasInstructorRecord` in
-                    // `lib/auth-helpers.ts` exactly.
-                    const instructorRecord = (await probeClient.query(
-                      api.instructors.getInstructorByUserId,
-                      { userId },
-                    )) as { _id: string; deletedAt?: number } | null;
-                    if (instructorRecord && instructorRecord.deletedAt === undefined) {
-                      // Verified ACTIVE instructor with no Clerk
-                      // role claim — bypass the gate entirely.
-                      // Mirrors the same convention that
-                      // `hasInstructorRecord` uses to widen access
-                      // for admin-created instructor accounts.
-                      return null;
-                    }
+          if (role !== "student") return null;
+
+          // Greptile round-5 P1: when `role` resolved to "student"
+          // purely because the Clerk `publicMetadata.role` claim
+          // is missing, probe the Convex `instructors` table for
+          // an active record before defaulting. A legacy
+          // instructor whose Clerk role key was never written
+          // (common for admin-created accounts, see HUC-47)
+          // would otherwise get redirected into their old
+          // student-shape questionnaire. The probe is gated to
+          // the missing-claim case, so the production hot path
+          // is unchanged.
+          if (!claimsRole) {
+            try {
+              const probeToken = await authResult.getToken({ template: "convex" });
+              if (probeToken) {
+                const { ConvexHttpClient } = await import("convex/browser");
+                const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+                if (convexUrl) {
+                  const probeClient = new ConvexHttpClient(convexUrl);
+                  probeClient.setAuth(probeToken);
+                  const { api } = await import("@/convex/_generated/api");
+                  // Greptile round-6 P1: filter out soft-deleted
+                  // instructor records — `getInstructorByUserId`
+                  // returns them too, but a soft-deleted
+                  // instructor shouldn't bypass the student
+                  // gate (otherwise a former instructor can
+                  // slip through the onboarding check). Mirror
+                  // `hasInstructorRecord` in
+                  // `lib/auth-helpers.ts` exactly.
+                  const instructorRecord = (await probeClient.query(
+                    api.instructors.getInstructorByUserId,
+                    { userId },
+                  )) as { _id: string; deletedAt?: number } | null;
+                  if (instructorRecord && instructorRecord.deletedAt === undefined) {
+                    // Verified ACTIVE instructor with no Clerk
+                    // role claim — bypass the gate entirely.
+                    // Mirrors the same convention that
+                    // `hasInstructorRecord` uses to widen access
+                    // for admin-created instructor accounts.
+                    return null;
                   }
                 }
-              } catch {
-                // Convex outage for the instructor-record probe:
-                // fall through; role stays at the existing default
-                // (matches the no-publicMetadata role fallback).
               }
+            } catch {
+              // Convex outage for the instructor-record probe:
+              // fall through; role stays at the existing default
+              // (matches the no-publicMetadata role fallback).
             }
-            if (role !== "student") return null;
-            const token = await authResult.getToken({ template: "convex" });
-            if (!token) return null;
-            const { ConvexHttpClient } = await import("convex/browser");
-            const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-            if (!convexUrl) return null;
-            const client = new ConvexHttpClient(convexUrl);
-            client.setAuth(token);
-            const { api } = await import("@/convex/_generated/api");
-            await client
-              .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
-              .catch(() => null);
-            return (await client.query(
-              api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
-              {}
-            )) as GateEnv | null;
-          };
-          const raced: GateEnv | null | TimeoutSentinel =
-            await Promise.race<GateEnv | null | TimeoutSentinel>([
-              gateCheck(),
-              new Promise<TimeoutSentinel>((resolve) =>
-                setTimeout(() => resolve(TIMEOUT_SENTINEL), 800),
-              ),
-            ]);
-          let gate: GateEnv | null;
-          if (raced === TIMEOUT_SENTINEL) {
-            // Greptile P2 follow-up: fire-and-forget the
-            // observability call so we don't add latency after
-            // the 800ms budget has already elapsed. See block
-            // comment above for rationale.
-            void reportError({
-              source: "proxy.onboarding-gate",
-              error: new Error(
-                "Convex gate query exceeded 800ms budget; falling through to allow",
-              ),
-              message:
-                "Onboarding gate check timed out — request allowed past gate on best-effort basis",
-              level: "warn",
-              context: { userId, pathname },
-            }).catch(() => null);
-            gate = null;
-          } else {
-            // `raced` is narrowed to `GateEnv | null` here.
-            gate = raced as GateEnv | null;
           }
 
-          if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
-            // Greptile P2 follow-up: fire-and-forget the
-            // observability call. The redirect itself is what
-            // matters for the student; the log line is best-
-            // effort. See block comment above for rationale.
-            void reportInfo({
-              source: "proxy.onboarding-gate",
-              message: "Student gated — redirected to /onboarding/[id]",
-              context: {
-                event: "redirected",
-                userId,
-                pathname,
-                onboardingId: gate.onboardingId,
-                rowStatus: gate.rowStatus,
-              },
-            }).catch(() => null);
-            const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
-            return NextResponse.redirect(redirect);
-          }
+          const token = await authResult.getToken({ template: "convex" });
+          if (!token) return null;
+          const { ConvexHttpClient } = await import("convex/browser");
+          const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+          if (!convexUrl) return null;
+          const client = new ConvexHttpClient(convexUrl);
+          client.setAuth(token);
+          const { api } = await import("@/convex/_generated/api");
+          await client
+            .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {})
+            .catch(() => null);
+          return (await client.query(
+            api.adminOnboarding.getStudentOnboardingGateForCurrentUser,
+            {}
+          )) as GateEnv | null;
+        };
+        const raced: GateEnv | null | TimeoutSentinel =
+          await Promise.race<GateEnv | null | TimeoutSentinel>([
+            gateCheck(),
+            new Promise<TimeoutSentinel>((resolve) =>
+              setTimeout(() => resolve(TIMEOUT_SENTINEL), 800),
+            ),
+          ]);
+        let gate: GateEnv | null;
+        if (raced === TIMEOUT_SENTINEL) {
+          // Greptile P2 follow-up: fire-and-forget the
+          // observability call so we don't add latency after
+          // the 800ms budget has already elapsed. See block
+          // comment above for rationale.
+          void reportError({
+            source: "proxy.onboarding-gate",
+            error: new Error(
+              "Convex gate query exceeded 800ms budget; falling through to allow",
+            ),
+            message:
+              "Onboarding gate check timed out — request allowed past gate on best-effort basis",
+            level: "warn",
+            context: { userId, pathname },
+          }).catch(() => null);
+          gate = null;
+        } else {
+          // `raced` is narrowed to `GateEnv | null` here.
+          gate = raced as GateEnv | null;
+        }
+
+        if (gate?.requiresOnboardingCompletion && gate.onboardingId) {
+          // Greptile P2 follow-up: fire-and-forget the
+          // observability call. The redirect itself is what
+          // matters for the student; the log line is best-
+          // effort. See block comment above for rationale.
+          void reportInfo({
+            source: "proxy.onboarding-gate",
+            message: "Student gated — redirected to /onboarding/[id]",
+            context: {
+              event: "redirected",
+              userId,
+              pathname,
+              onboardingId: gate.onboardingId,
+              rowStatus: gate.rowStatus,
+            },
+          }).catch(() => null);
+          const redirect = new URL(`/onboarding/${gate.onboardingId}`, req.url);
+          return NextResponse.redirect(redirect);
         }
       } catch (err) {
         // Never 500 the student on a gate-side bug; log and fall

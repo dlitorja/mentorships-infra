@@ -87,7 +87,7 @@ function InstructorList({ sessionPacks }: { sessionPacks: SessionPackData[] }) {
   );
 }
 
-export function DashboardContent() {
+export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhookBypass?: boolean } = {}) {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
 
@@ -99,8 +99,13 @@ export function DashboardContent() {
   // redirects them to `/instructor/dashboard`, and we don't want a
   // transient "true" envelope (from a stale instructor row lookup)
   // to gate them out of their own flow.
+  //
+  // Greptile round-9 P2: `TEST_WEBHOOK_BYPASS=true` (passed down
+  // from the server-rendered `app/dashboard/page.tsx`) also
+  // disables the query so the welcome card doesn't pop up mid-E2E
+  // when proxy.ts already short-circuited the gate.
   const { data: gate } = useStudentOnboardingGateForCurrentUser({
-    enabled: !isInstructorOrAdmin && Boolean(userId),
+    enabled: !isInstructorOrAdmin && !isTestWebhookBypass && Boolean(userId),
   });
 
   const discordConnected = Boolean(
