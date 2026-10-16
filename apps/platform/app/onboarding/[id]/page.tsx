@@ -125,16 +125,98 @@ export default async function OnboardingStatusPage({
   const isStudent = viewerRole === "student";
   const showHelpFooter = timelineOlderCount > 0;
 
-  // PR 12 PR 4b — questionnaire state. For students, fetch their
-  // draft so we can show a "Continue" CTA. For instructor/admin,
-  // fetch the submitted row (if any) so we can render the answers.
-  const myDraft = isStudent
-    ? await fetchQuery(
-        (api as any).onboardingQuestionnaire.getQuestionnaireForCurrentUser,
-        { onboardingId: id },
-        { token: token ?? undefined }
-      ).catch(() => null)
-    : null;
+  // PR 13 — Student-only funnel. The assigned student's only
+  // real action on this URL is the questionnaire. The previous
+  // status page rendered a 4-step stepper ("Invitation sent /
+  // Account created / Workspaces ready / Onboarding complete"),
+  // an instructors list with Preparing/Ready badges, and a
+  // "What happens next" copy block — none of which the student
+  // can act on. Collapse the funnel:
+  //
+  //   - `failed` / `cancelled` → render a single, clean card
+  //     below. No stepper, no questionnaire form, no
+  //     instructors list. These are terminal states where the
+  //     student literally cannot make progress and shouldn't
+  //     be redirected into a form they can't submit.
+  //   - any other status (`queued` / `processing` /
+  //     `completed`) → server-side 307 to
+  //     `/onboarding/[id]/questionnaire`, which renders the
+  //     form (empty / draft / already-submitted, depending on
+  //     whether `getQuestionnaireForCurrentUser` returns a
+  //     row). The "Submitted" card on the form takes over for
+  //     the `completed` case.
+  //
+  // The HUC-92 self-heal above still runs BEFORE this branch
+  // so a freshly-signed-up student who lands here before the
+  // `user.created` webhook completes the claim and gets
+  // redirected to a viewable questionnaire, not a 404.
+  //
+  // Instructors / admins / support fall through to the
+  // existing status-page render with the stepper, instructor
+  // list, and questionnaire answers for that row.
+  if (isStudent) {
+    if (onboarding.status === "cancelled") {
+      return (
+        <ProtectedLayout currentPath="/onboarding">
+          <div className="container mx-auto max-w-2xl py-16">
+            <Card>
+              <CardHeader>
+                <CardTitle>This onboarding was cancelled</CardTitle>
+                <CardDescription>
+                  If you weren&apos;t expecting this, please reach out to{" "}
+                  <a
+                    className="font-medium underline"
+                    href="mailto:support@mentorships.com"
+                  >
+                    support@mentorships.com
+                  </a>
+                  .
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
+        </ProtectedLayout>
+      );
+    }
+    if (onboarding.status === "failed") {
+      return (
+        <ProtectedLayout currentPath="/onboarding">
+          <div className="container mx-auto max-w-2xl py-16">
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardHeader>
+                <CardTitle className="text-destructive text-lg">
+                  We couldn&apos;t finish setting this up
+                </CardTitle>
+                <CardDescription>
+                  {onboarding.failureReason ??
+                    "Please reach out to support@mentorships.com if this has been stuck for more than a business day."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Your administrator has been notified and will retry this.
+                  If this has been stuck for more than a business day, email{" "}
+                  <a
+                    className="font-medium underline"
+                    href="mailto:support@mentorships.com"
+                  >
+                    support@mentorships.com
+                  </a>
+                  .
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </ProtectedLayout>
+      );
+    }
+    // queued / processing / completed → straight to the form.
+    redirect(`/onboarding/${id}/questionnaire`);
+  }
+
+  // PR 13 — staff viewer only past this comment (the student
+  // redirect happens above). Fetch the submitted
+  // questionnaire + work examples for that audience.
   const submittedForViewer = !isStudent
     ? await fetchQuery(
         (api as any).onboardingQuestionnaire.getSubmittedQuestionnaireForViewer,
@@ -180,19 +262,20 @@ const submittedWorkExamples = (
             Created {formatDateTime(onboarding.createdAt)} · Last update{" "}
             {formatDateTime(timeline.at(-1)?.at ?? onboarding.createdAt)} · Attempt{" "}
             {onboarding.attemptCount}
-            {viewerRole !== "student" && (
-              <> · Viewing as {viewerRole}</>
-            )}
+            {/* PR 13 — staff viewer only past the early-return
+                above, so `viewerRole` is narrowed to
+                `'instructor' | 'admin' | 'support'`. */}
+            <> · Viewing as {viewerRole}</>
           </p>
         </header>
 
         <OnboardingStepper
           status={onboarding.status}
-          questionnaireSubmitted={
-            isStudent
-              ? myDraft?.status === "submitted"
-              : submittedForViewer != null
-          }
+          // PR 13 — staff viewer only past this comment (the
+          // student redirect happens above). The stepper uses
+          // the submitted-questionnaire signal to flip the
+          // final "Onboarding complete" tile.
+          questionnaireSubmitted={submittedForViewer != null}
         />
 
         {onboarding.status === "failed" && onboarding.failureReason && (
@@ -309,35 +392,6 @@ const submittedWorkExamples = (
           </p>
         )}
 
-        {isStudent && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {myDraft && myDraft.status === "draft"
-                  ? "Almost there — finish your questionnaire"
-                  : "Tell your instructor about you"}
-              </CardTitle>
-              <CardDescription>
-                Your instructor reads these answers before your first call so
-                they can prepare a session that&apos;s useful for you.
-                {myDraft && myDraft.status === "draft" &&
-                  " Auto-save keeps your draft; come back any time."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild>
-                <Link href={`/onboarding/${onboarding._id}/questionnaire`}>
-                  {myDraft?.status === "submitted"
-                    ? "View questionnaire"
-                    : myDraft?.status === "draft"
-                      ? "Continue questionnaire"
-                      : "Start questionnaire"}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
         {!isStudent && submittedForViewer && (
           <Card>
             <CardHeader>
@@ -402,15 +456,6 @@ const submittedWorkExamples = (
               )}
             </CardContent>
           </Card>
-        )}
-
-        {isStudent && (
-          <p className="text-center text-xs text-muted-foreground">
-            Signed in as a student.{" "}
-            <Link href="/dashboard" className="underline">
-              Go to dashboard
-            </Link>
-          </p>
         )}
       </div>
     </ProtectedLayout>

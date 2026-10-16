@@ -7,6 +7,7 @@ import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import {
   Card,
+  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -78,6 +79,45 @@ export default async function OnboardingQuestionnairePage({
                 support.
               </CardDescription>
             </CardHeader>
+          </Card>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+  // PR 13 — parity with the redirect target. The
+  // `/onboarding/[id]` route bounces `failed` rows back to
+  // this Card (no redirect to /questionnaire), but if a stale
+  // tab / shared link still lands here directly, refuse the
+  // form rather than letting the student fill it out and hit
+  // an unavoidable save error. Admins retry via
+  // `retryAdminOnboarding`; the student waits on the admin.
+  if (view.onboarding.status === "failed") {
+    return (
+      <ProtectedLayout>
+        <div className="mx-auto max-w-3xl space-y-6">
+          <Card className="border-destructive/40 bg-destructive/5">
+            <CardHeader>
+              <CardTitle className="text-destructive text-lg">
+                We couldn&apos;t finish setting this up
+              </CardTitle>
+              <CardDescription>
+                {view.onboarding.failureReason ??
+                  "Please reach out to support@mentorships.com if this has been stuck for more than a business day."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Your administrator has been notified and will retry this. If
+                this has been stuck for more than a business day, email{" "}
+                <a
+                  className="font-medium underline"
+                  href="mailto:support@mentorships.com"
+                >
+                  support@mentorships.com
+                </a>
+                .
+              </p>
+            </CardContent>
           </Card>
         </div>
       </ProtectedLayout>
