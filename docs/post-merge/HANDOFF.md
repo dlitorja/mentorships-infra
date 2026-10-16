@@ -249,7 +249,7 @@ Branch `feat/student-timezone-picker` from worktree `/home/dlitorja/projects/men
 
 3. **`<TimezonePicker>` on the questionnaire.** New client component mounted at the bottom of `/onboarding/[id]/questionnaire`. Auto-detects via `Intl.DateTimeFormat().resolvedOptions().timeZone` (no permission prompt — OS-set zone is accurate when system clock is correct). Dropdown override is grouped by IANA region prefix and falls back to a curated list of ~50 common zones if `Intl.supportedValuesOf("timeZone")` is unavailable (older browsers, locked-down WebView shells). Persists via the new public mutation `setStudentTimezone` in `convex/adminOnboarding.ts`:
    * `adminOnboardings.studentTimezone?: string` and `studentTimezoneSetAt?: number` — **additive optional fields, no migration, no index**. Pre-existing rows resolve to `undefined` for both.
-   * `setStudentTimezone(onboardingId, timezone)` — only the assigned student may write (`identity.subject === row.assignedStudentClerkId`), 404-equivalent for non-owners. Validation: regex + `Intl.DateTimeFormat` cross-check; throws `INVALID_ARGUMENT` on length > 64 or any non-IANA charset including `javascript:` / `data:` smuggling patterns. Empty / whitespace input clears both fields.
+   * `setStudentTimezone(onboardingId, timezone)` — only the assigned student may write (`identity.subject === row.assignedStudentClerkId`); non-owners receive `UNAUTHORIZED: not the assigned student`, while missing rows return `NOT_FOUND: onboarding row missing`. Validation: regex + `Intl.DateTimeFormat` cross-check; throws `INVALID_ARGUMENT` on length > 64 or any non-IANA charset including `javascript:` / `data:` smuggling patterns. Empty / whitespace input clears both fields.
    * Staff-side `/onboarding/[id]/page.tsx` now renders `Student timezone: <zone> · set <ISO datetime>` in the header for rows with a pegged value.
    * `getOnboardingView` `returns` validator extended so all readers (instructor, admin, support gate-banners, `/api/.../admin/onboardings/...`) see the new fields; legacy rows return `studentTimezone: undefined`.
 
@@ -267,7 +267,7 @@ To be walked in the verification window. Verbatim from PR #941's body:
 1. Pick `America/New_York` from the dropdown → "Saving…" → "Saved as America/New_York" → refresh → choice survives → staff-side header shows `Student timezone: America/New_York · set ...`.
 2. Empty `studentTimezone` → dropdown pre-fills with the OS-set zone in a top-of-dropdown "Detected from your browser" group.
 3. Persisted choice is recoverable across route refresh.
-4. Cross-tab/cross-session smuggling: from a different student session, attempt to write timezones to another student's row via the Convex dashboard → `UNAUTHORIZED`.
+4. Cross-tab/cross-session smuggling: from a different signed-in student session, attempt to write timezones to another student's row via the Convex dashboard → reject with `UNAUTHORIZED: not the assigned student`. (Important: do NOT pass with `UNAUTHORIZED: sign-in required` — that's the no-session branch, not the ownership branch; the test must specifically exercise the assigned-student check to confirm the row-level gating.)
 5. Invalid zone (`Not/A/Real/Zone`) rejected with `INVALID_ARGUMENT`.
 6. Staff header shows `Student timezone: <zone> · set <datetime>` for rows with a value; no line for legacy rows.
 7. Staff clicking through answers / inspirations on `/onboarding/[id]` opens the URLs in a new tab without copy-paste, and dangerous schemes (e.g. pasted `javascript:alert(1)`) render as plain text.
