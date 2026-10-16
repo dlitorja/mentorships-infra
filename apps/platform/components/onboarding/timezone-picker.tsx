@@ -324,15 +324,50 @@ export function TimezonePicker({
    * queue of mutations. 400ms is short enough to feel
    * instant but long enough to absorb the typical "click
    * through three options before settling" interaction.
+   *
+   * `pendingPickRef` carries the latest pick so the cleanup
+   * hook on unmount (or tab close) can flush a pending save
+   * the user made right before navigating away. Without it
+   * a student who picks at t=0 and clicks "Submit" at t=200ms
+   * would lose the pick — we cleared the timer on unmount
+   * and the server never saw the new value.
    */
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPickRef = useRef<string | null>(null);
+
+  /**
+   * Fire a save immediately, bypassing the debounce. The
+   * `onPick` debounce always calls this via setTimeout
+   * after 400ms; the cleanup hook on unmount calls it directly
+   * if the user navigates away with a pending pick so the
+   * most-recent decision survives the route change.
+   */
+  const fireSave = useCallback(
+    (next: string | null) => {
+      const skipSafeWrite =
+        !persist.isPending && lastSavedRef.current === (next ?? "");
+      if (skipSafeWrite) {
+        setSavingState("saved");
+        return;
+      }
+      persist.mutate(next, {
+        onSuccess: () => {
+          lastSavedRef.current = next;
+        },
+      });
+    },
+    [persist]
+  );
 
   const onPick = useCallback(
     (next: string | null) => {
       setChosen(next);
       setSavingState("saving");
+      pendingPickRef.current = next;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        pendingPickRef.current = null;
         // Greptile P2 #6 (round-2) — only skip the round-trip
         // when no earlier value is in flight AND the new pick
         // matches what the server already confirms. The
@@ -344,34 +379,34 @@ export function TimezonePicker({
         // server holding B while the dropdown showed A. Read
         // `persist.isPending` to detect the in-flight write
         // and force the round-trip when needed.
-        const skipSafeWrite =
-          !persist.isPending && lastSavedRef.current === (next ?? "");
-        if (skipSafeWrite) {
-          setSavingState("saved");
-          return;
-        }
-        // Greptile P2 #4 — only update lastSavedRef AFTER a
-        // successful save. Updating before the mutation fires
-        // would skip retries when a transient error
-        // (INTL-invalid zone, network hiccup) rejected the
-        // first attempt and the user re-selects the same
-        // zone within the debounce window. The onSuccess
-        // callback below advances the ref explicitly.
-        persist.mutate(next, {
-          onSuccess: () => {
-            lastSavedRef.current = next;
-          },
-        });
+        fireSave(next);
       }, 400);
     },
-    [persist]
+    [fireSave]
   );
 
+  /**
+   * Greptile P2 #7 (round-3) — flush any pending pick on
+   * unmount so a student who picks at t=0 and clicks
+   * "Submit" within the 400ms debounce window still gets
+   * the pick saved. The previous cleanup just cleared the
+   * timer, silently dropping the write. We still skip the
+   * round-trip when the pick matches what's already
+   * confirmed by the server (the same skip-rule
+   * `fireSave` applies) so a `null` pick against a non-set
+   * row keeps zero writes.
+   */
   useEffect(
     () => () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (!debounceRef.current) return;
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      const pending = pendingPickRef.current;
+      pendingPickRef.current = null;
+      if (pending === null) return;
+      fireSave(pending);
     },
-    []
+    [fireSave]
   );
 
   // The dropdown's effective value: explicit user choice wins;
