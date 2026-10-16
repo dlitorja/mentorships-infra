@@ -203,3 +203,33 @@ The main checkout `/home/dlitorja/projects/mentorships-infra/` had unrelated mod
 ## Other session note
 
 PR #936 (`feat/linear-cli-opencode-db-credential-fix`, commit `f1f4a63a399a4dd7e35b3b42c7938e7b37f62210`, merged 2026-10-16T04:44:53Z) was also unblocked in this session: two Greptile P1 findings (token refresh endpoint reverted to `/oauth/token`, expired database tokens hiding working credentials) were both fixed (`c8155ca4` → `f1f4a63a`). Greptile CLI: 5/5 confidence.
+
+---
+
+# Post-PR-937 follow-up: streamlined student /onboarding funnel (PR #939)
+
+**Shipped:** PR #939 squash-merged on `b05fa759fa99d299e9c275e40b4b70bf641b0656` (2026-10-16T15:08:43Z).
+Branch `feat/student-onboarding-funnel` from worktree `/home/dlitorja/projects/mentorships-infra-onboarding-funnel`. Greptile GitHub App on PR #939: **5/5 confidence, no actionable issues**. CodeRabbit skipped review (repo has fewer than 10 stars — per AGENTS.md, Greptile alone is sufficient). Pre-merge CI: all checks SUCCESS.
+
+**Why:** the operator signed in as a test-student and found the previous `/onboarding/[id]` page (4-step stepper "Invitation sent / Account created / Workspaces ready / Onboarding complete", instructor list with Preparing/Ready badges, "What happens next" copy block) irrelevant to the student. The student's only real action is the questionnaire, so the URL they land on (from the deep-link email / dashboard banner / proxy.ts gate) should go straight to the form.
+
+**Behavior on prod:**
+
+For the assigned student visiting `/onboarding/[id]`:
+- `failed` → minimal "We couldn't finish setting this up" card (failure-reason + support contact). No stepper, no questionnaire form, no instructors list.
+- `cancelled` → minimal "This onboarding was cancelled" card (support contact). Same as today, but stripped of the surrounding noise.
+- `queued` / `processing` / `completed` → server-side 307 to `/onboarding/[id]/questionnaire`, which renders the form (empty / draft / already-submitted). The "Submitted" card on the form handles `completed`.
+
+`/onboarding/[id]/questionnaire` gains a matching `failed` block: if a stale tab / shared link lands here directly for a failed row, the editable form is refused.
+
+The HUC-92 self-heal path still runs at the top of `/onboarding/[id]/page.tsx`, so a signed-up student who lands there before the `user.created` Clerk webhook completes their claim still gets a viewable `/questionnaire` redirect.
+
+Instructors / admins / support fall through to the unchanged full status page (stepper, instructor list, timeline, submitted questionnaire answers, work examples).
+
+**Out-of-scope items recorded in Linear:**
+
+- HUC-108 ("Verify streamlined /onboarding student funnel on prod") — `In Progress`, references merge commit `b05fa759`. Operator: walk T1–T6 (fresh-student → /questionnaire; returning-with-draft → /questionnaire; failed-row → minimal card; cancelled-row → minimal card; HUC-92 self-heal still works; instructor view unchanged). Same T0 prerequisite as HUC-106: confirm `<RESEND_API_KEY_PLACEHOLDER>` and `<EMAIL_FROM_PLACEHOLDER>` are deployed to Vercel prod.
+- Operator action: add `workflow-change` (purple `#a855f7`) label to PR #939 in GitHub. The Linear CLI wrapper doesn't expose a label-creation subcommand and the raw MCP `create_label` call returns SSE the wrapper can't parse cleanly. One-time manual step.
+- HUC-107 (still `Backlog`, Medium): broaden the Inngest reminder cron to scan `adminOnboardings` directly so the cron covers students who never reach the questionnaire form (the current code only fires on `onboardingQuestionnaireSubmissions.draft`) plus the `throw NonRetriableError` on `missing_api_key` patch at `apps/platform/inngest/functions/onboarding.ts:783-790`. This PR doesn't address HUC-107 because the student funnel redirect drops the student onto the questionnaire form by default; the only onboarding rows that don't reach the form are the failed/cancelled rows, which are intentionally terminal on the user's side.
+
+**Operator cleanup:** worktree `/home/dlitorja/projects/mentorships-infra-onboarding-funnel` and local branch `feat/student-onboarding-funnel` are still around (the current checkout when the merge happened, so `gh pr merge --delete-branch` skipped them). Safe to remove with `git worktree remove /home/dlitorja/projects/mentorships-infra-onboarding-funnel --force && git branch -D feat/student-onboarding-funnel` from the main checkout.
