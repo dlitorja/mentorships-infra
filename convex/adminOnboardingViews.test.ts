@@ -1059,12 +1059,33 @@ test("setStudentTimezone: refuses an invalid IANA zone", async () => {
     });
   });
 
+  // Greptile round-5 P2 — exercised two distinct rejection
+  // paths so weakening either side of the validator would
+  // fail the test:
+  //
+  //   1. charset-reject path: the <script>alert(1)</script>
+  //      payload includes non-ASCII garbage the regex rules
+  //      out before the Intl cross-check runs.
+  //   2. IANA-not-real path: "Not/A/Real/Zone" passes the
+  //      regex (it is mostly ASCII IANA-shaped) but fails
+  //      the `new Intl.DateTimeFormat({timeZone})` cross-
+  //      check that follows in the mutation. Without the
+  //      Intl step the regex alone would let this through.
   await expect(
     t
       .withIdentity({ subject: studentClerkId })
       .mutation(api.adminOnboarding.setStudentTimezone, {
         onboardingId,
         timezone: "Not/A/Real/Zone<script>alert(1)</script>",
+      })
+  ).rejects.toThrow(/INVALID_ARGUMENT|not an IANA timezone name/i);
+
+  await expect(
+    t
+      .withIdentity({ subject: studentClerkId })
+      .mutation(api.adminOnboarding.setStudentTimezone, {
+        onboardingId,
+        timezone: "Not/A/Real/Zone",
       })
   ).rejects.toThrow(/INVALID_ARGUMENT|not an IANA timezone name/i);
 });
