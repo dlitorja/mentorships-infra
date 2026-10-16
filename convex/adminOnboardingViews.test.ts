@@ -947,3 +947,153 @@ test("getStudentOnboardingGateForCurrentUser: newest submitted row clears the ga
   expect(result.onboardingId).toBeNull();
   expect(result.questionnaireSubmitted).toBe(true);
 });
+
+/**
+ * PR 14 — Tests for the student-set timezone path.
+ *
+ * The mutation lives next to the rest of the
+ * `convex/adminOnboarding.ts` student-facing surface, and is
+ * guarded by the same `assignedStudentClerkId === identity.subject`
+ * check as the other student writes. We exercise:
+ *
+ *   - happy path: assigned student sets a valid IANA zone, the
+ *     view exposes it, and `studentTimezoneSetAt` is recorded.
+ *   - clear path: empty string clears both fields.
+ *   - reject path: invalid zone string fails the mutation.
+ *   - auth path: a different signed-in user (even another
+ *     student) cannot write another student's timezone.
+ *
+ * We do NOT exercise geolocation-derived zones — the picker
+ * reads `Intl.DateTimeFormat()` client-side, never on the
+ * server, so the server's job is just shape validation.
+ */
+test("setStudentTimezone: assigned student can save and the change is reflected in the view", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_tz_alice";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, {
+      name: "Inst TZ",
+      slug: "inst-tz",
+    });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "alice-tz@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId })
+    .mutation(api.adminOnboarding.setStudentTimezone, {
+      onboardingId,
+      timezone: "America/New_York",
+    });
+
+  expect(result.ok).toBe(true);
+  expect(result.studentTimezone).toBe("America/New_York");
+  expect(typeof result.studentTimezoneSetAt).toBe("number");
+
+  // Re-read through `getOnboardingView` to confirm the field
+  // round-trips through the read-side validator.
+  const view = await t
+    .withIdentity({ subject: studentClerkId })
+    .query(api.adminOnboarding.getOnboardingView, { onboardingId });
+  expect(view?.onboarding.studentTimezone).toBe("America/New_York");
+  expect(typeof view?.onboarding.studentTimezoneSetAt).toBe("number");
+});
+
+test("setStudentTimezone: empty string clears both fields", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_tz_bob";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, {
+      name: "Inst TZC",
+      slug: "inst-tzc",
+    });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "bob-tz@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // Pre-seed a value so the test exercises the "clear" branch.
+  await t
+    .withIdentity({ subject: studentClerkId })
+    .mutation(api.adminOnboarding.setStudentTimezone, {
+      onboardingId,
+      timezone: "Asia/Tokyo",
+    });
+
+  // Now clear it.
+  const result = await t
+    .withIdentity({ subject: studentClerkId })
+    .mutation(api.adminOnboarding.setStudentTimezone, {
+      onboardingId,
+      timezone: "  ",
+    });
+
+  expect(result.ok).toBe(true);
+  expect(result.studentTimezone).toBeNull();
+  expect(result.studentTimezoneSetAt).toBeNull();
+});
+
+test("setStudentTimezone: refuses an invalid IANA zone", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_tz_carol";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, {
+      name: "Inst TZR",
+      slug: "inst-tzr",
+    });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "carol-tz@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  await expect(
+    t
+      .withIdentity({ subject: studentClerkId })
+      .mutation(api.adminOnboarding.setStudentTimezone, {
+        onboardingId,
+        timezone: "Not/A/Real/Zone<script>alert(1)</script>",
+      })
+  ).rejects.toThrow(/INVALID_ARGUMENT|not an IANA timezone name/i);
+});
+
+test("setStudentTimezone: refuses another student writing the row", async () => {
+  const t = convexTest(schema, modules);
+  const assignedStudent = "user_student_tz_assigned";
+  const otherStudent = "user_student_tz_other";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, {
+      name: "Inst TZA",
+      slug: "inst-tza",
+    });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "assigned-tz@example.com",
+      status: "processing",
+      assignedStudentClerkId: assignedStudent,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  await expect(
+    t
+      .withIdentity({ subject: otherStudent })
+      .mutation(api.adminOnboarding.setStudentTimezone, {
+        onboardingId,
+        timezone: "Europe/Paris",
+      })
+  ).rejects.toThrow(/UNAUTHORIZED|not the assigned student/i);
+});
+

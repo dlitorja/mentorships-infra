@@ -1785,6 +1785,11 @@ export const getOnboardingView = query({
         attemptCount: v.number(),
         failureReason: v.optional(v.string()),
         assignedStudentClerkId: v.optional(v.string()),
+        // PR 14 — student timezone, set by the assigned student
+        // through `<TimezonePicker>` on the questionnaire page.
+        // See adminOnboarding.setStudentTimezone.
+        studentTimezone: v.optional(v.string()),
+        studentTimezoneSetAt: v.optional(v.number()),
       }),
       viewerRole: v.union(
         v.literal("student"),
@@ -1853,6 +1858,8 @@ export const getOnboardingView = query({
         attemptCount: row.attemptCount,
         failureReason: row.failureReason,
         assignedStudentClerkId: row.assignedStudentClerkId,
+        studentTimezone: row.studentTimezone,
+        studentTimezoneSetAt: row.studentTimezoneSetAt,
       },
       viewerRole: canView.role,
       instructors,
@@ -2137,6 +2144,93 @@ export const claimOnboardingByEmailForCurrentUser = mutation({
       requireUnassignedOrSelfOwned: true,
     });
     return innerResult;
+  },
+});
+
+/**
+ * PR 14 — Student-set timezone on their onboarding row.
+ *
+ * The assigned student picks an IANA timezone on the questionnaire
+ * page (`<TimezonePicker>`). The browser auto-detects via
+ * `Intl.DateTimeFormat().resolvedOptions().timeZone` on first
+ * mount; the dropdown lets them override. We persist the IANA
+ * name here so future scheduling / Calendar integrations can
+ * render the student's preferred local time without a second
+ * prompt.
+ *
+ * Auth model: only the assigned student may write their own
+ * timezone. We mirror the same shape as the rest of the
+ * student-side mutations — `ctx.auth.getUserIdentity()` +
+ * a `row.assignedStudentClerkId === identity.subject` check —
+ * so the row can't be touched by anyone else (other students,
+ * instructors, admins, support). This is intentional: a tz
+ * drop-down on the public gate banner or admin review page
+ * would be confusing for staff; the student owns this.
+ *
+ * Empty string is treated as "clear" (set to undefined). The
+ * validation regex accepts only canonical IANA names — no
+ * punctuation, no spaces, no angle-bracket characters that
+ * could ever form a phishing vector if the value is ever
+ * rendered inside a `<a href="...">` or similar.
+ */
+export const setStudentTimezone = mutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    timezone: v.string(),
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    studentTimezone: v.union(v.string(), v.null()),
+    studentTimezoneSetAt: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("UNAUTHORIZED: sign-in required");
+    }
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) {
+      throw new Error("NOT_FOUND: onboarding row missing");
+    }
+    if (row.assignedStudentClerkId !== identity.subject) {
+      // Defence-in-depth: refuse when the caller isn't the
+      // assigned student even if their session is valid. Mirrors
+      // the same 404-equivalent strategy the other student-side
+      // mutations use — never reveal existence to a non-owner.
+      throw new Error("UNAUTHORIZED: not the assigned student");
+    }
+    const raw = args.timezone.trim();
+    if (raw.length === 0) {
+      // Empty input from the picker is treated as "clear". This
+      // lets the student undo a choice without overwriting with
+      // a junk value.
+      await ctx.db.patch(args.onboardingId, {
+        studentTimezone: undefined,
+        studentTimezoneSetAt: undefined,
+      });
+      return { ok: true, studentTimezone: null, studentTimezoneSetAt: null };
+    }
+    // The IANA timezone database names ASCII identifiers like
+    // "America/New_York" or "Etc/GMT-8". Restrict to that surface
+    // — anything fancier is a phishing/smuggling attempt.
+    const IANA_NAME = /^[A-Za-z][A-Za-z0-9_+-/]*$/;
+    if (raw.length > 64 || !IANA_NAME.test(raw)) {
+      throw new Error("INVALID_ARGUMENT: not an IANA timezone name");
+    }
+    // Validate that the browser actually knows this zone (sanity
+    // check the picker wasn't bypassed). Cheap on the server.
+    try {
+      // Throws RangeError for invalid zones.
+      new Intl.DateTimeFormat("en-US", { timeZone: raw });
+    } catch {
+      throw new Error("INVALID_ARGUMENT: not an IANA timezone name");
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.onboardingId, {
+      studentTimezone: raw,
+      studentTimezoneSetAt: now,
+    });
+    return { ok: true, studentTimezone: raw, studentTimezoneSetAt: now };
   },
 });
 

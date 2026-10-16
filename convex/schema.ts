@@ -1509,6 +1509,20 @@ export default defineSchema({
     // populated adminOnboardings rows are missing this field).
     assignedStudentClerkId: v.optional(v.string()),
 
+    // PR 14 — Student timezone (IANA name, e.g. "America/New_York").
+    // Captured by the questionnaire page's <TimezonePicker>
+    // (apps/platform/components/onboarding/timezone-picker.tsx),
+    // which auto-detects via `Intl.DateTimeFormat().resolvedOptions()
+    // .timeZone` on first mount and offers a manual dropdown override.
+    // Captured so future scheduling / Google Calendar / Apple Calendar
+    // integrations can render the student's preferred local time
+    // without a second prompt for the timezone. Set by the assigned
+    // student only, via `setStudentTimezone` in adminOnboarding.ts.
+    // Additive — pre-existing rows have `undefined`, which renders as
+    // "Timezone not set" in the staff review row.
+    studentTimezone: v.optional(v.string()),
+    studentTimezoneSetAt: v.optional(v.number()),
+
     // Append-only event history. Bounded by transitions + email sends
     // (typically <20 entries per row) — does not violate Convex's
     // no-unbounded-lists rule.
