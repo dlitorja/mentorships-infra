@@ -57,14 +57,30 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   // "student" so the gate treats legacy / admin-created accounts
   // as students. Widen via `instructorRecord` for verified
   // instructors regardless of claim state.
-  const likelyRole: "student" | "instructor" | "admin" | "other" =
+  //
+  // Greptile round-15 P2: support users have a real role
+  // claim but were being bucketed as "student" by the
+  // fallthrough, the gate would still fire on their behalf
+  // and they'd see "Finish onboarding" on protected pages.
+  // Widened the union and added a support arm above the
+  // student fallthrough. The gate condition below
+  // (`likelyRole === "student"`) now automatically excludes
+  // support — no further branching needed.
+  const likelyRole:
+    | "student"
+    | "instructor"
+    | "admin"
+    | "support"
+    | "other" =
     instructorRecord
       ? "instructor"
       : claimsRole === "admin"
         ? "admin"
         : claimsRole === "instructor"
           ? "instructor"
-          : "student";
+          : claimsRole === "support"
+            ? "support"
+            : "student";
 
   // PR 12 PR E (Follow-up) — Soft gate: server-side prefetch the
   // onboarding gate envelope so it lands in the React Query cache
