@@ -135,7 +135,19 @@ async function getToken() {
     };
   }
   const dbCached = await readOpencodeDbCredential();
-  if (dbCached?.entry?.tokens?.accessToken) {
+  if (
+    dbCached?.entry?.tokens?.accessToken &&
+    // Greptile round-1 P1: skip expired database tokens so a
+    // usable `LINEAR_API_KEY` or refreshable JSON cache entry
+    // can still take over. Without this check, an expired
+    // opencode.db token can preempt both of those sources,
+    // turn into a 401, and block the call before
+    // `tryRefresh` is reached.
+    !(
+      dbCached.entry.tokens.expiresAt > 0 &&
+      Date.now() / 1000 > dbCached.entry.tokens.expiresAt
+    )
+  ) {
     return {
       token: dbCached.entry.tokens.accessToken,
       source: dbCached.source,
@@ -168,7 +180,13 @@ async function tryRefresh(cached) {
     return null;
   }
   const refreshUrl = new URL(MCP_URL);
-  refreshUrl.pathname = "/oauth/token";
+  // Greptile round-1 P1: PR #932 (commit 2241d1b) confirmed the
+  // OAuth provider advertises `/token` (returns 404 for
+  // `/oauth/token`). Don't regress to the older URL on the
+  // opencode.db fallback path — the refresh dance happens
+  // against the same MCP server for both JSON and opencode.db
+  // sources.
+  refreshUrl.pathname = "/token";
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: entry.tokens.refreshToken,
