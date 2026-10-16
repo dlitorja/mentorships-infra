@@ -201,8 +201,23 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
            * onboarding message inside every protected surface
            * (workspace, settings, sessions, calendar). The hard
            * 307 in proxy.ts is the source of truth for
-           * navigation; this banner is the in-app nudge. */}
-          <OnboardingGateBanner gate={gate} />
+           * navigation; this banner is the in-app nudge.
+           *
+           * PR 14 — Suppress the banner on the onboarding routes
+           * themselves. The student is already inside the funnel
+           * (`/onboarding/[id]/questionnaire` IS the form whose
+           * "Finish onboarding" CTA would just link back to the
+           * same page). The banner copy — "One last step before we
+           * can set up your session" — also reads as condescending
+           * from where the student is currently working. So skip
+           * on every path under `/onboarding/...` and let the page
+           * itself own the messaging. Instructors/admins landing
+           * on the staff status page render unchanged because they
+           * are not gated by `gate.requiresOnboardingCompletion`.
+           */}
+          {!currentPath?.startsWith("/onboarding/") && (
+            <OnboardingGateBanner gate={gate} />
+          )}
           {children}
         </main>
       </div>

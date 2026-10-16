@@ -70,6 +70,6 @@ export const ONBOARDING_QUESTIONS: readonly OnboardingQuestion[] = [
     minEntries: 3,
     maxEntries: 4,
     helpText:
-      "Add 3 or 4 artists whose work moves you. Just a name is enough — your instructor will likely know them.",
+      "Which artists inspire you the most? Name 3-4. You can post links to artists as well.",
   },
 ] as const;

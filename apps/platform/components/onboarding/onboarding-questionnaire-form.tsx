@@ -875,9 +875,9 @@ export default function OnboardingQuestionnaireForm({
         <CardHeader>
           <CardTitle>Work examples</CardTitle>
           <CardDescription>
-            Upload {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
-            images of your recent work. Your instructor uses these to
-            personalize your first call.
+            Upload {MIN_WORK_EXAMPLES_PER_SUBMISSION}-{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
+            images of your best and most recent work. Your instructor will
+            review these to evaluate where you&apos;re currently at.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import OnboardingQuestionnaireForm from "@/components/onboarding/onboarding-questionnaire-form";
+import { TimezonePicker } from "@/components/onboarding/timezone-picker";
 
 /**
  * PR 12 PR 4b — student onboarding questionnaire page.
@@ -68,7 +69,7 @@ export default async function OnboardingQuestionnairePage({
   // a form that always fails. Show a cancelled notice instead.
   if (view.onboarding.status === "cancelled") {
     return (
-      <ProtectedLayout>
+      <ProtectedLayout currentPath="/onboarding">
         <div className="mx-auto max-w-3xl space-y-6">
           <Card>
             <CardHeader>
@@ -93,7 +94,7 @@ export default async function OnboardingQuestionnairePage({
   // `retryAdminOnboarding`; the student waits on the admin.
   if (view.onboarding.status === "failed") {
     return (
-      <ProtectedLayout>
+      <ProtectedLayout currentPath="/onboarding">
         <div className="mx-auto max-w-3xl space-y-6">
           <Card className="border-destructive/40 bg-destructive/5">
             <CardHeader>
@@ -142,7 +143,7 @@ export default async function OnboardingQuestionnairePage({
   if (!initial) notFound();
 
   return (
-    <ProtectedLayout>
+    <ProtectedLayout currentPath="/onboarding">
       <div className="mx-auto max-w-3xl space-y-6">
         <Card>
           <CardHeader>
@@ -157,6 +158,18 @@ export default async function OnboardingQuestionnairePage({
         <OnboardingQuestionnaireForm
           onboardingId={id}
           initial={initial}
+        />
+
+        {/* PR 14 — student-set timezone. Lives outside the
+            auto-save loop because it's a one-shot dropdown
+            selection, not free-text input. Below the form so it
+            doesn't visually split the questionnaire's narrative
+            flow; the picker is its own standalone card with a
+            different accent so it reads as "another thing to
+            configure" rather than "another question to answer". */}
+        <TimezonePicker
+          onboardingId={id}
+          initialTimezone={view.onboarding.studentTimezone}
         />
       </div>
     </ProtectedLayout>
