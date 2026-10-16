@@ -386,6 +386,22 @@ export function TimezonePicker({
   );
 
   /**
+   * Greptile P2 #8 (round-4) — keep the cleanup stable. The
+   * earlier version included `fireSave` in the deps and that
+   * ran the cleanup on every render where TanStack Query's
+   * `useMutation` returned a new object reference (which is
+   * every render). The cleanup fired `fireSave(pending)`
+   * synchronously on each state update, defeating the 400ms
+   * debounce entirely. Mirror the latest `fireSave` through a
+   * ref and read it from the cleanup so the cleanup only runs
+   * on real unmount.
+   */
+  const fireSaveRef = useRef(fireSave);
+  useEffect(() => {
+    fireSaveRef.current = fireSave;
+  });
+
+  /**
    * Greptile P2 #7 (round-3) — flush any pending pick on
    * unmount so a student who picks at t=0 and clicks
    * "Submit" within the 400ms debounce window still gets
@@ -404,9 +420,11 @@ export function TimezonePicker({
       const pending = pendingPickRef.current;
       pendingPickRef.current = null;
       if (pending === null) return;
-      fireSave(pending);
+      // Read through the ref so the closure sees the latest
+      // fireSave even after re-renders updated the binding.
+      fireSaveRef.current(pending);
     },
-    [fireSave]
+    []
   );
 
   // The dropdown's effective value: explicit user choice wins;
