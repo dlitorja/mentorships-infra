@@ -233,3 +233,69 @@ Instructors / admins / support fall through to the unchanged full status page (s
 - HUC-107 (still `Backlog`, Medium): broaden the Inngest reminder cron to scan `adminOnboardings` directly so the cron covers students who never reach the questionnaire form (the current code only fires on `onboardingQuestionnaireSubmissions.draft`) plus the `throw NonRetriableError` on `missing_api_key` patch at `apps/platform/inngest/functions/onboarding.ts:783-790`. This PR doesn't address HUC-107 because the student funnel redirect drops the student onto the questionnaire form by default; the only onboarding rows that don't reach the form are the failed/cancelled rows, which are intentionally terminal on the user's side.
 
 **Operator cleanup:** worktree `/home/dlitorja/projects/mentorships-infra-onboarding-funnel` and local branch `feat/student-onboarding-funnel` are still around (the current checkout when the merge happened, so `gh pr merge --delete-branch` skipped them). From the main checkout, run `git worktree remove /home/dlitorja/projects/mentorships-infra-onboarding-funnel && git branch -D feat/student-onboarding-funnel`. If Git refuses because the worktree contains uncommitted or untracked files, preserve that work before retrying; do not force removal.
+
+---
+
+# Post-PR-939 follow-up: questionnaire UX polish + student timezone picker (PR #941)
+
+**Shipped:** PR #941 squash-merged on `60a55e86ae47cdb09f5723d9dc561b15a7b32438` (2026-10-16T19:31:55Z).
+Branch `feat/student-timezone-picker` from worktree `/home/dlitorja/projects/mentorships-infra-tz`. Greptile GitHub App: **5/5 confidence** on merge-base commit `52f41194`; cumulative CLI review over the local CLI's review-branch also showed 5/5. CodeRabbit skipped (repo <10 stars). Pre-merge CI: typecheck + lint clean, 712 Convex tests passing (the 4 new `setStudentTimezone` cases included), all green.
+
+**Three things in one PR:**
+
+1. **Questionnaire UX polish** (the operator-quoted copy). Inspirations help text is now *"Which artists inspire you the most? Name 3-4. You can post links to artists as well."* (operator's wording verbatim). Work examples description is now *"Upload 4-6 images of your best and most recent work. Your instructor will review these to evaluate where you're currently at."* (operator used a hyphen in *4-6*, kept verbatim). Both copy changes live in `apps/platform/lib/onboarding-questions.ts` and `apps/platform/components/onboarding/onboarding-questionnaire-form.tsx`.
+
+2. **`<Linkify>` review helper** (new file `apps/platform/components/ui/linkify.tsx`). Staff-side reviewers of `/onboarding/[id]` now see URLs in free-text answers and in `inspirations[].name` rendered as clickable `<a target="_blank" rel="noopener noreferrer">` tags. URL_PATTERN matches `http(s)://`, `www.`, `mailto:`, `tel:`. Trailing-punctuation strip uses a per-character walker (NOT a blanket regex) so balanced URL parens like `(series)` are preserved. Safe-scheme gate refuses `javascript:` / `data:` / `vbscript:` / `file:` and renders them as plain text.
+
+3. **`<TimezonePicker>` on the questionnaire.** New client component mounted at the bottom of `/onboarding/[id]/questionnaire`. Auto-detects via `Intl.DateTimeFormat().resolvedOptions().timeZone` (no permission prompt — OS-set zone is accurate when system clock is correct). Dropdown override is grouped by IANA region prefix and falls back to a curated list of ~50 common zones if `Intl.supportedValuesOf("timeZone")` is unavailable (older browsers, locked-down WebView shells). Persists via the new public mutation `setStudentTimezone` in `convex/adminOnboarding.ts`:
+   * `adminOnboardings.studentTimezone?: string` and `studentTimezoneSetAt?: number` — **additive optional fields, no migration, no index**. Pre-existing rows resolve to `undefined` for both.
+   * `setStudentTimezone(onboardingId, timezone)` — only the assigned student may write (`identity.subject === row.assignedStudentClerkId`); non-owners receive `UNAUTHORIZED: not the assigned student`, while missing rows return `NOT_FOUND: onboarding row missing`. Validation: regex + `Intl.DateTimeFormat` cross-check; throws `INVALID_ARGUMENT` on length > 64 or any non-IANA charset including `javascript:` / `data:` smuggling patterns. Empty / whitespace input clears both fields.
+   * Staff-side `/onboarding/[id]/page.tsx` now renders `Student timezone: <zone> · set <ISO datetime>` in the header for rows with a pegged value.
+   * `getOnboardingView` `returns` validator extended so all readers (instructor, admin, support gate-banners, `/api/.../admin/onboardings/...`) see the new fields; legacy rows return `studentTimezone: undefined`.
+
+4. **Suppress `OnboardingGateBanner` on `/onboarding/*` routes.** New `currentPath` prop on the questionnaire page's `<ProtectedLayout>` calls (was missing before) plus a wider gate-banner suppression rule (`currentPath?.startsWith("/onboarding")`) so the student inside the funnel doesn't see "Finish onboarding" against the same form.
+
+**Two adjacent scope-creeps Greptile surfaced and which were addressed because they were on the same review surface:**
+
+* `instructor-page-gate-banner.tsx` (the soft-gate banner on `/instructors`): widened the existing "skip if instructor record" check to include admins and support users via `getServerUserRole` from `lib/auth-helpers.ts`.
+* Same widening mirrored in `apps/platform/components/navigation/protected-layout.tsx`'s `likelyRole` mapping (added a `support` arm above the student fall-through) and in `apps/platform/app/dashboard/DashboardContent.tsx`'s gate-query enable condition. An admin or support user with a stale unfinished-student `adminOnboardings` row no longer sees "Finish onboarding" prompts on `/instructors`, on protected pages, or on the dashboard.
+
+**Operator smoke tests on prod (HUC-109):**
+
+To be walked in the verification window. Verbatim from PR #941's body:
+
+1. Pick `America/New_York` from the dropdown → "Saving…" → "Saved as America/New_York" → refresh → choice survives → staff-side header shows `Student timezone: America/New_York · set ...`.
+2. Empty `studentTimezone` → dropdown pre-fills with the OS-set zone in a top-of-dropdown "Detected from your browser" group.
+3. Persisted choice is recoverable across route refresh.
+4. Cross-tab/cross-session smuggling: from a different signed-in student session, attempt to write timezones to another student's row via the Convex dashboard → reject with `UNAUTHORIZED: not the assigned student`. (Important: do NOT pass with `UNAUTHORIZED: sign-in required` — that's the no-session branch, not the ownership branch; the test must specifically exercise the assigned-student check to confirm the row-level gating.)
+5. Invalid zone (`Not/A/Real/Zone`) rejected with `INVALID_ARGUMENT`.
+6. Staff header shows `Student timezone: <zone> · set <datetime>` for rows with a value; no line for legacy rows.
+7. Staff clicking through answers / inspirations on `/onboarding/[id]` opens the URLs in a new tab without copy-paste, and dangerous schemes (e.g. pasted `javascript:alert(1)`) render as plain text.
+
+**Out-of-scope items still in Linear / flagged as future work:**
+
+* **HUC-109** (newly filed verification issue, `In Progress`, references merge commit `60a55e86`). Same T0 prerequisite as HUC-106 / HUC-108: confirm placeholder `<RESEND_API_KEY>` and `<EMAIL_FROM>` are deployed to Vercel prod.
+* **Google Calendar / Apple Calendar integrations** that would actually consume `adminOnboardings.studentTimezone` to render local-time copy. The picker now captures the data; rendering it into a real calendar UI is intentionally out of scope for PR #941.
+* **HUC-107 (still `Backlog`, Medium)** — broaden the Inngest reminder cron to scan `adminOnboardings` directly so the cron covers students who never reach the questionnaire form plus the `throw NonRetriableError` on `missing_api_key` patch at `apps/platform/inngest/functions/onboarding.ts:783-790`. Adjacent to the funnel work but not addressed here.
+* **Operator action**: add the `schema-change` + `workflow-change` (purple `#a855f7`) labels to PR #941 in GitHub. The Linear CLI wrapper `scripts/linear-cli.mjs` doesn't expose a label-creation subcommand yet; the raw MCP `create_label` call returns SSE the wrapper doesn't parse cleanly. Same one-time manual step as for PR #937 and PR #939 (per this HANDOFF for those merges).
+
+**Greptile review round-by-round ledger (six fixup commits on `feat/student-timezone-picker`):**
+
+* `9b554b88` — questionnaire UX polish + Linkify + gate-banner suppression (clean)
+* `959afb8b` — student timezone picker schema + mutation + tests + UI (clean)
+* `68381084` — round-1 P2 fixes (banner suppression regex widened, admin/support skip on `instructor-page-gate-banner`, auto-save detected zone, lastSavedRef advanced post-success, balanced-paren tail-strip in Linkify)
+* `88b8e7c8` — round-2 P2 fixes (fallback IANA zone list, skip-rule now also gates on `persist.isPending`)
+* `b7533bed` — round-3 P2 fix (cleanup flushes the pending pick on unmount so submit-within-400ms is never dropped)
+* `bd72f32f` — round-4 P2 fix (cleanup reads `fireSave` via `fireSaveRef` so the cleanup hook doesn't re-run on every TanStack re-render — stabilizer for the 400ms debounce)
+* `52f41194` — round-5 P2 fix (extended staff-role exemption to support users on `ProtectedLayout`'s likelyRole and the DashboardContent gate)
+* `7d920f2e` — round-6 test-coverage follow-up (added a `Not/A/Real/Zone` plain-IANA-bogus assertion so the Intl cross-check is exercised independently of the regex)
+* Squash: `60a55e86ae47cdb09f5723d9dc561b15a7b32438`
+
+**Worktree cleanup:** `/home/dlitorja/projects/mentorships-infra-tz/` is still around (the current checkout when `gh pr merge` ran, so the `--delete-branch` step skipped). It contains only committed work — safe to remove. From the main checkout, run:
+
+```
+git worktree remove /home/dlitorja/projects/mentorships-infra-tz
+git branch -D feat/student-timezone-picker
+```
+
+If Git refuses because the worktree picked up new untracked files, preserve them before retrying — do not `--force` removal of operator WIP.
