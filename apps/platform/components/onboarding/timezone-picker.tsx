@@ -208,6 +208,42 @@ export function TimezonePicker({
   });
 
   /**
+   * Greptile P2 #3 — auto-save the detected zone on first mount
+   * when the row has no `studentTimezone` yet. Without this,
+   * a student who accepts the dropdown's default by clicking
+   * through the questionnaire without ever touching the picker
+   * leaves the field `undefined`. Saving on mount is intrusive
+   * but cheap (one mutation per student per session) and lets
+   * us skip an explicit "Save" button entirely.
+   *
+   * Bails out when the detected zone is missing (older
+   * browsers, weird test harnesses) so the user isn't
+   * auto-pinned to a junk value by a polyfill.
+   */
+  useEffect(() => {
+    if (initialTimezone) return;
+    if (typeof Intl === "undefined") return;
+    let detected: string | null = null;
+    try {
+      detected = detectClientTimezone();
+    } catch {
+      return;
+    }
+    if (!detected) return;
+    if (lastSavedRef.current === detected) return;
+    setChosen(detected);
+    setSavingState("saving");
+    persist.mutate(detected, {
+      onSuccess: () => {
+        lastSavedRef.current = detected;
+      },
+    });
+    // persist.mutate is stable enough we don't need to add it
+    // to the deps array; the effect only runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
    * Stable debounce so a fast dropdown scrub doesn't queue a
    * queue of mutations. 400ms is short enough to feel
    * instant but long enough to absorb the typical "click
@@ -230,8 +266,18 @@ export function TimezonePicker({
           setSavingState("saved");
           return;
         }
-        lastSavedRef.current = next;
-        persist.mutate(next);
+        // Greptile P2 #4 — only update lastSavedRef AFTER a
+        // successful save. Updating before the mutation fires
+        // would skip retries when a transient error
+        // (INTL-invalid zone, network hiccup) rejected the
+        // first attempt and the user re-selects the same
+        // zone within the debounce window. The onSuccess
+        // callback below advances the ref explicitly.
+        persist.mutate(next, {
+          onSuccess: () => {
+            lastSavedRef.current = next;
+          },
+        });
       }, 400);
     },
     [persist]

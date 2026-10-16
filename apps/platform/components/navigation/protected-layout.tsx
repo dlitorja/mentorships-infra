@@ -214,8 +214,17 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
            * itself own the messaging. Instructors/admins landing
            * on the staff status page render unchanged because they
            * are not gated by `gate.requiresOnboardingCompletion`.
+           *
+           * Greptile P2 #1 — `/onboarding/[id]/questionnaire/page.tsx`
+           * passes `currentPath="/onboarding"` (the bare section
+           * prefix) instead of a fully-qualified page path. The
+           * suppression must match BOTH the section root AND any
+           * child route so a page that only has the section name
+           * still keeps the banner quiet — without it, a student
+           * inside the funnel would re-trigger the same message
+           * they're already answering on the form.
            */}
-          {!currentPath?.startsWith("/onboarding/") && (
+          {!currentPath?.startsWith("/onboarding") && (
             <OnboardingGateBanner gate={gate} />
           )}
           {children}

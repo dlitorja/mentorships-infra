@@ -30,10 +30,6 @@ import React from "react";
 const URL_PATTERN =
   /(?:https?:\/\/|www\.|mailto:|tel:)[^\s<>"]+/gi;
 
-// Trailing characters that almost always belong to the surrounding
-// sentence, not to the URL itself.
-const TRAILING_PUNCT = /[.,!?:;)\]]+$/;
-
 /** True when a parsed URL's scheme is safe to render as `href`. */
 function isSafeHref(raw: string): boolean {
   const lower = raw.trim().toLowerCase();
@@ -73,12 +69,66 @@ function normalizeHref(raw: string): string {
  * Returns the cleaned URL plus the leftover trailing chars so the
  * caller can render them as plain text (preserves the
  * human-readable surface of the source string).
+ *
+ * Greptile P2 #5 — simple `/[.,!?:;)\]]+$/` over-strips when the
+ * URL ends in a balanced (or unbalanced-toward-open) paren. For
+ * example `https://example.com/portfolio_(series)` had its
+ * closing `)` swallowed even though it was part of the URL.
+ *
+ * Fix: walk the trailer one character at a time. For non-paren
+ * chars (`.,!?:;`) we always strip. For closing-paren chars
+ * (`)`, `]`) we strip only when the URL has no structural reason
+ * to keep them:
+ *
+ *   - `opens === 0` in trimmed URL → no (`'s left to close, the
+ *     trailing `)` is from prose (e.g. sentence "see example.com)"
+ *     after a non-paren URL).
+ *   - `opens  <  closes` in trimmed URL → already unbalanced
+ *     toward closes (e.g. `(((a)` after a `)` was stripped) — the
+ *     extra `)` is dangling.
+ *   - otherwise (`opens > 0` and `opens >= closes`) → the URL
+ *     has unclosed openers that this `)` is closing; keep it.
+ *
+ * Note: balanced-with-content (`(series)`) lands in the "keep"
+ * bucket — URLs people write with intentional parens stay
+ * intact. The tradeoff is the rare double-paren `((a))` case
+ * (intentional `((a))` would be stripped to `(a)`), but in
+ * student essay prose this skews heavily toward accidental and
+ * the superior behaviour wins.
  */
 function splitTrailing(raw: string): { url: string; tail: string } {
-  const m = raw.match(TRAILING_PUNCT);
-  if (!m) return { url: raw, tail: "" };
-  const cut = raw.length - m[0].length;
-  return { url: raw.slice(0, cut), tail: raw.slice(cut) };
+  const isTrailer = (ch: string): boolean =>
+    ch === "." || ch === "," || ch === "!" || ch === "?" ||
+    ch === ":" || ch === ";" || ch === ")" || ch === "]";
+  const isClose = (ch: string): boolean =>
+    ch === ")" || ch === "]";
+  const isOpen = (ch: string): boolean =>
+    ch === "(" || ch === "[";
+
+  let urlEnd = raw.length;
+  while (urlEnd > 0) {
+    const lastCh = raw[urlEnd - 1];
+    if (!isTrailer(lastCh)) break;
+    if (isClose(lastCh)) {
+      // Decide via counts on the would-be-rendered URL.
+      const trimmed = raw.slice(0, urlEnd - 1);
+      let opens = 0;
+      let closes = 0;
+      for (const ch of trimmed) {
+        if (isOpen(ch)) opens++;
+        else if (isClose(ch)) closes++;
+      }
+      const shouldStripParen = opens === 0 || opens < closes;
+      if (!shouldStripParen) {
+        // The trailing `)` is structurally paired with a
+        // previous `(`. Keep it as part of the URL itself.
+        break;
+      }
+    }
+    urlEnd--;
+  }
+  if (urlEnd === raw.length) return { url: raw, tail: "" };
+  return { url: raw.slice(0, urlEnd), tail: raw.slice(urlEnd) };
 }
 
 export function Linkify({
