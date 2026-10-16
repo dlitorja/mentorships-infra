@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { InstructorGrid } from './instructor-grid';
+import { InstructorPageGateBannerWithSuspense } from '@/components/onboarding/instructor-page-gate-banner';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,17 @@ export default function InstructorsPage(): React.JSX.Element {
             <h1 className='section-title'>Our Instructors</h1>
             <p className='mt-4 text-muted-foreground'>Browse our roster of world-class art instructors</p>
           </div>
+
+          {/* PR 12 PR E (Follow-up) — Greptile round-9 P2: the
+            * in-app onboarding banner wasn't reaching this page
+            * because it isn't wrapped in `<ProtectedLayout />` —
+            * this is a marketing-style public-ish browse page that
+            * should render even for signed-out visitors. Mount the
+            * banner directly inside the page so a freshly-
+            * claimed-but-unfinished student browsing the roster
+            * still sees the soft gate + the link back to their
+            * questionnaire. */}
+          <InstructorPageGateBannerWithSuspense />
 
           <Suspense fallback={<InstructorsSkeleton />}>
             <InstructorGrid />

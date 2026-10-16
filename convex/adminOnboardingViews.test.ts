@@ -47,6 +47,7 @@ async function seedAdminOnboarding(
     perInstructor: Array<{ instructorId: string; isRenewal: boolean }>;
     timeline?: Array<{ at: number; event: string; actorUserId?: string; details?: string }>;
     failureReason?: string;
+    createdAt?: number;
   }
 ): Promise<string> {
   return await ctx.db.insert("adminOnboardings", {
@@ -66,7 +67,11 @@ async function seedAdminOnboarding(
     isSeparateStudentRecord: false,
     existingWorkspaceIds: [],
     timeline: args.timeline ?? [{ at: Date.now(), event: "queued" }],
-    createdAt: Date.now(),
+    // Greptile P2 follow-up: the historical-fixture tests now
+    // require explicit `createdAt` to set up the older/newer order
+    // they assert on. Honor the caller-supplied value so the older
+    // row truly lands earlier than the newer one in the index.
+    createdAt: args.createdAt ?? Date.now(),
   });
 }
 
@@ -602,4 +607,343 @@ test("claimOnboardingByEmailForCurrentUser: P1 guard refuses to overwrite a row 
     .withIdentity({ subject: aliceClerkId, email: sharedEmail })
     .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
   expect(aliceClaim.claimedOnboardingId).toBe(onboardingId);
+});
+
+/**
+ * PR 12 PR E (Follow-up) — Tests for the in-app onboarding gate
+ * query `getStudentOnboardingGateForCurrentUser`. This is the
+ * runtime check that the proxy.ts middleware, the ProtectedLayout
+ * banner, and the dashboard welcome card all consume to decide
+ * whether a student should be redirected to /onboarding/[id]
+ * before using the rest of the app.
+ */
+
+/**
+ * Insert a `seedOnboardingQuestionnaireSubmission` helper that the
+ * gate tests need, kept in the same file to mirror the
+ * `seedAdminOnboarding` pattern.
+ */
+async function seedSubmission(
+  ctx: { db: any },
+  args: {
+    onboardingId: string;
+    studentClerkId: string;
+    status: "draft" | "submitted";
+  },
+): Promise<void> {
+  await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+    onboardingId: args.onboardingId,
+    studentClerkId: args.studentClerkId,
+    questionnaireVersion: 1,
+    status: args.status,
+    answers: [],
+    inspirations: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    submittedAt: args.status === "submitted" ? Date.now() : undefined,
+  });
+}
+
+test("getStudentOnboardingGateForCurrentUser: anonymous caller is not gated", async () => {
+  const t = convexTest(schema, modules);
+  const result = await t
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+  expect(result.reason).toBeNull();
+});
+
+test("getStudentOnboardingGateForCurrentUser: student with no assigned row is not gated", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate A", slug: "inst-gate-a" });
+    // Row exists but is assigned to a different student.
+    await seedAdminOnboarding(ctx, {
+      email: "gate-other@example.com",
+      status: "queued",
+      assignedStudentClerkId: "user_someone_else",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_student_gate_no_row", email: "gate-self@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+});
+
+test("getStudentOnboardingGateForCurrentUser: assigned row with no submission is gated (processing)", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_no_sub";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate B", slug: "inst-gate-b" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "gate-b@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-b@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(true);
+  expect(result.onboardingId).toBe(onboardingId);
+  expect(result.rowStatus).toBe("processing");
+  expect(result.questionnaireSubmitted).toBe(false);
+  expect(result.reason).toMatch(/preparing your workspaces/i);
+});
+
+test("getStudentOnboardingGateForCurrentUser: assigned row with draft-only submission is gated", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_draft";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate C", slug: "inst-gate-c" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "gate-c@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId,
+      studentClerkId,
+      status: "draft",
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-c@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(true);
+  expect(result.onboardingId).toBe(onboardingId);
+  expect(result.questionnaireSubmitted).toBe(false);
+});
+
+test("getStudentOnboardingGateForCurrentUser: assigned row with submitted questionnaire is not gated", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_submitted";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate D", slug: "inst-gate-d" });
+    const onboardingId = await seedAdminOnboarding(ctx, {
+      email: "gate-d@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId,
+      studentClerkId,
+      status: "submitted",
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-d@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+});
+
+test("getStudentOnboardingGateForCurrentUser: failed row reports the failed-proof reason and is still gated", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_failed";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate E", slug: "inst-gate-e" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: "gate-e@example.com",
+      status: "failed",
+      assignedStudentClerkId: studentClerkId,
+      failureReason: "Resend API returned 500 on student welcome email",
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-e@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(true);
+  expect(result.onboardingId).toBe(onboardingId);
+  expect(result.rowStatus).toBe("failed");
+  expect(result.reason).toMatch(/administrator will retry/i);
+});
+
+test("getStudentOnboardingGateForCurrentUser: cancelled row falls through the gate", async () => {
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_cancelled";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate F", slug: "inst-gate-f" });
+    await seedAdminOnboarding(ctx, {
+      email: "gate-f@example.com",
+      status: "cancelled",
+      assignedStudentClerkId: studentClerkId,
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-f@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+});
+
+test("getStudentOnboardingGateForCurrentUser: caller-side self-heal claim → gate routes the freshly-signed-up student", async () => {
+  // Greptile round-2 lesson: the gate query itself is READ-ONLY
+  // (Convex queries can't run mutations). The caller MUST invoke
+  // the public `claimOnboardingByEmailForCurrentUser` mutation
+  // FIRST so a freshly-signed-up student whose `user.created`
+  // webhook hasn't reached Convex yet still gets matched to their
+  // row. This mirrors the proxy.ts middleware / ProtectedLayout
+  // server-side claim-then-fetch contract.
+  //
+  // Without the prior claim step, the gate is `false` (silently
+  // falls through) — the student's row exists but
+  // `assignedStudentClerkId` is `undefined`, so the
+  // `by_assignedStudentClerkId_createdAt` index returns zero rows.
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_self_heal";
+  const studentEmail = "gate-self-heal@example.com";
+  let onboardingId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate G", slug: "inst-gate-g" });
+    onboardingId = await seedAdminOnboarding(ctx, {
+      email: studentEmail,
+      status: "queued",
+      assignedStudentClerkId: undefined, // unassigned, simulating pre-webhook state
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  // Step 1: gate WITHOUT prior claim returns false — confirms the
+  // contract that callers cannot rely on the gate to self-heal.
+  const gateBeforeClaim = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+  expect(gateBeforeClaim.requiresOnboardingCompletion).toBe(false);
+
+  // Step 2: caller fires the mutation (mirrors proxy.ts and
+  // ProtectedLayout).
+  await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .mutation(api.adminOnboarding.claimOnboardingByEmailForCurrentUser, {});
+
+  // Step 3: gate trip — row is now claimed and questionnaire is not
+  // yet submitted.
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: studentEmail })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(true);
+  expect(result.onboardingId).toBe(onboardingId);
+  expect(result.rowStatus).toBe("queued");
+  expect(result.questionnaireSubmitted).toBe(false);
+  expect(result.reason).toMatch(/preparing your workspaces/i);
+
+  // Side-effect: the underlying row is now claimed, evidence visible
+  // to support tooling.
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(onboardingId as any);
+    expect(row?.assignedStudentClerkId).toBe(studentClerkId);
+  });
+});
+
+test("getStudentOnboardingGateForCurrentUser: historical completed row falls through once the active row has a submission", async () => {
+  // Mirror of the Greptile P1 finding on `getIncompleteOnboardingForCurrentUser`:
+  // a returning student can have multiple historical rows, the most
+  // recent may be `completed`, but a follow-up admin onboarding has
+  // been emitted with `processing` and no submission yet. The gate
+  // must trip on the FRESH row, not the historical completed one.
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_history";
+  let activeId = "";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate H", slug: "inst-gate-h" });
+    await seedAdminOnboarding(ctx, {
+      email: "gate-h@example.com",
+      status: "completed",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now() - 1_000_000,
+      perInstructor: [{ instructorId, isRenewal: true }],
+    });
+    activeId = await seedAdminOnboarding(ctx, {
+      email: "gate-h@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now(),
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-h@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  expect(result.requiresOnboardingCompletion).toBe(true);
+  expect(result.onboardingId).toBe(activeId);
+  expect(result.rowStatus).toBe("processing");
+});
+
+test("getStudentOnboardingGateForCurrentUser: newest submitted row clears the gate even when older rows are incomplete", async () => {
+  // Greptile P1 follow-up: a returning student may have multiple
+  // `adminOnboardings` rows assigned to them. The NEWEST non-cancelled
+  // row's questionnaire submission is the single source of truth —
+  // older rows are historical and should NOT re-block the student
+  // after they've finished their current term. (Originally the
+  // query iterated `.order("desc")` and tripped on the first
+  // incomplete older row, which is wrong.)
+  const t = convexTest(schema, modules);
+  const studentClerkId = "user_student_gate_newest_submitted";
+  await t.run(async (ctx) => {
+    const instructorId = await seedInstructor(ctx, { name: "Inst Gate I", slug: "inst-gate-i" });
+    // Older row: completed term, but questionnaire draft was never
+    // submitted before the term rolled over.
+    const historicalId = await seedAdminOnboarding(ctx, {
+      email: "gate-i@example.com",
+      status: "completed",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now() - 2_000_000,
+      perInstructor: [{ instructorId, isRenewal: true }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId: historicalId,
+      studentClerkId,
+      status: "draft", // never submitted for the historical term
+    });
+    // Newest row: fresh admin onboarding (this term), status
+    // `processing`, and the questionnaire has been submitted.
+    const newestId = await seedAdminOnboarding(ctx, {
+      email: "gate-i@example.com",
+      status: "processing",
+      assignedStudentClerkId: studentClerkId,
+      createdAt: Date.now(),
+      perInstructor: [{ instructorId, isRenewal: false }],
+    });
+    await seedSubmission(ctx, {
+      onboardingId: newestId,
+      studentClerkId,
+      status: "submitted",
+    });
+  });
+
+  const result = await t
+    .withIdentity({ subject: studentClerkId, email: "gate-i@example.com" })
+    .query(api.adminOnboarding.getStudentOnboardingGateForCurrentUser, {});
+
+  // Newest non-cancelled row's questionnaire is submitted → no gate,
+  // even though the historical row still has a draft.
+  expect(result.requiresOnboardingCompletion).toBe(false);
+  expect(result.onboardingId).toBeNull();
+  expect(result.questionnaireSubmitted).toBe(true);
 });

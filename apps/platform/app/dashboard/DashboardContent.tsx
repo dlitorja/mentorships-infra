@@ -9,6 +9,8 @@ import { useActiveSessionPacksByUser } from "@/lib/queries/convex/use-session-pa
 import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
 import { useEffect, useRef } from "react";
 import { syncDiscordRole } from "@/lib/queries/api-client";
+import { useStudentOnboardingGateForCurrentUser } from "@/lib/queries/convex/use-onboarding-views";
+import { OnboardingWelcomeCard } from "@/components/onboarding/onboarding-gate-banner";
 import { Id } from "@/convex/_generated/dataModel";
 
 interface SessionPackData {
@@ -85,12 +87,26 @@ function InstructorList({ sessionPacks }: { sessionPacks: SessionPackData[] }) {
   );
 }
 
-export function DashboardContent() {
+export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhookBypass?: boolean } = {}) {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
 
   const { data: instructorRecord } = useInstructorByUserId(userId || "");
   const isInstructorOrAdmin = Boolean(instructorRecord);
+
+  // PR 12 PR E (Follow-up) — Gate envelope. Suppressed for
+  // instructor/admin identities: the dashboard layout above already
+  // redirects them to `/instructor/dashboard`, and we don't want a
+  // transient "true" envelope (from a stale instructor row lookup)
+  // to gate them out of their own flow.
+  //
+  // Greptile round-9 P2: `TEST_WEBHOOK_BYPASS=true` (passed down
+  // from the server-rendered `app/dashboard/page.tsx`) also
+  // disables the query so the welcome card doesn't pop up mid-E2E
+  // when proxy.ts already short-circuited the gate.
+  const { data: gate } = useStudentOnboardingGateForCurrentUser({
+    enabled: !isInstructorOrAdmin && !isTestWebhookBypass && Boolean(userId),
+  });
 
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
@@ -119,9 +135,27 @@ export function DashboardContent() {
     );
   }
 
+  // PR 12 PR E (Follow-up) — Render the welcome card ABOVE the
+  // dashboard panels for a student whose onboarding has not yet
+  // been completed. The student lands here because Clerk's
+  // AFTER_SIGN_UP_URL is `/dashboard`; we use this as the
+  // interstitial to point them at `/onboarding/[id]` instead of
+  // wasting their attention on an empty instructor list.
+  const safeGate = gate ?? {
+    requiresOnboardingCompletion: false,
+    onboardingId: null,
+    rowStatus: null,
+    questionnaireSubmitted: true,
+    reason: null,
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Dashboard</h1>
+
+      {!isInstructorOrAdmin && safeGate.requiresOnboardingCompletion && safeGate.onboardingId && (
+        <OnboardingWelcomeCard gate={safeGate} />
+      )}
 
       <Card>
         <CardHeader>
