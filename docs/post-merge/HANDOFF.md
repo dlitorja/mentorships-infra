@@ -179,3 +179,27 @@ cd /home/dlitorja/projects/mentorships-infra && wc -l docs/post-merge/instructor
 3. Open PR 12 PR 3 on a new branch from a new worktree.
 4. Open PR 12 PR 4 on a new branch from a new worktree (introduces new Convex table — Linear verification issue + `schema-change` label required per AGENTS.md).
 5. Optionally create a Linear Project `PR 12 — Onboarding Improvements` (in Linear UI; the CLI wrapper can't create Projects) to host HUC-80 + the future PR 2/3/4 verification issues.
+
+---
+
+# Post-PR-12 follow-up: in-app onboarding gate (PR #937)
+
+**Shipped:** PR #937 squash-merged on `ee62ae3d187e7157bfa4ed0e2b026796f5e097a7` (2026-10-16T04:44:43Z).
+Branch `fix/student-onboarding-gate` from worktree `/home/dlitorja/projects/mentorships-infra-onboarding-gate`. Greptile CLI: 5/5 confidence, zero new findings on the merged HEAD. Pre-merge CI: all checks SUCCESS (typecheck, lint, convex tests, unit, E2E, build-apps, four Vercel previews).
+
+This PR is a follow-up to PR 12 PR 4b (questionnaire + remediation cron) plus the HUC-92/HUC-93/HUC-94/HUC-95 verifications: it does not depend on any schema change but it IS a `workflow-change` per AGENTS.md (proxy.ts redirect path mutates for every navigation by a freshly-signed-up student). Linear HUC-106 ("Verify in-app onboarding gate on prod") is now `In Progress` and references the merge commit.
+
+## Out-of-scope items recorded in Linear (not in this PR)
+
+- HUC-107 (Backlog, Medium): broaden the Inngest reminder cron to scan `adminOnboardings` directly so the cron covers students who never reach the questionnaire form (current code only fires on `onboardingQuestionnaireSubmissions.draft`). Plus the silent-fail loud patch in `apps/platform/inngest/functions/onboarding.ts:783-790` (`throw NonRetriableError` on `error.code === "missing_api_key"`).
+- Operator action: confirm `<RESEND_API_KEY_PLACEHOLDER>` and `<EMAIL_FROM_PLACEHOLDER>` are deployed to the Vercel prod environment. HUC-106 T0 has this as a prerequisite.
+- Operator action: add the `workflow-change` (purple `#a855f7`) label to PR #937 in GitHub. The Linear CLI wrapper doesn't expose a label-creation subcommand and the raw MCP `create_label` call returns SSE `event: message\ndata:` that the wrapper doesn't parse cleanly. This is a one-time manual step.
+- Operator action from HUC-106 T1–T6: walk the prod smoke tests on a fresh test-student email.
+
+## Cross-session WIP preserved
+
+The main checkout `/home/dlitorja/projects/mentorships-infra/` had unrelated modified `scripts/linear-cli.mjs` WIP from a prior session. Both this session's work and the `fix/student-onboarding-gate` branch live in a separate worktree, so that WIP was untouched — preserved per AGENTS.md parallel-session safety policy.
+
+## Other session note
+
+PR #936 (`feat/linear-cli-opencode-db-credential-fix`, commit `f1f4a63a399a4dd7e35b3b42c7938e7b37f62210`, merged 2026-10-16T04:44:53Z) was also unblocked in this session: two Greptile P1 findings (token refresh endpoint reverted to `/oauth/token`, expired database tokens hiding working credentials) were both fixed (`c8155ca4` → `f1f4a63a`). Greptile CLI: 5/5 confidence.
