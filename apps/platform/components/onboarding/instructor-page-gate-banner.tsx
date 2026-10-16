@@ -65,6 +65,37 @@ export async function InstructorPageGateBanner() {
   const token = await getConvexAuthToken();
   if (!token) return null;
 
+  // Greptile round-10 P2: skip the gate query when the caller
+  // is an instructor or admin. Without this check, a former
+  // instructor who was once assigned a `adminOnboardings` row
+  // (their own LEGACY student-shape row) would still get a
+  // positive gate envelope and see "Finish onboarding" on
+  // `/instructors` even though they're now staff and exempt
+  // from the gate. Mirror the `likelyRole` lookup that
+  // `ProtectedLayout` runs at the top of its tree, but inline
+  // here because this page doesn't share that layout.
+  //
+  // Filter `deletedAt === undefined` for parity with
+  // `hasInstructorRecord` in `lib/auth-helpers.ts` and the
+  // proxy.ts instructor probe.
+  let hasInstructorRecord = false;
+  try {
+    const instructorRecord = (await fetchQuery(
+      api.instructors.getInstructorByUserId,
+      { userId },
+      { token },
+    )) as { _id: string; deletedAt?: number } | null;
+    hasInstructorRecord = Boolean(
+      instructorRecord && instructorRecord.deletedAt === undefined,
+    );
+  } catch {
+    // Defensive: if the lookup errors, fall through and let
+    // the gate run. Falcon-case less likely than the CLI path
+    // since the route already cost us a token round-trip; not
+    // worth a second timeout race for this purpose.
+  }
+  if (hasInstructorRecord) return null;
+
   let gate: StudentOnboardingGateEnvelope = SAFE_DEFAULT;
   try {
     const fallbackPromise = new Promise<StudentOnboardingGateEnvelope>(

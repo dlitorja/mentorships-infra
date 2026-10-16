@@ -517,13 +517,26 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
           const claimsRole =
             typeof claimsRoleRaw === "string" ? claimsRoleRaw : undefined;
           let role: string | undefined = claimsRole;
+          // Greptile round-10 P1: track whether the live Clerk
+          // API explicitly returned a role string. The instructor
+          // probe below is suppressed when EITHER the session
+          // claim OR Clerk itself has an explicit role, so a
+          // former instructor whose Clerk role key was just
+          // changed to "student" cannot skip the gate via a stale
+          // Convex instructor row. (`claimsRole` already covers
+          // the warm-session case; this flag covers the
+          // cold-session case where the JWT cache hasn't been
+          // refreshed yet but Clerk is authoritative.)
+          let clerkRoleExplicit = typeof role === "string";
           if (!role) {
             try {
               const clerk = await clerkClient();
               const clerkUser = await clerk.users.getUser(userId);
-              role = typeof clerkUser.publicMetadata?.role === "string"
-                ? clerkUser.publicMetadata.role
-                : undefined;
+              const clerkRole = clerkUser.publicMetadata?.role;
+              if (typeof clerkRole === "string") {
+                clerkRoleExplicit = true;
+                role = clerkRole;
+              }
             } catch {
               // Mirror `getServerUserRole` exactly: even on Clerk
               // API failure, default to "student" so we don't lose
@@ -545,9 +558,15 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
           // (common for admin-created accounts, see HUC-47)
           // would otherwise get redirected into their old
           // student-shape questionnaire. The probe is gated to
-          // the missing-claim case, so the production hot path
-          // is unchanged.
-          if (!claimsRole) {
+          // the missing-claim-and-missing-Clerk case, so the
+          // production hot path is unchanged.
+          //
+          // Greptile round-10 P1: also bail if Clerk itself just
+          // reported a role (even though the JWT cache was cold).
+          // Otherwise a former instructor whose `publicMetadata.
+          // role` was just rewritten to "student" could pass the
+          // probe via their stale Convex row and skip the gate.
+          if (!claimsRole && !clerkRoleExplicit) {
             try {
               const probeToken = await authResult.getToken({ template: "convex" });
               if (probeToken) {
