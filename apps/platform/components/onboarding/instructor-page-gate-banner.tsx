@@ -62,7 +62,7 @@ export async function InstructorPageGateBanner() {
   const userId = session.userId;
   if (!userId) return null;
 
-  const token = await getConvexAuthToken();
+  const token = await getConvexAuthToken().catch(() => null);
   if (!token) return null;
 
   // Greptile round-10 P2: skip the gate query when the caller
