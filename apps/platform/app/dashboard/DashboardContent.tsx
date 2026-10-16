@@ -94,6 +94,26 @@ export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhoo
   const { data: instructorRecord } = useInstructorByUserId(userId || "");
   const isInstructorOrAdmin = Boolean(instructorRecord);
 
+  // Greptile round-15 P2: the previous `isInstructorOrAdmin`
+  // check only verified that a `instructors` row existed and
+  // missed `admin` and `support` users with a stale unfinished
+  // student-shape `adminOnboardings` row. They were seeing
+  // student-only prompts on the dashboard. Read the role from
+  // Clerk's publicMetadata (mirrors ProtectedLayout's likelyRole
+  // mapping) and gate-disable for any non-student role.
+  const claimsRoleRaw =
+    (user?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const claimsRole =
+    typeof claimsRoleRaw === "string" ? claimsRoleRaw.toLowerCase() : undefined;
+  const isStudentRole =
+    claimsRole === undefined || claimsRole === "student";
+  const isStaff =
+    isInstructorOrAdmin || claimsRole === "admin" || claimsRole === "support";
+  // The dashboard layout already redirects staff to
+  // `/instructor/dashboard`; we suppress the gate here so a
+  // transient `true` envelope (from a stale DB lookup) doesn't
+  // gate them out of their own flow.
+
   // PR 12 PR E (Follow-up) — Gate envelope. Suppressed for
   // instructor/admin identities: the dashboard layout above already
   // redirects them to `/instructor/dashboard`, and we don't want a
@@ -105,7 +125,8 @@ export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhoo
   // disables the query so the welcome card doesn't pop up mid-E2E
   // when proxy.ts already short-circuited the gate.
   const { data: gate } = useStudentOnboardingGateForCurrentUser({
-    enabled: !isInstructorOrAdmin && !isTestWebhookBypass && Boolean(userId),
+    enabled:
+      !isStaff && isStudentRole && !isTestWebhookBypass && Boolean(userId),
   });
 
   const discordConnected = Boolean(
@@ -119,13 +140,14 @@ export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhoo
   useEffect(() => {
     if (!isLoaded || !userId) return;
     if (isInstructorOrAdmin) return;
+    if (claimsRole === "admin" || claimsRole === "support") return;
     if (!discordConnected) return;
     if (discordSyncRef.current) return;
     discordSyncRef.current = true;
     syncDiscordRole().catch(() => {
       // Silently ignore Discord sync failures; this is a background repair mechanism.
     });
-  }, [isLoaded, userId, isInstructorOrAdmin, discordConnected]);
+  }, [isLoaded, userId, isInstructorOrAdmin, claimsRole, discordConnected]);
 
   if (!isLoaded || !user) {
     return (
@@ -153,7 +175,7 @@ export function DashboardContent({ isTestWebhookBypass = false }: { isTestWebhoo
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">Dashboard</h1>
 
-      {!isInstructorOrAdmin && safeGate.requiresOnboardingCompletion && safeGate.onboardingId && (
+      {!isStaff && safeGate.requiresOnboardingCompletion && safeGate.onboardingId && (
         <OnboardingWelcomeCard gate={safeGate} />
       )}
 

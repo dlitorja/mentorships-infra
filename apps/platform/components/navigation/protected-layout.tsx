@@ -57,14 +57,30 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   // "student" so the gate treats legacy / admin-created accounts
   // as students. Widen via `instructorRecord` for verified
   // instructors regardless of claim state.
-  const likelyRole: "student" | "instructor" | "admin" | "other" =
+  //
+  // Greptile round-15 P2: support users have a real role
+  // claim but were being bucketed as "student" by the
+  // fallthrough, the gate would still fire on their behalf
+  // and they'd see "Finish onboarding" on protected pages.
+  // Widened the union and added a support arm above the
+  // student fallthrough. The gate condition below
+  // (`likelyRole === "student"`) now automatically excludes
+  // support — no further branching needed.
+  const likelyRole:
+    | "student"
+    | "instructor"
+    | "admin"
+    | "support"
+    | "other" =
     instructorRecord
       ? "instructor"
       : claimsRole === "admin"
         ? "admin"
         : claimsRole === "instructor"
           ? "instructor"
-          : "student";
+          : claimsRole === "support"
+            ? "support"
+            : "student";
 
   // PR 12 PR E (Follow-up) — Soft gate: server-side prefetch the
   // onboarding gate envelope so it lands in the React Query cache
@@ -201,8 +217,32 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
            * onboarding message inside every protected surface
            * (workspace, settings, sessions, calendar). The hard
            * 307 in proxy.ts is the source of truth for
-           * navigation; this banner is the in-app nudge. */}
-          <OnboardingGateBanner gate={gate} />
+           * navigation; this banner is the in-app nudge.
+           *
+           * PR 14 — Suppress the banner on the onboarding routes
+           * themselves. The student is already inside the funnel
+           * (`/onboarding/[id]/questionnaire` IS the form whose
+           * "Finish onboarding" CTA would just link back to the
+           * same page). The banner copy — "One last step before we
+           * can set up your session" — also reads as condescending
+           * from where the student is currently working. So skip
+           * on every path under `/onboarding/...` and let the page
+           * itself own the messaging. Instructors/admins landing
+           * on the staff status page render unchanged because they
+           * are not gated by `gate.requiresOnboardingCompletion`.
+           *
+           * Greptile P2 #1 — `/onboarding/[id]/questionnaire/page.tsx`
+           * passes `currentPath="/onboarding"` (the bare section
+           * prefix) instead of a fully-qualified page path. The
+           * suppression must match BOTH the section root AND any
+           * child route so a page that only has the section name
+           * still keeps the banner quiet — without it, a student
+           * inside the funnel would re-trigger the same message
+           * they're already answering on the form.
+           */}
+          {!currentPath?.startsWith("/onboarding") && (
+            <OnboardingGateBanner gate={gate} />
+          )}
           {children}
         </main>
       </div>

@@ -7,6 +7,7 @@ import {
   OnboardingGateBanner,
   type StudentOnboardingGateEnvelope,
 } from "@/components/onboarding/onboarding-gate-banner";
+import { getServerUserRole } from "@/lib/auth-helpers";
 
 /**
  * PR 12 PR E (Follow-up) — In-app onboarding gate surface for the
@@ -78,23 +79,44 @@ export async function InstructorPageGateBanner() {
   // Filter `deletedAt === undefined` for parity with
   // `hasInstructorRecord` in `lib/auth-helpers.ts` and the
   // proxy.ts instructor probe.
-  let hasInstructorRecord = false;
+  //
+  // PR 14 follow-up (Greptile round-15 P2): the original
+  // check only handled the instructor path. An admin or
+  // support user with an old unfinished student-shape
+  // `adminOnboardings` row (e.g. a former student promoted
+  // to admin before claiming it) would still see the
+  // "Finish onboarding" banner on `/instructors`. Mirror
+  // `ProtectedLayout`'s likelyRole — widen to admin/support
+  // too — so staff are exempt on the soft surface as well
+  // as on `ProtectedLayout`'s tree. `getServerUserRole`
+  // defaults to "student" if Clerk has no role key, so we
+  // must check the *explicit* `instructor | admin |
+  // support` returns before claiming the gate applies.
+  let gateExemptByStaff = false;
   try {
     const instructorRecord = (await fetchQuery(
       api.instructors.getInstructorByUserId,
       { userId },
       { token },
     )) as { _id: string; deletedAt?: number } | null;
-    hasInstructorRecord = Boolean(
+    const hasInstructorRecord = Boolean(
       instructorRecord && instructorRecord.deletedAt === undefined,
     );
+    if (hasInstructorRecord) {
+      gateExemptByStaff = true;
+    } else {
+      const { role } = await getServerUserRole(userId);
+      if (role === "admin" || role === "support" || role === "instructor") {
+        gateExemptByStaff = true;
+      }
+    }
   } catch {
     // Defensive: if the lookup errors, fall through and let
     // the gate run. Falcon-case less likely than the CLI path
     // since the route already cost us a token round-trip; not
     // worth a second timeout race for this purpose.
   }
-  if (hasInstructorRecord) return null;
+  if (gateExemptByStaff) return null;
 
   let gate: StudentOnboardingGateEnvelope = SAFE_DEFAULT;
   try {

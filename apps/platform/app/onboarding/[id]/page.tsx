@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Linkify } from "@/components/ui/linkify";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
@@ -267,6 +268,29 @@ const submittedWorkExamples = (
                 `'instructor' | 'admin' | 'support'`. */}
             <> · Viewing as {viewerRole}</>
           </p>
+          {/* PR 14 — student-set timezone. Render once the row
+              has a saved value so the staff reviewer can sanity-
+              check the picker (and so future scheduling logic
+              can read the same value without a second prompt).
+              `studentTimezoneSetAt` is shown only if present so
+              the line degrades cleanly on legacy rows that have
+              the field via backfill but no timestamp — those
+              shouldn't happen for newly-arriving rows since
+              `setStudentTimezone` always sets both. */}
+          {onboarding.studentTimezone && (
+            <p className="text-xs text-muted-foreground">
+              Student timezone:{" "}
+              <span className="font-medium text-foreground">
+                {onboarding.studentTimezone}
+              </span>
+              {onboarding.studentTimezoneSetAt && (
+                <>
+                  {" · set "}
+                  {formatDateTime(onboarding.studentTimezoneSetAt)}
+                </>
+              )}
+            </p>
+          )}
         </header>
 
         <OnboardingStepper
@@ -415,9 +439,23 @@ const submittedWorkExamples = (
                       <p className="text-sm font-medium">
                         {a.questionText ?? questionLabel(a.questionId)}
                       </p>
-                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {a.answerText || <em>No answer</em>}
-                      </p>
+                      {/* PR 14 — reviewer ergonomics: students paste
+                         URLs into their answers (the inspirations
+                         help text invites this; the goals textarea
+                         has no rule against it). Render those URLs
+                         as clickable <a> tags so staff can open
+                         portfolios / social links without
+                         copy-pasting out of the review card. */}
+                      {a.answerText ? (
+                        <Linkify
+                          text={a.answerText}
+                          className="text-sm text-muted-foreground whitespace-pre-wrap"
+                        />
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">
+                          No answer
+                        </p>
+                      )}
                     </div>
                   )
                 )}
@@ -427,7 +465,14 @@ const submittedWorkExamples = (
                 <ul className="list-disc pl-5 text-sm text-muted-foreground">
                   {(submittedForViewer.submission?.inspirations ?? []).map(
                     (i: { name: string }, idx: number) => (
-                      <li key={idx}>{i.name}</li>
+                      // PR 14 — each inspiration name is a freeform
+                      // string; the help text invites students to
+                      // post links. Render through <Linkify> so the
+                      // reviewer can open a portfolio / social link
+                      // directly from this list.
+                      <li key={idx}>
+                        <Linkify text={i.name} />
+                      </li>
                     )
                   )}
                 </ul>
