@@ -92,9 +92,19 @@ const textareaQuestions: OnboardingTextareaQuestion[] = ONBOARDING_QUESTIONS.fil
 export default function OnboardingQuestionnaireForm({
   onboardingId,
   initial,
+  preSubmitSlot,
 }: {
   onboardingId: string;
   initial: InitialState;
+  // PR 14 (re-order follow-up) — page-level slot rendered
+  // immediately above the Submit card so surfaces like the
+  // student timezone picker can live "next to" the submit
+  // step without polluting the questionnaire card list. The
+  // slot is unchanged by the form's state (no auto-save
+  // coupling, no submit-readiness checks) — the place inside
+  // its own component. Optional; an omitted slot yields an
+  // identical layout to before this prop existed.
+  preSubmitSlot?: React.ReactNode;
 }): React.JSX.Element {
   const router = useRouter();
   const [submission, setSubmission] = useState<Submission | null>(initial.submission);
@@ -944,9 +954,11 @@ export default function OnboardingQuestionnaireForm({
       </Card>
 
       {!alreadySubmitted && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Submit</CardTitle>
+        <>
+          {preSubmitSlot}
+          <Card>
+            <CardHeader>
+              <CardTitle>Submit</CardTitle>
             <CardDescription>
               We&apos;ll send this to your instructor before your first call.
             </CardDescription>
@@ -986,6 +998,7 @@ export default function OnboardingQuestionnaireForm({
             )}
           </CardContent>
         </Card>
+        </>
       )}
 
       {alreadySubmitted && (

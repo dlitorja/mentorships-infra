@@ -158,18 +158,22 @@ export default async function OnboardingQuestionnairePage({
         <OnboardingQuestionnaireForm
           onboardingId={id}
           initial={initial}
-        />
-
-        {/* PR 14 — student-set timezone. Lives outside the
-            auto-save loop because it's a one-shot dropdown
-            selection, not free-text input. Below the form so it
-            doesn't visually split the questionnaire's narrative
-            flow; the picker is its own standalone card with a
-            different accent so it reads as "another thing to
-            configure" rather than "another question to answer". */}
-        <TimezonePicker
-          onboardingId={id}
-          initialTimezone={view.onboarding.studentTimezone}
+          preSubmitSlot={
+            // PR 14 — student-set timezone. Rendered via the
+            // form's `preSubmitSlot` so the card sits between
+            // the Work Examples card and the Submit card (inside
+            // the questionnaire container, above the submit
+            // step). Lives outside the auto-save loop because
+            // it's a one-shot dropdown selection, not free-text
+            // input. The picker's own accent (blue, distinct
+            // from the form's neutral cards) is preserved so it
+            // still reads as "another thing to configure", not
+            // "another question to answer".
+            <TimezonePicker
+              onboardingId={id}
+              initialTimezone={view.onboarding.studentTimezone}
+            />
+          }
         />
       </div>
     </ProtectedLayout>
