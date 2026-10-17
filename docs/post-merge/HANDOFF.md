@@ -299,3 +299,32 @@ git branch -D feat/student-timezone-picker
 ```
 
 If Git refuses because the worktree picked up new untracked files, preserve them before retrying — do not `--force` removal of operator WIP.
+
+---
+
+# Post-PR-941 follow-up: student timezone picker above the submit card (PR #943)
+
+**Shipped:** PR #943 squash-merged on `377d3c23b3982efe190fc695bae687a41c95e502` (2026-10-17T...).
+Branch `feat/timezone-picker-above-submit` from worktree `/home/dlitorja/projects/mentorships-infra-tz-reorder`. Greptile GitHub App: **5/5 confidence**. CodeRabbit skipped (repo <10 stars). Pre-merge CI: typecheck + lint clean, 712 Convex tests still passing (no schema changes, no mutation changes).
+
+**What changed:** The `<TimezonePicker>` card was moved from BELOW the questionnaire form to a slot ABOVE the Submit card, between Work Examples (Card #3) and Submit (Card #4). Implementation: a new optional `preSubmitSlot?: React.ReactNode` prop on `OnboardingQuestionnaireForm` lets the page render arbitrary content between those two cards. The page now passes `<TimezonePicker>` through that slot instead of rendering it as a sibling below the form.
+
+**Why:** PR #941's design note for the picker placement was *"below the form so it doesn't visually split the questionnaire's narrative flow; the picker is its own standalone card with a different accent so it reads as 'another thing to configure' rather than 'another question to answer'"*. Walking the funnel manually, "another thing to configure" reads better above the Submit card than below — scrolling back up past the timezone to hit Submit is friction. The slot keeps the picker's standalone blue accent so it still reads as "another thing to configure".
+
+**Visibility gating:** The slot is rendered only when `!alreadySubmitted` (mirrors the Submit card's own visibility). After submission the slot disappears along with the Submit card.
+
+**Files touched (vs `fbb8de60`):**
+
+```
+ apps/platform/components/onboarding/onboarding-questionnaire-form.tsx  | 19 ++++++++++++--- (slot prop + render)
+ apps/platform/app/onboarding/[id]/questionnaire/page.tsx               | 28 ++++++++---------- (slot wiring)
+```
+
+**HUC-109 follow-up smoke test (added):**
+
+8. Sign in as the test-student. Visit `/onboarding/[id]/questionnaire`. Confirm visually that the timezone picker sits BETWEEN the Work Examples card and the Submit card (not below the Submit card). The blue accent is preserved.
+
+**Out-of-scope items surfaced by Greptile on this PR (predate the PR, follow up separately):**
+
+* `apps/platform/components/onboarding/timezone-picker.tsx:267` — `queryClient.invalidateQueries` predicate checks for `"convex"` key prefix, but the codebase uses `"convexQuery"` (see `lib/hooks/use-video-call.ts:137,638,648` and `lib/hooks/use-recording-retry.ts:28`). The predicate therefore never matches the queries it claims to clear, so the explicit call is a no-op. The student page calls `router.refresh()` after the save to refresh its own session, and the staff-side `/onboarding/[id]` page reads the saved timezone on its next render via `fetchQuery` — so the visual flow is intact without the cache call. Either fix the prefix to `"convexQuery"` (preserving the cache-invalidation intent for any future client `useQuery` consumer) or drop the call. Worth a small targeted PR.
+* `apps/platform/components/ui/linkify.tsx:121` — `splitTrailing` keeps an extra `)` when the URL contains a balanced pair inside prose. E.g. `(https://example.com/work_(series))` produces a link ending in `work_(series))`. The fix is to count open/close bracket types separately and strip a closer only when its matching pairs are already balanced; add a unit test for a URL containing parentheses inside parenthesized prose. Also worth a small targeted PR.
