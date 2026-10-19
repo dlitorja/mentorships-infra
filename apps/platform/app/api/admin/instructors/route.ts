@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitations";
+import { createClerkInvitation, getClerkUserByEmail, setInstructorPublicMetadataOnUser } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
@@ -243,6 +243,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // If the create flow adopted an EXISTING Clerk user by email
+    // (getClerkUserByEmail returned a user id, see above), we MUST stamp
+    // `publicMetadata.role = "instructor"` on that user — otherwise the
+    // post-signin redirect (`apps/platform/app/auth-redirect/page.tsx`)
+    // reads the missing claim and routes them to the student dashboard.
+    //
+    // The invitation path above only sets metadata on the *invitation*,
+    // not on the user record; Clerk does not retroactively apply it to a
+    // pre-existing user. The helper is idempotent — safe to retry on any
+    // subsequent edit. We do not fail the create on a Clerk error here;
+    // mirror the existing invite-failure-is-non-fatal contract.
+    //
+    // `intent: "promote"` (Greptile P1, third pass): POST creation by
+    // adoption is an explicit admin-initiated promotion. The default
+    // preserve mode would short-circuit on a pre-existing
+    // `role: "student"` claim — defeating the entire create-by-adoption
+    // flow (the most common failure mode this PR exists to fix).
+    if (userId.startsWith("user_")) {
+      try {
+        const result = await setInstructorPublicMetadataOnUser({
+          userId,
+          instructorId: instructorId as string,
+          intent: "promote",
+        });
+        if (!result.updated && result.reason && result.reason !== "already-set") {
+          console.warn(
+            "[platform:createInstructor] Clerk publicMetadata not stamped for",
+            userId,
+            "— reason:",
+            result.reason,
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[platform:createInstructor] setInstructorPublicMetadataOnUser threw:",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    }
+
     const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId });
 
       return NextResponse.json(
@@ -352,6 +392,37 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       }
 
       throw err;
+    }
+
+    // Greptile P1 (third pass): the userId rebind is an explicit
+    // promotion event — the admin is now pointing the instructor row
+    // at this Clerk user, so the role flag must follow. Use
+    // `intent: "promote"` because the newly-rebound user may have
+    // `role: "student"` from a prior lifecycle. We do not fail the
+    // rebind on a Clerk error (mirrors the POST contract below);
+    // a transient stamp failure self-heals via
+    // `/api/instructor/sync-role` on the user's next sign-in.
+    if (userId.startsWith("user_")) {
+      try {
+        const result = await setInstructorPublicMetadataOnUser({
+          userId,
+          instructorId,
+          intent: "promote",
+        });
+        if (!result.updated && result.reason && result.reason !== "already-set") {
+          console.warn(
+            "[platform:updateInstructorUserId] Clerk publicMetadata not stamped for",
+            userId,
+            "— reason:",
+            result.reason,
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[platform:updateInstructorUserId] setInstructorPublicMetadataOnUser threw:",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
     }
 
     return NextResponse.json(
