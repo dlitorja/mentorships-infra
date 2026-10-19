@@ -141,7 +141,11 @@
   
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 10am on the first day of the month"]
+    "schedule": ["before 10am on the first day of the month"],
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true,
+    "requiredStatusChecks": ["lint-and-typecheck", "unit-tests", "build"]
   },
   
   "pnpm": {

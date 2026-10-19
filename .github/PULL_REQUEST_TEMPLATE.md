@@ -13,3 +13,16 @@
 <!-- Schema-changing PRs (modifies `convex/schema.ts`):
      create a `Verify "..." on prod` issue in Linear with the `schema-change` label
      and link it here as `Refs HUC-XX` (NOT `Fixes` — see AGENTS.md). -->
+
+## Review-bot gating
+
+<!-- Greptile review policy (PR #946). Both bots still run by default.
+     Opt out of Greptile on PRs that don't need a deep semantic review
+     (CI-only, secret rotation, reverting an experiment, etc.) by
+     applying either `no-greptile` or `skip-greptile`. -->
+
+- [ ] This PR has semantic code changes worth a Greptile review
+- [ ] OR I applied `no-greptile` / `skip-greptile` to opt out
+- [ ] Linear verification issue filed if this PR touches `convex/schema.ts`,
+  auth/role gates, production Trigger/Inngest tasks, public Convex queries,
+  or a deploy-gating workflow (see AGENTS.md "Post-merge verification convention")

@@ -1,0 +1,15 @@
+{
+  "_comment": "Cost-optimization behavior config for Greptile (PR #946). Sits alongside the v1 .greptile/config.yaml that governs knowledge-base indexing (focus_paths, semantic_tags, etc.). This file owns the v3 review-behavior fields: trigger cadence, review tier, comment shape, file-pattern exclusions at review time, and label gates. See AGENTS.md and 'Greptile Code Review' for the cost rationale. Source schema: https://www.greptile.com/docs/code-review/greptile-config-reference",
+  "version": 1,
+  "autoReview": ["open"],
+  "_autoReview_note": "Restrict reviews to PR open / ready_for_review / reopened / trigger-label. Stops the re-review-on-push tax that previously burned credits on every 'fix typo' push.",
+  "effort": "base",
+  "_effort_note": "Pin to Base (1 credit per review). The dashboard's previous default was Apex (10 credits) for the largest PRs — the single biggest driver of the ~$330/month (post-discount) bill. Auto tier picks 1/3/10 credits by size; base is the cheapest at the same review depth.",
+  "commentTypes": ["logic", "syntax"],
+  "_commentTypes_note": "Drop 'style'. Style-level commentary is the bulk of the noise that overlaps with ESLint (already wired into pnpm lint and the new lint-staged pre-commit hook); Greptile keeps the higher-value logic and syntax findings.",
+  "strictness": 2,
+  "ignorePatterns": "**/*.lock\n**/pnpm-lock.yaml\n**/package-lock.json\n**/yarn.lock\ndocs/post-merge/**\nCHANGELOG.md\n**/CHANGELOG.md\n**/*.generated.*",
+  "_ignorePatterns_note": "Review-time file exclusion (.gitignore syntax). Distinct from .greptile/config.yaml's ignore_paths which controls INDEXING. Together they keep both the corpus and the per-review attention set off the lockfile and post-merge-doc subgraphs.",
+  "disabledLabels": ["no-greptile", "skip-greptile"],
+  "_disabledLabels_note": "Opt-out labels. Apply either label to a PR that touches no-semantic-diff and should not burn credits (e.g. CI-only infra, secret rotation, etc.)."
+}

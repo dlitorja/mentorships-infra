@@ -1,0 +1,8 @@
+#!/usr/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Run lint-staged on staged files. Pre-push already runs codegen + tsc;
+# this hook shifts ESLint findings from Greptile's review queue to local
+# time, so they're addressed before the PR is opened instead of as a
+# Greptile P2 noise comment.
+npx lint-staged
