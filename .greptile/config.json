@@ -1,0 +1,8 @@
+{
+  "autoReview": ["open"],
+  "effort": "base",
+  "commentTypes": ["logic", "syntax"],
+  "strictness": 2,
+  "ignorePatterns": "pnpm-lock.yaml\n*.lock\npackage-lock.json\nyarn.lock\n*.md\nnode_modules\n.next\n.turbo\ndist\nbuild\ncoverage\n.vercel\ntest-results\nplaywright-report\n**/*.generated.*\ndocs/post-merge/**",
+  "disabledLabels": ["no-greptile", "skip-greptile"]
+}

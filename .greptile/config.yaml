@@ -45,6 +45,16 @@ ignore_paths:
   - test-results
   - playwright-report
   - .vercel
+  # Cost-optimization lockfile + post-merge-doc exclusions
+  # (PR #946). Lockfile churn dominates PR line counts for dep bumps
+  # (PR #917 alone added 23k+ lines of pnpm-lock.yaml noise) and
+  # post-merge recaps are mostly narrative; neither benefits from
+  # being indexed into the review corpus.
+  - pnpm-lock.yaml
+  - package-lock.json
+  - yarn.lock
+  - "*.lock"
+  - docs/post-merge/**
 
 # Custom semantic tags for better understanding
 semantic_tags:

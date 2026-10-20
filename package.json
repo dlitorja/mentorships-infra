@@ -16,6 +16,7 @@
     "check": "pnpm run lint && pnpm run typecheck",
     "check:ci": "pnpm run lint && pnpm run typecheck && pnpm run build",
     "postinstall": "node scripts/convex-codegen-or-skip.js",
+    "prepare": "husky",
     "test": "playwright test --config apps/web/playwright.config.mts",
     "test:ui": "playwright test --ui --config apps/web/playwright.config.mts",
     "test:unit": "vitest --config vitest.config.mjs",
@@ -143,8 +144,9 @@
     }
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx,mjs,cjs}": [
-      "eslint --fix"
-    ]
+    "apps/web/**/*.{ts,tsx,js,jsx,mjs,cjs}": "pnpm --filter @mentorships/web exec eslint --fix --max-warnings=0",
+    "apps/platform/**/*.{ts,tsx,js,jsx,mjs,cjs}": "pnpm --filter @mentorships/platform exec eslint --fix --max-warnings=0",
+    "apps/huckleberry-drive/**/*.{ts,tsx,js,jsx,mjs,cjs}": "pnpm --filter @mentorships/huckleberry-drive exec eslint --fix --max-warnings=0",
+    "packages/security/**/*.{ts,tsx,js,jsx,mjs,cjs}": "pnpm --filter @mentorships/security exec eslint --fix --max-warnings=0"
   }
 }
