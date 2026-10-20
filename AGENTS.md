@@ -25,6 +25,43 @@
 Convex is the source of truth for instructor data (profile, tokens, inventory).
 Supabase/Postgres should NOT be used for instructor data in apps/platform and apps/web.
 
+<!-- CLERK ID DISPLAY CONVENTION -->
+# Clerk User ID Display Convention
+
+Clerk user IDs (e.g. `user_3KKDorF19kh4Lpwh9Ot5cewqhbT`) are
+administrative identifiers. They are not meaningful to instructors or
+students and should NEVER be the primary identifier users see.
+
+## Always
+
+- Show email or full name as the headline / primary identifier in any
+  user-facing UI (instructor dashboard, student dashboard, settings,
+  roster tables, archived-history cards, etc.).
+- If a Clerk id must be visible (data repair, support diagnostics,
+  cross-app reconciliation), render it as SECONDARY info:
+  - small font (`text-xs` or smaller),
+  - subdued colour (`text-muted-foreground`, often `/70` or `/80`
+    alpha so it reads as a footnote rather than a label),
+  - mono (`font-mono`) so it parses cleanly when copy-pasted,
+  - included verbatim (truncation is fine, but never overwrite any
+    prefix with stars or "…" beyond a few chars),
+  - and ideally behind a disclosure if the row is crowded.
+- "Account ID" / "Clerk id" labels on user-facing surfaces must read
+  as a footnote ("Account ID (for support requests)" beats "User ID"
+  as a label) so users do not mistake the id for something they should
+  share in normal product flows.
+
+## Never
+
+- Use `<ClerkUserIdCell />` (or any Clerk-id-as-primary widget — pill
+  styling, copy + dashboard link buttons) in non-admin surfaces.
+  That component is intended for admin tables and audit logs where
+  the Clerk id IS the canonical identifier.
+- Fall back to a raw Clerk id as the displayed primary identifier in a
+  user-facing row. When email and name are both empty, render a
+  human placeholder such as "Unnamed student" or "Student (no name
+  on file)" — never `user_3K…`.
+
 ## Operational Policy: Assistants run CLIs
 
 We prefer automating ops via CLI tools instead of asking humans to run them manually.
