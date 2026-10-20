@@ -117,17 +117,32 @@ Greptile dashboard at
    dashboard) is set to `Base`. The Sep 19 invoice is already all
    Base-tier (`$1.00` flat unit price) so no change is needed, but
    if Plus/Apex line items ever appear, this is why.
+   *Completed 2026-10-20: dashboard tier is currently `base`.*
 2. **TREX is off.** TREX is Greptile's execution-layer beta; it
    adds 3 credits per run on top of the review credit. Default-off
    is the right posture; turn it on selectively for security /
    auth PRs only. Confirmed off on Sep 19 invoice (no
    "execution-layer" line item).
+   *Completed 2026-10-20: dashboard TREX is currently off.*
 3. **Status check required on `main`.** In GitHub branch-protection
-   rules for `main`, require the `greptile` status check. Without
-   this, the `autoReview: ["open"]` policy is a soft convention
-   rather than a hard rule — a developer could push a fix after a
-   Greptile review without re-triggering, and the merge would go
-   through on a stale review of stale code.
+   rules for `main`, require the `Greptile Review` status check
+   (note the exact context name registered by GitHub — not
+   lowercase `greptile`). Without this, the `autoReview: ["open"]`
+   policy is a soft convention rather than a hard rule — a
+   developer could push a fix after a Greptile review without
+   re-triggering, and the merge would go through on a stale review
+   of stale code.
+   *Completed 2026-10-20: branch protection on `main` now needs
+   `Greptile Review` (registered against Greptile's GitHub App,
+   `app_id=867647`) with both `strict: true` and
+   `enforce_admins: true`. `strict: true` is the critical piece —
+   it forces the latest commit on the PR branch to have the check
+   passing, which means a stale Green-state from an older commit
+   cannot satisfy the gate. `enforce_admins: true` removes the
+   "I'll just merge my own PR" escape hatch that would defeat the
+   gate for solo dev. Override path if Greptile is genuinely
+   unavailable: Settings → Branches → main → temporarily clear the
+   required check on `Greptile Review`, do the merge, restore it.*
 
 ## Usage-page sanity check
 
