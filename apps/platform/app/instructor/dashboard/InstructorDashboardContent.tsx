@@ -6,7 +6,6 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
 
@@ -19,22 +18,26 @@ type StudentSessionRow = StudentSessionRows[number];
 
 // PR #929 follow-up (Issue 1): instructors were seeing rows whose
 // headline collapsed to a raw Clerk id (`user_abc123def`) when
-// there was no `users` document for the seat's student. That
-// happens for any Clerk account whose creator omitted the role /
-// name round-trip sync — Stripe checkout writes `users` rows,
-// but other entry points (e.g., the public invite form) do not.
-// We split the resolver into a named headline + always-on Clerk
-// id so the row is usable even when name + email are both null,
-// and so a copyable identifier is always one click away.
+// there was no `users` document for the seat's student. We solved
+// that by giving the headline a friendly fallback (`fullName → email
+// → "Unnamed student"`) so the row never collapses to a raw id.
+//
+// PR clerk-id-secondary-display follow-up: the Clerk id is still
+// useful for support / data-repair, but it is no longer rendered
+// as a pill-shaped admin widget. It now lives as a small, muted
+// mono line under the email subline — visible enough for an admin
+// to read or copy from, not so prominent that it crowds out the
+// student's actual identifying info. See AGENTS.md "Clerk User ID
+// Display Convention".
 
 /**
  * Resolve what to render in the first line of a student row.
  *
  * `headline` falls back through `fullName → email → "Unnamed student"`
- * so the rendered row never collapses to a raw Clerk id. We deliberately
- * keep the Clerk id as a separate, always-rendered second line via
- * `<ClerkUserIdCell>` rather than splicing it into the headline — a copyable
- * id is what admins actually need when the student never finished onboarding.
+ * so the rendered row never collapses to a raw Clerk id. The Clerk
+ * id is rendered as a subdued mono line below the email subline (see
+ * AGENTS.md "Clerk User ID Display Convention") so support still has
+ * a copyable identifier without it dominating the row.
  */
 function getStudentHeadline(row: StudentSessionRow): {
   headline: string;
@@ -102,13 +105,14 @@ export function InstructorDashboardContent({
               const rowHref = row.workspaceId
                 ? `/workspace/${row.workspaceId}`
                 : `/instructor/students/${row.userId}`;
-              // Greptile P2: nesting the Clerk id cell inside the row's
-              // `<Link>` caused the copy button's click to also navigate to
-              // the student page (the cell's button doesn't call
-              // preventDefault, and the click bubbles to the anchor). Scope
-              // the link to just the headline + email cluster; the Clerk id
-              // block stays as a sibling so its copy button keeps working
-              // without triggering the row navigation.
+              // Sibling structure (headline + email INSIDE the `<Link>`,
+              // Clerk-Id subline OUTSIDE) avoids a previous Greptile P2:
+              // a nested `<ClerkUserIdCell>` copy button used to bubble
+              // its click to the anchor and trigger row navigation. The
+              // subdued `<p>` we render now is text-only (no buttons), but
+              // we keep the separation so future enhancements (e.g., a
+              // copy button) can be added back without reintroducing the
+              // bubble-to-anchor bug.
               return (
                 <div
                   key={row.seatId ?? row.workspaceId ?? row.userId}
@@ -133,12 +137,12 @@ export function InstructorDashboardContent({
                         </p>
                       )}
                     </Link>
-                    <ClerkUserIdCell
-                      id={row.userId}
-                      label="Clerk id"
-                      showDashboardLink={false}
-                      orientation="column"
-                    />
+                    <p
+                      className="truncate text-xs text-muted-foreground/80 font-mono"
+                      title={row.userId}
+                    >
+                      Clerk id: {row.userId}
+                    </p>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">

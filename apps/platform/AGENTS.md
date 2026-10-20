@@ -22,3 +22,22 @@ Convex agent skills for common tasks can be installed by running
   - Environment variables related to Clerk (e.g. `NEXT_PUBLIC_CLERK_*`, `CLERK_*`)
   - Any dashboard-domain or proxy wiring in code
 - If you believe a Clerk change is necessary to fix a build or runtime issue: stop, report the exact error, and wait for explicit permission before acting.
+
+# Clerk User ID Display Convention
+
+This app is the dashboard surface most affected by the root-level
+"Clerk User ID Display Convention" (see `AGENTS.md` at the repo
+root). Highlights specific to `apps/platform`:
+
+- The instructor dashboard's Active Mentorships card and the
+  Archived Mentorships card render student Clerk ids as subdued mono
+  text only (`text-xs text-muted-foreground/80 font-mono`) — never
+  as a pill widget. Use a similar treatment in any new instructor
+  or student-facing surface that has to expose a Clerk id.
+- Admin-only surfaces (`/admin/*`) may continue to use
+  `<ClerkUserIdCell />` from `packages/ui`. That component is purpose-
+  built for the admin / audit-log context where the Clerk id IS the
+  canonical identifier — do not import it from instructor or student
+  pages.
+- The own-settings "Account ID" label is intentionally rendered as
+  secondary footnote info — don't promote it back to a primary field.

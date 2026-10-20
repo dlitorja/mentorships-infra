@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitations";
+import { createClerkInvitation, getClerkUserByEmail, setInstructorPublicMetadataOnUser } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
@@ -218,6 +218,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw err;
     }
 
+    // Greptile P1 (seventh pass, fix/instructor-role-claim-in-clerk):
+    // `createInstructor` returns the existing-by-slug row's ID
+    // WITHOUT updating its `userId` field. If the admin submitted
+    // an existing slug AND a Clerk user was located by email (so a
+    // real `user_X` is going to receive the metadata stamp), the
+    // returned row may belong to a DIFFERENT Clerk user. The previous
+    // `setInstructorPublicMetadataOnUser` block stamped that other
+    // user's row ID onto `user_X`'s Clerk account -- incorrect
+    // instructor profile access. Reject the slug conflict up front
+    // when the resolved row's `userId` doesn't match the caller, OR
+    // an admin-supplied `data.userId`, OR is a placeholder.
+    const storedInstructor = await convex.query(api.instructors.getInstructorById, {
+      id: instructorId,
+    });
+    const storedUserId = storedInstructor?.userId;
+    const callerUserId = userId;
+    const storedIsPlaceholder =
+      typeof storedUserId === "string" && storedUserId.startsWith("admin-");
+    const callerIsPlaceholder =
+      typeof callerUserId === "string" && callerUserId.startsWith("admin-");
+    const storedBelongsToCaller =
+      storedUserId === callerUserId ||
+      // Both placeholders means we just created a placeholder row
+      // (createInstruction returned the freshly-inserted id); safe.
+      (storedIsPlaceholder && callerIsPlaceholder) ||
+      // Admins explicitly supplied `data.userId` and the row matches.
+      (data.userId && storedUserId === data.userId);
+    if (userId.startsWith("user_") && !storedBelongsToCaller) {
+      // Real Clerk user. Refuse to write metadata for a row that
+      // belongs to a DIFFERENT user. Surface as 409 with a slug
+      // collision shape so the UI can show the right error.
+      console.error(
+        "[platform:createInstructor] refusing to stamp Clerk metadata: instructions row",
+        instructorId,
+        "belongs to storedUserId",
+        storedUserId,
+        "but caller resolved userId",
+        callerUserId,
+        "(slug collision across Clerk users).",
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Slug already exists for a different instructor account. " +
+            "Resolve the slug conflict (rename or merge) before retrying.",
+          code: "slug-collision-cross-user",
+          conflictingInstructorId: instructorId,
+          conflictingOwner: storedUserId ?? null,
+        },
+        { status: 409 },
+      );
+    }
+
     let invitationSent = false;
     let invitationError: string | undefined;
     if (data.email) {
@@ -243,7 +297,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId });
+    // If the create flow adopted an EXISTING Clerk user by email
+    // (getClerkUserByEmail returned a user id, see above), we MUST stamp
+    // `publicMetadata.role = "instructor"` on that user — otherwise the
+    // post-signin redirect (`apps/platform/app/auth-redirect/page.tsx`)
+    // reads the missing claim and routes them to the student dashboard.
+    //
+    // The invitation path above only sets metadata on the *invitation*,
+    // not on the user record; Clerk does not retroactively apply it to a
+    // pre-existing user. The helper is idempotent — safe to retry on any
+    // subsequent edit. We do not fail the create on a Clerk error here;
+    // mirror the existing invite-failure-is-non-fatal contract.
+    //
+    // `intent: "promote"` (Greptile P1, third pass): POST creation by
+    // adoption is an explicit admin-initiated promotion. The default
+    // preserve mode would short-circuit on a pre-existing
+    // `role: "student"` claim — defeating the entire create-by-adoption
+    // flow (the most common failure mode this PR exists to fix).
+    if (userId.startsWith("user_")) {
+      try {
+        const result = await setInstructorPublicMetadataOnUser({
+          userId,
+          instructorId: instructorId as string,
+          intent: "promote",
+        });
+        if (!result.updated && result.reason && result.reason !== "already-set") {
+          console.warn(
+            "[platform:createInstructor] Clerk publicMetadata not stamped for",
+            userId,
+            "— reason:",
+            result.reason,
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[platform:createInstructor] setInstructorPublicMetadataOnUser threw:",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
+    }
+
+    const instructor = storedInstructor;
 
       return NextResponse.json(
         {
@@ -352,6 +446,37 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       }
 
       throw err;
+    }
+
+    // Greptile P1 (third pass): the userId rebind is an explicit
+    // promotion event — the admin is now pointing the instructor row
+    // at this Clerk user, so the role flag must follow. Use
+    // `intent: "promote"` because the newly-rebound user may have
+    // `role: "student"` from a prior lifecycle. We do not fail the
+    // rebind on a Clerk error (mirrors the POST contract below);
+    // a transient stamp failure self-heals via
+    // `/api/instructor/sync-role` on the user's next sign-in.
+    if (userId.startsWith("user_")) {
+      try {
+        const result = await setInstructorPublicMetadataOnUser({
+          userId,
+          instructorId,
+          intent: "promote",
+        });
+        if (!result.updated && result.reason && result.reason !== "already-set") {
+          console.warn(
+            "[platform:updateInstructorUserId] Clerk publicMetadata not stamped for",
+            userId,
+            "— reason:",
+            result.reason,
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[platform:updateInstructorUserId] setInstructorPublicMetadataOnUser threw:",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
     }
 
     return NextResponse.json(

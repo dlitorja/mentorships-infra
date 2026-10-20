@@ -5,6 +5,7 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
+import { setInstructorPublicMetadataOnUser } from "@/lib/clerk-invitations";
 import { Id } from "@/convex/_generated/dataModel";
 
 // Uses shared helper to avoid duplication across routes
@@ -381,6 +382,75 @@ export async function PUT(
         { error: "Failed to update instructor" },
         { status: 500 }
       );
+    }
+
+    // Greptile P1 (third pass): re-stamp Clerk publicMetadata ONLY
+    // when this edit is an explicit promotion event. The original
+    // implementation called the helper on every PUT (rename, bio,
+    // inventory swap, isActive deactivation, etc.), which silently
+    // undid admin-initiated demotions on a routine bio edit if the
+    // linked Clerk user happened to read `role: "student"`. The fix
+    // is to "separate account promotion from routine profile edits":
+    //
+    //   - Routine edits (bio, name, slug, socials, inventory, list
+    //     toggles, deactivate) → skip the helper entirely. The
+    //     role flag was either set on create or not — if missing,
+    //     run the ops script
+    //     `apps/platform/scripts/claim-instructor-role.mts` or wait
+    //     for the user's next sign-in to trigger
+    //     `/api/instructor/sync-role`.
+    //   - `isActive: false → true` transition → this is an
+    //     admin-initiated re-promotion, so stamp with
+    //     `intent: "promote"`. The helper bypasses the demotion
+    //     short-circuit only for explicit re-promotion, never for
+    //     a no-op routine edit. Failures are logged but do not
+    //     fail the edit — mirroring the invite-failure-is-non-
+    //     fatal contract from POST.
+    const existingIsActive =
+      existing && typeof existing === "object" && "isActive" in existing
+        ? (existing as { isActive?: unknown }).isActive
+        : undefined;
+    // Greptile P1 (fourteenth pass): force STRICT equality to `false`
+    // -- NOT inequality to `true`. A row with `isActive` undefined /
+    // missing (which happens for rows that predate this field's
+    // introduction, or for rows imported via the legacy data-fix
+    // path) would satisfy `existingIsActive !== true` and trigger a
+    // spurious re-promote on every routine profile edit. The form
+    // treats a missing isActive as "true" and sends it on every
+    // save, so the old gate was promoting any demoted user whose
+    // instructor row predates the field. Only a strict
+    // false->true transition should call the helper with
+    // `intent: "promote"`.
+    const isPromotionEvent =
+      data.isActive === true && existingIsActive === false;
+
+    if (isPromotionEvent) {
+      try {
+        const linkedUserId =
+          existing && typeof existing === "object" && "userId" in existing
+            ? (existing as { userId?: string | null }).userId ?? null
+            : null;
+        if (linkedUserId && linkedUserId.startsWith("user_")) {
+          const result = await setInstructorPublicMetadataOnUser({
+            userId: linkedUserId,
+            instructorId: resolvedId as string,
+            intent: "promote",
+          });
+          if (!result.updated && result.reason && result.reason !== "already-set") {
+            console.warn(
+              "[platform:updateInstructor] Clerk publicMetadata not stamped for",
+              linkedUserId,
+              "— reason:",
+              result.reason,
+            );
+          }
+        }
+      } catch (e) {
+        console.error(
+          "[platform:updateInstructor] setInstructorPublicMetadataOnUser threw:",
+          e instanceof Error ? e.message : String(e),
+        );
+      }
     }
 
     return NextResponse.json({

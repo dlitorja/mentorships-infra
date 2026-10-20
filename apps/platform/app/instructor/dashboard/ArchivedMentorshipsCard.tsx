@@ -38,18 +38,27 @@ function formatArchivedDate(epochMs: number): string {
 }
 
 /**
- * Resolve a display label for the archived row. Falls back to the
- * workspace id when both the student-profile join and the per-user
- * alias turn up empty, so the row can never be a blank entry — that's
- * the dashboard user trying to identify an unarchived history line.
+ * Resolve what to render in the first line of an archived row.
+ *
+ * `headline` falls back through `fullName → email → "Unnamed student"`
+ * so the row never collapses to a raw Clerk id. The Clerk id of the
+ * student is rendered separately as a muted mono line ONLY when both
+ * name and email are missing (see AGENTS.md "Clerk User ID Display
+ * Convention") so the dashboard user can still reach support while the
+ * headline stays identifiable.
  */
-function resolveStudentLabel(row: ArchivedMentorshipRow): string {
+function resolveStudentHeadline(row: ArchivedMentorshipRow): {
+  headline: string;
+  headlineIsFallback: boolean;
+} {
   const fullName = [row.studentFirstName, row.studentLastName]
     .filter(Boolean)
     .join(" ");
-  if (fullName) return fullName;
-  if (row.studentEmail) return row.studentEmail;
-  return row.studentUserId;
+  if (fullName) return { headline: fullName, headlineIsFallback: false };
+  if (row.studentEmail) {
+    return { headline: row.studentEmail, headlineIsFallback: false };
+  }
+  return { headline: "Unnamed student", headlineIsFallback: true };
 }
 
 /**
@@ -103,7 +112,10 @@ export function ArchivedMentorshipsCard({
           </div>
         ) : (
           <ul className="space-y-2">
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const { headline, headlineIsFallback } =
+                resolveStudentHeadline(row);
+              return (
               <li
                 key={row._id}
                 className="flex items-center gap-3 rounded-lg border border-dashed bg-muted/30 px-3 py-2 opacity-80"
@@ -114,8 +126,21 @@ export function ArchivedMentorshipsCard({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-sm truncate">
-                    {resolveStudentLabel(row)}
+                    {headline}
+                    {headlineIsFallback && (
+                      <span className="ml-2 align-middle text-xs font-normal text-muted-foreground">
+                        (no name yet)
+                      </span>
+                    )}
                   </div>
+                  {headlineIsFallback && row.studentUserId && (
+                    <p
+                      className="text-xs text-muted-foreground/80 font-mono truncate"
+                      title={row.studentUserId}
+                    >
+                      Clerk id: {row.studentUserId}
+                    </p>
+                  )}
                   <div className="text-xs text-muted-foreground truncate">
                     {row.workspaceDisplayName} ·{" "}
                     <span title={new Date(row.archivedAt).toISOString()}>
@@ -127,8 +152,9 @@ export function ArchivedMentorshipsCard({
                   <Link href={`/workspace/${row._id}`}>Open</Link>
                 </Button>
               </li>
-            ))}
-          </ul>
+              );
+            })}
+            </ul>
         )}
       </CardContent>
     </Card>

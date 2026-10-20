@@ -41,14 +41,25 @@ export default async function SettingsPage() {
               <p className="text-sm text-muted-foreground">{user.email}</p>
             </div>
             <div>
-              <label className="text-sm font-medium">User ID</label>
-              <p className="text-sm text-muted-foreground font-mono">{user.id}</p>
-            </div>
-            <div>
               <label className="text-sm font-medium">Role</label>
               <div className="mt-1">
                 <Badge variant="secondary">{user.role}</Badge>
               </div>
+            </div>
+            {/* Clerk user id is intentionally rendered as subdued secondary
+                info — admin/support will need it for cross-app data repair,
+                but the user themselves rarely does. See AGENTS.md "Clerk
+                User ID Display Convention". */}
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Account ID (for support requests)
+              </label>
+              <p
+                className="text-xs text-muted-foreground/70 font-mono break-all"
+                title={user.id}
+              >
+                {user.id}
+              </p>
             </div>
           </CardContent>
         </Card>
