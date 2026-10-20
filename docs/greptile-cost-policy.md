@@ -149,9 +149,11 @@ Greptile dashboard at
 Open the Greptile usage/billing page monthly and look at:
 
 - Total reviews run vs included allotment (50/seat/month)
-- Reviews-per-PR ratio. If it's much above 1.2, the
-  `autoReview: ["open"]` policy isn't taking effect or the
-  developer workflow is relying on push-based re-reviews.
+- Reviews-per-PR ratio. The forecast is 1.5–2 reviews per PR
+  (1× on open + the occasional `@greptileai review` re-trigger
+  before merge). If the ratio is much above 2, check whether
+  `autoReview: ["open"]` is taking effect or developers are
+  requesting reviews on intermediate pushes.
 - Any Plus/Apex reviews (should be zero — current configuration
   pins Base).
 - Any TREX credits (should be zero).
