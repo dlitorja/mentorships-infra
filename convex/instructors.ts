@@ -3640,10 +3640,70 @@ export const createInstructorForClerkUserInternal = internalAction({
     instructorId: v.optional(v.id("instructors")),
     actorId: v.optional(v.string()),
     actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
+    /**
+     * Greptile P1 (fifteenth pass, follow-up): webhook-driven callers
+     * (Inngest Clerk-lifecycle events, the Clerk webhook handler)
+     * default to `false` so an EXPLICIT admin -> instructor demotion
+     * propagates correctly. The /api/instructor/sync-role self-heal
+     * route opts in with `true` because the metadata-driven claim is
+     * a best-effort reconciliation, not an instruction to demote
+     * someone. The /users/ops-set-role HTTP endpoint has its own
+     * elevated-preservation enforcement at the action layer; this
+     * flag is purely for the create-for-clerk-user webhook path.
+     */
+    enforceElevatedPreservation: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
     const actorId = args.actorId ?? "system";
     const actorRole = args.actorRole ?? "system";
+    const preserveElevated = args.enforceElevatedPreservation === true;
+
+    /**
+     * Greptile P1 (fifteenth pass): mirror the mutation's args
+     * faithfully. The `enforceElevatedPreservation` flag is forwarded;
+     * if it is set, a refusal to overwrite elevated propagates as a
+     * `preserved: true` shape on the action result -- not a 500.
+     */
+    async function syncRole(args: {
+      userId: string;
+      role: "student" | "instructor" | "admin" | "video_editor";
+      audit: {
+        action: string;
+        targetType: string;
+        targetId: string;
+        details: string;
+        metadata?: Record<string, unknown>;
+      };
+    }): Promise<{ preserved?: boolean; currentRole?: string }> {
+      try {
+        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+          userId: args.userId,
+          role: args.role,
+          actorId,
+          actorRole,
+          ...(preserveElevated ? { enforceElevatedPreservation: true } : {}),
+          audit: args.audit,
+        });
+        return {};
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (preserveElevated && msg.startsWith("ELEVATED_ROLE_PRESERVED:")) {
+          console.warn(
+            `[platform:createInstructorForClerkUser] preserved elevated role on ${args.userId}; skipping role sync. Original error: ${msg}`,
+          );
+          try {
+            const parsed = JSON.parse(msg.slice("ELEVATED_ROLE_PRESERVED:".length)) as {
+              currentRole: string;
+              requestedRole: string;
+            };
+            return { preserved: true, currentRole: parsed.currentRole };
+          } catch {
+            return { preserved: true };
+          }
+        }
+        throw e;
+      }
+    }
 
     const existing = await ctx.runQuery(
       internal.instructors.getInstructorByUserIdInternal,
@@ -3652,11 +3712,9 @@ export const createInstructorForClerkUserInternal = internalAction({
 
     if (existing) {
       console.log("createInstructorForClerkUser: Instructor already exists", args.userId);
-      await ctx.runMutation(internal.users.setUserRoleTrusted, {
+      await syncRole({
         userId: args.userId,
         role: "instructor",
-        actorId,
-        actorRole,
         audit: {
           action: "create_instructor_for_clerk_user",
           targetType: "instructor",
@@ -3692,11 +3750,9 @@ export const createInstructorForClerkUserInternal = internalAction({
           instructorId: invited._id,
           userId: args.userId,
         });
-        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+        await syncRole({
           userId: args.userId,
           role: "instructor",
-          actorId,
-          actorRole,
           audit: {
             action: "create_instructor_for_clerk_user",
             targetType: "instructor",
@@ -3728,11 +3784,9 @@ export const createInstructorForClerkUserInternal = internalAction({
           instructorId: placeholder._id,
           userId: args.userId,
         });
-        await ctx.runMutation(internal.users.setUserRoleTrusted, {
+        await syncRole({
           userId: args.userId,
           role: "instructor",
-          actorId,
-          actorRole,
           audit: {
             action: "create_instructor_for_clerk_user",
             targetType: "instructor",
@@ -3755,11 +3809,9 @@ export const createInstructorForClerkUserInternal = internalAction({
 
     console.log("createInstructorForClerkUser: Created instructor", args.userId, instructorId);
 
-    await ctx.runMutation(internal.users.setUserRoleTrusted, {
+    await syncRole({
       userId: args.userId,
       role: "instructor",
-      actorId,
-      actorRole,
       audit: {
         action: "create_instructor_for_clerk_user",
         targetType: "instructor",

@@ -703,16 +703,113 @@ export const setUserRoleTrusted = internalMutation({
       details: v.optional(v.string()),
       metadata: v.optional(v.record(v.string(), v.any())),
     })),
+    /**
+     * Greptile P1 (ninth pass, follow-up): when set, the mutation
+     * refuses to overwrite an existing elevated role
+     * (admin / video_editor / support) with a lower one. Same
+     * transaction as the patch (read + check + write are inside
+     * the same Convex handler), so an admin grant committed
+     * inside the gap between this mutation and a separate
+     * `runQuery` check cannot be silently overwritten. The
+     * refusal raises a tagged error
+     * `ELEVATED_ROLE_PRESERVED:<json>` which the calling
+     * httpAction translates into a 409 + preserved shape.
+     *
+     * Default `false` preserves pre-PP semantics for every
+     * existing caller (auth-sync, admin-self-elevation, internal).
+     * Only `httpOpsRepairSetUserRole` opts in.
+     */
+    enforceElevatedPreservation: v.optional(v.boolean()),
+    /**
+     * Greptile P1 (tenth pass, follow-up): for the insert path,
+     * `users.email` is a required string in the schema. The
+     * mutation's identity-derived email fallback worked for
+     * authenticated callers (auth-sync, admin-self-elevation),
+     * but httpOpsRepairSetUserRole runs on a bearer-only request
+     * with no Clerk identity. To allow the legacy repair script
+     * (`apps/platform/scripts/claim-instructor-role.mts`) to be
+     * the FIRST write that materializes a users row for an
+     * adopted-by-Clerk-email instructor, callers can pass email
+     * explicitly. Falls back to identity email if not supplied.
+     *
+     * For pre-existing callers (auth-sync that always has
+     * identity), behavior is unchanged. Only the ops endpoint
+     * passes email from the script-supplied Clerk user lookup.
+     */
+    email: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    const ELEVATED_ROLES = new Set(["admin", "video_editor", "support"]);
+    // Greptile P1 (eleventh pass, follow-up): `users` has two
+    // identity indexes (`by_userId`, `by_clerkId`). For migrated or
+    // legacy-linked users these can diverge. Looking up only by
+    // by_userId would miss a row whose `userId` is some other id
+    // but whose `clerkId` matches args.userId, and then we would
+    // INSERT a competing row instead of patching the existing
+    // admin/instructor row -- losing the user's elevated access.
+    // Try by_userId first (canonical case); fall back to by_clerkId
+    // for the linked-account case.
+    //
+    // Greptile P1 (twelfth pass, follow-up): when the row is found
+    // via the by_clerkId fallback, `existing.userId` is the LEGACY
+    // primary account ID (e.g. "A"), distinct from the new Clerk ID
+    // ("B") passed in `args.userId`. The previous patch did
+    // `userId: args.userId` unconditionally -- which rebound A to B
+    // and lost the row at the original primary id. Downstream
+    // `by_userId("A")` lookups would miss and protected routes
+    // would 403. Track which path found the row; preserve the
+    // existing userId in the by_clerkId-found case. Changing the
+    // primary account ID needs a separate explicit migration.
+    let existing = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+    let foundByClerkIdOnly = false;
+    if (!existing) {
+      const linkedByClerk = await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+        .first();
+      if (linkedByClerk) {
+        existing = linkedByClerk;
+        foundByClerkIdOnly = true;
+      }
+    }
+
+    if (args.enforceElevatedPreservation && existing) {
+      const currentRole = existing.role;
+      const requestElevated = ELEVATED_ROLES.has(args.role);
+      const existingElevated =
+        typeof currentRole === "string" && ELEVATED_ROLES.has(currentRole);
+      if (existingElevated && !requestElevated) {
+        // Tag the message so httpOpsRepairSetUserRole can parse it
+        // back into a 409 + preserved shape. The mutation boundary is
+        // the only thing visible; Convex executes the whole handler
+        // as a single transaction, so no other mutation can interleave
+        // between this check and the (skipped) patch below.
+        throw new Error(
+          `ELEVATED_ROLE_PRESERVED:${JSON.stringify({
+            currentRole,
+            requestedRole: args.role,
+          })}`,
+        );
+      }
+    }
 
     if (existing) {
       const previousRole = existing.role;
-      await ctx.db.patch(existing._id, { role: args.role, userId: args.userId });
+      // Greptile P1 (twelfth pass): patch only what is actually
+      // authoritative for this row. userId and clerkId are NOT
+      // rewritten — in the canonical (by_userId hit) case both
+      // already equal args.userId; in the by_clerkId-only fallback
+      // case we explicitly preserve the existing primary id to
+      // avoid orphaning the row at its real primary lookup.
+      await ctx.db.patch(existing._id, {
+        role: args.role,
+        ...(foundByClerkIdOnly
+          ? { clerkId: args.userId }
+          : {}),
+      });
       if (args.audit) {
         await writeAuditLog(ctx, {
           actorId: args.actorId ?? "system",
@@ -738,10 +835,71 @@ export const setUserRoleTrusted = internalMutation({
     }
 
     const identity = await ctx.auth.getUserIdentity();
-    const email = identity?.email;
+    const identityEmail = identity?.email;
+    // Greptile P1 (tenth pass): `users.email` is v.string() (required).
+    // Prefer caller-supplied email (allows the ops repair script to
+    // synthesize the row from a Clerk user with no Convex presence),
+    // fall back to the auth identity's email when the caller didn't
+    // supply one. If both are missing, the schema would reject the
+    // insert with an unhelpful Convex validator error; instead throw
+    // a tagged `MISSING_EMAIL_REQUIRED` error so the httpAction can
+    // translate to a clean 400 with guidance.
+    if (!args.email && !identityEmail) {
+      throw new Error(
+        "MISSING_EMAIL_REQUIRED:users.email is a required string in the schema; pass `email` from the caller (e.g. the ops-script's Clerk user lookup) or run a sync first to attach an identity email.",
+      );
+    }
+    // Greptile P1 (sixteenth pass, follow-up): normalize the email
+    // before save. `syncUser` (and other writers in the codebase)
+    // canonicalize the lookup key as `trim().toLowerCase()`. If we
+    // save the Clerk-supplied email unchanged (e.g. `Teacher@
+    // Example.com`), the next syncUser misses the row and inserts
+    // a second one with the normalized key -- creating a
+    // duplicate-user data pollution. Trim + lowercase here matches
+    // the rest of the codebase and is the safe, idempotent choice
+    // for a here-and-now repair script.
+    const resolvedEmail =
+      (args.email ?? identityEmail ?? "").trim().toLowerCase();
+
+    // Greptile P1 (twenty-first pass, follow-up): an email
+    // conflict guard. `users.by_email` is indexed but NOT unique,
+    // so it's possible for a legacy row to already exist with the
+    // same email but a DIFFERENT (userId, clerkId) pair -- e.g. a
+    // legacy signed-up-by-email student whose Clerk user_id is
+    // also a real Clerk user that the ops repair script is now
+    // claiming instructor role for. Inserting a fresh users row
+    // in this case creates a competing record: the
+    // /users/ops-set-role caller sees the new row, but email-only
+    // reads (e.g. adminOnboarding.by_email) select the legacy row,
+    // and the user's own updateUser calls hit the new row's ID
+    // while student-session logic still targets the legacy row.
+    //
+    // Refuse the insert here and surface a tagged error so the
+    // ops script / HTTP layer can decide whether to merge,
+    // re-link, or leave for manual reconciliation.
+    const conflictingByEmailRows = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", resolvedEmail))
+      .collect();
+    const conflictingOther = conflictingByEmailRows.find(
+      (row) =>
+        row.userId !== args.userId || (row.clerkId ?? "") !== args.userId,
+    );
+    if (conflictingOther) {
+      throw new Error(
+        `EMAIL_BELONGS_TO_ANOTHER_USER:${JSON.stringify({
+          attemptedUserId: args.userId,
+          attemptedEmail: resolvedEmail,
+          existingUserId: conflictingOther.userId,
+          existingClerkId: conflictingOther.clerkId ?? null,
+          existingRole: conflictingOther.role ?? null,
+        })}`,
+      );
+    }
+
     const id = await ctx.db.insert("users", {
       userId: args.userId,
-      email: email ?? undefined,
+      email: resolvedEmail,
       clerkId: args.userId,
       role: args.role,
     } as Partial<Doc<"users">> as any);

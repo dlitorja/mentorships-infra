@@ -458,6 +458,582 @@ test("http /users/set-role: invalid role returns 400", async () => {
   expect(r.status).toBe(400);
 });
 
+/**
+ * Greptile P1 security (PR fix/instructor-role-claim-in-clerk, eighth
+ * pass follow-up): `/users/set-role` is intentionally UNCONDITIONAL.
+ * Marketing's `AuthDrivenInvalidator` syncs admin -> student demotions
+ * through this endpoint; if the elevated-preservation guard were on
+ * THIS endpoint, demoting an admin in Clerk would silently leave their
+ * Convex admin role intact. The guard was moved to
+ * `/users/ops-set-role` (see below). This test is the regression check
+ * for that split.
+ */
+test("http /users/set-role: marketing demotion path (admin -> student) is NOT 409", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const adminUserId = "user_market_demote";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "marketing@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  const r = await t.fetch("/users/set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: adminUserId, role: "student" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.role).toBe("student");
+});
+
+/**
+ * Greptile P1 (PR fix/instructor-role-claim-in-clerk, follow-up):
+ * the legacy repair script (`apps/platform/scripts/claim-instructor-role.mts`)
+ * uses `/users/ops-set-role` (added in this PR). Refuses to overwrite
+ * an existing elevated role; allows elevated -> elevated same-role
+ * writes through.
+ *
+ * The split deliberately separates the auth-sync flow
+ * (`/users/set-role`, unconditional) from the legacy repair flow
+ * (`/users/ops-set-role`, conservative). Adding the elevated-
+ * preservation guard to `/users/set-role` would have broken the
+ * marketing demotion path (Greptile P1 follow-up).
+ */
+test("http /users/ops-set-role: refuses to overwrite an existing elevated role (409 + preserved)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const adminUserId = "user_admin_ops_preserve";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin-ops@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: adminUserId, role: "instructor" }),
+  });
+  expect(r.status).toBe(409);
+  const body = await r.json();
+  expect(body.preserved).toBe(true);
+  expect(body.currentRole).toBe("admin");
+  expect(body.requestedRole).toBe("instructor");
+
+  const stillAdmin = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminUserId))
+      .first()
+  );
+  expect(stillAdmin?.role).toBe("admin");
+});
+
+test("http /users/ops-set-role: writes a student -> instructor (the legacy repair path)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_ops_repair",
+      email: "ops@example.com",
+      clerkId: "user_ops_repair",
+      role: "student",
+    });
+  });
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: "user_ops_repair", role: "instructor" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.role).toBe("instructor");
+
+  const logs = await t.run(async (ctx) =>
+    ctx.db.query("auditLogs").collect()
+  );
+  expect(logs.some((l: any) => l.action === "ops_repair_set_role")).toBe(true);
+});
+
+test("http /users/ops-set-role: rejects non-Clerk-shaped userId with 400", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: "admin-rakasa", role: "instructor" }),
+  });
+  expect(r.status).toBe(400);
+  const body = await r.json();
+  expect(body.error).toMatch(/must start with "user_"/);
+});
+
+test("http /users/ops-set-role: rejects admin elevation (defense against accidental self-promotion)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: "user_new_admin", role: "admin" }),
+  });
+  expect(r.status).toBe(400);
+  const body = await r.json();
+  expect(body.error).toMatch(/role is required and must be one of/);
+});
+
+test("http /users/ops-set-role: allows elevated-to-elevated same-role writes (no false-positive 409)", async () => {
+  // Setting admin -> admin on the ops endpoint should NOT 409.
+  // Only demotions are refused.
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const adminUserId = "user_ops_admin_same";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin-same@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  // admin -> video_editor is elevated-to-elevated, allowed.
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ userId: adminUserId, role: "video_editor" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.role).toBe("video_editor");
+});
+
+/**
+ * Greptile P1 (ninth pass, follow-up): drive the underlying mutation
+ * directly to lock in the elevated-preservation behavior. The
+ * `enforceElevatedPreservation: true` flag was added so the check
+ * happens INSIDE the same `db.patch` transaction (closing the
+ * TOCTOU window the previous runQuery + runMutation shape had).
+ */
+test("convex.users.setUserRoleTrusted: enforceElevatedPreservation throws ELEVATED_ROLE_PRESERVED for demotion", async () => {
+  const t = convexTest(schema, modules);
+
+  const adminUserId = "user_setrole_internal_admin";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "setrole-admin@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  await expect(
+    t.run(async (ctx) =>
+      ctx.runMutation(internal.users.setUserRoleTrusted, {
+        userId: adminUserId,
+        role: "instructor",
+        enforceElevatedPreservation: true,
+      })
+    ),
+  ).rejects.toThrow(/^ELEVATED_ROLE_PRESERVED:/);
+
+  // Confirm the role is untouched (preserved).
+  const stillAdmin = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminUserId))
+      .first()
+  );
+  expect(stillAdmin?.role).toBe("admin");
+});
+
+test("convex.users.setUserRoleTrusted: enforceElevatedPreservation absent preserves pre-PP semantics (admin -> student succeeds)", async () => {
+  // Backward-compat regression: callers that DON'T pass
+  // enforceElevatedPreservation behave exactly as before, including
+  // allowing elevated demotions. Specifically `/users/set-role` and
+  // the auth-sync flow depend on this. If we accidentally tightened
+  // the default, marketing's AuthDrivenInvalidator would break again.
+  const t = convexTest(schema, modules);
+
+  const adminUserId = "user_setrole_compat_admin";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "compat-admin@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  await t.run(async (ctx) =>
+    ctx.runMutation(internal.users.setUserRoleTrusted, {
+      userId: adminUserId,
+      // NO enforceElevatedPreservation flag -- preserved pre-PP behavior.
+      role: "student",
+    })
+  );
+
+  const after = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminUserId))
+      .first()
+  );
+  expect(after?.role).toBe("student");
+});
+
+/**
+ * Greptile P1 (tenth pass, follow-up): `users.email` is v.string() in
+ * the schema, so the insert path requires an email. When the ops
+ * endpoint receives a userId with no prior Convex presence AND no
+ * `email` in the body, the mutation throws MISSING_EMAIL_REQUIRED
+ * which the httpAction translates to a 400 with the explicit
+ * guidance below. The ops script supplies email from the Clerk user
+ * lookup, so this rejection is a defensive sanity check on the
+ * endpoint contract, not a regression path.
+ */
+test("http /users/ops-set-role: missing-email insert path returns 400 (no prior users row + no email)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_no_prior_record",
+      role: "instructor",
+    }),
+  });
+  expect(r.status).toBe(400);
+  const body = await r.json();
+  expect(body.code).toBe("missing-email");
+  expect(body.error).toMatch(/users\.email is required/);
+});
+
+test("http /users/ops-set-role: missing-email insert path SUCCEEDS when email is supplied (Greptile P1 tenth pass happy path)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_no_prior_record_with_email",
+      role: "instructor",
+      email: "fresh@example.com",
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.role).toBe("instructor");
+
+  const stored = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_no_prior_record_with_email"),
+      )
+      .first()
+  );
+  expect(stored?.email).toBe("fresh@example.com");
+});
+
+/**
+ * Greptile P1 (sixteenth pass): when an email is supplied in mixed
+ * case or with whitespace (typical Clerk return shapes, esp. before
+ * the user logs in for the first time), the insert path must
+ * normalize via trim().toLowerCase() so the next `syncUser` -- which
+ * canonicalizes its lookup key the same way -- does not miss the
+ * row and create a duplicate `users` record.
+ */
+test("http /users/ops-set-role: supplied email is normalized to trim+lowercase before insert", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_unnormalized_email",
+      role: "instructor",
+      email: "  Teacher@Example.COM  ",
+    }),
+  });
+  expect(r.status).toBe(200);
+
+  const stored = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", "user_unnormalized_email"))
+      .first()
+  );
+  // Stored email should be the canonical form -- trimmed + lowered.
+  expect(stored?.email).toBe("teacher@example.com");
+});
+
+test("http /users/ops-set-role: rejects email of non-string type with 400", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_abc",
+      role: "instructor",
+      email: 42,
+    }),
+  });
+  expect(r.status).toBe(400);
+  const body = await r.json();
+  expect(body.error).toMatch(/email, if provided, must be a string/);
+});
+
+/**
+ * Greptile P1 (twenty-first pass): when a legacy users row
+ * already exists with the same normalized email but a different
+ * (userId, clerkId), the insert path must refuse to create a
+ * competing row. The HTTP layer translates the tagged mutation
+ * error to 409 `code: "email-belongs-to-another"` with both
+ * attempted and existing identities so the operator can decide
+ * whether to merge, re-link, or leave for manual reconciliation.
+ */
+test("http /users/ops-set-role: 409 on email-already-owned-by-another-user (Greptile P1 twenty-first pass)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  // Seed a legacy student row with a different userId but the
+  // email we will try to claim for a different user.
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "user_legacy_owns_email",
+      email: "shared@example.com",
+      clerkId: "user_legacy_owns_email",
+      role: "student",
+    });
+  });
+
+  const r = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_instructor_trying_email",
+      role: "instructor",
+      email: "  Shared@Example.COM  ", // unnormalized -- mutation normalizes
+    }),
+  });
+  expect(r.status).toBe(409);
+  const body = await r.json();
+  expect(body.code).toBe("email-belongs-to-another");
+  expect(body.attempted.userId).toBe("user_instructor_trying_email");
+  expect(body.attempted.email).toBe("shared@example.com");
+  expect(body.existing.userId).toBe("user_legacy_owns_email");
+  expect(body.existing.role).toBe("student");
+
+  // Confirm the legacy row was NOT modified and no new row exists
+  // for the attempted userId.
+  const inserted = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) =>
+        q.eq("userId", "user_instructor_trying_email"),
+      )
+      .collect()
+  );
+  expect(inserted.length).toBe(0);
+});
+
+test("http /users/ops-set-role: email guard does NOT trigger when same user re-replays insert", async () => {
+  // The guard fires only when a different (userId, clerkId) row
+  // exists. If the same userId is replaying the write (e.g. a
+  // retry after the network blip), the guard is a no-op: the
+  // existing row IS the same user. The path falls through to the
+  // ds.patch branch and works.
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  // First call: insert.
+  const r1 = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_idempotent_email_check",
+      role: "instructor",
+      email: "  Someone@Example.COM  ",
+    }),
+  });
+  expect(r1.status).toBe(200);
+
+  // Second call (same user): the lookup finds this userId in the
+  // rows, so `conflictingOther` is undefined and the guard does
+  // not fire. Operations land in the patch path -> 200.
+  const r2 = await t.fetch("/users/ops-set-role", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_idempotent_email_check",
+      role: "instructor",
+      email: "someone@example.com",
+    }),
+  });
+  expect(r2.status).toBe(200);
+});
+
+/**
+ * Greptile P1 (eleventh pass, follow-up): linked-account repair.
+ * For a migrated/legacy user the by_userId row keyed on a different
+ * id exists alongside a clerkId-linked lookup; the previous
+ * by_userId-only lookup would INSERT a competing row. With the
+ * by_clerkId fallback, we PATCH the existing row's userId and role
+ * instead of duplicating the account. Doubly important for
+ * elevated: an admin-linked-by-clerkId row must not be demoted in
+ * favor of a fresh instructor row.
+ */
+test("convex.users.setUserRoleTrusted: patches an existing clerkId-linked row instead of inserting a competing row", async () => {
+  const t = convexTest(schema, modules);
+
+  const oldUserId = "user_legacy_linked_userid";
+  const newClerkId = "user_modern_clerk_id";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: oldUserId,
+      email: "linked@example.com",
+      clerkId: newClerkId, // userId != clerkId — linked-account shape
+      role: "student",
+    });
+  });
+
+  // BEFORE: only the legacy row exists. by_userId(newClerkId) is
+  // empty. by_clerkId(newClerkId) finds the legacy row.
+  const before = await t.run(async (ctx) => {
+    const byUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", newClerkId))
+      .first();
+    const byClerk = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", newClerkId))
+      .first();
+    return { byUser, byClerk };
+  });
+  expect(before.byUser).toBeNull();
+  expect(before.byClerk?.userId).toBe(oldUserId);
+
+  await t.run(async (ctx) =>
+    ctx.runMutation(internal.users.setUserRoleTrusted, {
+      userId: newClerkId,
+      role: "instructor",
+      enforceElevatedPreservation: true,
+    })
+  );
+
+  // AFTER: the legacy row was patched. by_clerkId(newClerkId) still
+  // resolves to the same row (no competing row inserted). The
+  // legacy primary account ID (the old userId) is preserved --
+  // changing it needs a separate explicit migration (Greptile P1
+  // twelfth pass). The old userId is the row's primary-account
+  // identity; rebinding it to the Clerk id would orphan the row at
+  // the original primary id and any downstream by_userId("A")
+  // lookups would 403.
+  const afterByClerk = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", newClerkId))
+      .first()
+  );
+  expect(afterByClerk).not.toBeNull();
+  expect(afterByClerk?.role).toBe("instructor");
+  // Primary account ID preserved (was oldUserId; stays oldUserId).
+  expect(afterByClerk?.userId).toBe(oldUserId);
+  expect(afterByClerk?.clerkId).toBe(newClerkId);
+
+  // Confirm by_userId at the OLD primary id still finds the row.
+  const afterByOldUserId = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", oldUserId))
+      .first()
+  );
+  expect(afterByOldUserId?.role).toBe("instructor");
+
+  // No competing row was inserted at by_userId(newClerkId) --
+  // that index still returns null.
+  const newRow = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", newClerkId))
+      .first()
+  );
+  expect(newRow).toBeNull();
+});
+
+test("convex.users.setUserRoleTrusted: clerkId-linked admin row is preserved (no demotion via linked lookup)", async () => {
+  // Greptile P1 (eleventh pass) specific elevated case: a linked
+  // admin row exists. Before the by_clerkId fallback, the by_userId
+  // miss would have inserted a new instructor row, splitting the
+  // identity. After the fallback, the existing elevated row is
+  // PATCHED but elevate-preservation still refuses to demote it.
+  const t = convexTest(schema, modules);
+
+  const oldUserId = "user_legacy_admin_userid";
+  const newClerkId = "user_modern_admin_clerk_id";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: oldUserId,
+      email: "linkedadmin@example.com",
+      clerkId: newClerkId,
+      role: "admin",
+    });
+  });
+
+  await expect(
+    t.run(async (ctx) =>
+      ctx.runMutation(internal.users.setUserRoleTrusted, {
+        userId: newClerkId,
+        role: "instructor",
+        enforceElevatedPreservation: true,
+      })
+    ),
+  ).rejects.toThrow(/^ELEVATED_ROLE_PRESERVED:/);
+
+  const after = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", oldUserId))
+      .first()
+  );
+  expect(after?.role).toBe("admin");
+
+  const newLinked = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", newClerkId))
+      .first()
+  );
+  expect(newLinked).toBeNull(); // no competing row inserted
+});
+
 test("http /instructors/create-for-clerk-user: missing userId returns 400", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = VALID_KEY;
@@ -468,6 +1044,114 @@ test("http /instructors/create-for-clerk-user: missing userId returns 400", asyn
     body: JSON.stringify({ name: "NoUser" }),
   });
   expect(r.status).toBe(400);
+});
+
+test("http /instructors/create-for-clerk-user: enforceElevatedPreservation opt-in preserves admin (Greptile P1 fifteenth pass)", async () => {
+  // Pre-seed an admin whose Clerk role has been demoted to
+  // "instructor"; this is the self-heal path that
+  // apps/platform/app/api/instructor/sync-role/route.ts drives.
+  // Without preservation, an admin would be silently demoted when
+  // the JWT-derived instructor claim is reconciled. With the
+  // opt-in flag set, the helper preserves admin and the action
+  // returns the preserved:true shape.
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const adminUserId = "user_sync_role_admin";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "sync-admin@example.com",
+      clerkId: adminUserId,
+      role: "admin", // existing elevated role
+    });
+  });
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: adminUserId,
+      email: "sync-admin@example.com",
+      enforceElevatedPreservation: true,
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.success).toBe(true);
+
+  // The instructor row should exist (the action's first job).
+  const instructors = await t.run(async (ctx) =>
+    ctx.db.query("instructors").collect()
+  );
+  expect(instructors.length).toBeGreaterThanOrEqual(1);
+
+  // Convex users.role should STILL be admin -- preserved.
+  const after = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminUserId))
+      .first()
+  );
+  expect(after?.role).toBe("admin");
+});
+
+test("http /instructors/create-for-clerk-user: default (no enforceElevatedPreservation) honors Clerk demotion for webhook flow (Greptile P1 fifteenth pass)", async () => {
+  // For a webhook-driven caller (Inngest lifecycle, Clerk webhook
+  // handler) the absence of the flag is the explicit-removal
+  // semantic: an admin's Clerk role was demoted, propagate the
+  // demotion to Convex users.role.
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const adminUserId = "user_webhook_admin_to_instructor";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "webhook-admin@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: adminUserId,
+      email: "webhook-admin@example.com",
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.success).toBe(true);
+
+  // Convex users.role SHOULD be demoted to instructor -- the
+  // webhook event respected the Clerk-side demotion.
+  const after = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", adminUserId))
+      .first()
+  );
+  expect(after?.role).toBe("instructor");
+});
+
+test("http /instructors/create-for-clerk-user: rejects non-boolean enforceElevatedPreservation", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_abc",
+      enforceElevatedPreservation: "true", // string, not boolean
+    }),
+  });
+  expect(r.status).toBe(400);
+  const body = await r.json();
+  expect(body.error).toMatch(/enforceElevatedPreservation/);
 });
 
 /**

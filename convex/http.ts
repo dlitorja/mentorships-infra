@@ -1800,9 +1800,30 @@ http.route({
 export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  let userId: string, email: string | undefined, name: string | undefined, instructorId: string | undefined;
+  let userId: string,
+    email: string | undefined,
+    name: string | undefined,
+    instructorId: string | undefined;
+  /**
+   * Greptile P1 (fifteenth pass, follow-up): callers decide whether
+   * to preserve elevated roles. Webhook-driven callers (Inngest
+   * clerk-user-instructor-lifecycle, Clerk webhook handler) leave
+   * this unset (defaults to false -> honor an explicit Clerk
+   * demotion). The /api/instructor/sync-role self-heal passes true
+   * because the JWT-driven claim is a best-effort reconciliation,
+   * not an instruction to demote someone. The endpoint contract
+   * remains backward-compatible -- existing callers that omit this
+   * body field get the previous (pre-thirteenth-pass) behavior.
+   */
+  let enforceElevatedPreservation: boolean | undefined;
   try {
-    ({ userId, email, name, instructorId } = await request.json());
+    ({
+      userId,
+      email,
+      name,
+      instructorId,
+      enforceElevatedPreservation,
+    } = await request.json());
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
       status: 400,
@@ -1816,6 +1837,17 @@ export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) 
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (
+    enforceElevatedPreservation !== undefined &&
+    typeof enforceElevatedPreservation !== "boolean"
+  ) {
+    return new Response(
+      JSON.stringify({
+        error: `enforceElevatedPreservation, if provided, must be a boolean; got "${typeof enforceElevatedPreservation}"`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   try {
     const result = await ctx.runAction(
@@ -1827,6 +1859,7 @@ export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) 
         instructorId: instructorId ? (instructorId as Id<"instructors">) : undefined,
         actorId: "platform-server",
         actorRole: "system",
+        enforceElevatedPreservation,
       }
     );
     return new Response(JSON.stringify(result), {
@@ -1906,6 +1939,25 @@ export const httpServerVerifiedSetUserRole = httpAction(async (ctx, request) => 
     });
   }
 
+  /**
+   * Greptile P1 (eighth pass, follow-up): this endpoint is intentionally
+   * UNCONDITIONAL. It backs:
+   *   - Marketing's `AuthDrivenInvalidator` role-sync
+   *     (`/api/auth/sync -> /users/set-role`) which propagates
+   *     Clerk-side admin -> student demotions into Convex; if we
+   *     refused demotions here, an admin demoted in Clerk would
+   *     keep their Convex admin role silently.
+   *   - Admin-self-elevation paths (`apps/platform/app/api/admin/instructors/upload`,
+   *     `backfill-images`) that call `setUserRoleTrusted` with
+   *     `role: "admin"` for a freshly-onboarded admin.
+   *   - The legacy repair script (`apps/platform/scripts/claim-instructor-role.mts`)
+   *     which uses `/users/ops-set-role` instead -- a SEPARATE
+   *     endpoint below, so the elevated-preservation guard does not
+   *     break the marketing demotion path.
+   *
+   * Do NOT add elevated-preservation here; do so in
+   * `httpOpsRepairSetUserRole` instead.
+   */
   try {
     const result = await ctx.runMutation(internal.users.setUserRoleTrusted, {
       userId,
@@ -1924,6 +1976,234 @@ export const httpServerVerifiedSetUserRole = httpAction(async (ctx, request) => 
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+/**
+ * Greptile P1 (eighth pass, follow-up): a separate ops-only role write
+ * surface used by `apps/platform/scripts/claim-instructor-role.mts` to
+ * repair a previously-missed role stamping. Distinct from
+ * `/users/set-role` so the elevated-preservation guard does not break
+ * marketing's auth-sync demotion path (also at `/users/set-role`).
+ *
+ * Three refusals:
+ *   1. `userId` must be Clerk-shaped (`user_...`) -- defense-in-depth
+ *      against operator typos that would silently overwrite a
+ *      placeholder row.
+ *   2. `role` is restricted to `student | instructor | video_editor`
+ *      (NOT `admin`). Admin elevation goes through
+ *      `apps/platform/app/api/admin/convex/seed-role` instead.
+ *   3. Refuses to overwrite an existing elevated role
+ *      (`admin | video_editor | support`) with a lower one. An
+ *      admin who is currently admin must not be silently demoted by
+ *      a misrun script. Elevated -> elevated writes are accepted.
+ *
+ * Greptile's specific concern (P1 security, eighth pass): Marketing
+ * uses `/users/set-role` for admin -> student demotions on
+ * AuthDrivenInvalidator sync. Putting the elevated-preservation
+ * guard on THAT endpoint created a path where removing admin
+ * access in Clerk no longer removed that access in Convex. The
+ * guard here is scoped to the legacy repair path only.
+ */
+/**
+ * Greptile P1 (ninth pass, follow-up): parse the tagged error that
+ * `setUserRoleTrusted` throws when `enforceElevatedPreservation` refuses
+ * the write. The mutation boundary is the only thing visible; the check
+ * + `db.patch` happen inside a single Convex transaction so an admin
+ * grant committed concurrently cannot be silently overwritten.
+ */
+function isPreservedElevatedError(message: string): {
+  currentRole: string;
+  requestedRole: string;
+} | null {
+  const prefix = "ELEVATED_ROLE_PRESERVED:";
+  if (!message.startsWith(prefix)) return null;
+  try {
+    return JSON.parse(message.slice(prefix.length)) as {
+      currentRole: string;
+      requestedRole: string;
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Greptile P1 (tenth pass, follow-up): the insert path needs an email
+ * because `users.email` is a required string in the schema. The
+ * mutation throws this tagged error when neither caller-supplied
+ * email nor auth-identity email is available. The httpAction
+ * translates to a 400 with explicit guidance so the operator can
+ * surface a clear UI message.
+ */
+function isMissingEmailRequired(message: string): boolean {
+  return message.startsWith("MISSING_EMAIL_REQUIRED:");
+}
+
+/**
+ * Greptile P1 (twenty-first pass): the insert path refuses to
+ * create a competing users row when the supplied email is already
+ * owned by a different (userId, clerkId) pair. Parse the tagged
+ * error so the HTTP layer can return a structured 409 with both
+ * the attempted and existing identity, instead of a generic 500.
+ */
+function isEmailBelongsToAnotherError(
+  message: string,
+):
+  | {
+      attemptedUserId: string;
+      attemptedEmail: string;
+      existingUserId: string | null;
+      existingClerkId: string | null;
+      existingRole: string | null;
+    }
+  | null {
+  const prefix = "EMAIL_BELONGS_TO_ANOTHER_USER:";
+  if (!message.startsWith(prefix)) return null;
+  try {
+    return JSON.parse(message.slice(prefix.length)) as {
+      attemptedUserId: string;
+      attemptedEmail: string;
+      existingUserId: string | null;
+      existingClerkId: string | null;
+      existingRole: string | null;
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const httpOpsRepairSetUserRole = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const OPS_ALLOWED_ROLES = new Set(["student", "instructor", "video_editor"]);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { userId } = (body ?? {}) as { userId?: unknown };
+  const { role } = (body ?? {}) as { role?: unknown };
+  // Greptile P1 (tenth pass): accept `email` from the request body so
+  // the repair script can synthesize the users row from a Clerk user
+  // with no prior Convex presence. Schema requires `users.email`
+  // (v.string()). Email is optional -- when missing the mutation's
+  // identity-fallback handles it; when missing AND no identity, the
+  // mutation throws MISSING_EMAIL_REQUIRED which we map below.
+  const { email } = (body ?? {}) as { email?: unknown };
+  if (typeof userId !== "string" || !userId.startsWith("user_")) {
+    return new Response(
+      JSON.stringify({
+        error: `userId is required and must start with "user_"; got "${typeof userId === "string" ? userId.slice(0, 12) : "(non-string)"}..."`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  if (typeof role !== "string" || !OPS_ALLOWED_ROLES.has(role)) {
+    return new Response(
+      JSON.stringify({
+        error: `role is required and must be one of ${Array.from(OPS_ALLOWED_ROLES).join(", ")}; got "${typeof role === "string" ? role : "(non-string)"}"`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+  if (email !== undefined && typeof email !== "string") {
+    return new Response(
+      JSON.stringify({
+        error: `email, if provided, must be a string; got "${typeof email}"`,
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  try {
+    // `enforceElevatedPreservation: true` makes setUserRoleTrusted do
+    // the elevated check + write inside a single Convex transaction,
+    // closing the TOCTOU window that Greptile's P1 (ninth pass) flagged
+    // on the previous `runQuery` + `runMutation` shape. If an admin grant
+    // commits between the httpAction dispatch and this mutation, it
+    // either commits BEFORE the mutation (the mutation sees the new admin
+    // role and refuses the write -- 409) or AFTER the mutation (the patch
+    // has already landed, but the next admin grant will overwrite it
+    // intentionally through `/users/set-role` which is unconditional --
+    // the expected, documented behavior).
+    const result = await ctx.runMutation(internal.users.setUserRoleTrusted, {
+      userId,
+      role: role as "student" | "instructor" | "video_editor",
+      actorId: "ops-script",
+      actorRole: "system",
+      enforceElevatedPreservation: true,
+      email: typeof email === "string" ? email : undefined,
+      audit: {
+        action: "ops_repair_set_role",
+        targetType: "user",
+        targetId: userId,
+        details: `Ops script set role to ${role}`,
+        metadata: { source: "claim-instructor-role.mts" },
+      },
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isMissingEmailRequired(message)) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "users.email is required to create a new users row. Either (a) supply email in the request body -- the ops script does this from the Clerk user lookup -- or (b) run /users/sync-clerk-profile first to attach an identity email, then retry.",
+          code: "missing-email",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    const preserved = isPreservedElevatedError(message);
+    if (preserved) {
+      return new Response(
+        JSON.stringify({
+          error: `Refusing to overwrite elevated role "${preserved.currentRole}" with "${preserved.requestedRole}"`,
+          preserved: true,
+          currentRole: preserved.currentRole,
+          requestedRole: preserved.requestedRole,
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    const conflictingEmail = isEmailBelongsToAnotherError(message);
+    if (conflictingEmail) {
+      // Greptile P1 (twenty-first pass): the insert path refuses to
+      // create a competing users row when the supplied email is
+      // already owned by a different (userId, clerkId) pair.
+      // Surface a 409 with both identities so the operator can see
+      // what they collided with and decide whether to merge, re-link,
+      // or leave for manual reconciliation.
+      return new Response(
+        JSON.stringify({
+          error: `Refusing to create a users row for "${conflictingEmail.attemptedUserId}" at email "${conflictingEmail.attemptedEmail}": that email is already linked to user "${conflictingEmail.existingUserId ?? "(none)"}" (clerk "${conflictingEmail.existingClerkId ?? "(none)"}", role "${conflictingEmail.existingRole ?? "(none)"}"). Reconcile before retrying.`,
+          code: "email-belongs-to-another",
+          attempted: {
+            userId: conflictingEmail.attemptedUserId,
+            email: conflictingEmail.attemptedEmail,
+          },
+          existing: {
+            userId: conflictingEmail.existingUserId,
+            clerkId: conflictingEmail.existingClerkId,
+            role: conflictingEmail.existingRole,
+          },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -2109,6 +2389,12 @@ http.route({
   path: "/users/set-role",
   method: "POST",
   handler: httpServerVerifiedSetUserRole,
+});
+
+http.route({
+  path: "/users/ops-set-role",
+  method: "POST",
+  handler: httpOpsRepairSetUserRole,
 });
 
 http.route({
