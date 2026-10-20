@@ -179,7 +179,8 @@ differently because their review cost is different.
 
 | Dep-bump class | Files changed | Greptile review cost | How it's routed |
 |---|---|---|---|
-| **Lockfile-only** (Renovate's `lockFileMaintenance` task, or a manual `pnpm install` after a no-`package.json` situation) | `pnpm-lock.yaml` only | **0 credits** | Renovate `lockFileMaintenance.automerge: true` + `.greptile/config.json.ignorePatterns` — auto-merges on green CI without entering Greptile's queue. |
+| **Lockfile-only via Renovate** (`lockFileMaintenance` task) | `pnpm-lock.yaml` only | **0 credits** | Renovate `lockFileMaintenance.automerge: true` + `.greptile/config.json.ignorePatterns` — auto-merges on green CI without entering Greptile's queue. |
+| **Lockfile-only via manual** (developer runs `pnpm install` and commits the resulting `pnpm-lock.yaml` change) | `pnpm-lock.yaml` only | **1 credit on open + 1 credit on `@greptileai review` before merge (~2 credits)** | Standard PR workflow. `ignorePatterns` keeps the lockfile out of the indexed corpus (so the AI-side reads are cheap), but the PR still goes through Greptile's queue and the standard merge gate. **No auto-merge** — the renovate `lockFileMaintenance` rule is scoped to Renovate's scheduled task, not to manual PRs that happen to touch the same files. |
 | **Version bumps** (Renovate's grouped `all non-major dependencies` PR, or grouped `Next.js and React major updates`) | `package.json` + `pnpm-lock.yaml` (sometimes `+` some peer-dep code) | 1 credit per PR | `ignorePatterns` filters out `pnpm-lock.yaml` lines but `package.json` and any code changes stay in scope. The 23k-line lockfile noise goes away; the rest of the diff is still reviewed. |
 | **Manual major upgrade** (e.g. hand-rolled Next.js 16 → 17 refactor) | `package.json` + `pnpm-lock.yaml` + significant code changes | 1 credit on open + 1 credit on `@greptileai review` before merge (~2 credits) | Standard PR workflow, no Greptile-side shortcut available. |
 
