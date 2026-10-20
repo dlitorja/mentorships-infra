@@ -72,22 +72,40 @@ them and removes the volume waste.
 
 ## Savings model (Base-tier volume only)
 
-Going forward, expected per-PR review count after the policy lands:
+Going forward, expected per-PR review count after the policy lands.
+Note: this is a **forecast**, not a hard cap. The actual bill is
+`$30 (seat) + max(0, reviews - 50) × $1`.
 
-| Cost element | Before (Sep 19 – Oct 19) | After policy | Multiplier |
-|---|---|---|---|
-| Reviews/PR (push multiplier) | ~22 | ~1.2 (open + `@greptileai` on final diff) | **18× off** |
-| Lockfile-credit burn on dep bumps | 23k-line lockfile PRs counted | Off via `ignorePatterns` | **3 PRs/mo → zero** |
-| Style-comment noise | Every PR | Filtered by `commentTypes` + lint-staged locally | Cosmetic |
-| Reviews/month (30 PRs) | ~674 | ~40 (1.2 × 30 + a handful of `@greptileai` re-triggers) | **17× off** |
-| Overage credits (50 included) | 624 | ~0 | **Within allotment** |
-| Monthly retail total | ~$654 ($30 seat + 624 × $1) | ~$30 (just seat) | **$624/mo off** |
-| Monthly with 50% Startup discount (year 1) | ~$330 | ~$30 | **$300/mo off** |
-| Monthly after discount lapses | ~$654 | ~$30 | **$624/mo off** |
+| Cost element | Before (Sep 19 – Oct 19) | After policy (forecast) |
+|---|---|---|
+| Reviews/PR (push multiplier) | ~22 | ~1.5–2 (1× on open + ~0.5–1× `@greptileai review` re-trigger before merge) |
+| Lockfile-only-change PRs (`lockFileMaintenance`) | Same as below: ~3 lockfile-maintenance PRs × ~22 reviews/PR | **0 review credits** — Renovate `lockFileMaintenance.automerge: true` auto-merges on green CI and skips Greptile's queue entirely |
+| Version-bump PRs that change `package.json` + lockfile (e.g. grouped minor/patch Renovate runs) | 23k-line lockfile PRs counted | **Still 1 review each** — `ignorePatterns` excludes `pnpm-lock.yaml` but the diff still contains `package.json` and code changes Greptile needs to read. These count toward the 50/month allotment. |
+| Manual dep bumps (e.g. `next`/`react` major) | Heavy PR with both code changes and lockfile churn | **1 review on open + re-trigger before merge** — same as any code PR |
+| Style-comment noise | Every PR | Filtered by `commentTypes` + lint-staged locally (cosmetic, no credit change) |
+| Reviews/month (30 PRs, all forms) | ~674 | ~45–60 (1.5–2 × 30) |
+| Overage credits (50 included) | 624 | **0–10** (depending on re-trigger frequency) |
+| Monthly retail (forecast central estimate) | ~$654 ($30 seat + 624 × $1) | **~$30–$40** (seat + 0–10 overage × $1) |
+| Monthly with 50% Startup discount (year 1) | ~$330 | ~$15–$20 |
+| Monthly after discount lapses | ~$654 | ~$30–$40 |
 
-The hard ceiling on the post-policy bill is `$30/month × number of
-seat-months`. Even with the discount lapsing, the per-push-re-review
-volume goes away and the bill collapses to seat-only.
+**What the policy does NOT do:**
+
+- The `$30/month × number of seat-months` line is a **lower
+  bound**, not the actual bill. A developer who fires
+  `@greptileai review` on every PR will burn through the 50
+  included allotment and start paying overage. The discipline
+  rule "re-trigger only on the final pre-merge diff" is what
+  keeps the bill near the floor.
+- Lockfile exclusion does not exempt version bumps that also
+  touch `package.json`. Greptile still reads the new
+  `package.json` and the matching code changes; only the
+  23k-line lockfile churn gets filtered. That filtering is
+  real cost relief on a per-PR basis, but the package.json
+  review itself still counts toward the 50-PR-credits allotment.
+- Auto-merged `lockFileMaintenance` PRs do NOT count toward
+  Greptile reviews at all. They are the only class of PR that
+  is fully outside the queue.
 
 ## Dashboard-side checks worth re-running quarterly
 
@@ -142,10 +160,28 @@ branch — config is read from the PR's source, not the base).
   review against the latest commits and posts a fresh status
   check. That status is what the `main` branch-protection rule
   (follow-up #3 above) gates on.
+- **Re-trigger discipline is what keeps the bill forecast
+  accurate.** Each `@greptileai review` costs 1 credit. The
+  workflow reserves the re-trigger for the final pre-merge diff;
+  firing it on every intermediate push or every "I bumped a
+  dep" PR quickly burns through the 50 included credits and
+  starts landing $1/credit charges. Treat it as a "re-baseline
+  once, just before merge" action, not a free movement.
 - Merge only after the fresh `greptile` status check is green.
 - For PRs that don't need deep review (CI infra, secret rotation,
   post-merge recap edits), apply `no-greptile` or `skip-greptile`
   and skip the bot entirely.
+
+## Dep-bump PR classes
+
+Dep bumps are not all created equal. The policy treats them
+differently because their review cost is different.
+
+| Dep-bump class | Files changed | Greptile review cost | How it's routed |
+|---|---|---|---|
+| **Lockfile-only** (Renovate's `lockFileMaintenance` task, or a manual `pnpm install` after a no-`package.json` situation) | `pnpm-lock.yaml` only | **0 credits** | Renovate `lockFileMaintenance.automerge: true` + `.greptile/config.json.ignorePatterns` — auto-merges on green CI without entering Greptile's queue. |
+| **Version bumps** (Renovate's grouped `all non-major dependencies` PR, or grouped `Next.js and React major updates`) | `package.json` + `pnpm-lock.yaml` (sometimes `+` some peer-dep code) | 1 credit per PR | `ignorePatterns` filters out `pnpm-lock.yaml` lines but `package.json` and any code changes stay in scope. The 23k-line lockfile noise goes away; the rest of the diff is still reviewed. |
+| **Manual major upgrade** (e.g. hand-rolled Next.js 16 → 17 refactor) | `package.json` + `pnpm-lock.yaml` + significant code changes | 1 credit on open + 1 credit on `@greptileai review` before merge (~2 credits) | Standard PR workflow, no Greptile-side shortcut available. |
 
 ## Relation to other policies
 
