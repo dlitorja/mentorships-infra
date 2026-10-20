@@ -361,4 +361,213 @@ describe("setInstructorPublicMetadataOnUser", () => {
     expect(result).toEqual({ updated: false, reason: "would-clobber-demotion" });
     expect(mockUpdateUserMetadata).not.toHaveBeenCalled();
   });
+
+  it("already-set + matching instructorId short-circuits (Greptile P2 — helper side)", async () => {
+    // Caller is binding (or rebinding) the existing user to the same
+    // instructor row their publicMetadata.instructorId already points
+    // to. Both flags AND the id match — no write needed.
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "instructor",
+        isInstructor: true,
+        instructorId: "inst_xyz",
+        unrelated: "keep",
+      },
+    });
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_matchSame00000000",
+      instructorId: "inst_xyz",
+    });
+
+    expect(result).toEqual({ updated: false, reason: "already-set" });
+    expect(mockUpdateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("already-set + mismatched instructorId DOES write (corrects the stale id, Greptile P2)", async () => {
+    // Caller is rebinding the existing user to a NEW instructor row
+    // (or fixing a previously-bogus instructorId). Both flags are
+    // stamped but the on-disk instructorId is stale. The previous
+    // short-circuit ignored the caller's id, so the stale value
+    // persisted on the JWT. Now the helper writes the caller's id
+    // through while preserving unrelated keys.
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "instructor",
+        isInstructor: true,
+        instructorId: "inst_old_or_bogus",
+        unrelated: "keep",
+      },
+    });
+    mockUpdateUserMetadata.mockResolvedValueOnce({});
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_matchStale0000000",
+      instructorId: "inst_new",
+    });
+
+    expect(result).toEqual({ updated: true });
+    expect(mockUpdateUserMetadata).toHaveBeenCalledTimes(1);
+    const call = mockUpdateUserMetadata.mock.calls[0];
+    expect(call?.[0]).toBe("user_matchStale0000000");
+    expect(call?.[1]).toEqual({
+      publicMetadata: {
+        role: "instructor",
+        isInstructor: true,
+        unrelated: "keep",
+        instructorId: "inst_new",
+      },
+    });
+  });
+
+  /**
+   * Greptile P2 (sixth pass, follow-up): an admin who ALSO teaches
+   * sits on `isInstructor: true, role: "admin", instructorId: "inst_xy"`.
+   * The previous strict-`role === "instructor"` predicate made the
+   * sync-role route re-write unchanged Clerk metadata on every page
+   * mount for these users. Now the short-circuit also fires when the
+   * user's role is an elevated tier, as long as the metadata is
+   * functionally complete (isInstructor + matching id).
+   */
+  it("elevated role + matching instructorId short-circuits (admins that also teach, Greptile P2 sixth pass)", async () => {
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "admin",
+        isInstructor: true,
+        instructorId: "inst_xyz",
+        unrelated: "keep",
+      },
+    });
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_adminTeaches0000000",
+      instructorId: "inst_xyz",
+    });
+
+    expect(result).toEqual({ updated: false, reason: "already-set" });
+    expect(mockUpdateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("video_editor with isInstructor + matching instructorId short-circuits (same as admin sixth pass)", async () => {
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "video_editor",
+        isInstructor: true,
+        instructorId: "inst_ve",
+      },
+    });
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_veTeaches00000000",
+      instructorId: "inst_ve",
+    });
+
+    expect(result).toEqual({ updated: false, reason: "already-set" });
+    expect(mockUpdateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("support role short-circuits when isInstructor + matching id set (sixth pass)", async () => {
+    // The elevated-arm is `admin / video_editor / support` per
+    // ELEVATED_ROLES, all three must short-circuit fully-stamped shape.
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "support",
+        isInstructor: true,
+        instructorId: "inst_support",
+      },
+    });
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_supportTeach000000",
+      instructorId: "inst_support",
+    });
+
+    expect(result).toEqual({ updated: false, reason: "already-set" });
+    expect(mockUpdateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("elevated role + mismatched instructorId DOES write (correction, sixth pass)", async () => {
+    // Even an admin gets a fresh write when the caller rebinds them
+    // to a new instructorId. The elevated role is preserved.
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: {
+        role: "admin",
+        isInstructor: true,
+        instructorId: "inst_old",
+        unrelated: "keep",
+      },
+    });
+    mockUpdateUserMetadata.mockResolvedValueOnce({});
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_adminRebind000000",
+      instructorId: "inst_new",
+    });
+
+    expect(result).toEqual({ updated: true });
+    expect(mockUpdateUserMetadata).toHaveBeenCalledTimes(1);
+    const call = mockUpdateUserMetadata.mock.calls[0];
+    expect(call?.[0]).toBe("user_adminRebind000000");
+    expect(call?.[1]).toEqual({
+      publicMetadata: {
+        role: "admin", // elevated preserved
+        isInstructor: true,
+        unrelated: "keep",
+        instructorId: "inst_new",
+      },
+    });
+  });
+
+  /**
+   * Greptile P1 (twentieth pass): the previous helper did a second
+   * post-write recheck + re-PATCH to mitigate the TOCTOU window
+   * between getUser and updateUserMetadata. Greptile flagged that
+   * the recheck's snapshot can become stale: if an admin demotes
+   * the user between the recheck and the second write, the second
+   * write resurrects a role the admin just removed. Resolution: do
+   * NOT do a second write.
+   *
+   * The contract is now: exactly one PATCH per helper call when the
+   * helper reaches the write path, regardless of race ordering. The
+   * previous race-resilience concern (admin grants role=admin
+   * between getUser and PATCH 1) is mitigated by the Clerk
+   * `user.updated` webhook path driving `convex/users.ts:syncUser`
+   * with `setUserRoleTrusted:enforceElevatedPreservation`. The
+   * webhook path runs in a single Convex transaction and is the
+   * system of record for elevated tier changes; the helper is the
+   * lower-stakes instructor-stamp contract that stays single-write.
+   *
+   * This test asserts exactly one PATCH happens even when the
+   * post-write recheck notion would have surfaced an "elevated"
+   * role (we don't call recheck any more -- but the test remains as
+   * a smoke contract that even if a clerical change re-introduced
+   * PATCH 2 logic, it would still find this expectation failing in
+   * CI rather than silently regressing the security property).
+   */
+  it("exactly one PATCH lands per helper call (no post-write recheck resurrect) (Greptile P1 twentieth pass)", async () => {
+    // Set up the pre-write state to look "not yet stamped" so the
+    // helper reaches the write path. The mocked getUser returns a
+    // single shape; we never call it again from the helper now that
+    // PATCH 2 is gone.
+    mockGetUser.mockResolvedValueOnce({
+      publicMetadata: { role: "instructor", isInstructor: false },
+    });
+    mockUpdateUserMetadata.mockResolvedValueOnce({});
+
+    const result = await setInstructorPublicMetadataOnUser({
+      userId: "user_onePatchOnly00000000",
+    });
+    expect(result.updated).toBe(true);
+
+    // Exactly one PATCH per call. The twentieth-pass security
+    // regression is "two PATCHes with PATCH 2 resurrecting a
+    // removed role"; assert there is no second PATCH.
+    expect(mockUpdateUserMetadata).toHaveBeenCalledTimes(1);
+
+    const write = mockUpdateUserMetadata.mock.calls[0]?.[1] as {
+      publicMetadata: Record<string, unknown>;
+    };
+    expect(write.publicMetadata.role).toBe("instructor");
+    expect(write.publicMetadata.isInstructor).toBe(true);
+  });
 });

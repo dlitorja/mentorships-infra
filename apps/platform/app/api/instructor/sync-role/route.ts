@@ -109,9 +109,18 @@ export async function POST() {
       const clerkUser = await client.users.getUser(userId);
       const email = clerkUser.emailAddresses[0]?.emailAddress;
       const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+      // Greptile P1 (fifteenth pass, follow-up): this is the
+      // JWT-driven self-heal path. The instructor claim here is
+      // best-effort reconciliation of JWT-derived metadata, NOT
+      // an explicit Clerk demotion proceed. Pass
+      // enforceElevatedPreservation: true so an account whose
+      // Convex users.role is admin / video_editor / support is
+      // NOT silently demoted. The webhook-driven callers
+      // (Inngest clerk-user-lifecycle, Clerk webhook handler)
+      // omit this flag because their demotions are explicit.
       const result = await convexServerCall<{ success: boolean; reason?: string }>(
         "/instructors/create-for-clerk-user",
-        { userId, email, name }
+        { userId, email, name, enforceElevatedPreservation: true }
       );
       if (!result.success) {
         console.error("sync-role: failed to create instructor:", result.reason);

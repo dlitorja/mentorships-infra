@@ -130,7 +130,7 @@ export async function createStudentClerkInvitation(
       emailAddress,
       redirectUrl,
       publicMetadata: buildStudentPublicMetadata({ studentId, onboardingId }),
-      // PR-B (Issue 3): the resend flow uses this — by the time we
+      // PR-B (Issue 3): the resend flow uses this -- by the time we
       // call it, the prior Clerk invitation has just been revoked
       // (or is in the process of being revoked by best-effort catch
       // around the Convex write). Without this flag Clerk returns
@@ -209,7 +209,7 @@ export async function searchClerkUsers(query: string): Promise<
 
 export interface SetInstructorMetadataOptions {
   /**
-   * The Clerk user ID to update. MUST start with `user_` — the helper
+   * The Clerk user ID to update. MUST start with `user_` -- the helper
    * refuses non-Clerk-shaped ids so we never silently write to a
    * placeholder (`admin-${slug}`, `seed-${slug}`) row that could later
    * be claimed by the linking flow.
@@ -224,14 +224,14 @@ export interface SetInstructorMetadataOptions {
   /**
    * Caller's intent. Defaults to `"preserve"`.
    *
-   * `"preserve"`  — routine path. Respects `isInstructor: true` (no-op)
+   * `"preserve"`  -- routine path. Respects `isInstructor: true` (no-op)
    *                 and explicit demotions (`role: "student"` left
    *                 alone). The safe default for any call that fires on
    *                 something other than an explicit admin-initiated
    *                 promotion (bio edits, deactivate toggles, sync-role
    *                 self-heal where the demotion gate already passed).
    *
-   * `"promote"`   — admin-initiated promotion path. Bypasses the
+   * `"promote"`   -- admin-initiated promotion path. Bypasses the
    *                 demotion short-circuit so an admin creating a new
    *                 instructor by adopting an existing Clerk user (or
    *                 re-activating a previously inactive record) can
@@ -263,7 +263,7 @@ export interface SetInstructorMetadataResult {
 /**
  * Roles whose authority is greater than "instructor". Stamp
  * `publicMetadata.role = "instructor"` on existing-but-not-elevated
- * users, but NEVER overwrite an admin / video_editor / support claim —
+ * users, but NEVER overwrite an admin / video_editor / support claim --
  * the admin who creates the instructor record is the most likely
  * accidentally-adopted user (someone entering their own email in the
  * create form), and downgrading them would lock them out of /admin.
@@ -301,17 +301,18 @@ function clerkErrorStatus(e: unknown): number | undefined {
  *     existing keys (admin-set flags, instructor-specific scalar fields,
  *     unrelated metadata) are preserved.
  *   - In `"preserve"` intent (default), short-circuits on:
- *       (a) `isInstructor: true` — already-set, idempotent.
- *       (b) `role: "student"` — explicit demotion by an admin. A
- *           demotion is intentional and not undone by a routine bio
- *           edit or sync-role self-heal. Returns
+ *       (a) `isInstructor: true` AND (when caller supplied
+ *           `instructorId`) `instructorId` already matches AND the
+ *           on-disk role is `instructor` or an elevated tier
+ *           (admin / video_editor / support) -- functionally correct.
+ *       (b) `role: "student"` -- explicit demotion by an admin. Returns
  *           `{ updated: false, reason: "would-clobber-demotion" }`.
  *   - In `"promote"` intent, skips the demotion short-circuit. The
  *     already-set short-circuit still applies (no point rewriting the
  *     same keys). Use `"promote"` ONLY at explicit promotion sites
- *     (POST, PATCH rebind, PUT isActive false→true transition).
+ *     (POST, PATCH rebind, PUT isActive false->true transition).
  *   - Never overwrites an elevated role (admin / video_editor / support)
- *     with "instructor" — see ELEVATED_ROLES. This protects admins who
+ *     with "instructor" -- see ELEVATED_ROLES. This protects admins who
  *     accidentally enter their own email into the create form.
  *   - Refuses non-Clerk-shaped ids with a thrown error (caller bug).
  *   - Returns `{ updated: false, reason: "user-not-found" }` ONLY for a
@@ -325,6 +326,36 @@ function clerkErrorStatus(e: unknown): number | undefined {
  * preserve intent close that loophole at the helper boundary; PUT
  * additionally avoids calling the helper at all for non-promotion
  * edits ("separate account promotion from routine profile edits").
+ *
+ * Greptile P2 (sixth pass, follow-up): an admin / video_editor /
+ * support who also has `isInstructor: true` (very common -- admins
+ * often teach too) was hitting this short-circuit on every mount of
+ * the sync-role route, because the predicate was strictly
+ * `role === "instructor"`. The metadata was already correct; the
+ * helper just kept rewriting unchanged bytes. Extended the predicate
+ * to also match elevated roles: an admin with isInstructor + matching
+ * id (or without one when no caller-supplied id) is functionally
+ * already-stamped and the auth-redirect page will route them to
+ * /instructor/dashboard via the `isInstructor: true` flag plus the
+ * role-key fallback. Routine PUT edits and the self-heal branch in
+ * /api/instructor/sync-role stop doing avoidable account-update work.
+ *
+ * Greptile P1 (twentieth pass): the previous version did a post-write
+ * recheck (`fetchFreshPublicMetadata` -> second `updateUserMetadata`)
+ * to mitigate the TOCTOU window between the initial `getUser` and
+ * the first `updateUserMetadata`. Greptile surfaced a new security
+ * concern: the recheck's snapshot can become stale if an admin
+ * demotes the user between the recheck and the second write; the
+ * second write then resurrects a role the admin just removed. The
+ * sound fix is to NOT do a second write. We accept the original
+ * TOCTOU as a documented tradeoff: a Clerk `user.updated` webhook
+ * event will arrive within seconds for any admin-tier grant/demote
+ * to/from the user, and `convex/users.ts:syncUser` (driven by that
+ * webhook) re-reconciles Convex users.role from Clerk publicMetadata.
+ * The webhook path has its own elevated-preservation contracts (see
+ * `setUserRoleTrusted:enforceElevatedPreservation`) and runs in a
+ * single Convex transaction (TOCTOU-free). Self-heal in this
+ * helper is therefore restricted to a single PATCH.
  */
 export async function setInstructorPublicMetadataOnUser(
   opts: SetInstructorMetadataOptions
@@ -358,15 +389,22 @@ export async function setInstructorPublicMetadataOnUser(
   }
 
   const current = (user.publicMetadata ?? {}) as Record<string, unknown>;
-  // Greptile P1 (fourth pass): the "already-set" short-circuit used
-  // to fire whenever `isInstructor === true` regardless of `role`.
-  // That meant a desynced state where an admin had manually changed
-  // `role` via the Clerk dashboard (e.g. demoted to "student" without
-  // clearing `isInstructor`) was unrepairable from promote sites.
-  // Short-circuit only on the fully-stamped shape: `isInstructor`
-  // AND `role === "instructor"`. Promote sites additionally
-  // self-heal the desynced shape by writing the merged metadata.
-  if (current.isInstructor === true && current.role === "instructor") {
+
+  // Greptile P2 (sixth pass): short-circuit on "functionally already
+  // correct" rather than only "isInstructor && role === instructor".
+  // An elevated user that ALSO has isInstructor: true (very common --
+  // admins who teach) was hitting the helper on every sync-role mount
+  // and rewriting unchanged bytes. Plus P2 (PR): also require the
+  // caller-supplied `instructorId` (when present) to actually match
+  // the on-disk value, otherwise a stale id would persist.
+  const instructorIdMatches =
+    !opts.instructorId || current.instructorId === opts.instructorId;
+  const currentRole = typeof current.role === "string" ? current.role : undefined;
+  const roleAlreadyCorrectlyStamped =
+    currentRole === "instructor" || ELEVATED_ROLES.has(currentRole ?? "");
+  const isAlreadyCorrectlyStamped =
+    current.isInstructor === true && instructorIdMatches && roleAlreadyCorrectlyStamped;
+  if (isAlreadyCorrectlyStamped) {
     return { updated: false, reason: "already-set" };
   }
 
@@ -375,19 +413,23 @@ export async function setInstructorPublicMetadataOnUser(
   // false) must not be undone by a routine bio edit or sync-role
   // self-heal. Promote-intent callers (admin-initiated promotions)
   // intentionally bypass this.
+  //
+  // Intentionally BELOW the elevated short-circuit: a student with
+  // isInstructor=true (desynced admin-promotion) falls through here,
+  // the demotion gate fires for `preserve`, and no auto-repair
+  // happens. The short-circuit above only catches users whose role is
+  // already `instructor` or an elevated tier, so the demotion case is
+  // untouched by the new elevated-arm logic.
   if (intent === "preserve" && current.role === "student") {
     return { updated: false, reason: "would-clobber-demotion" };
   }
 
-  const currentRole = typeof current.role === "string" ? current.role : undefined;
   const merged: Record<string, unknown> = {
     ...current,
     isInstructor: true,
-    // Preserve an elevated role (the admin who accidentally entered
-    // their own email is the canonical scenario). The auth-redirect
-    // router will still route them to /admin first; instructor-view
-    // access is granted by the `isInstructor: true` flag plus the
-    // DB fallback in `lib/auth-helpers.ts`.
+    // Preserve an elevated role. `currentRole` was hoisted above for
+    // the short-circuit, so reuse it here. Same elevated-preservation
+    // rationale as documented on ELEVATED_ROLES above.
     role: currentRole && ELEVATED_ROLES.has(currentRole) ? currentRole : "instructor",
   };
   if (opts.instructorId) {
@@ -397,5 +439,22 @@ export async function setInstructorPublicMetadataOnUser(
   await client.users.updateUserMetadata(opts.userId, {
     publicMetadata: merged,
   });
+
+  // Greptile P1 (twentieth pass): the previous version did a second
+  // post-write recheck + re-PATCH to mitigate the TOCTOU window
+  // between getUser and updateUserMetadata. Greptile flagged that
+  // the recheck's snapshot can become stale: if an admin demotes the
+  // user between the recheck and the second write, the second write
+  // resurrects a role the admin just removed (security regression).
+  // Resolution: do NOT do a second write. Accept the original TOCTOU
+  // window as a documented tradeoff -- a Clerk `user.updated` webhook
+  // event will arrive within seconds for any admin grant/demote and
+  // `convex/users.ts:syncUser` (driven by that webhook) re-reconciles
+  // Convex users.role from Clerk publicMetadata atomically (see
+  // `setUserRoleTrusted:enforceElevatedPreservation`). The webhook
+  // path is the system of record for elevated tier changes; this
+  // helper handles the lower-stakes instructor-stamp contract and
+  // stays single-write to avoid the second-write race.
+
   return { updated: true };
 }

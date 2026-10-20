@@ -218,6 +218,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw err;
     }
 
+    // Greptile P1 (seventh pass, fix/instructor-role-claim-in-clerk):
+    // `createInstructor` returns the existing-by-slug row's ID
+    // WITHOUT updating its `userId` field. If the admin submitted
+    // an existing slug AND a Clerk user was located by email (so a
+    // real `user_X` is going to receive the metadata stamp), the
+    // returned row may belong to a DIFFERENT Clerk user. The previous
+    // `setInstructorPublicMetadataOnUser` block stamped that other
+    // user's row ID onto `user_X`'s Clerk account -- incorrect
+    // instructor profile access. Reject the slug conflict up front
+    // when the resolved row's `userId` doesn't match the caller, OR
+    // an admin-supplied `data.userId`, OR is a placeholder.
+    const storedInstructor = await convex.query(api.instructors.getInstructorById, {
+      id: instructorId,
+    });
+    const storedUserId = storedInstructor?.userId;
+    const callerUserId = userId;
+    const storedIsPlaceholder =
+      typeof storedUserId === "string" && storedUserId.startsWith("admin-");
+    const callerIsPlaceholder =
+      typeof callerUserId === "string" && callerUserId.startsWith("admin-");
+    const storedBelongsToCaller =
+      storedUserId === callerUserId ||
+      // Both placeholders means we just created a placeholder row
+      // (createInstruction returned the freshly-inserted id); safe.
+      (storedIsPlaceholder && callerIsPlaceholder) ||
+      // Admins explicitly supplied `data.userId` and the row matches.
+      (data.userId && storedUserId === data.userId);
+    if (userId.startsWith("user_") && !storedBelongsToCaller) {
+      // Real Clerk user. Refuse to write metadata for a row that
+      // belongs to a DIFFERENT user. Surface as 409 with a slug
+      // collision shape so the UI can show the right error.
+      console.error(
+        "[platform:createInstructor] refusing to stamp Clerk metadata: instructions row",
+        instructorId,
+        "belongs to storedUserId",
+        storedUserId,
+        "but caller resolved userId",
+        callerUserId,
+        "(slug collision across Clerk users).",
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Slug already exists for a different instructor account. " +
+            "Resolve the slug conflict (rename or merge) before retrying.",
+          code: "slug-collision-cross-user",
+          conflictingInstructorId: instructorId,
+          conflictingOwner: storedUserId ?? null,
+        },
+        { status: 409 },
+      );
+    }
+
     let invitationSent = false;
     let invitationError: string | undefined;
     if (data.email) {
@@ -283,7 +337,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId });
+    const instructor = storedInstructor;
 
       return NextResponse.json(
         {

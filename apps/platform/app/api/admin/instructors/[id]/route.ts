@@ -410,8 +410,19 @@ export async function PUT(
       existing && typeof existing === "object" && "isActive" in existing
         ? (existing as { isActive?: unknown }).isActive
         : undefined;
+    // Greptile P1 (fourteenth pass): force STRICT equality to `false`
+    // -- NOT inequality to `true`. A row with `isActive` undefined /
+    // missing (which happens for rows that predate this field's
+    // introduction, or for rows imported via the legacy data-fix
+    // path) would satisfy `existingIsActive !== true` and trigger a
+    // spurious re-promote on every routine profile edit. The form
+    // treats a missing isActive as "true" and sends it on every
+    // save, so the old gate was promoting any demoted user whose
+    // instructor row predates the field. Only a strict
+    // false->true transition should call the helper with
+    // `intent: "promote"`.
     const isPromotionEvent =
-      data.isActive === true && existingIsActive !== true;
+      data.isActive === true && existingIsActive === false;
 
     if (isPromotionEvent) {
       try {
