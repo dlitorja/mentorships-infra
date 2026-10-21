@@ -4,7 +4,11 @@ import { inngest } from "../client";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { getConvexClient } from "@/lib/convex";
-import { ONBOARDING_REMINDER_STALE_MS } from "@/lib/workspace-constants";
+import {
+  ONBOARDING_REMINDER_OFFSETS_MS,
+  ONBOARDING_REMINDER_MAX_COUNT,
+  ONBOARDING_REMINDER_MIN_GAP_MS,
+} from "@/lib/workspace-constants";
 import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-email";
 
 /**
@@ -16,12 +20,15 @@ import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-e
  *   2. Step `scan` calls the Convex HTTP endpoint
  *      `/onboarding/stale-questionnaire` (bearer-auth via
  *      `convexServerCall`) which returns up to N stale drafts
- *      filtered by `ONBOARDING_REMINDER_STALE_MS`,
- *      `ONBOARDING_REMINDER_MAX_COUNT`, and the assigned student's
- *      Clerk identity.
- *   3. For each stale draft, step `send` re-checks the row is still
- *      `draft` (race-safe against beacon-then-submit), then sends
- *      the reminder email and patches `lastReminderSentAt` +
+ *      filtered by `ONBOARDING_REMINDER_MAX_COUNT` and the
+ *      per-reminder offset from
+ *      `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]` (PR
+ *      onboarding-reminder-cadence).
+ *   3. For each stale draft, step `send` re-checks the row is
+ *      still `draft` (race-safe against beacon-then-submit),
+ *      then re-applies the per-reminder offset against the
+ *      row's latest activity timestamp before sending the
+ *      reminder email and patches `lastReminderSentAt` +
  *      `reminderCount`.
  *
  * Why the re-check: the beacon stamps `lastSeenAt` but does NOT
@@ -72,6 +79,11 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         studentEmail: string;
         studentName: string | null;
         reminderCount: number;
+        // PR onboarding-reminder-cadence (greptile round-2
+        // follow-up): forward `lastReminderSentAt` so the
+        // per-row wall-clock min-gap check has the
+        // server-known timestamp without re-reading the row.
+        lastReminderSentAt: number | null;
       }> = [];
       let cursor: string | null = null;
       // Greptile round-27 P1 #2: no page cap. `isDone` (end
@@ -101,6 +113,11 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             studentName: string | null;
             reminderCount: number;
             lastSeenAt: number | null;
+            // PR onboarding-reminder-cadence (greptile round-2
+            // follow-up): forward `lastReminderSentAt` from the
+            // Convex scan so the per-row min-gap guard can be
+            // evaluated against the server-known timestamp.
+            lastReminderSentAt: number | null;
           }>;
           nextCursor: string | null;
           isDone: boolean;
@@ -129,9 +146,15 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     }
 
     const baseUrl = getAppBaseUrl();
-    const maxReminders = Number(
-      process.env.ONBOARDING_REMINDER_MAX_COUNT ?? "3"
-    );
+    // PR onboarding-reminder-cadence: derive the cap from the
+    // shared constant so a later bundle-length bump propagates
+    // here automatically. The previous `process.env` override
+    // was vestigial — no env wiring exists in `.env.example` or
+    // any Vercel project, so the env path always fell back to
+    // "3" and ended up agreeing with the constant. Removing the
+    // env-derived path eliminates a place that could drift out
+    // of sync with `ONBOARDING_REMINDER_MAX_COUNT`.
+    const maxReminders = ONBOARDING_REMINDER_MAX_COUNT;
 
     // Greptile P1 follow-up (round 7): aggregate `sent` from the
     // step's return values instead of mutating an outer-scope
@@ -142,9 +165,17 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
     // Greptile round-14 P2: re-check activity freshness inside
     // the per-row send. The scan reads at T1; a student who
     // resumes editing between T1 and T2 would otherwise still
-    // get a "finish onboarding" email. Same cutoffs the scan
-    // used, computed against `Date.now()` at send time.
-    const sendStaleCutoff = Date.now() - ONBOARDING_REMINDER_STALE_MS;
+    // get a "finish onboarding" email. Same per-reminder offset
+    // the scan used, computed against `Date.now()` at send time:
+    // reminder #N+1 requires `ONBOARDING_REMINDER_OFFSETS_MS[N]`
+    // of inactivity since the last activity timestamp.
+    //
+    // PR onboarding-reminder-cadence: per-reminder offsets
+    // replace the old single shared stale cutoff. Each candidate
+    // here already carries `reminderCount`; pick the matching
+    // offset per row so a half-finished scan that started before
+    // a re-engagement still respects the student's latest activity.
+    const remindOffsets = ONBOARDING_REMINDER_OFFSETS_MS;
     for (const draft of drafts) {
       // Greptile round-23 P2 #2: split the send and the
       // mark-sent steps so a transient Convex mark failure
@@ -163,12 +194,39 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         if (status == null) {
           return { skipped: true, reason: "missing" } as const;
         }
-        if (status.latestActivityAt >= sendStaleCutoff) {
-          return { skipped: true, reason: "activity-resumed" } as const;
-        }
         const next = draft.reminderCount + 1;
         if (next > maxReminders) {
           return { skipped: true, reason: "max-reached" } as const;
+        }
+        // PR onboarding-reminder-cadence: per-reminder offset.
+        // Reminder #N+1 needs `ONBOARDING_REMINDER_OFFSETS_MS[N]`
+        // of inactivity since the student's last activity. Using
+        // the same offset here as the Convex scan used keeps the
+        // two paths consistent — a re-engagement between scan
+        // and send still suppresses the just-candidate row.
+        const offsetForNext = remindOffsets[next - 1];
+        if (offsetForNext === undefined) {
+          return { skipped: true, reason: "offset-undefined" } as const;
+        }
+        const sendTargetCutoff = Date.now() - offsetForNext;
+        if (status.latestActivityAt >= sendTargetCutoff) {
+          return { skipped: true, reason: "activity-resumed" } as const;
+        }
+        // PR onboarding-reminder-cadence (greptile round-1 follow-up):
+        // mirror the Convex scan's wall-clock minimum-gap guard
+        // here. The per-row send step receives `draft` from the
+        // scan, but that scan predates the actual mark-sent write,
+        // so a cron tick that started before the previous reminder
+        // finished could re-eligible a row whose `lastReminderSentAt`
+        // was bumped between scan and this check.
+        if (
+          draft.lastReminderSentAt !== undefined &&
+          draft.lastReminderSentAt !== null
+        ) {
+          const minGapCutoff = Date.now() - ONBOARDING_REMINDER_MIN_GAP_MS;
+          if (draft.lastReminderSentAt > minGapCutoff) {
+            return { skipped: true, reason: "min-gap" } as const;
+          }
         }
         // Greptile P1 #11: link through /auth-redirect (NOT
         // /sign-in) so the destination survives the

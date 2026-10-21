@@ -177,22 +177,55 @@ export const ONBOARDING_WORK_EXAMPLES_B2_PREFIX = "onboarding";
  *  per-keystroke mutation storms. */
 export const ONBOARDING_AUTOSAVE_DEBOUNCE_MS = 500;
 
-/** How long a draft can sit untouched before the abandonment
- *  cron considers it stale. 1 hour — short enough that the cron
- *  sends the first reminder within ~1.5h of the student
- *  walking away; long enough that active typing does not
- *  trigger a reminder. */
-export const ONBOARDING_REMINDER_STALE_MS = 60 * 60 * 1000;
-
-/** Hard cap on reminders per draft. The 4th reminder is
- *  suppressed — admin has to intervene. */
+/** Hard cap on reminders per draft. The (N+1)th reminder is
+ *  suppressed — admin has to intervene. The
+ *  `by_status_reminderCount_updatedAt` index range reads
+ *  `< ONBOARDING_REMINDER_MAX_COUNT` so exhausted drafts sit
+ *  past the scan and never re-enter the cron's working set. */
 export const ONBOARDING_REMINDER_MAX_COUNT = 3;
 
-/** Minimum interval between reminders for the SAME draft, even
- *  if the cap is not yet reached. Prevents the cron from
- *  firing twice in one tick if `lastReminderSentAt` is
- *  unusually recent (e.g. a clock skew). */
-export const ONBOARDING_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+/**
+ * PR onboarding-reminder-cadence — per-reminder offsets
+ * measured from the student's last activity timestamp
+ * (`Math.max(updatedAt, lastSeenAt ?? 0)` = `latestActivity`).
+ * Index `i` is the offset for reminder number `i + 1`, so
+ * the cron picks the next reminder's threshold via
+ * `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`.
+ *
+ * Re-engagement via autosave bumps `lastSeenAt` (and
+ * `updatedAt`) and resets the timer for the next nudge —
+ * a student who comes back to the form does not get a
+ * second reminder for a draft they have already touched.
+ *
+ * Length MUST equal `ONBOARDING_REMINDER_MAX_COUNT`.
+ *
+ * Cadence: ~24h after walkaway, ~48h, ~96h (4 days).
+ * Sits inside a typical scheduling window with their
+ * assigned mentor — by day 5–7 most students have either
+ * submitted or have already tried to book a session.
+ */
+export const ONBOARDING_REMINDER_OFFSETS_MS = [
+  24 * 60 * 60 * 1000, // reminder #1 — 24h after last activity
+  48 * 60 * 60 * 1000, // reminder #2 — 48h after last activity (~1d after #1)
+  96 * 60 * 60 * 1000, // reminder #3 — 96h after last activity (~4d after walkaway)
+] as const;
+
+/**
+ * Floor on the gap between two consecutive reminders for the
+ * SAME draft, measured from `lastReminderSentAt`. The
+ * per-reminder activity-based check is necessary but NOT
+ * sufficient — if reminder #1 fires late (e.g. Inngest queue
+ * delay or a 6-hour Inngest pause), `lastSeenAt` doesn't
+ * advance during a send, so the next tick can find reminder
+ * #N+1's activity threshold already satisfied and fire it
+ * minutes after the previous one. This guard ensures a
+ * minimum wall-clock gap so a delayed scan still leaves the
+ * student in a calm, day-spaced cadence. Defaults to the
+ * spacing between offsets #1→#2 (24h) so even a worst-case
+ * delayed scan results in no two reminders closer than
+ * one day apart.
+ */
+export const ONBOARDING_REMINDER_MIN_GAP_MS = 24 * 60 * 60 * 1000;
 
 /**
  * PR 12 PR 4 — canonical onboarding question IDs.

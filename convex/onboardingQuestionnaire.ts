@@ -21,9 +21,9 @@ import {
   MAX_INSPIRATIONS,
   MIN_WORK_EXAMPLES_PER_SUBMISSION,
   ONBOARDING_REQUIRED_QUESTION_IDS,
-  ONBOARDING_REMINDER_STALE_MS,
   ONBOARDING_REMINDER_MAX_COUNT,
-  ONBOARDING_REMINDER_MIN_INTERVAL_MS,
+  ONBOARDING_REMINDER_OFFSETS_MS,
+  ONBOARDING_REMINDER_MIN_GAP_MS,
 } from "./workspaceConstants";
 
 /**
@@ -862,9 +862,24 @@ export const recordQuestionnaireSeen = mutation({
  * `saveQuestionnaireDraft` set `reminderCount: 0` so they
  * participate immediately.
  *
- * The remaining in-JS filters (`updatedAt < staleCutoff`,
- * `lastReminderSentAt` min-interval, `onboarding.status !==
- * "cancelled"`) are unchanged.
+ * The remaining in-JS filters are:
+ *   - `latestActivity >= targetCutoff` (PR onboarding-reminder-
+ *     cadence) — each candidate uses
+ *     `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]` as its
+ *     threshold, so reminder #1 fires after ~24h of inactivity
+ *     and reminder #2/#3 require progressively longer gaps.
+ *     Re-engagement via autosave (which bumps `updatedAt` +
+ *     `lastSeenAt`) resets the timer for the next nudge.
+ *   - `lastReminderSentAt < now - ONBOARDING_REMINDER_MIN_GAP_MS`
+ *     — wall-clock minimum gap between consecutive reminders.
+ *     Necessary because `markReminderSent` does NOT bump
+ *     `updatedAt` or `lastSeenAt`, so a previous reminder sent
+ *     long after its intended offset would otherwise satisfy
+ *     every successive activity threshold on the very next
+ *     tick (reminder #N+1 would fire minutes after reminder #N).
+ *     Do not remove this guard; without it the per-reminder
+ *     offset alone cannot keep the cadence spaced.
+ *   - `onboarding.status !== "cancelled"`.
  */
 
 const STALE_BATCH_LIMIT = 50;
@@ -892,6 +907,12 @@ export const listStaleDraftsForReminder = internalQuery({
         studentName: v.union(v.string(), v.null()),
         reminderCount: v.number(),
         lastSeenAt: v.union(v.number(), v.null()),
+        // PR onboarding-reminder-cadence: forward
+        // `lastReminderSentAt` so the Inngest per-row send step
+        // can apply the wall-clock min-gap guard against the
+        // *server-known* timestamp (the value sent in the scan
+        // response) instead of having to re-fetch the row.
+        lastReminderSentAt: v.union(v.number(), v.null()),
       })
     ),
     nextCursor: v.union(v.string(), v.null()),
@@ -900,8 +921,25 @@ export const listStaleDraftsForReminder = internalQuery({
   }),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const staleCutoff = now - ONBOARDING_REMINDER_STALE_MS;
-    const minIntervalCutoff = now - ONBOARDING_REMINDER_MIN_INTERVAL_MS;
+
+    // PR onboarding-reminder-cadence: each candidate's per-row
+    // offset is keyed off `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`,
+    // not a single shared stale cutoff. Reminder #1 fires when
+    // the row has been quiet for `OFFSETS[0]` (24h), reminder #2
+    // fires when the row has been quiet for `OFFSETS[1]` (48h),
+    // and so on. Re-engagement via autosave resets the timer for
+    // the next nudge.
+    //
+    // This per-reminder offset is necessary but NOT sufficient
+    // on its own. If a previous send was severely delayed
+    // (Inngest queue stall, account pause), `markReminderSent`
+    // does NOT bump `updatedAt` / `lastSeenAt`. Without a second
+    // wall-clock layer, a delayed reminder #1 (e.g. 96h+ late)
+    // would leave the row satisfying every successive offset on
+    // the very next tick — reminder #2 would fire minutes after
+    // #1. The `ONBOARDING_REMINDER_MIN_GAP_MS` check below
+    // guards against that. Don't let a future cleanup remove
+    // it.
 
     // Greptile P1 follow-up: each call reads one page. Convex
     // queries can only `.paginate()` once per handler, so the
@@ -914,6 +952,7 @@ export const listStaleDraftsForReminder = internalQuery({
       studentName: string | null;
       reminderCount: number;
       lastSeenAt: number | null;
+      lastReminderSentAt: number | null;
     }> = [];
 
     const page = await ctx.db
@@ -949,16 +988,35 @@ export const listStaleDraftsForReminder = internalQuery({
         row.updatedAt,
         row.lastSeenAt ?? 0
       );
-      const isFresh = latestActivity >= staleCutoff;
+
+      // PR onboarding-reminder-cadence: pick the threshold for
+      // the *next* reminder number (1-indexed), so a row that
+      // has already had reminder #1 sent needs to be quiet for
+      // `#2`'s offset (48h), not the same 24h offset that drove
+      // #1. `reminderCount = i` ⇒ next = i + 1 ⇒ index `i`.
+      const nextReminderNumber = reminderCount + 1;
+      // Defensive: belt-and-suspenders against a future change
+      // that bumps `ONBOARDING_REMINDER_MAX_COUNT` without
+      // extending `ONBOARDING_REMINDER_OFFSETS_MS`. Length
+      // should already match (see docstring on the constant).
+      const offsetForNext = ONBOARDING_REMINDER_OFFSETS_MS[nextReminderNumber - 1];
+      if (offsetForNext === undefined) continue;
+      const targetCutoff = now - offsetForNext;
+      const isFresh = latestActivity >= targetCutoff;
       if (isFresh) continue;
 
-      // Don't double-fire reminders: respect the min interval
-      // since the last send so a slow scan can't spam a student.
-      if (
-        row.lastReminderSentAt !== undefined &&
-        row.lastReminderSentAt > minIntervalCutoff
-      ) {
-        continue;
+      // Greptile follow-up (round 1, PR onboarding-reminder-cadence):
+      // a wall-clock minimum gap between consecutive reminders for
+      // the SAME draft. The activity-based per-reminder offset
+      // above is necessary but not sufficient — `markReminderSent`
+      // does NOT bump `updatedAt` or `lastSeenAt`, so a delayed
+      // reminder (e.g. Inngest queue stall) could satisfy the
+      // next-reminder threshold immediately on the following
+      // tick. Without this guard a worst-case 96h-delayed #1
+      // could be followed by #2 within minutes.
+      if (row.lastReminderSentAt !== undefined) {
+        const minGapCutoff = now - ONBOARDING_REMINDER_MIN_GAP_MS;
+        if (row.lastReminderSentAt > minGapCutoff) continue;
       }
 
       const onboarding = await ctx.db.get(row.onboardingId);
@@ -986,6 +1044,7 @@ export const listStaleDraftsForReminder = internalQuery({
           : null,
         reminderCount,
         lastSeenAt: row.lastSeenAt ?? null,
+        lastReminderSentAt: row.lastReminderSentAt ?? null,
       });
 
       if (candidates.length >= STALE_BATCH_LIMIT) break;
@@ -1031,7 +1090,13 @@ export const getDraftStatusForReminder = internalQuery({
     // timestamp so the per-row send step can re-check freshness
     // before firing the email. The scan reads at T1; if the
     // student edits between T1 and T2, the send step would
-    // still fire without this. Same staleCutoff the scan uses.
+    // still fire without this.
+    //
+    // PR onboarding-reminder-cadence: the per-row send step
+    // re-applies the same per-reminder offset the scan used
+    // (rather than a single shared stale cutoff), so the
+    // freshness check has to know `latestActivityAt` to compare
+    // against `now - ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`.
     const latestActivityAt = Math.max(sub.updatedAt, sub.lastSeenAt ?? 0);
     return { status: "draft" as const, latestActivityAt };
   },
