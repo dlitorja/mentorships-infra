@@ -4,6 +4,11 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import {
+  isSlotWithinStudentLocalHours,
+  isValidTimeZone,
+  rankSlotsForTwoParties,
+} from "@/lib/timezone";
 
 type BusyWindow = { start?: string | null; end?: string | null };
 type WorkingHoursInterval = { start: string; end: string };
@@ -133,6 +138,26 @@ export async function GET(
       ? Math.min(parsedDays, maxDays)
       : defaultDays;
 
+    // Parse and validate the optional student timezone up front so we both
+    // 1) reject obviously bogus input cheaply before doing calendar work,
+    // 2) can use the validated value *inside* the candidate-generation loop
+    //    to gate `availableSlots.length` against viable hits (Greptile P1:
+    //    otherwise the first `slotsToReturn` instructor-side hits can be
+    //    filtered out wholesale even when suitable slots exist further
+    //    out, causing "no slots in the next two weeks" incorrectly).
+    const studentTimeZoneRaw = searchParams.get("studentTimeZone");
+    let studentTimeZone: string | null = null;
+    if (studentTimeZoneRaw && studentTimeZoneRaw.length > 0) {
+      const candidate = studentTimeZoneRaw.trim();
+      if (!isValidTimeZone(candidate)) {
+        return NextResponse.json(
+          { error: "Invalid studentTimeZone (must be an IANA zone)" },
+          { status: 400 }
+        );
+      }
+      studentTimeZone = candidate;
+    }
+
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
     });
@@ -198,17 +223,43 @@ export async function GET(
           : isWithinWorkingHours(cursor, 60, instructor.timeZone, instructor.workingHours as WorkingHours);
 
         if (withinWorkingHours) {
-          availableSlots.push(cursor.toISOString());
+          // Greptile P1 fix: apply the student-hours gate *before* counting
+          // toward `slotsToReturn`. Otherwise the loop terminates on
+          // instructor-side hits and the post-loop filter can drop them in
+          // bulk, producing "no slots in the next two weeks" when viable
+          // slots exist further out in the same window.
+          if (
+            !studentTimeZone ||
+            isSlotWithinStudentLocalHours(cursor.toISOString(), studentTimeZone)
+          ) {
+            availableSlots.push(cursor.toISOString());
+          }
         }
       }
 
       cursor = new Date(slotStartMs + slotMs);
     }
 
+    // Re-rank. When `studentTimeZone` is supplied, survivors are sorted
+    // lexicographically by (student-noon-distance, instructor-noon-distance)
+    // so the slot closest to mid-day in the student's zone comes first and
+    // the instructor distance only breaks ties (see Greptile P1 #2 — a
+    // weighted-sum ranker can let the instructor weight outvote a better
+    // student time). When only the instructor zone is known, the rank
+    // degrades to the simpler "closer to mid-day in the instructor zone"
+    // heuristic. When neither zone is known we keep the chronological
+    // order the loop produced.
+    const reorderedSlots = rankSlotsForTwoParties(
+      availableSlots,
+      studentTimeZone,
+      instructor.timeZone ?? null
+    );
+
     return NextResponse.json({
       connected: true,
       instructorTimeZone: instructor.timeZone ?? null,
-      slots: availableSlots,
+      studentTimeZone,
+      slots: reorderedSlots,
     });
   } catch (error) {
     console.error("Instructor availability preview error:", error);

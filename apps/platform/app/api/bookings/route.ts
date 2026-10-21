@@ -178,6 +178,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Slot no longer available" }, { status: 409 });
     }
 
+    // TODO(instructor-availability-preview): revalidate student-side working
+    // hours here. The availability preview filters candidates against the
+    // student's wall-clock window (8am–10pm local, see
+    // `apps/platform/lib/timezone.ts`) plus a close-to-noon midpoint
+    // ranking. Between the preview and this POST, that filtering is not
+    // re-applied — a stale preview can still book. The follow-up should
+    // re-import the helpers from `@/lib/timezone` and reject with the same
+    // error shape as a busy overlap if the candidate falls outside the
+    // student's local window. Out of scope for the v1 PR that introduces
+    // the preview-side filtering; tracked here so we don't lose it.
+
     // Create pending booking (lock)
     const idempotencyKey = `${instructorId}|${startUtc}|${endUtc}`;
     const pending = await convex.mutation(api.bookings.createPending, {

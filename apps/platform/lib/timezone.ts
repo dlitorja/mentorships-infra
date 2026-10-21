@@ -244,3 +244,151 @@ export function parseDateTimeLocalToUtcMillis(
 
   return localDateTimeToUtcMillis(local, timeZone);
 }
+
+/**
+ * Default wall-clock hour window (in 24-hour form) during which a *student*
+ * is willing to take sessions in their local timezone.
+ *
+ * Each candidate slot is evaluated by its **start** hour. A slot whose start
+ * is in `[STUDENT_LOCAL_OK_HOURS_START, STUDENT_LOCAL_OK_HOURS_END)` is
+ * considered acceptable; anything outside the window (e.g. midnight to 8am
+ * or 22:00 to midnight) is filtered out by the availability preview endpoint.
+ *
+ * Exposed as a top-of-file constant so the policy can be tuned without
+ * hunting through call sites. When product needs per-user customization,
+ * promote into a `studentAvailabilityWindowHours` table column or settings
+ * API; the algorithm here will read it through.
+ */
+export const STUDENT_LOCAL_OK_HOURS_START = 8;
+export const STUDENT_LOCAL_OK_HOURS_END = 22;
+
+/**
+ * Returns true iff the slot's local start hour in `studentTimeZone` falls
+ * inside the configured student-friendly window (`8 ≤ startHour < 22`).
+ *
+ * Centralised here so the route handler and its unit tests share a single
+ * source of truth. A `null` or invalid `studentTimeZone` short-circuits to
+ * `true` so existing callers (where we didn't filter by a student zone) keep
+ * their current result.
+ */
+export function isSlotWithinStudentLocalHours(
+  slotIso: string,
+  studentTimeZone: string | null | undefined
+): boolean {
+  if (!studentTimeZone) return true;
+  try {
+    // `getLocalDateTime` already validates the zone through `Intl` and
+    // returns zeros on a formatter failure rather than throwing, so we
+    // additionally guard with `isValidTimeZone` to be sure.
+    if (!isValidTimeZone(studentTimeZone)) return true;
+    const local = getLocalDateTime(new Date(slotIso), studentTimeZone);
+    return (
+      local.hour >= STUDENT_LOCAL_OK_HOURS_START &&
+      local.hour < STUDENT_LOCAL_OK_HOURS_END
+    );
+  } catch {
+    // If anything goes sideways (rare DST edge case, exotic zone), fall
+    // back to accept — the surface is "soft" filtering, not a hard reject.
+    return true;
+  }
+}
+
+/**
+ * Squared hour-distance from mid-day (12:00) in `timeZone`, or
+ * `Number.POSITIVE_INFINITY` when the zone is missing or the formatter
+ * refuses the slot. The sentinel lets a downstream sort keep
+ * "no-preference" entries behind any slots with a usable score and only
+ * tie-break them if every entry lacks a score.
+ *
+ * Squaring de-emphasises near-misses (so a 10am slot doesn't accidentally
+ * outrank a 12pm slot when 12pm is square-zero), matching the original
+ * paper-and-pencil intent of a mid-day-weighted heuristic.
+ */
+function squareDistanceFromMidDay(
+  iso: string,
+  timeZone: string | null | undefined
+): number {
+  if (!timeZone) return Number.POSITIVE_INFINITY;
+  try {
+    const local = getLocalDateTime(new Date(iso), timeZone);
+    const delta = local.hour - 12;
+    return delta * delta;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/**
+ * Re-rank a list of UTC ISO slot instants so the most "comfortable" for
+ * the **student** comes first. The instructor distance is consulted only
+ * as a tiebreaker when two slots share the same student distance.
+ *
+ * Greptile P1: previously this function summed a weighted
+ * `(studentSq + 0.25 × instructorSq)` score, which lets a worse student
+ * time outvote a better one whenever the instructor distance is small.
+ * Worked example (SGT student, PT instructor, April):
+ *   - 02:00 UTC → 10:00 SGT (student sq 4) + 19:00 PDT (instructor sq 49, weighted 12.25) → 16.25
+ *   - 04:00 UTC → 12:00 SGT (student sq 0) + 21:00 PDT (instructor sq 81, weighted 20.25) → 20.25
+ * Under the old sum the 02:00 slot won despite the 04:00 slot being
+ * ideally aligned for the student. The lex sort below puts 04:00 first
+ * (student sq 0 < 4) and only uses the instructor distance as a tiebreaker.
+ *
+ * Lower score = better. The function does not mutate the input array.
+ *
+ * Backwards-compat: when `studentTimeZone` is `null`, the student score is
+ * `+Infinity` for every entry, so the comparison falls through to the
+ * instructor side exactly like the pre-fix behaviour. When neither tz is
+ * known, both scores are `+Infinity` and the stable sort preserves the
+ * chronological order from the candidate loop.
+ */
+export function rankSlotsForTwoParties(
+  slots: string[],
+  studentTimeZone: string | null | undefined,
+  instructorTimeZone: string | null | undefined
+): string[] {
+  if (!studentTimeZone && !instructorTimeZone) return [...slots];
+  return [...slots]
+    .map((iso) => ({
+      iso,
+      student: squareDistanceFromMidDay(iso, studentTimeZone),
+      instructor: squareDistanceFromMidDay(iso, instructorTimeZone),
+    }))
+    .sort((a, b) => {
+      // Primary: student distance. Compare numerically so the +Infinity
+      // sentinel still sorts correctly (it always loses to a finite value).
+      if (a.student !== b.student) return a.student - b.student;
+      // Tiebreak: instructor distance, same semantics.
+      return a.instructor - b.instructor;
+    })
+    .map(({ iso }) => iso);
+}
+
+/**
+ * Format a UTC instant as a short, human-readable label like
+ * "Tue, Mar 4 · 7:00pm PDT" in `timeZone`.
+ *
+ * Falls back to the runtime-default zone when `timeZone` is `null`. Returns
+ * `null` for invalid inputs so callers can choose to render a fallback
+ * label instead of crashing.
+ */
+export function formatSlotLabel(
+  iso: string,
+  timeZone: string | null | undefined
+): string | null {
+  try {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    const tz = timeZone ?? undefined;
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+      timeZone: tz,
+    }).format(date);
+  } catch {
+    return null;
+  }
+}

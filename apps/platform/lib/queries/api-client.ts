@@ -245,20 +245,29 @@ export async function fetchInstructorAvailability(
 export async function fetchInstructorAvailabilityPreview(
   instructorId: string,
   slots: number = 3,
-  days: number = 14
+  days: number = 14,
+  options?: { studentTimeZone?: string | null }
 ): Promise<{
   connected: boolean;
   instructorTimeZone?: string | null;
+  studentTimeZone?: string | null;
   slots: string[];
   message?: string;
 }> {
+  const query = new URLSearchParams();
+  query.set("slots", String(slots));
+  query.set("days", String(days));
+  if (options?.studentTimeZone) {
+    query.set("studentTimeZone", options.studentTimeZone);
+  }
   return apiFetch<{
     connected: boolean;
     instructorTimeZone?: string | null;
+    studentTimeZone?: string | null;
     slots: string[];
     message?: string;
   }>(
-    `${ApiRoutes.instructorAvailabilityPreview(instructorId)}?slots=${slots}&days=${days}`
+    `${ApiRoutes.instructorAvailabilityPreview(instructorId)}?${query.toString()}`
   );
 }
 

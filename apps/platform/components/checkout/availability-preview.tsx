@@ -3,24 +3,37 @@
 import { Loader2, Calendar } from "lucide-react";
 import { useInstructorAvailabilityPreview } from "@/lib/queries/use-availability";
 import { Id } from "@/convex/_generated/dataModel";
+import { formatSlotLabel } from "@/lib/timezone";
 
-function formatSlot(isoString: string, timeZone: string | null): string {
-  const date = new Date(isoString);
-  const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+/**
+ * Render a single slot as a human label across two zones, e.g.
+ *
+ *   "Tue, Mar 4 · 7:00pm PDT (your time)"
+ *   "Tue, Mar 4 · 10:00am PDT your time / 1:00pm EDT instructor time"
+ *
+ * When only one zone is known, we render in that zone and add "(your time)"
+ * if it is the student's. When neither zone is known we fall through to a
+ * runtime-default label, matching the pre-PR behavior.
+ */
+function renderSlotLabel(
+  isoString: string,
+  studentTimeZone: string | null | undefined,
+  instructorTimeZone: string | null | undefined
+): string {
+  const studentLabel = formatSlotLabel(isoString, studentTimeZone ?? null);
+  const instructorLabel = formatSlotLabel(isoString, instructorTimeZone ?? null);
 
-  const options: Intl.DateTimeFormatOptions = {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  };
-
-  return date.toLocaleString("en-US", {
-    ...options,
-    timeZone: timeZone || userTimeZone,
-  });
+  if (studentLabel && instructorLabel && studentTimeZone && instructorTimeZone) {
+    return `${studentLabel} your time / ${instructorLabel} instructor time`;
+  }
+  if (studentLabel && studentTimeZone) {
+    return `${studentLabel} your time`;
+  }
+  if (instructorLabel) {
+    return instructorLabel;
+  }
+  // Fallback to runtime-default zone — last resort so we never show raw ISO.
+  return studentLabel ?? isoString;
 }
 
 interface AvailabilityPreviewProps {
@@ -88,7 +101,7 @@ export function AvailabilityPreview({ instructorId, instructorName }: Availabili
       <ul className="space-y-1">
         {data.slots.map((slot, index) => (
           <li key={index} className="text-sm text-muted-foreground">
-            • {formatSlot(slot, data.instructorTimeZone)}
+            • {renderSlotLabel(slot, data.studentTimeZone ?? null, data.instructorTimeZone ?? null)}
           </li>
         ))}
       </ul>
