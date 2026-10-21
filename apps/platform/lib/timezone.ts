@@ -244,3 +244,131 @@ export function parseDateTimeLocalToUtcMillis(
 
   return localDateTimeToUtcMillis(local, timeZone);
 }
+
+/**
+ * Default wall-clock hour window (in 24-hour form) during which a *student*
+ * is willing to take sessions in their local timezone.
+ *
+ * Each candidate slot is evaluated by its **start** hour. A slot whose start
+ * is in `[STUDENT_LOCAL_OK_HOURS_START, STUDENT_LOCAL_OK_HOURS_END)` is
+ * considered acceptable; anything outside the window (e.g. midnight to 8am
+ * or 22:00 to midnight) is filtered out by the availability preview endpoint.
+ *
+ * Exposed as a top-of-file constant so the policy can be tuned without
+ * hunting through call sites. When product needs per-user customization,
+ * promote into a `studentAvailabilityWindowHours` table column or settings
+ * API; the algorithm here will read it through.
+ */
+export const STUDENT_LOCAL_OK_HOURS_START = 8;
+export const STUDENT_LOCAL_OK_HOURS_END = 22;
+
+/**
+ * Returns true iff the slot's local start hour in `studentTimeZone` falls
+ * inside the configured student-friendly window (`8 ≤ startHour < 22`).
+ *
+ * Centralised here so the route handler and its unit tests share a single
+ * source of truth. A `null` or invalid `studentTimeZone` short-circuits to
+ * `true` so existing callers (where we didn't filter by a student zone) keep
+ * their current result.
+ */
+export function isSlotWithinStudentLocalHours(
+  slotIso: string,
+  studentTimeZone: string | null | undefined
+): boolean {
+  if (!studentTimeZone) return true;
+  try {
+    // `getLocalDateTime` already validates the zone through `Intl` and
+    // returns zeros on a formatter failure rather than throwing, so we
+    // additionally guard with `isValidTimeZone` to be sure.
+    if (!isValidTimeZone(studentTimeZone)) return true;
+    const local = getLocalDateTime(new Date(slotIso), studentTimeZone);
+    return (
+      local.hour >= STUDENT_LOCAL_OK_HOURS_START &&
+      local.hour < STUDENT_LOCAL_OK_HOURS_END
+    );
+  } catch {
+    // If anything goes sideways (rare DST edge case, exotic zone), fall
+    // back to accept — the surface is "soft" filtering, not a hard reject.
+    return true;
+  }
+}
+
+/**
+ * Re-rank a list of UTC ISO slot instants so the most "comfortable" for the
+ * student comes first, breaking ties by comfort-for-the-instructor.
+ *
+ * The score is the squared distance, in hours, between the slot's local
+ * start hour in the respective timezone and 12:00 (mid-day). Squaring
+ * de-emphasises near-misses so an 8am slot doesn't accidentally outrank a
+ * 10am slot when 10am is actually closer to mid-day.
+ *
+ * Lower score = better. The function does not mutate the input array.
+ *
+ * `studentTimeZone` and `instructorTimeZone` may be `null` (legacy callers
+ * pre-this-PR); when both are missing the array returns in its original
+ * order. That makes this a backwards-compatible drop-in for any code that
+ * was sorting by recency.
+ */
+export function rankSlotsForTwoParties(
+  slots: string[],
+  studentTimeZone: string | null | undefined,
+  instructorTimeZone: string | null | undefined
+): string[] {
+  if (!studentTimeZone && !instructorTimeZone) return [...slots];
+  const scorer = (iso: string): number => {
+    let score = 0;
+    if (studentTimeZone) {
+      try {
+        const local = getLocalDateTime(new Date(iso), studentTimeZone);
+        const delta = local.hour - 12;
+        score += delta * delta;
+      } catch {
+        // Score = 0 contribution. Keep the slot, just don't penalise it.
+      }
+    }
+    if (instructorTimeZone) {
+      try {
+        const local = getLocalDateTime(new Date(iso), instructorTimeZone);
+        const delta = local.hour - 12;
+        score += delta * delta * 0.25; // weight lower than student side
+      } catch {
+        // Score = 0 contribution.
+      }
+    }
+    return score;
+  };
+  return [...slots]
+    .map((iso) => ({ iso, score: scorer(iso) }))
+    .sort((a, b) => a.score - b.score)
+    .map(({ iso }) => iso);
+}
+
+/**
+ * Format a UTC instant as a short, human-readable label like
+ * "Tue, Mar 4 · 7:00pm PDT" in `timeZone`.
+ *
+ * Falls back to the runtime-default zone when `timeZone` is `null`. Returns
+ * `null` for invalid inputs so callers can choose to render a fallback
+ * label instead of crashing.
+ */
+export function formatSlotLabel(
+  iso: string,
+  timeZone: string | null | undefined
+): string | null {
+  try {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    const tz = timeZone ?? undefined;
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+      timeZone: tz,
+    }).format(date);
+  } catch {
+    return null;
+  }
+}

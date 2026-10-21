@@ -4,6 +4,11 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import {
+  isSlotWithinStudentLocalHours,
+  isValidTimeZone,
+  rankSlotsForTwoParties,
+} from "@/lib/timezone";
 
 type BusyWindow = { start?: string | null; end?: string | null };
 type WorkingHoursInterval = { start: string; end: string };
@@ -205,10 +210,45 @@ export async function GET(
       cursor = new Date(slotStartMs + slotMs);
     }
 
+    // Two-sided filter and rerank. When `studentTimeZone` is supplied,
+    // candidates are dropped if their start hour in the student's local
+    // zone falls outside 8am–10pm (configurable via
+    // `STUDENT_LOCAL_OK_HOURS_*` in `lib/timezone.ts`). The survivors are
+    // then sorted by closeness to mid-day in the student's zone first,
+    // breaking ties by closeness to mid-day in the instructor's zone. This
+    // is the v1 deterministic algorithm — no AI re-ranker behind the
+    // scenes; the model behind the picker reuses the same primitives.
+    const studentTimeZoneRaw = searchParams.get("studentTimeZone");
+    let studentTimeZone: string | null = null;
+    if (studentTimeZoneRaw && studentTimeZoneRaw.length > 0) {
+      const candidate = studentTimeZoneRaw.trim();
+      if (!isValidTimeZone(candidate)) {
+        return NextResponse.json(
+          { error: "Invalid studentTimeZone (must be an IANA zone)" },
+          { status: 400 }
+        );
+      }
+      studentTimeZone = candidate;
+    }
+
+    let filteredSlots = availableSlots;
+    if (studentTimeZone) {
+      filteredSlots = filteredSlots.filter((iso) =>
+        isSlotWithinStudentLocalHours(iso, studentTimeZone)
+      );
+    }
+
+    filteredSlots = rankSlotsForTwoParties(
+      filteredSlots,
+      studentTimeZone,
+      instructor.timeZone ?? null
+    );
+
     return NextResponse.json({
       connected: true,
       instructorTimeZone: instructor.timeZone ?? null,
-      slots: availableSlots,
+      studentTimeZone,
+      slots: filteredSlots,
     });
   } catch (error) {
     console.error("Instructor availability preview error:", error);

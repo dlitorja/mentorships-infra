@@ -4,11 +4,16 @@ import {
   addMinutes,
   getLocalDateTime,
   isValidTimeZone,
+  isSlotWithinStudentLocalHours,
   localDateTimeToUtcMillis,
   addWeeksInTimeZone,
+  rankSlotsForTwoParties,
+  formatSlotLabel,
   utcMillisToIsoString,
   formatUtcMillisForDateTimeLocal,
   parseDateTimeLocalToUtcMillis,
+  STUDENT_LOCAL_OK_HOURS_START,
+  STUDENT_LOCAL_OK_HOURS_END,
 } from "./timezone";
 
 describe("timezone helpers", () => {
@@ -190,6 +195,89 @@ describe("timezone helpers", () => {
       expect(parseDateTimeLocalToUtcMillis("America/New_York", "not-a-date")).toBeNull();
       expect(parseDateTimeLocalToUtcMillis("America/New_York", "2026-07-15")).toBeNull();
       expect(parseDateTimeLocalToUtcMillis("America/New_York", "")).toBeNull();
+    });
+  });
+
+  describe("availability preview two-sided filter helpers", () => {
+    it("exposes the 8am-10pm student window as a constant", () => {
+      // These constants are the v1 product policy. Changing them is a
+      // deliberate policy decision, not a refactor — keep the test loud
+      // so a silent edit is impossible to miss.
+      expect(STUDENT_LOCAL_OK_HOURS_START).toBe(8);
+      expect(STUDENT_LOCAL_OK_HOURS_END).toBe(22);
+    });
+
+    it("isSlotWithinStudentLocalHours: accepts mid-morning in Asia/Singapore", () => {
+      // 03:00 UTC on 2026-03-15 is 11:00 SGT. Within the window.
+      const iso = "2026-03-15T03:00:00.000Z";
+      expect(isSlotWithinStudentLocalHours(iso, "Asia/Singapore")).toBe(true);
+    });
+
+    it("isSlotWithinStudentLocalHours: rejects 03:00 SGT (=19:00 UTC prev day)", () => {
+      // 03:00 SGT = 19:00 UTC of the prior day. Outside the 8-22 window.
+      const iso = "2026-03-14T19:00:00.000Z";
+      expect(isSlotWithinStudentLocalHours(iso, "Asia/Singapore")).toBe(false);
+    });
+
+    it("isSlotWithinStudentLocalHours: rejects 23:00 SGT (=15:00 UTC)", () => {
+      const iso = "2026-03-15T15:00:00.000Z";
+      expect(isSlotWithinStudentLocalHours(iso, "Asia/Singapore")).toBe(false);
+    });
+
+    it("isSlotWithinStudentLocalHours: returns true when student zone is missing", () => {
+      const iso = "2026-03-15T03:00:00.000Z";
+      expect(isSlotWithinStudentLocalHours(iso, null)).toBe(true);
+      expect(isSlotWithinStudentLocalHours(iso, undefined)).toBe(true);
+    });
+
+    it("isSlotWithinStudentLocalHours: returns true for an unrecognised zone (fail-open)", () => {
+      // The route handler validates upstream, so by the time we get here the
+      // zone should be valid. We choose fail-open behaviour defensively
+      // so an exotic or nullish value never produces an unbookable UI.
+      expect(isSlotWithinStudentLocalHours("2026-03-15T03:00:00.000Z", "NotAZone")).toBe(true);
+    });
+
+    it("rankSlotsForTwoParties: reorders so mid-day in the student zone comes first", () => {
+      // Three candidate instants, all on a single date, that translate to
+      // 06:00, 12:00, 19:00 in Asia/Singapore.
+      const slots = [
+        "2026-03-15T11:00:00.000Z", // 19:00 SGT — off-midday
+        "2026-03-15T04:00:00.000Z", // 12:00 SGT — bang-on mid-day
+        "2026-03-15T22:00:00.000Z", // 06:00 SGT — off-midday
+      ];
+      const ordered = rankSlotsForTwoParties(slots, "Asia/Singapore", "UTC");
+      expect(ordered[0]).toBe("2026-03-15T04:00:00.000Z");
+      // 19:00 (delta=+7) is closer to 12:00 than 06:00 (delta=-6) so it
+      // comes second; 06:00 comes last.
+      expect(ordered[1]).toBe("2026-03-15T11:00:00.000Z");
+      expect(ordered[2]).toBe("2026-03-15T22:00:00.000Z");
+    });
+
+    it("rankSlotsForTwoParties: returns the original order when no zones are supplied", () => {
+      const slots = ["2026-03-15T04:00:00.000Z", "2026-03-15T11:00:00.000Z"];
+      const ordered = rankSlotsForTwoParties(slots, null, null);
+      expect(ordered).toEqual(slots);
+    });
+
+    it("rankSlotsForTwoParties: does not mutate the input array", () => {
+      const slots = ["2026-03-15T11:00:00.000Z", "2026-03-15T04:00:00.000Z"];
+      const original = [...slots];
+      rankSlotsForTwoParties(slots, "Asia/Singapore", "UTC");
+      expect(slots).toEqual(original);
+    });
+
+    it("formatSlotLabel: returns null for malformed input", () => {
+      expect(formatSlotLabel("not-an-iso", "UTC")).toBeNull();
+      expect(formatSlotLabel("", "UTC")).toBeNull();
+    });
+
+    it("formatSlotLabel: rounds to local wall time in the requested zone", () => {
+      // 18:00 UTC on 2026-07-15 = 11:00 PDT (Pacific Daylight Time, UTC-7).
+      const iso = "2026-07-15T18:00:00.000Z";
+      const label = formatSlotLabel(iso, "America/Los_Angeles");
+      expect(label).not.toBeNull();
+      expect(label).toContain("11:00");
+      expect(label?.toLowerCase()).toMatch(/pdt|pst/);
     });
   });
 });

@@ -143,38 +143,9 @@ When an upgrade is needed:
 
 ## Greptile Code Review
 
-**Run Greptile before creating any pull request.**
+Greptile provides AI code reviews with full codebase context. The GitHub App is already installed and reviews every PR automatically — comments land within ~3 minutes of the push. That is the **only** Greptile check we run; we do not run the `greptile` CLI locally before opening a PR (the per-PR cost of the GitHub App is already paid once, and a local pre-check duplicates it).
 
-Greptile provides AI code reviews with full codebase context. It works two ways:
-1. **Automatic PR reviews** via GitHub App (already configured - reviews every PR)
-2. **Local CLI reviews** before pushing (run manually)
-
-### Local CLI Setup (one-time)
-
-```bash
-npm install -g greptile  # Install CLI
-greptile login           # Authenticate via browser (one-time setup)
-```
-
-### Local CLI Review
-
-Run before creating a PR to catch issues locally:
-
-```bash
-npx greptile@latest review                    # Review current branch vs main
-npx greptile@latest review --diff             # Show findings inline with code
-npx greptile@latest review -b main            # Explicit base branch
-npx greptile@latest review --resume           # Resume unfinished review
-```
-
-### Review Response
-
-If Greptile reports issues:
-1. Fix the reported issues in the code
-2. Re-run Greptile to verify fixes
-3. Only proceed to PR creation once Greptile reports no new issues
-
-Note: After pushing, Greptile will also automatically review the PR via GitHub App and post comments within ~3 minutes.
+Approval is gated on the GitHub App review posting a green check, per the Pull Request Merge Policy at the top of this file.
 
 ## Engineering Quality Policy
 

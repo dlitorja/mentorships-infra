@@ -442,9 +442,8 @@ export function TimezonePicker({
         </div>
         <CardTitle className="mt-2 text-xl">Your timezone</CardTitle>
         <CardDescription>
-          We&apos;ll use this when scheduling your sessions
-          asynchronously. The dropdown is pre-filled with the timezone
-          your browser is set to — feel free to override.
+          The dropdown is pre-filled with the timezone your browser
+          is set to — feel free to override.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
