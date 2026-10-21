@@ -33,8 +33,10 @@ afterEach(() => {
  *   - getIncompleteOnboardingForCurrentUser (PR 4b enhancement):
  *     skips rows whose questionnaire has been submitted
  *   - listStaleDraftsForReminder: respects per-reminder offset
- *     (`ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`) and the
- *     max-count cap (PR onboarding-reminder-cadence)
+ *     (`ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`), the
+ *     max-count cap, AND the wall-clock min-gap guard that
+ *     prevents reminder #N+1 from firing minutes after a
+ *     delayed reminder #N (PR onboarding-reminder-cadence)
  *   - markReminderSent: idempotent on `next`
  */
 
@@ -879,13 +881,15 @@ test("listStaleDraftsForReminder picks up rows past the reminder-#1 offset (24h)
 // stale cutoff) trips the right test.
 
 /** Stamp a draft row's freshness fields + reminder counters, then
- *  re-run the scan and return the candidate slice matching the
- *  given onboardingId (or `undefined`). */
+ *  re-run the scan and return the candidate matching the given
+ *  onboardingId, or `undefined` if the row isn't picked up. The
+ *  return type is a single candidate (or undefined), not an
+ *  array — `.find()` returns one element. */
 async function runScanForOnboardingId(
   t: any,
   onboardingId: string,
   patch: { lastSeenAt: number; updatedAt: number; reminderCount?: number; lastReminderSentAt?: number }
-): Promise<any[] | undefined> {
+): Promise<{ onboardingId: string } | undefined> {
   await t.run(async (ctx: any) => {
     const sub = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
@@ -896,8 +900,8 @@ async function runScanForOnboardingId(
   const page = await t.run(async (ctx: any) =>
     ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
-  const match = (page.candidates as any[]).find(
-    (c: any) => c.onboardingId === onboardingId
+  const match = (page.candidates as Array<{ onboardingId: string }>).find(
+    (c) => c.onboardingId === onboardingId
   );
   return match;
 }
@@ -1024,6 +1028,56 @@ test("listStaleDraftsForReminder uses reminder #3 offset of 96h (~4 days)", asyn
     updatedAt: now - 96 * HOUR_MS - 1_000,
     reminderCount: 2,
     lastReminderSentAt: now - 96 * HOUR_MS - 1_000,
+  }))?.onboardingId).toBe(onboardingId);
+});
+
+test("listStaleDraftsForReminder enforces min-gap guard when previous reminder was delayed", async () => {
+  // Greptile PR onboarding-reminder-cadence round-1 follow-up:
+  // a delayed-scan regression. The per-reminder offset alone
+  // can NOT prevent reminder #2 firing minutes after a 96h-delayed
+  // reminder #1 — `lastSeenAt` doesn't change when a reminder is
+  // sent, so the next tick's activity-based check finds #2's
+  // activity threshold already satisfied. The wall-clock min-gap
+  // (24h) is the second guard. This test pins that guard: a row
+  // whose activity is fully stale for #2 (>96h idle), but whose
+  // `lastReminderSentAt` is only 1h old, must NOT pick up — the
+  // student should never see #2 within a day of receiving #1,
+  // even when the cron was severely delayed.
+  const t = convexTest(schema, modules);
+  const studentId = "user_student_11_mingap";
+  const instructorId = await seedInstructor(t, { name: "Inst", slug: "inst-11-mingap" });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student11-mingap@example.com",
+    status: "queued",
+    assignedStudentClerkId: studentId,
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  await t
+    .withIdentity({ subject: studentId })
+    .mutation(api.onboardingQuestionnaire.saveQuestionnaireDraft, {
+      onboardingId: onboardingId as any,
+      questionnaireVersion: 1,
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      clientSaveId: 1,
+    });
+
+  const HOUR_MS = 60 * 60 * 1000;
+  const now = Date.now();
+  // Activity fully stale for #2 (200h idle, way past 48h offset),
+  // but the previous reminder was sent only 1h ago.
+  expect(await runScanForOnboardingId(t, onboardingId, {
+    lastSeenAt: now - 200 * HOUR_MS,
+    updatedAt: now - 200 * HOUR_MS,
+    reminderCount: 1,
+    lastReminderSentAt: now - 1 * HOUR_MS,
+  })).toBeUndefined();
+  // 25h since the previous reminder (>24h min gap): eligible.
+  expect((await runScanForOnboardingId(t, onboardingId, {
+    lastSeenAt: now - 200 * HOUR_MS,
+    updatedAt: now - 200 * HOUR_MS,
+    reminderCount: 1,
+    lastReminderSentAt: now - 25 * HOUR_MS,
   }))?.onboardingId).toBe(onboardingId);
 });
 

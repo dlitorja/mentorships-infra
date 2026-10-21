@@ -7,6 +7,7 @@ import { getConvexClient } from "@/lib/convex";
 import {
   ONBOARDING_REMINDER_OFFSETS_MS,
   ONBOARDING_REMINDER_MAX_COUNT,
+  ONBOARDING_REMINDER_MIN_GAP_MS,
 } from "@/lib/workspace-constants";
 import { buildOnboardingReminderEmail } from "@/lib/emails/onboarding-reminder-email";
 
@@ -200,6 +201,19 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         const sendTargetCutoff = Date.now() - offsetForNext;
         if (status.latestActivityAt >= sendTargetCutoff) {
           return { skipped: true, reason: "activity-resumed" } as const;
+        }
+        // PR onboarding-reminder-cadence (greptile round-1 follow-up):
+        // mirror the Convex scan's wall-clock minimum-gap guard
+        // here. The per-row send step receives `draft` from the
+        // scan, but that scan predates the actual mark-sent write,
+        // so a cron tick that started before the previous reminder
+        // finished could re-eligible a row whose `lastReminderSentAt`
+        // was bumped between scan and this check.
+        if (draft.lastReminderSentAt !== undefined) {
+          const minGapCutoff = Date.now() - ONBOARDING_REMINDER_MIN_GAP_MS;
+          if (draft.lastReminderSentAt > minGapCutoff) {
+            return { skipped: true, reason: "min-gap" } as const;
+          }
         }
         // Greptile P1 #11: link through /auth-redirect (NOT
         // /sign-in) so the destination survives the

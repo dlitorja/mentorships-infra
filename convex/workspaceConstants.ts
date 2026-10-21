@@ -211,6 +211,23 @@ export const ONBOARDING_REMINDER_OFFSETS_MS = [
 ] as const;
 
 /**
+ * Floor on the gap between two consecutive reminders for the
+ * SAME draft, measured from `lastReminderSentAt`. The
+ * per-reminder activity-based check is necessary but NOT
+ * sufficient — if reminder #1 fires late (e.g. Inngest queue
+ * delay or a 6-hour Inngest pause), `lastSeenAt` doesn't
+ * advance during a send, so the next tick can find reminder
+ * #N+1's activity threshold already satisfied and fire it
+ * minutes after the previous one. This guard ensures a
+ * minimum wall-clock gap so a delayed scan still leaves the
+ * student in a calm, day-spaced cadence. Defaults to the
+ * spacing between offsets #1→#2 (24h) so even a worst-case
+ * delayed scan results in no two reminders closer than
+ * one day apart.
+ */
+export const ONBOARDING_REMINDER_MIN_GAP_MS = 24 * 60 * 60 * 1000;
+
+/**
  * PR 12 PR 4 — canonical onboarding question IDs.
  *
  * The authoritative client-side definition lives in

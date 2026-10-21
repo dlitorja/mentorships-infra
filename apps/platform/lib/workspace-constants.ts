@@ -58,6 +58,11 @@ export const ONBOARDING_REMINDER_OFFSETS_MS = [
   48 * 60 * 60 * 1000, // reminder #2 — 48h after last activity
   96 * 60 * 60 * 1000, // reminder #3 — 96h after last activity
 ] as const;
+// PR onboarding-reminder-cadence — min wall-clock gap between
+// consecutive reminders for the same draft. Protects against
+// the cron firing reminders minutes apart when the previous
+// send was delayed. Mirror of the server-side constant.
+export const ONBOARDING_REMINDER_MIN_GAP_MS = 24 * 60 * 60 * 1000;
 export const ONBOARDING_REMINDER_MAX_COUNT =
   ONBOARDING_REMINDER_OFFSETS_MS.length;
 

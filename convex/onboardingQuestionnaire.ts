@@ -23,6 +23,7 @@ import {
   ONBOARDING_REQUIRED_QUESTION_IDS,
   ONBOARDING_REMINDER_MAX_COUNT,
   ONBOARDING_REMINDER_OFFSETS_MS,
+  ONBOARDING_REMINDER_MIN_GAP_MS,
 } from "./workspaceConstants";
 
 /**
@@ -990,6 +991,20 @@ export const listStaleDraftsForReminder = internalQuery({
       const targetCutoff = now - offsetForNext;
       const isFresh = latestActivity >= targetCutoff;
       if (isFresh) continue;
+
+      // Greptile follow-up (round 1, PR onboarding-reminder-cadence):
+      // a wall-clock minimum gap between consecutive reminders for
+      // the SAME draft. The activity-based per-reminder offset
+      // above is necessary but not sufficient — `markReminderSent`
+      // does NOT bump `updatedAt` or `lastSeenAt`, so a delayed
+      // reminder (e.g. Inngest queue stall) could satisfy the
+      // next-reminder threshold immediately on the following
+      // tick. Without this guard a worst-case 96h-delayed #1
+      // could be followed by #2 within minutes.
+      if (row.lastReminderSentAt !== undefined) {
+        const minGapCutoff = now - ONBOARDING_REMINDER_MIN_GAP_MS;
+        if (row.lastReminderSentAt > minGapCutoff) continue;
+      }
 
       const onboarding = await ctx.db.get(row.onboardingId);
       if (!onboarding) continue;
