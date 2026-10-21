@@ -863,19 +863,23 @@ export const recordQuestionnaireSeen = mutation({
  * participate immediately.
  *
  * The remaining in-JS filters are:
- *   - `updatedAt < max(updatedAt, lastSeenAt) targetCutoff`
- *     (PR onboarding-reminder-cadence) — each candidate uses
+ *   - `latestActivity >= targetCutoff` (PR onboarding-reminder-
+ *     cadence) — each candidate uses
  *     `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]` as its
  *     threshold, so reminder #1 fires after ~24h of inactivity
  *     and reminder #2/#3 require progressively longer gaps.
+ *     Re-engagement via autosave (which bumps `updatedAt` +
+ *     `lastSeenAt`) resets the timer for the next nudge.
+ *   - `lastReminderSentAt < now - ONBOARDING_REMINDER_MIN_GAP_MS`
+ *     — wall-clock minimum gap between consecutive reminders.
+ *     Necessary because `markReminderSent` does NOT bump
+ *     `updatedAt` or `lastSeenAt`, so a previous reminder sent
+ *     long after its intended offset would otherwise satisfy
+ *     every successive activity threshold on the very next
+ *     tick (reminder #N+1 would fire minutes after reminder #N).
+ *     Do not remove this guard; without it the per-reminder
+ *     offset alone cannot keep the cadence spaced.
  *   - `onboarding.status !== "cancelled"`.
- *
- * The previous `lastReminderSentAt` min-interval guard is
- * subsumed by the per-reminder offset: by the time the cron is
- * eligible to send reminder #N, the row's activity timestamp
- * cannot have been refreshed inside the (larger) offset window
- * for #N, so a slow tick can't fire two reminders in the same
- * walkaway window.
  */
 
 const STALE_BATCH_LIMIT = 50;
