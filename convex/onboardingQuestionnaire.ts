@@ -918,22 +918,24 @@ export const listStaleDraftsForReminder = internalQuery({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // PR onboarding-reminder-cadence: each candidate's threshold
-    // is the offset matching the *next* reminder number, not a
-    // single shared stale cutoff. Reminder #1 fires when the row
-    // has been quiet for `ONBOARDING_REMINDER_OFFSETS_MS[0]`
-    // (24h), reminder #2 fires when the row has been quiet for
-    // `ONBOARDING_REMINDER_OFFSETS_MS[1]` (48h), and so on. This
-    // produces automatic spacing — the second offset is strictly
-    // larger than the first, so a slow cron tick can't re-fire
-    // the same reminder within the same walkaway window.
+    // PR onboarding-reminder-cadence: each candidate's per-row
+    // offset is keyed off `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]`,
+    // not a single shared stale cutoff. Reminder #1 fires when
+    // the row has been quiet for `OFFSETS[0]` (24h), reminder #2
+    // fires when the row has been quiet for `OFFSETS[1]` (48h),
+    // and so on. Re-engagement via autosave resets the timer for
+    // the next nudge.
     //
-    // The previous `minIntervalCutoff` guard against double-firing
-    // is subsumed by the per-reminder offset: by the time the cron
-    // is eligible to send reminder #N, the `lastSeenAt` cannot have
-    // been refreshed inside the (larger) offset window for #N, so
-    // the new send is always at least one offset-step further out
-    // than the previous one.
+    // This per-reminder offset is necessary but NOT sufficient
+    // on its own. If a previous send was severely delayed
+    // (Inngest queue stall, account pause), `markReminderSent`
+    // does NOT bump `updatedAt` / `lastSeenAt`. Without a second
+    // wall-clock layer, a delayed reminder #1 (e.g. 96h+ late)
+    // would leave the row satisfying every successive offset on
+    // the very next tick — reminder #2 would fire minutes after
+    // #1. The `ONBOARDING_REMINDER_MIN_GAP_MS` check below
+    // guards against that. Don't let a future cleanup remove
+    // it.
 
     // Greptile P1 follow-up: each call reads one page. Convex
     // queries can only `.paginate()` once per handler, so the
