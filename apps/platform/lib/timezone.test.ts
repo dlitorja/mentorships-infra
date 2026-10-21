@@ -239,18 +239,80 @@ describe("timezone helpers", () => {
 
     it("rankSlotsForTwoParties: reorders so mid-day in the student zone comes first", () => {
       // Three candidate instants, all on a single date, that translate to
-      // 06:00, 12:00, 19:00 in Asia/Singapore.
+      // 06:00, 12:00, 19:00 in Asia/Singapore. Cold `UTC` instructor zone
+      // makes the UTC hour map trivially. The student distance alone
+      // decides the order:
+      //   04:00Z → 12:00 SGT, student sq 0   — first
+      //   22:00Z → 06:00 SGT, student sq 36  — second (closer to noon than 19:00)
+      //   11:00Z → 19:00 SGT, student sq 49  — third
       const slots = [
-        "2026-03-15T11:00:00.000Z", // 19:00 SGT — off-midday
-        "2026-03-15T04:00:00.000Z", // 12:00 SGT — bang-on mid-day
-        "2026-03-15T22:00:00.000Z", // 06:00 SGT — off-midday
+        "2026-03-15T11:00:00.000Z",
+        "2026-03-15T04:00:00.000Z",
+        "2026-03-15T22:00:00.000Z",
       ];
       const ordered = rankSlotsForTwoParties(slots, "Asia/Singapore", "UTC");
-      expect(ordered[0]).toBe("2026-03-15T04:00:00.000Z");
-      // 19:00 (delta=+7) is closer to 12:00 than 06:00 (delta=-6) so it
-      // comes second; 06:00 comes last.
-      expect(ordered[1]).toBe("2026-03-15T11:00:00.000Z");
-      expect(ordered[2]).toBe("2026-03-15T22:00:00.000Z");
+      expect(ordered).toEqual([
+        "2026-03-15T04:00:00.000Z",
+        "2026-03-15T22:00:00.000Z",
+        "2026-03-15T11:00:00.000Z",
+      ]);
+    });
+
+    it("rankSlotsForTwoParties: student distance wins over instructor distance (Greptile P1 #2)", () => {
+      // Reproduce the exact scenario Greptile flagged in their review.
+      // Instructor in Los Angeles (PDT, UTC-7) and student in Singapore
+      // (SGT, UTC+8). Both slots pass the student-hours window (8–22
+      // local), but the 04:00Z candidate is the student's ideal noon slot.
+      // The 02:00Z candidate is closer to the instructor's mid-day, so the
+      // old weighted-sum ranker picked 02:00Z. The lex sort must pick
+      // 04:00Z.
+      //   02:00Z → 10:00 SGT (sq 4) + 19:00 PDT (sq 49, weighted 12.25)  = 16.25 (old winner)
+      //   04:00Z → 12:00 SGT (sq 0) + 21:00 PDT (sq 81, weighted 20.25) = 20.25 (old loser)
+      const slots = [
+        "2026-04-06T02:00:00.000Z",
+        "2026-04-06T04:00:00.000Z",
+      ];
+      const ordered = rankSlotsForTwoParties(
+        slots,
+        "Asia/Singapore",
+        "America/Los_Angeles"
+      );
+      expect(ordered).toEqual([
+        "2026-04-06T04:00:00.000Z", // student noon
+        "2026-04-06T02:00:00.000Z", // not as good for the student
+      ]);
+    });
+
+    it("rankSlotsForTwoParties: instructor distance tiebreaks when student distances tie", () => {
+      // Three candidate instants that all translate to 12:00 in
+      // Asia/Singapore — they all have student sq 0, so the sort must
+      // fall through to the instructor distance for ordering. The
+      // instructor zone is "UTC" so the UTC hour maps directly.
+      //   04:00Z → 12:00 UTC (sq 0)   — best instructor slot
+      //   05:00Z → 13:00 UTC (sq 1)   — next
+      //   03:00Z → 11:00 UTC (sq 1)   — ties with hour-04; tx to 11 vs 13:
+      //   actually 03:00Z = 11:00 UTC, delta=-1, sq=1. 05:00Z = 13:00 UTC,
+      //   delta=+1, sq=1. Both squred to 1. Stable sort keeps them in
+      //   input order: 03:00Z before 05:00Z. So assert an order where
+      //   04:00Z is first and the other two follow in input-order.
+      const slots = [
+        "2026-04-06T05:00:00.000Z",
+        "2026-04-06T04:00:00.000Z",
+        "2026-04-06T03:00:00.000Z",
+      ];
+      const ordered = rankSlotsForTwoParties(
+        slots,
+        "Asia/Singapore",
+        "UTC"
+      );
+      // 04:00Z wins outright (student sq 0, instructor sq 0).
+      expect(ordered[0]).toBe("2026-04-06T04:00:00.000Z");
+      // 03:00Z and 05:00Z both have student sq 0 and instructor sq 1.
+      // Stable sort keeps them in input order.
+      expect(ordered.slice(1)).toEqual([
+        "2026-04-06T05:00:00.000Z",
+        "2026-04-06T03:00:00.000Z",
+      ]);
     });
 
     it("rankSlotsForTwoParties: returns the original order when no zones are supplied", () => {

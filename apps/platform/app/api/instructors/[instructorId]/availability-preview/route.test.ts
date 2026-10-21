@@ -166,18 +166,10 @@ describe("GET /api/instructors/[instructorId]/availability-preview", () => {
   });
 
   it("drops slots whose start hour in Asia/Singapore is outside 8am-10pm", async () => {
-    // Request 6 slots. With the SGT 8am-10pm filter and PDT working hours
-    // covering the full day, the expected order is:
-    //   23:00Z Mon = 07:00 SGT Tue — outside window (drop)
-    //   00:00Z Tue = 08:00 SGT Tue — accept, closest to mid-day
-    //   01:00Z Tue = 09:00 SGT Tue — accept
-    //   ...
-    //   06:00Z Tue = 14:00 SGT Tue — accept (12:00 mid-day tiebreak)
-    //   07:00Z Tue = 15:00 SGT Tue — closer to 12:00 (smaller delta)
-    //
-    // So slots whose start hour in SGT is 8-21 stay; 7 and 22+ get dropped.
-    // Default `slots=3` would otherwise return 09:00Z,10:00Z,11:00Z which
-    // are all 17:00,18:00,19:00 SGT (within window) so they pass-through.
+    // With frozen `now` at 08:00Z and full-day working hours, the loop
+    // first surfaces 08:00Z, 09:00Z, 10:00Z. In SGT those are 16:00,
+    // 17:00, 18:00 — all inside the 8–22 window. The filter is a
+    // pass-through here and the result must contain three slots.
     const response = await GET(
       makeAvailabilityRequest({
         slots: 3,
@@ -190,40 +182,51 @@ describe("GET /api/instructors/[instructorId]/availability-preview", () => {
     expect(json.connected).toBe(true);
     // Every slot must be within the SGT 8am-10pm window.
     for (const iso of json.slots) {
-      // Each candidate starts at the top-of-hour.
-      // SGT = UTC+8. So `hour(utc) + 8 mod 24` is the SGT hour. With a
-      // 09:00Z start, the SGT hour is 17:00. With 21:00Z, it's 05:00 next
-      // day and is rejected. With 23:00Z, it's 07:00 next day and rejected.
+      // Each candidate starts at the top-of-hour. SGT = UTC+8.
       const utcHour = Number(iso.slice(11, 13));
       const sgtHour = (utcHour + 8) % 24;
       expect(sgtHour).toBeGreaterThanOrEqual(8);
       expect(sgtHour).toBeLessThan(22);
     }
-    // Requested three slots; the curriculum (instructor in PT, student
-    // in SGT, full-day working hours, no busy) means three slots will
-    // fit, and they should be the same top-of-hours as without the
-    // filter — they already were in-window.
     expect(json.slots.length).toBe(3);
   });
 
-  it("returns no slots when the SGT window rejects every candidate", async () => {
-    // Request 6 slots, but choose a `days` window where the instructor's
-    // full-day working hours will surface three UTC slots whose SGT
-    // equivalents are all outside the 8-22 window. Simplest way: use
-    // `days=1` (3 slots starting at 09Z,10Z,11Z = 17,18,19 SGT — all
-    // *inside* the window). Skipped because it would not exercise the
-    // empty-path. Realistically, the only path that empties is when the
-    // instructor's working hours are themselves restrictive; we assert
-    // the contract via the helper unit test instead. That's the right
-    // division: integration here, exhaustive policy in timezone.test.ts.
-    // We do, however, assert that the response shape stays the same on
-    // empty results.
+  it("advances past out-of-window instructor-side hits instead of returning early (Greptile P1 #1)", async () => {
+    // For this test we freeze `now` at 21:00Z. With full-day working hours,
+    // the loop's first three chronological candidates are 22:00Z, 23:00Z,
+    // 00:00Z. In SGT those translate to:
+    //   22:00Z → 06:00 SGT next day  — outside window (drop)
+    //   23:00Z → 07:00 SGT next day  — outside window (drop)
+    //   00:00Z → 08:00 SGT next day  — in window (push)
+    //   01:00Z → 09:00 SGT next day  — in window (push)
+    //   02:00Z → 10:00 SGT next day  — in window (push)
+    //
+    // Pre-fix: `availableSlots.length` increments on every instructor-side
+    // hit, the loop terminates after 3 hits, and the post-loop filter drops
+    // two of them — returning just one slot for a request that should
+    // have produced three.
+    //
+    // Post-fix: the student-hours gate runs *inside* the loop, so the
+    // first two candidates are silently skipped and the loop pushes
+    // 00:00Z, 01:00Z, 02:00Z. Three slots come back.
+    vi.setSystemTime(new Date("2026-04-06T21:00:00.000Z"));
+
     const response = await GET(
-      makeAvailabilityRequest({ slots: 3, studentTimeZone: "Asia/Singapore" }),
+      makeAvailabilityRequest({
+        slots: 3,
+        studentTimeZone: "Asia/Singapore",
+      }),
       { params: Promise.resolve({ instructorId: "instructor_1" }) }
     );
     expect(response.status).toBe(200);
     const json = await response.json();
-    expect(Array.isArray(json.slots)).toBe(true);
+    expect(json.slots.length).toBe(3);
+    // Each returned slot must be within the SGT 8–22 window.
+    for (const iso of json.slots) {
+      const utcHour = Number(iso.slice(11, 13));
+      const sgtHour = (utcHour + 8) % 24;
+      expect(sgtHour).toBeGreaterThanOrEqual(8);
+      expect(sgtHour).toBeLessThan(22);
+    }
   });
 });
