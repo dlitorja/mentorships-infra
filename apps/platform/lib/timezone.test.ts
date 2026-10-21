@@ -284,34 +284,31 @@ describe("timezone helpers", () => {
     });
 
     it("rankSlotsForTwoParties: instructor distance tiebreaks when student distances tie", () => {
-      // Three candidate instants that all translate to 12:00 in
-      // Asia/Singapore — they all have student sq 0, so the sort must
-      // fall through to the instructor distance for ordering. The
-      // instructor zone is "UTC" so the UTC hour maps directly.
-      //   04:00Z → 12:00 UTC (sq 0)   — best instructor slot
-      //   05:00Z → 13:00 UTC (sq 1)   — next
-      //   03:00Z → 11:00 UTC (sq 1)   — ties with hour-04; tx to 11 vs 13:
-      //   actually 03:00Z = 11:00 UTC, delta=-1, sq=1. 05:00Z = 13:00 UTC,
-      //   delta=+1, sq=1. Both squred to 1. Stable sort keeps them in
-      //   input order: 03:00Z before 05:00Z. So assert an order where
-      //   04:00Z is first and the other two follow in input-order.
+      // Three candidate instants that translate to 11:00, 12:00, 13:00 in
+      // Asia/Singapore (UTC+8). The 12:00-SGT slot wins outright because
+      // its student-noon distance is zero. The other two tie on the
+      // student side (delta ±1, sq 1 each) and are resolved by the
+      // instructor distance in UTC: 03:00Z is 9 hours from noon in UTC
+      // (instructor sq 81), 05:00Z is 7 hours (instructor sq 49). 05:00Z
+      // is closer to instructor noon, so it should come second; 03:00Z
+      // is further and should come last.
+      //
+      // The input list is intentionally ordered [03:00Z, 04:00Z, 05:00Z]
+      // so that a buggy student-only sorter (which would use stable sort
+      // on the tie) would put 03:00Z *before* 05:00Z, failing the
+      // assertion. The lex sort's instructor-comparison tiebreaker is
+      // what makes this assertion meaningful — without it, the test
+      // passes vacuously.
       const slots = [
-        "2026-04-06T05:00:00.000Z",
-        "2026-04-06T04:00:00.000Z",
-        "2026-04-06T03:00:00.000Z",
+        "2026-04-06T03:00:00.000Z", // 11:00 SGT (delta -1), 03:00 UTC (delta -9, sq 81)
+        "2026-04-06T04:00:00.000Z", // 12:00 SGT (delta 0, sq 0), 04:00 UTC (delta -8, sq 64)
+        "2026-04-06T05:00:00.000Z", // 13:00 SGT (delta +1, sq 1), 05:00 UTC (delta -7, sq 49)
       ];
-      const ordered = rankSlotsForTwoParties(
-        slots,
-        "Asia/Singapore",
-        "UTC"
-      );
-      // 04:00Z wins outright (student sq 0, instructor sq 0).
-      expect(ordered[0]).toBe("2026-04-06T04:00:00.000Z");
-      // 03:00Z and 05:00Z both have student sq 0 and instructor sq 1.
-      // Stable sort keeps them in input order.
-      expect(ordered.slice(1)).toEqual([
-        "2026-04-06T05:00:00.000Z",
-        "2026-04-06T03:00:00.000Z",
+      const ordered = rankSlotsForTwoParties(slots, "Asia/Singapore", "UTC");
+      expect(ordered).toEqual([
+        "2026-04-06T04:00:00.000Z", // 12:00 SGT wins outright on student sq 0
+        "2026-04-06T05:00:00.000Z", // 13:00 SGT + closer to UTC noon (07:00 vs 09:00)
+        "2026-04-06T03:00:00.000Z", // 11:00 SGT + further from UTC noon
       ]);
     });
 
