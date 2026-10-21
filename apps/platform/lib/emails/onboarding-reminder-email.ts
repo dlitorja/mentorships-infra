@@ -2,11 +2,13 @@
  * PR 12 PR 4b — onboarding questionnaire abandonment reminder email.
  *
  * Sent by the Inngest cron `onboarding-questionnaire-reminders` when
- * a student's draft is stale (no `lastSeenAt` for
- * `ONBOARDING_REMINDER_STALE_MS`) and the row has not yet hit the
- * `ONBOARDING_REMINDER_MAX_COUNT` cap. The cron re-checks
- * `submission.status === "draft"` at send time to avoid racing a
- * beacon-then-submit.
+ * a student's draft has been inactive for at least the offset
+ * matching its current `reminderCount` — i.e.
+ * `ONBOARDING_REMINDER_OFFSETS_MS[reminderCount]` since the last
+ * autosave or tab-close beacon. The cap is `ONBOARDING_REMINDER_MAX_COUNT`
+ * (PR onboarding-reminder-cadence: 24h / 48h / 96h). The cron
+ * re-checks `submission.status === "draft"` at send time to avoid
+ * racing a beacon-then-submit.
  *
  * HTML-escapes every user-supplied value (student name, email,
  * onboarding id never user-controlled). Single CTA links to

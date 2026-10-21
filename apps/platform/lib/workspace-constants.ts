@@ -49,9 +49,17 @@ export const MAX_INSPIRATIONS = 4;
 export const ONBOARDING_WORK_EXAMPLES_B2_PREFIX = "onboarding";
 
 export const ONBOARDING_AUTOSAVE_DEBOUNCE_MS = 500;
-export const ONBOARDING_REMINDER_STALE_MS = 60 * 60 * 1000;
-export const ONBOARDING_REMINDER_MAX_COUNT = 3;
-export const ONBOARDING_REMINDER_MIN_INTERVAL_MS = 30 * 60 * 1000;
+// PR onboarding-reminder-cadence — per-reminder offsets measured
+// from the student's last activity timestamp. Length must equal
+// ONBOARDING_REMINDER_MAX_COUNT. See `convex/workspaceConstants.ts`
+// for the canonical source of truth and rationale.
+export const ONBOARDING_REMINDER_OFFSETS_MS = [
+  24 * 60 * 60 * 1000, // reminder #1 — 24h after last activity
+  48 * 60 * 60 * 1000, // reminder #2 — 48h after last activity
+  96 * 60 * 60 * 1000, // reminder #3 — 96h after last activity
+] as const;
+export const ONBOARDING_REMINDER_MAX_COUNT =
+  ONBOARDING_REMINDER_OFFSETS_MS.length;
 
 export const ONBOARDING_REQUIRED_QUESTION_IDS = [
   "how_did_you_hear",
