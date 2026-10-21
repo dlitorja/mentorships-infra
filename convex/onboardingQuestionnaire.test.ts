@@ -889,7 +889,15 @@ async function runScanForOnboardingId(
   t: any,
   onboardingId: string,
   patch: { lastSeenAt: number; updatedAt: number; reminderCount?: number; lastReminderSentAt?: number }
-): Promise<{ onboardingId: string } | undefined> {
+): Promise<
+  | {
+      onboardingId: string;
+      reminderCount: number;
+      lastSeenAt: number | null;
+      lastReminderSentAt: number | null;
+    }
+  | undefined
+> {
   await t.run(async (ctx: any) => {
     const sub = await ctx.db
       .query("onboardingQuestionnaireSubmissions")
@@ -900,9 +908,14 @@ async function runScanForOnboardingId(
   const page = await t.run(async (ctx: any) =>
     ctx.runQuery(internal.onboardingQuestionnaire.listStaleDraftsForReminder as any, { cursor: null })
   );
-  const match = (page.candidates as Array<{ onboardingId: string }>).find(
-    (c) => c.onboardingId === onboardingId
-  );
+  const match = (
+    page.candidates as Array<{
+      onboardingId: string;
+      reminderCount: number;
+      lastSeenAt: number | null;
+      lastReminderSentAt: number | null;
+    }>
+  ).find((c) => c.onboardingId === onboardingId);
   return match;
 }
 

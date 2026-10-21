@@ -79,6 +79,11 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         studentEmail: string;
         studentName: string | null;
         reminderCount: number;
+        // PR onboarding-reminder-cadence (greptile round-2
+        // follow-up): forward `lastReminderSentAt` so the
+        // per-row wall-clock min-gap check has the
+        // server-known timestamp without re-reading the row.
+        lastReminderSentAt: number | null;
       }> = [];
       let cursor: string | null = null;
       // Greptile round-27 P1 #2: no page cap. `isDone` (end
@@ -108,6 +113,11 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
             studentName: string | null;
             reminderCount: number;
             lastSeenAt: number | null;
+            // PR onboarding-reminder-cadence (greptile round-2
+            // follow-up): forward `lastReminderSentAt` from the
+            // Convex scan so the per-row min-gap guard can be
+            // evaluated against the server-known timestamp.
+            lastReminderSentAt: number | null;
           }>;
           nextCursor: string | null;
           isDone: boolean;
@@ -209,7 +219,10 @@ export const onboardingQuestionnaireReminders = inngest.createFunction(
         // so a cron tick that started before the previous reminder
         // finished could re-eligible a row whose `lastReminderSentAt`
         // was bumped between scan and this check.
-        if (draft.lastReminderSentAt !== undefined) {
+        if (
+          draft.lastReminderSentAt !== undefined &&
+          draft.lastReminderSentAt !== null
+        ) {
           const minGapCutoff = Date.now() - ONBOARDING_REMINDER_MIN_GAP_MS;
           if (draft.lastReminderSentAt > minGapCutoff) {
             return { skipped: true, reason: "min-gap" } as const;

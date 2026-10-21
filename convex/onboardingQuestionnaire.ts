@@ -903,6 +903,12 @@ export const listStaleDraftsForReminder = internalQuery({
         studentName: v.union(v.string(), v.null()),
         reminderCount: v.number(),
         lastSeenAt: v.union(v.number(), v.null()),
+        // PR onboarding-reminder-cadence: forward
+        // `lastReminderSentAt` so the Inngest per-row send step
+        // can apply the wall-clock min-gap guard against the
+        // *server-known* timestamp (the value sent in the scan
+        // response) instead of having to re-fetch the row.
+        lastReminderSentAt: v.union(v.number(), v.null()),
       })
     ),
     nextCursor: v.union(v.string(), v.null()),
@@ -940,6 +946,7 @@ export const listStaleDraftsForReminder = internalQuery({
       studentName: string | null;
       reminderCount: number;
       lastSeenAt: number | null;
+      lastReminderSentAt: number | null;
     }> = [];
 
     const page = await ctx.db
@@ -1031,6 +1038,7 @@ export const listStaleDraftsForReminder = internalQuery({
           : null,
         reminderCount,
         lastSeenAt: row.lastSeenAt ?? null,
+        lastReminderSentAt: row.lastReminderSentAt ?? null,
       });
 
       if (candidates.length >= STALE_BATCH_LIMIT) break;
