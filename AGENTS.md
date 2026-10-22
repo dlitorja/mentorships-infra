@@ -122,7 +122,7 @@ Current known version snapshots (verify before relying on these):
 
 | Package / Tool | Current project version | Latest known | Notes |
 | --- | --- | --- | --- |
-| `node` | `24.20.0` (`.nvmrc`) | `24.20.0` | Pinned via `.nvmrc`; CI uses `actions/setup-node` with `node-version-file`. Apps declare `engines.node: ^24.0.0` so Vercel pins explicitly. `apps/edge-functions` is Workers-only and not pinned. |
+| `node` | `24.22.1` (`.nvmrc`) | `24.22.1` | Pinned via `.nvmrc`; CI uses `actions/setup-node` with `node-version-file`. Apps declare `engines.node: ^24.0.0` so Vercel pins explicitly. `apps/edge-functions` is Workers-only and not pinned. |
 | `inngest` (platform) | `^4.14.0` | `4.14.0` | Latest as of last check. |
 | `inngest` (web) | `^3.54.0` | `4.14.0` | Legacy; upgrade to v4 is a separate initiative. |
 | `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
