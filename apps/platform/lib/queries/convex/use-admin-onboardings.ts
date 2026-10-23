@@ -70,6 +70,16 @@ export type AdminOnboarding = {
   cancelledByUserId?: string;
   completedAt?: number;
   createdAt: number;
+  /**
+   * IANA timezone the student picked from the timezone picker. PR 14
+   * addition — surfaced on the detail page so admins can spot-check
+   * that the stored value looks plausible (right region, plausible
+   * UTC offset) before the first session is scheduled. Optional so
+   * legacy rows written before that PR remain compatible.
+   */
+  studentTimezone?: string;
+  /** Set at the same time as `studentTimezone`; absent on legacy rows. */
+  studentTimezoneSetAt?: number;
 };
 
 /**
@@ -124,6 +134,89 @@ export function useAdminOnboarding(
   return useQuery({
     ...convexQuery(api.adminOnboarding.getAdminOnboarding, id ? { id } : { id: "" as Id<"adminOnboardings"> }),
     enabled: !!id,
+  });
+}
+
+/**
+ * Submitted questionnaire answers + inspirations + active work-example
+ * rows for an onboarding record. Mirrors
+ * `convex.onboardingQuestionnaire.getSubmittedQuestionnaireForViewer`,
+ * which is gated on the viewer being the assigned student, one of the
+ * assigned instructors, or admin/support. The admin detail page passes
+ * its own identity through this hook — admins/support see the row;
+ * anyone else gets `null` and the page renders "Not yet submitted".
+ */
+export type AdminOnboardingSubmittedQuestionnaire =
+  | null
+  | {
+      submission: {
+        submittedAt: number;
+        questionnaireVersion: number;
+        answers: Array<{
+          questionId: string;
+          questionText: string;
+          answerText: string;
+        }>;
+        inspirations: Array<{ name: string }>;
+      };
+      /**
+       * Active-only work examples the reviewer should preview. We
+       * intentionally exclude `pending` rows here (in-flight uploads)
+       * because listing them on the admin detail page has caused
+       * "(image)" placeholders in the past — see Greptile round-24
+       * P2 #1. The full pending + active list still lives on
+       * `useOnboardingWorkExamples` for surfaces that need it.
+       */
+      workExamples: Array<{
+        _id: Id<"onboardingWorkExamples">;
+        b2Key: string;
+        contentType: string;
+        size: number;
+        uploadedAt: number;
+      }>;
+    };
+
+export function useSubmittedQuestionnaire(
+  onboardingId: Id<"adminOnboardings"> | null | undefined
+): UseQueryResult<AdminOnboardingSubmittedQuestionnaire, Error> {
+  return useQuery({
+    ...convexQuery(
+      (api as any).onboardingQuestionnaire.getSubmittedQuestionnaireForViewer,
+      onboardingId
+        ? { onboardingId }
+        : { onboardingId: "" as Id<"adminOnboardings"> }
+    ),
+    enabled: !!onboardingId,
+  });
+}
+
+/**
+ * All non-deleted work-example rows for an onboarding. Same auth gate
+ * as `useSubmittedQuestionnaire` (admin/support pass through). Use
+ * this when a surface needs both `pending` and `active` rows (the
+ * admin detail page filters to active after this resolves).
+ */
+export type AdminOnboardingWorkExample = {
+  _id: Id<"onboardingWorkExamples">;
+  status: "pending" | "active" | "deleted";
+  fileName: string;
+  b2Key: string;
+  contentType: string;
+  size: number;
+  uploadedAt: number;
+};
+
+export function useOnboardingWorkExamples(
+  onboardingId: Id<"adminOnboardings"> | null | undefined
+): UseQueryResult<AdminOnboardingWorkExample[], Error> {
+  return useQuery({
+    ...convexQuery(
+      (api as any).onboardingWorkExamples.listWorkExamples,
+      onboardingId
+        ? { onboardingId }
+        : { onboardingId: "" as Id<"adminOnboardings"> }
+    ),
+    enabled: !!onboardingId,
   });
 }
 
