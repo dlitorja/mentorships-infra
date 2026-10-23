@@ -253,4 +253,68 @@ describe("AdminOnboardingDetailPage — Student questionnaire card", () => {
       screen.getByText(/loading student responses/i)
     ).toBeInTheDocument();
   });
+
+  // Greptile round-1 P2 (PR #953): a failed request must NOT be
+  // confusable with "the student hasn't submitted." Verify the
+  // questionnaire hook's error state renders an explicit
+  // "couldn't load" panel instead of "not yet submitted."
+  it("renders an explicit error state when the questionnaire hook fails (not 'not yet submitted')", () => {
+    mockedUseAdminOnboarding.mockReturnValue({
+      data: sampleAdminOnboarding,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
+    mockedUseSubmittedQuestionnaire.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: true,
+      error: new Error("Convex unreachable"),
+    } as any);
+    mockedUseOnboardingWorkExamples.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
+
+    renderPage();
+
+    const card = screen.getByTestId("admin-onboarding-questionnaire-card");
+    expect(card.textContent).toMatch(/couldn'?t load the student/i);
+    expect(card.textContent).not.toMatch(/not yet submitted by the student/i);
+    // The underlying error string is surfaced for support.
+    expect(card.textContent).toMatch(/Convex unreachable/);
+  });
+
+  // Greptile round-1 P2 (PR #953): same treatment for the
+  // work-examples query. A failure comes through as an explicit
+  // panel, not "no work examples attached."
+  it("renders an explicit error state when the work-examples hook fails (not 'no work examples attached')", () => {
+    mockedUseAdminOnboarding.mockReturnValue({
+      data: sampleAdminOnboarding,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
+    mockedUseSubmittedQuestionnaire.mockReturnValue({
+      data: sampleQuestionnaireSubmission,
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as any);
+    mockedUseOnboardingWorkExamples.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: true,
+      error: new Error("Signed-URL endpoint 503"),
+    } as any);
+
+    renderPage();
+
+    const card = screen.getByTestId("admin-onboarding-questionnaire-card");
+    expect(card.textContent).toMatch(/couldn'?t load work examples/i);
+    expect(card.textContent).not.toMatch(/no work examples attached/i);
+    expect(card.textContent).toMatch(/Signed-URL endpoint 503/);
+  });
 });

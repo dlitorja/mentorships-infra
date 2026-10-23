@@ -321,19 +321,27 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                 Student questionnaire
               </CardTitle>
               <CardDescription>
-                {/* Three states: still loading, no submission yet
-                    (null), or a real submission with a `submittedAt`
-                    timestamp. The user's request ("admins should
-                    be able to see this so we can facilitate things")
+                {/* Greptile round-1 P2 (PR #953): four states now —
+                    still loading, errored, no submission yet (null),
+                    or a real submission with a `submittedAt`
+                    timestamp. The user's request ("admins should be
+                    able to see this so we can facilitate things")
                     needs every state to render gracefully — a
-                    spinner is honest while fetching, a "Not yet
-                    submitted" panel makes it obvious the student
-                    hasn't reached submit, and the populated card
-                    is the actual payload. */}
+                    spinner is honest while fetching, an explicit
+                    "couldn't load" panel stops an admin from
+                    mistaking a network / auth failure for "the
+                    student hasn't submitted", the "Not yet
+                    submitted" branch covers the genuine no-data
+                    case, and the populated card is the payload. */}
                 {questionnaire.isLoading ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading student responses…
+                  </span>
+                ) : questionnaire.isError ? (
+                  <span className="inline-flex items-center gap-1 text-destructive">
+                    <AlertTriangle className="h-3 w-3" />
+                    Couldn&apos;t load student responses.
                   </span>
                 ) : questionnaire.data ? (
                   <>
@@ -351,6 +359,27 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
               {questionnaire.isLoading ? (
                 <div className="flex justify-center py-4">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : questionnaire.isError ? (
+                // Greptile round-1 P2: a failed request must not be
+                // confusable with "no submission yet". Surface the
+                // underlying error in monospace so an admin can read
+                // it to support, and tell them to retry or check the
+                // browser console for the full stack.
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                  <p>
+                    <strong>Couldn&apos;t load the student&apos;s
+                    questionnaire.</strong> The page is shown without
+                    answer text below. Refresh, or check the browser
+                    console for the underlying error.
+                  </p>
+                  <p className="mt-1 font-mono text-xs">
+                    {String(
+                      (questionnaire.error as Error | null)?.message ??
+                        questionnaire.error ??
+                        "Unknown error"
+                    )}
+                  </p>
                 </div>
               ) : !questionnaire.data ? (
                 <p className="text-sm text-muted-foreground">
@@ -435,7 +464,29 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                         </span>
                       ) : null}
                     </p>
-                    {activeWorkExamples.length > 0 ? (
+                    {/* Greptile round-1 P2 (PR #953): failed /
+                        still-loading state for the work-examples
+                        query must not be confusable with "no
+                        uploads." When we can't read the row at
+                        all, say so explicitly so an admin
+                        doesn't refresh-and-relax. */}
+                    {workExamplesQuery.isError ? (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                        <p>
+                          <strong>Couldn&apos;t load work examples.</strong>{" "}
+                          Refresh, or check the browser console for the
+                          underlying error.
+                        </p>
+                        <p className="mt-1 font-mono text-xs">
+                          {String(
+                            (workExamplesQuery.error as Error | null)
+                              ?.message ??
+                              workExamplesQuery.error ??
+                              "Unknown error"
+                          )}
+                        </p>
+                      </div>
+                    ) : activeWorkExamples.length > 0 ? (
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                         {activeWorkExamples.map((w) => (
                           <div
@@ -453,6 +504,10 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                           </div>
                         ))}
                       </div>
+                    ) : workExamplesQuery.isLoading ? (
+                      <p className="text-sm text-muted-foreground italic">
+                        Loading work examples…
+                      </p>
                     ) : (
                       <p className="text-sm text-muted-foreground italic">
                         No work examples attached.
