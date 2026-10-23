@@ -6,6 +6,7 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexAuthToken } from "@/lib/auth-helpers";
+import { getOnboardingQuestionLabel } from "@/lib/onboarding-questions";
 import {
   Card,
   CardContent,
@@ -437,7 +438,7 @@ const submittedWorkExamples = (
                   }) => (
                     <div key={a.questionId} className="space-y-1">
                       <p className="text-sm font-medium">
-                        {a.questionText ?? questionLabel(a.questionId)}
+                        {a.questionText ?? getOnboardingQuestionLabel(a.questionId)}
                       </p>
                       {/* PR 14 — reviewer ergonomics: students paste
                          URLs into their answers (the inspirations
@@ -505,19 +506,6 @@ const submittedWorkExamples = (
       </div>
     </ProtectedLayout>
   );
-}
-
-function questionLabel(id: string): string {
-  switch (id) {
-    case "how_did_you_hear":
-      return "How did you learn about this mentorship?";
-    case "goals":
-      return "Goals";
-    case "inspirations":
-      return "Inspirations";
-    default:
-      return id;
-  }
 }
 
 /**

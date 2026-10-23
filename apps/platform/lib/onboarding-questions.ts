@@ -73,3 +73,17 @@ export const ONBOARDING_QUESTIONS: readonly OnboardingQuestion[] = [
       "Which artists inspire you the most? Name 3-4. You can post links to artists as well.",
   },
 ] as const;
+
+/**
+ * Resolves a stored `questionId` to its canonical label so reviewer
+ * surfaces (the staff branch of `/onboarding/[id]` and the admin
+ * detail page's "Student questionnaire" card) can render a header
+ * for older submissions whose `questionText` field happens to be
+ * empty for any reason. Falls back to the raw id so a future
+ * question that hasn't been added to `ONBOARDING_QUESTIONS` yet
+ * still renders something readable instead of disappearing.
+ */
+export function getOnboardingQuestionLabel(id: string): string {
+  const match = ONBOARDING_QUESTIONS.find((q) => q.id === id);
+  return match?.label ?? id;
+}
