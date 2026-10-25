@@ -1,0 +1,1 @@
+No-auth writable mutations: 15

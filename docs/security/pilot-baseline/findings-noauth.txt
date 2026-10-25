@@ -1,0 +1,15 @@
+convex/contacts.ts                                 :9     addContact                               public mutation performs insert with NO auth check at all
+convex/instructorUploads.ts                        :308   createUpload                             public mutation performs insert with NO auth check at all
+convex/instructorUploads.ts                        :454   updateUploadStarted                      public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :494   markUploadForCleanup                     public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :533   completeUpload                           public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :571   softDeleteUpload                         public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :598   deleteUpload                             public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :1390  restoreUpload                            public mutation performs patch with NO auth check at all
+convex/instructorUploads.ts                        :1431  hardDeleteUpload                         public mutation performs patch with NO auth check at all
+convex/onboardingWorkExamples.ts                   :452   deleteWorkExample                        public mutation performs patch with NO auth check at all
+convex/orders.ts                                   :223   createOrder                              public mutation performs insert with NO auth check at all
+convex/orders.ts                                   :262   updateOrder                              public mutation performs patch with NO auth check at all
+convex/orders.ts                                   :287   completeOrder                            public mutation performs patch with NO auth check at all
+convex/orders.ts                                   :309   cancelOrder                              public mutation performs patch with NO auth check at all
+convex/orders.ts                                   :331   refundOrder                              public mutation performs patch with NO auth check at all

@@ -1,0 +1,261 @@
+[
+  {
+    "file": "convex/adminOnboarding.ts",
+    "line": 625,
+    "shape": "b",
+    "name": "retryAdminOnboarding",
+    "msg": "loads doc via ctx.db.get(args.onboardingId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminOnboarding.ts",
+    "line": 715,
+    "shape": "b",
+    "name": "resendAdminOnboardingInvitation",
+    "msg": "loads doc via ctx.db.get(args.onboardingId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminOnboarding.ts",
+    "line": 789,
+    "shape": "b",
+    "name": "cancelAdminOnboarding",
+    "msg": "loads doc via ctx.db.get(args.onboardingId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 158,
+    "shape": "b",
+    "name": "getWorkspaceByIdAdmin",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 264,
+    "shape": "d",
+    "name": "createAdminInstructorWorkspace",
+    "msg": "args.instructorId is used as parent FK in insert without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 398,
+    "shape": "b",
+    "name": "deleteWorkspaceAdmin",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 436,
+    "shape": "b",
+    "name": "updateWorkspaceAdmin",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 482,
+    "shape": "b",
+    "name": "updateWorkspaceOwner",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 528,
+    "shape": "b",
+    "name": "updateWorkspaceInstructor",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/adminWorkspaces.ts",
+    "line": 564,
+    "shape": "b",
+    "name": "clearWorkspaceInstructor",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructorResources.ts",
+    "line": 127,
+    "shape": "b",
+    "name": "getInstructorResources",
+    "msg": "loads doc via ctx.db.get(args.workspaceId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 1151,
+    "shape": "b",
+    "name": "getInstructorById",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 2687,
+    "shape": "b",
+    "name": "updateStudentResultStorageId",
+    "msg": "loads doc via ctx.db.get(args.studentResultId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 2777,
+    "shape": "b",
+    "name": "getTestimonialById",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 2792,
+    "shape": "b",
+    "name": "getStudentResultById",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 2963,
+    "shape": "b",
+    "name": "getStudentDetails",
+    "msg": "loads doc via ctx.db.get(args.instructorId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 3080,
+    "shape": "b",
+    "name": "deleteTestimonial",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/instructors.ts",
+    "line": 3114,
+    "shape": "b",
+    "name": "deleteStudentResult",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/payments.ts",
+    "line": 240,
+    "shape": "b",
+    "name": "adminProcessRefund",
+    "msg": "loads doc via ctx.db.get(args.paymentId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/products.ts",
+    "line": 160,
+    "shape": "b",
+    "name": "getProductForAdmin",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/seatReservations.ts",
+    "line": 75,
+    "shape": "b",
+    "name": "getInstructorActiveSeats",
+    "msg": "loads doc via ctx.db.get(args.instructorId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/seatReservations.ts",
+    "line": 116,
+    "shape": "b",
+    "name": "getInstructorStudentsWithRemainingSessions",
+    "msg": "loads doc via ctx.db.get(args.instructorId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/studentInvitations.ts",
+    "line": 165,
+    "shape": "d",
+    "name": "createStudentInvitation",
+    "msg": "args.instructorId is used as parent FK in insert without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/studentOnboarding.ts",
+    "line": 133,
+    "shape": "d",
+    "name": "create",
+    "msg": "args.sessionPackId is used as parent FK in insert without ctx.db.get(args.sessionPackId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 90,
+    "shape": "d",
+    "name": "upsertSessionCount",
+    "msg": "args.instructorId is used as parent FK in patch without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 101,
+    "shape": "d",
+    "name": "upsertSessionCount",
+    "msg": "args.instructorId is used as parent FK in insert without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 132,
+    "shape": "b",
+    "name": "updateSessionCount",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 144,
+    "shape": "b",
+    "name": "updateSessionCount",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 166,
+    "shape": "b",
+    "name": "adjustSessionCount",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 179,
+    "shape": "b",
+    "name": "adjustSessionCount",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/studentSessionCounts.ts",
+    "line": 196,
+    "shape": "b",
+    "name": "deleteSessionCount",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/users.ts",
+    "line": 1237,
+    "shape": "b",
+    "name": "getUserByClerkIdPublic",
+    "msg": "loads doc via ctx.db.get(args.sessionId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/videoEditorAssignments.ts",
+    "line": 356,
+    "shape": "b",
+    "name": "setVideoEditorAssignmentQuota",
+    "msg": "loads doc via ctx.db.get(args.assignmentId) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/videoEditorAssignments.ts",
+    "line": 424,
+    "shape": "d",
+    "name": "setVideoEditorAssignmentQuotaByIds",
+    "msg": "args.instructorId is used as parent FK in patch without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/videoEditorAssignments.ts",
+    "line": 485,
+    "shape": "d",
+    "name": "createVideoEditorAssignment",
+    "msg": "args.instructorId is used as parent FK in insert without ctx.db.get(args.instructorId) / requireOwner check before the write"
+  },
+  {
+    "file": "convex/workspaces.ts",
+    "line": 1240,
+    "shape": "b",
+    "name": "archiveWorkspace",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  },
+  {
+    "file": "convex/workspaces.ts",
+    "line": 1281,
+    "shape": "b",
+    "name": "unarchiveWorkspace",
+    "msg": "loads doc via ctx.db.get(args.id) then patches/deletes/returns without comparing identity.subject against the loaded row's owner field"
+  }
+]

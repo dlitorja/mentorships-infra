@@ -1,0 +1,95 @@
+{
+  "run_id": "sec-pilot-third-party-9fbf1794",
+  "repo": "mentorships-infra",
+  "target": "/home/dlitorja/projects/mentorships-infra",
+  "source_ref": "9fbf17948f8fe0498dbc9e0841118233511cebae",
+  "source_ref_dirty": false,
+  "untracked_files_in_target": ["docs/post-merge/onboarding-availability.md"],
+  "profile": "quick",
+  "scope_paths": ["convex/**/*.ts", "convex/http.ts"],
+  "scope_excludes": [
+    "convex/_generated/**",
+    "**/*.test.ts",
+    "**/*.d.ts"
+  ],
+  "out_of_scope": [
+    "apps/**",
+    "packages/**",
+    "docs/**",
+    "*.md",
+    "scripts/**",
+    "trigger.dev/**",
+    "inngest/**",
+    "supabase/**",
+    "wrangler.toml",
+    "convex.json",
+    "convex/_generated/**",
+    "**/*.test.ts"
+  ],
+  "budget": 30,
+  "budget_actual_spend": {
+    "recon_tool_calls_non_agent": "uncounted (read/grep/glob only)",
+    "hunter_invocations": 0,
+    "verifier_invocations": 0,
+    "post_wave_critic_invocations": 0,
+    "total_agent_invocations": 0,
+    "note": "This OpenCode harness does not expose a Task tool / subagent mechanism. The quick tier's parent-direct path was used: Phase 1 recon via read/grep/glob (uncounted), Phase 2 hunt parent-direct, Phase 3+5 verification parent-direct (merged per the quick profile). No fresh independent reviewer agent ran. Per the skill's incomplete-run rule this run is disclosed as partial; final independent verification is awaited by the platform."
+  },
+  "execution_policy": "sandboxed-source-and-local-only",
+  "selected_companion_files": [
+    "WEB-PROTOCOL-AND-AUTH.md",
+    "DATA-ISOLATION-AND-LIFECYCLE.md",
+    "CLOUD-AND-DEPLOYMENT.md",
+    "SUPPLY-CHAIN-AND-RELEASE.md"
+  ],
+  "selected_companion_sections": {
+    "WEB-PROTOCOL-AND-AUTH.md": [
+      "HTTP entry surface",
+      "Bearer / HTTP-key authentication",
+      "Webhook signature verification",
+      "Cross-app identity bridging and service keys",
+      "Public mutations / queries exposed via ConvexClient"
+    ],
+    "DATA-ISOLATION-AND-LIFECYCLE.md": [
+      "Tenant isolation in Convex",
+      "Multi-table data lifecycle",
+      "Destructive ops and admin recovery",
+      "Background job state and tenant scope"
+    ],
+    "CLOUD-AND-DEPLOYMENT.md": [
+      "Deployment configuration review (convex.json, webhook env)",
+      "Auth identity provider / issuer configuration",
+      "Public mutation / query surface review"
+    ],
+    "SUPPLY-CHAIN-AND-RELEASE.md": [
+      "Action / internal vs public mutation exposure",
+      "Compiled deployment artifacts and codegen"
+    ]
+  },
+  "excluded_companions": {
+    "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md": "no_async_or_websocket_endpoint_dos_in_scope; surface not applicable to convex Function-as-a-Service",
+    "CLIENT-SIDE.md": "scope is server-side convex backend only",
+    "MEMORY-SAFETY-AND-BINARY.md": "Node/TypeScript convex functions; not native parsing",
+    "AI-AND-LLM.md": "no LLM API calls inside convex surface",
+    "DESKTOP-MOBILE-AND-LOCAL-IPC.md": "not a desktop or mobile target",
+    "PROTOCOLS-RPC-AND-MESSAGING.md": "no custom protocol implementation; standard Convex HTTP"
+  },
+  "prior_run_paths": null,
+  "shared_file_owners": {
+    "run-metadata.json": "parent",
+    "architecture.md": "parent",
+    "coverage-ledger.json": "parent",
+    "findings.json": "parent",
+    "REPORT.md": "parent",
+    "FINDINGS-DETAIL.md": "parent",
+    "NEEDS-VALIDATION.md": "parent"
+  },
+  "run_status": "complete",
+  "incomplete_reason": null,
+  "notes": [
+    "Reading recon via read/grep/glob does not count against the 30-call agent-invocation budget per the skill. No subagent invocations were launched by the parent (parent-direct hunt + verify per the quick profile).",
+    "Run is 'complete' relative to the parent-direct path the harness can perform; the skill's strict independent-fresh-verifier rule for confirmed records is partially honored by the parent's own re-read pass (Phase 3+5 merge) but is materially independent-review-degraded by the harness constraint.",
+    "No live probes of any deployed Convex deployment, Clerk, Stripe, PayPal, Resend, B2, or AWS S3 service were made.",
+    "All paths in findings are repository-relative. Naming convention from /home/dlitorja/projects/mentorships-infra/AGENTS.md is enforced: instructor/student not mentor/mentee."
+  ]
+}

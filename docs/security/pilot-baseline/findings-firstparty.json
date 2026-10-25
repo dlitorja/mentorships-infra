@@ -1,0 +1,41 @@
+{
+  "pilot": "Phase A.1",
+  "branch": "chore/sec-pilot-a1 @ main@9fbf1794",
+  "worktree": "/home/dlitorja/projects/mentorships-infra-sec-pilot",
+  "scope": "convex/**/*.ts (excluding _generated/, *.d.ts, *.test.ts) + convex/http.ts",
+  "skills_run": [
+    "convex-reviewer",
+    "convex-authz"
+  ],
+  "pilot_mode": "convex-reviewer READ-ONLY; convex-authz DESTRUCTIVE-WITH-RESET (worktree wiped at end)",
+  "summary": {
+    "convex-reviewer": {
+      "findings_total": 92,
+      "critical": 79,
+      "important": 10,
+      "suggestion": 3,
+      "http_router_audit": "PASS \u2014 all routes use verifyAuth or verifyCallbackSecret",
+      "passes": [
+        "Security",
+        "Performance",
+        "Code Quality"
+      ]
+    },
+    "convex-authz": {
+      "foundation_present": true,
+      "shape_counts_prepatch": {
+        "a": 0,
+        "b": 30,
+        "c": 0,
+        "d": 7
+      },
+      "no_auth_writable_prepatch": 79,
+      "no_auth_writable_postpatch": 0,
+      "tsc_clean": true,
+      "files_modified": 21,
+      "new_helper_file": "convex/model/auth.ts"
+    }
+  },
+  "set_b_overlap_estimate": "high \u2014 most convex-reviewer Critical findings (privilege escalation / zero-auth public mutations on convex/users.ts, payments.ts, sessions.ts, instructors.ts, sessionPacks.ts, etc.) map directly onto the public-mutations-lacking-admin-gate shape that convex-authz patched via internalMutation / serviceKey / admin-role gating. Convex-authz applies the patch; convex-reviewer documents the issue. Convex-reviewer's Performance and Code-Quality categories are not in convex-authz's scope.",
+  "set_a_potential_for_third_party": "TBD in Phase A.2 \u2014 the third-party skill's relevant coverage-ledger and findings.json will be diffed against this. Strong Set A signals would be: HTTP/body validation issues convex-reviewer didn't see (path-level checks of convex/http.ts caller-side checks beyond verifyAuth/verifyCallbackSecret), Convex typescript/validator-specific defects (missing `returns` validators, missing `args` validators), subtle IDOR patterns that don't fall into the 4-shape taxonomy, and cross-app flows between convex/ and apps/web/ (mutation boundaries that convex/ alone can't see)."
+}
