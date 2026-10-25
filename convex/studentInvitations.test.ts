@@ -287,14 +287,14 @@ test("updateStudentInvitationClerkId: admin can patch the Clerk id", async () =>
 });
 
 // -------------------------------------------------------------------
-// `migrateInvitation` is intentionally ungated (migration CLI contract)
+// `migrateInvitation` is internal-only (migration CLI contract)
 // -------------------------------------------------------------------
 
-test("migrateInvitation: still publicly callable (system migration CLI)", async () => {
+test("migrateInvitation: callable via the internal API (system migration CLI)", async () => {
   const t = convexTest(schema, modules);
   const instructorId = await seedInstructor(t, "migrate-b-system");
 
-  await t.mutation(api.studentInvitations.migrateInvitation, {
+  await t.mutation(internal.studentInvitations.migrateInvitation, {
     id: "legacy_id_001",
     email: "jack@example.com",
     instructorId: instructorId as unknown as import("./_generated/dataModel").Id<"instructors">,
@@ -468,7 +468,7 @@ test("Inngest link flow: list-pending-by-email + accept-by-id work end-to-end", 
   const t = convexTest(schema, modules);
   const instructorId = await seedInstructor(t, "link-b-flow");
 
-  await t.mutation(api.studentInvitations.migrateInvitation, {
+  await t.mutation(internal.studentInvitations.migrateInvitation, {
     id: "legacy_quinn",
     email: "quinn@example.com",
     instructorId: instructorId as unknown as import("./_generated/dataModel").Id<"instructors">,
@@ -513,7 +513,7 @@ test("acceptStudentInvitationByIdInternal: refuses terminal status", async () =>
   const t = convexTest(schema, modules);
   const instructorId = await seedInstructor(t, "link-b-terminal");
 
-  await t.mutation(api.studentInvitations.migrateInvitation, {
+  await t.mutation(internal.studentInvitations.migrateInvitation, {
     id: "legacy_ruth",
     email: "ruth@example.com",
     instructorId: instructorId as unknown as import("./_generated/dataModel").Id<"instructors">,
@@ -543,7 +543,7 @@ test("acceptStudentInvitationByIdInternal: refuses already-expired row (does not
 
   // Seed via migrateInvitation with `status: "expired"` directly, not
   // through the expiresAt shortcut (which would re-write "pending").
-  await t.mutation(api.studentInvitations.migrateInvitation, {
+  await t.mutation(internal.studentInvitations.migrateInvitation, {
     id: "legacy_sam",
     email: "sam@example.com",
     instructorId: instructorId as unknown as import("./_generated/dataModel").Id<"instructors">,

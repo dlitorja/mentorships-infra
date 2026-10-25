@@ -288,7 +288,7 @@ export const deletePayment = mutation({
   },
 });
 
-export const migratePayment = mutation({
+export const migratePayment = internalMutation({
   args: {
     id: v.string(),
     orderId: v.id("orders"),

@@ -440,22 +440,20 @@ export const getStudentInvitationById = query({
  * Migrates a student invitation from legacy system.
  * Updates existing invitation if found by email and instructor, otherwise creates new.
  *
- * PR-B (Issue 3): migration-script callable. INTENTIONALLY left without
- * a `requireAdminOrSupport` gate — callers here are `npx convex run`
- * invocations from the legacy student-invitation migration CLI which
- * authenticate with `CONVEX_DEPLOY_KEY` (deployment-admin) and have no
- * Clerk user identity. Putting a `users.role` check here would break
- * the migration CLI.
+ * PR-B (Issue 3): migration-script callable. Internal-only as of the
+ * security sweep (F3): this was a public `mutation`, which let any
+ * caller holding the deployment URL write invitation rows without an
+ * admin gate. The only callers are `npx convex run
+ * studentInvitations:migrateInvitation` invocations from the legacy
+ * migration CLI; the CLI authenticates with `CONVEX_DEPLOY_KEY`
+ * (deployment-admin) and can invoke internal functions, so no CLI
+ * change was required.
  *
- * Hardening path (future PR, NOT in scope here): convert this to an
- * `internalMutation`-only export, add a bearer-auth HTTP endpoint at
- * `/internal/migrate-student-invitation` mirroring the existing
- * `httpCreateInstructorForClerkUser` precedent (`convex/http.ts:1704+`),
- * and update the legacy migration CLI to use `convexServerCall` instead
- * of `npx convex run`. That keeps `studentInvitations.createStudentInvitation`'s
- * admin-gate airtight without breaking the one-shot CLI flow.
+ * Do not convert this back to a public `mutation`. If a non-CLI caller
+ * ever needs it, add a bearer-auth HTTP endpoint mirroring
+ * `httpCreateInstructorForClerkUser` (`convex/http.ts`) instead.
  */
-export const migrateInvitation = mutation({
+export const migrateInvitation = internalMutation({
   args: {
     id: v.string(),
     email: v.string(),

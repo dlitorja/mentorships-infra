@@ -10,7 +10,7 @@ import { applyCounterDelta } from "./storageCounter";
  * Migrates an instructor upload record from legacy system.
  * Matches by instructorId and createdAt, updates existing record or creates new.
  */
-export const migrateInstructorUpload = mutation({
+export const migrateInstructorUpload = internalMutation({
   args: {
     instructorId: v.string(),
     filename: v.string(),

@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -253,7 +253,7 @@ export const activateProduct = mutation({
   },
 });
 
-export const migrateProduct = mutation({
+export const migrateProduct = internalMutation({
   args: {
     id: v.string(),
     instructorId: v.optional(v.string()),

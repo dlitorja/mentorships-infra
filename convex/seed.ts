@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 interface TestimonialData {
@@ -414,7 +414,7 @@ const instructorData: InstructorSeedData[] = [
  * Skips instructors that already exist by slug.
  * For development/demo purposes only.
  */
-export const seedInstructorsWithProducts = mutation({
+export const seedInstructorsWithProducts = internalMutation({
   args: {},
   handler: async (ctx) => {
     const results: {

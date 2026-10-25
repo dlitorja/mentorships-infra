@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 
@@ -53,7 +53,7 @@ export const list = query({
  * Migrates monthly storage cost data from billing system.
  * Updates existing record if month exists, otherwise creates new.
  */
-export const migrateMonthlyStorageCost = mutation({
+export const migrateMonthlyStorageCost = internalMutation({
   args: {
     month: v.string(),
     b2StorageCost: v.optional(v.number()),

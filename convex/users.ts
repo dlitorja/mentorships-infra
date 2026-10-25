@@ -627,7 +627,7 @@ export const syncUser = mutation({
   },
 });
 
-export const migrateUser = mutation({
+export const migrateUser = internalMutation({
   args: {
     userId: v.string(),
     email: v.string(),

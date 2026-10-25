@@ -629,7 +629,7 @@ export const setSessionPackTotals = mutation({
   },
 });
 
-export const migrateSessionPack = mutation({
+export const migrateSessionPack = internalMutation({
   args: {
     id: v.string(),
     userId: v.string(),
