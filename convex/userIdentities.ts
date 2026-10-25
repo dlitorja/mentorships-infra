@@ -1,11 +1,11 @@
-import { mutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
  * Migrates a user identity (e.g., Discord) from legacy system.
  * Handles both userId+provider and providerUserId lookup for conflict resolution.
  */
-export const migrateUserIdentity = mutation({
+export const migrateUserIdentity = internalMutation({
   args: {
     userId: v.string(),
     provider: v.union(v.literal("discord")),

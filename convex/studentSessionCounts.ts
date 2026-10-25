@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -205,7 +205,7 @@ export const deleteSessionCount = mutation({
  * Migrates a session count from legacy system.
  * Updates existing record if found by userId and instructorId, otherwise creates new.
  */
-export const migrateSessionCount = mutation({
+export const migrateSessionCount = internalMutation({
   args: {
     id: v.string(),
     userId: v.string(),

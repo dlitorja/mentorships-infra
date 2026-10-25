@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -57,7 +57,7 @@ export const getContactByEmail = query({
  * Migrates a contact from legacy system.
  * Updates existing contact if found by email, otherwise creates new.
  */
-export const migrateContact = mutation({
+export const migrateContact = internalMutation({
   args: {
     email: v.string(),
     artGoals: v.optional(v.string()),

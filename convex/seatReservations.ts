@@ -572,7 +572,7 @@ export const processExpiredSeats = mutation({
   },
 });
 
-export const migrateSeatReservation = mutation({
+export const migrateSeatReservation = internalMutation({
   args: {
     id: v.string(),
     instructorId: v.id("instructors"),

@@ -1756,7 +1756,7 @@ export const createInstructor = mutation({
   },
 });
 
-export const migrateInstructor = mutation({
+export const migrateInstructor = internalMutation({
   args: {
     userId: v.string(),
     name: v.optional(v.string()),

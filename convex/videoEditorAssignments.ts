@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import type { GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
@@ -154,7 +154,7 @@ async function computeVideoEditorOpenStorageStats(
  * Migrates a video editor assignment from legacy system.
  * Updates existing assignment if found by videoEditorId and instructorId, otherwise creates new.
  */
-export const migrateVideoEditorAssignment = mutation({
+export const migrateVideoEditorAssignment = internalMutation({
   args: {
     videoEditorId: v.string(),
     instructorId: v.string(),
