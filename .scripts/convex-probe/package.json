@@ -1,0 +1,14 @@
+{
+  "name": "@mentorships-infra/convex-probe",
+  "private": true,
+  "description": "Tier 1 deterministic shape-scanner for convex-authz's 4-shape taxonomy",
+  "version": "0.0.0",
+  "scripts": {
+    "scan-b": "tsx scan-b.ts ../../convex",
+    "scan-d": "tsx scan-d.ts ../../convex",
+    "scan": "npm run scan-b && npm run scan-d"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
