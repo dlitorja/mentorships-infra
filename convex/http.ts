@@ -19,7 +19,6 @@ import { markNotifiedByInstructor } from "./waitlist";
 import { getOrderPublicStatus, getOrderByIdInternal, completeOrder, refundOrder } from "./orders";
 import { createPayment, getPaymentByProviderId, refundPayment } from "./payments";
 import { getPublicProductById, getProductsByInstructorId } from "./products";
-import { createUser } from "./users";
 import { createSessionPack, getSessionPackByPaymentId, refundSessionPack } from "./sessionPacks";
 import { createSeatReservation, getSeatReservationBySessionPack } from "./seatReservations";
 
@@ -737,7 +736,7 @@ const httpGetProductsByInstructorId = httpAction(async (ctx, request) => {
 const httpCreateUser = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(createUser as any, args);
+  const result = await ctx.runMutation(internal.users.createUser, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
