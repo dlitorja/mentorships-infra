@@ -224,8 +224,18 @@ export const getCurrentUser = query({
 /**
  * Creates a new user if one doesn't already exist with the given email.
  * Used for backfills and admin tooling; does not enforce role semantics beyond insertion.
+ *
+ * Internal-only (security sweep F1). This was a public `mutation` that
+ * accepted a client-supplied `role` — including `"admin"` — and an
+ * optional `clerkId`, so anyone holding the deployment URL could insert
+ * an admin row that `admin.ts:isAdminUser` then trusts. Server callers now
+ * go through the bearer-gated `POST /users/create` httpAction
+ * (`convex/http.ts`); migration and seed scripts use
+ * `npx convex run users:createUser`.
+ *
+ * Do not convert this back to a public `mutation`.
  */
-export const createUser = mutation({
+export const createUser = internalMutation({
   args: {
     userId: v.string(),
     email: v.string(),

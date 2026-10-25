@@ -1478,3 +1478,73 @@ test("http /admin-onboarding/release-placeholder-batch: 200 returns aggregate co
   expect(body.onboardingsProcessed).toBeDefined();
   expect(Array.isArray(body.failedOnboardingIds)).toBe(true);
 });
+
+/**
+ * Security sweep F1: `users.createUser` is internal-only, and the only
+ * remote path to it is this bearer-gated endpoint. These tests pin the
+ * gate: no row is written without the shared secret.
+ */
+test("http /users/create: 401 without Authorization header and with a wrong bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const body = JSON.stringify({
+    userId: "email:guest-401@example.com",
+    email: "guest-401@example.com",
+    role: "student",
+  });
+
+  const noAuth = await t.fetch("/users/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  expect(noAuth.status).toBe(401);
+
+  const wrongAuth = await t.fetch("/users/create", {
+    method: "POST",
+    headers: bearerHeaders("definitely-not-the-key"),
+    body,
+  });
+  expect(wrongAuth.status).toBe(401);
+
+  const rows = await t.run(
+    async (ctx) => await ctx.db.query("users").collect()
+  );
+  expect(rows).toHaveLength(0);
+});
+
+test("http /users/create: creates a student placeholder and is idempotent by email", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const body = JSON.stringify({
+    userId: "email:guest-200@example.com",
+    email: "guest-200@example.com",
+    role: "student",
+  });
+
+  const first = await t.fetch("/users/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(first.status).toBe(200);
+
+  const second = await t.fetch("/users/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(second.status).toBe(200);
+
+  const rows = await t.run(
+    async (ctx) => await ctx.db.query("users").collect()
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].email).toBe("guest-200@example.com");
+  expect(rows[0].role).toBe("student");
+  expect(rows[0].clerkId).toBe("placeholder_email:guest-200@example.com");
+
+  expect(await first.json()).toEqual(await second.json());
+});

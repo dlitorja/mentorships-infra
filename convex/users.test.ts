@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import schema from "./schema";
 import { internal } from "./_generated/api";
+import { createUser } from "./users";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -104,3 +105,25 @@ test("users.deleteUser (internal): rejects authenticated instructor", async () =
   ).rejects.toThrow("Forbidden");
 });
 
+
+/**
+ * Security sweep F1 regression guard.
+ *
+ * `createUser` was a public `mutation` that accepted a client-supplied
+ * `role` (including `"admin"`) and `clerkId`. `admin.ts:isAdminUser`
+ * trusts the stored `users.role`, so an unauthenticated caller could
+ * mint an admin row. It is now `internalMutation`; server callers use
+ * the bearer-gated `POST /users/create` endpoint (covered in
+ * `http.test.ts`).
+ *
+ * Typecheck already rejects `api.users.createUser`; this pins the
+ * runtime registration too so a future edit cannot silently re-expose it.
+ */
+test("users.createUser is internal-only (F1 regression guard)", () => {
+  const registered = createUser as unknown as {
+    isInternal?: boolean;
+    isPublic?: boolean;
+  };
+  expect(registered.isInternal).toBe(true);
+  expect(registered.isPublic).toBeUndefined();
+});

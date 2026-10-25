@@ -99,31 +99,6 @@ export const processStripeCheckout = inngest.createFunction(
       });
     });
 
-    const discountAmount = fullSession.total_details?.amount_discount
-      ? (fullSession.total_details.amount_discount / 100).toString()
-      : null;
-    const originalAmount = fullSession.amount_subtotal
-      ? (fullSession.amount_subtotal / 100).toString()
-      : null;
-
-    let discountCode: string | null = null;
-    if (
-      fullSession.total_details?.breakdown?.discounts &&
-      fullSession.total_details.breakdown.discounts.length > 0
-    ) {
-      const discount = fullSession.total_details.breakdown.discounts[0];
-      if (discount.discount?.promotion_code) {
-        const promotionCode = discount.discount.promotion_code;
-        if (typeof promotionCode === "object" && promotionCode !== null) {
-          discountCode = promotionCode.code || promotionCode.id || null;
-        } else if (typeof promotionCode === "string") {
-          discountCode = promotionCode;
-        }
-      } else if (discount.discount?.coupon) {
-        discountCode = discount.discount.coupon.id || discount.discount.coupon.name || null;
-      }
-    }
-
 const completedOrder = await step.run("update-order", async () => {
       return await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
@@ -197,13 +172,21 @@ const completedOrder = await step.run("update-order", async () => {
       if (!email) return "guest";
       const placeholderUserId = `email:${email}`;
       try {
-        await convex.mutation(api.users.createUser, {
+        // `users.createUser` is internal-only; call the bearer-gated
+        // (CONVEX_HTTP_KEY) HTTP endpoint that wraps it.
+        await convexServerCall("/users/create", {
           userId: placeholderUserId,
           email,
           role: "student",
         });
-      } catch {
-        // ignore
+      } catch (err) {
+        // Best-effort: a failure here must not block guest checkout.
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: "Placeholder user creation failed",
+          level: "warn",
+          context: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
       return placeholderUserId;
     });
@@ -623,13 +606,21 @@ export const processPayPalCheckout = inngest.createFunction(
       if (!email) return order.userId ?? "guest";
       const placeholderUserId = `email:${email}`;
       try {
-        await convex.mutation(api.users.createUser, {
+        // `users.createUser` is internal-only; call the bearer-gated
+        // (CONVEX_HTTP_KEY) HTTP endpoint that wraps it.
+        await convexServerCall("/users/create", {
           userId: placeholderUserId,
           email,
           role: "student",
         });
-      } catch {
-        // ignore if exists
+      } catch (err) {
+        // Best-effort: a failure here must not block guest checkout.
+        await reportInfo({
+          source: "inngest:process-paypal-checkout",
+          message: "Placeholder user creation failed",
+          level: "warn",
+          context: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
       return placeholderUserId;
     });
