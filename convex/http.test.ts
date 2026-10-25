@@ -1548,3 +1548,69 @@ test("http /users/create: creates a student placeholder and is idempotent by ema
 
   expect(await first.json()).toEqual(await second.json());
 });
+
+test("http /discord-action-queue/migrate: 401 without Authorization header and with a wrong bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const body = JSON.stringify({
+    type: "dm_instructor_new_signup",
+    subjectUserId: "user_queue_401",
+    instructorId: "instructor_1",
+    payload: { kind: "purchase" },
+  });
+
+  const noAuth = await t.fetch("/discord-action-queue/migrate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  expect(noAuth.status).toBe(401);
+
+  const wrongAuth = await t.fetch("/discord-action-queue/migrate", {
+    method: "POST",
+    headers: bearerHeaders("definitely-not-the-key"),
+    body,
+  });
+  expect(wrongAuth.status).toBe(401);
+
+  const rows = await t.run(
+    async (ctx) => await ctx.db.query("discordActionQueue").collect()
+  );
+  expect(rows).toHaveLength(0);
+});
+
+test("http /discord-action-queue/migrate: upserts one row per subjectUserId", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const body = JSON.stringify({
+    type: "dm_instructor_new_signup",
+    subjectUserId: "user_queue_200",
+    instructorId: "instructor_1",
+    payload: { kind: "purchase", orderId: "order_1" },
+  });
+
+  const first = await t.fetch("/discord-action-queue/migrate", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(first.status).toBe(200);
+  expect(await first.json()).toMatchObject({ action: "inserted" });
+
+  const second = await t.fetch("/discord-action-queue/migrate", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(second.status).toBe(200);
+  expect(await second.json()).toMatchObject({ action: "updated" });
+
+  const rows = await t.run(
+    async (ctx) => await ctx.db.query("discordActionQueue").collect()
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].subjectUserId).toBe("user_queue_200");
+  expect(rows[0].type).toBe("dm_instructor_new_signup");
+});

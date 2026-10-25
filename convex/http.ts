@@ -740,6 +740,20 @@ const httpCreateUser = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
+/**
+ * Upsert a Discord action queue row. Protected by CONVEX_HTTP_KEY.
+ *
+ * Used by the post-purchase / admin-onboarding Inngest flows. The
+ * underlying mutation is internal-only because a public version let any
+ * caller insert queue rows whose `payload` the bot would later execute.
+ */
+const httpMigrateDiscordAction = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.discordActionQueue.migrateDiscordAction, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpCreateSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
@@ -938,6 +952,12 @@ http.route({
   path: "/users/create",
   method: "POST",
   handler: httpCreateUser,
+});
+
+http.route({
+  path: "/discord-action-queue/migrate",
+  method: "POST",
+  handler: httpMigrateDiscordAction,
 });
 
 http.route({

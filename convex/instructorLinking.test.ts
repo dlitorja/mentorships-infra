@@ -551,3 +551,90 @@ test("linkClerkUserToInstructor: dedup does not add a second audit row on retry 
     .sort();
   expect(clerkUserIds).toEqual([NEW_CLERK_USER, OTHER_NEW_CLERK_USER].sort());
 });
+
+// ---------------------------------------------------------------------------
+// linkMyInstructorProfile — identity-scoped linking used by the Google
+// Calendar OAuth callback. The mutation replaced a public
+// `backfillInstructorUserId` that let any caller overwrite another
+// instructor's `userId` (security sweep F-series).
+// ---------------------------------------------------------------------------
+
+test("linkMyInstructorProfile: rejects unauthenticated callers", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) =>
+    seedExistingInstructor(ctx, { userId: "admin-rakasa" })
+  );
+
+  await expect(
+    t.mutation(api.instructors.linkMyInstructorProfile, {
+      instructorId: instructorId as any,
+    })
+  ).rejects.toThrow(/Unauthorized/);
+});
+
+test("linkMyInstructorProfile: links a placeholder row when the identity email matches", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) =>
+    seedExistingInstructor(ctx, { userId: "admin-rakasa" })
+  );
+
+  const result = await t
+    .withIdentity({ subject: NEW_CLERK_USER, email: EMAIL })
+    .mutation(api.instructors.linkMyInstructorProfile, {
+      instructorId: instructorId as any,
+    });
+  expect(result).toEqual({ success: true, linked: true });
+
+  const row = await t.run(async (ctx) => await ctx.db.get(instructorId as any));
+  expect(row?.userId).toBe(NEW_CLERK_USER);
+});
+
+test("linkMyInstructorProfile: is idempotent for the caller's own row", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) =>
+    seedExistingInstructor(ctx, { userId: NEW_CLERK_USER })
+  );
+
+  const result = await t
+    .withIdentity({ subject: NEW_CLERK_USER, email: EMAIL })
+    .mutation(api.instructors.linkMyInstructorProfile, {
+      instructorId: instructorId as any,
+    });
+  expect(result).toEqual({ success: true, linked: false });
+});
+
+test("linkMyInstructorProfile: refuses an email that does not match the identity", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) =>
+    seedExistingInstructor(ctx, { userId: "admin-rakasa" })
+  );
+
+  await expect(
+    t
+      .withIdentity({ subject: NEW_CLERK_USER, email: "attacker@example.com" })
+      .mutation(api.instructors.linkMyInstructorProfile, {
+        instructorId: instructorId as any,
+      })
+  ).rejects.toThrow(/Forbidden/);
+
+  const row = await t.run(async (ctx) => await ctx.db.get(instructorId as any));
+  expect(row?.userId).toBe("admin-rakasa");
+});
+
+test("linkMyInstructorProfile: refuses to steal a row already linked to another Clerk user", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(async (ctx) =>
+    seedExistingInstructor(ctx, { userId: OLD_CLERK_USER })
+  );
+
+  await expect(
+    t
+      .withIdentity({ subject: NEW_CLERK_USER, email: EMAIL })
+      .mutation(api.instructors.linkMyInstructorProfile, {
+        instructorId: instructorId as any,
+      })
+  ).rejects.toThrow(/already linked/);
+
+  const row = await t.run(async (ctx) => await ctx.db.get(instructorId as any));
+  expect(row?.userId).toBe(OLD_CLERK_USER);
+});

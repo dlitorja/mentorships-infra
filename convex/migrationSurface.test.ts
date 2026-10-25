@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { expect, test } from "vitest";
 import * as contacts from "./contacts";
+import * as discordActionQueue from "./discordActionQueue";
 import * as instructorUploads from "./instructorUploads";
 import * as instructors from "./instructors";
 import * as monthlyStorageCosts from "./monthlyStorageCosts";
@@ -54,6 +55,16 @@ const INTERNAL_ONLY: ReadonlyArray<readonly [string, string, Visibility]> = [
     videoEditorAssignments.migrateVideoEditorAssignment as Visibility,
   ],
   ["instructors", "migrateInstructor", instructors.migrateInstructor as Visibility],
+  [
+    "instructors",
+    "backfillInstructorUserId",
+    instructors.backfillInstructorUserId as Visibility,
+  ],
+  [
+    "discordActionQueue",
+    "migrateDiscordAction",
+    discordActionQueue.migrateDiscordAction as Visibility,
+  ],
   ["payments", "migratePayment", payments.migratePayment as Visibility],
   [
     "instructorUploads",

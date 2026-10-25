@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, expect, test, vi } from "vitest";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -19,14 +19,14 @@ test("processDiscordActionQueue short-circuits when empty", async () => {
 
 test("claimDiscordActions returns oldest pending first", async () => {
   const t = convexTest(schema, modules);
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "newer",
     status: "pending",
     createdAt: 2000,
     payload: { discordId: "d", guildId: "g", roleId: "r" },
   });
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "older",
     status: "pending",
@@ -47,7 +47,7 @@ test("migrateDiscordAction schedules a processor run when the queue was idle", a
   vi.useFakeTimers();
   const t = convexTest(schema, modules);
 
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "user_1",
     status: "pending",
@@ -65,14 +65,14 @@ test("migrateDiscordAction does not schedule a duplicate when the queue is alrea
   vi.useFakeTimers();
   const t = convexTest(schema, modules);
 
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "first",
     status: "pending",
     payload: { discordId: "d", guildId: "g", roleId: "r" },
   });
 
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "second",
     status: "pending",
@@ -103,7 +103,7 @@ test("processDiscordActionQueue self-schedules to drain a backlog", async () => 
     })
   );
 
-  await t.mutation(api.discordActionQueue.migrateDiscordAction, {
+  await t.mutation(internal.discordActionQueue.migrateDiscordAction, {
     type: "assign_student_role",
     subjectUserId: "backlog",
     status: "pending",
