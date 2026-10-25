@@ -1,0 +1,493 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "convex.cleanup.wipePaymentData.admin_op_no_audit_log",
+    "title": "convex/cleanup.ts:15 wipePaymentData deletes 14 privileged tables without writing an audit-log row, leaving the destructive op unattributable in a compromised-admin scenario",
+    "description": "Destructive Convex mutation with admin gate (line 26-28: `users.role === 'admin'`) clears orders, payments, sessionPacks, seatReservations, workspaces, workspaceNotes, workspaceLinks, workspaceImages, workspaceMessages, workspaceExports, workspaceRetentionNotifications, workspaceAuditLogs, discordActionQueue, studentOnboardingSubmissions, and marketingWaitlist without writing any row to auditLogs / workspaceAuditLogs. The comparator paths in this codebase (orders.refundOrder, adminRefunds.processRefundForAdmin, acceptStudentInvitationByIdInternal, users.setUserRoleTrusted, users.bootstrapAdminRoleOnce, adminOnboardStudent) all write a writeAuditLog entry on the same transaction. The omission is asymmetry, not by design.",
+    "root_cause": "wipePaymentData was scoped as a demo / dev-only convenience mutation (per its docstring line 9) and the admin-gate was added with the destructive deletes but the audit hook was never wired. The helper `writeAuditLog` (convex/audit/auditLog.ts) is the projected fix; the file is imported elsewhere but not in wipePaymentData.",
+    "intended_behavior": "Every destructive mutation that targets more than one privileged table should write an audit row inside the same transaction committed by the handler, using `writeAuditLog(ctx, { actorId: identity.subject, actorRole: 'admin', action: 'wipe_payment_data', targetType: 'system_state', targetId: 'global', details: <deleted row counts> })` so compromised-admin scenarios leave a forensic trail.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "convex/cleanup.ts",
+        "line": 15,
+        "scope": "export const wipePaymentData = mutation({ handler })",
+        "description": "Public `mutation` export. Identity resolution and admin gate only (line 17-28); no audit hook before the destructive scans begin at line 33."
+      },
+      {
+        "kind": "propagation",
+        "file": "convex/cleanup.ts",
+        "line": 30,
+        "scope": "results: Record<string, number> built through deletion loops",
+        "description": "The mutations responsible for deleting 14 tables never call writeAuditLog; the `results` map is built but never persisted."
+      },
+      {
+        "kind": "sink",
+        "file": "convex/cleanup.ts",
+        "line": 123,
+        "scope": "return { success: true, deleted: results }",
+        "description": "Destructive op completes; only the in-memory results map is returned. No audit row, no outbox row, no compensating event."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "convex/cleanup.ts",
+        "line": 15,
+        "description": "mutation export; handler returns `{ success: true, deleted: results }` with no calls to writeAuditLog, ctx.db.insert('auditLogs'), or ctx.db.insert('workspaceAuditLogs'). Full-file grep confirms: 0 occurrences of `writeAuditLog` or `auditLogs`."
+      },
+      {
+        "file": "convex/orders.ts",
+        "line": 1,
+        "description": "Comparator: refundOrder writes a refund audit row via writeRefundAuditLog (the same writeAuditLog helper from convex/audit/auditLog.ts)."
+      },
+      {
+        "file": "convex/audit/auditLog.ts",
+        "line": 1,
+        "description": "Defines `writeAuditLog` and the audit-log schema; canonical helper imported by every other destructive op in the codebase."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authorization_role",
+        "description": "Caller must be admin (`users.role === 'admin'`). The gate is correct; the gap is the missing audit hook beyond the gate."
+      },
+      {
+        "kind": "data_state",
+        "description": "Demonstrated when admin calls api.cleanup.wipePaymentData; effect persists in the production tables but leaves zero attribution rows."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker (or insider) with admin-level access performs a forensic-evading destructive wipe, then exfiltrates. Recovery relies on logs that no longer identify the actor.",
+      "payloads": [
+        "ConvexClient call: api.cleanup.wipePaymentData({}). Arguments are empty; identity is the admin's Clerk JWT."
+      ],
+      "instructions": [
+        "1) Authenticate as an admin in a Convex deployment.",
+        "2) Call api.cleanup.wipePaymentData({}).",
+        "3) After the call completes, query auditLogs and workspaceAuditLogs.",
+        "4) Observe zero new rows; observe all 14 privileged tables now empty."
+      ],
+      "observed_result": "All payment / workspace / discord-action / onboarding / waitlist data is deleted. No audit row names the actor. Recovery must rely on Convex's table-level history (if enabled) or external request logs, neither of which is source-grounded as present here. The asymmetric omission is read directly from convex/cleanup.ts:1-125."
+    },
+    "remediation": {
+      "strategy": "Inside wipePaymentData's handler, immediately after the admin gate (line 28) and before any ctx.db.delete scan (line 33), insert a writeAuditLog call. Carry the actor id and triggeredAt through to each loop section so a single row covers the whole op, and a second row records the per-table counts.",
+      "code_changes": [
+        {
+          "file_name": "convex/cleanup.ts",
+          "fixed_code": "import { writeAuditLog } from \"./audit/auditLog\";\n\nexport const wipePaymentData = mutation({\n  args: {},\n  handler: async (ctx) => {\n    const identity = await ctx.auth.getUserIdentity();\n    if (!identity) {\n      throw new Error(\"Unauthorized\");\n    }\n    const user = await ctx.db\n      .query(\"users\")\n      .filter((q) => q.eq(q.field(\"clerkId\"), identity.subject))\n      .first();\n    if (!user || user.role !== \"admin\") {\n      throw new Error(\"Forbidden: Admin role required\");\n    }\n\n    const auditTargets = [\"orders\", \"payments\", \"sessionPacks\", \"seatReservations\", \"workspaces\", \"workspaceNotes\", \"workspaceLinks\", \"workspaceImages\", \"workspaceMessages\", \"workspaceExports\", \"workspaceRetentionNotifications\", \"workspaceAuditLogs\", \"discordActionQueue\", \"studentOnboardingSubmissions\", \"marketingWaitlist\"];\n    await writeAuditLog(ctx, {\n      actorId: identity.subject,\n      actorRole: \"admin\",\n      action: \"wipe_payment_data_begin\",\n      targetType: \"system_state\",\n      targetId: \"global\",\n      details: `Admin ${identity.subject} initiated wipe across ${auditTargets.length} tables`,\n      metadata: { tables: auditTargets },\n    });\n\n    const results: Record<string, number> = {};\n    for (const tableName of auditTargets) {\n      const docs = await (ctx.db.query(tableName as any).collect());\n      for (const doc of docs) {\n        await ctx.db.delete(doc._id);\n      }\n      results[tableName] = docs.length;\n    }\n\n    await writeAuditLog(ctx, {\n      actorId: identity.subject,\n      actorRole: \"admin\",\n      action: \"wipe_payment_data_complete\",\n      targetType: \"system_state\",\n      targetId: \"global\",\n      details: `Wipe complete per-table counts: ${JSON.stringify(results)}`,\n      metadata: { results },\n    });\n\n    return { success: true, deleted: results };\n  },\n});"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "low",
+        "reason": "Compromised-admin scenarios are uncommon, but wipePaymentData was clearly intended for dev / demo use; the production gate masks how often it might run on live data."
+      },
+      "impact": {
+        "score": "medium",
+        "reason": "Destructive delete affects up to 15 privileged tables; absence of audit trail impedes post-incident forensics and root-cause attribution. The same actor can be the legitimate operator who is then incorrectly blamed."
+      },
+      "overall_severity": "medium"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Source-grounded: convex/cleanup.ts:1-125 contains 0 writeAuditLog calls. Comparator paths (orders.refundOrder, adminRefunds.processRefundForAdmin, users.setUserRoleTrusted) confirm the audit-hook pattern is the codebase standard."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "convex.seed.seedInstructorsWithProducts.public_no_auth",
+    "title": "convex/seed.ts:417 seedInstructorsWithProducts is a public mutation that inserts / overwrites instructors and products with no identity or role gate",
+    "description": "Public Convex mutation inserts `instructors` and `products` rows from a static instructorData array (lines 37-409). Handler accepts no args, never calls ctx.auth.getUserIdentity(), never calls requireAdmin, and never queries users.role. When an instructor record exists for a slug, it overwrites name/bio/socials/active/inventory with the static data; otherwise it inserts a new record with `isActive: instructor.isActive` (most are true). The /seed/instructor HTTP route (convex/http.ts:1133-1136) only narrows the entry to a Bearer-auth caller; the same mutation is reachable from any authenticated ConvexClient via api.seed.seedInstructorsWithProducts. The file's own admin-only comparator `clearInstructorsAndProducts` (line 527) shows the intended access pattern.",
+    "root_cause": "The mutation was left exported as public (no authentication guard) despite the file's docstring marking it 'For development/demo purposes only' (line 416). The /seed/instructor HTTP route family is the intended bearer-only entry; the public mutation was not retired alongside it.",
+    "intended_behavior": "Either: (a) `seedInstructorsWithProducts` is converted to `internalMutation` and removed from the public API surface, OR (b) it requires `ctx.auth.getUserIdentity()` and `users.role === 'admin'` (matching the file's own `clearInstructorsAndProducts` comparator at line 530-536).",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "convex/seed.ts",
+        "line": 417,
+        "scope": "export const seedInstructorsWithProducts = mutation({ args: {}, handler })",
+        "description": "Public mutation export. `args: {}`. Handler proceeds without any identity check."
+      },
+      {
+        "kind": "propagation",
+        "file": "convex/seed.ts",
+        "line": 430,
+        "scope": "for (const instructor of instructorData) { ... by_slug lookup ... patch existing OR insert new }",
+        "description": "Loops over the static instructorData array. For each entry, looks up by_slug; if present, ctx.db.patch overwrites name/bio/socials/active/inventory/maxActiveStudents; if absent, ctx.db.insert creates the row."
+      },
+      {
+        "kind": "sink",
+        "file": "convex/seed.ts",
+        "line": 459,
+        "scope": "ctx.db.insert(\"instructors\", { ... }) and ctx.db.insert(\"products\", { ... })",
+        "description": "Two inserts or one patch per instructor: a 1-row instructor write (with isActive = instructor.isActive) and one or two product writes (mentorshipType one-on-one or group, active = instructor.isActive)."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "convex/seed.ts",
+        "line": 417,
+        "description": "Public `mutation` export. Line-by-line read: lines 419-521 contain 0 calls to ctx.auth.getUserIdentity(), 0 calls to requireAdmin / isAdmin, 0 queries of users.role."
+      },
+      {
+        "file": "convex/seed.ts",
+        "line": 527,
+        "description": "Comparator path: `clearInstructorsAndProducts` does `const identity = await ctx.auth.getUserIdentity(); if (!identity) throw ... const user = await ctx.db.query('users')...if (user?.role !== 'admin') throw ...`. Same file, opposite pattern."
+      },
+      {
+        "file": "convex/http.ts",
+        "line": 1132,
+        "description": "Bearer-only path: `/seed/instructor` requires verifyAuth; the httpSeedInstructor handler reaches api.instructors.createInstructor / api.products.createProduct directly through the bearer-gated surface."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Caller is any authenticated ConvexClient. The handler does not require admin; any role works, including a freshly-synced student identity."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "No UI element calls this mutation; the function is reachable purely by ConvexClient."
+      },
+      {
+        "kind": "data_state",
+        "description": "If a real instructor slug exists (production data), the patch path silently overwrites name/bio/socials/active/inventory with the static seed values. This changes who is publicly listed and what inventory they hold."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker with any ConvexClient JWT calls seedInstructorsWithProducts once. Every instructor record is overwritten with deterministic but production-divergent seed names; every product record is overwritten; junk instructors are inserted with isActive=true.",
+      "payloads": [
+        "ConvexClient call: api.seed.seedInstructorsWithProducts({}). No args needed."
+      ],
+      "instructions": [
+        "1) Authenticate as any user in a Convex deployment.",
+        "2) Call api.seed.seedInstructorsWithProducts({}).",
+        "3) After the call, query instructors by `by_slug` for any well-known instructor (e.g. jordan-jardine).",
+        "4) Observe the row now exists / is updated with the static seed data."
+      ],
+      "observed_result": "All production instructors + products are overwritten with the public seed data. New instructors with isActive=true are injected where slug was free. Products.active flips to true for any instructor with isActive=true in the static array (e.g. rakasa, jordan-jardine). The attack requires no authentication beyond a normal ConvexClient token."
+    },
+    "remediation": {
+      "strategy": "Convert `seedInstructorsWithProducts` to `internalMutation` so the only reachable surface is the existing Bearer-auth `/seed/instructor` route. Add a sibling internal action that the HTTP route can call with the static seed data. If the public mutation must remain (for tooling), gate it with an admin role check mirroring `clearInstructorsAndProducts`.",
+      "code_changes": [
+        {
+          "file_name": "convex/seed.ts",
+          "fixed_code": "import { internalMutation, mutation } from \"./_generated/server\";\n...\nexport const seedInstructorsWithProducts = internalMutation({\n  args: {},\n  handler: async (ctx) => { /* unchanged body */ },\n});\n\n// Optional: keep the public mutation callable only by admins, matching\n// clearInstructorsAndProducts.\nexport const seedInstructorsWithProductsAdmin = mutation({\n  args: {},\n  handler: async (ctx) => {\n    const identity = await ctx.auth.getUserIdentity();\n    if (!identity) throw new Error(\"Unauthorized\");\n    const user = await ctx.db\n      .query(\"users\")\n      .filter((q) => q.eq(q.field(\"clerkId\"), identity.subject))\n      .first();\n    if (!user || user.role !== \"admin\") throw new Error(\"Forbidden: Admin role required\");\n    /* unchanged body */\n  },\n});"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "The mutation is exported as `mutation`; any ConvexClient holder can invoke it. Internal-only automation or analytics callers exist in the Convex docs; no UI invokes this path."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Silently overwrites or inserts instructor + product records on the public marketplace. New junk instructors with active products appear in any listing query that doesn't gate by `isActive`. Existing real instructors' profile content is replaced with the static seed (a different attacker or attacker at a later time will land a different profile photo / bio)."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Source-grounded: convex/seed.ts:417-521 has no identity check. The line-by-line body confirms 0 occurrences of ctx.auth.getUserIdentity(). The same file's clearInstructorsAndProducts (line 527) shows what an admin-gated mutation looks like for comparison."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "convex.studentInvitations.migrateInvitation.public_no_admin_gate",
+    "title": "convex/studentInvitations.ts:458 migrateInvitation is a public mutation that writes accepted / pending invitation rows against any instructorId without role gate",
+    "description": "Public Convex mutation takes `email`, `instructorId`, `clerkInvitationId`, `expiresAt`, `status`. No ctx.auth.getUserIdentity(); no requireAdminOrSupport. Caller picks any instructorId and any victim email. If no row exists for (email, instructorId), a new studentInvitations row is inserted with status (default 'pending'). The hardened comparator in the same file (listStudentInvitations line 68, updateStudentInvitationStatus line 192) is admin-only; the docstring at line 443-456 names the legacy migration CLI as the intended caller but acknowledges the export as a public mutation is a known gap.",
+    "root_cause": "The handler is exported as `mutation` to make the legacy migration CLI reachable. The docstring states: 'PR-B (Issue 3): migration-script callable. INTENTIONALLY left without a `requireAdminOrSupport` gate — callers here are `npx convex run` invocations from the legacy student-invitation migration CLI which authenticate with `CONVEX_DEPLOY_KEY` (deployment-admin) and have no Clerk user identity. Putting a `users.role` check here would break the migration CLI.' This conflates deploy-key runtime protection with public-mutation surface protection; the public `api.studentInvitations.migrateInvitation` surface has neither.",
+    "intended_behavior": "Convert migrateInvitation to `internalMutation` and add a Bearer-auth HTTP endpoint (matching the precedent at convex/http.ts:1707+ for the internal studentInvitations handlers) that the legacy migration CLI can call. The current public surface should not accept the caller-supplied (email, instructorId) tuple from any authenticated ConvexClient.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "convex/studentInvitations.ts",
+        "line": 458,
+        "scope": "export const migrateInvitation = mutation({ args, handler })",
+        "description": "Public mutation. Accepts caller-supplied email, instructorId (validated to Id<\"instructors\">), clerkInvitationId, expiresAt, status."
+      },
+      {
+        "kind": "propagation",
+        "file": "convex/studentInvitations.ts",
+        "line": 472,
+        "scope": "by_email_instructorId existing-row check then ctx.db.patch on existing OR ctx.db.insert on new",
+        "description": "Reads by_email_instructorId index. If present, patches the row with caller-supplied status/clerkInvitationId/expiresAt. If absent, inserts a new studentInvitations row with attacker-controlled fields."
+      },
+      {
+        "kind": "sink",
+        "file": "convex/studentInvitations.ts",
+        "line": 491,
+        "scope": "ctx.db.insert(\"studentInvitations\", { email, instructorId, clerkInvitationId, expiresAt, status })",
+        "description": "New studentInvitations row persists; subsequent clerk/user.created webhook flows (apps/web inngest function) look up by email + pending + expiresAt and auto-accept the invitation, binding the new Clerk user to the attacker-chosen instructorId."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "convex/studentInvitations.ts",
+        "line": 458,
+        "description": "Public `mutation` export. Lines 458-501: handler body never invokes ctx.auth.getUserIdentity(); never calls requireAdmin / requireAdminOrSupport / isAdminUser. Caller-supplied `args.email`, `args.instructorId`, `args.status` are persisted without gating."
+      },
+      {
+        "file": "convex/studentInvitations.ts",
+        "line": 443,
+        "description": "Docstring explicitly acknowledges the gate is missing: 'INTENTIONALLY left without a `requireAdminOrSupport` gate' and proposes converting to internalMutation in a future PR."
+      },
+      {
+        "file": "convex/studentInvitations.ts",
+        "line": 68,
+        "description": "Comparator: `listStudentInvitations` is admin-gated (calls requireAdminOrSupport)."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Any authenticated ConvexClient. The mutation does not gate the role."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "Effect completes when (a) attacker pre-creates a pending invitation against a victim's email and a chosen instructorId, then (b) the victim signs up via Clerk; the apps/web inngest function auto-accepts the invitation, binding them to attacker-chosen instructorId for the duration of expiresAt."
+      },
+      {
+        "kind": "data_state",
+        "description": "If `status: 'accepted'` is passed and an existing matching row exists, the patch can flip a pending invitation to accepted before the auto-accept worker runs; in the worst case this pre-binds a victim email to an attacker-chosen instructor on first signup."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker with any ConvexClient JWT and knowledge of a victim's email address binds the future signup to an attacker-chosen instructorId, disrupting onboarding and routing future mentorship sessions to the wrong party.",
+      "payloads": [
+        "ConvexClient call: api.studentInvitations.migrateInvitation({ id: 'attacker-chosen', email: 'victim@example.com', instructorId: <attacker-controlled Id<\"instructors\">>, expiresAt: Date.now() + 30*24*60*60*1000, status: 'pending' })."
+      ],
+      "instructions": [
+        "1) Authenticate as any ConvexClient holder.",
+        "2) Pick any instructorId (e.g. the attacker's own, or any other) and any victim email address.",
+        "3) Call api.studentInvitations.migrateInvitation({ ... }) with expiresAt set in the future and status: 'pending'.",
+        "4) When the victim eventually signs up via Clerk, the apps/web inngest function clerk/user.created -> findPendingStudentInvitationByEmailInternal binds the new clerk user to the attacker-chosen instructorId."
+      ],
+      "observed_result": "A new studentInvitations row exists in the database indexed by (email, instructorId) with status=pending and expiresAt=now+30d. The next clerk/user.created event for that email will flip it to accepted and route the victim's onboarding + payment to the attacker-chosen instructor."
+    },
+    "remediation": {
+      "strategy": "Convert migrateInvitation to `internalMutation` and add a Bearer-auth HTTP endpoint (per the tactic the codebase already uses for the post-PR-B internals findPendingStudentInvitationByEmailInternal / acceptStudentInvitationByIdInternal at studentInvitations.ts:514 and 561). Update the legacy CLI to call the Bearer-auth endpoint, matching httpCreateInstructorForClerkUser precedent (http.ts:1800).",
+      "code_changes": [
+        {
+          "file_name": "convex/studentInvitations.ts",
+          "fixed_code": "import { internalMutation, mutation } from \"./_generated/server\";\n...\nexport const migrateInvitation = internalMutation({\n  args: {\n    id: v.string(),\n    email: v.string(),\n    instructorId: v.id(\"instructors\"),\n    clerkInvitationId: v.optional(v.string()),\n    expiresAt: v.number(),\n    status: v.optional(v.union(v.literal(\"pending\"), v.literal(\"accepted\"), v.literal(\"expired\"), v.literal(\"cancelled\"))),\n    createdAt: v.optional(v.number()),\n    updatedAt: v.optional(v.number()),\n  },\n  handler: async (ctx, args) => { /* unchanged body */ },\n});\n\n// New Bearer-auth HTTP endpoint at convex/http.ts:\nexport const httpMigrateStudentInvitation = httpAction(async (ctx, request) => {\n  if (!verifyAuth(request)) return unauthorizedResponse();\n  let body;\n  try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }); }\n  const result = await ctx.runMutation(internal.studentInvitations.migrateInvitation, body);\n  return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });\n});\nhttp.route({ path: \"/internal/migrate-student-invitation\", method: \"POST\", handler: httpMigrateStudentInvitation });"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "medium",
+        "reason": "Requires attacker to know a victim's email and choose any valid instructorId. The mutation is callable from any ConvexClient."
+      },
+      "impact": {
+        "score": "high",
+        "reason": "Binds a future signup to the attacker's chosen instructorId, disrupting the legitimate onboarding path. Subsequent session bookings, payments, and workspace memberships all target the wrong party."
+      },
+      "overall_severity": "high"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Source-grounded: convex/studentInvitations.ts:458-501 has no identity or admin call between mutation export and the ctx.db.insert / ctx.db.patch calls. The docstring at line 443 names the gap explicitly."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "convex.users.createUser.public_mutation_no_auth",
+    "title": "convex/users.ts:228 createUser is a public mutation that persists caller-supplied userId, email, clerkId, and role without any identity or role gate",
+    "description": "Public Convex mutation. Handler at lines 238-253 looks up users by the caller-supplied email. If a row exists, it returns the existing _id. Otherwise it inserts a new users row with caller-supplied args (userId, email, clerkId, role, firstName, lastName, timeZone) verbatim. No ctx.auth.getUserIdentity(); no requireAdmin / isAdminUser. Caller-supplied role is persisted as-is; if no clerkId is supplied, `placeholder_${args.userId}` is written, which the sibling identity-bridging helper `isOwnedByIdentity` (lines 352-367) treats as a one-shot claimable placeholder. The /users/create HTTP route at convex/http.ts:737 gates this with Bearer auth but the same mutation is reachable from any authenticated ConvexClient via api.users.createUser.",
+    "root_cause": "The mutation was exported for an admin-tooling path; hardening lives in the sibling mutation `syncUser` (line 446) which derives auth identity and refuses conflicting emails. The /users/create HTTP route narrows the entry surface but does not retire the public mutation. Convex's public-mutation model means api.users.createUser is callable by any authenticated client.",
+    "intended_behavior": "Either (a) `createUser` is converted to `internalMutation` like its sibling `setUserRoleTrusted` (line 693) and the Bearer-auth /users/create HTTP route is the only path, OR (b) the public mutation is hardened to derive caller identity from `ctx.auth.getUserIdentity()` and refuse injected role, matching the pattern used by `syncUser`.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "convex/users.ts",
+        "line": 228,
+        "scope": "export const createUser = mutation({ args, handler })",
+        "description": "Public mutation export. Accepts caller-supplied userId (string), email (string), clerkId (optional string), firstName/lastName/timeZone (optional), role (optional union)."
+      },
+      {
+        "kind": "propagation",
+        "file": "convex/users.ts",
+        "line": 239,
+        "scope": "ctx.db.query('users').withIndex('by_email').filter(q.eq(q.field('email'), args.email)).first()",
+        "description": "Reads existing row by email. If found, returns existing._id (no insert). Note: this returns an existing row's _id to ANY caller — information-disclosure side-effect unavailable to clients without an existing email state, but in scope once a row exists."
+      },
+      {
+        "kind": "sink",
+        "file": "convex/users.ts",
+        "line": 249,
+        "scope": "ctx.db.insert('users', { ...rest, clerkId: clerkId ?? `placeholder_${args.userId}` })",
+        "description": "Inserts a new users row with the caller-supplied role and userId. The placeholder marker enables a one-shot claim via isOwnedByIdentity; the resolved role is held verbatim."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "convex/users.ts",
+        "line": 228,
+        "description": "Public `mutation` export. Line-by-line read of handler body (lines 238-253) confirms 0 calls to ctx.auth.getUserIdentity(), 0 calls to requireAdmin / isAdminUser, 0 calls to any helper containing 'gate'."
+      },
+      {
+        "file": "convex/users.ts",
+        "line": 446,
+        "description": "Comparator: `syncUser` derives identity and uses Greptile-hardened email-conflict refusal, normalized lookups, and the migrated_/placeholder_ back-compat branch in isOwnedByIdentity — but only enforces when the migration entry-point itself is syncUser, not createUser."
+      },
+      {
+        "file": "convex/http.ts",
+        "line": 737,
+        "description": "Belt-and-braces: /users/create httpAction -> `if (!verifyAuth(request)) return unauthorizedResponse();` -> `await ctx.runMutation(createUser as any, args)`. The bearer gate keeps CONVEX_HTTP_KEY in the trust boundary, but the api.users.createUser surface is identical to api.seed.seedInstructorsWithProducts: callable from any ConvexClient."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Any authenticated ConvexClient user can call api.users.createUser. The handler does not gate the role to admin and does not derive identity from ctx.auth.getUserIdentity()."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "Caller picks any userId, email, role. The mutation is publicly exported and is the canonical create path in this file (whether intentionally used by tooling or not)."
+      },
+      {
+        "kind": "data_state",
+        "description": "If the caller passes no clerkId, a row is inserted with clerkId=`placeholder_<args.userId>`. The first authenticated sync from `args.userId`'s owner (e.g. a victim Clerk user) upgrades that placeholder to the real subject via isOwnedByIdentity's branch at lines 358-365. The role picked here is preserved verbatim through the patch that runs in syncUser's existing-row-update path."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker forges a users row in the canonical identity table by invoking the public createUser mutation. Two distinct attack shapes: (1) attacker self-creates admin by calling createUser with role: 'admin' and clerkId matching their own Clerk id; (2) attacker forges a row against a victim's email with attacker-chosen role; on victim's first authenticated sync, isOwnedByIdentity sees the placeholder prefix + matching userId, accepts the row, and keeps the attacker's chosen role.",
+      "payloads": [
+        "Self-elevation: api.users.createUser({ userId: 'user_<attacker-clerk-id>', email: '<attacker-email>', clerkId: 'user_<attacker-clerk-id>', role: 'admin' })",
+        "Cross-tenant row forgery: api.users.createUser({ userId: '<anonymous>', email: '<victim-email>', role: 'admin' }) — inserts a placeholder_* clerkId row; victim's later sync accepts the role."
+      ],
+      "instructions": [
+        "(a) Self-elevation: 1) Sign in as the attacker (any ConvexClient JWT). 2) Call api.users.createUser({ userId: 'user_<attacker-clerk-id>', email: '<attacker-email>', clerkId: 'user_<attacker-clerk-id>', role: 'admin' }). 3) On the same connection, query any internal.admin.*-style helper gated by users.role === 'admin'; observe success.",
+        "(b) Cross-tenant row forgery: 1) Sign in as the attacker. 2) Pick any victim's email that is not yet in the system, no clerkId. 3) Call api.users.createUser({ userId: 'forged-victim', email: '<victim-email>', role: 'admin' }). A row is inserted with clerkId=placeholder_forged-victim. 4) When the victim signs up via Clerk and runs syncUser, isOwnedByIdentity's `clerkId.startsWith('placeholder_') && userId === identity.subject` branch matches only if identity.subject equals 'forged-victim', so the placeholder path is not the simple exploit surface; the cleaner escalation is via attacker self-creating admin with its own Clerk id."
+      ],
+      "observed_result": "(a) A new users row exists with role='admin' attributed to the attacker's Clerk userId; the attacker now passes admin-gated ConvexClient-facing queries and mutations. (b) Source-traceable without runtime execution: the handler at convex/users.ts:248-252 writes what the caller passes; there is no preventing layer between the call and the insert."
+    },
+    "remediation": {
+      "strategy": "Convert createUser to `internalMutation` so the only reachable surface is the existing Bearer-auth /users/create HTTP route. Make any remaining public tooling path derive Clerk identity from ctx.auth.getUserIdentity() and reject caller-supplied role, mirroring syncUser's hardening.",
+      "code_changes": [
+        {
+          "file_name": "convex/users.ts",
+          "fixed_code": "import { internalMutation, mutation } from \"./_generated/server\";\n...\nexport const createUser = internalMutation({\n  args: {\n    userId: v.string(),\n    email: v.string(),\n    clerkId: v.optional(v.string()),\n    firstName: v.optional(v.string()),\n    lastName: v.optional(v.string()),\n    // role is removed; callers must use setUserRoleTrusted (Bearer-auth) to elevate\n    timeZone: v.optional(v.string()),\n  },\n  handler: async (ctx, args) => { /* unchanged body, role: undefined only */ },\n});\n\n// If a public mutation must remain for tooling, mirror syncUser's Greptile-hardened\n// pattern: derive Clerk identity, refuse injected role, refuse conflicting emails.\nexport const createUserSelf = mutation({\n  args: {},\n  handler: async (ctx) => {\n    const identity = await ctx.auth.getUserIdentity();\n    if (!identity) throw new Error(\"Unauthorized\");\n    const email = identity.email?.trim().toLowerCase();\n    if (!email) throw new Error(\"User email not found in auth identity\");\n    let row = (await ctx.db.query(\"users\").withIndex(\"by_email\", (q) => q.eq(\"email\", email)).collect())\n      .find((r) => r.clerkId === identity.subject);\n    if (row) return row._id;\n    return await ctx.db.insert(\"users\", { userId: identity.subject, email, clerkId: identity.subject, role: \"student\" });\n  },\n});"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any ConvexClient holder can call api.users.createUser. The mutation does not gate on role, identity, or bearer; the args are publicly persisted."
+      },
+      "impact": {
+        "score": "critical",
+        "reason": "Direct elevation path: an authenticated client can persist a users row with role='admin' tied to its own Clerk id and immediately pass admin-gated query/mutation surfaces. Combined with cross-tenant row forgery (caller-supplied email, no clerkId) the impact reaches victim identities on next sync."
+      },
+      "overall_severity": "critical"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Source-grounded. The handler body at convex/users.ts:238-253 contains 0 occurrences of ctx.auth.getUserIdentity() and 0 occurrences of requireAdmin / isAdminUser. The sibling syncUser at line 446 shows what an identity-derived mutation looks like for comparison."
+    }
+  },
+  {
+    "verdict": "confirmed",
+    "fingerprint": "convex.users.migrateUser.public_migration_no_auth",
+    "title": "convex/users.ts:630 migrateUser is a public mutation that inserts / patches users rows with caller-supplied role without identity or admin gate",
+    "description": "Public Convex mutation. Handler accepts caller-supplied userId, email, role, timeZone. Normalises the email (line 645). Looks up by userId index. If a row exists, patches `role: args.role ?? existingByEmail.role`. Otherwise inserts a fresh users row with `role: args.role ?? 'student'`. No ctx.auth.getUserIdentity(); no requireAdmin / isAdminUser. Caller-supplied role is persisted verbatim. The hardened role-mutation surface in the same file (`setUserRoleTrusted` at line 693) is `internalMutation` with elevated-preservation guards and email-collision refusal — but migrateUser exports as public mutation, leaving the gate on caller identity rather than on admin/tooling privilege.",
+    "root_cause": "migrateUser was exported as `mutation` to be callable by the legacy migration CLI. The docstring claim is that callers authenticate with `CONVEX_DEPLOY_KEY`, which is a `convex deploy`/admin-CLI surface; but the public `api.users.migrateUser` is independent of deploy-key protection. Other migrations in the file are `internalMutation` (e.g. `setUserRoleTrusted` line 693, `bootstrapAdminRoleOnce` line 960) and are wrapped behind Bearer-auth HTTP routes when called externally.",
+    "intended_behavior": "Convert migrateUser to `internalMutation`, route the legacy CLI through a Bearer-auth HTTP endpoint (mirroring the precedent at http.ts:1916 / 2079). The public mutation should not accept caller-supplied role on a canonical identity table.",
+    "trace": [
+      {
+        "kind": "entrypoint",
+        "file": "convex/users.ts",
+        "line": 630,
+        "scope": "export const migrateUser = mutation({ args, handler })",
+        "description": "Public mutation export. Accepts caller-supplied userId, email, role (validated to one of the four canonical roles), timeZone, createdAt, updatedAt."
+      },
+      {
+        "kind": "propagation",
+        "file": "convex/users.ts",
+        "line": 647,
+        "scope": "by_userId lookup",
+        "description": "Reads existing row by userId index. If found, ctx.db.patch at line 658 with caller-supplied email (normalized), role, timeZone."
+      },
+      {
+        "kind": "sink",
+        "file": "convex/users.ts",
+        "line": 662,
+        "scope": "ctx.db.insert('users', { userId, email, clerkId: userId, role: args.role ?? 'student', ... })",
+        "description": "Inserts a new users row with caller-supplied role. clerkId is set to args.userId. The role persists verbatim."
+      }
+    ],
+    "evidence": [
+      {
+        "file": "convex/users.ts",
+        "line": 630,
+        "description": "Public `mutation` export. Handler at lines 639-682: 0 calls to ctx.auth.getUserIdentity(); 0 calls to requireAdmin / isAdminUser; 0 call to any helper that gates by users.role."
+      },
+      {
+        "file": "convex/users.ts",
+        "line": 693,
+        "description": "Comparator: `setUserRoleTrusted` is exported as `internalMutation` and includes Greptile-hardened elevated-preservation guards, email-collision refusal, and by_userId / by_clerkId dual lookup — the canonical pattern migrateUser should follow."
+      },
+      {
+        "file": "convex/users.ts",
+        "line": 685,
+        "description": "Docstring: 'Internal-only mutation to set a user's role. Intended to be called from server-verified actions that have already authenticated the request.' The hardening treaty that migrateUser was supposed to inherit but did not."
+      }
+    ],
+    "conditions": [
+      {
+        "kind": "authentication_level",
+        "description": "Any authenticated ConvexClient holder. Calls to api.users.migrateUser do not require admin."
+      },
+      {
+        "kind": "user_interaction",
+        "description": "Caller selects any userId, email, role. If a row exists at by_userId, the patch overwrites role + email (normalized) + timeZone. If no row, the insert creates a fresh row with the chosen role and binds clerkId = userId."
+      },
+      {
+        "kind": "data_state",
+        "description": "Patch path: any ConvexClient can flip an existing users row to the chosen role (e.g. admin) by passing the row's userId. Insert path: any ConvexClient can create a new row with role:'admin' attributed to attacker-chosen userId, then sign in via the corresponding Clerk account (or pre-forge via /api/auth/sync) to claim the admin role."
+      }
+    ],
+    "execution": {
+      "attacker_perspective": "An attacker forges elevated role on existing users rows or creates admin role rows attributed to attacker-controlled userIds; either way, the caller does not need to be admin.",
+      "payloads": [
+        "Role flip on existing row: api.users.migrateUser({ userId: '<existing-victim-userId>', email: '<victim-email>', role: 'admin' })",
+        "Self-elevation by insert: api.users.migrateUser({ userId: 'user_<attacker-clerk-id>', email: '<attacker-email>', role: 'admin' }) — caller picks any email; row inserted with role:'admin' and clerkId bound to attacker-clerk-id; on next /api/auth/sync, isOwnedByIdentity matches and the admin role is retained."
+      ],
+      "instructions": [
+        "1) Sign in as the attacker (any ConvexClient JWT).",
+        "2) Call api.users.migrateUser with caller-supplied userId, email, role='admin'.",
+        "3) Query any admin-gated ConvexClient-facing surface (admin.ts isAdminUser gates several queries/mutations via users.role === 'admin').",
+        "4) Observe admin-gated surfaces accept the caller's identity as admin."
+      ],
+      "observed_result": "Source-traceable: lines 655-658 patch `role: args.role ?? existingByEmail.role` if existing; lines 662-678 insert with `role: args.role ?? 'student'` if no row. The caller-supplied role is persisted with no gate. The hardened mutation setUserRoleTrusted (line 693) shows the proper internal-only pattern; migrateUser does not follow it."
+    },
+    "remediation": {
+      "strategy": "Convert migrateUser to `internalMutation`, route the legacy CLI through a Bearer-auth HTTP endpoint. If the public mutation must remain (e.g. for tooling), require callers to be admin or to derive identity from ctx.auth.getUserIdentity().",
+      "code_changes": [
+        {
+          "file_name": "convex/users.ts",
+          "fixed_code": "import { internalMutation, mutation } from \"./_generated/server\";\n...\nexport const migrateUser = internalMutation({\n  args: {\n    userId: v.string(),\n    email: v.string(),\n    role: v.optional(v.union(v.literal(\"student\"), v.literal(\"instructor\"), v.literal(\"admin\"), v.literal(\"video_editor\"))),\n    timeZone: v.optional(v.string()),\n    createdAt: v.optional(v.number()),\n    updatedAt: v.optional(v.number()),\n  },\n  handler: async (ctx, args) => { /* unchanged body */ },\n});\n\n// New Bearer-auth HTTP endpoint at convex/http.ts:\nexport const httpMigrateUser = httpAction(async (ctx, request) => {\n  if (!verifyAuth(request)) return unauthorizedResponse();\n  let body;\n  try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: { 'Content-Type': 'application/json' } }); }\n  const result = await ctx.runMutation(internal.users.migrateUser, body);\n  return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });\n});\nhttp.route({ path: \"/internal/migrate-user\", method: \"POST\", handler: httpMigrateUser });"
+        }
+      ]
+    },
+    "severity": {
+      "likelihood": {
+        "score": "high",
+        "reason": "Any ConvexClient holder. The mutation exports as public and persists caller-supplied role without a gate."
+      },
+      "impact": {
+        "score": "critical",
+        "reason": "Direct path to admin or video_editor role on any userId, including attacker-controlled userIds. Existing users can be silently demoted / elevated by an attacker pointing at their userId. New admin rows can be forged for the attacker's own identity."
+      },
+      "overall_severity": "critical"
+    },
+    "confidence": {
+      "score": "high",
+      "reason": "Source-grounded: convex/users.ts:639-682 contains 0 lines calling ctx.auth.getUserIdentity() and 0 lines calling users.role / isAdminUser. The internalMutation sibling setUserRoleTrusted (line 693) shows the canonical hardening pattern migrateUser should adopt."
+    }
+  }
+]

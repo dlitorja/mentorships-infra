@@ -1,0 +1,281 @@
+[
+  {
+    "coverage_id": "convex%2Fcleanup.ts%23wipePaymentData::convex%2Forders.ts%23refundOrder::profile%2Fquick%2Fall-in-scope-subsystems::Access%20control",
+    "canonical_refs": {
+      "surface": "convex/cleanup.ts#wipePaymentData",
+      "boundary": "convex/orders.ts#refundOrder",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control"
+    },
+    "surface": "convex/cleanup.ts#wipePaymentData",
+    "boundary": "convex/orders.ts#refundOrder",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "convex/cleanup.ts",
+      "convex/orders.ts",
+      "convex/audit/auditLog.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "DATA-ISOLATION-AND-LIFECYCLE.md#Destructive ops and admin recovery",
+      "WEB-PROTOCOL-AND-AUTH.md#Public mutations / queries exposed via ConvexClient"
+    ],
+    "excluded_blocks": [
+      { "block": "WEB-PROTOCOL-AND-AUTH.md#Bearer / HTTP-key authentication", "reason": "wipePaymentData is a ConvexClient-callable mutation, not an httpAction; bearer auth is irrelevant to its surface." },
+      { "block": "RESOURCE-EXHAUSTION-AND-AVAILABILITY.md", "reason": "destructive delete is bounded by admin role, not a shared-availability surface." }
+    ],
+    "prior_status": "new",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "parent_quick",
+    "reviewed_paths": [
+      "convex/cleanup.ts",
+      "convex/orders.ts",
+      "convex/audit/auditLog.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "parent_quick",
+        "reviewed_paths": [
+          "convex/cleanup.ts",
+          "convex/orders.ts",
+          "convex/audit/auditLog.ts"
+        ],
+        "invariant": "Every Convex mutation that deletes more than one privileged table must write an audit-log row carrying the resolved actorId, actorRole, action, targetType, and details so post-incident forensics can attribute the destructive op to a principal.",
+        "method": "source",
+        "result": "convex/cleanup.ts:15 wipePaymentData gates on `users.role === 'admin'` (line 26-28) and deletes 14 tables, but does not write any row to auditLogs / workspaceAuditLogs. The comparator convex/orders.ts:refundOrder writes a refund audit row via `writeRefundAuditLog`; convex/audit/auditLog.ts has the audit-log helpers used elsewhere. The omission is asymmetric across the destructive-op surface.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "convex.cleanup.wipePaymentData.admin_op_no_audit_log"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "convex%2Fseed.ts%23seedInstructorsWithProducts::convex%2Fseed.ts%23clearInstructorsAndProducts::profile%2Fquick%2Fall-in-scope-subsystems::Access%20control",
+    "canonical_refs": {
+      "surface": "convex/seed.ts#seedInstructorsWithProducts",
+      "boundary": "convex/seed.ts#clearInstructorsAndProducts",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control"
+    },
+    "surface": "convex/seed.ts#seedInstructorsWithProducts",
+    "boundary": "convex/seed.ts#clearInstructorsAndProducts",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "convex/seed.ts",
+      "convex/instructors.ts",
+      "convex/products.ts",
+      "convex/auth.config.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Public mutations / queries exposed via ConvexClient",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Action / internal vs public mutation exposure"
+    ],
+    "excluded_blocks": [
+      { "block": "WEB-PROTOCOL-AND-AUTH.md#Bearer / HTTP-key authentication", "reason": "the path is reached via api.seed.seedInstructorsWithProducts (ConvexClient), not via an httpAction." },
+      { "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant isolation in Convex", "reason": "seeded inserts do not violate tenant isolation per se; the cross-tenant write is the concern, which falls under access-control." }
+    ],
+    "prior_status": "new",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "parent_quick",
+    "reviewed_paths": [
+      "convex/seed.ts",
+      "convex/instructors.ts",
+      "convex/products.ts",
+      "convex/auth.config.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "parent_quick",
+        "reviewed_paths": [
+          "convex/seed.ts",
+          "convex/instructors.ts",
+          "convex/products.ts",
+          "convex/auth.config.ts"
+        ],
+        "invariant": "A `mutation` export that inserts shared business records (instructors, products) MUST enforce an authenticated-principal gate (`ctx.auth.getUserIdentity()` AND `users.role` check) so a randomly authenticated ConvexClient cannot mint new records; the comparator path MUST require the same or stricter gate.",
+        "method": "source",
+        "result": "convex/seed.ts:417 seedInstructorsWithProducts is exported as `mutation` (public), accepts no args, and inserts instructors + products rows. No `ctx.auth.getUserIdentity()` call in the handler (no `identity` variable). The file's own admin-only comparator `clearInstructorsAndProducts` (line 527) DOES require `user.role === 'admin'`. The /seed/instructor HTTP route (convex/http.ts:1133-1136) only reaches this from a Bearer-auth caller, but the public mutation is also reachable from any authenticated ConvexClient via api.seed.seedInstructorsWithProducts.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "convex.seed.seedInstructorsWithProducts.public_no_auth"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "convex%2FstudentInvitations.ts%23migrateInvitation::convex%2FadminOnboarding.ts%23isAdminOrSupport::profile%2Fquick%2Fall-in-scope-subsystems::Access%20control",
+    "canonical_refs": {
+      "surface": "convex/studentInvitations.ts#migrateInvitation",
+      "boundary": "convex/adminOnboarding.ts#isAdminOrSupport",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control"
+    },
+    "surface": "convex/studentInvitations.ts#migrateInvitation",
+    "boundary": "convex/adminOnboarding.ts#isAdminOrSupport",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "convex/studentInvitations.ts",
+      "convex/adminOnboarding.ts",
+      "convex/http.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Public mutations / queries exposed via ConvexClient",
+      "WEB-PROTOCOL-AND-AUTH.md#Cross-app identity bridging and service keys",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Action / internal vs public mutation exposure"
+    ],
+    "excluded_blocks": [
+      { "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Multi-table data lifecycle", "reason": "migrateInvitation writes a single studentInvitations row; the cross-resource side-effect is the cross-instructor binding, not a multi-table lifecycle change." },
+      { "block": "WEB-PROTOCOL-AND-AUTH.md#Bearer / HTTP-key authentication", "reason": "the public api.studentInvitations.migrateInvitation path is reachable without bearer; the bearer-auth HTTP siblings are documented in code and serve a separate closure." }
+    ],
+    "prior_status": "new",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "parent_quick",
+    "reviewed_paths": [
+      "convex/studentInvitations.ts",
+      "convex/adminOnboarding.ts",
+      "convex/http.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "parent_quick",
+        "reviewed_paths": [
+          "convex/studentInvitations.ts",
+          "convex/adminOnboarding.ts",
+          "convex/http.ts"
+        ],
+        "invariant": "A `mutation` export that inserts or rewrites a student invitation row MUST enforce `requireAdminOrSupport` (or a strictly stronger equivalent) so an authenticated student instructor cannot forge accepted-pending invitations against an arbitrary instructorId.",
+        "method": "source",
+        "result": "convex/studentInvitations.ts:458 migrateInvitation exports `mutation` (public). The handler does not call `ctx.auth.getUserIdentity()`, does not call `requireAdminOrSupport`, and accepts caller-supplied `instructorId`, `email`, and `clerkInvitationId`. The file does have a hardened comparator — `listStudentInvitations` (line 68) and `updateStudentInvitationStatus` (line 192) — and the docstring at line 443-456 acknowledges the gap and proposes a future PR to convert it to internalMutation + Bearer-auth HTTP endpoint. Confirmed by reading lines 458-501 — no `mutation/handler/identity/gate` between line 469 and 501, and no call to any helper starting with `require`.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "convex.studentInvitations.migrateInvitation.public_no_admin_gate"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "convex%2Fusers.ts%23createUser::convex%2Fusers.ts%23isOwnedByIdentity::profile%2Fquick%2Fall-in-scope-subsystems::Access%20control",
+    "canonical_refs": {
+      "surface": "convex/users.ts#createUser",
+      "boundary": "convex/users.ts#isOwnedByIdentity",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control"
+    },
+    "surface": "convex/users.ts#createUser",
+    "boundary": "convex/users.ts#isOwnedByIdentity",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "convex/users.ts",
+      "convex/http.ts",
+      "convex/auth.config.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Public mutations / queries exposed via ConvexClient",
+      "WEB-PROTOCOL-AND-AUTH.md#Cross-app identity bridging and service keys",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Action / internal vs public mutation exposure"
+    ],
+    "excluded_blocks": [
+      { "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant isolation in Convex", "reason": "this is identity-table forgery at the request boundary, not a tenant-isolation violation against another user's row." },
+      { "block": "WEB-PROTOCOL-AND-AUTH.md#Bearer / HTTP-key authentication", "reason": "the public api.users.createUser path is not the bearer-gated HTTP route; the HTTP route is a stricter subset." }
+    ],
+    "prior_status": "new",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "parent_quick",
+    "reviewed_paths": [
+      "convex/users.ts",
+      "convex/http.ts",
+      "convex/auth.config.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "parent_quick",
+        "reviewed_paths": [
+          "convex/users.ts",
+          "convex/http.ts",
+          "convex/auth.config.ts"
+        ],
+        "invariant": "A `mutation` export that inserts a `users` row MUST either (a) derive userId/email/clerkId from `ctx.auth.getUserIdentity()`, OR (b) require `users.role === 'admin'` (or stricter). Caller-supplied `userId`, `email`, and `role` MUST NOT be persisted without an authenticated caller attributable to the resulting row.",
+        "method": "source",
+        "result": "convex/users.ts:228 createUser is exported as `mutation` (public). Handler reads only `ctx.db.query('users')` (lines 239-242); never calls `ctx.auth.getUserIdentity()`. Caller-supplied `args.userId`, `args.email`, `args.role`, `args.clerkId` are persisted verbatim into the new users row (lines 248-252). The `placeholder_${args.userId}` fallback is a marker for downstream `isOwnedByIdentity` (lines 352-367) — but the marker is only meaningful if a later authenticated sync matches it; until then, the row is reachable by `by_email` lookups used for identity bridging (e.g. adminOnboarding.claimOnboardingByEmail). The hardened variant in the same file is `syncUser` (line 446-628) which DOES derive identity. The bearer-gated HTTP sibling /users/create at http.ts:737 only narrows the entry to a CONVEX_HTTP_KEY holder; api.users.createUser remains reachable by any ConvexClient.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "convex.users.createUser.public_mutation_no_auth"
+    ],
+    "unresolved": []
+  },
+  {
+    "coverage_id": "convex%2Fusers.ts%23migrateUser::convex%2Fusers.ts%23isOwnedByIdentity::profile%2Fquick%2Fall-in-scope-subsystems::Access%20control",
+    "canonical_refs": {
+      "surface": "convex/users.ts#migrateUser",
+      "boundary": "convex/users.ts#isOwnedByIdentity",
+      "subsystem": "profile/quick/all-in-scope-subsystems",
+      "attack_class": "Access control"
+    },
+    "surface": "convex/users.ts#migrateUser",
+    "boundary": "convex/users.ts#isOwnedByIdentity",
+    "subsystem": "profile/quick/all-in-scope-subsystems",
+    "attack_class": "Access control",
+    "starting_paths": [
+      "convex/users.ts",
+      "convex/http.ts",
+      "convex/auth.config.ts"
+    ],
+    "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+    "selected_companion_blocks": [
+      "WEB-PROTOCOL-AND-AUTH.md#Public mutations / queries exposed via ConvexClient",
+      "WEB-PROTOCOL-AND-AUTH.md#Cross-app identity bridging and service keys",
+      "SUPPLY-CHAIN-AND-RELEASE.md#Action / internal vs public mutation exposure"
+    ],
+    "excluded_blocks": [
+      { "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant isolation in Convex", "reason": "this is identity-table forgery at the request boundary, not a tenant-isolation violation against another user's row." },
+      { "block": "WEB-PROTOCOL-AND-AUTH.md#Bearer / HTTP-key authentication", "reason": "api.users.migrateUser is publicly callable regardless of the bearer-auth HTTP surface." }
+    ],
+    "prior_status": "new",
+    "attempts": [],
+    "wave": 1,
+    "status": "candidate",
+    "agent_id": "parent_quick",
+    "reviewed_paths": [
+      "convex/users.ts",
+      "convex/adminMigration.ts"
+    ],
+    "local_checks": [
+      {
+        "agent_id": "parent_quick",
+        "reviewed_paths": [
+          "convex/users.ts",
+          "convex/adminMigration.ts"
+        ],
+        "invariant": "A `mutation` export that inserts or patches a `users` row with caller-supplied role MUST NOT be reachable by an arbitrary authenticated client. Internal migrations belong on `internalMutation` (or `mutation` + admin/Bearer chain).",
+        "method": "source",
+        "result": "convex/users.ts:630 migrateUser is exported as `mutation` (public). Handler at lines 639-682 takes caller-supplied `args.userId`, `args.email`, and `args.role`, looks up an existing row, and either patches `role: args.role ?? existingByEmail.role` or inserts a fresh users row with `role: args.role ?? 'student'`. No `ctx.auth.getUserIdentity()` call, no `requireAdmin` / `isAdminUser` call, no role gate of any kind. The file's docstring at line 685 corroborates that the hardened role mutation is `internalMutation` (`setUserRoleTrusted` at line 693); the export as `mutation` exposes it without that gate.",
+        "artifact": null
+      }
+    ],
+    "result_fingerprints": [
+      "convex.users.migrateUser.public_migration_no_auth"
+    ],
+    "unresolved": []
+  }
+]

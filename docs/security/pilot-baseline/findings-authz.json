@@ -1,0 +1,188 @@
+{
+  "skill": "convex-authz",
+  "branch": "chore/sec-pilot-a1 @ main@9fbf1794",
+  "worktree": "/home/dlitorja/projects/mentorships-infra-sec-pilot",
+  "pilot_mode": "DESTRUCTIVE-WITH-RESET (edits applied inside worktree, will be wiped)",
+  "scope": "convex/**/*.ts only (excluding _generated/, *.d.ts, *.test.ts)",
+  "foundation_check": {
+    "auth_config_provider_present": true,
+    "users_table_with_by_clerkId_and_by_userId": true,
+    "candidate_resolves_via_tokenIdentifier": true,
+    "foundation_present": true
+  },
+  "shape_counts": {
+    "a_identity_from_arg": 0,
+    "b_public_mutation_no_admin_gate_prepatch": 30,
+    "b_patched": 0,
+    "c_parent_fk_read_no_ownership": 0,
+    "d_args_userId_not_compared_to_subject_prepatch": 7,
+    "d_patched": 0,
+    "no_auth_writable_mutations_prepatch": 79,
+    "no_auth_writable_mutations_postpatch": 0
+  },
+  "tsc_result": {
+    "tsc_clean": true,
+    "iterations_taken": 2,
+    "pre_existing_tsc_errors": [],
+    "mid_edit_fix": "AuthCtx.db widened to any; deliberate, documented (would otherwise require importing DataModel from _generated/ which creates a circular dep)."
+  },
+  "diff_stat": {
+    "files_changed": 21,
+    "insertions": 397,
+    "deletions": 107,
+    "new_files": [
+      "convex/model/auth.ts (185 lines, requireIdentity/requireOwner/requireAdminUser/requireAdminOrSupportUser/requireCallerUser/getCallerUser/requireOwnerByUsersRowId canon)"
+    ]
+  },
+  "top_critical_findings": [
+    {
+      "file": "convex/payments.ts",
+      "line": 231,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "adminProcessRefund checked identity only, NOT role.",
+      "why_exploitable": "Any Clerk-authenticated client could refund any payment by id.",
+      "fix_applied": "requireIdentity + requireAdminUser."
+    },
+    {
+      "file": "convex/orders.ts",
+      "line": 216,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "createOrder was a public mutation with zero auth.",
+      "why_exploitable": "Any caller could insert arbitrary orders (price, line items, payment binding).",
+      "fix_applied": "Requires serviceKey arg validated by assertServiceKey. migrateOrder / deleteOrder \u2192 internalMutation."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 2039,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "decrementInventory public mutation, no auth.",
+      "why_exploitable": "Any authed client could burn another instructor's session inventory.",
+      "fix_applied": "requireAdminUser. 11 mutations in this file gained the same gate; migrateInstructor \u2192 internalMutation."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 2166,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "incrementInventory public mutation, no auth.",
+      "why_exploitable": "Any authed client could grant another instructor arbitrary session inventory.",
+      "fix_applied": "requireAdminUser."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 318,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "useSession public mutation accepting any id, decremented any pack by 1.",
+      "why_exploitable": "Any signed-in caller could deplete another student's session pack.",
+      "fix_applied": "requireIdentity + ownership-or-admin check on pack.userId."
+    },
+    {
+      "file": "convex/userIdentities.ts",
+      "line": 70,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "upsertUserIdentity public mutation letting any caller bind a Discord providerUserId to any Clerk userId/email.",
+      "why_exploitable": "Account-linking abuse; attacker could claim / take over another user's Discord identity.",
+      "fix_applied": "args.userId === identity.subject OR admin (migrateUserIdentity \u2192 internalMutation)."
+    },
+    {
+      "file": "convex/studentOnboarding.ts",
+      "line": 230,
+      "shape": "d",
+      "severity": "Critical",
+      "issue": "markReviewed verified sub.instructorId === args.instructorId (client-supplied) but NOT that the caller was actually that instructor.",
+      "why_exploitable": "Any caller could mark any submission reviewed by passing an arbitrary instructorId value.",
+      "fix_applied": "Also verifies instructor.userId === identity.subject OR admin; reviewedByUserId derived from identity.subject rather than from a client-supplied args.instructorId."
+    },
+    {
+      "file": "convex/instructorUploads.ts",
+      "line": 13,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "updateUploadStarted / completeUpload had NO auth check.",
+      "why_exploitable": "Any caller could mark another user's upload as completed / started; affects video-editor storage flows.",
+      "fix_applied": "Resolve caller via getAuthenticatedUser; upload.uploadedById === caller.userId/clerkId OR caller.role \u2208 {admin, video_editor}. migrateInstructorUpload \u2192 internalMutation."
+    },
+    {
+      "file": "convex/sessions.ts",
+      "line": 637,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "updateSession / completeSession had no auth \u2014 any caller could patch any session's fields.",
+      "why_exploitable": "Video room URL takeover, instructor/student swapping, recording-URL redirection.",
+      "fix_applied": "requireIdentity + session.studentId === identity.subject OR instructor.userId === identity.subject. deleteSession \u2192 internalMutation."
+    },
+    {
+      "file": "convex/adminWorkspaces.ts",
+      "line": 607,
+      "shape": "b",
+      "severity": "Critical",
+      "issue": "linkWorkspaceToSessionPack only guard was confirmSeed:true literal.",
+      "why_exploitable": "Any Convex client that knew the function name could mint a seat reservation + link it to a workspace.",
+      "fix_applied": "internalMutation."
+    }
+  ],
+  "all_patched_mutations": [
+    "convex/payments.ts:adminProcessRefund (admin gate)",
+    "convex/payments.ts:createPayment \u2192 internalMutation",
+    "convex/payments.ts:updatePayment \u2192 internalMutation",
+    "convex/payments.ts:completePayment \u2192 internalMutation",
+    "convex/payments.ts:refundPayment \u2192 internalMutation",
+    "convex/payments.ts:failPayment \u2192 internalMutation",
+    "convex/payments.ts:deletePayment \u2192 internalMutation",
+    "convex/payments.ts:migratePayment \u2192 internalMutation",
+    "convex/orders.ts:createOrder (serviceKey)",
+    "convex/orders.ts:migrateOrder \u2192 internalMutation",
+    "convex/orders.ts:deleteOrder \u2192 internalMutation",
+    "convex/products.ts:createProduct / updateProduct / deleteProduct / deactivateProduct / activateProduct (admin)",
+    "convex/products.ts:migrateProduct \u2192 internalMutation",
+    "convex/instructors.ts: decrementInventory / incrementInventory / upsertInstructorTestimonial / upsertStudentResult / uploadInstructorProfileImage / uploadInstructorPortfolio / uploadStudentResultImage / updateInstructorProfileImage / updateInstructorPortfolio / backfillInstructorUserId / createInstructor (requireAdminUser)",
+    "convex/instructors.ts:migrateInstructor \u2192 internalMutation",
+    "convex/seatReservations.ts:createSeatReservation (admin)",
+    "seatReservations.ts:updateSeatReservation/releaseSeat/extendSeat (adminOrSupport)",
+    "convex/seatReservations.ts:deleteSeatReservation/processExpiredSeats/migrateSeatReservation \u2192 internalMutation",
+    "convex/sessionPacks.ts:createSessionPack/refundSessionPack (admin)",
+    "sessionPacks.ts:updateSessionPack (adminOrSupport)",
+    "convex/sessionPacks.ts:useSession (identity + ownership-or-admin)",
+    "sessionPacks.ts:expireSessionPack/processExpiredSessionPacks/deleteSessionPack/migrateSessionPack \u2192 internalMutation",
+    "convex/studentOnboarding.ts:markReviewed (identity-or-admin + reviewer-from-subject)",
+    "convex/users.ts:createUser (requireAdminUser)",
+    "convex/users.ts:migrateUser \u2192 internalMutation",
+    "convex/contacts.ts:migrateContact \u2192 internalMutation",
+    "convex/userIdentities.ts:upsertUserIdentity (identity-match-or-admin)",
+    "userIdentities.ts:migrateUserIdentity \u2192 internalMutation",
+    "convex/studentSessionCounts.ts:migrateSessionCount \u2192 internalMutation",
+    "convex/videoEditorAssignments.ts:migrateVideoEditorAssignment \u2192 internalMutation",
+    "convex/studentInvitations.ts:migrateInvitation \u2192 internalMutation",
+    "convex/discordActionQueue.ts:migrateDiscordAction \u2192 internalMutation",
+    "convex/monthlyStorageCosts.ts:migrateMonthlyStorageCost \u2192 internalMutation",
+    "convex/mutations/http.ts:createRetentionNotification/updateWorkspaceExportStatus \u2192 internalMutation",
+    "convex/adminWorkspaces.ts:linkWorkspaceToSessionPack \u2192 internalMutation",
+    "convex/instructorUploads.ts:updateUploadStarted/completeUpload (caller-matches-uploadedById-or-admin/video_editor)",
+    "convex/instructorUploads.ts:migrateInstructorUpload \u2192 internalMutation",
+    "convex/sessions.ts:updateSession/completeSession (participant-or-admin)",
+    "sessions.ts:deleteSession \u2192 internalMutation",
+    "convex/workspaces.ts:logViewWorkspaceAudit (admin + caller-match)",
+    "workspaces.ts:createRetentionNotification/acknowledgeNotification (identity-or-admin/internalMutation)",
+    "convex/seed.ts:seedInstructorsWithProducts \u2192 internalMutation"
+  ],
+  "judgment_calls": [
+    "Many migrate*/cron conversions \u2192 internalMutation break scripts/migrate-to-convex/*.ts and apps/web Inngest callers. Cleanest follow-up: service-key HTTP endpoint and forward from there.",
+    "payments.ts internalisation breaks apps/web/inngest/functions/payments.ts public-namespace calls; needs service-key HTTP path.",
+    "orders.ts:createOrder now requires serviceKey \u2014 checkout routes that don't already provide one break at deploy time as 401.",
+    "seatReservations/sessionPacks admin/orSupport gates break Inngest payment flow; move to service-key HTTP endpoints.",
+    "seed.ts:internal change breaks scripts/seed-test-workspaces.ts; needs internal-via-service-key refactor.",
+    "All breakages surface as 401/403, not data corruption."
+  ],
+  "what_we_didnt_do": [
+    "no commits, no pushes, no PRs",
+    "did not modify _generated/, *.d.ts, *.test.ts, or anything outside convex/",
+    "did not touch convex/admin.ts (isAdminUser reused by requireAdminUser)",
+    "did not change Clerk configuration or env vars (Clerk Changes Policy)",
+    "did not widen scope beyond audit target \u2014 false-positive hits left intact"
+  ]
+}

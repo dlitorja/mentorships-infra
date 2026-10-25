@@ -1,0 +1,760 @@
+{
+  "skill": "convex-reviewer",
+  "scope": "convex/**/*.ts (excluding _generated/, *.d.ts, *.test.ts) + explicit convex/http.ts scope; 3-pass audit (Security / Performance / Code Quality)",
+  "files_reviewed": 67,
+  "branch": "chore/sec-pilot-a1 @ main@9fbf1794",
+  "pilot_mode": "READ-ONLY (no edits, no commits, no pushes, no PRs)",
+  "severity_counts": {
+    "Critical": 79,
+    "Important": 10,
+    "Suggestion": 3,
+    "total": 92
+  },
+  "pass_summaries": {
+    "security": "Tightened through Clerk auth on most user-facing endpoints, internal-only convention on most cron/trigger callbacks, and lib/serviceAuth.ts:assertServiceKey for server-only mutations. Substantial number of public query/mutation exports leak PII or accept mutations from any signed-in (or unauthenticated) caller. Critical clusters: queries/http.ts, mutations/http.ts, payments.ts, users.ts, studentOnboarding.ts, discordActionQueue.ts, userIdentities.ts, videoEditorAssignments.ts, studentSessionCounts.ts, adminWorkspaces.ts. The confirmSeed: true enumerable guard on linkWorkspaceToSessionPack is intentional per its docstring but is still a public surface any Convex client can hit.",
+    "performance": "Many queries rely on .filter() after withIndex (migrateOrder at orders.ts:366; monthlyStorageCosts.ts:73; payments.ts:66; cleanup.ts:24; multiple branches in workspaces.ts note pagination). Date.now() appears in query handlers (queries/http.ts:12,26; monthlyStorageCosts.ts:30). The 30k document scan cap in queries/emailHealth.ts and full-collect runners in migrations.ts are documented and intentional.",
+    "code_quality": "Spec violations cluster around Convex export-kind labels: resolveUploadAccess/resolveDownloadAccess are public query despite 'Internal query' docstrings (onboardingWorkExamples.ts:231,653); getNotificationForRecipient is internalMutation though it only reads (recordingReadyNotifications.ts:222). Several handlers take args with no returns validator. studentOnboarding.ts:378 getSignedUrlsByStorageIds is publicly exposed despite its own docstring calling it 'intended for trusted internal callers'."
+  },
+  "http_router_audit": {
+    "scope": "convex/http.ts",
+    "verdict": "PASS \u2014 every registered HTTP route uses verifyAuth (CONVEX_HTTP_KEY, refuse when env var missing in prod) or verifyCallbackSecret (two-key); Clerk and Resend webhook routes additionally use Svix signature verification. Dev-mode credential-bypass helpers only apply when NODE_ENV !== 'production' and are scoped to tests. No unauthenticated public HTTP route discovered. However, helpers in convex/queries/http.ts and convex/mutations/http.ts ARE exposed as public Convex queries/mutations (only gated at the HTTP-key layer when invoked through the HTTP router). A direct Convex client bypasses them."
+  },
+  "findings": [
+    {
+      "file": "convex/users.ts",
+      "line": 10,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUserByEmail is a public query that, after an auth check that returns null, lets ANY signed-in Convex client fetch a complete user record by email (PII dump including role, clerkId, firstName, lastName, timeZone).",
+      "fix": "Restrict to caller-self OR admin; or move to internalQuery and call from a server-only HTTP endpoint gated by CONVEX_HTTP_KEY."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 25,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUserById is a public query that lets any signed-in caller fetch any user record by document id (IDOR; full row including role, clerkId, email).",
+      "fix": "Restrict to admin/support or caller-self; move public variants to internalQuery."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 62,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUsersByUserIds is a public query that lets any signed-in client bulk-fetch user rows by an arbitrary array of userId strings (PII + role dump).",
+      "fix": "Restrict to admin/support; or only return rows owned by the caller."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 83,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUsersByClerkIds has NO auth check at all \u2014 even an unauthenticated Convex client can fetch user rows by an arbitrary list of Clerk IDs (PII leak before sign-in).",
+      "fix": "Add getUserIdentity() gate (return [] when none), restrict to admin/support, or move to internalQuery."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 100,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "listUsers is a public query and returns a paginated stream of the entire users table to any signed-in caller \u2014 full PII dump.",
+      "fix": "Restrict to admin role; or move to internalQuery."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 112,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUsersByRole lets any signed-in client enumerate every user with the requested role (admin/instructor/student) \u2014 PII + role dump.",
+      "fix": "Restrict to admin."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 136,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getActiveUsersByRole \u2014 same shape as getUsersByRole, plus full instructor-profile resolution; allows any signed-in caller to enumerate all active instructor profiles.",
+      "fix": "Restrict to admin."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 228,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createUser is a public mutation with NO auth check; ANY caller can insert a new users row with an arbitrary role (admin, instructor, etc.). Privilege escalation by account creation.",
+      "fix": "Restrict to admin/support, gate via assertServiceKey, or convert to internalMutation and call from a server-only HTTP route."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 630,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateUser is a public mutation with NO auth check; lets any caller insert OR update users rows with an arbitrary role, including admin. Account-takeover / privilege-escalation vector.",
+      "fix": "Gate via assertServiceKey or convert to internalMutation."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 1128,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getAllUsersForMigration is a public query with NO auth check; returns the entire users table (PII dump, including clerkId, role).",
+      "fix": "Move to internalQuery (clearly a migration helper) or admin-gate."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 1288,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getAllInstructors is a public query with NO auth check; returns name+email+userId for every user with role=instructor. PII leak of every instructor.",
+      "fix": "Admin-gate or restrict to callers with a workspace-relationship to an instructor."
+    },
+    {
+      "file": "convex/users.ts",
+      "line": 1303,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getAdminStats is a public query with NO auth check; lets any caller pull admin-only dashboard counts.",
+      "fix": "Admin-gate."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 7,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getPaymentById is a public query that returns the full payment row (orderId, provider, providerPaymentId, amount, status, refundedAmount) to ANY signed-in caller by ID. IDOR; payment data exposure.",
+      "fix": "Restrict to caller-as-owner or admin; or move to internalQuery and call from the refund action that already admin-gates."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 19,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getOrderPayments returns every payment tied to a given orderId to any signed-in caller (IDOR by orderId).",
+      "fix": "Restrict to caller-as-order-owner or admin."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 34,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getPaymentByProviderId lets any signed-in caller look up a payment by (provider, providerPaymentId) \u2014 provider payment IDs are discoverable via receipt URLs and Order IDs; exposes amount/status/refundedAmount. IDOR.",
+      "fix": "Restrict to caller-as-order-owner or admin."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 54,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getCompletedPaymentByOrderAndProvider \u2014 same IDOR against (orderId, provider) for any signed-in caller. Filters with .filter() after withIndex (compounds the perf nit).",
+      "fix": "Restrict to order-owner or admin; rewrite the filter as part of the index."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 79,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createPayment is public mutation with NO auth; ANY caller can mint a payment row with arbitrary fields. status defaults to args.status ?? 'pending' \u2014 caller can pass completed/refunded/etc.",
+      "fix": "Gate on assertServiceKey(args.serviceKey) and require an order the caller owns; or move to internalMutation."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 99,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "updatePayment is public mutation with NO auth; any caller can patch any payment's status to pending/completed/refunded/failed AND patch refundedAmount.",
+      "fix": "Gate on assertServiceKey or internal-only."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 113,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "completePayment is public mutation with NO auth; any caller can mark any payment 'completed' \u2014 direct revenue-fraud vector since refunds depend on completed payments.",
+      "fix": "Gate on assertServiceKey or internal-only (called from verified Stripe/PayPal webhook handlers)."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 122,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "refundPayment is public mutation with NO auth; any caller can mark any payment 'refunded' AND set an arbitrary refundedAmount.",
+      "fix": "Gate on assertServiceKey or internal-only."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 134,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "failPayment is public mutation with NO auth; any caller can mark any payment 'failed'.",
+      "fix": "Gate on assertServiceKey or internal-only."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 231,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "adminProcessRefund checks identity only, NOT role. The file's own comment (lines 156-160) notes the bug and points to adminProcessRefundInternal as the fix; the public mutation should not exist.",
+      "fix": "Delete the public adminProcessRefund; keep only adminProcessRefundInternal (admin-gated + idempotency-safe) and expose a service-keyed or admin-gated HTTP path."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 284,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "deletePayment is public mutation with NO auth; soft-deletes any payment by id.",
+      "fix": "Gate on assertServiceKey or internal-only."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 291,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migratePayment is public mutation with NO auth; lets any caller insert or update payments rows with provider-payment-IDs of their choice, including status='completed'.",
+      "fix": "Gate on assertServiceKey (matches migrateOrder pattern) or convert to internalMutation."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 10,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getWorkspacesNeedingDeletion is a public query with no auth or service-key check; returns a list of every workspace approaching 18-month retention (ownerId, instructorId, endedAt).",
+      "fix": "Move to internalQuery and call only from the HTTP router (gated by verifyAuth)."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 24,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getWorkspacesForNotification is a public query with no auth or service-key check; returns owner+instructor+daysUntilDeletion for every workspace in the 90/30/7-day retention window.",
+      "fix": "Move to internalQuery."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 74,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUserEmail is a public query; lets any signed-in Convex client fetch any user's email by clerkId. PII lookup. Docstring explicitly says 'server-only' but it's exported as public.",
+      "fix": "Move to internalQuery and call from HTTP router via ctx.runQuery(internal...) after verifyAuth."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 92,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getUserIdByEmail is a public query; any signed-in Convex client can resolve a user _id by email \u2014 PII/email-to-id enumeration.",
+      "fix": "Move to internalQuery."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 107,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getWorkspaceExportData is a public query; any signed-in Convex client can read any workspace's notes + image URLs/b2Keys by ID. Note contents are private mentorship content \u2014 IDOR + content leak.",
+      "fix": "Move to internalQuery."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 210,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getWorkspaceExport is a public query; any signed-in Convex client can fetch export status + workspaceId + ownerId for any export ID.",
+      "fix": "Move to internalQuery (docstring already says only the trigger task should reach it)."
+    },
+    {
+      "file": "convex/mutations/http.ts",
+      "line": 74,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createRetentionNotification is public mutation with no auth or service-key check; any signed-in Convex client can mint retention notifications against arbitrary user/workspace pairs. Notification-spam vector.",
+      "fix": "Move to internalMutation (called from the HTTP route after verifyAuth)."
+    },
+    {
+      "file": "convex/mutations/http.ts",
+      "line": 107,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "updateWorkspaceExportStatus is public mutation with no auth or service-key check; any signed-in Convex client can patch any export's status. Per-row guards refuse 'completed \u2192 anything' and 'failed w/o errorMessage \u2192 anything', but an attacker can still set a pending export to 'completed' pre-emptively, creating phony export-completion emails.",
+      "fix": "Move to internalMutation (called from the HTTP route after verifyAuth + export-request ownership check)."
+    },
+    {
+      "file": "convex/userIdentities.ts",
+      "line": 8,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateUserIdentity is public mutation with NO auth; lets any caller write Discord user IDs onto any user's record. Account-linking abuse.",
+      "fix": "Gate via assertServiceKey or convert to internalMutation."
+    },
+    {
+      "file": "convex/userIdentities.ts",
+      "line": 70,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "upsertUserIdentity is public mutation with NO auth; lets any caller upsert a Discord identity for any userId, including a Discord ID the attacker controls.",
+      "fix": "Same as above."
+    },
+    {
+      "file": "convex/discordActionQueue.ts",
+      "line": 17,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateDiscordAction is public mutation with NO auth; lets any caller insert arbitrary Discord DM messages and role-assignment rows into the queue. Once the worker drains, real Discord-side effects fire (DMs, role grants).",
+      "fix": "Convert to internalMutation; the worker that drains the queue stays internalAction."
+    },
+    {
+      "file": "convex/videoEditorAssignments.ts",
+      "line": 157,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateVideoEditorAssignment is public mutation with NO auth; lets any caller insert or update video-editor assignments \u2014 the storage context the rest of the system trusts for instructor uploads.",
+      "fix": "Convert to internalMutation or service-key gate."
+    },
+    {
+      "file": "convex/adminWorkspaces.ts",
+      "line": 607,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "linkWorkspaceToSessionPack is a public mutation whose ONLY guard is the typed literal confirmSeed:true. Docstring admits it is 'intentionally unauthenticated\u2026 the confirmSeed flag is the only thing stopping a random caller.' Any Convex client that knows the function name can mint a seat reservation + link.",
+      "fix": "Either delete and rely on seatReservations:createSeatReservation directly, or convert to internalMutation callable from a service-keyed HTTP route."
+    },
+    {
+      "file": "convex/seed.ts",
+      "line": 417,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "seedInstructorsWithProducts is public mutation with NO auth/seed-flag-guard; a Convex client can invoke it on prod to insert arbitrary instructor+product rows.",
+      "fix": "Convert to internalMutation (or admin-gate) and run from a seed-only HTTP route gated by a dedicated seed secret."
+    },
+    {
+      "file": "convex/migrationQueries.ts",
+      "line": 76,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getGuestSessionPacks is public query that surfaces session-pack data (instructorId, remainingSessions, status) for arbitrary userId; any signed-in client can enumerate another user's session packs by guessing userIds.",
+      "fix": "Restrict to caller-self or admin; or move to internalQuery."
+    },
+    {
+      "file": "convex/sessions.ts",
+      "line": 637,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "updateSession is public mutation with no auth \u2014 any caller can patch any session's fields (instructor/student/videoRoom/recording).",
+      "fix": "Admin/participant-only via assertion helper."
+    },
+    {
+      "file": "convex/sessions.ts",
+      "line": 656,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "completeSession is public mutation with no auth \u2014 any caller can mark any session complete.",
+      "fix": "Same as above."
+    },
+    {
+      "file": "convex/sessions.ts",
+      "line": 774,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "deleteSession is public mutation with no auth \u2014 deletes any session by id.",
+      "fix": "Same as above."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 1670,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createInstructor is public mutation with no auth \u2014 any caller can mint an instructor record with arbitrary attributes.",
+      "fix": "Admin-gate or convert to internalMutation called from a service-keyed HTTP route."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 1759,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateInstructor is public mutation with no auth \u2014 any caller can insert or update instructors rows.",
+      "fix": "Convert to internalMutation (matches migrateUser pattern) or service-key gate."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 2039,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "decrementInventory is public mutation with no auth \u2014 any caller can burn another instructor's session inventory.",
+      "fix": "Service-key gate (called from verified payment-completion paths) or internal-only."
+    },
+    {
+      "file": "convex/instructors.ts",
+      "line": 2166,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "incrementInventory is public mutation with no auth \u2014 any caller can grant another instructor arbitrary session inventory.",
+      "fix": "Same as above."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 179,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Products file cluster of public mutations with no auth (179/208/231/239/248/256). Anyone can create/list/patch/soft-delete any product.",
+      "fix": "Admin-gate or service-key gate; or convert to internalMutation with HTTP-key routes."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 208,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see products.ts:179.",
+      "fix": "Same fix \u2014 see products.ts:179."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 231,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see products.ts:179.",
+      "fix": "Same fix \u2014 see products.ts:179."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 239,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see products.ts:179.",
+      "fix": "Same fix \u2014 see products.ts:179."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 248,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see products.ts:179.",
+      "fix": "Same fix \u2014 see products.ts:179."
+    },
+    {
+      "file": "convex/products.ts",
+      "line": 256,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see products.ts:179.",
+      "fix": "Same fix \u2014 see products.ts:179."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 238,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createSessionPack is public mutation with no auth \u2014 any caller can mint session packs.",
+      "fix": "Auth-gate (caller-as-student or admin) or service-key gate (matches migrateOrder pattern)."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 303,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "updateSessionPack is public mutation with no auth.",
+      "fix": "Same as createSessionPack."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 318,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "useSession is public mutation with no auth \u2014 any caller can decrement remainingSessions on any session pack.",
+      "fix": "Auth-gate to owning student or admin; service-key gate is preferred since this is called on payment completion."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 345,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "refundSessionPack is public mutation with no auth.",
+      "fix": "Service-key gate or admin-only."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 354,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "expireSessionPack is public mutation with no auth.",
+      "fix": "Same as refundSessionPack."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 363,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "processExpiredSessionPacks is the cron's tool \u2014 should be internalMutation.",
+      "fix": "Convert to internalMutation; have cron call internal.sessionPacks.processExpiredSessionPacks."
+    },
+    {
+      "file": "convex/sessionPacks.ts",
+      "line": 386,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "deleteSessionPack with no auth \u2014 any caller can delete any session pack.",
+      "fix": "Admin-gate or service-key gate."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 404,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createSeatReservation is public mutation with no auth.",
+      "fix": "Auth-gate per-call (admin or owning seat-reservation party)."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 451,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "updateSeatReservation is public mutation with no auth.",
+      "fix": "Same as createSeatReservation."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 467,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "releaseSeat is public mutation with no auth.",
+      "fix": "Same as createSeatReservation."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 491,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "extendSeat is public mutation with no auth.",
+      "fix": "Same as createSeatReservation."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 513,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "deleteSeatReservation is public mutation with no auth.",
+      "fix": "Same as createSeatReservation."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 521,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "processExpiredSeats is the cron's tool \u2014 should be internalMutation.",
+      "fix": "Convert to internalMutation; have cron call internal.seatReservations.processExpiredSeats."
+    },
+    {
+      "file": "convex/seatReservations.ts",
+      "line": 575,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateSeatReservation is a public migration mutation with no auth \u2014 same cluster as migrateOrder.",
+      "fix": "Service-key gate (matches migrateOrder pattern)."
+    },
+    {
+      "file": "convex/instructorUploads.ts",
+      "line": 13,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Cluster of public instructorUploads mutations at 13/453/483/522 \u2014 any caller can list/create/update video-editor storage rows and storage-counter rows.",
+      "fix": "Auth-gate to caller-as-video-editor and call-side ownership; service-key gate for migrations."
+    },
+    {
+      "file": "convex/instructorUploads.ts",
+      "line": 453,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see instructorUploads.ts:13.",
+      "fix": "Same fix \u2014 see instructorUploads.ts:13."
+    },
+    {
+      "file": "convex/instructorUploads.ts",
+      "line": 483,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see instructorUploads.ts:13.",
+      "fix": "Same fix \u2014 see instructorUploads.ts:13."
+    },
+    {
+      "file": "convex/instructorUploads.ts",
+      "line": 522,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see instructorUploads.ts:13.",
+      "fix": "Same fix \u2014 see instructorUploads.ts:13."
+    },
+    {
+      "file": "convex/studentInvitations.ts",
+      "line": 458,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateInvitation is public mutation with no auth \u2014 any caller can mint student invitations.",
+      "fix": "Service-key gate or convert to internalMigration."
+    },
+    {
+      "file": "convex/contacts.ts",
+      "line": 45,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Contacts file cluster \u2014 public mutations with no auth at 45/60.",
+      "fix": "Auth-gate to owning user / instructor referenced by the contact; or move to internalMutation."
+    },
+    {
+      "file": "convex/contacts.ts",
+      "line": 60,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "Same cluster \u2014 see contacts.ts:45.",
+      "fix": "Same fix \u2014 see contacts.ts:45."
+    },
+    {
+      "file": "convex/studentSessionCounts.ts",
+      "line": 208,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateSessionCount is public mutation with no auth (admin-only otherwise). Any caller can mint or update student session-count rows.",
+      "fix": "Service-key gate or internal-only with cron/admin path."
+    },
+    {
+      "file": "convex/orders.ts",
+      "line": 216,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "createOrder is public mutation with no auth; the comment says orders always start as 'pending', but the row is still attached to a client-supplied userId. Order-fraud vector.",
+      "fix": "Gate on assertServiceKey OR require the caller identity matches args.userId and is signed-in."
+    },
+    {
+      "file": "convex/studentOnboarding.ts",
+      "line": 65,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getByLegacyId is public query with NO auth. Anyone can fetch a student onboarding submission by UUID \u2014 leaks goals text, attached instructorId, imageStorageIds.",
+      "fix": "Auth-gate via canViewSubmission (Submission owner / assigned instructor / admin) \u2014 which the sister function getSignedUrlsByLegacyId already uses."
+    },
+    {
+      "file": "convex/studentOnboarding.ts",
+      "line": 230,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "markReviewed is public mutation with NO auth; only checks sub.instructorId === args.instructorId against the submitted args. Any caller can mark ANY submission reviewed by passing an arbitrary instructorId-as-value.",
+      "fix": "Auth-gate: require the caller's identity matches the resolved instructor's userId AND that instructorId matches the submission's instructorId."
+    },
+    {
+      "file": "convex/studentOnboarding.ts",
+      "line": 378,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "getSignedUrlsByStorageIds is public query; only calls requireIdentity() and then signs an arbitrary list of storageIds. The docstring explicitly says it does not verify ownership. Any signed-in caller can obtain signed URLs for any storage blob whose ID they obtain.",
+      "fix": "Move to internalQuery (callers ought to be server-side HTTP routes or internal.actions), or add a per-row ownership lookup."
+    },
+    {
+      "file": "convex/monthlyStorageCosts.ts",
+      "line": 56,
+      "severity": "Critical",
+      "category": "Security",
+      "issue": "migrateMonthlyStorageCost is public mutation with NO auth. Any caller can insert/update billing rows that flow into admin dashboards; the read path (list) is admin-gated.",
+      "fix": "Service-key gate or convert to internalMutation called from the billing cron."
+    },
+    {
+      "file": "convex/hdInvitations.ts",
+      "line": 421,
+      "severity": "Important",
+      "category": "Security",
+      "issue": "acceptHdInvitationFromClerk is exported as public action (not internalAction) and accepts webhookSecret as an arg passed on the wire. The action verifies the secret value, but the secret travels through every Convex call stack; if the webhook secret is reused elsewhere, finding it leaks all webhook acceptances. Public-action namespace means anyone can mount a replay-protected-by-secret over the standard Convex client.",
+      "fix": "Convert to internalAction and have a service-keyed HTTP route accept and forward the (timestamp, signature, body) Svix tuple."
+    },
+    {
+      "file": "convex/hdShareLinks.ts",
+      "line": 265,
+      "severity": "Important",
+      "category": "Security",
+      "issue": "logShareAccess is a public mutation that inserts an hdShareAccess audit row for any signed-in identity, even when the identity is not in the share's audience. Audit pollution \u2014 fake 'viewed by X / downloaded by X' rows for shareIds the caller has no relationship with.",
+      "fix": "Look up the share row and verify the caller's identity is in the audience (creator/owning instructor/admin) before writing the audit row; or move to internalMutation with an audience-aware wrapper."
+    },
+    {
+      "file": "convex/workspaces.ts",
+      "line": 533,
+      "severity": "Important",
+      "category": "Security",
+      "issue": "logViewWorkspaceAudit is public mutation with no auth; takes adminId:string from the caller and writes a row to workspaceAuditLogs for any workspaceId. Audit pollution by signed-in non-admin callers.",
+      "fix": "Auth-gate as admin (or workspace owner when reading self) and derive adminId from identity rather than from args."
+    },
+    {
+      "file": "convex/orders.ts",
+      "line": 251,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": "updateOrder is a public mutation that does a .then/.collect() chain at orders.ts:369-372 to find an existing order by id literal \u2014 full-table scan for every patch attempt. Also .filter() after withIndex at line 366.",
+      "fix": "Use ctx.db.get(args.id) once and compare; replace .filter() with a dedicated by_userId_status index."
+    },
+    {
+      "file": "convex/orders.ts",
+      "line": 366,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": "migrateOrder has .filter(q => q.eq status) after withIndex by_userId \u2014 full scan of user's orders.",
+      "fix": "Add a by_userId_status index."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 12,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": "Date.now() in query handler. Convex folds the value at query-start time but reactive subscribers see the same value across the subscription window \u2014 breaks anything that watches this surface.",
+      "fix": "Move to internalQuery (the function is a cron target anyway) or compute at the caller."
+    },
+    {
+      "file": "convex/queries/http.ts",
+      "line": 26,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": "Same Date.now() pattern as queries/http.ts:12.",
+      "fix": "Same as above."
+    },
+    {
+      "file": "convex/monthlyStorageCosts.ts",
+      "line": 30,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": "Date.now() / new Date() in query handler.",
+      "fix": "Arrive via server-side or pass currentMonth as an arg."
+    },
+    {
+      "file": "convex/payments.ts",
+      "line": 66,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": ".filter(q => q.and(eq provider, eq status)) after withIndex on orderId \u2014 full scan of orderId's payment rows whenever the filter predicates are not indexable.",
+      "fix": "Add a dedicated index (by_orderId_provider_status) and remove the .filter()."
+    },
+    {
+      "file": "convex/cleanup.ts",
+      "line": 24,
+      "severity": "Important",
+      "category": "Performance",
+      "issue": ".filter(q -> q.eq clerkId identity.subject) on users. Single-row lookup so cost is small; textbook .filter() anti-pattern.",
+      "fix": "Switch to withIndex('by_clerkId')."
+    },
+    {
+      "file": "convex/onboardingWorkExamples.ts",
+      "line": 231,
+      "severity": "Suggestion",
+      "category": "Code Quality",
+      "issue": "resolveUploadAccess is exported as public query but the docstring says 'Internal query'. Callers reach it via (internal as any).onboardingWorkExamples.resolveUploadAccess \u2014 the export kind is wrong (label-vs-actual mismatch).",
+      "fix": "Convert to internalQuery and replace the (internal as any).X.Y cast with a typed internal.X.Y reference."
+    },
+    {
+      "file": "convex/onboardingWorkExamples.ts",
+      "line": 653,
+      "severity": "Suggestion",
+      "category": "Code Quality",
+      "issue": "Same issue at resolveDownloadAccess \u2014 public query export with 'Internal query' docstring.",
+      "fix": "Same as above \u2014 convert to internalQuery, tighten call site."
+    },
+    {
+      "file": "convex/recordingReadyNotifications.ts",
+      "line": 222,
+      "severity": "Suggestion",
+      "category": "Code Quality",
+      "issue": "getNotificationForRecipient is declared internalMutation but it only reads a single document \u2014 typo. Should be internalQuery.",
+      "fix": "Change to internalQuery."
+    }
+  ]
+}
