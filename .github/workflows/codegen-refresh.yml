@@ -1,0 +1,33 @@
+name: Codegen Refresh (one-off)
+
+# Temporary workflow: runs Convex codegen against the production deployment
+# and uploads the generated tree so a developer can commit the refreshed
+# artifacts. Used to close the persistent `convex-codegen` failure on main
+# (the committed `_generated` tree predates the installed Convex CLI).
+#
+# Deleted in the same PR that commits the refreshed artifacts.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  codegen:
+    runs-on: ubuntu-latest
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
+      - name: Convex codegen
+        run: npx convex codegen
+      - name: Show generated diff
+        run: |
+          git status --porcelain
+          git diff --stat
+          git diff | head -300
+      - uses: actions/upload-artifact@v4
+        with:
+          name: convex-generated
+          path: convex/_generated
+          if-no-files-found: error
