@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as _deleteUserTypeAssertion from "../_deleteUserTypeAssertion.js";
 import type * as actions_backfillDashboardRelevant from "../actions/backfillDashboardRelevant.js";
 import type * as actions_backfillVideoEditorStorageCounter from "../actions/backfillVideoEditorStorageCounter.js";
 import type * as actions_resendMetrics from "../actions/resendMetrics.js";
@@ -94,6 +95,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  _deleteUserTypeAssertion: typeof _deleteUserTypeAssertion;
   "actions/backfillDashboardRelevant": typeof actions_backfillDashboardRelevant;
   "actions/backfillVideoEditorStorageCounter": typeof actions_backfillVideoEditorStorageCounter;
   "actions/resendMetrics": typeof actions_resendMetrics;
