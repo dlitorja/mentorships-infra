@@ -8,7 +8,9 @@ name: Codegen Refresh (one-off)
 # Deleted in the same PR that commits the refreshed artifacts.
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - chore/refresh-convex-codegen-artifacts
 
 jobs:
   codegen:
