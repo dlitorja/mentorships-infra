@@ -1,0 +1,4 @@
+node_modules/
+artifacts/
+# PR-comment summary lives at this path during a CI run only.
+convex-probe-pr-comment.md

@@ -1,0 +1,112 @@
+name: Convex authz probe (Tier 1)
+
+# Phase A: advisory-only. Uploads findings artifacts and posts them as a
+# sticky PR comment. PR-blocking is gated on Phase B (post-week-5 with
+# measured false-positive rate).
+#
+# Schedule: Mon 12:00 UTC = Mon 06:00-07:00 US Central depending on DST.
+# Intent: a Monday-morning-usable read for the Tier 2 operator; see
+# docs/security/sweep-protocol.md §9 (Phase A advisory) and §11 (owner)
+# for the full policy.
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  pull_request:
+    paths:
+      - "convex/**"
+      - ".scripts/convex-probe/**"
+      # Self-validating: a change to this workflow runs it on its own PR.
+      - ".github/workflows/convex-probe.yml"
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install probe deps
+        working-directory: .scripts/convex-probe
+        run: npm ci --no-audit --no-fund
+
+      - name: Run scan-b (convex-authz 4-shape taxonomy)
+        working-directory: .scripts/convex-probe
+        run: npx tsx scan-b.ts ../../convex
+
+      - name: Run scan-d (no-auth writable public mutations)
+        working-directory: .scripts/convex-probe
+        run: npx tsx scan-d.ts ../../convex
+
+      - name: Build PR-comment summary
+        if: github.event_name == 'pull_request'
+        working-directory: .scripts/convex-probe
+        run: |
+          {
+            echo "## Convex authz probe (Tier 1) — advisory"
+            echo ""
+            echo "**Phase A**: advisory-only. This run never blocks a merge. The full findings JSON + text dump is uploaded as the \`convex-probe-findings\` GitHub Actions artifact; download and inspect there before acting on any shape hits."
+            echo ""
+            if [ -f artifacts/findings-raw.json ]; then
+              node -e '
+                const fs = require("fs");
+                const raw = JSON.parse(fs.readFileSync("artifacts/findings-raw.json", "utf8"));
+                const tally = (s) => raw.filter((f) => f.shape === s).length;
+                const total = raw.length;
+                console.log("| Shape | Hits |");
+                console.log("| --- | --- |");
+                console.log(`| total | \`${total}\` |`);
+                console.log(`| a — no-auth + \`v.id\` arg | \`${tally("a")}\` |`);
+                console.log(`| b — load-then-write w/o id cmp | \`${tally("b")}\` |`);
+                console.log(`| c — public query w/ PII field | \`${tally("c")}\` |`);
+                console.log(`| d — parent FK write w/o verify | \`${tally("d")}\` |`);
+              '
+            else
+              echo "_scan-b produced no findings artifact._"
+            fi
+            echo ""
+            if [ -f artifacts/findings-noauth.txt ]; then
+              NOAUTH=$(wc -l < artifacts/findings-noauth.txt)
+              echo "scan-d no-auth writable mutations: \`${NOAUTH}\` (see artifact for the list)."
+            else
+              echo "_scan-d produced no findings file._"
+            fi
+            echo ""
+            echo "**Operator note**: this is a deterministic shape scan, not a substitute for the manual Tier 2 run. Treat hits as candidates that need confirmation."
+          } > convex-probe-pr-comment.md
+          cat convex-probe-pr-comment.md
+
+      # Fork PRs receive a read-only GITHUB_TOKEN no matter what the
+      # `permissions:` block above requests, so this POST would 403 and fail
+      # the job even when both scans succeeded. Skip on forks; the findings
+      # still land in the uploaded artifact.
+      - name: Post sticky PR comment
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: convex-probe
+          path: .scripts/convex-probe/convex-probe-pr-comment.md
+
+      - name: Upload findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: convex-probe-findings
+          if-no-files-found: warn
+          path: |
+            .scripts/convex-probe/artifacts/findings-raw.json
+            .scripts/convex-probe/artifacts/findings-raw.txt
+            .scripts/convex-probe/artifacts/findings-noauth.txt
