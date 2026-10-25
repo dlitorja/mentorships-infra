@@ -1,4 +1,4 @@
-import { mutation, internalMutation, internalAction } from "./_generated/server";
+import { internalMutation, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -8,13 +8,19 @@ const ENQUEUE_DELAY_MS = 5 * 1000;
 const DRAIN_DELAY_MS = 15 * 60 * 1000;
 
 /**
- * Migrates a Discord action queue entry from legacy system.
- * Updates existing entry if found by subjectUserId, otherwise creates new.
- * When the pre-insert queue has no pending action, schedules a processor
- * run so the cron is only a catch-up safety net for stale `processing`
- * rows and any rows the live path misses.
+ * Upserts a Discord action queue entry (legacy migration + live enqueue).
+ * Updates the existing entry if found by subjectUserId, otherwise creates
+ * one. When the pre-insert queue has no pending action, schedules a
+ * processor run so the cron is only a catch-up safety net for stale
+ * `processing` rows and any rows the live path misses.
+ *
+ * Internal-only: a public version let any caller insert/overwrite queue
+ * rows with attacker-chosen `payload` (which the bot later executes).
+ * Server callers go through `POST /discord-action-queue/migrate`
+ * (`CONVEX_HTTP_KEY` bearer); `npx convex run` (admin auth) still works
+ * for the legacy migration script.
  */
-export const migrateDiscordAction = mutation({
+export const migrateDiscordAction = internalMutation({
   args: {
     type: v.union(
       v.literal("assign_student_role"),

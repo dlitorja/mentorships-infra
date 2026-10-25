@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { sendEmail, sendTemplateEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
@@ -429,7 +430,7 @@ export const onboardingFlow = inngest.createFunction(
 await step.run("queue-discord-actions", async () => {
       // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
       // Detailed DM with onboarding submission will be queued when the student completes the form.
-      await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
+      await convexServerCall("/discord-action-queue/migrate", {
         type: "dm_instructor_new_signup",
         subjectUserId: clerkId,
         instructorId: instructor._id,

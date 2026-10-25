@@ -526,7 +526,7 @@ export const onboardingFlow = createDefer(
 await step.run("queue-discord-actions", async () => {
       // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
       // Detailed DM with onboarding submission will be queued when the student completes the form.
-      await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
+      await convexServerCall("/discord-action-queue/migrate", {
         type: "dm_instructor_new_signup",
         subjectUserId: clerkId,
         instructorId: instructor._id,
@@ -620,8 +620,6 @@ export const adminOnboardingFlow = inngest.createFunction(
           (err instanceof Error ? err.message : String(err))
       );
     }
-
-    const convex = getConvexClient();
 
     // PR 4: wrap the flow body in try/catch. Sidesteps the Turbopack
     // reserved-keyword issue with `catch: async ({ error }) => ...`
@@ -1206,7 +1204,7 @@ export const adminOnboardingFlow = inngest.createFunction(
     await step.run("enqueue-discord-dms", async function() {
       const placeholderUserId = "email:" + studentEmail;
       for (const pair of row.perInstructor) {
-        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
+        await convexServerCall("/discord-action-queue/migrate", {
           type: "dm_instructor_new_signup",
           subjectUserId: placeholderUserId,
           instructorId: pair.instructorId as string,

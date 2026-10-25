@@ -72,10 +72,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             instructor = await convex.query(api.instructors.getInstructorByEmail, {
         email: userEmail,
       });
-            if (instructor && !instructor.userId) {
-                await convex.mutation(api.instructors.backfillInstructorUserId, {
+            if (instructor && instructor.userId !== user.id) {
+                await convex.mutation(api.instructors.linkMyInstructorProfile, {
           instructorId: instructor._id,
-          userId: user.id,
         });
         const refreshed = await convex.query(api.instructors.getInstructorById, {
           id: instructor._id,

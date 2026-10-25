@@ -3605,7 +3605,19 @@ export const deactivateInstructorInternal = internalMutation({
   },
 });
 
-export const backfillInstructorUserId = mutation({
+/**
+ * Binds an instructor row to a Clerk user id.
+ *
+ * Internal-only: the caller has already verified that the row is an
+ * unlinked placeholder matched by invitation or email
+ * (`createInstructorForClerkUser`). A public version let any caller
+ * overwrite another instructor's `userId` and take over the profile.
+ *
+ * User-initiated linking (the Google Calendar OAuth callback) goes
+ * through `linkMyInstructorProfile`, which derives the id from the
+ * authenticated identity and verifies email ownership.
+ */
+export const backfillInstructorUserId = internalMutation({
   args: {
     instructorId: v.id("instructors"),
     userId: v.string(),
@@ -3620,6 +3632,57 @@ export const backfillInstructorUserId = mutation({
       updatedAt: Date.now(),
     });
     return { success: true };
+  },
+});
+
+/**
+ * Links the signed-in instructor's placeholder profile to their Clerk
+ * user id. Used by the Google Calendar OAuth callback, which
+ * authenticates as the instructor but may find their pre-existing
+ * placeholder row by email instead of `userId`.
+ *
+ * Guards (all derived server-side, no client-supplied identity):
+ *   - the caller must be authenticated,
+ *   - the instructor row's email must match the caller's identity email,
+ *   - the row must not already be bound to a different Clerk user.
+ *
+ * Idempotent: re-linking the caller's own row is a no-op.
+ */
+export const linkMyInstructorProfile = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const identityEmail = identity.email?.trim().toLowerCase();
+    if (!identityEmail) throw new Error("Unauthorized: no email on identity");
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) throw new Error("Instructor not found");
+
+    const instructorEmail = instructor.email?.trim().toLowerCase();
+    if (!instructorEmail || instructorEmail !== identityEmail) {
+      throw new Error("Forbidden: instructor does not belong to caller");
+    }
+
+    if (
+      isClerkUserId(instructor.userId) &&
+      instructor.userId !== identity.subject
+    ) {
+      throw new Error("Forbidden: instructor is already linked to another user");
+    }
+
+    if (instructor.userId === identity.subject) {
+      return { success: true, linked: false };
+    }
+
+    await ctx.db.patch(args.instructorId, {
+      userId: identity.subject,
+      updatedAt: Date.now(),
+    });
+    return { success: true, linked: true };
   },
 });
 
@@ -3746,7 +3809,7 @@ export const createInstructorForClerkUserInternal = internalAction({
           args.userId,
           invited._id
         );
-        await ctx.runMutation(api.instructors.backfillInstructorUserId, {
+        await ctx.runMutation(internal.instructors.backfillInstructorUserId, {
           instructorId: invited._id,
           userId: args.userId,
         });
@@ -3780,7 +3843,7 @@ export const createInstructorForClerkUserInternal = internalAction({
           args.userId,
           placeholder._id
         );
-        await ctx.runMutation(api.instructors.backfillInstructorUserId, {
+        await ctx.runMutation(internal.instructors.backfillInstructorUserId, {
           instructorId: placeholder._id,
           userId: args.userId,
         });
