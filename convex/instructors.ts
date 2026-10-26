@@ -1237,7 +1237,7 @@ export const getInstructorsByIds = query({
     return Promise.all(
       filtered.map(async (inst) => {
         const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
-        return { ...inst, profileImageUrl };
+        return withoutInstructorSecrets({ ...inst, profileImageUrl });
       })
     );
   },

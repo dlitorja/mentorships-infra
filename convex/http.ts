@@ -803,6 +803,22 @@ const httpGetInstructorNameById = httpAction(async (ctx, request) => {
 });
 
 /**
+ * Strict bearer check for endpoints that return credentials.
+ *
+ * `verifyAuth` deliberately allows unauthenticated requests in
+ * development when `CONVEX_HTTP_KEY` is unset (and for the seed
+ * endpoint). That is acceptable for ordinary data endpoints, but not for
+ * one that returns a Google refresh token: require a configured key and
+ * an exact match in every environment. Reads the env var at call time so
+ * a missing key can never be captured as "no auth required".
+ */
+function verifyCredentialAuth(request: Request): boolean {
+  const expected = process.env.CONVEX_HTTP_KEY;
+  if (!expected) return false;
+  return request.headers.get("Authorization") === `Bearer ${expected}`;
+}
+
+/**
  * Server-only fetch of an instructor's Google OAuth credential.
  *
  * The refresh token is intentionally absent from every public instructor
@@ -814,7 +830,7 @@ const httpGetInstructorNameById = httpAction(async (ctx, request) => {
  * or `null` when the instructor no longer exists.
  */
 const httpGetInstructorGoogleCredentials = httpAction(async (ctx, request) => {
-  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCredentialAuth(request)) return unauthorizedResponse();
   const { instructorId } = await request.json();
   if (!instructorId) {
     return new Response(JSON.stringify({ error: "Missing instructorId" }), {

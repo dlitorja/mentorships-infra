@@ -173,6 +173,24 @@ test("adminProcessRefund: rejects a second refund that pushes past the original 
   expect(payment?.refundedAmount).toBe("60.00");
 });
 
+test("adminProcessRefund: rejects a numeric-prefix string", async () => {
+  const t = convexTest(schema, modules);
+  const seedData = await t.run((ctx) => seed(ctx));
+
+  // `parseFloat` would read 25.00 here; `Number` rejects the whole string.
+  await expect(
+    t
+      .withIdentity({ subject: seedData.adminSubject })
+      .mutation(api.payments.adminProcessRefund, {
+        paymentId: seedData.paymentId as any,
+        refundAmount: "25.00junk",
+      }),
+  ).rejects.toThrow("Invalid refund amount");
+
+  const payment = await t.run((ctx) => ctx.db.get(seedData.paymentId as any));
+  expect(payment?.refundedAmount).toBeUndefined();
+});
+
 test("adminProcessRefund: rejects a non-numeric amount", async () => {
   const t = convexTest(schema, modules);
   const seedData = await t.run((ctx) => seed(ctx));

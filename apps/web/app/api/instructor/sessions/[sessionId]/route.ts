@@ -115,25 +115,27 @@ export async function PATCH(
         if (!instructorDoc) {
           console.error("Instructor not found for calendar cleanup");
         } else {
-          // The refresh token is not part of the public instructor query;
-          // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
-          const credentials = await fetchInstructorGoogleCredentials(
-            session.instructorId
-          );
-          const decryptedToken = credentials
-            ? decryptInstructorRefreshToken(credentials)
-            : null;
-          if (decryptedToken) {
-            try {
+          // Best-effort: a credential-fetch failure must not fail the
+          // session update that already succeeded.
+          try {
+            // The refresh token is not part of the public instructor query;
+            // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+            const credentials = await fetchInstructorGoogleCredentials(
+              session.instructorId
+            );
+            const decryptedToken = credentials
+              ? decryptInstructorRefreshToken(credentials)
+              : null;
+            if (decryptedToken) {
               const calendar = await getGoogleCalendarClient(decryptedToken);
               const calendarId = instructorDoc.googleCalendarId || "primary";
               await calendar.events.delete({
                 calendarId,
                 eventId: session.googleCalendarEventId,
               });
-            } catch (calendarError) {
-              console.error("Failed to delete Google Calendar event:", calendarError);
             }
+          } catch (calendarError) {
+            console.error("Failed to delete Google Calendar event:", calendarError);
           }
         }
       }

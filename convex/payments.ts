@@ -191,9 +191,11 @@ async function applyAdminRefund(
     throw new Error("Payment has already been refunded");
   }
 
-  const originalAmount = Number.parseFloat(payment.amount);
-  const priorRefunded = Number.parseFloat(payment.refundedAmount || "0");
-  const delta = Number.parseFloat(args.refundAmount);
+  // `Number()` (not `parseFloat`) so malformed inputs like "25.00junk"
+  // are rejected outright instead of silently refunding 25.00.
+  const originalAmount = Number(payment.amount);
+  const priorRefunded = Number(payment.refundedAmount || "0");
+  const delta = Number(args.refundAmount);
 
   if (!Number.isFinite(delta) || delta <= 0) {
     throw new Error(`Invalid refund amount: ${args.refundAmount}`);
@@ -204,14 +206,14 @@ async function applyAdminRefund(
 
   const newRefundedAmount = (priorRefunded + delta).toFixed(2);
 
-  if (Number.parseFloat(newRefundedAmount) > originalAmount) {
+  if (Number(newRefundedAmount) > originalAmount) {
     throw new Error(
       `Refund would exceed original amount (prior=${priorRefunded.toFixed(2)}, ` +
       `requested=${delta.toFixed(2)}, original=${originalAmount.toFixed(2)})`
     );
   }
 
-  const isFullyRefunded = Number.parseFloat(newRefundedAmount) >= originalAmount;
+  const isFullyRefunded = Number(newRefundedAmount) >= originalAmount;
 
   await ctx.db.patch(args.paymentId, {
     status: isFullyRefunded ? "refunded" : "completed",

@@ -43,24 +43,26 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Best-effort delete from Google Calendar
+    // Best-effort delete from Google Calendar. The credential fetch is part
+    // of the best-effort block: a Convex/HTTP failure must not block the
+    // cancellation itself.
     if (booking.googleEventId) {
-      // The refresh token is not part of the public instructor query;
-      // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
-      const credentials = await fetchInstructorGoogleCredentials(
-        booking.instructorId
-      );
-      const refreshToken = credentials
-        ? decryptInstructorRefreshToken(credentials)
-        : null;
-      if (refreshToken) {
-        try {
+      try {
+        // The refresh token is not part of the public instructor query;
+        // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+        const credentials = await fetchInstructorGoogleCredentials(
+          booking.instructorId
+        );
+        const refreshToken = credentials
+          ? decryptInstructorRefreshToken(credentials)
+          : null;
+        if (refreshToken) {
           const calendar = await getGoogleCalendarClient(refreshToken);
           const calendarId = booking.eventCalendarId || instructor.googleCalendarId || "primary";
           await calendar.events.delete({ calendarId, eventId: booking.googleEventId, sendUpdates: "all" });
-        } catch (err) {
-          console.error("Failed to delete calendar event for booking:", booking._id, err);
         }
+      } catch (err) {
+        console.error("Failed to delete calendar event for booking:", booking._id, err);
       }
     }
 

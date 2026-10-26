@@ -82,6 +82,18 @@ test("getInstructorByUserIdExternal: never returns googleRefreshToken", async ()
   expect(result).not.toHaveProperty("googleRefreshToken");
 });
 
+test("getInstructorsByIds: never returns googleRefreshToken", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run((ctx) => seed(ctx));
+
+  const result = await t
+    .withIdentity({ subject: OTHER })
+    .query(api.instructors.getInstructorsByIds, { ids: [instructorId] });
+
+  expect(result).toHaveLength(1);
+  expect(result[0]).not.toHaveProperty("googleRefreshToken");
+});
+
 test("getInstructorByUserId: strips googleRefreshToken for a different signed-in user", async () => {
   const t = convexTest(schema, modules);
   await t.run((ctx) => seed(ctx));
@@ -149,6 +161,36 @@ test("http /instructors/google-credentials: rejects a missing or wrong bearer", 
     },
   });
   expect(wrongAuth.status).toBe(401);
+});
+
+test("http /instructors/google-credentials: fails closed when CONVEX_HTTP_KEY is unset", async () => {
+  const previousKey = process.env.CONVEX_HTTP_KEY;
+  delete process.env.CONVEX_HTTP_KEY;
+  try {
+    const t = convexTest(schema, modules);
+    const instructorId = await t.run((ctx) => seed(ctx));
+
+    // `verifyAuth` skips auth in development when no key is configured;
+    // the credential endpoint must not inherit that behaviour.
+    const noHeader = await t.fetch("/instructors/google-credentials", {
+      method: "POST",
+      body: JSON.stringify({ instructorId }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(noHeader.status).toBe(401);
+
+    const literalUndefined = await t.fetch("/instructors/google-credentials", {
+      method: "POST",
+      body: JSON.stringify({ instructorId }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer undefined",
+      },
+    });
+    expect(literalUndefined.status).toBe(401);
+  } finally {
+    process.env.CONVEX_HTTP_KEY = previousKey;
+  }
 });
 
 test("http /instructors/google-credentials: returns the credential with the bearer", async () => {
