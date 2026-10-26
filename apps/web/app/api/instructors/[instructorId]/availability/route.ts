@@ -5,6 +5,7 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 
 const querySchema = z.object({
   start: z.string().datetime(),
@@ -172,7 +173,12 @@ export async function GET(
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    const refreshToken = decryptInstructorRefreshToken(instructor);
+    // The refresh token is not part of the public instructor query; fetch
+    // it through the CONVEX_HTTP_KEY-gated server endpoint.
+    const credentials = await fetchInstructorGoogleCredentials(instructorId);
+    const refreshToken = credentials
+      ? decryptInstructorRefreshToken(credentials)
+      : null;
     if (!refreshToken) {
       return NextResponse.json(
         { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },

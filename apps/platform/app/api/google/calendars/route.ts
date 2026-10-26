@@ -4,6 +4,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 
@@ -26,7 +27,12 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    const refreshToken = decryptInstructorRefreshToken(instructor);
+    // The refresh token is not part of the public instructor query; fetch
+    // it through the CONVEX_HTTP_KEY-gated server endpoint.
+    const credentials = await fetchInstructorGoogleCredentials(instructor._id);
+    const refreshToken = credentials
+      ? decryptInstructorRefreshToken(credentials)
+      : null;
     if (!refreshToken) {
       return NextResponse.json(
         { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },

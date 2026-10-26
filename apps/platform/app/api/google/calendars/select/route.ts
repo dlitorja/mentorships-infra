@@ -46,7 +46,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       const { decryptInstructorRefreshToken } = await import("@/lib/crypto");
       const { getGoogleCalendarClient } = await import("@/lib/google");
-      const rt = decryptInstructorRefreshToken({ googleRefreshToken: instructor.googleRefreshToken });
+      // The refresh token is not part of the public instructor query;
+      // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+      const { fetchInstructorGoogleCredentials } = await import(
+        "@/lib/google-credentials"
+      );
+      const credentials = await fetchInstructorGoogleCredentials(instructor._id);
+      const rt = credentials ? decryptInstructorRefreshToken(credentials) : null;
       if (!rt) {
         return NextResponse.json(
           { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-import {
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@/lib/errors";
+import { isUnauthorizedError } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { inngest } from "@/inngest/client";
@@ -118,7 +115,14 @@ export async function PATCH(
         if (!instructorDoc) {
           console.error("Instructor not found for calendar cleanup");
         } else {
-          const decryptedToken = decryptInstructorRefreshToken(instructorDoc);
+          // The refresh token is not part of the public instructor query;
+          // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+          const credentials = await fetchInstructorGoogleCredentials(
+            session.instructorId
+          );
+          const decryptedToken = credentials
+            ? decryptInstructorRefreshToken(credentials)
+            : null;
           if (decryptedToken) {
             try {
               const calendar = await getGoogleCalendarClient(decryptedToken);

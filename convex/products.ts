@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { isAdminUser } from "./admin";
 
 /** Returns a single product by ID, or null if not authenticated. */
 export const getProductById = query({
@@ -150,12 +151,19 @@ export const getProductsByInstructorAndType = query({
   },
 });
 
-/** Returns a product with instructor info for admin (requires auth). */
+/**
+ * Returns a product with instructor info for the admin product routes.
+ * Admin-only: the routes already gate on the admin role, and this
+ * check keeps the query from being usable by any signed-in user.
+ */
 export const getProductForAdmin = query({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
 
     const product = await ctx.db.get(args.id);
     if (!product) return null;

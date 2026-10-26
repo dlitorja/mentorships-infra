@@ -26,6 +26,14 @@ vi.mock("@/lib/crypto", () => ({
   decryptInstructorRefreshToken: vi.fn(() => "decrypted_token"),
 }));
 
+vi.mock("@/lib/google-credentials", () => ({
+  fetchInstructorGoogleCredentials: vi.fn(async () => ({
+    googleRefreshToken: "encrypted_token",
+    googleCalendarId: "primary",
+    googleAvailabilityCalendarIds: [],
+  })),
+}));
+
 vi.mock("@clerk/nextjs/server", () => ({
   auth: vi.fn(() => ({ userId: "clerk_user_123" })),
   clerkClient: vi.fn(() => ({

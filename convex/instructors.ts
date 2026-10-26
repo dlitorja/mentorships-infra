@@ -889,7 +889,7 @@ export const getInstructorByUserIdExternal = query({
       .first();
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
   },
 });
 
@@ -904,6 +904,23 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
     .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
     .first();
   return userByClerkId?.role === "admin";
+}
+
+/**
+ * Returns a copy of an instructor document with server-only secrets
+ * removed.
+ *
+ * `googleRefreshToken` is a long-lived Google OAuth credential. Public
+ * queries must never return it — a Convex query is callable directly by
+ * any signed-in browser. Server routes that talk to Google Calendar get
+ * it from `getInstructorGoogleCredentialsInternal` through the
+ * `CONVEX_HTTP_KEY`-gated `/instructors/google-credentials` endpoint.
+ */
+function withoutInstructorSecrets<
+  T extends { googleRefreshToken?: string | undefined },
+>(instructor: T): Omit<T, "googleRefreshToken"> {
+  const { googleRefreshToken: _googleRefreshToken, ...rest } = instructor;
+  return rest;
 }
 
 export const listInstructorsInternal = query({
@@ -943,7 +960,11 @@ export const listStudentResultsInternal = query({
   },
 });
 
-/** Returns the instructor matching the given userId, or null if not authenticated. */
+/**
+ * Returns the instructor matching the given userId, or null if not
+ * authenticated. The Google refresh token is never included — see
+ * `getInstructorGoogleCredentialsInternal` for the server-only path.
+ */
 export const getInstructorByUserId = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -957,7 +978,7 @@ export const getInstructorByUserId = query({
       .first();
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
   },
 });
 
@@ -1119,10 +1140,16 @@ export const getCurrentInstructor = query({
       .first();
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
   },
 });
 
+/**
+ * Returns the instructor matching the given email, or null if not
+ * authenticated. Used by the Google OAuth callback to find the record
+ * that needs linking to the signed-in user, so it stays callable for
+ * rows owned by someone else — but never returns the refresh token.
+ */
 export const getInstructorByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
@@ -1136,11 +1163,17 @@ export const getInstructorByEmail = query({
       .first();
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
   },
 });
 
-/** Returns the instructor document by id, or null if not authenticated. */
+/**
+ * Returns the instructor document by id, or null if not authenticated.
+ *
+ * Any signed-in user can read an instructor's scheduling profile (the
+ * booking and availability routes rely on this), but the Google
+ * refresh token is never included — no client needs it.
+ */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -1151,7 +1184,30 @@ export const getInstructorById = query({
     const instructor = await ctx.db.get(args.id);
     if (!instructor) return null;
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
+  },
+});
+
+/**
+ * Server-only accessor for the Google OAuth credential.
+ *
+ * Public instructor queries deliberately omit `googleRefreshToken`: a
+ * Convex query can be called directly by any signed-in browser, so
+ * returning it there let any authenticated user read any instructor's
+ * Google credential. The Next.js routes that talk to Google Calendar
+ * fetch it through the `CONVEX_HTTP_KEY`-gated
+ * `/instructors/google-credentials` endpoint, which wraps this query.
+ */
+export const getInstructorGoogleCredentialsInternal = internalQuery({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) return null;
+    return {
+      googleRefreshToken: instructor.googleRefreshToken ?? null,
+      googleCalendarId: instructor.googleCalendarId ?? null,
+      googleAvailabilityCalendarIds: instructor.googleAvailabilityCalendarIds ?? [],
+    };
   },
 });
 
@@ -1662,7 +1718,7 @@ export const getInstructorBySlugForAdmin = query({
       return null;
     }
     const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
-    return { ...instructor, profileImageUrl };
+    return withoutInstructorSecrets({ ...instructor, profileImageUrl });
   },
 });
 

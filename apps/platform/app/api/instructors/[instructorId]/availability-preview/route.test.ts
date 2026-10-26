@@ -17,6 +17,14 @@ vi.mock("@/lib/crypto", () => ({
   decryptInstructorRefreshToken: vi.fn(() => "decrypted_token"),
 }));
 
+vi.mock("@/lib/google-credentials", () => ({
+  fetchInstructorGoogleCredentials: vi.fn(async () => ({
+    googleRefreshToken: "encrypted_token",
+    googleCalendarId: "primary",
+    googleAvailabilityCalendarIds: [],
+  })),
+}));
+
 const convexClient = {
   query: vi.fn(),
 };

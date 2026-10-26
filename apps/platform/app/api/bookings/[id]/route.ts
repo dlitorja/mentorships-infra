@@ -6,6 +6,7 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 import { getGoogleCalendarClient } from "@/lib/google";
 
 /**
@@ -44,7 +45,14 @@ export async function DELETE(
 
     // Best-effort delete from Google Calendar
     if (booking.googleEventId) {
-      const refreshToken = decryptInstructorRefreshToken(instructor);
+      // The refresh token is not part of the public instructor query;
+      // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+      const credentials = await fetchInstructorGoogleCredentials(
+        booking.instructorId
+      );
+      const refreshToken = credentials
+        ? decryptInstructorRefreshToken(credentials)
+        : null;
       if (refreshToken) {
         try {
           const calendar = await getGoogleCalendarClient(refreshToken);

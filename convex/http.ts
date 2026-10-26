@@ -14,7 +14,13 @@ import {
   createRetentionNotification,
   updateWorkspaceExportStatus,
 } from "./mutations/http";
-import { decrementInventory, getInstructorNameById, incrementInventory, updateInstructor } from "./instructors";
+import {
+  decrementInventory,
+  getInstructorGoogleCredentialsInternal,
+  getInstructorNameById,
+  incrementInventory,
+  updateInstructor,
+} from "./instructors";
 import { markNotifiedByInstructor } from "./waitlist";
 import { getOrderPublicStatus, getOrderByIdInternal, completeOrder, refundOrder } from "./orders";
 import { createPayment, getPaymentByProviderId, refundPayment } from "./payments";
@@ -796,6 +802,32 @@ const httpGetInstructorNameById = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
+/**
+ * Server-only fetch of an instructor's Google OAuth credential.
+ *
+ * The refresh token is intentionally absent from every public instructor
+ * query: Convex queries are callable directly by any signed-in browser,
+ * so returning it there let any authenticated user read any instructor's
+ * Google credential. The Next.js calendar / booking routes fetch it here
+ * instead, gated by `CONVEX_HTTP_KEY`. Returns
+ * `{ googleRefreshToken, googleCalendarId, googleAvailabilityCalendarIds }`
+ * or `null` when the instructor no longer exists.
+ */
+const httpGetInstructorGoogleCredentials = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { instructorId } = await request.json();
+  if (!instructorId) {
+    return new Response(JSON.stringify({ error: "Missing instructorId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const result = await ctx.runQuery(getInstructorGoogleCredentialsInternal as any, {
+    instructorId,
+  });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const http = httpRouter();
 
 http.route({
@@ -994,6 +1026,12 @@ http.route({
   path: "/instructors/get-name-by-id",
   method: "POST",
   handler: httpGetInstructorNameById,
+});
+
+http.route({
+  path: "/instructors/google-credentials",
+  method: "POST",
+  handler: httpGetInstructorGoogleCredentials,
 });
 
 /**
