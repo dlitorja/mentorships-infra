@@ -3,7 +3,7 @@
 **Session date:** 2026-10-24 → 2026-10-25
 **Base ref at start:** `main@9fbf1794`
 **Arc merged at:** `main@9fb2c6b6` (three planned PRs); follow-up remediation
-merged through `main@6cf769bd` + #959
+merged through `main@6cf769bd` + #959 + #962 (`5ab209e3`)
 **Driver:** `opencode-agent`, at the request of `@dlitorja`
 **Status:** **COMPLETE** — the three planned PRs plus the four follow-up
 remediation PRs are merged. The close-out audit's material risk (§5) is
@@ -22,9 +22,10 @@ remediated; the Tier 1 baseline is triaged in
 | 4 | #957 `fix(convex): make legacy migration helpers internal-only` | `244b8b28` | 17 files, +246 / −23 | Greptile pass, 0 comments |
 | 5 | #958 `fix(convex): make users.createUser internal-only` | `6cf769bd` | 11 files, +349 / −30 | Greptile pass, 0 comments |
 | 6 | #959 `fix(convex): close remaining public queue/linking mutations` | `9ba524d2` | 10 files, +276 / −25 | Greptile pass, 0 comments |
-| 7 | this document + the Tier 1 triage | *this PR* | 2 files | Greptile pending |
+| 7 | #960 `docs(security): commit sweep arc record and Tier 1 triage` | `827d023e` | 2 files | Greptile pass, 0 comments |
+| 8 | #962 `fix(convex): close scan-b authz findings and gate instructor credentials` | `5ab209e3` | 24 files, +1,000 / −147 | Greptile 5/5 after 3 P1 + 1 P2 fixes |
 
-Rows 4–7 are the follow-up remediation described in §5. CodeRabbit skipped
+Rows 4–8 are the follow-up remediation described in §5. CodeRabbit skipped
 every PR with *"manual review required for this OSS repository"* (repo < 10
 stars) — treated as unavailable, per AGENTS.md.
 
@@ -285,7 +286,7 @@ Done during this arc:
   `orders.migrateOrder` is already service-key gated.
 - [x] Triage all 99 Tier 1 hits (37 scan-b + 62 scan-d) and record the Phase A
   false-positive rate: `docs/security/tier1-probe-triage-2026-10.md`.
-- [x] Remediate the three scan-b true positives (this PR — scan-b wave):
+- [x] Remediate the three scan-b true positives (#962, `5ab209e3`):
   - `payments.adminProcessRefund` now enforces the admin role and shares one
     refund body with `adminProcessRefundInternal`, which adds the missing
     over-refund cap and rejects non-positive / non-numeric amounts.
@@ -307,11 +308,12 @@ Open:
 1. **Detector hardening** before Phase B: teach `scan-d` the five guard idioms
    it misses and dedupe per function (expected 62 → 50 hits, 0% FP). Keep
    `scan-b` advisory — it is 91.9% FP because it flags admin-by-design
-   mutations. Details in the triage doc §4.
+   mutations. Details in the triage doc §4. Tracked as **HUC-121**.
 2. **Remediate the 50 real no-auth writable mutations** in five domain waves
    (money, instructor-profile integrity, entitlements, catalogue/identity,
    housekeeping). Until they land, Phase B must use an allowlist and block only
-   on *new* scan-d hits. Details in the triage doc §5.
+   on *new* scan-d hits. Details in the triage doc §5. Tracked as **HUC-116 –
+   HUC-120** in the *Convex authz remediation* project.
 3. Formalise `tier1.diff.json` (week-over-week shape-count baseline) before
    Phase B gating. The design existed in an earlier draft of the protocol; the
    merged §9 deliberately defers it to the per-tier owner. That draft is backed
@@ -323,4 +325,4 @@ Open:
 6. Assign a named per-tier owner (default currently the most recent Tier 2
    operator) and record the transfer in protocol §11.
 7. Close HUC-114 after the first scheduled run is verified; close HUC-115 after
-   the F1–F7 smoke tests pass on prod.
+   the T1–T11 smoke tests pass on prod.
