@@ -285,6 +285,22 @@ Done during this arc:
   `orders.migrateOrder` is already service-key gated.
 - [x] Triage all 99 Tier 1 hits (37 scan-b + 62 scan-d) and record the Phase A
   false-positive rate: `docs/security/tier1-probe-triage-2026-10.md`.
+- [x] Remediate the three scan-b true positives (this PR — scan-b wave):
+  - `payments.adminProcessRefund` now enforces the admin role and shares one
+    refund body with `adminProcessRefundInternal`, which adds the missing
+    over-refund cap and rejects non-positive / non-numeric amounts.
+  - `products.getProductForAdmin` now enforces the admin role.
+  - Every public instructor query (`getInstructorById`, `getInstructorByUserId`,
+    `getInstructorByUserIdExternal`, `getInstructorByEmail`,
+    `getCurrentInstructor`, `getInstructorBySlugForAdmin`) strips
+    `googleRefreshToken`. Server routes that need the credential read it from
+    the new `internal.instructors.getInstructorGoogleCredentialsInternal`
+    through the `CONVEX_HTTP_KEY`-gated `POST /instructors/google-credentials`
+    endpoint, so no browser can obtain it.
+  - Note for Phase B: `scan-b` still flags `getInstructorById` and
+    `getProductForAdmin` because `hasIdentityComparison` does not follow
+    helper gates (`isAdminUser`, `requireAdminActor`). Both are covered by
+    tests; this is another entry for the detector-hardening backlog.
 
 Open:
 

@@ -14,6 +14,7 @@ import { getConvexClient } from "@/lib/convex";
 import { requireDbUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 import { inngest } from "@/inngest/client";
 import {
   forbidden,
@@ -207,7 +208,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(errorResponse, { status: 404 });
     }
 
-    const refreshToken = decryptInstructorRefreshToken(instructor);
+    // The refresh token is not part of the public instructor query; fetch
+    // it through the CONVEX_HTTP_KEY-gated server endpoint.
+    const credentials = await fetchInstructorGoogleCredentials(
+      pack.instructorId as string
+    );
+    const refreshToken = credentials
+      ? decryptInstructorRefreshToken(credentials)
+      : null;
     if (!refreshToken) {
       const { response: errorResponse } = validationError(
         "Instructor has not connected Google Calendar"

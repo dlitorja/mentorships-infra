@@ -1,4 +1,6 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { writeAuditLog } from "./auditLog";
 import { isAdminUser } from "./admin";
@@ -154,16 +156,97 @@ export const getPaymentByIdInternal = internalQuery({
 });
 
 /**
- * Internal, admin-gated version of `adminProcessRefund`. The public
- * mutation checks identity but not role, so we expose this internal
- * mutation for the refund action to call after it has already
- * verified admin via `ctx.runQuery(internal.admin.isAdmin, ...)`.
+ * Resolves the Clerk subject of the calling admin, or throws. Shared by
+ * the public and internal refund mutations so both enforce the same
+ * gate.
+ */
+async function requireAdminActor(ctx: MutationCtx): Promise<string> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Unauthorized");
+  if (!(await isAdminUser(ctx, identity.subject))) {
+    throw new Error("Forbidden: Admin role required");
+  }
+  return identity.subject;
+}
+
+/**
+ * Shared refund body for the admin refund mutations. Callers must have
+ * already verified that the actor is an admin.
  *
- * Behavior matches `adminProcessRefund` exactly: bumps
- * `refundedAmount`, flips payment status `completed → refunded` when
- * fully refunded, flips order status `paid → refunded` when fully
+ * Bumps `refundedAmount`, flips payment status `completed → refunded`
+ * when fully refunded, flips order status `paid → refunded` when fully
  * refunded, and writes an audit log entry with the actor's Clerk
- * subject.
+ * subject. Rejects non-positive or non-numeric amounts, and amounts
+ * that would push the total refunded past the original payment.
+ */
+async function applyAdminRefund(
+  ctx: MutationCtx,
+  actorId: string,
+  args: { paymentId: Id<"payments">; refundAmount: string },
+) {
+  const payment = await ctx.db.get(args.paymentId);
+  if (!payment) throw new Error("Payment not found");
+
+  if (payment.status === "refunded") {
+    throw new Error("Payment has already been refunded");
+  }
+
+  // `Number()` (not `parseFloat`) so malformed inputs like "25.00junk"
+  // are rejected outright instead of silently refunding 25.00.
+  const originalAmount = Number(payment.amount);
+  const priorRefunded = Number(payment.refundedAmount || "0");
+  const delta = Number(args.refundAmount);
+
+  if (!Number.isFinite(delta) || delta <= 0) {
+    throw new Error(`Invalid refund amount: ${args.refundAmount}`);
+  }
+  if (!Number.isFinite(originalAmount) || !Number.isFinite(priorRefunded)) {
+    throw new Error("Payment has a non-numeric amount; refusing to refund");
+  }
+
+  const newRefundedAmount = (priorRefunded + delta).toFixed(2);
+
+  if (Number(newRefundedAmount) > originalAmount) {
+    throw new Error(
+      `Refund would exceed original amount (prior=${priorRefunded.toFixed(2)}, ` +
+      `requested=${delta.toFixed(2)}, original=${originalAmount.toFixed(2)})`
+    );
+  }
+
+  const isFullyRefunded = Number(newRefundedAmount) >= originalAmount;
+
+  await ctx.db.patch(args.paymentId, {
+    status: isFullyRefunded ? "refunded" : "completed",
+    refundedAmount: newRefundedAmount,
+  });
+
+  await ctx.db.patch(payment.orderId, {
+    status: isFullyRefunded ? "refunded" : "paid",
+  });
+
+  await writeAuditLog(ctx, {
+    actorId,
+    actorRole: "admin",
+    action: "admin_refund_completed",
+    targetType: "payment",
+    targetId: args.paymentId,
+    details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
+    metadata: {
+      orderId: payment.orderId,
+      originalAmount: payment.amount,
+      refundAmount: args.refundAmount,
+      newRefundedAmount,
+      fullyRefunded: isFullyRefunded,
+    },
+  });
+
+  return await ctx.db.get(args.paymentId);
+}
+
+/**
+ * Internal, admin-gated refund mutation. Used by
+ * `convex/adminRefunds.ts` after the provider (Stripe / PayPal) refund
+ * has already been issued.
  */
 export const adminProcessRefundInternal = internalMutation({
   args: {
@@ -171,112 +254,28 @@ export const adminProcessRefundInternal = internalMutation({
     refundAmount: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    if (!(await isAdminUser(ctx, identity.subject))) {
-      throw new Error("Forbidden: Admin role required");
-    }
-
-    const payment = await ctx.db.get(args.paymentId);
-    if (!payment) throw new Error("Payment not found");
-
-    if (payment.status === "refunded") {
-      throw new Error("Payment has already been refunded");
-    }
-
-    const originalAmount = parseFloat(payment.amount);
-    const priorRefunded = parseFloat(payment.refundedAmount || "0");
-    const delta = parseFloat(args.refundAmount);
-    const newRefundedAmount = (priorRefunded + delta).toFixed(2);
-
-    if (parseFloat(newRefundedAmount) > originalAmount) {
-      throw new Error(
-        `Refund would exceed original amount (prior=${priorRefunded.toFixed(2)}, ` +
-        `requested=${delta.toFixed(2)}, original=${originalAmount.toFixed(2)})`
-      );
-    }
-
-    const isFullyRefunded = parseFloat(newRefundedAmount) >= originalAmount;
-
-    await ctx.db.patch(args.paymentId, {
-      status: isFullyRefunded ? "refunded" : "completed",
-      refundedAmount: newRefundedAmount,
-    });
-
-    await ctx.db.patch(payment.orderId, {
-      status: isFullyRefunded ? "refunded" : "paid",
-    });
-
-    await writeAuditLog(ctx, {
-      actorId: identity.subject,
-      actorRole: "admin",
-      action: "admin_refund_completed",
-      targetType: "payment",
-      targetId: args.paymentId,
-      details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
-      metadata: {
-        orderId: payment.orderId,
-        originalAmount: payment.amount,
-        refundAmount: args.refundAmount,
-        newRefundedAmount,
-        fullyRefunded: isFullyRefunded,
-      },
-    });
-
-    return await ctx.db.get(args.paymentId);
+    const actorId = await requireAdminActor(ctx);
+    return await applyAdminRefund(ctx, actorId, args);
   },
 });
 
-/** Processes a full refund for a payment and updates the order status. */
+/**
+ * Admin-only refund bookkeeping for the admin refund routes. The
+ * provider refund is issued by the route; this mutation records it.
+ *
+ * Historically this mutation checked only that the caller was signed
+ * in, so any authenticated user could mark a payment refunded, and it
+ * skipped the over-refund cap that `adminProcessRefundInternal`
+ * enforced. Both mutations now share `applyAdminRefund`.
+ */
 export const adminProcessRefund = mutation({
   args: {
     paymentId: v.id("payments"),
     refundAmount: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const payment = await ctx.db.get(args.paymentId);
-    if (!payment) throw new Error("Payment not found");
-
-    if (payment.status === "refunded") {
-      throw new Error("Payment has already been refunded");
-    }
-
-    const originalAmount = parseFloat(payment.amount);
-    const newRefundedAmount = (
-      parseFloat(payment.refundedAmount || "0") + parseFloat(args.refundAmount)
-    ).toFixed(2);
-
-    const isFullyRefunded = parseFloat(newRefundedAmount) >= originalAmount;
-
-    await ctx.db.patch(args.paymentId, {
-      status: isFullyRefunded ? "refunded" : "completed",
-      refundedAmount: newRefundedAmount,
-    });
-
-    await ctx.db.patch(payment.orderId, {
-      status: isFullyRefunded ? "refunded" : "paid",
-    });
-
-    await writeAuditLog(ctx, {
-      actorId: identity.subject,
-      actorRole: "admin",
-      action: "admin_refund_completed",
-      targetType: "payment",
-      targetId: args.paymentId,
-      details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
-      metadata: {
-        orderId: payment.orderId,
-        originalAmount: payment.amount,
-        refundAmount: args.refundAmount,
-        newRefundedAmount,
-        fullyRefunded: isFullyRefunded,
-      },
-    });
-
-    return await ctx.db.get(args.paymentId);
+    const actorId = await requireAdminActor(ctx);
+    return await applyAdminRefund(ctx, actorId, args);
   },
 });
 

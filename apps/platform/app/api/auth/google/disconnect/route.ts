@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
+import { fetchInstructorGoogleCredentials } from "@/lib/google-credentials";
 
 /**
  * POST /api/auth/google/disconnect
@@ -29,7 +30,10 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
 
     // Attempt token revocation with Google; ignore errors
     try {
-      const tokenToRevoke = instructor.googleRefreshToken;
+      // The refresh token is not part of the public instructor query;
+      // fetch it through the CONVEX_HTTP_KEY-gated server endpoint.
+      const credentials = await fetchInstructorGoogleCredentials(instructor._id);
+      const tokenToRevoke = credentials?.googleRefreshToken ?? null;
       if (tokenToRevoke) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
