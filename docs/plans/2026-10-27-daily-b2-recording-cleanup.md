@@ -154,6 +154,70 @@ Because idempotency keys persist for 30 days, a key derived from a
 non-advancing counter would also suppress retries — the route's pre-trigger
 increment exists to prevent exactly that.
 
+## Tooling and CLI playbook
+
+Assistants run CLIs rather than handing commands to humans. Availability and auth
+verified on 2026-10-27 (versions resolved locally, not assumed):
+
+| Tool | Version | Use in this arc | Status |
+| --- | --- | --- | --- |
+| `gh` | system | PR, checks, review-thread replies, labels, merge | ✅ used |
+| `pnpm exec convex` | 1.46.0 (workspace) | deploy (CI), function-spec, logs, run, env | ✅ |
+| `npx trigger.dev@4.5.15` | 4.5.15 (matches installed SDK) | dry-run validation, deploy, whoami | ⚠️ dry-run blocked locally: `.env.local` has a placeholder `TRIGGER_PROJECT_REF` |
+| `npx clerk@latest` | 4.0.0 | `doctor`, user lookup, `impersonate` for T4 | ✅ (read/impersonate only) |
+| `npx vercel@latest` | 65.4.0 | preview inspect/logs | ✅ |
+| `npx supabase@latest` | 2.122.0 | not needed (no SQL migration) | n/a |
+| `node scripts/linear-cli.mjs` | repo wrapper | issue updates/comments | ✅ used |
+| `jq` | missing | replaced with `gh --jq` / `node -e` | n/a |
+| Fly Sprites / `flyctl` | not installed | not used (no isolated/long-running work) | n/a |
+
+Commands by phase:
+
+```bash
+# Pre-merge (already run)
+gh pr checks 964 --watch
+pnpm exec convex --version
+npx -y trigger.dev@4.5.15 --version
+npx -y clerk@latest --version
+npx -y vercel@latest --version
+
+# Merge (requires Greptile ack + explicit operator approval)
+gh pr merge 964 --squash --delete-branch
+
+# Convex (CI deploys on merge via convex-deploy.yml; verify read-only)
+pnpm exec convex function-spec | grep -E "markRecordingDailyCleanup|markRecordingDailyCleanupRetrying"
+pnpm exec convex env list
+pnpm exec convex logs --prod            # watch callbacks during T1/T3
+
+# Trigger.dev (run from an environment with the real TRIGGER_PROJECT_REF/token)
+npx trigger.dev@4.5.15 whoami
+npx trigger.dev@4.5.15 deploy --dry-run
+npx trigger.dev@4.5.15 deploy
+
+# T4 auth (impersonate the session's instructor; never share the URL)
+npx clerk doctor --json
+npx clerk users list --email-address <instructor-email>
+npx clerk impersonate <instructor-email> --print
+
+# Optional preview inspection
+npx vercel@latest inspect <preview-url>
+npx vercel@latest logs <preview-url>
+
+# Linear tracking
+node scripts/linear-cli.mjs add-comment HUC-123 --body "Verification started"
+node scripts/linear-cli.mjs update-issue HUC-123 --state "In Progress"
+```
+
+Operational notes:
+- `convex deploy` is triggered by `convex-deploy.yml` on merge; do not run a
+  local prod deploy (the local `.env.local` is not the deploy authority).
+- Trigger.dev has no run-inspection CLI; use the dashboard/Realtime for run
+  status, and `convex logs` for the callbacks the task posts.
+- Greptile has no CLI path we use (the GitHub App is the only reviewer). Poll
+  with `gh pr checks`; retrigger from the PR's Greptile panel if needed.
+- Clerk CLI is used for inspection/impersonation only. No `clerk env pull`, no
+  config changes (per the repo's Clerk policy).
+
 ## Post-merge verification (Linear issue)
 
 - **T1** — Schema deployed: a new transfer lands `ready` **and** cleanup
