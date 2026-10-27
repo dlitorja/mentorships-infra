@@ -1603,10 +1603,25 @@ export const markRecordingDailyCleanupRetrying = internalMutation({
   handler: async (
     ctx,
     args
-  ): Promise<{ sessionId: Id<"sessions">; attempts: number }> => {
+  ): Promise<{
+    sessionId: Id<"sessions">;
+    attempts: number;
+    alreadyDone: boolean;
+  }> => {
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
       throw new Error("Session not found");
+    }
+    // A concurrent run may have finished between the route's read
+    // and this claim. Reopening the row would erase `done`, and a
+    // later trigger failure would then be recorded as `failed` even
+    // though the Daily copy is gone. Tell the caller to skip.
+    if (session.recordingDailyCleanupStatus === "done") {
+      return {
+        sessionId: session._id,
+        attempts: session.recordingDailyCleanupAttempts ?? 0,
+        alreadyDone: true,
+      };
     }
     const attempts = (session.recordingDailyCleanupAttempts ?? 0) + 1;
     await ctx.db.patch(session._id, {
@@ -1615,7 +1630,7 @@ export const markRecordingDailyCleanupRetrying = internalMutation({
       recordingDailyCleanupAttempts: attempts,
       recordingDailyCleanupUpdatedAt: Date.now(),
     });
-    return { sessionId: session._id, attempts };
+    return { sessionId: session._id, attempts, alreadyDone: false };
   },
 });
 

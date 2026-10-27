@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
+import { resolveConvexBaseUrl } from "@/lib/convex-server-call";
 import { tasks } from "@trigger.dev/sdk";
 import type { transferDailyRecordingToB2 } from "@/trigger/recording-transfer";
 
@@ -146,7 +147,10 @@ export async function POST(
     }
 
     const callbackSecret = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
-    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    // Prefer the server-only `CONVEX_URL` and rewrite a `.convex.cloud`
+    // host to `.convex.site`: HTTP actions are only served on the
+    // latter (see `apps/platform/lib/convex-server-call.ts`).
+    const convexUrl = resolveConvexBaseUrl();
     const convexHttpKey = process.env.CONVEX_HTTP_KEY;
     if (!callbackSecret || !convexUrl || !convexHttpKey) {
       await reportError({
@@ -172,13 +176,24 @@ export async function POST(
     // also gives the drift monitor a "cleanup pending since" stamp.
     let attemptNumber: number;
     try {
-      const claimed = await postConvexCleanupCallback<{ attempts: number }>({
+      const claimed = await postConvexCleanupCallback<{
+        attempts: number;
+        alreadyDone: boolean;
+      }>({
         convexUrl,
         convexHttpKey,
         callbackSecret,
         path: "mark-daily-cleanup-retrying",
         body: { sessionId: String(sessionIdTyped) },
       });
+      // Another run finished after our read; do not reopen or
+      // double-trigger a cleanup that already landed.
+      if (claimed.alreadyDone) {
+        return NextResponse.json(
+          { error: "Daily recording already deleted" },
+          { status: 404 }
+        );
+      }
       attemptNumber = claimed.attempts;
     } catch (claimError) {
       await reportError({

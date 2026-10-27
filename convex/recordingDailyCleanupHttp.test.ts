@@ -146,6 +146,31 @@ test("mark-daily-cleanup-failed requires errorMessage and stores it", async () =
   expect(session?.recordingTransferStatus).toBe("ready");
 });
 
+test("mark-daily-cleanup-retrying does not reopen a completed cleanup", async () => {
+  const t = convexTest(schema, modules);
+  const sessionId = await seedReadySession(t);
+
+  await t.fetch("/recording-transfer/mark-daily-cleanup-done", {
+    method: "POST",
+    headers: callbackHeaders(),
+    body: JSON.stringify({ sessionId }),
+  });
+
+  const claimed = await t.fetch(
+    "/recording-transfer/mark-daily-cleanup-retrying",
+    {
+      method: "POST",
+      headers: callbackHeaders(),
+      body: JSON.stringify({ sessionId }),
+    }
+  );
+  expect(claimed.status).toBe(200);
+  expect(await claimed.json()).toMatchObject({ alreadyDone: true });
+
+  const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
+  expect(session?.recordingDailyCleanupStatus).toBe("done");
+});
+
 test("mark-daily-cleanup-failed ignores a stale failure after done", async () => {
   const t = convexTest(schema, modules);
   const sessionId = await seedReadySession(t);

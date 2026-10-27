@@ -110,12 +110,14 @@ test("markRecordingDailyCleanupRetrying advances the run counter monotonically",
     { sessionId }
   );
   expect(first.attempts).toBe(1);
+  expect(first.alreadyDone).toBe(false);
 
   const second = await t.mutation(
     internal.sessions.markRecordingDailyCleanupRetrying,
     { sessionId }
   );
   expect(second.attempts).toBe(2);
+  expect(second.alreadyDone).toBe(false);
 
   const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
   // The counter is what the route derives its idempotency key from,
@@ -128,6 +130,28 @@ test("markRecordingDailyCleanupRetrying advances the run counter monotonically",
   // Claiming a run must never disturb the B2 side.
   expect(session?.recordingTransferStatus).toBe("ready");
   expect(session?.recordingUrl).toBe("recordings/session-1/rec-1.mp4");
+});
+
+test("markRecordingDailyCleanupRetrying does not reopen a completed cleanup", async () => {
+  const t = convexTest(schema, modules);
+  const { sessionId } = await seedReadySession(t);
+
+  await t.mutation(internal.sessions.markRecordingDailyCleanupDone, {
+    sessionId,
+  });
+  // Simulates a retry request that read the row before another run
+  // finished: claiming must not erase `done` (a later failed
+  // compensation would then record a false failure).
+  const claimed = await t.mutation(
+    internal.sessions.markRecordingDailyCleanupRetrying,
+    { sessionId }
+  );
+  expect(claimed.alreadyDone).toBe(true);
+  expect(claimed.attempts).toBe(0);
+
+  const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
+  expect(session?.recordingDailyCleanupStatus).toBe("done");
+  expect(session?.recordingDailyCleanupAttempts).toBeUndefined();
 });
 
 test("markRecordingDailyCleanupRetrying clears a prior failure", async () => {

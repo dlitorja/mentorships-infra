@@ -50,7 +50,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  * since this helper exclusively talks to HTTP actions. The rewrite is
  * a no-op when the value already targets `.convex.site`.
  */
-function resolveConvexBaseUrl(): string {
+export function resolveConvexBaseUrl(): string {
   const explicit = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!explicit) return "";
   return explicit
