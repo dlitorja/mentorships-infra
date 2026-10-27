@@ -152,6 +152,31 @@ export default defineSchema({
     // diagnostics — never read by the UI, only logged + shown on
     // the admin audit query.
     recordingDailyS3Key: v.optional(v.string()),
+    // Daily-side cleanup state, distinct from `recordingTransferStatus`
+    // (which tracks the B2 copy). The transfer task sets this to
+    // "pending" when it attaches the B2 key, then to "done" once
+    // Daily confirms the source recording is deleted, or "failed"
+    // when the delete retries are exhausted. A "failed" row keeps
+    // `recordingTransferStatus === "ready"` — the B2 copy is
+    // playable — so a failed Daily delete must never be confused
+    // with a failed transfer, and the delete-only re-run endpoint
+    // can find these rows. `undefined` means the row predates this
+    // tracking (legacy) or the attach has not run yet.
+    recordingDailyCleanupStatus: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("done"),
+      v.literal("failed")
+    )),
+    recordingDailyCleanupError: v.optional(v.string()),
+    // Monotonic count of cleanup RUNS started (not individual Daily
+    // DELETE calls). The delete-daily route increments this before
+    // triggering and derives its Trigger.dev idempotency key from
+    // it; keys live 30 days, so this MUST advance on every claim or
+    // later clicks silently resolve to the first run.
+    recordingDailyCleanupAttempts: v.optional(v.number()),
+    // Last cleanup-state transition; the drift monitor uses it to
+    // distinguish a fresh "pending" from one stuck after a crash.
+    recordingDailyCleanupUpdatedAt: v.optional(v.number()),
     recordingTransferAttempts: v.optional(v.number()),
     recordingTransferError: v.optional(v.string()),
     // Last transfer-status transition timestamp (ms since epoch).

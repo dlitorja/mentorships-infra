@@ -3043,6 +3043,95 @@ http.route({
   handler: httpMarkRecordingTransferFailed,
 });
 
+const httpMarkRecordingDailyCleanupRetrying = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+    const { sessionId } = await request.json();
+    if (typeof sessionId !== "string") {
+      return new Response(JSON.stringify({ error: "sessionId is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const result = await ctx.runMutation(
+      internal.sessions.markRecordingDailyCleanupRetrying,
+      {
+        sessionId: sessionId as any,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
+const httpMarkRecordingDailyCleanupDone = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const { sessionId } = await request.json();
+  if (typeof sessionId !== "string") {
+    return new Response(JSON.stringify({ error: "sessionId is required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const result = await ctx.runMutation(
+    internal.sessions.markRecordingDailyCleanupDone,
+    {
+      sessionId: sessionId as any,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingDailyCleanupFailed = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const { sessionId, errorMessage } = await request.json();
+  if (typeof sessionId !== "string" || typeof errorMessage !== "string") {
+    return new Response(
+      JSON.stringify({
+        error: "sessionId and errorMessage are required",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+  const result = await ctx.runMutation(
+    internal.sessions.markRecordingDailyCleanupFailed,
+    {
+      sessionId: sessionId as any,
+      errorMessage,
+    }
+  );
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-transfer/mark-daily-cleanup-retrying",
+  method: "POST",
+  handler: httpMarkRecordingDailyCleanupRetrying,
+});
+
+http.route({
+  path: "/recording-transfer/mark-daily-cleanup-done",
+  method: "POST",
+  handler: httpMarkRecordingDailyCleanupDone,
+});
+
+http.route({
+  path: "/recording-transfer/mark-daily-cleanup-failed",
+  method: "POST",
+  handler: httpMarkRecordingDailyCleanupFailed,
+});
+
 /**
  * PR recording-ready-notifications (PR #1): HTTP callbacks for the
  * `notify-recording-ready` Trigger task. Follow the same two-key
