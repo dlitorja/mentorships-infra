@@ -1574,6 +1574,50 @@ export const markRecordingTransferFailed = internalMutation({
 });
 
 /**
+ * Guarded variant of `markRecordingTransferFailed` for the manual-sync
+ * route's compensating callback.
+ *
+ * `tasks.trigger` can throw even when the job was queued (lost
+ * response). The task may then finish and flip the row to `ready`
+ * before the compensating callback lands. Marking blindly would
+ * regress a completed transfer to `failed` and leave `recordingUrl`
+ * set, which the retry route refuses to recover.
+ *
+ * Only a row that is still `pending` (the action sets that before the
+ * route triggers) and has no B2 key is eligible.
+ */
+export const markRecordingTransferFailedIfPending = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    errorMessage: v.string(),
+    attempts: v.number(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; ignored: boolean }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    if (
+      session.recordingTransferStatus !== "pending" ||
+      session.recordingUrl !== undefined
+    ) {
+      return { sessionId: session._id, ignored: true };
+    }
+    await ctx.db.patch(session._id, {
+      recordingTransferStatus: "failed",
+      hasRecordingArtifact: true,
+      recordingTransferUpdatedAt: Date.now(),
+      recordingTransferError: args.errorMessage,
+      recordingTransferAttempts: args.attempts,
+    });
+    return { sessionId: session._id, ignored: false };
+  },
+});
+
+/**
  * Daily-side cleanup outcomes, tracked separately from the transfer
  * status. Called by the Trigger.dev transfer task (and its
  * delete-only re-run) via the `/recording-transfer/mark-daily-cleanup-*`
