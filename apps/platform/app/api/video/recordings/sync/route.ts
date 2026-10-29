@@ -61,6 +61,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Validate every credential needed to start AND compensate a
+  // transfer before attaching anything. Otherwise a failed trigger
+  // would leave sessions `pending` with no retry path.
+  if (
+    !process.env.TRIGGER_SECRET_KEY ||
+    !process.env.CONVEX_HTTP_KEY ||
+    !process.env.CONVEX_TRIGGER_CALLBACK_SECRET ||
+    !resolveConvexBaseUrl()
+  ) {
+    await reportError({
+      source: "api/video/recordings/sync",
+      error: new Error("Recording sync credentials are not configured"),
+      message: "Recording sync is not configured",
+      level: "error",
+      context: { workspaceId },
+    });
+    return NextResponse.json(
+      { error: "Recording sync is not configured" },
+      { status: 503 }
+    );
+  }
+
   let convex;
   try {
     convex = await getAuthenticatedConvexClient();
@@ -144,18 +166,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               }
             );
           } catch (triggerError) {
-            // The action already flipped the session to `pending`. Mark
-            // it `failed` so the instructor's retry route can recover it;
-            // otherwise both sync (skips any transfer status) and retry
-            // (failed only) would ignore the row forever.
-            await markTransferFailed({
-              sessionId: String(result.sessionId),
-              errorMessage: `Unable to start recording transfer: ${
-                triggerError instanceof Error
-                  ? triggerError.message
-                  : String(triggerError)
-              }`,
+            // Report the trigger failure first so the callback's own
+            // error (if any) cannot hide the real cause.
+            await reportError({
+              source: "api/video/recordings/sync",
+              error: triggerError,
+              message: "Failed to start recording transfer task",
+              level: "error",
+              context: {
+                roomName: session.videoRoomName,
+                recordingId: recording.recordingId,
+                workspaceId,
+              },
             });
+            // The action already flipped the session to `pending`. Mark
+            // it `failed` (guarded: only while still pending) so the
+            // instructor's retry route can recover it.
+            try {
+              await markTransferFailed({
+                sessionId: String(result.sessionId),
+                errorMessage: `Unable to start recording transfer: ${
+                  triggerError instanceof Error
+                    ? triggerError.message
+                    : String(triggerError)
+                }`,
+              });
+            } catch (callbackError) {
+              await reportError({
+                source: "api/video/recordings/sync",
+                error: callbackError,
+                message: "Compensating mark-failed callback threw",
+                level: "error",
+                context: {
+                  recordingId: recording.recordingId,
+                  workspaceId,
+                },
+              });
+            }
             throw triggerError;
           }
         }
@@ -193,7 +240,9 @@ async function markTransferFailed(params: {
   const baseUrl = resolveConvexBaseUrl();
   if (!callbackSecret || !convexHttpKey || !baseUrl) return;
 
-  const response = await fetch(`${baseUrl}/recording-transfer/mark-failed`, {
+  const response = await fetch(
+    `${baseUrl}/recording-transfer/mark-failed-if-pending`,
+    {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

@@ -3025,6 +3025,40 @@ const httpMarkRecordingTransferFailed = httpAction(async (ctx, request) => {
   });
 });
 
+const httpMarkRecordingTransferFailedIfPending = httpAction(
+  async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+    const { sessionId, errorMessage, attempts } = await request.json();
+    if (
+      typeof sessionId !== "string" ||
+      typeof errorMessage !== "string" ||
+      typeof attempts !== "number"
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "sessionId, errorMessage, and attempts are required",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+    const result = await ctx.runMutation(
+      internal.sessions.markRecordingTransferFailedIfPending,
+      {
+        sessionId: sessionId as any,
+        errorMessage,
+        attempts,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+);
+
 http.route({
   path: "/recording-transfer/attach-from-b2",
   method: "POST",
@@ -3041,6 +3075,12 @@ http.route({
   path: "/recording-transfer/mark-failed",
   method: "POST",
   handler: httpMarkRecordingTransferFailed,
+});
+
+http.route({
+  path: "/recording-transfer/mark-failed-if-pending",
+  method: "POST",
+  handler: httpMarkRecordingTransferFailedIfPending,
 });
 
 const httpMarkRecordingDailyCleanupRetrying = httpAction(
