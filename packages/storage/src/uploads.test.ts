@@ -59,12 +59,11 @@ describe("uploadFromUrl", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     mockSend.mockImplementation(async (command) => {
-      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
-        .input.Body;
-      const reader = body.getReader();
-      while (true) {
-        const { done } = await reader.read();
-        if (done) break;
+      const body = (
+        command as { input: { Body: AsyncIterable<Uint8Array> } }
+      ).input.Body;
+      for await (const _chunk of body) {
+        // drain
       }
       return { ETag: "etag-123", VersionId: "v1" };
     });
@@ -79,10 +78,18 @@ describe("uploadFromUrl", () => {
     expect(result.versionId).toBe("v1");
     expect(result.bytes).toBe(3);
     expect(mockSend).toHaveBeenCalledTimes(1);
-    const command = mockSend.mock.calls[0]?.[0] as { input: { Bucket: string; Key: string; ContentType: string } };
+    const command = mockSend.mock.calls[0]?.[0] as {
+      input: {
+        Bucket: string;
+        Key: string;
+        ContentType: string;
+        ContentLength?: number;
+      };
+    };
     expect(command.input.Bucket).toBe("instructor-uploads");
     expect(command.input.Key).toBe("recordings/session-abc/1700000000000.mp4");
     expect(command.input.ContentType).toBe("video/mp4");
+    expect(command.input.ContentLength).toBe(3);
   });
 
   it("throws when the source URL returns non-2xx", async (): Promise<void> => {
@@ -162,12 +169,11 @@ describe("uploadFromUrl", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     mockSend.mockImplementation(async (command) => {
-      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
-        .input.Body;
-      const reader = body.getReader();
-      while (true) {
-        const { done } = await reader.read();
-        if (done) break;
+      const body = (
+        command as { input: { Body: AsyncIterable<Uint8Array> } }
+      ).input.Body;
+      for await (const _chunk of body) {
+        // drain
       }
       return { ETag: "etag-stream", VersionId: "v1" };
     });
@@ -206,14 +212,12 @@ describe("uploadFromUrl", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     mockSend.mockImplementation(async (command) => {
-      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
-        .input.Body;
-      const reader = body.getReader();
+      const body = (
+        command as { input: { Body: AsyncIterable<Uint8Array> } }
+      ).input.Body;
       let total = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) total += value.byteLength;
+      for await (const chunk of body) {
+        total += chunk.byteLength;
       }
       return { ETag: "etag-stream", VersionId: "v2" };
     });

@@ -32,9 +32,9 @@ describe("getDailyRecordingAccessLink", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns the presigned download URL on success", async () => {
+  it("returns the presigned download URL from download_link (current Daily shape)", async () => {
     const fetchSpy = mockFetchWithResponse(
-      jsonResponse({ download_url: "https://download.example/signed" })
+      jsonResponse({ download_link: "https://download.example/signed" })
     );
 
     const url = await getDailyRecordingAccessLink("rec-123");
@@ -43,6 +43,15 @@ describe("getDailyRecordingAccessLink", () => {
     const [calledUrl, calledInit] = fetchSpy.mock.calls[0];
     expect(calledUrl).toBe("https://api.daily.co/v1/recordings/rec-123/access-link");
     expect(calledInit?.method).toBe("GET");
+  });
+
+  it("still accepts the legacy download_url field", async () => {
+    mockFetchWithResponse(
+      jsonResponse({ download_url: "https://download.example/legacy" })
+    );
+
+    const url = await getDailyRecordingAccessLink("rec-legacy");
+    expect(url).toBe("https://download.example/legacy");
   });
 
   it("returns null when Daily returns 404 (recording purged)", async () => {
@@ -68,7 +77,7 @@ describe("getDailyRecordingAccessLink", () => {
     );
   });
 
-  it("throws when the response is missing download_url", async () => {
+  it("throws when the response has no download link field", async () => {
     mockFetchWithResponse(jsonResponse({ unexpected: "shape" }));
 
     await expect(getDailyRecordingAccessLink("rec-123")).rejects.toBeInstanceOf(

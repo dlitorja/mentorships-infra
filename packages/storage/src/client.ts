@@ -21,6 +21,14 @@ function initializeB2Client(): S3Client {
       secretAccessKey,
     },
     forcePathStyle: true,
+    // B2 does not require the SDK's default flexible checksums, and
+    // computing them for a non-seekable web stream fails with
+    // "Unable to calculate hash for flowing readable stream".
+    // `uploadFromUrl` streams Daily recordings straight into a single
+    // PutObjectCommand, so restrict checksum calculation to operations
+    // that explicitly need it.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 
   return b2Client;

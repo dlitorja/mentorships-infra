@@ -7,8 +7,13 @@ import {
 } from "../../apps/platform/lib/daily";
 import { uploadFromUrl, headFile } from "@mentorships/storage";
 
-const CONVEX_DEPLOYMENT_URL =
-  process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_DEPLOYMENT_URL = (
+  process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL
+)
+  ?.replace(/\/+$/, "")
+  // HTTP actions are served on `.convex.site`; `.convex.cloud` is the
+  // query/mutation host. The transfer callbacks only hit HTTP routes.
+  .replace(/\.convex\.cloud$/, ".convex.site");
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const CALLBACK_SECRET = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
 

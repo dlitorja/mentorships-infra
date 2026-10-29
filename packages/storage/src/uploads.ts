@@ -7,6 +7,7 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Readable } from "node:stream";
 import {
   getB2Client,
   B2_BUCKET_NAME,
@@ -510,12 +511,29 @@ export async function uploadFromUrl(
     maxBytes
   );
 
+  // The AWS SDK's PutObject expects a Node readable, not a web
+  // ReadableStream. Passing a web stream made every recording upload
+  // fail with "Unable to calculate hash for flowing readable stream"
+  // (then "Received an instance of ReadableStream"). Converting and
+  // forwarding the advertised Content-Length keeps the single-PUT
+  // path streaming without buffering the whole recording.
+  const body = Readable.fromWeb(
+    countedStream as Parameters<typeof Readable.fromWeb>[0]
+  );
+  const contentLength = (() => {
+    const raw = response.headers.get("content-length");
+    if (raw === null) return undefined;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  })();
+
   const client = getB2Client();
   const command = new PutObjectCommand({
     Bucket: B2_BUCKET_NAME,
     Key: params.key,
-    Body: countedStream as unknown as ReadableStream,
+    Body: body,
     ContentType: params.contentType,
+    ...(contentLength !== undefined ? { ContentLength: contentLength } : {}),
   });
 
   const result = await client.send(command);
