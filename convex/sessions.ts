@@ -1447,6 +1447,17 @@ export const attachRecordingFromB2Upload = internalMutation({
       recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: undefined,
       recordingExpiresAt,
+      // The B2 copy is now the source of truth, but the Daily
+      // source has not been deleted yet — the transfer task does
+      // that next and reports back via the mark-daily-cleanup-*
+      // callbacks. Tracking it separately from the transfer status
+      // is what makes a failed Daily delete visible without
+      // misreporting the (playable) B2 recording as failed.
+      // Stamping `UpdatedAt` here lets the drift monitor tell a
+      // fresh "pending" apart from one stuck after a crash.
+      recordingDailyCleanupStatus: "pending",
+      recordingDailyCleanupError: undefined,
+      recordingDailyCleanupUpdatedAt: Date.now(),
     };
     if (args.durationSeconds !== undefined) {
       patch.recordingDurationSeconds = args.durationSeconds;
@@ -1559,6 +1570,120 @@ export const markRecordingTransferFailed = internalMutation({
       recordingTransferAttempts: args.attempts,
     });
     return { sessionId: session._id };
+  },
+});
+
+/**
+ * Daily-side cleanup outcomes, tracked separately from the transfer
+ * status. Called by the Trigger.dev transfer task (and its
+ * delete-only re-run) via the `/recording-transfer/mark-daily-cleanup-*`
+ * HTTP endpoints, after the B2 copy has been verified.
+ *
+ * Deliberately does NOT touch `recordingTransferStatus` or
+ * `recordingUrl`: a failed Daily delete leaves the B2 recording
+ * playable, so flipping the transfer to "failed" would hide a good
+ * recording behind a retry affordance, and clearing the URL would
+ * lose the only pointer to the B2 object. The delete-only endpoint
+ * finds "failed" (and legacy `undefined`) rows and re-runs just the
+ * Daily delete against the already-verified B2 key.
+ *
+ * `recordingDailyCleanupAttempts` is a monotonic count of cleanup
+ * RUNS started, not individual Daily DELETE calls. The delete-only
+ * route increments it through `markRecordingDailyCleanupRetrying`
+ * before triggering, and derives its idempotency key from the
+ * returned value. That ordering matters: Trigger.dev stores
+ * idempotency keys for 30 days, so a key derived from a counter
+ * that only advances on failure would silently resolve later
+ * clicks to the original run (see the delete-daily route).
+ */
+export const markRecordingDailyCleanupRetrying = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    sessionId: Id<"sessions">;
+    attempts: number;
+    alreadyDone: boolean;
+  }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    // A concurrent run may have finished between the route's read
+    // and this claim. Reopening the row would erase `done`, and a
+    // later trigger failure would then be recorded as `failed` even
+    // though the Daily copy is gone. Tell the caller to skip.
+    if (session.recordingDailyCleanupStatus === "done") {
+      return {
+        sessionId: session._id,
+        attempts: session.recordingDailyCleanupAttempts ?? 0,
+        alreadyDone: true,
+      };
+    }
+    const attempts = (session.recordingDailyCleanupAttempts ?? 0) + 1;
+    await ctx.db.patch(session._id, {
+      recordingDailyCleanupStatus: "pending",
+      recordingDailyCleanupError: undefined,
+      recordingDailyCleanupAttempts: attempts,
+      recordingDailyCleanupUpdatedAt: Date.now(),
+    });
+    return { sessionId: session._id, attempts, alreadyDone: false };
+  },
+});
+
+export const markRecordingDailyCleanupDone = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; alreadyDone: boolean }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    if (session.recordingDailyCleanupStatus === "done") {
+      return { sessionId: session._id, alreadyDone: true };
+    }
+    await ctx.db.patch(session._id, {
+      recordingDailyCleanupStatus: "done",
+      recordingDailyCleanupError: undefined,
+      recordingDailyCleanupUpdatedAt: Date.now(),
+    });
+    return { sessionId: session._id, alreadyDone: false };
+  },
+});
+
+export const markRecordingDailyCleanupFailed = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    errorMessage: v.string(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; ignored: boolean }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    // A concurrent run may have deleted the Daily copy and marked
+    // the row "done" after this run started failing. Never regress
+    // a completed cleanup to "failed": the Daily source is gone, so
+    // the failure is stale and the error must not be surfaced.
+    if (session.recordingDailyCleanupStatus === "done") {
+      return { sessionId: session._id, ignored: true };
+    }
+    await ctx.db.patch(session._id, {
+      recordingDailyCleanupStatus: "failed",
+      recordingDailyCleanupError: args.errorMessage,
+      recordingDailyCleanupUpdatedAt: Date.now(),
+    });
+    return { sessionId: session._id, ignored: false };
   },
 });
 
