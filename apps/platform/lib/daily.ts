@@ -49,6 +49,7 @@ export type DailyRoom = {
 };
 
 type DailyAccessLinkResponse = {
+  download_link?: string;
   download_url?: string;
   url?: string;
 };
@@ -76,6 +77,10 @@ type DailyMeetingTokenProperties = {
 };
 
 const dailyAccessLinkResponseSchema = z.object({
+  // Daily's current REST API returns `download_link` (verified against
+  // api.daily.co on 2026-10-29). `download_url`/`url` are kept as
+  // fallbacks for older responses and tests.
+  download_link: z.string().optional(),
   download_url: z.string().optional(),
   url: z.string().optional(),
 });
@@ -522,8 +527,8 @@ export async function getDailyRecordingsByRoomName(
  * `docs/plans/video-calling.md` for the full architecture.
  *
  * Daily's docs (https://docs.daily.co/reference/rest-api/recordings/access-link)
- * specify the response shape as `{ download_url, link_expires_at,
- * meeting_id, recording_id, session_id, ... }`. We only need the
+ * list `download_link` (verified live 2026-10-29); older responses/tests
+ * used `download_url`/`url`, which we still accept as fallbacks. We only need the
  * URL — the expiry is short (~1h) which is fine for our
  * single-shot `PutObjectCommand` upload path; see the JSDoc on
  * `uploadFromUrl` in `packages/storage/src/uploads.ts` for why we
@@ -552,10 +557,13 @@ export async function getDailyRecordingAccessLink(
   if (!parsed.success) {
     throw new DailyApiError({
       statusCode: response.status,
-      message: "Daily access-link response missing download_url",
+      message: "Daily access-link response missing download_link",
     });
   }
-  const link = parsed.data.download_url ?? parsed.data.url;
+  const link =
+    parsed.data.download_link ??
+    parsed.data.download_url ??
+    parsed.data.url;
   if (typeof link !== "string" || link.length === 0) {
     throw new DailyApiError({
       statusCode: response.status,
