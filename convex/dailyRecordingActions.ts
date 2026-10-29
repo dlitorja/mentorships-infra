@@ -193,6 +193,13 @@ export const attachRecordingFromDailyWebhookAction = action({
     timestamp: v.string(),
     signature: v.string(),
     rawBody: v.string(),
+    /**
+     * Set to false by the Next.js webhook/sync routes, which trigger the
+     * transfer task themselves. Those routes run on Vercel where
+     * TRIGGER_SECRET_KEY is configured; Convex prod intentionally does
+     * not hold it. Defaults to true for any legacy caller.
+     */
+    triggerTransfer: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -243,6 +250,17 @@ export const attachRecordingFromDailyWebhookAction = action({
           }
         );
       }
+      return {
+        sessionId: result.sessionId,
+        alreadyAttached: result.alreadyAttached,
+        transferTriggered: false,
+      };
+    }
+
+    if (args.triggerTransfer === false) {
+      // The caller (Next.js route) has TRIGGER_SECRET_KEY and triggers
+      // the task itself. The session is already `pending`; do not mark
+      // it failed just because this action cannot reach Trigger.dev.
       return {
         sessionId: result.sessionId,
         alreadyAttached: result.alreadyAttached,

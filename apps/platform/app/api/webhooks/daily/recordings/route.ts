@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { reportError } from "@/lib/observability";
+import { tasks } from "@trigger.dev/sdk";
+import type { transferDailyRecordingToB2 } from "@/trigger/recording-transfer";
 
 export const runtime = "nodejs";
 
@@ -202,6 +204,10 @@ async function handleEvent(
         timestamp,
         signature,
         rawBody,
+        // The Convex action attaches state only; this route triggers the
+        // task because Vercel has TRIGGER_SECRET_KEY and Convex prod
+        // intentionally does not.
+        triggerTransfer: false,
       }
     );
     // Do NOT spread the action result into the public response — the
@@ -222,7 +228,44 @@ async function handleEvent(
         { status: 422 }
       );
     }
-    return NextResponse.json({ received: true, path });
+
+    if (result.sessionId && !result.alreadyAttached) {
+      const recordingId = event.payload.recording_id;
+      try {
+        await tasks.trigger<typeof transferDailyRecordingToB2>(
+          "transfer-daily-recording-to-b2",
+          {
+            sessionId: String(result.sessionId),
+            recordingId,
+            dailyS3Key: event.payload.s3_key,
+            durationSeconds: event.payload.duration,
+          },
+          {
+            idempotencyKey: `transfer-recording:${result.sessionId}:${recordingId}`,
+          }
+        );
+      } catch (triggerError) {
+        // Leave the session `pending`: Daily retries on 5xx and the
+        // retry re-attaches pending and triggers again.
+        await reportError({
+          source: "webhooks/daily",
+          error: triggerError,
+          message: "Failed to start recording transfer task",
+          level: "error",
+          context: { roomName, sessionId: String(result.sessionId) },
+        });
+        return NextResponse.json(
+          { error: "Unable to start recording transfer" },
+          { status: 500 }
+        );
+      }
+    }
+
+    return NextResponse.json({
+      received: true,
+      path,
+      transferTriggered: Boolean(result.sessionId && !result.alreadyAttached),
+    });
   } catch (err) {
     await reportError({
       source: "webhooks/daily",
