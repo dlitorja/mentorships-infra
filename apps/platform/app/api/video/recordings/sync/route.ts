@@ -10,6 +10,8 @@ import {
 import { reportError } from "@/lib/observability";
 import { convexIdSchema } from "@/lib/validators";
 import type { Id } from "@/convex/_generated/dataModel";
+import { tasks } from "@trigger.dev/sdk";
+import type { transferDailyRecordingToB2 } from "@/trigger/recording-transfer";
 
 export const runtime = "nodejs";
 
@@ -122,10 +124,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const signature = signDailyWebhookPayload(rawBody, timestamp, secret);
 
       try {
-        await convex.action(
+        const result = await convex.action(
           api.dailyRecordingActions.attachRecordingFromDailyWebhookAction,
-          { timestamp, signature, rawBody }
+          { timestamp, signature, rawBody, triggerTransfer: false }
         );
+        if (result.sessionId && !result.alreadyAttached) {
+          await tasks.trigger<typeof transferDailyRecordingToB2>(
+            "transfer-daily-recording-to-b2",
+            {
+              sessionId: String(result.sessionId),
+              recordingId: recording.recordingId,
+              dailyS3Key: recording.s3Key,
+              durationSeconds: recording.durationSeconds,
+            },
+            {
+              idempotencyKey: `transfer-recording:${result.sessionId}:${recording.recordingId}`,
+            }
+          );
+        }
         synced++;
       } catch (err) {
         await reportError({
