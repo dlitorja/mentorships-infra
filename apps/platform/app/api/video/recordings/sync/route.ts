@@ -8,6 +8,7 @@ import {
   signDailyWebhookPayload,
 } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
+import { resolveConvexBaseUrl } from "@/lib/convex-server-call";
 import { convexIdSchema } from "@/lib/validators";
 import type { Id } from "@/convex/_generated/dataModel";
 import { tasks } from "@trigger.dev/sdk";
@@ -129,18 +130,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { timestamp, signature, rawBody, triggerTransfer: false }
         );
         if (result.sessionId && !result.alreadyAttached) {
-          await tasks.trigger<typeof transferDailyRecordingToB2>(
-            "transfer-daily-recording-to-b2",
-            {
+          try {
+            await tasks.trigger<typeof transferDailyRecordingToB2>(
+              "transfer-daily-recording-to-b2",
+              {
+                sessionId: String(result.sessionId),
+                recordingId: recording.recordingId,
+                dailyS3Key: recording.s3Key,
+                durationSeconds: recording.durationSeconds,
+              },
+              {
+                idempotencyKey: `transfer-recording:${result.sessionId}:${recording.recordingId}`,
+              }
+            );
+          } catch (triggerError) {
+            // The action already flipped the session to `pending`. Mark
+            // it `failed` so the instructor's retry route can recover it;
+            // otherwise both sync (skips any transfer status) and retry
+            // (failed only) would ignore the row forever.
+            await markTransferFailed({
               sessionId: String(result.sessionId),
-              recordingId: recording.recordingId,
-              dailyS3Key: recording.s3Key,
-              durationSeconds: recording.durationSeconds,
-            },
-            {
-              idempotencyKey: `transfer-recording:${result.sessionId}:${recording.recordingId}`,
-            }
-          );
+              errorMessage: `Unable to start recording transfer: ${
+                triggerError instanceof Error
+                  ? triggerError.message
+                  : String(triggerError)
+              }`,
+            });
+            throw triggerError;
+          }
         }
         synced++;
       } catch (err) {
@@ -159,4 +176,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({ synced, checked: sessions.length });
+}
+
+/**
+ * Best-effort `mark-failed` callback so a session whose task trigger
+ * failed is retryable. Without this the row stays `pending`, which both
+ * the manual sync (skips any transfer status) and the retry route
+ * (failed only) ignore.
+ */
+async function markTransferFailed(params: {
+  sessionId: string;
+  errorMessage: string;
+}): Promise<void> {
+  const callbackSecret = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
+  const convexHttpKey = process.env.CONVEX_HTTP_KEY;
+  const baseUrl = resolveConvexBaseUrl();
+  if (!callbackSecret || !convexHttpKey || !baseUrl) return;
+
+  const response = await fetch(`${baseUrl}/recording-transfer/mark-failed`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${convexHttpKey}`,
+      "X-Trigger-Callback-Secret": callbackSecret,
+    },
+    body: JSON.stringify({
+      sessionId: params.sessionId,
+      errorMessage: params.errorMessage,
+      attempts: 0,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `mark-failed callback failed: ${response.status} ${text.slice(0, 200)}`
+    );
+  }
 }
