@@ -203,21 +203,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 },
               });
             }
-            throw triggerError;
+            throw new RecordingTriggerStartError(triggerError);
           }
         }
         synced++;
       } catch (err) {
-        await reportError({
-          source: "api/video/recordings/sync",
-          error: err,
-          message: "Failed to attach recording from sync",
-          context: {
-            roomName: session.videoRoomName,
-            recordingId: recording.recordingId,
-            workspaceId,
-          },
-        });
+        // Trigger-start failures were already reported with their own
+        // label; only report genuine attach failures here.
+        if (!(err instanceof RecordingTriggerStartError)) {
+          await reportError({
+            source: "api/video/recordings/sync",
+            error: err,
+            message: "Failed to attach recording from sync",
+            context: {
+              roomName: session.videoRoomName,
+              recordingId: recording.recordingId,
+              workspaceId,
+            },
+          });
+        }
       }
     }
   }
@@ -231,6 +235,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  * the manual sync (skips any transfer status) and the retry route
  * (failed only) ignore.
  */
+class RecordingTriggerStartError extends Error {
+  constructor(original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = "RecordingTriggerStartError";
+  }
+}
+
 async function markTransferFailed(params: {
   sessionId: string;
   errorMessage: string;
