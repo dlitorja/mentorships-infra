@@ -21,7 +21,7 @@ jobs:
         run: |
           echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
           echo "platformProject=mentorships-infra-platform" >> $GITHUB_OUTPUT
-          echo "webProject=mentorships-infra-web" >> $GITHUB_OUTPUT
+          echo "marketingProject=mentorships-infra-marketing" >> $GITHUB_OUTPUT
           echo "driveProject=mentorships-infra-huckleberry-drive" >> $GITHUB_OUTPUT
 
       - name: Check existing Platform deployment for commit
@@ -63,16 +63,16 @@ jobs:
             exit 1
           fi
 
-      - name: Check existing Web deployment for commit
-        id: check_web
+      - name: Check existing Marketing deployment for commit
+        id: check_marketing
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           SHA: ${{ steps.ctx.outputs.sha }}
-          PROJECT_NAME: ${{ steps.ctx.outputs.webProject }}
+          PROJECT_NAME: ${{ steps.ctx.outputs.marketingProject }}
         run: |
           if [ -z "$VERCEL_TOKEN" ]; then
             echo "vercel_token_present=false" >> $GITHUB_OUTPUT
-            echo "No VERCEL_TOKEN; skipping pre-check for web"; exit 0;
+            echo "No VERCEL_TOKEN; skipping pre-check for marketing"; exit 0;
           fi
           resp=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v6/deployments?app=${PROJECT_NAME}&target=production&sha=${SHA}&limit=1") || resp='{"deployments":[]}'
@@ -80,15 +80,18 @@ jobs:
           count=$(node -e "const j=JSON.parse(process.argv[1]);console.log(Array.isArray(j.deployments)?j.deployments.length:0)" "$resp")
           if [ "$count" -gt 0 ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Found existing Web deployment for $SHA; will skip hook"
+            echo "Found existing Marketing deployment for $SHA; will skip hook"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "No Web deployment found for $SHA; will trigger hook"
+            echo "No Marketing deployment found for $SHA; will trigger hook"
           fi
-      - name: Trigger Web Deploy Hook
+      # NOTE: the secret name VERCEL_WEB_DEPLOY_HOOK_URL is legacy — it points at the
+      # marketing project (formerly named mentorships-infra-web). Secret stores cannot be
+      # renamed in place without editing them, so the name is kept as-is.
+      - name: Trigger Marketing Deploy Hook
         env:
           VERCEL_WEB_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_WEB_DEPLOY_HOOK_URL }}
-        if: steps.check_web.outputs.exists != 'true'
+        if: steps.check_marketing.outputs.exists != 'true'
         run: |
           if [ -z "$VERCEL_WEB_DEPLOY_HOOK_URL" ]; then
             echo "Missing secret: VERCEL_WEB_DEPLOY_HOOK_URL" >&2
