@@ -2039,6 +2039,75 @@ Key properties available in run subscriptions:
 
 <!-- TRIGGER.DEV realtime END -->
 
+<!-- VERCEL PLUGIN START -->
+# Vercel Plugin
+
+We use the official Vercel plugin for OpenCode: <https://github.com/vercel/vercel-plugin>.
+
+## Setup (already done for this machine)
+
+- Install (global config, not repo config): `opencode plugin add github:vercel/vercel-plugin`
+- Authenticate: `opencode mcp auth vercel` — opens a browser, choose the team that owns the
+  `mentorships-infra-*` projects. The token is cached; no per-session action needed.
+- Verify: `opencode mcp list` should show `vercel  connected`.
+
+The plugin registers an HTTP MCP server at `https://mcp.vercel.com` plus ~40 skills
+(`vercel-functions`, `ai-sdk`, `workflow`, `env-vars`, `deployments-cicd`, `vercel-cli`,
+`domains`, `vercel-storage`, `react-best-practices`, and others).
+
+## When to use it
+
+Use the Vercel MCP **before** asking the operator to check the Vercel dashboard:
+
+- A deploy failed, is stuck, or behaves unexpectedly → deployment state + build logs.
+- "Which project serves domain X / which commit is live?" → projects, domains, deployments.
+- Production 5xx or slow routes → runtime errors, then runtime logs.
+- Environment-variable inventory (names/targets only — see guardrails).
+- Anything touching Vercel configuration: functions, regions, caching, domains.
+
+For failed deployments, inspect state and build logs. For production errors, start with
+`get_runtime_errors`, then `get_runtime_logs`. The plugin's skills are the reference for
+Vercel platform behaviour; prefer them over memorised API knowledge.
+
+## Project topology (do not re-derive this — it has caused confusion before)
+
+| Vercel project | Builds (root dir) | Production domain |
+| --- | --- | --- |
+| `mentorships-infra-marketing` | `apps/marketing` | `mentorships.huckleberry.art` |
+| `mentorships-infra-platform` | `apps/platform` | `dev.mentorships.huckleberry.art` |
+| `mentorships-infra-huckleberry-drive` | `apps/huckleberry-drive` | `drive.huckleberry.art` |
+| `mentorships-infra` | `apps/platform` (duplicate) | none — **paused** |
+
+Traps:
+
+- **`mentorships-infra-marketing` was previously named `mentorships-infra-web`.** The name was
+  historical: the project was repointed to build `apps/marketing` but not renamed. It does **not**
+  serve `apps/web`. Do not create a "web" project from that name.
+- **`apps/web` is not deployed anywhere.** It has a `vercel.json` and a deploy-hook secret named
+  after it, but no Vercel project builds it. Treat it as legacy until someone decommissions it.
+- **`apps/home` is not deployed either.** `home.huckleberry.art` is served by Kajabi.
+- The secret `VERCEL_WEB_DEPLOY_HOOK_URL` actually triggers the **marketing** deployment. The name
+  is legacy; secrets cannot be renamed in place, so the name is kept and documented here.
+- All four projects deploy from `main`. Production deploys flow `CI → deploy-on-main → deploy hook`.
+
+## Guardrails
+
+- **Never use `/vercel:deploy` or `vercel --prod` for this repo.** Deploys go through
+  `deploy-on-main` after CI passes and a PR is reviewed and merged.
+- **Never create, change, or delete a Vercel environment variable without explicit operator
+  approval.** State the key, target, and value shape first.
+- **Never decrypt environment values.** Use `filter_project_envs` (names + targets only). Do not
+  call endpoints that return secrets — notably the Turnstile widget-detail endpoint returns the
+  widget **secret** alongside the config.
+- **An env-var change is inert until a redeploy.** Vercel snapshots env per deployment, so
+  changing a var affects nothing until a new build runs. `NEXT_PUBLIC_*` in particular is inlined
+  at build time.
+- Root `.env.local` is a **redacted template**: ~41 keys literally contain `[SENSITIVE]`. It is
+  not a source of real secret values. Only copy a value from it after confirming it isn't a
+  placeholder — blindly copying breaks the app (a `[SENSITIVE]` Upstash URL throws at boot).
+
+<!-- VERCEL PLUGIN END -->
+
 <!-- CONTEXT7 START -->
 # Context7 Documentation
 
