@@ -163,11 +163,18 @@ export type SuppressedFinding = Finding & {
   suppression: { reason: string; owner: string; expires?: string };
 };
 
+/** Returns null when the date is unparsable (callers treat that as invalid). */
+function expiryTime(expires: string): number | null {
+  const parsed = new Date(`${expires}T23:59:59.999Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+}
+
 function isExpired(suppression: Suppression, today: Date): boolean {
   if (!suppression.expires) return false;
-  const expiry = new Date(`${suppression.expires}T23:59:59.999Z`);
-  if (Number.isNaN(expiry.getTime())) return false;
-  return today.getTime() > expiry.getTime();
+  const expiry = expiryTime(suppression.expires);
+  // Defensive: loadSuppressions rejects unparsable dates as invalid.
+  if (expiry === null) return true;
+  return today.getTime() > expiry;
 }
 
 /**
@@ -208,6 +215,16 @@ export function loadSuppressions(
     if (!ok) {
       invalid.push(`suppressions[${index}] ${label}: missing file/function/scanner/reason/owner`);
       continue;
+    }
+    // An unparsable expiry must never mean "never expires": a typo would
+    // suppress the finding forever. Reject the entry instead.
+    if (entry.expires !== undefined) {
+      if (typeof entry.expires !== "string" || expiryTime(entry.expires) === null) {
+        invalid.push(
+          `suppressions[${index}] ${label}: invalid expires "${String(entry.expires)}" (expected YYYY-MM-DD)`,
+        );
+        continue;
+      }
     }
     if (isExpired(entry, today)) {
       expired.push(entry);

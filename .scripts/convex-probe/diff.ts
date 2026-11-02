@@ -36,11 +36,26 @@ function readJson<T>(path: string, fallback: T): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
+/**
+ * Scan artifacts are required. Treating a missing file as "zero findings"
+ * would report a clean diff when a scanner actually failed — and with
+ * `--fail-on-new` that is a silent bypass. Fail loudly instead.
+ */
+function readScanArtifact<T>(path: string, scanner: string): T[] {
+  if (!existsSync(path)) {
+    console.error(
+      `[diff] Missing scan artifact ${path} for ${scanner}. Run the scanners first (scan-b / scan-d); refusing to report a diff against an absent scan.`,
+    );
+    process.exit(1);
+  }
+  return JSON.parse(readFileSync(path, "utf8")) as T[];
+}
+
 type RawB = { file: string; name: string; shape: string };
 type RawD = { file: string; name: string };
 
-const rawB = readJson<RawB[]>("./artifacts/findings-raw.json", []);
-const rawD = readJson<RawD[]>("./artifacts/findings-noauth.json", []);
+const rawB = readScanArtifact<RawB>("./artifacts/findings-raw.json", "scan-b");
+const rawD = readScanArtifact<RawD>("./artifacts/findings-noauth.json", "scan-d");
 
 const currentB: BaselineFinding[] = rawB.map((f) => ({
   file: f.file,

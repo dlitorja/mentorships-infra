@@ -157,6 +157,27 @@ test("suppressions: invalid entries are reported, not applied", () => {
   assert.equal(invalid.length, 1);
 });
 
+test("suppressions: an unparsable expiry is rejected instead of never expiring", () => {
+  const dir = tempProbeDir([
+    {
+      file: "contacts.ts",
+      function: "addContact",
+      scanner: "scan-d",
+      reason: "accepted public form",
+      owner: "@dlitorja",
+      expires: "2027-13-45", // typo — must not mean "forever"
+    },
+  ]);
+  const { active, expired, invalid } = loadSuppressions(dir, { today: new Date("2026-11-02") });
+  assert.equal(active.length, 0);
+  assert.equal(expired.length, 0);
+  assert.equal(invalid.length, 1);
+
+  const { kept, suppressed } = partitionSuppressed([finding], active, "scan-d");
+  assert.equal(kept.length, 1);
+  assert.equal(suppressed.length, 0);
+});
+
 test("suppressions: a missing file means no suppressions", () => {
   const dir = mkdtempSync(join(tmpdir(), "convex-probe-empty-"));
   const { active, expired, invalid } = loadSuppressions(dir);
