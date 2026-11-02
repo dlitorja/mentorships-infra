@@ -8,7 +8,9 @@ export function cn(...inputs: ClassValue[]): string {
 export interface RedisLike {
   incr(key: string): Promise<number>;
   ttl(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<void>;
+  // `@upstash/redis` resolves to the number of keys updated; the helper ignores
+  // the value, so accept any resolution to keep the interface compatible.
+  expire(key: string, seconds: number): Promise<unknown>;
 }
 
 export interface RateLimitResult {

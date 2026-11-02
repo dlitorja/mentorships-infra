@@ -14,6 +14,20 @@ const redis = redisEnabled
     })
   : null;
 
+/**
+ * Shared Upstash client for ad-hoc rate limiting in route handlers.
+ *
+ * Route-level limits (for example the 3/minute cap on free-mentorship
+ * submissions) must be global to actually hold. Without this they fall back to
+ * the in-memory map in `lib/utils.ts`, which is per-instance — so the effective
+ * limit becomes N× the intended value on N lambda instances and resets on every
+ * cold start.
+ *
+ * `null` when Upstash is not configured; callers then degrade to the in-memory
+ * limiter rather than failing.
+ */
+export const rateLimitRedis = redis;
+
 export type RateLimitPolicy = "default" | "admin" | "webhook";
 
 interface PolicyConfig {

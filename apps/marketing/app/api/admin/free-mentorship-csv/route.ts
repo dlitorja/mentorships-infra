@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
 import { z } from "zod";
 import { rateLimit } from "@/lib/utils";
+import { rateLimitRedis } from "@/lib/ratelimit";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rateLimitResult = await rateLimit(`free-mentorship-csv:${user.id}`, 10, 60000);
+  const rateLimitResult = await rateLimit(`free-mentorship-csv:${user.id}`, 10, 60000, rateLimitRedis ?? undefined);
   if (!rateLimitResult.success) {
     return NextResponse.json(
       { error: "Too many requests", resetAt: rateLimitResult.resetAt },

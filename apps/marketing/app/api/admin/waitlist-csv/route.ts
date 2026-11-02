@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/auth";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { z } from "zod";
 import { rateLimit } from "@/lib/utils";
+import { rateLimitRedis } from "@/lib/ratelimit";
 
 const WaitlistQuerySchema = z.object({
   instructor: z.string().min(1),
@@ -47,14 +48,6 @@ function sanitizeFilename(value: string): string {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  const rateLimitResult = await rateLimit("waitlist-csv", 10, 60000);
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
-      { status: 429 }
-    );
-  }
-
   let user = null;
   try {
     user = await currentUser();
@@ -69,6 +62,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!isAdmin(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Applied after authentication and keyed per user: a constant key evaluated
+  // before auth would let an unauthenticated caller burn the shared budget and
+  // lock every admin out of the export.
+  const rateLimitResult = await rateLimit(`waitlist-csv:${user.id}`, 10, 60000, rateLimitRedis ?? undefined);
+  if (!rateLimitResult.success) {
+    return NextResponse.json(
+      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+      { status: 429 }
+    );
   }
 
   try {
