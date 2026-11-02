@@ -40,7 +40,7 @@ function isKnownRole(value: unknown): value is UserRole {
  * `publicMetadata.role === "instructor"`) don't pay the extra `fetchQuery`
  * on every page load — the DB read is on the unhappy path only.
  */
-async function hasInstructorRecord(userId: string): Promise<boolean> {
+export async function hasInstructorRecord(userId: string): Promise<boolean> {
   try {
     // `convex/nextjs` requires a token to authenticate; without one, the
     // `getCurrentInstructor` query (which reads `ctx.auth.getUserIdentity()`)

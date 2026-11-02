@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
 import { requireDbUser } from "@/lib/auth";
+import { hasInstructorRecord } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,12 @@ export default async function SettingsPage() {
   // Instructors get a deliberately minimal settings surface
   // (`/instructor/settings`): profile edit link + timezone card only.
   // Availability/scheduling controls are intentionally not part of it.
-  if (user.role === "instructor") {
+  //
+  // Legacy/admin-created instructor accounts may not have a Clerk role
+  // claim, so `requireDbUser()` can report `student`. Widen via the
+  // active Convex instructor record — the same fallback `requireRole`
+  // and the sidebar use.
+  if (user.role === "instructor" || (await hasInstructorRecord(user.id))) {
     redirect("/instructor/settings");
   }
 
