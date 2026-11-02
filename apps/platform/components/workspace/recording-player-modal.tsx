@@ -291,6 +291,13 @@ export default function RecordingPlayerModal({
               onPause={handlePauseOrEnd}
               onEnded={handlePauseOrEnd}
               onLoadedMetadata={handleLoadedMetadata}
+              onError={() =>
+                setLoadState({
+                  kind: "error",
+                  message:
+                    "This recording could not be loaded. Check your connection and try again.",
+                })
+              }
               className="absolute inset-0 h-full w-full bg-black"
             >
               <track kind="captions" />
