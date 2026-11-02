@@ -8,7 +8,9 @@ export function cn(...inputs: ClassValue[]): string {
 export interface RedisLike {
   incr(key: string): Promise<number>;
   ttl(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<void>;
+  // `@upstash/redis` resolves to the number of keys updated; the helper ignores
+  // the value, so accept any resolution to keep the interface compatible.
+  expire(key: string, seconds: number): Promise<unknown>;
 }
 
 export interface RateLimitResult {
@@ -39,26 +41,36 @@ export async function rateLimit(
   const useRedis = redisClient && typeof redisClient.incr === "function" && typeof redisClient.expire === "function";
 
   if (useRedis) {
-    const redisKey = `rate_limit:${key}`;
-    const result = await redisClient.incr(redisKey);
+    try {
+      const redisKey = `rate_limit:${key}`;
+      const result = await redisClient.incr(redisKey);
 
-    if (result === 1) {
-      await redisClient.expire(redisKey, Math.ceil(windowMs / 1000));
+      if (result === 1) {
+        await redisClient.expire(redisKey, Math.ceil(windowMs / 1000));
+        return { success: true };
+      }
+
+      let ttl = await redisClient.ttl(redisKey);
+      const currentCount = result - 1;
+
+      if (ttl === -1) {
+        await redisClient.expire(redisKey, Math.ceil(windowMs / 1000));
+        ttl = Math.ceil(windowMs / 1000);
+      }
+
+      if (currentCount >= maxRequests) {
+        // Report the real remaining window rather than a full one, so clients
+        // retrying on `resetAt` do not wait longer than necessary.
+        const retryInMs = ttl > 0 ? ttl * 1000 : windowMs;
+        return { success: false, resetAt: new Date(Date.now() + retryInMs) };
+      }
+
       return { success: true };
+    } catch {
+      // A Redis outage must not take down the route. Fall through to the
+      // in-memory limiter: weaker (per-instance) protection beats a hard 500
+      // on signups and exports.
     }
-
-    const ttl = await redisClient.ttl(redisKey);
-    const currentCount = result - 1;
-
-    if (ttl === -1) {
-      await redisClient.expire(redisKey, Math.ceil(windowMs / 1000));
-    }
-
-    if (currentCount >= maxRequests) {
-      return { success: false, resetAt: new Date(Date.now() + windowMs) };
-    }
-
-    return { success: true };
   }
 
   if (!cleanupInterval) {

@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { createClient, type PostgrestError } from "@supabase/supabase-js";
 import { freeMentorshipFormSchema } from "@mentorships/schemas";
 import { rateLimit } from "@/lib/utils";
+import { rateLimitRedis } from "@/lib/ratelimit";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -67,7 +68,7 @@ export async function POST(
         { status: 400 }
       );
     }
-    const rateLimitResult = await rateLimit(`free-mentorship:${ip}`, 3, 60000);
+    const rateLimitResult = await rateLimit(`free-mentorship:${ip}`, 3, 60000, rateLimitRedis ?? undefined);
     if (!rateLimitResult.success) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later.", errorId },
