@@ -10,6 +10,7 @@ import {
   MessageSquare,
   LayoutDashboard,
   ClipboardList,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -180,6 +181,11 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
             href: "/instructor/onboarding",
             label: "Onboardings",
             icon: ClipboardList,
+          },
+          {
+            href: "/instructor/settings",
+            label: "Settings",
+            icon: Settings,
           },
         ]
       : []),
