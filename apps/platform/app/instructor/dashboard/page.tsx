@@ -98,14 +98,16 @@ export default async function InstructorDashboardPage() {
         </div>
 
         {/*
-         * PR archive-gating: two cards in a responsive grid. On
-         * mobile (default grid-cols-1) the cards stack so the
-         * active list — the primary affordance — gets the full
-         * viewport width; on md+ they sit side-by-side for
-         * comparison. Both cards suspend + error independently
-         * so a transient hickup on one doesn't blank the other.
+         * Active mentorships are the primary surface, so they get the
+         * full width at every breakpoint. Archived workspaces sit
+         * directly BELOW the active card (not beside it) — the two
+         * lists are sequential states of the same relationship, and
+         * side-by-side placement made archived rows compete for
+         * attention with active students. Both cards suspend + error
+         * independently so a transient hiccup on one doesn't blank
+         * the other.
          */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-6">
           <ErrorBoundary fallback={
             <Card>
               <CardContent className="pt-6">

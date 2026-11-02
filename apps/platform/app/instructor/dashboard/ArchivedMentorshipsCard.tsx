@@ -40,25 +40,40 @@ function formatArchivedDate(epochMs: number): string {
 /**
  * Resolve what to render in the first line of an archived row.
  *
- * `headline` falls back through `fullName → email → "Unnamed student"`
- * so the row never collapses to a raw Clerk id. The Clerk id of the
- * student is rendered separately as a muted mono line ONLY when both
- * name and email are missing (see AGENTS.md "Clerk User ID Display
- * Convention") so the dashboard user can still reach support while the
- * headline stays identifiable.
+ * Priority order mirrors the active card: the instructor's private
+ * `workspaceAlias` wins, then the student's full name, then their
+ * email, then "Unnamed student". The Clerk id is rendered separately
+ * as a muted mono line ONLY when both name and email are missing (see
+ * AGENTS.md "Clerk User ID Display Convention") so the dashboard user
+ * can still reach support while the headline stays identifiable.
  */
 function resolveStudentHeadline(row: ArchivedMentorshipRow): {
   headline: string;
   headlineIsFallback: boolean;
+  headlineIsAlias: boolean;
 } {
+  const alias = row.workspaceAlias?.trim();
+  if (alias) {
+    return { headline: alias, headlineIsFallback: false, headlineIsAlias: true };
+  }
   const fullName = [row.studentFirstName, row.studentLastName]
     .filter(Boolean)
     .join(" ");
-  if (fullName) return { headline: fullName, headlineIsFallback: false };
-  if (row.studentEmail) {
-    return { headline: row.studentEmail, headlineIsFallback: false };
+  if (fullName) {
+    return { headline: fullName, headlineIsFallback: false, headlineIsAlias: false };
   }
-  return { headline: "Unnamed student", headlineIsFallback: true };
+  if (row.studentEmail) {
+    return {
+      headline: row.studentEmail,
+      headlineIsFallback: false,
+      headlineIsAlias: false,
+    };
+  }
+  return {
+    headline: "Unnamed student",
+    headlineIsFallback: true,
+    headlineIsAlias: false,
+  };
 }
 
 /**
@@ -113,8 +128,22 @@ export function ArchivedMentorshipsCard({
         ) : (
           <ul className="space-y-2">
             {rows.map((row) => {
-              const { headline, headlineIsFallback } =
+              const { headline, headlineIsFallback, headlineIsAlias } =
                 resolveStudentHeadline(row);
+              // When the alias is the headline, the secondary line must
+              // identify the student (name → email) so a generic alias
+              // like "Portrait study" still tells the instructor who it
+              // belongs to. Otherwise keep showing the workspace's
+              // default display name.
+              const aliasSecondaryLabel =
+                [
+                  [row.studentFirstName, row.studentLastName]
+                    .filter(Boolean)
+                    .join(" "),
+                  row.studentEmail,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Unnamed student";
               return (
               <li
                 key={row._id}
@@ -142,7 +171,10 @@ export function ArchivedMentorshipsCard({
                     </p>
                   )}
                   <div className="text-xs text-muted-foreground truncate">
-                    {row.workspaceDisplayName} ·{" "}
+                    {headlineIsAlias
+                      ? aliasSecondaryLabel
+                      : row.workspaceDisplayName}{" "}
+                    ·{" "}
                     <span title={new Date(row.archivedAt).toISOString()}>
                       archived {formatArchivedDate(row.archivedAt)}
                     </span>

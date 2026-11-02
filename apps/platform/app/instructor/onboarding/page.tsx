@@ -1,13 +1,23 @@
 import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import Image from "next/image";
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
-import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
+import {
+  createSupabaseAdminClient,
+  ONBOARDING_BUCKET,
+} from "@/lib/supabase-admin";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
@@ -21,13 +31,82 @@ type LegacyImageValue = LegacyImageObject | string;
 /** Shape of imageObjects stored on legacy onboarding submissions. */
 type SubmissionImageObjects = LegacyImageValue[] | undefined;
 
-type PageProps = {
-  searchParams: Promise<{ submissionId?: string }>;
+type ReviewTab = "unreviewed" | "reviewed";
+
+type LegacySubmission = {
+  _id: Id<"studentOnboardingSubmissions">;
+  legacyId: string | undefined;
+  goals: string;
+  imageObjects: SubmissionImageObjects;
+  imageStorageIds: (Id<"_storage"> | string)[] | undefined;
+  createdAt: number | undefined;
+  reviewedAt: number | undefined;
+  userId: string;
+  studentEmail: string;
+};
+
+type SubmittedQuestionnaire = {
+  onboardingId: Id<"adminOnboardings">;
+  studentEmail: string;
+  submittedAt: number;
+  instructorCount: number;
+  reviewedAt: number | null;
+  reviewedByUserId: string | null;
 };
 
 /**
- * Instructor submissions page for reviewing student onboarding submissions.
- * Profile, scheduling, and calendar integration are managed under
+ * One row in the instructor review inbox. Both onboarding sources
+ * (the legacy `studentOnboardingSubmissions` table and the newer
+ * questionnaire flow) normalize into this shape so the page can sort
+ * and bucket them into Reviewed / Unreviewed without special cases.
+ */
+type InboxRow = {
+  key: string;
+  kind: "questionnaire" | "legacy";
+  studentLabel: string;
+  submittedAt: number;
+  reviewedAt: number | null;
+  /** Where "Open" navigates. */
+  href: string;
+  instructorCount?: number;
+  legacyId?: string;
+  onboardingId?: Id<"adminOnboardings">;
+};
+
+type PageProps = {
+  searchParams: Promise<{ submissionId?: string; tab?: string }>;
+};
+
+function formatDateTime(epochMs: number | null | undefined): string {
+  if (!epochMs) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(epochMs));
+}
+
+function parseTab(raw: string | undefined): ReviewTab {
+  return raw === "reviewed" ? "reviewed" : "unreviewed";
+}
+
+/**
+ * Instructor submissions page for reviewing student onboarding
+ * submissions.
+ *
+ * The page is the instructor-side inbox for BOTH onboarding sources:
+ *
+ *   1. Legacy `studentOnboardingSubmissions` rows (goals + uploaded
+ *      artwork), reviewed through `/api/instructor/onboarding/review`.
+ *   2. Newer questionnaire submissions, reviewed through
+ *      `/api/instructor/onboarding/review-questionnaire`.
+ *
+ * Rows are categorized into "Unreviewed" and "Reviewed" tabs so an
+ * instructor can see everything submitted by their students in one
+ * place — previously the only entry point was the legacy upload list
+ * and the questionnaire card was buried below it (and reachable only
+ * if you knew the URL).
+ *
+ * Profile, scheduling, and calendar integration remain under
  * /instructor/profile and /instructor/availability.
  */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
@@ -71,19 +150,10 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     );
   }
 
-  const { submissionId } = await searchParams;
+  const { submissionId, tab: rawTab } = await searchParams;
+  const tab = parseTab(rawTab);
 
-  const submissions: {
-    _id: Id<"studentOnboardingSubmissions">;
-    legacyId: string | undefined;
-    goals: string;
-    imageObjects: SubmissionImageObjects;
-    imageStorageIds: (Id<"_storage"> | string)[] | undefined;
-    createdAt: number | undefined;
-    reviewedAt: number | undefined;
-    userId: string;
-    studentEmail: string;
-  }[] = await fetchQuery(
+  const submissions: LegacySubmission[] = await fetchQuery(
     api.studentOnboarding.listByInstructor,
     {
       instructorId: convexInstructor._id,
@@ -91,38 +161,26 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     { token }
   );
 
-  // PR 4b (Greptile P1 follow-up): list adminOnboardings assigned
-  // to this instructor that have a submitted questionnaire, with a
-  // deep link to /onboarding/[id]. The instructor onboarding page
-  // historically only knew about the legacy `studentOnboarding`
-  // row; the new questionnaire is keyed on `adminOnboardings` so
-  // a link from here gives instructors a discoverable entry point.
-  // Greptile round 4 P1: the query only paginates one page per call
-  // (Convex rule), so the page server component loops with the
-  // returned cursor until `isDone` or the list fills up.
-  const submittedQuestionnaires: Array<{
-    onboardingId: Id<"adminOnboardings">;
-    studentEmail: string;
-    submittedAt: number;
-    instructorCount: number;
-  }> = [];
+  // Server-side list of submitted questionnaires for this instructor.
+  // The Convex query paginates one page per call, so loop with the
+  // returned cursor until done or the row cap is reached. Newest
+  // submissions sort first, so the cap only affects very old history.
+  const submittedQuestionnaires: SubmittedQuestionnaire[] = [];
   try {
     let cursor: string | null = null;
-    // Greptile P1 follow-up: cap at 100 rows total to keep the
-    // page render bounded; walk as many pages as needed to fill
-    // it. Each call returns up to LIST_SCAN_LIMIT (200)
-    // onboardings, of which most are filtered out by the
-    // submitted-questionnaire predicate. 5 pages × 200 = 1000
-    // onboardings scanned max — comfortably covers PR 4b scale.
-    const ROW_CAP = 100;
-    const PAGE_CAP = 5;
-    for (let i = 0; i < PAGE_CAP && submittedQuestionnaires.length < ROW_CAP; i += 1) {
+    const ROW_CAP = 200;
+    const PAGE_CAP = 10;
+    for (
+      let i = 0;
+      i < PAGE_CAP && submittedQuestionnaires.length < ROW_CAP;
+      i += 1
+    ) {
       const page = (await fetchQuery(
-        (api as any).onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+        api.onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
         { cursor },
         { token }
       )) as {
-        rows: typeof submittedQuestionnaires;
+        rows: SubmittedQuestionnaire[];
         nextCursor: string | null;
         isDone: boolean;
       };
@@ -130,21 +188,26 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
       if (page.isDone) break;
       cursor = page.nextCursor;
     }
-    // Trim to the cap after pagination, newest first (the query
-    // already sorts).
     if (submittedQuestionnaires.length > ROW_CAP) {
       submittedQuestionnaires.length = ROW_CAP;
     }
   } catch {
-    // Swallow — the instructor page degrades gracefully if the
-    // new query isn't available yet (e.g. an older Convex
-    // deployment hasn't picked up codegen).
+    // Degrade gracefully — an older Convex deployment without the
+    // review fields still renders the legacy submissions list.
   }
 
   const selected =
-    (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
+    (submissionId
+      ? submissions.find(
+          (s) => s.legacyId === submissionId || s._id === submissionId
+        )
+      : null) ?? null;
 
-  const signedUrls: Array<{ storageId?: string; path?: string; signedUrl: string }> = await (async () => {
+  const signedUrls: Array<{
+    storageId?: string;
+    path?: string;
+    signedUrl: string;
+  }> = await (async () => {
     if (!selected) return [];
 
     // Prefer Convex Storage; only fall back to Supabase for legacy submissions
@@ -155,17 +218,24 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
         { submissionId: selected._id },
         { token }
       );
-      return urls.map((u) => ({ storageId: u.storageId, signedUrl: u.signedUrl }));
+      return urls.map((u) => ({
+        storageId: u.storageId,
+        signedUrl: u.signedUrl,
+      }));
     }
 
     const imageObjects = selected.imageObjects;
     if (!Array.isArray(imageObjects) || imageObjects.length === 0) return [];
 
     const supabase = createSupabaseAdminClient();
-    const out: Array<{ storageId?: string; path: string; signedUrl: string }> = [];
+    const out: Array<{ storageId?: string; path: string; signedUrl: string }> =
+      [];
 
     for (const img of imageObjects) {
-      const path = typeof img === "object" && img !== null && "path" in img ? (img as { path: string }).path : String(img);
+      const path =
+        typeof img === "object" && img !== null && "path" in img
+          ? (img as { path: string }).path
+          : String(img);
       const { data, error } = await supabase.storage
         .from(ONBOARDING_BUCKET)
         .createSignedUrl(path, 60 * 60);
@@ -176,15 +246,47 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     return out;
   })();
 
+  const legacyRows: InboxRow[] = submissions.map((s) => {
+    const id = s.legacyId ?? s._id;
+    return {
+      key: `legacy:${s._id}`,
+      kind: "legacy",
+      studentLabel: s.studentEmail,
+      submittedAt: s.createdAt ?? 0,
+      reviewedAt: s.reviewedAt ?? null,
+      href: `/instructor/onboarding?tab=${tab}&submissionId=${encodeURIComponent(id)}`,
+      legacyId: s.legacyId,
+    };
+  });
+
+  const questionnaireRows: InboxRow[] = submittedQuestionnaires.map((q) => ({
+    key: `questionnaire:${q.onboardingId}`,
+    kind: "questionnaire",
+    studentLabel: q.studentEmail,
+    submittedAt: q.submittedAt,
+    reviewedAt: q.reviewedAt,
+    href: `/onboarding/${q.onboardingId}`,
+    instructorCount: q.instructorCount,
+    onboardingId: q.onboardingId,
+  }));
+
+  const allRows = [...legacyRows, ...questionnaireRows].sort(
+    (a, b) => b.submittedAt - a.submittedAt
+  );
+  const unreviewedRows = allRows.filter((row) => row.reviewedAt === null);
+  const reviewedRows = allRows.filter((row) => row.reviewedAt !== null);
+  const visibleRows = tab === "reviewed" ? reviewedRows : unreviewedRows;
+
   return (
     <ProtectedLayout currentPath="/instructor/onboarding">
       {/* Silent role sync for Convex */}
       <EnsureInstructorRole />
       <div className="container mx-auto p-4 md:p-8 space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Student Onboarding Submissions</h1>
+          <h1 className="text-3xl font-bold">Student Onboardings</h1>
           <p className="text-muted-foreground mt-1">
-            Review goals and artwork from students before their sessions.
+            Review questionnaire answers and artwork students submitted
+            before their sessions. Rows are grouped by review state.
           </p>
         </div>
 
@@ -205,139 +307,206 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
           </CardContent>
         </Card>
 
-        {submissions.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">No onboarding submissions yet.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Submissions</CardTitle>
-                <CardDescription>Most recent first</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {submissions.map((s) => {
-                  const submissionIdVal = s.legacyId ?? s._id;
-                  return (
-                  <Link
-                    key={s._id}
-                    href={`/instructor/onboarding?submissionId=${encodeURIComponent(submissionIdVal)}`}
-                    className={`block rounded-md border p-3 hover:bg-muted ${
-                      (selected?.legacyId ?? selected?._id) === submissionIdVal ? "bg-muted" : ""
-                    }`}
+        <Card>
+          <CardHeader className="gap-3">
+            <div>
+              <CardTitle>Review inbox</CardTitle>
+              <CardDescription>
+                Unreviewed first, then previously reviewed submissions.
+              </CardDescription>
+            </div>
+            <div
+              className="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="Filter onboardings by review state"
+            >
+              <Button
+                asChild
+                size="sm"
+                variant={tab === "unreviewed" ? "default" : "outline"}
+              >
+                <Link href="/instructor/onboarding?tab=unreviewed" role="tab" aria-selected={tab === "unreviewed"}>
+                  Unreviewed
+                  <Badge variant="secondary" className="ml-2">
+                    {unreviewedRows.length}
+                  </Badge>
+                </Link>
+              </Button>
+              <Button
+                asChild
+                size="sm"
+                variant={tab === "reviewed" ? "default" : "outline"}
+              >
+                <Link href="/instructor/onboarding?tab=reviewed" role="tab" aria-selected={tab === "reviewed"}>
+                  Reviewed
+                  <Badge variant="secondary" className="ml-2">
+                    {reviewedRows.length}
+                  </Badge>
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {visibleRows.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+                {tab === "reviewed"
+                  ? "No reviewed onboardings yet."
+                  : "No unreviewed onboardings — you're all caught up."}
+              </div>
+            ) : (
+              <ul className="divide-y rounded-lg border">
+                {visibleRows.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="text-sm font-medium">{s.studentEmail}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {s.createdAt != null ? new Date(s.createdAt).toLocaleString() : "N/A"}
-                      {s.reviewedAt ? " · reviewed" : ""}
-                    </div>
-                  </Link>
-                );
-                })}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Details</CardTitle>
-                <CardDescription>
-                  {selected ? `From ${selected.studentEmail}` : "Select a submission"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selected ? (
-                  <>
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Goals</div>
-                      <div className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {selected.goals}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Images</div>
-                      {signedUrls.length === 0 ? (
-                        <div className="text-sm text-muted-foreground">
-                          No images (or signing not configured).
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                          {signedUrls.map((u) => (
-                            <div key={u.storageId ?? u.path} className="relative w-full aspect-square rounded-md border overflow-hidden">
-                              <Image
-                                src={u.signedUrl}
-                                alt="Onboarding work"
-                                fill
-                                unoptimized
-                                sizes="(max-width: 768px) 50vw, 25vw"
-                                className="object-cover"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <form action={`/api/instructor/onboarding/review`} method="post">
-                      {selected.legacyId ? (
-                        <>
-                          <input type="hidden" name="submissionId" value={selected.legacyId} />
-                          <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
-                            {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
-                          </Button>
-                          {selected.reviewedAt && (
-                            <p className="text-sm text-muted-foreground mt-2">
-                              Reviewed on {new Date(selected.reviewedAt).toLocaleDateString()}
-                            </p>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium break-all">
+                          {row.studentLabel}
+                        </span>
+                        <Badge variant="outline">
+                          {row.kind === "questionnaire"
+                            ? "Questionnaire"
+                            : "Artwork upload"}
+                        </Badge>
+                        {row.kind === "questionnaire" &&
+                          row.instructorCount !== undefined && (
+                            <span className="text-xs text-muted-foreground">
+                              {row.instructorCount} instructor
+                              {row.instructorCount === 1 ? "" : "s"}
+                            </span>
                           )}
-                        </>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">Legacy ID not available for this submission.</p>
-                      )}
-                    </form>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Select a submission to view details.</p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Submitted {formatDateTime(row.submittedAt)}
+                        {row.reviewedAt !== null && (
+                          <> · Reviewed {formatDateTime(row.reviewedAt)}</>
+                        )}
+                      </p>
+                    </div>
 
-        {/* Greptile round-13 P1 #2: the new-questionnaires card
-            was inside the legacy submissions branch, so an
-            instructor with only NEW submissions saw the empty
-            state. Render it as a sibling so it shows whenever
-            submittedQuestionnaires has rows. */}
-        {submittedQuestionnaires.length > 0 && (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {row.kind === "questionnaire" &&
+                        row.onboardingId !== undefined &&
+                        (row.reviewedAt === null ? (
+                          <form
+                            action="/api/instructor/onboarding/review-questionnaire"
+                            method="post"
+                          >
+                            <input
+                              type="hidden"
+                              name="onboardingId"
+                              value={row.onboardingId}
+                            />
+                            <input
+                              type="hidden"
+                              name="reviewed"
+                              value="true"
+                            />
+                            <input type="hidden" name="returnTab" value={tab} />
+                            <Button type="submit" size="sm">
+                              Mark reviewed
+                            </Button>
+                          </form>
+                        ) : (
+                          <form
+                            action="/api/instructor/onboarding/review-questionnaire"
+                            method="post"
+                          >
+                            <input
+                              type="hidden"
+                              name="onboardingId"
+                              value={row.onboardingId}
+                            />
+                            <input
+                              type="hidden"
+                              name="reviewed"
+                              value="false"
+                            />
+                            <input type="hidden" name="returnTab" value={tab} />
+                            <Button type="submit" size="sm" variant="outline">
+                              Mark unreviewed
+                            </Button>
+                          </form>
+                        ))}
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={row.href}>Open</Link>
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {selected && (
           <Card>
             <CardHeader>
-              <CardTitle>Student questionnaires</CardTitle>
+              <CardTitle>Artwork details</CardTitle>
               <CardDescription>
-                New intake form responses for assigned students.
-                Click through to read goals, inspirations, and
-                work examples before the first call.
+                From {selected.studentEmail} · submitted{" "}
+                {formatDateTime(selected.createdAt)}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {submittedQuestionnaires.map((q) => (
-                <Link
-                  key={q.onboardingId}
-                  href={`/onboarding/${q.onboardingId}`}
-                  className="block rounded-md border p-3 hover:bg-muted"
-                >
-                  <div className="text-sm font-medium">{q.studentEmail}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Submitted{" "}
-                    {new Date(q.submittedAt).toLocaleString()} ·{" "}
-                    {q.instructorCount} instructor
-                    {q.instructorCount === 1 ? "" : "s"}
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Goals</div>
+                <div className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {selected.goals}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Images</div>
+                {signedUrls.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">
+                    No images (or signing not configured).
                   </div>
-                </Link>
-              ))}
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {signedUrls.map((u) => (
+                      <div
+                        key={u.storageId ?? u.path}
+                        className="relative w-full aspect-square rounded-md border overflow-hidden"
+                      >
+                        <Image
+                          src={u.signedUrl}
+                          alt="Onboarding work"
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 50vw, 25vw"
+                          className="object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {selected.legacyId ? (
+                <form action="/api/instructor/onboarding/review" method="post">
+                  <input
+                    type="hidden"
+                    name="submissionId"
+                    value={selected.legacyId}
+                  />
+                  <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
+                    {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
+                  </Button>
+                  {selected.reviewedAt && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Reviewed on{" "}
+                      {new Date(selected.reviewedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </form>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Legacy ID not available for this submission.
+                </p>
+              )}
             </CardContent>
           </Card>
         )}

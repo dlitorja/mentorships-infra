@@ -1839,3 +1839,209 @@ test("backfillReminderCountZeroForLegacyDrafts drains >200 rows via cursor (Grep
   expect(third.scanned).toBe(200);
   expect(third.patched).toBe(0);
 });
+
+/**
+ * Review-state categorization for `/instructor/onboarding`.
+ *
+ * The page buckets submitted questionnaires into "Unreviewed" and
+ * "Reviewed" tabs. These tests pin the read shape (`reviewedAt`)
+ * and the authorization rules on the mutation that flips it.
+ */
+async function seedSubmittedQuestionnaire(
+  t: any,
+  args: {
+    onboardingId: string;
+    studentClerkId: string;
+    submittedAt?: number;
+    reviews?: Array<{ userId: string; reviewedAt: number }>;
+  }
+): Promise<string> {
+  const now = Date.now();
+  return await t.run(async (ctx: any) =>
+    ctx.db.insert("onboardingQuestionnaireSubmissions", {
+      onboardingId: args.onboardingId,
+      studentClerkId: args.studentClerkId,
+      questionnaireVersion: 1,
+      status: "submitted",
+      answers: VALID_ANSWERS,
+      inspirations: VALID_INSPIRATIONS,
+      createdAt: now,
+      updatedAt: now,
+      submittedAt: args.submittedAt ?? now,
+      reviews: args.reviews,
+    })
+  );
+}
+
+test("listSubmittedQuestionnairesForInstructor exposes reviewedAt", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, {
+    name: "Inst",
+    slug: "inst-review",
+    userId: "user_instructor_review",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "reviewed-student@example.com",
+    status: "processing",
+    assignedStudentClerkId: "user_student_review",
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  const reviewedAt = Date.now() - 60_000;
+  await seedSubmittedQuestionnaire(t, {
+    onboardingId,
+    studentClerkId: "user_student_review",
+    reviews: [{ userId: "user_instructor_review", reviewedAt }],
+  });
+
+  const page = await t
+    .withIdentity({ subject: "user_instructor_review" })
+    .query(api.onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor, {
+      cursor: null,
+    });
+
+  expect(page.rows).toHaveLength(1);
+  expect(page.rows[0].onboardingId).toBe(onboardingId);
+  expect(page.rows[0].reviewedAt).toBe(reviewedAt);
+  expect(page.rows[0].reviewedByUserId).toBe("user_instructor_review");
+});
+
+test("markQuestionnaireSubmissionReviewed lets an assigned instructor review", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = await seedInstructor(t, {
+    name: "Inst",
+    slug: "inst-review-2",
+    userId: "user_instructor_review_2",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-review-2@example.com",
+    status: "processing",
+    assignedStudentClerkId: "user_student_review_2",
+    perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  const submissionId = await seedSubmittedQuestionnaire(t, {
+    onboardingId,
+    studentClerkId: "user_student_review_2",
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_instructor_review_2" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(result).toEqual({ ok: true, error: null });
+
+  const row = await t.run(async (ctx) => ctx.db.get(submissionId as any));
+  expect(row?.reviews).toHaveLength(1);
+  expect(row?.reviews?.[0]?.userId).toBe("user_instructor_review_2");
+  expect(row?.reviews?.[0]?.reviewedAt).toBeTypeOf("number");
+
+  // Unmarking removes only the caller's review so the row returns to
+  // their Unreviewed tab.
+  const unmark = await t
+    .withIdentity({ subject: "user_instructor_review_2" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: false }
+    );
+  expect(unmark).toEqual({ ok: true, error: null });
+  const after = await t.run(async (ctx) => ctx.db.get(submissionId as any));
+  expect(after?.reviews).toBeUndefined();
+});
+
+test("markQuestionnaireSubmissionReviewed rejects a non-assigned instructor", async () => {
+  const t = convexTest(schema, modules);
+  const assignedInstructorId = await seedInstructor(t, {
+    name: "Assigned",
+    slug: "inst-assigned",
+    userId: "user_assigned_instructor",
+  });
+  await seedInstructor(t, {
+    name: "Other",
+    slug: "inst-other",
+    userId: "user_other_instructor",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-review-3@example.com",
+    status: "processing",
+    assignedStudentClerkId: "user_student_review_3",
+    perInstructor: [{ instructorId: assignedInstructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+  });
+  const submissionId = await seedSubmittedQuestionnaire(t, {
+    onboardingId,
+    studentClerkId: "user_student_review_3",
+  });
+
+  const result = await t
+    .withIdentity({ subject: "user_other_instructor" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(result).toEqual({ ok: false, error: "forbidden" });
+
+  const row = await t.run(async (ctx) => ctx.db.get(submissionId as any));
+  expect(row?.reviews).toBeUndefined();
+});
+
+test("review state is per reviewer (co-instructor inboxes stay independent)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorA = await seedInstructor(t, {
+    name: "Instructor A",
+    slug: "inst-review-a",
+    userId: "user_instructor_review_a",
+  });
+  const instructorB = await seedInstructor(t, {
+    name: "Instructor B",
+    slug: "inst-review-b",
+    userId: "user_instructor_review_b",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-review-shared@example.com",
+    status: "processing",
+    assignedStudentClerkId: "user_student_review_shared",
+    perInstructor: [
+      { instructorId: instructorA, isRenewal: false, sessionsPerInstructor: 4 },
+      { instructorId: instructorB, isRenewal: false, sessionsPerInstructor: 4 },
+    ],
+  });
+  await seedSubmittedQuestionnaire(t, {
+    onboardingId,
+    studentClerkId: "user_student_review_shared",
+  });
+
+  // A reviews the submission.
+  const markA = await t
+    .withIdentity({ subject: "user_instructor_review_a" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(markA).toEqual({ ok: true, error: null });
+
+  const listFor = async (subject: string) =>
+    await t
+      .withIdentity({ subject })
+      .query(
+        api.onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+        { cursor: null }
+      );
+
+  const aRows = await listFor("user_instructor_review_a");
+  const bRows = await listFor("user_instructor_review_b");
+
+  expect(aRows.rows[0]?.reviewedAt).toBeTypeOf("number");
+  expect(bRows.rows[0]?.reviewedAt).toBeNull();
+
+  // B reviews it too; both now see it as reviewed with their own stamp.
+  const markB = await t
+    .withIdentity({ subject: "user_instructor_review_b" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(markB).toEqual({ ok: true, error: null });
+
+  const bAfter = await listFor("user_instructor_review_b");
+  expect(bAfter.rows[0]?.reviewedAt).toBeTypeOf("number");
+});
