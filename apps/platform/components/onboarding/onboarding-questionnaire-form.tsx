@@ -102,9 +102,10 @@ export default function OnboardingQuestionnaireForm({
   // student timezone picker can live "next to" the submit
   // step without polluting the questionnaire card list. The
   // slot is unchanged by the form's state (no auto-save
-  // coupling, no submit-readiness checks) — the place inside
-  // its own component. Optional; an omitted slot yields an
-  // identical layout to before this prop existed.
+  // coupling, no submit-readiness checks) and stays mounted
+  // after submission so the student can still see their
+  // timezone. Optional; an omitted slot yields an identical
+  // layout to before this prop existed.
   preSubmitSlot?: React.ReactNode;
 }): React.JSX.Element {
   const router = useRouter();
@@ -954,9 +955,15 @@ export default function OnboardingQuestionnaireForm({
         </CardContent>
       </Card>
 
+      {/* The pre-submit/scheduling slot (currently the timezone
+          picker) remains visible AFTER submission. The student needs
+          to see the timezone they set, and the value is scheduling
+          metadata rather than a locked questionnaire answer, so it
+          stays editable too. Only the Submit card is draft-only. */}
+      {preSubmitSlot}
+
       {!alreadySubmitted && (
         <>
-          {preSubmitSlot}
           <Card>
             <CardHeader>
               <CardTitle>Submit</CardTitle>
