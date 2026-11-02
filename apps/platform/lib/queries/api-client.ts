@@ -900,6 +900,20 @@ export async function retryRecordingTransfer(sessionId: string) {
 }
 
 /**
+ * Re-runs only the Daily-side delete for a `ready` recording whose
+ * Daily copy still exists (`recordingDailyCleanupStatus === "failed"`).
+ */
+export async function deleteDailyRecording(sessionId: string) {
+  return apiFetch<{ ok?: boolean; attemptNumber?: number; runId?: string }>(
+    ApiRoutes.videoRecordingDeleteDaily(sessionId),
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  );
+}
+
+/**
  * Fetch a signed stream URL for a video recording
  */
 export async function getVideoRecordingStreamUrl(sessionId: string) {

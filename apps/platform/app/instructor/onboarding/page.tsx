@@ -294,23 +294,6 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Instructor Setup</CardTitle>
-            <CardDescription>
-              Update your profile, availability, and calendar connection in one place.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-3">
-            <Button variant="outline" asChild>
-              <Link href="/instructor/profile">Edit Profile</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/instructor/availability">Set Availability</Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
           <CardHeader className="gap-3">
             <div>
               <CardTitle>Review inbox</CardTitle>

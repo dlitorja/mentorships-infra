@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Linkify } from "@/components/ui/linkify";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
+import { StudentTimezoneComparison } from "@/components/instructor/student-timezone-comparison";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 // ApiRoutes is intentionally not used in this server component
@@ -122,7 +123,7 @@ export default async function OnboardingStatusPage({
     notFound();
   }
 
-  const { onboarding, viewerRole, instructors, timeline, timelineOlderCount } = view;
+  const { onboarding, viewerRole, viewerTimeZone, instructors, timeline, timelineOlderCount } = view;
 
   const isStudent = viewerRole === "student";
   const showHelpFooter = timelineOlderCount > 0;
@@ -432,18 +433,13 @@ const submittedWorkExamples = (
               {/* Reviewer context: the student's timezone is captured
                   by the questionnaire's <TimezonePicker>, but it lives
                   on the adminOnboardings row rather than the answers
-                  array. Surface it inside the review card so the
-                  instructor sees it alongside the answers without
-                  hunting for the header line. */}
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-sm font-medium">Student timezone</p>
-                <p className="text-sm text-muted-foreground">
-                  {onboarding.studentTimezone ?? "Not set"}
-                  {onboarding.studentTimezoneSetAt && (
-                    <> · captured {formatDateTime(onboarding.studentTimezoneSetAt)}</>
-                  )}
-                </p>
-              </div>
+                  array. Show it alongside the answers, with the
+                  instructor's own zone + relative offset. */}
+              <StudentTimezoneComparison
+                studentTimeZone={onboarding.studentTimezone}
+                instructorTimeZone={viewerTimeZone}
+                canEditInstructorTimeZone={viewerRole === "instructor"}
+              />
               <div className="space-y-4">
                 {(submittedForViewer.submission?.answers ?? []).map(
                   (a: {

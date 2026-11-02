@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 
+import { redirect } from "next/navigation";
 import { requireDbUser } from "@/lib/auth";
+import { hasInstructorRecord } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +12,18 @@ import { NotificationPreferencesCard } from "@/components/notifications/notifica
 
 export default async function SettingsPage() {
   const user = await requireDbUser();
+
+  // Instructors get a deliberately minimal settings surface
+  // (`/instructor/settings`): profile edit link + timezone card only.
+  // Availability/scheduling controls are intentionally not part of it.
+  //
+  // Legacy/admin-created instructor accounts may not have a Clerk role
+  // claim, so `requireDbUser()` can report `student`. Widen via the
+  // active Convex instructor record — the same fallback `requireRole`
+  // and the sidebar use.
+  if (user.role === "instructor" || (await hasInstructorRecord(user.id))) {
+    redirect("/instructor/settings");
+  }
 
   return (
     <ProtectedLayout currentPath="/settings">
@@ -21,12 +35,9 @@ export default async function SettingsPage() {
           </p>
         </div>
 
-        {/* Timezone and calendar integration are managed from
-            /instructor/availability for instructors. Admins keep calendar access
-            here since they may not have an instructor record. */}
-        {user.role !== "instructor" && (
-          <TimeZoneSelector />
-        )}
+        {/* Admins keep calendar access here since they may not have an
+            instructor record. */}
+        <TimeZoneSelector />
         {user.role === "admin" && <GoogleCalendarCard />}
 
         {/* Profile Information */}

@@ -23,7 +23,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 async function seedInstructor(
   ctx: { db: any },
-  args: { name: string; slug: string; userId?: string }
+  args: { name: string; slug: string; userId?: string; timeZone?: string }
 ): Promise<string> {
   return await ctx.db.insert("instructors", {
     name: args.name,
@@ -35,6 +35,7 @@ async function seedInstructor(
     groupInventory: 0,
     maxActiveStudents: 10,
     userId: args.userId,
+    timeZone: args.timeZone,
   });
 }
 
@@ -114,6 +115,7 @@ test("getOnboardingView: returns the view to a matching instructor", async () =>
       name: "Inst B",
       slug: "inst-b",
       userId: instructorClerkId,
+      timeZone: "America/New_York",
     });
     onboardingId = await seedAdminOnboarding(ctx, {
       email: "bob@example.com",
@@ -127,6 +129,7 @@ test("getOnboardingView: returns the view to a matching instructor", async () =>
     .query(api.adminOnboarding.getOnboardingView, { onboardingId });
 
   expect(view?.viewerRole).toBe("instructor");
+  expect(view?.viewerTimeZone).toBe("America/New_York");
   expect(view?.instructors[0].name).toBe("Inst B");
 });
 
