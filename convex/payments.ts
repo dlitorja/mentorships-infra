@@ -98,7 +98,7 @@ export const createPayment = mutation({
 });
 
 /** Updates a payment's status and/or refunded amount. */
-export const updatePayment = mutation({
+export const updatePayment = internalMutation({
   args: {
     id: v.id("payments"),
     status: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed"))),
@@ -112,7 +112,7 @@ export const updatePayment = mutation({
 });
 
 /** Marks a payment as completed. */
-export const completePayment = mutation({
+export const completePayment = internalMutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "completed" });
@@ -133,7 +133,7 @@ export const refundPayment = mutation({
 });
 
 /** Marks a payment as failed. */
-export const failPayment = mutation({
+export const failPayment = internalMutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "failed" });
@@ -280,7 +280,7 @@ export const adminProcessRefund = mutation({
 });
 
 /** Soft-deletes a payment by setting its deletedAt timestamp. */
-export const deletePayment = mutation({
+export const deletePayment = internalMutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { deletedAt: Date.now() });

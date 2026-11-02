@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T16:57:52.487Z",
+  "generatedAt": "2026-11-02T17:38:47.577Z",
   "$comment": "Phase A exit artifact / week-over-week baseline for the Tier 1 convex authz probe. Regenerate with `npx tsx diff.ts --update` after a remediation wave merges. Findings are post-suppression (see suppressions.json).",
   "scanB": {
     "total": 24,
@@ -131,7 +131,7 @@
     ]
   },
   "scanD": {
-    "total": 48,
+    "total": 39,
     "findings": [
       {
         "file": "adminWorkspaces.ts",
@@ -203,23 +203,7 @@
       },
       {
         "file": "payments.ts",
-        "name": "updatePayment"
-      },
-      {
-        "file": "payments.ts",
-        "name": "completePayment"
-      },
-      {
-        "file": "payments.ts",
         "name": "refundPayment"
-      },
-      {
-        "file": "payments.ts",
-        "name": "failPayment"
-      },
-      {
-        "file": "payments.ts",
-        "name": "deletePayment"
       },
       {
         "file": "products.ts",
@@ -271,27 +255,7 @@
       },
       {
         "file": "sessionPacks.ts",
-        "name": "updateSessionPack"
-      },
-      {
-        "file": "sessionPacks.ts",
-        "name": "useSession"
-      },
-      {
-        "file": "sessionPacks.ts",
         "name": "refundSessionPack"
-      },
-      {
-        "file": "sessionPacks.ts",
-        "name": "expireSessionPack"
-      },
-      {
-        "file": "sessionPacks.ts",
-        "name": "processExpiredSessionPacks"
-      },
-      {
-        "file": "sessionPacks.ts",
-        "name": "deleteSessionPack"
       },
       {
         "file": "sessions.ts",

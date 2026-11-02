@@ -154,36 +154,6 @@ export function useCreateSessionPack() {
 }
 
 /**
- * Mutation hook for updating a session pack.
- * Invalidates session pack queries on success to refresh the session pack list.
- */
-export function useUpdateSessionPack() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.sessionPacks.updateSessionPack),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
-    },
-  });
-}
-
-/**
- * Mutation hook for using a session from a session pack.
- * Invalidates session pack queries on success to refresh availability.
- */
-export function useUseSession() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.sessionPacks.useSession),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
-    },
-  });
-}
-
-/**
  * Mutation hook for updating user information.
  * Invalidates user queries on success to refresh user data.
  */
