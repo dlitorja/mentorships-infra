@@ -520,6 +520,11 @@ export async function uploadFromUrl(
   const body = Readable.fromWeb(
     countedStream as Parameters<typeof Readable.fromWeb>[0]
   );
+  // If the source aborts mid-transfer (Daily closes the socket, link
+  // expires), the Node stream emits 'error'. `client.send()` rejects
+  // with the same error and the caller retries, but without a listener
+  // Node treats it as an unhandled 'error' event and kills the process.
+  body.on("error", () => undefined);
   const contentLength = (() => {
     const raw = response.headers.get("content-length");
     if (raw === null) return undefined;
