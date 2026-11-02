@@ -1714,8 +1714,13 @@ export const getInstructorBySlugInternal = internalQuery({
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .collect();
-    const visible = candidates.filter((c) => !c.deletedAt && c.isListed !== false);
-    return visible.length > 0 ? visible[0] : null;
+    const active = candidates.filter((c) => !c.deletedAt);
+    if (active.length === 0) return null;
+    // Prefer the publicly listed row (a hidden historical row must not
+    // shadow it), but fall back to an unlisted row so admin-sync updates
+    // it instead of hitting createInstructor's existing-slug no-op.
+    const visible = active.filter((c) => c.isListed !== false);
+    return visible.length > 0 ? visible[0] : active[0];
   },
 });
 

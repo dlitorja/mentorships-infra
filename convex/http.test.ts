@@ -1910,3 +1910,31 @@ test("POST /inventory/admin-sync updates the listed row when a slug is shared", 
   expect(listed?.oneOnOneInventory).toBe(4);
   expect(hidden?.oneOnOneInventory).toBe(9);
 });
+
+test("POST /inventory/admin-sync updates an unlisted-only instructor", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(
+    async (ctx) =>
+      await ctx.db.insert("instructors", {
+        name: "Unlisted",
+        slug: "unlisted-only",
+        isActive: true,
+        isListed: false,
+        oneOnOneInventory: 1,
+        groupInventory: 1,
+      })
+  );
+
+  const response = await t.fetch("/inventory/admin-sync", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ slug: "unlisted-only", oneOnOneInventory: 6, groupInventory: 2 }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true, action: "updated" });
+
+  const after = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(after?.oneOnOneInventory).toBe(6);
+  expect(after?.groupInventory).toBe(2);
+});
