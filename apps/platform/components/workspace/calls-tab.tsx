@@ -614,6 +614,15 @@ function VideoCard({
                 : ""}
             </span>
           ) : null}
+          {isReady && recording.recordingDailyCleanupStatus === "pending" ? (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
+              aria-label="Daily copy cleanup is in progress"
+            >
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              Cleaning up…
+            </span>
+          ) : null}
           {isReady &&
           recording.recordingDailyCleanupStatus === "failed" &&
           recording.canRetryCleanup ? (
