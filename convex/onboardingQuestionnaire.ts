@@ -778,13 +778,19 @@ export const listSubmittedQuestionnairesForInstructor = query({
         if (!matched) continue;
       }
 
+      // Review state is per reviewer: return the caller's own review
+      // timestamp so a co-instructor's review never hides the row from
+      // this instructor's Unreviewed tab.
+      const callerReview = (submission.reviews ?? []).find(
+        (review) => review.userId === identity.subject
+      );
       rows.push({
         onboardingId: submission.onboardingId,
         studentEmail: onboarding.email,
         submittedAt: submission.submittedAt ?? submission.updatedAt,
         instructorCount: onboarding.perInstructor.length,
-        reviewedAt: submission.reviewedAt ?? null,
-        reviewedByUserId: submission.reviewedByUserId ?? null,
+        reviewedAt: callerReview?.reviewedAt ?? null,
+        reviewedByUserId: callerReview?.userId ?? null,
       });
     }
 
@@ -837,24 +843,14 @@ export const markQuestionnaireSubmissionReviewed = mutation({
       return { ok: false, error: "forbidden" };
     }
 
-    const submission = await ctx.db
-      .query("onboardingQuestionnaireSubmissions")
-      .withIndex("by_onboardingId", (q) =>
-        q.eq("onboardingId", args.onboardingId)
-      )
-      .first();
-    if (!submission) {
-      return { ok: false, error: "not_found" };
-    }
-    if (submission.status !== "submitted") {
-      return { ok: false, error: "not_submitted" };
-    }
-
+    // Authorize BEFORE reading the submission so an unrelated caller
+    // cannot distinguish "no submission" from "draft submission" from
+    // "submitted submission" by observing the error code.
     const staffRole = await lookupStaffRole(ctx, identity.subject);
     if (staffRole === null) {
       const onboarding = await ctx.db.get(args.onboardingId);
       if (!onboarding) {
-        return { ok: false, error: "not_found" };
+        return { ok: false, error: "forbidden" };
       }
       let matched = false;
       for (const assigned of onboarding.perInstructor) {
@@ -872,10 +868,31 @@ export const markQuestionnaireSubmissionReviewed = mutation({
       }
     }
 
+    const submission = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
+      )
+      .first();
+    if (!submission) {
+      return { ok: false, error: "not_found" };
+    }
+    if (submission.status !== "submitted") {
+      return { ok: false, error: "not_submitted" };
+    }
+
+    // Review state is per reviewer. Replace only the caller's entry so
+    // a co-instructor keeps their own Unreviewed row until they review
+    // it themselves.
     const shouldReview = args.reviewed ?? true;
+    const otherReviews = (submission.reviews ?? []).filter(
+      (review) => review.userId !== identity.subject
+    );
+    const reviews = shouldReview
+      ? [...otherReviews, { userId: identity.subject, reviewedAt: Date.now() }]
+      : otherReviews;
     await ctx.db.patch(submission._id, {
-      reviewedAt: shouldReview ? Date.now() : undefined,
-      reviewedByUserId: shouldReview ? identity.subject : undefined,
+      reviews: reviews.length > 0 ? reviews : undefined,
     });
 
     return { ok: true, error: null };

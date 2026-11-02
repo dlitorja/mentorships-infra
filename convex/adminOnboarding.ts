@@ -356,6 +356,7 @@ async function performCommit(
     sessionsPerInstructor: number;
     expiresAt: number | undefined;
     capacityOverride: boolean;
+    expandedSeatLimitTo: number | undefined;
     clerkInvitationId: string | undefined;
   }>;
   existingWorkspaceIds: Id<"workspaces">[];
@@ -430,6 +431,7 @@ async function performCommit(
     sessionsPerInstructor: number;
     expiresAt: number | undefined;
     capacityOverride: boolean;
+    expandedSeatLimitTo: number | undefined;
     clerkInvitationId: string | undefined;
   }> = [];
   const existingWorkspaceIds: Id<"workspaces">[] = [];
@@ -451,6 +453,7 @@ async function performCommit(
         sessionsPerInstructor: input.sessionsPerInstructor,
         expiresAt: input.expiresAt,
         capacityOverride: atCapacity,
+        expandedSeatLimitTo: undefined,
         clerkInvitationId: undefined,
       });
       if (renewal.existingWorkspaceId) {
@@ -467,12 +470,14 @@ async function performCommit(
     // long-term seat policy is still being decided. The bump is
     // persisted so the admin instructor list and the public seat
     // availability endpoint stay truthful afterwards.
+    let expandedSeatLimitTo: number | undefined;
     if (atCapacity && typeof max === "number") {
       const nextMax = activeCount + 1;
       await ctx.db.patch(input.instructorId, {
         maxActiveStudents: nextMax,
         updatedAt: now,
       });
+      expandedSeatLimitTo = nextMax;
     }
 
     const sessionPackId = await ctx.db.insert("sessionPacks", {
@@ -525,6 +530,7 @@ async function performCommit(
       sessionsPerInstructor: input.sessionsPerInstructor,
       expiresAt: input.expiresAt,
       capacityOverride: atCapacity,
+      expandedSeatLimitTo,
       clerkInvitationId: args.clerkInvitationIds?.[input.instructorId],
     });
   }

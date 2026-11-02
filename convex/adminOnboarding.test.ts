@@ -414,6 +414,7 @@ test("adminOnboardStudent auto-expands an at-capacity instructor's seat limit", 
   expect(result.perInstructor).toHaveLength(1);
   expect(result.perInstructor[0].workspaceId).toBeTruthy();
   expect(result.perInstructor[0].capacityOverride).toBe(true);
+  expect(result.perInstructor[0].expandedSeatLimitTo).toBe(2);
 
   const instructor = await t.run(async (ctx) => ctx.db.get(instructorId));
   expect(instructor?.maxActiveStudents).toBe(2);

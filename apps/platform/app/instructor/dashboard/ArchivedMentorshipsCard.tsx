@@ -130,6 +130,20 @@ export function ArchivedMentorshipsCard({
             {rows.map((row) => {
               const { headline, headlineIsFallback, headlineIsAlias } =
                 resolveStudentHeadline(row);
+              // When the alias is the headline, the secondary line must
+              // identify the student (name → email) so a generic alias
+              // like "Portrait study" still tells the instructor who it
+              // belongs to. Otherwise keep showing the workspace's
+              // default display name.
+              const aliasSecondaryLabel =
+                [
+                  [row.studentFirstName, row.studentLastName]
+                    .filter(Boolean)
+                    .join(" "),
+                  row.studentEmail,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Unnamed student";
               return (
               <li
                 key={row._id}
@@ -158,7 +172,7 @@ export function ArchivedMentorshipsCard({
                   )}
                   <div className="text-xs text-muted-foreground truncate">
                     {headlineIsAlias
-                      ? row.workspaceName
+                      ? aliasSecondaryLabel
                       : row.workspaceDisplayName}{" "}
                     ·{" "}
                     <span title={new Date(row.archivedAt).toISOString()}>

@@ -1853,7 +1853,7 @@ async function seedSubmittedQuestionnaire(
     onboardingId: string;
     studentClerkId: string;
     submittedAt?: number;
-    reviewedAt?: number;
+    reviews?: Array<{ userId: string; reviewedAt: number }>;
   }
 ): Promise<string> {
   const now = Date.now();
@@ -1868,7 +1868,7 @@ async function seedSubmittedQuestionnaire(
       createdAt: now,
       updatedAt: now,
       submittedAt: args.submittedAt ?? now,
-      reviewedAt: args.reviewedAt,
+      reviews: args.reviews,
     })
   );
 }
@@ -1890,7 +1890,7 @@ test("listSubmittedQuestionnairesForInstructor exposes reviewedAt", async () => 
   await seedSubmittedQuestionnaire(t, {
     onboardingId,
     studentClerkId: "user_student_review",
-    reviewedAt,
+    reviews: [{ userId: "user_instructor_review", reviewedAt }],
   });
 
   const page = await t
@@ -1902,7 +1902,7 @@ test("listSubmittedQuestionnairesForInstructor exposes reviewedAt", async () => 
   expect(page.rows).toHaveLength(1);
   expect(page.rows[0].onboardingId).toBe(onboardingId);
   expect(page.rows[0].reviewedAt).toBe(reviewedAt);
-  expect(typeof page.rows[0].reviewedByUserId).toBe("object"); // null
+  expect(page.rows[0].reviewedByUserId).toBe("user_instructor_review");
 });
 
 test("markQuestionnaireSubmissionReviewed lets an assigned instructor review", async () => {
@@ -1932,10 +1932,12 @@ test("markQuestionnaireSubmissionReviewed lets an assigned instructor review", a
   expect(result).toEqual({ ok: true, error: null });
 
   const row = await t.run(async (ctx) => ctx.db.get(submissionId as any));
-  expect(row?.reviewedAt).toBeTypeOf("number");
-  expect(row?.reviewedByUserId).toBe("user_instructor_review_2");
+  expect(row?.reviews).toHaveLength(1);
+  expect(row?.reviews?.[0]?.userId).toBe("user_instructor_review_2");
+  expect(row?.reviews?.[0]?.reviewedAt).toBeTypeOf("number");
 
-  // Unmarking clears the fields so the row returns to Unreviewed.
+  // Unmarking removes only the caller's review so the row returns to
+  // their Unreviewed tab.
   const unmark = await t
     .withIdentity({ subject: "user_instructor_review_2" })
     .mutation(
@@ -1944,8 +1946,7 @@ test("markQuestionnaireSubmissionReviewed lets an assigned instructor review", a
     );
   expect(unmark).toEqual({ ok: true, error: null });
   const after = await t.run(async (ctx) => ctx.db.get(submissionId as any));
-  expect(after?.reviewedAt).toBeUndefined();
-  expect(after?.reviewedByUserId).toBeUndefined();
+  expect(after?.reviews).toBeUndefined();
 });
 
 test("markQuestionnaireSubmissionReviewed rejects a non-assigned instructor", async () => {
@@ -1980,5 +1981,67 @@ test("markQuestionnaireSubmissionReviewed rejects a non-assigned instructor", as
   expect(result).toEqual({ ok: false, error: "forbidden" });
 
   const row = await t.run(async (ctx) => ctx.db.get(submissionId as any));
-  expect(row?.reviewedAt).toBeUndefined();
+  expect(row?.reviews).toBeUndefined();
+});
+
+test("review state is per reviewer (co-instructor inboxes stay independent)", async () => {
+  const t = convexTest(schema, modules);
+  const instructorA = await seedInstructor(t, {
+    name: "Instructor A",
+    slug: "inst-review-a",
+    userId: "user_instructor_review_a",
+  });
+  const instructorB = await seedInstructor(t, {
+    name: "Instructor B",
+    slug: "inst-review-b",
+    userId: "user_instructor_review_b",
+  });
+  const onboardingId = await seedAdminOnboarding(t, {
+    email: "student-review-shared@example.com",
+    status: "processing",
+    assignedStudentClerkId: "user_student_review_shared",
+    perInstructor: [
+      { instructorId: instructorA, isRenewal: false, sessionsPerInstructor: 4 },
+      { instructorId: instructorB, isRenewal: false, sessionsPerInstructor: 4 },
+    ],
+  });
+  await seedSubmittedQuestionnaire(t, {
+    onboardingId,
+    studentClerkId: "user_student_review_shared",
+  });
+
+  // A reviews the submission.
+  const markA = await t
+    .withIdentity({ subject: "user_instructor_review_a" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(markA).toEqual({ ok: true, error: null });
+
+  const listFor = async (subject: string) =>
+    await t
+      .withIdentity({ subject })
+      .query(
+        api.onboardingQuestionnaire.listSubmittedQuestionnairesForInstructor,
+        { cursor: null }
+      );
+
+  const aRows = await listFor("user_instructor_review_a");
+  const bRows = await listFor("user_instructor_review_b");
+
+  expect(aRows.rows[0]?.reviewedAt).toBeTypeOf("number");
+  expect(bRows.rows[0]?.reviewedAt).toBeNull();
+
+  // B reviews it too; both now see it as reviewed with their own stamp.
+  const markB = await t
+    .withIdentity({ subject: "user_instructor_review_b" })
+    .mutation(
+      api.onboardingQuestionnaire.markQuestionnaireSubmissionReviewed,
+      { onboardingId, reviewed: true }
+    );
+  expect(markB).toEqual({ ok: true, error: null });
+
+  const bAfter = await listFor("user_instructor_review_b");
+  expect(bAfter.rows[0]?.reviewedAt).toBeTypeOf("number");
 });

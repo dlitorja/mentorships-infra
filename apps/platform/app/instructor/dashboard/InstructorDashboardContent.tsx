@@ -116,11 +116,23 @@ export function InstructorDashboardContent({
         ) : (
           <div className="divide-y rounded-lg border">
             {studentRows.map((row) => {
-              const { headline, headlineIsFallback } = getStudentHeadline(row);              // Only render the email as a sub-line when it differs from
-              // the headline. Email-as-headline is the common case for
-              // brand-new students; rendering it twice would be noisy.
-              const showEmailSubline =
-                headlineIsFallback
+              const { headline, headlineIsFallback, headlineIsAlias } =
+                getStudentHeadline(row);
+              // Secondary line: when the alias is the headline, show the
+              // student's name and email so the instructor can still tell
+              // who the workspace belongs to. Otherwise only render the
+              // email when it differs from the headline (email-as-headline
+              // is the common case for brand-new students, and rendering
+              // it twice would be noisy).
+              const studentName = [row.studentFirstName, row.studentLastName]
+                .filter(Boolean)
+                .join(" ");
+              const secondaryLabel = headlineIsAlias
+                ? [studentName, row.studentEmail].filter(Boolean).join(" · ")
+                : (row.studentEmail ?? "");
+              const showSecondaryLine = headlineIsAlias
+                ? Boolean(secondaryLabel)
+                : headlineIsFallback
                   ? !!row.studentEmail
                   : !!row.studentEmail && headline !== row.studentEmail;
               const rowHref = row.workspaceId
@@ -152,9 +164,9 @@ export function InstructorDashboardContent({
                           </span>
                         )}
                       </p>
-                      {showEmailSubline && (
+                      {showSecondaryLine && (
                         <p className="truncate text-sm text-muted-foreground">
-                          {row.studentEmail}
+                          {secondaryLabel}
                         </p>
                       )}
                     </Link>

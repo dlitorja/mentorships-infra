@@ -18,6 +18,12 @@ export type AdminOnboardingPerInstructor = {
   workspaceId?: Id<"workspaces">;
   capacityOverride?: boolean;
   /**
+   * Set only when this commit grew the instructor's `maxActiveStudents`
+   * because they were already at capacity. Historical rows from the old
+   * override flow have `capacityOverride` but no `expandedSeatLimitTo`.
+   */
+  expandedSeatLimitTo?: number;
+  /**
    * Clerk invitation id captured by the API route at commit time. Only
    * present for non-renewal pairs (renewal = existing student already
    * accepted an invite). Used by the detail page to surface the

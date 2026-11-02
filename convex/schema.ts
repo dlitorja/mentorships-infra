@@ -1516,6 +1516,11 @@ export default defineSchema({
       expiresAt: v.optional(v.number()),
       clerkInvitationId: v.optional(v.string()),
       capacityOverride: v.optional(v.boolean()),
+      // Set when admin onboarding created a new seat for an instructor
+      // who was already at `maxActiveStudents`; the mutation grew the
+      // instructor's limit to this value. Absent on renewals and on
+      // historical `capacityOverride` rows from the old override flow.
+      expandedSeatLimitTo: v.optional(v.number()),
     })),
 
     // Cross-cutting fields
@@ -1701,14 +1706,16 @@ export default defineSchema({
     updatedAt: v.number(),
     submittedAt: v.optional(v.number()),
     // Instructor review bookkeeping for the questionnaire flow.
-    // Mirrors `studentOnboardingSubmissions.reviewedAt` /
-    // `reviewedByUserId` so `/instructor/onboarding` can categorize
-    // submitted onboardings into "Reviewed" and "Unreviewed" tabs.
-    // Set by `onboardingQuestionnaire:markQuestionnaireSubmissionReviewed`
-    // (assigned instructor or admin/support). Additive — legacy rows
-    // without these fields simply read as unreviewed.
-    reviewedAt: v.optional(v.number()),
-    reviewedByUserId: v.optional(v.string()),
+    // Review state is stored PER REVIEWER so one assigned
+    // instructor's review never removes the questionnaire from a
+    // co-instructor's Unreviewed inbox. Each entry records who
+    // reviewed it and when; `/instructor/onboarding` resolves the
+    // caller's own entry. Additive — legacy rows without this field
+    // simply read as unreviewed.
+    reviews: v.optional(v.array(v.object({
+      userId: v.string(),
+      reviewedAt: v.number(),
+    }))),
     // PR 4: abandonment-reminder bookkeeping. The cron
     // (`checkStaleOnboardingDrafts` in
     // `convex/onboardingReminders.ts`) writes these fields; the

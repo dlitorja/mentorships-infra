@@ -294,9 +294,13 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                           Workspace: <span className="font-mono text-xs">{p.workspaceId}</span>
                         </div>
                       ) : null}
-                      {p.capacityOverride ? (
+                      {p.expandedSeatLimitTo !== undefined ? (
                         <Badge variant="outline" className="text-amber-700 border-amber-500">
-                          Seat limit auto-expanded
+                          Seat limit auto-expanded to {p.expandedSeatLimitTo}
+                        </Badge>
+                      ) : p.capacityOverride ? (
+                        <Badge variant="outline" className="text-amber-700 border-amber-500">
+                          Capacity override
                         </Badge>
                       ) : null}
                     </li>
