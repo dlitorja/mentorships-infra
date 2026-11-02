@@ -524,6 +524,30 @@ export const markNotified = mutation({
 });
 
 /** Marks all unnotified waitlist entries as notified for an instructor, optionally filtered by mentorship type. */
+async function markNotifiedForInstructor(
+  ctx: MutationCtx,
+  args: {
+    instructorSlug: string;
+    mentorshipType?: "oneOnOne" | "group";
+  },
+) {
+  const entries = await ctx.db
+    .query("marketingWaitlist")
+    .withIndex("by_instructorSlug_mentorshipType", (q) =>
+      q.eq("instructorSlug", args.instructorSlug)
+    )
+    .collect();
+
+  let count = 0;
+  for (const entry of entries) {
+    if ((!args.mentorshipType || entry.mentorshipType === args.mentorshipType) && !entry.notifiedAt) {
+      await ctx.db.patch(entry._id, { notifiedAt: Date.now() });
+      count++;
+    }
+  }
+  return { success: true, count };
+}
+
 export const markNotifiedByInstructor = mutation({
   args: {
     instructorSlug: v.string(),
@@ -534,21 +558,21 @@ export const markNotifiedByInstructor = mutation({
     if (!identity) throw new Error("Unauthorized");
     const isAdmin = await isAdminUser(ctx, identity.subject);
     if (!isAdmin) throw new Error("Forbidden");
-    const entries = await ctx.db
-      .query("marketingWaitlist")
-      .withIndex("by_instructorSlug_mentorshipType", (q) =>
-        q.eq("instructorSlug", args.instructorSlug)
-      )
-      .collect();
+    return await markNotifiedForInstructor(ctx, args);
+  },
+});
 
-    let count = 0;
-    for (const entry of entries) {
-      if ((!args.mentorshipType || entry.mentorshipType === args.mentorshipType) && !entry.notifiedAt) {
-        await ctx.db.patch(entry._id, { notifiedAt: Date.now() });
-        count++;
-      }
-    }
-    return { success: true, count };
+/**
+ * Identity-free variant for the `CONVEX_HTTP_KEY`-gated
+ * `/waitlist/notify` endpoint. The bearer check is the authorization.
+ */
+export const markNotifiedByInstructorInternal = internalMutation({
+  args: {
+    instructorSlug: v.string(),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
+  },
+  handler: async (ctx, args) => {
+    return await markNotifiedForInstructor(ctx, args);
   },
 });
 

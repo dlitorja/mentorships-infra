@@ -306,7 +306,7 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
       updates.groupInventory = groupInventory;
     }
 
-    const result = await ctx.runMutation(api.instructors.updateInstructor, {
+    const result = await ctx.runMutation(internal.instructors.updateInstructorInternal, {
       id: resolvedIdTyped,
       ...updates,
     });
@@ -455,11 +455,11 @@ export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
 
   try {
     // Look up existing instructor by slug using runQuery
-    const existing: any = await ctx.runQuery(api.instructors.getInstructorBySlugForAdmin, { slug });
+    const existing: any = await ctx.runQuery(internal.instructors.getInstructorBySlugInternal, { slug });
 
     if (existing) {
       // Update existing record using runMutation
-      const updated = await ctx.runMutation(api.instructors.updateInstructor, {
+      const updated = await ctx.runMutation(internal.instructors.updateInstructorInternal, {
         id: existing._id,
         name: name ?? undefined,
         email: email ?? undefined,
@@ -510,7 +510,7 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
 
   try {
-    const result = await ctx.runMutation(api.waitlist.markNotifiedByInstructor, {
+    const result = await ctx.runMutation(internal.waitlist.markNotifiedByInstructorInternal, {
       instructorSlug,
       mentorshipType: normalizedType,
     });
@@ -690,7 +690,7 @@ const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
-  const result = await ctx.runQuery(api.payments.getPaymentByProviderId, {
+  const result = await ctx.runQuery(internal.payments.getPaymentByProviderIdInternal, {
     provider,
     providerPaymentId,
   });
@@ -749,7 +749,7 @@ const httpCreateSessionPack = httpAction(async (ctx, request) => {
 const httpGetSessionPackByPaymentId = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { paymentId } = await request.json();
-  const result = await ctx.runQuery(api.sessionPacks.getSessionPackByPaymentId, { paymentId });
+  const result = await ctx.runQuery(internal.sessionPacks.getSessionPackByPaymentIdInternal, { paymentId });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -770,7 +770,7 @@ const httpCreateSeatReservation = httpAction(async (ctx, request) => {
 const httpGetSeatReservationBySessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { sessionPackId } = await request.json();
-  const result = await ctx.runQuery(api.seatReservations.getSeatReservationBySessionPack, { sessionPackId });
+  const result = await ctx.runQuery(internal.seatReservations.getSeatReservationBySessionPackInternal, { sessionPackId });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 

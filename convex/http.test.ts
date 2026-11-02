@@ -1676,3 +1676,199 @@ test("POST /inventory/increment restores inventory with a valid bearer", async (
   expect(after?.groupInventory).toBe(3);
   expect(after?.oneOnOneInventory).toBe(0);
 });
+
+/**
+ * These endpoints are called server-to-server with only `CONVEX_HTTP_KEY`
+ * (platform refund/checkout workers, admin inventory sync). They must not
+ * rely on a signed-in user: the public query/mutation variants return null
+ * or throw Unauthorized without an identity, so the handlers use internal
+ * identity-free variants.
+ */
+test("POST /payments/get-by-provider-id works with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", { name: "I", isActive: true });
+    const orderId = await ctx.db.insert("orders", {
+      userId: "user_1",
+      status: "paid",
+      provider: "stripe",
+      totalAmount: "100.00",
+      currency: "usd",
+    });
+    const paymentId = await ctx.db.insert("payments", {
+      orderId,
+      provider: "stripe",
+      providerPaymentId: "pi_http_test",
+      amount: "100.00",
+      currency: "usd",
+      status: "completed",
+    });
+    return { instructorId, orderId, paymentId };
+  });
+
+  const response = await t.fetch("/payments/get-by-provider-id", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ provider: "stripe", providerPaymentId: "pi_http_test" }),
+  });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body._id).toBe(ids.paymentId);
+});
+
+test("POST /session-packs/get-by-payment-id works with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", { name: "I", isActive: true });
+    const orderId = await ctx.db.insert("orders", {
+      userId: "user_1",
+      status: "paid",
+      provider: "stripe",
+      totalAmount: "100.00",
+      currency: "usd",
+    });
+    const paymentId = await ctx.db.insert("payments", {
+      orderId,
+      provider: "stripe",
+      providerPaymentId: "pi_http_pack",
+      amount: "100.00",
+      currency: "usd",
+      status: "completed",
+    });
+    const packId = await ctx.db.insert("sessionPacks", {
+      userId: "user_1",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      status: "active",
+      paymentId,
+    });
+    return { packId, paymentId };
+  });
+
+  const response = await t.fetch("/session-packs/get-by-payment-id", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ paymentId: ids.paymentId }),
+  });
+  expect(response.status).toBe(200);
+  expect((await response.json())._id).toBe(ids.packId);
+});
+
+test("POST /seat-reservations/get-by-session-pack works with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", { name: "I", isActive: true });
+    const packId = await ctx.db.insert("sessionPacks", {
+      userId: "user_1",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+    const seatId = await ctx.db.insert("seatReservations", {
+      instructorId,
+      userId: "user_1",
+      sessionPackId: packId,
+      seatExpiresAt: Date.now() + 86_400_000,
+      status: "active",
+    });
+    return { packId, seatId };
+  });
+
+  const response = await t.fetch("/seat-reservations/get-by-session-pack", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ sessionPackId: ids.packId }),
+  });
+  expect(response.status).toBe(200);
+  expect((await response.json())._id).toBe(ids.seatId);
+});
+
+test("POST /inventory/set updates inventory with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(
+    async (ctx) =>
+      await ctx.db.insert("instructors", {
+        name: "I",
+        isActive: true,
+        oneOnOneInventory: 1,
+        groupInventory: 1,
+      })
+  );
+
+  const response = await t.fetch("/inventory/set", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ instructorId, oneOnOneInventory: 7, groupInventory: 3 }),
+  });
+  expect(response.status).toBe(200);
+
+  const after = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(after?.oneOnOneInventory).toBe(7);
+  expect(after?.groupInventory).toBe(3);
+});
+
+test("POST /inventory/admin-sync updates an existing instructor with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(
+    async (ctx) =>
+      await ctx.db.insert("instructors", {
+        name: "Before",
+        slug: "sync-target",
+        isActive: true,
+        oneOnOneInventory: 1,
+        groupInventory: 1,
+      })
+  );
+
+  const response = await t.fetch("/inventory/admin-sync", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      slug: "sync-target",
+      name: "After",
+      oneOnOneInventory: 5,
+      groupInventory: 2,
+      maxActiveStudents: 12,
+    }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true, action: "updated" });
+
+  const after = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(after?.name).toBe("After");
+  expect(after?.oneOnOneInventory).toBe(5);
+  expect(after?.groupInventory).toBe(2);
+});
+
+test("POST /waitlist/notify marks entries with only the bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("marketingWaitlist", {
+      email: "waitlist-http@example.com",
+      instructorSlug: "notify-target",
+      mentorshipType: "oneOnOne",
+      createdAt: Date.now(),
+    });
+  });
+
+  const response = await t.fetch("/waitlist/notify", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ instructorSlug: "notify-target" }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true, notifiedCount: 1 });
+
+  const rows = await t.run(async (ctx) => await ctx.db.query("marketingWaitlist").collect());
+  expect(rows[0]?.notifiedAt).toBeTypeOf("number");
+});
