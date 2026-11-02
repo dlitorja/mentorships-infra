@@ -133,6 +133,34 @@ describe("attemptDailyCleanup", () => {
     });
   });
 
+  it("does not throw when the failed callback also fails", async () => {
+    const { attemptDailyCleanup, deleteDailyRecording, notify, log } = setup();
+    deleteDailyRecording.mockRejectedValue(new Error("Daily API 500"));
+    notify.mockImplementation((path: string) =>
+      path === "mark-daily-cleanup-failed"
+        ? Promise.reject(new Error("callback down"))
+        : Promise.resolve(undefined)
+    );
+
+    const result = await attemptDailyCleanup({
+      sessionId: "session_5",
+      recordingId: "rec_5",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      attempts: 3,
+      error: "Daily API 500",
+    });
+    expect(log.error).toHaveBeenCalledWith(
+      "Daily cleanup failed-callback also failed",
+      {
+        recordingId: "rec_5",
+        error: "callback down",
+      }
+    );
+  });
+
   it("does not fail the recording when the done callback fails", async () => {
     const { attemptDailyCleanup, deleteDailyRecording, notify, log } = setup();
     deleteDailyRecording.mockResolvedValue(undefined);
