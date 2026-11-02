@@ -66,6 +66,7 @@ async function seedAdminOnboarding(
     status: "queued" | "processing" | "completed" | "failed" | "cancelled";
     assignedStudentClerkId?: string;
     perInstructor: Array<{ instructorId: string; isRenewal: boolean }>;
+    studentTimezone?: string;
   }
 ): Promise<string> {
   return await t.run(async (ctx: any) =>
@@ -78,6 +79,7 @@ async function seedAdminOnboarding(
       attemptCount: 1,
       assignedStudentClerkId: args.assignedStudentClerkId,
       perInstructor: args.perInstructor,
+      studentTimezone: args.studentTimezone,
       timeline: [],
       isSeparateStudentRecord: false,
       existingWorkspaceIds: [],
@@ -1885,6 +1887,7 @@ test("listSubmittedQuestionnairesForInstructor exposes reviewedAt", async () => 
     status: "processing",
     assignedStudentClerkId: "user_student_review",
     perInstructor: [{ instructorId, isRenewal: false, sessionsPerInstructor: 4 }],
+    studentTimezone: "America/Chicago",
   });
   const reviewedAt = Date.now() - 60_000;
   await seedSubmittedQuestionnaire(t, {
@@ -1903,6 +1906,7 @@ test("listSubmittedQuestionnairesForInstructor exposes reviewedAt", async () => 
   expect(page.rows[0].onboardingId).toBe(onboardingId);
   expect(page.rows[0].reviewedAt).toBe(reviewedAt);
   expect(page.rows[0].reviewedByUserId).toBe("user_instructor_review");
+  expect(page.rows[0].studentTimezone).toBe("America/Chicago");
 });
 
 test("markQuestionnaireSubmissionReviewed lets an assigned instructor review", async () => {

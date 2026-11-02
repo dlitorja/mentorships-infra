@@ -52,6 +52,7 @@ type SubmittedQuestionnaire = {
   instructorCount: number;
   reviewedAt: number | null;
   reviewedByUserId: string | null;
+  studentTimezone: string | null;
 };
 
 /**
@@ -71,6 +72,7 @@ type InboxRow = {
   instructorCount?: number;
   legacyId?: string;
   onboardingId?: Id<"adminOnboardings">;
+  studentTimezone?: string | null;
 };
 
 type PageProps = {
@@ -268,6 +270,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     href: `/onboarding/${q.onboardingId}`,
     instructorCount: q.instructorCount,
     onboardingId: q.onboardingId,
+    studentTimezone: q.studentTimezone,
   }));
 
   const allRows = [...legacyRows, ...questionnaireRows].sort(
@@ -384,6 +387,14 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                           <> · Reviewed {formatDateTime(row.reviewedAt)}</>
                         )}
                       </p>
+                      {row.kind === "questionnaire" && (
+                        <p className="text-xs text-muted-foreground">
+                          Timezone:{" "}
+                          <span className="font-medium text-foreground">
+                            {row.studentTimezone ?? "Not set"}
+                          </span>
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
