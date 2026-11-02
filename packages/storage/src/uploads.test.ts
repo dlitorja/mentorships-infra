@@ -189,6 +189,40 @@ describe("uploadFromUrl", () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects instead of crashing when the source errors mid-stream", async (): Promise<void> => {
+    const fakeStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1024));
+        controller.error(new Error("socket reset"));
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body: fakeStream,
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockSend.mockImplementation(async (command) => {
+      const body = (
+        command as { input: { Body: AsyncIterable<Uint8Array> } }
+      ).input.Body;
+      for await (const _chunk of body) {
+        // drain until the source error propagates
+      }
+      return { ETag: "etag-error", VersionId: "v1" };
+    });
+
+    await expect(
+      uploadFromUrl({
+        sourceUrl: "https://daily.example/signed",
+        key: "recordings/x.mp4",
+        contentType: "video/mp4",
+      })
+    ).rejects.toThrow(/socket reset/);
+  });
+
   it("returns the streamed byte count when Content-Length is absent", async (): Promise<void> => {
     const chunks = [
       new Uint8Array(100),
