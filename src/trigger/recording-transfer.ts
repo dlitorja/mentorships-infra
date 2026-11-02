@@ -6,6 +6,7 @@ import {
   deleteDailyRecording,
 } from "../../apps/platform/lib/daily";
 import { uploadFromUrl, headFile } from "@mentorships/storage";
+import { createRecordingCleanup } from "./lib/recording-cleanup";
 
 const CONVEX_DEPLOYMENT_URL = (
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL
@@ -17,9 +18,14 @@ const CONVEX_DEPLOYMENT_URL = (
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const CALLBACK_SECRET = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
 
-/** Daily DELETE is idempotent (404 = already gone), so retrying it is safe. */
-const DAILY_DELETE_MAX_ATTEMPTS = 3;
-const DAILY_DELETE_RETRY_DELAYS_MS = [2_000, 5_000];
+const { verifyB2Recording, attemptDailyCleanup } = createRecordingCleanup({
+  headFile,
+  deleteDailyRecording,
+  notify: (path, body) =>
+    convexCallback(path, body as unknown as CallbackBody),
+  log: logger,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+});
 
 type Payload = {
   sessionId: string;
@@ -261,133 +267,6 @@ export const transferDailyRecordingToB2 = task({
     }
   },
 });
-
-/**
- * HEAD the B2 object back and require it to be present, non-empty,
- * and — when we know how many bytes we streamed — exactly that size.
- * Throws on any mismatch so the caller retries (or, for a delete-only
- * run, records a cleanup failure) instead of deleting the Daily
- * source on the strength of a PUT response alone.
- */
-async function verifyB2Recording(params: {
-  b2Key: string;
-  expectedBytes?: number;
-}): Promise<{ bytes: number; etag?: string }> {
-  const metadata = await headFile(params.b2Key);
-  if (metadata === null) {
-    throw new Error(
-      `B2 verification failed: ${params.b2Key} not found after upload`
-    );
-  }
-  if (metadata.size === undefined) {
-    throw new Error(
-      `B2 verification failed: ${params.b2Key} returned no size`
-    );
-  }
-  if (metadata.size === 0) {
-    throw new Error(
-      `B2 verification failed: ${params.b2Key} is empty (0 bytes) — refusing to delete the Daily source`
-    );
-  }
-  if (
-    params.expectedBytes !== undefined &&
-    metadata.size !== params.expectedBytes
-  ) {
-    throw new Error(
-      `B2 verification failed: ${params.b2Key} is ${metadata.size} bytes, expected ${params.expectedBytes} streamed bytes`
-    );
-  }
-  logger.info("B2 verification passed", {
-    b2Key: params.b2Key,
-    bytes: metadata.size,
-    etag: metadata.etag,
-  });
-  return { bytes: metadata.size, etag: metadata.etag };
-}
-
-/**
- * Delete the Daily source with retries, then persist the outcome
- * without touching the transfer status. Success (including a 404,
- * which `deleteDailyRecording` swallows as already-purged) marks
- * the cleanup done; exhausted retries mark it failed with the
- * error, so the delete-only endpoint can find and re-run it.
- * Neither callback failure is allowed to turn a verified B2
- * recording into a transfer failure: the done-callback failing
- * just leaves the status "pending" (a re-run is a safe no-op
- * against a 404), and the failed-callback failing is logged.
- */
-async function attemptDailyCleanup(params: {
-  sessionId: string;
-  recordingId: string;
-}): Promise<{
-  status: "done" | "failed";
-  attempts: number;
-  error?: string;
-}> {
-  let attempts = 0;
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= DAILY_DELETE_MAX_ATTEMPTS; attempt++) {
-    attempts = attempt;
-    try {
-      await deleteDailyRecording(params.recordingId);
-      logger.info("Daily recording deleted", {
-        recordingId: params.recordingId,
-        attempts,
-      });
-      try {
-        await convexCallback("mark-daily-cleanup-done", {
-          sessionId: params.sessionId,
-        });
-      } catch (callbackError) {
-        // Daily is already gone; a stale "pending" status is
-        // recoverable by a delete-only re-run (404 → done).
-        logger.warn("Daily cleanup done-callback failed (Daily copy deleted)", {
-          recordingId: params.recordingId,
-          error:
-            callbackError instanceof Error
-              ? callbackError.message
-              : String(callbackError),
-        });
-      }
-      return { status: "done", attempts };
-    } catch (err) {
-      lastError = err;
-      logger.warn("Daily cleanup attempt failed, will retry", {
-        recordingId: params.recordingId,
-        attempt,
-        maxAttempts: DAILY_DELETE_MAX_ATTEMPTS,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      if (attempt < DAILY_DELETE_MAX_ATTEMPTS) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, DAILY_DELETE_RETRY_DELAYS_MS[attempt - 1] ?? 5_000)
-        );
-      }
-    }
-  }
-  const errorMessage =
-    lastError instanceof Error ? lastError.message : String(lastError);
-  logger.error("Daily cleanup failed after retries (B2 copy is the source of truth)", {
-    recordingId: params.recordingId,
-    attempts,
-    error: errorMessage,
-  });
-  try {
-    await convexCallback("mark-daily-cleanup-failed", {
-      sessionId: params.sessionId,
-      errorMessage,
-    });
-  } catch (callbackError) {
-    logger.error("Daily cleanup failed-callback also failed", {
-      recordingId: params.recordingId,
-      error:
-        callbackError instanceof Error
-          ? callbackError.message
-          : String(callbackError),
-    });
-  }
-  return { status: "failed", attempts, error: errorMessage };
-}
 
 /**
  * Fire-and-forget HTTP POST to the Convex HTTP endpoint backing the
