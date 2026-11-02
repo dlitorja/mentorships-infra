@@ -2092,7 +2092,7 @@ export const hardDeleteInstructor = mutation({
 });
 
 /** Decrements the oneOnOne or group inventory for an instructor by 1. */
-export const decrementInventory = mutation({
+export const decrementInventory = internalMutation({
   args: {
     id: v.id("instructors"),
     type: v.union(v.literal("oneOnOne"), v.literal("group"))
@@ -2219,7 +2219,7 @@ export const applyInventoryChange = internalMutation({
 });
 
 /** Increments the oneOnOne or group inventory for an instructor by 1. */
-export const incrementInventory = mutation({
+export const incrementInventory = internalMutation({
   args: { 
     id: v.id("instructors"), 
     type: v.union(v.literal("oneOnOne"), v.literal("group")) 
@@ -2329,7 +2329,7 @@ export const createStudentResultWithStorage = mutation({
 });
 
 /** Idempotent upsert for instructor testimonials, keyed on instructorId + name + text. */
-export const upsertInstructorTestimonial = mutation({
+export const upsertInstructorTestimonial = internalMutation({
   args: {
     instructorId: v.string(),
     name: v.string(),
@@ -2363,7 +2363,7 @@ export const upsertInstructorTestimonial = mutation({
 });
 
 /** Idempotent upsert for student results, keyed on instructorId + imageUrl. */
-export const upsertStudentResult = mutation({
+export const upsertStudentResult = internalMutation({
   args: {
     instructorId: v.string(),
     imageUrl: v.string(),
@@ -2576,7 +2576,7 @@ export const addInstructorProfileImage = mutation({
   },
 });
 
-export const uploadStudentResultImage = mutation({
+export const uploadStudentResultImage = internalMutation({
   args: {
     studentResultId: v.id("studentResults"),
     storageId: v.string(),
@@ -2602,7 +2602,7 @@ export const uploadStudentResultImage = mutation({
   },
 });
 
-export const updateInstructorProfileImage = mutation({
+export const updateInstructorProfileImage = internalMutation({
   args: {
     instructorId: v.id("instructors"),
     storageId: v.string(),
@@ -2627,7 +2627,7 @@ export const updateInstructorProfileImage = mutation({
   },
 });
 
-export const updateInstructorPortfolioImage = mutation({
+export const updateInstructorPortfolioImage = internalMutation({
   args: {
     instructorId: v.id("instructors"),
     storageId: v.string(),

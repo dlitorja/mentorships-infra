@@ -302,8 +302,9 @@ const completedOrder = await step.run("update-order", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      await convex.mutation(api.instructors.decrementInventory, {
-        id: product.instructorId as Id<"instructors">,
+      // Inventory is internal-only; call the bearer-gated endpoint.
+      await convexServerCall("/inventory/decrement", {
+        instructorId: product.instructorId,
         type: inventoryType,
       });
     });
@@ -447,8 +448,9 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     await step.run("increment-inventory", async () => {
-      await convex.mutation(api.instructors.incrementInventory, {
-        id: sessionPack.instructorId as Id<"instructors">,
+      // Inventory is internal-only; call the bearer-gated endpoint.
+      await convexServerCall("/inventory/increment", {
+        instructorId: sessionPack.instructorId,
         type: refundInventoryType,
       });
     });
@@ -735,8 +737,9 @@ export const processPayPalCheckout = inngest.createFunction(
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      await convex.mutation(api.instructors.decrementInventory, {
-        id: product.instructorId as Id<"instructors">,
+      // Inventory is internal-only; call the bearer-gated endpoint.
+      await convexServerCall("/inventory/decrement", {
+        instructorId: product.instructorId,
         type: paypalInventoryType,
       });
     });
@@ -889,8 +892,9 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     await step.run("increment-inventory", async () => {
-      await convex.mutation(api.instructors.incrementInventory, {
-        id: sessionPack.instructorId as Id<"instructors">,
+      // Inventory is internal-only; call the bearer-gated endpoint.
+      await convexServerCall("/inventory/increment", {
+        instructorId: sessionPack.instructorId,
         type: refundInventoryType,
       });
     });
