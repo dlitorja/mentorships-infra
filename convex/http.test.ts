@@ -1614,3 +1614,65 @@ test("http /discord-action-queue/migrate: upserts one row per subjectUserId", as
   expect(rows[0].subjectUserId).toBe("user_queue_200");
   expect(rows[0].type).toBe("dm_instructor_new_signup");
 });
+
+/**
+ * Inventory endpoints are exercised by the payments Inngest worker
+ * (purchase decrements, refund increments). They must use generated
+ * function references (`internal.instructors.*`); passing a direct
+ * module import to `ctx.runMutation` throws "is not a functionReference"
+ * and the handler turns that into a 400 — which would silently skip the
+ * inventory step in a real purchase.
+ */
+test("POST /inventory/decrement decrements inventory with a valid bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(
+    async (ctx) =>
+      await ctx.db.insert("instructors", {
+        name: "Inventory Instructor",
+        isActive: true,
+        oneOnOneInventory: 3,
+        groupInventory: 1,
+      })
+  );
+
+  const response = await t.fetch("/inventory/decrement", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ instructorId, type: "oneOnOne" }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true });
+
+  const after = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(after?.oneOnOneInventory).toBe(2);
+  expect(after?.groupInventory).toBe(1);
+});
+
+test("POST /inventory/increment restores inventory with a valid bearer", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const instructorId = await t.run(
+    async (ctx) =>
+      await ctx.db.insert("instructors", {
+        name: "Inventory Instructor",
+        isActive: true,
+        oneOnOneInventory: 0,
+        groupInventory: 2,
+      })
+  );
+
+  const response = await t.fetch("/inventory/increment", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ instructorId, type: "group" }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true });
+
+  const after = await t.run(async (ctx) => await ctx.db.get(instructorId));
+  expect(after?.groupInventory).toBe(3);
+  expect(after?.oneOnOneInventory).toBe(0);
+});

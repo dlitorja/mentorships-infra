@@ -15,10 +15,8 @@ import {
   updateWorkspaceExportStatus,
 } from "./mutations/http";
 import {
-  decrementInventory,
   getInstructorGoogleCredentialsInternal,
   getInstructorNameById,
-  incrementInventory,
   updateInstructor,
 } from "./instructors";
 import { markNotifiedByInstructor } from "./waitlist";
@@ -248,7 +246,9 @@ export const httpDecrementInventory = httpAction(async (ctx, request) => {
   const resolvedIdTyped = instructorId as any;
 
   try {
-    const result = await ctx.runMutation(decrementInventory as any, {
+    // Must be a generated function reference. A direct function import is
+    // not a functionReference, and `ctx.runMutation` rejects it at runtime.
+    const result = await ctx.runMutation(internal.instructors.decrementInventory, {
       id: resolvedIdTyped,
       type: normalizedType,
     });
@@ -285,7 +285,8 @@ export const httpIncrementInventory = httpAction(async (ctx, request) => {
   try {
     let result;
     for (let i = 0; i < qty; i++) {
-      result = await ctx.runMutation(incrementInventory as any, {
+      // Must be a generated function reference (see decrement above).
+      result = await ctx.runMutation(internal.instructors.incrementInventory, {
         id: resolvedIdTyped,
         type: normalizedType,
       });
