@@ -1706,10 +1706,16 @@ export const getConnectedInstructorsForAdmin = query({
 export const getInstructorBySlugInternal = internalQuery({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Mirror `getPublicInventoryBySlug`'s row selection: a slug can be
+    // shared by a soft-deleted/hidden historical row and the live one.
+    // `.first()` would let admin-sync update the hidden row while the
+    // public page reads the listed row, leaving its inventory stale.
+    const candidates = await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
-      .first();
+      .collect();
+    const visible = candidates.filter((c) => !c.deletedAt && c.isListed !== false);
+    return visible.length > 0 ? visible[0] : null;
   },
 });
 

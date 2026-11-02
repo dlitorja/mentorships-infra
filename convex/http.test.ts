@@ -1872,3 +1872,41 @@ test("POST /waitlist/notify marks entries with only the bearer", async () => {
   const rows = await t.run(async (ctx) => await ctx.db.query("marketingWaitlist").collect());
   expect(rows[0]?.notifiedAt).toBeTypeOf("number");
 });
+
+test("POST /inventory/admin-sync updates the listed row when a slug is shared", async () => {
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const listedId = await ctx.db.insert("instructors", {
+      name: "Listed",
+      slug: "shared-slug",
+      isActive: true,
+      isListed: true,
+      oneOnOneInventory: 1,
+      groupInventory: 1,
+    });
+    await ctx.db.insert("instructors", {
+      name: "Hidden",
+      slug: "shared-slug",
+      isActive: false,
+      isListed: false,
+      oneOnOneInventory: 9,
+      groupInventory: 9,
+    });
+    return { listedId };
+  });
+
+  const response = await t.fetch("/inventory/admin-sync", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ slug: "shared-slug", oneOnOneInventory: 4, groupInventory: 2 }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true, action: "updated" });
+
+  const rows = await t.run(async (ctx) => await ctx.db.query("instructors").collect());
+  const listed = rows.find((r) => r.name === "Listed");
+  const hidden = rows.find((r) => r.name === "Hidden");
+  expect(listed?.oneOnOneInventory).toBe(4);
+  expect(hidden?.oneOnOneInventory).toBe(9);
+});
