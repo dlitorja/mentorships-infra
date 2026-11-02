@@ -1152,7 +1152,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (testimonials && testimonials.length > 0) {
     for (const testimonial of testimonials) {
-      await ctx.runMutation(api.instructors.createTestimonial as any, {
+      await ctx.runMutation(internal.instructors.upsertInstructorTestimonial, {
         instructorId,
         name: testimonial.author,
         text: testimonial.text,
@@ -1162,7 +1162,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (studentBeforeAfterImages && studentBeforeAfterImages.length > 0) {
     for (const imageUrl of studentBeforeAfterImages) {
-      await ctx.runMutation(api.instructors.createStudentResult as any, {
+      await ctx.runMutation(internal.instructors.upsertStudentResult, {
         instructorId,
         imageUrl,
       });
