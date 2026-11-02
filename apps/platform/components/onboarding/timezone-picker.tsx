@@ -14,6 +14,12 @@ import { useConvexMutation } from "@convex-dev/react-query";
 import { Globe2, Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  buildZoneGroups,
+  detectClientTimezone,
+  friendlyOffsetLabel,
+} from "@/lib/timezones";
+
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
@@ -62,164 +68,6 @@ interface TimezonePickerProps {
   initialTimezone: string | null | undefined;
 }
 
-/**
- * Returns the auto-detected IANA zone, or `null` when the
- * runtime doesn't expose `Intl.DateTimeFormat()` (older
- * browsers, exotic test harnesses). Caller treats `null` as
- * "show the detected but unverified behaviour — defer to the
- * dropdown".
- */
-function detectClientTimezone(): string | null {
-  try {
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (typeof zone === "string" && zone.length > 0 && zone.length <= 64) {
-      return zone;
-    }
-  } catch {
-    // Some test environments polyfill Intl weirdly; fall through
-    // to the dropdown default.
-  }
-  return null;
-}
-
-/**
- * Group IANA zones by their first path segment. `America/New_York`
- * → "Americas", `Europe/Paris` → "Europe", `UTC` → "UTC".
- *
- * Buckets are sorted alphabetically; zones within each bucket
- * are also sorted alphabetically by their full IANA name.
- */
-/**
- * Greptile P2 #1 — fallback zone list. Old browsers, locked-down
- * WebView shells, and the occasional test harness don't expose
- * `Intl.supportedValuesOf("timeZone")`, returning `[]`. Without a
- * fallback the dropdown would render the detected zone as the
- * only selectable item (or empty entirely if detection also
- * failed), defeating the manual override promise. The curated
- * list here covers the major population centres globally — same
- * IANA names the server-side `Intl.DateTimeFormat` validator
- * accepts in `setStudentTimezone`, so picking one of these saves
- * cleanly.
- *
- * If `Intl.supportedValuesOf` runs cleanly, its result wins
- * (full ~600-zone list wins over our ~30 curated).
- */
-const FALLBACK_TIMEZONES: string[] = [
-  "UTC",
-  "America/Anchorage",
-  "America/Chicago",
-  "America/Denver",
-  "America/Halifax",
-  "America/Los_Angeles",
-  "America/Mexico_City",
-  "America/New_York",
-  "America/Phoenix",
-  "America/Sao_Paulo",
-  "America/Toronto",
-  "Africa/Cairo",
-  "Africa/Johannesburg",
-  "Africa/Lagos",
-  "Africa/Nairobi",
-  "Asia/Bangkok",
-  "Asia/Dubai",
-  "Asia/Hong_Kong",
-  "Asia/Jakarta",
-  "Asia/Jerusalem",
-  "Asia/Karachi",
-  "Asia/Kolkata",
-  "Asia/Manila",
-  "Asia/Seoul",
-  "Asia/Shanghai",
-  "Asia/Singapore",
-  "Asia/Taipei",
-  "Asia/Tehran",
-  "Asia/Tokyo",
-  "Atlantic/Azores",
-  "Australia/Melbourne",
-  "Australia/Perth",
-  "Australia/Sydney",
-  "Europe/Amsterdam",
-  "Europe/Athens",
-  "Europe/Berlin",
-  "Europe/Dublin",
-  "Europe/Helsinki",
-  "Europe/Istanbul",
-  "Europe/London",
-  "Europe/Madrid",
-  "Europe/Moscow",
-  "Europe/Paris",
-  "Europe/Rome",
-  "Europe/Stockholm",
-  "Europe/Vienna",
-  "Europe/Warsaw",
-  "Pacific/Auckland",
-  "Pacific/Honolulu",
-];
-
-function buildZoneGroups(): Array<{ group: string; zones: string[] }> {
-  const zones =
-    typeof Intl.supportedValuesOf === "function"
-      ? (() => {
-          try {
-            return Intl.supportedValuesOf("timeZone");
-          } catch {
-            return [];
-          }
-        })()
-      : [];
-  // If the runtime returned an empty list, fall back to the
-  // curated subset above. Pick it up even when the runtime DOES
-  // return a list but somehow drops our preferred entries — the
-  // merge keeps both the runtime's full coverage and the names
-  // the server's IANA regex already trusts.
-  const merged =
-    zones.length > 0
-      ? Array.from(new Set([...FALLBACK_TIMEZONES, ...zones]))
-      : FALLBACK_TIMEZONES;
-  const buckets = new Map<string, string[]>();
-  for (const zone of merged) {
-    const slash = zone.indexOf("/");
-    const group = slash === -1 ? "Other" : zone.slice(0, slash);
-    const list = buckets.get(group) ?? [];
-    list.push(zone);
-    buckets.set(group, list);
-  }
-  return Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([group, list]) => ({
-      group,
-      zones: list.sort((a, b) => a.localeCompare(b)),
-    }));
-}
-
-/**
- * Look up a friendly UTC-offset label for an IANA zone. We use
- * the host's `Intl.DateTimeFormat` (with a stand-in `en-US`
- * locale for cross-runtime stability) and read the resolved
- * timeZoneName so the dropdown can show e.g. "GMT-05:00".
- */
-function formatOffset(zone: string, now: Date): string {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: zone,
-      timeZoneName: "shortOffset",
-    }).formatToParts(now);
-    const offset = parts.find((p) => p.type === "timeZoneName")?.value;
-    return offset ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Special-case the `UTC` zone so its offset stays "UTC" rather
- * than rendering as "GMT+00:00" (cosmetic — easier to scan a
- * dropdown when "UTC" reads as "UTC").
- */
-function friendlyOffsetLabel(zone: string, now: Date): string {
-  if (zone === "UTC") return "UTC";
-  return formatOffset(zone, now);
-}
 
 export function TimezonePicker({
   onboardingId,

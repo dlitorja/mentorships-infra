@@ -37,6 +37,8 @@ export type OnboardingView = {
     assignedStudentClerkId: string | undefined;
   };
   viewerRole: "student" | "instructor" | "admin" | "support";
+  /** The viewer instructor's saved IANA timezone, or null. */
+  viewerTimeZone: string | null;
   instructors: OnboardingViewPerInstructor[];
   timeline: OnboardingViewTimelineEntry[];
   timelineOlderCount: number;
