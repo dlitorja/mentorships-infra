@@ -1805,6 +1805,10 @@ export const getOnboardingView = query({
         v.literal("admin"),
         v.literal("support")
       ),
+      // The viewing instructor's saved timezone (null for other roles
+      // or when they haven't set one). Lets the review card show how
+      // the student's zone compares to the instructor's own zone.
+      viewerTimeZone: v.union(v.string(), v.null()),
       instructors: v.array(
         v.object({
           _id: v.id("instructors"),
@@ -1870,6 +1874,8 @@ export const getOnboardingView = query({
         studentTimezoneSetAt: row.studentTimezoneSetAt,
       },
       viewerRole: canView.role,
+      viewerTimeZone:
+        canView.role === "instructor" ? canView.instructorTimeZone ?? null : null,
       instructors,
       timeline: timelineTail,
       timelineOlderCount,
@@ -2436,7 +2442,10 @@ async function canViewOnboarding(
   ctx: QueryCtx,
   identitySubject: string,
   row: Doc<"adminOnboardings">
-): Promise<{ role: "student" | "instructor" | "admin" | "support" } | null> {
+): Promise<{
+  role: "student" | "instructor" | "admin" | "support";
+  instructorTimeZone?: string | null;
+} | null> {
   if (row.assignedStudentClerkId && row.assignedStudentClerkId === identitySubject) {
     return { role: "student" };
   }
@@ -2449,7 +2458,10 @@ async function canViewOnboarding(
   for (const pair of row.perInstructor) {
     const instructor = await ctx.db.get(pair.instructorId);
     if (instructor?.userId && instructor.userId === identitySubject) {
-      return { role: "instructor" };
+      return {
+        role: "instructor",
+        instructorTimeZone: instructor.timeZone ?? null,
+      };
     }
   }
 
