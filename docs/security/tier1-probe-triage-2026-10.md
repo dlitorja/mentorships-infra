@@ -32,6 +32,7 @@ Baseline drift since the probe merged:
 | #959 | 37 | 62 |
 | #962 (+ scan-b wave) | 36 | 62 |
 | HUC-121 (detector hardening, 2026-11-02) | 24 | 48 visible (50 detected) |
+| HUC-116 wave 1a (dead money writers internalized, 2026-11-02) | 24 | 39 visible (41 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -198,6 +199,21 @@ removes the admin-by-design class the estimate assumed would stay.
 ---
 
 ## 5. Remediation backlog (from the TPs)
+
+**Wave 1a delivered (HUC-116):** the nine dead money writers — `payments.updatePayment` /
+`completePayment` / `failPayment` / `deletePayment` and
+`sessionPacks.updateSessionPack` / `useSession` / `expireSessionPack` /
+`processExpiredSessionPacks` / `deleteSessionPack` — are now `internalMutation`.
+They had no live callers (only unused client hooks, removed in the same PR), so
+the public surface closes with no caller migration. Pinned by
+`convex/moneySurface.test.ts`. scan-d: 48 → 39 visible (41 detected).
+
+Wave 1b remains: the five server-only creators/refunders
+(`payments.createPayment`, `payments.refundPayment`,
+`sessionPacks.createSessionPack`, `sessionPacks.refundSessionPack`) and
+`orders.createOrder` need the bearer-endpoint migration of their Inngest /
+checkout callers (endpoints already exist for four of them; `/orders/create` is
+new).
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.

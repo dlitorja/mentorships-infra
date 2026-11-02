@@ -300,7 +300,7 @@ export const createAdminSessionPack = mutation({
 });
 
 /** Updates remaining sessions, expiration, or status of a session pack. */
-export const updateSessionPack = mutation({
+export const updateSessionPack = internalMutation({
   args: {
     id: v.id("sessionPacks"),
     remainingSessions: v.optional(v.number()),
@@ -315,7 +315,7 @@ export const updateSessionPack = mutation({
 });
 
 /** Decrements remaining sessions and marks the pack as depleted when zero. */
-export const useSession = mutation({
+export const useSession = internalMutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
@@ -351,7 +351,7 @@ export const refundSessionPack = mutation({
 });
 
 /** Marks a session pack as expired. */
-export const expireSessionPack = mutation({
+export const expireSessionPack = internalMutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "expired" });
@@ -360,7 +360,7 @@ export const expireSessionPack = mutation({
 });
 
 /** Bulk-updates all active packs past their expiration date to expired status. */
-export const processExpiredSessionPacks = mutation({
+export const processExpiredSessionPacks = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const expiredPacks = await ctx.db
@@ -383,7 +383,7 @@ export const processExpiredSessionPacks = mutation({
 });
 
 /** Soft-deletes a session pack by setting its deletedAt timestamp. */
-export const deleteSessionPack = mutation({
+export const deleteSessionPack = internalMutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
