@@ -1407,3 +1407,148 @@ test("resolveSessionWorkspaceForPair (round-11) falls back to the archived works
   expect(sessions).toHaveLength(1);
   expect((sessions[0] as { workspaceId?: string }).workspaceId).toBe(archivedId);
 });
+
+// ---------------------------------------------------------------------------
+// Per-user workspace aliases on dashboard surfaces
+// ---------------------------------------------------------------------------
+
+test("getInstructorArchivedMentorships exposes the caller's private alias", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_alias_archive";
+  const instructorUserId = "user_instructor_alias_archive";
+  const otherUserId = "user_other_alias_archive";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "alias-archive@example.com",
+    instructorUserId,
+    instructorName: "Alias Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const workspaceId = await seedWorkspace(t, {
+    name: "Default Name",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    archivedAt: Date.now(),
+    archivedBy: instructorUserId,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceAliases", {
+      workspaceId,
+      userId: instructorUserId,
+      alias: "  Portrait study  ",
+      updatedAt: Date.now(),
+    });
+    // Another user's alias must not leak into the instructor's read.
+    await ctx.db.insert("workspaceAliases", {
+      workspaceId,
+      userId: otherUserId,
+      alias: "Someone else's label",
+      updatedAt: Date.now(),
+    });
+  });
+
+  const list = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.workspaces.getInstructorArchivedMentorships, { instructorId });
+
+  expect(list).toHaveLength(1);
+  expect(list[0].workspaceAlias).toBe("Portrait study");
+  expect(list[0].workspaceDisplayName).toBe("Portrait study");
+  expect(list[0].workspaceName).toBe("Default Name");
+});
+
+test("getInstructorStudentsWithRemainingSessions exposes the workspace alias", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_alias_active";
+  const instructorUserId = "user_instructor_alias_active";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "alias-active@example.com",
+    instructorUserId,
+    instructorName: "Alias Active Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  const workspaceId = await seedWorkspace(t, {
+    name: "Active Default",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+  });
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceAliases", {
+      workspaceId,
+      userId: instructorUserId,
+      alias: "Watercolour practice",
+      updatedAt: Date.now(),
+    });
+  });
+
+  const rows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId,
+      limit: 10,
+    });
+
+  const row = rows.find((r) => r.userId === studentUserId);
+  expect(row?.workspaceId).toBe(workspaceId);
+  expect(row?.workspaceAlias).toBe("Watercolour practice");
+});
+
+test("getInstructorStudentsWithRemainingSessions returns null alias when not renamed", async () => {
+  const t = convexTest({ schema, modules });
+  const studentUserId = "user_student_no_alias";
+  const instructorUserId = "user_instructor_no_alias";
+  await seedStudentInstructor(t, {
+    studentUserId,
+    studentEmail: "no-alias@example.com",
+    instructorUserId,
+    instructorName: "No Alias Instructor",
+  });
+  const instructorId = (
+    await t.run(async (ctx) =>
+      (await ctx.db.query("instructors").withIndex("by_userId", (q) =>
+        q.eq("userId", instructorUserId)
+      ).first())!._id
+    )
+  );
+  const { seatReservationId } = await seedActiveSeatAndPack(t, {
+    studentUserId,
+    instructorId,
+  });
+  await seedWorkspace(t, {
+    name: "Unrenamed Workspace",
+    ownerId: studentUserId,
+    instructorId,
+    type: "mentorship",
+    seatReservationId,
+  });
+
+  const rows = await t
+    .withIdentity({ subject: instructorUserId })
+    .query(api.seatReservations.getInstructorStudentsWithRemainingSessions, {
+      instructorId,
+      limit: 10,
+    });
+
+  const row = rows.find((r) => r.userId === studentUserId);
+  expect(row?.workspaceAlias).toBeNull();
+});

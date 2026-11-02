@@ -235,8 +235,6 @@ export const previewAdminOnboarding = query({
 
     const perInstructor: PerInstructorPreview[] = [];
     const warnings: string[] = [];
-    let anyAtCapacity = false;
-    let anyCapacityRequired = false;
 
     for (const input of args.instructors) {
       const instructor = await ctx.db.get(input.instructorId);
@@ -247,11 +245,12 @@ export const previewAdminOnboarding = query({
       const activeCount = await getActiveStudentCount(ctx, input.instructorId);
       const max = instructor?.maxActiveStudents;
       const atCapacity = typeof max === "number" && activeCount >= max;
-      if (atCapacity) anyAtCapacity = true;
 
-      const capacityOverrideRequired = atCapacity;
-      if (capacityOverrideRequired) anyCapacityRequired = true;
-
+      // Admin onboarding no longer requires a capacity-override reason.
+      // Creating a new seat for an at-capacity instructor auto-expands
+      // their `maxActiveStudents` in `performCommit`, so the preview
+      // surfaces the expansion as an informational warning instead of
+      // a blocking requirement.
       perInstructor.push({
         instructorId: input.instructorId,
         instructorName: instructor?.name ?? instructor?.slug ?? undefined,
@@ -263,11 +262,11 @@ export const previewAdminOnboarding = query({
         atCapacity,
         activeStudentCount: activeCount,
         maxActiveStudents: max,
-        capacityOverrideRequired,
+        capacityOverrideRequired: false,
       });
-      if (atCapacity) {
+      if (atCapacity && !renewal.isRenewal) {
         warnings.push(
-          `Instructor ${instructor?.name ?? input.instructorId} is at capacity (${activeCount}/${max}); a reason is required to override.`
+          `Instructor ${instructor?.name ?? input.instructorId} is at capacity (${activeCount}/${max}); the seat limit will automatically increase to ${activeCount + 1}.`
         );
       }
     }
@@ -307,18 +306,14 @@ export const previewAdminOnboarding = query({
     }
 
     const notesMissing = !!args.isSeparateStudentRecord && !args.notes;
-    const capacityOverrideReasonMissing = anyCapacityRequired && !args.capacityOverrideReason;
     if (notesMissing) warnings.push("Notes are required when creating a separate student record.");
-    if (capacityOverrideReasonMissing) {
-      warnings.push("Capacity override reason is required for at-capacity instructors.");
-    }
 
     return {
       email,
       perInstructor,
       existingStudent,
-      capacityOverrideRequired: anyCapacityRequired,
-      capacityOverrideReasonMissing,
+      capacityOverrideRequired: false,
+      capacityOverrideReasonMissing: false,
       notesRequired: !!args.isSeparateStudentRecord,
       notesMissing,
       warnings,
@@ -377,7 +372,6 @@ async function performCommit(
   const placeholder = `email:${email}`;
   const now = Date.now();
 
-  let anyAtCapacity = false;
   for (const input of args.instructors) {
     if (input.sessionsPerInstructor < 1) {
       throw new Error("sessionsPerInstructor must be >= 1");
@@ -389,14 +383,6 @@ async function performCommit(
     if (!isInstructorActive(instructor)) {
       throw new Error(`Instructor ${input.instructorId} not found or inactive`);
     }
-    const activeCount = await getActiveStudentCount(ctx, input.instructorId);
-    const max = instructor?.maxActiveStudents;
-    if (typeof max === "number" && activeCount >= max) {
-      anyAtCapacity = true;
-    }
-  }
-  if (anyAtCapacity && !args.capacityOverrideReason) {
-    throw new Error("Capacity override reason is required when any selected instructor is at capacity");
   }
 
   const onboardingId = await ctx.db.insert("adminOnboardings", {
@@ -471,6 +457,22 @@ async function performCommit(
         existingWorkspaceIds.push(renewal.existingWorkspaceId);
       }
       continue;
+    }
+
+    // Admin invites must never be blocked by the instructor's seat
+    // limit: the operator is explicitly enrolling another student, so
+    // we grow the limit to fit the new seat instead of demanding a
+    // capacity-override reason. This keeps workspace creation and
+    // assignment working for test/back-office accounts while the
+    // long-term seat policy is still being decided. The bump is
+    // persisted so the admin instructor list and the public seat
+    // availability endpoint stay truthful afterwards.
+    if (atCapacity && typeof max === "number") {
+      const nextMax = activeCount + 1;
+      await ctx.db.patch(input.instructorId, {
+        maxActiveStudents: nextMax,
+        updatedAt: now,
+      });
     }
 
     const sessionPackId = await ctx.db.insert("sessionPacks", {

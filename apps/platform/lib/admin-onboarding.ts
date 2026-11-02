@@ -79,7 +79,6 @@ export function validateCommitInput(input: {
   }
 
   const ids = new Set<string>();
-  let anyAtCapacity = false;
   for (let i = 0; i < input.instructors.length; i++) {
     const ins = input.instructors[i];
     if (ids.has(ins.instructorId)) {
@@ -101,12 +100,10 @@ export function validateCommitInput(input: {
     if (!cap.exists || !cap.isActive) {
       errors.push(`Instructor ${ins.instructorId}: not found or inactive`);
     }
-    if (typeof cap.maxActiveStudents === "number" && cap.activeStudentCount >= cap.maxActiveStudents) {
-      anyAtCapacity = true;
-    }
-  }
-  if (anyAtCapacity && !input.capacityOverrideReason) {
-    errors.push("Capacity override reason is required when any selected instructor is at capacity");
+    // Capacity is intentionally NOT an error. Admin onboarding grows the
+    // instructor's `maxActiveStudents` to fit the new seat (see
+    // `performCommit` in convex/adminOnboarding.ts), so invites never
+    // fail because a test/back-office account filled the existing limit.
   }
   return errors;
 }

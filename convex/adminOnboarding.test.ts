@@ -354,3 +354,67 @@ test("resendAdminOnboardingInvitation: throws 'Forbidden' for non-admin caller",
       })
   ).rejects.toThrow(/Forbidden/);
 });
+
+/**
+ * Production safety: admin invites must never be blocked by an
+ * instructor's seat limit. Creating a new student for an at-capacity
+ * instructor auto-expands `maxActiveStudents` to fit the new seat, so
+ * test/back-office accounts can keep creating and assigning
+ * workspaces. (The long-term seat policy is a separate decision.)
+ */
+test("adminOnboardStudent auto-expands an at-capacity instructor's seat limit", async () => {
+  const t = convexTest(schema, modules);
+  const adminUserId = "user_admin_seat_expand";
+
+  const { instructorId } = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      clerkId: adminUserId,
+      email: "admin@example.com",
+      role: "admin",
+    });
+    const instructorId = await ctx.db.insert("instructors", {
+      name: "Full Instructor",
+      slug: "full-instructor",
+      email: "full-instructor@example.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 1,
+      groupInventory: 0,
+      maxActiveStudents: 1,
+      userId: "user_full_instructor",
+    });
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: "user_existing_student",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+    await ctx.db.insert("seatReservations", {
+      userId: "user_existing_student",
+      instructorId,
+      sessionPackId,
+      status: "active",
+      seatExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    return { instructorId };
+  });
+
+  const result = await t.withIdentity({ subject: adminUserId }).mutation(
+    api.adminOnboarding.adminOnboardStudent,
+    {
+      email: "new-student@example.com",
+      instructors: [{ instructorId, sessionsPerInstructor: 4 }],
+      source: "manual",
+    }
+  );
+
+  expect(result.perInstructor).toHaveLength(1);
+  expect(result.perInstructor[0].workspaceId).toBeTruthy();
+  expect(result.perInstructor[0].capacityOverride).toBe(true);
+
+  const instructor = await t.run(async (ctx) => ctx.db.get(instructorId));
+  expect(instructor?.maxActiveStudents).toBe(2);
+});

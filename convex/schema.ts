@@ -1700,6 +1700,15 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     submittedAt: v.optional(v.number()),
+    // Instructor review bookkeeping for the questionnaire flow.
+    // Mirrors `studentOnboardingSubmissions.reviewedAt` /
+    // `reviewedByUserId` so `/instructor/onboarding` can categorize
+    // submitted onboardings into "Reviewed" and "Unreviewed" tabs.
+    // Set by `onboardingQuestionnaire:markQuestionnaireSubmissionReviewed`
+    // (assigned instructor or admin/support). Additive — legacy rows
+    // without these fields simply read as unreviewed.
+    reviewedAt: v.optional(v.number()),
+    reviewedByUserId: v.optional(v.string()),
     // PR 4: abandonment-reminder bookkeeping. The cron
     // (`checkStaleOnboardingDrafts` in
     // `convex/onboardingReminders.ts`) writes these fields; the

@@ -812,6 +812,12 @@ export const getInstructorArchivedMentorships = query({
           archivedBy: row.archivedBy ?? null,
           workspaceName: row.name,
           workspaceDisplayName,
+          // Per-user alias WITHOUT the `workspaces.name` fallback.
+          // The dashboard headline prefers alias → student name →
+          // student email, so callers need to distinguish "renamed"
+          // from "default name" instead of collapsing both into
+          // `workspaceDisplayName`.
+          workspaceAlias: (aliased?.alias ?? "").trim() || null,
           studentUserId: row.ownerId,
           studentFirstName: student?.firstName ?? null,
           studentLastName: student?.lastName ?? null,

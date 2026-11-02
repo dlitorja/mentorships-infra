@@ -160,7 +160,6 @@ export default function AdminOnboardingForm(): React.JSX.Element {
   const [isSeparateStudentRecord, setIsSeparateStudentRecord] = useState(false);
   const [advancedModalOpen, setAdvancedModalOpen] = useState(false);
   const [notes, setNotes] = useState("");
-  const [capacityOverrideReason, setCapacityOverrideReason] = useState("");
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
   const [error, setError] = useState("");
@@ -182,15 +181,6 @@ export default function AdminOnboardingForm(): React.JSX.Element {
     setCommitResult(null);
     setError("");
   }, [trimmedEmail]);
-
-  const selectedOptions = useMemo(() => {
-    if (!instructorOptions) return [];
-    return instructorOptions.filter((o) => selectedInstructorIds.includes(o.id));
-  }, [instructorOptions, selectedInstructorIds]);
-
-  const anyAtCapacityInSelection = selectedOptions.some(
-    (o) => typeof o.maxActiveStudents === "number" && o.activeStudentCount >= o.maxActiveStudents
-  );
 
   const instructorsPayload: PerInstructorDraft[] = useMemo(() => {
     return selectedInstructorIds.map((id) => {
@@ -219,9 +209,8 @@ export default function AdminOnboardingForm(): React.JSX.Element {
       })),
       isSeparateStudentRecord,
       notes: notes.trim(),
-      capacityOverrideReason: capacityOverrideReason.trim(),
     });
-  }, [instructorsPayload, isSeparateStudentRecord, notes, capacityOverrideReason]);
+  }, [instructorsPayload, isSeparateStudentRecord, notes]);
 
   const prevFingerprintRef = useRef<string | null>(null);
   useEffect(() => {
@@ -280,7 +269,6 @@ export default function AdminOnboardingForm(): React.JSX.Element {
         instructors: instructorsPayload,
         isSeparateStudentRecord,
         notes: notes || undefined,
-        capacityOverrideReason: capacityOverrideReason || undefined,
       }),
     onSuccess: (data) => {
       setPreview(data);
@@ -301,7 +289,6 @@ export default function AdminOnboardingForm(): React.JSX.Element {
         instructors: instructorsPayload,
         isSeparateStudentRecord,
         notes: notes || undefined,
-        capacityOverrideReason: capacityOverrideReason || undefined,
       }),
     onSuccess: (data) => {
       setCommitResult(data);
@@ -319,20 +306,15 @@ export default function AdminOnboardingForm(): React.JSX.Element {
     !previewMutation.isPending &&
     !commitResult;
 
-  // Commit gating honors the authoritative server-side preview flags
-  // (capacityOverrideRequired, notesRequired) so the form can't be
-  // submitted when server capacity differs from cached options.
+  // Commit gating honors the authoritative server-side preview flag
+  // (notesRequired) so the form can't be submitted when server state
+  // differs from cached options. Capacity no longer gates the commit —
+  // admin invites auto-expand the instructor's seat limit in the
+  // mutation instead of requiring an override reason.
   const notesMissing =
     (preview?.notesRequired ?? isSeparateStudentRecord) && !notes.trim();
-  const capacityMissing =
-    (preview?.capacityOverrideRequired ?? anyAtCapacityInSelection) &&
-    !capacityOverrideReason.trim();
   const canCommit =
-    !!preview &&
-    !notesMissing &&
-    !capacityMissing &&
-    !commitResult &&
-    !commitMutation.isPending;
+    !!preview && !notesMissing && !commitResult && !commitMutation.isPending;
 
   const emailPlan = preview
     ? {
@@ -342,10 +324,7 @@ export default function AdminOnboardingForm(): React.JSX.Element {
       }
     : null;
 
-  const showCapacityOverrideField =
-    preview?.capacityOverrideRequired ?? anyAtCapacityInSelection;
-  const showNotesField =
-    (preview?.notesRequired ?? isSeparateStudentRecord) || showCapacityOverrideField;
+  const showNotesField = preview?.notesRequired ?? isSeparateStudentRecord;
 
   return (
     <div className="space-y-4">
@@ -427,32 +406,11 @@ export default function AdminOnboardingForm(): React.JSX.Element {
         </div>
       </div>
 
-      {showCapacityOverrideField && (
-        <div className="space-y-2">
-          <Label htmlFor="capacity-override-reason">
-            Capacity override reason <span className="text-destructive">*</span>
-          </Label>
-          <Textarea
-            id="capacity-override-reason"
-            placeholder="Why are we onboarding this student despite the instructor being at capacity?"
-            value={capacityOverrideReason}
-            onChange={(e) => setCapacityOverrideReason(e.target.value)}
-            disabled={commitMutation.isPending}
-            rows={2}
-          />
-          <p className="text-xs text-muted-foreground">
-            {preview
-              ? "Required per server preview (capacity flag)."
-              : "Required because at least one selected instructor is at capacity."}
-          </p>
-        </div>
-      )}
-
       {showNotesField && (
         <div className="space-y-2">
           <Label htmlFor="notes">
             Internal notes{" "}
-            {((preview?.notesRequired ?? isSeparateStudentRecord) || showCapacityOverrideField) && (
+            {(preview?.notesRequired ?? isSeparateStudentRecord) && (
               <span className="text-destructive">*</span>
             )}
           </Label>

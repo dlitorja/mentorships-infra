@@ -125,17 +125,17 @@ describe("validateCommitInput", () => {
     expect(errors).toContain("Instructor ins_1: not found or inactive");
   });
 
-  it("requires capacity override reason when at capacity", () => {
+  it("accepts at-capacity instructors without an override reason (seat limit auto-expands)", () => {
     const errors = validateCommitInput({
       ...baseInput(),
       instructorCapacities: [
         { instructorId: "ins_1", activeStudentCount: 10, maxActiveStudents: 10, exists: true, isActive: true },
       ],
     });
-    expect(errors).toContain("Capacity override reason is required when any selected instructor is at capacity");
+    expect(errors).toEqual([]);
   });
 
-  it("accepts capacity override when reason provided", () => {
+  it("ignores a provided capacity override reason (still accepts)", () => {
     const errors = validateCommitInput({
       ...baseInput(),
       instructorCapacities: [

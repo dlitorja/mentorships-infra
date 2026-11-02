@@ -704,6 +704,8 @@ export const listSubmittedQuestionnairesForInstructor = query({
         studentEmail: v.string(),
         submittedAt: v.number(),
         instructorCount: v.number(),
+        reviewedAt: v.union(v.number(), v.null()),
+        reviewedByUserId: v.union(v.string(), v.null()),
       })
     ),
     nextCursor: v.union(v.string(), v.null()),
@@ -715,6 +717,8 @@ export const listSubmittedQuestionnairesForInstructor = query({
       studentEmail: string;
       submittedAt: number;
       instructorCount: number;
+      reviewedAt: number | null;
+      reviewedByUserId: string | null;
     }>;
     nextCursor: string | null;
     isDone: boolean;
@@ -752,6 +756,8 @@ export const listSubmittedQuestionnairesForInstructor = query({
       studentEmail: string;
       submittedAt: number;
       instructorCount: number;
+      reviewedAt: number | null;
+      reviewedByUserId: string | null;
     }> = [];
 
     for (const submission of page.page) {
@@ -777,6 +783,8 @@ export const listSubmittedQuestionnairesForInstructor = query({
         studentEmail: onboarding.email,
         submittedAt: submission.submittedAt ?? submission.updatedAt,
         instructorCount: onboarding.perInstructor.length,
+        reviewedAt: submission.reviewedAt ?? null,
+        reviewedByUserId: submission.reviewedByUserId ?? null,
       });
     }
 
@@ -789,6 +797,90 @@ export const listSubmittedQuestionnairesForInstructor = query({
 });
 
 
+
+/**
+ * Marks a submitted questionnaire as reviewed (or clears the review
+ * when `reviewed === false`). Powers the "Reviewed" / "Unreviewed"
+ * categorization on `/instructor/onboarding`.
+ *
+ * Authorization mirrors `listSubmittedQuestionnairesForInstructor`:
+ * admin/support can review anything, and an instructor can review a
+ * submission only when they are one of the onboarding's assigned
+ * instructors. Instructors are matched through
+ * `instructors.userId === identity.subject` rather than a
+ * client-supplied id, so a caller cannot review another instructor's
+ * student by guessing an onboarding id.
+ */
+export const markQuestionnaireSubmissionReviewed = mutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    reviewed: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    ok: v.boolean(),
+    error: v.union(
+      v.literal("not_found"),
+      v.literal("not_submitted"),
+      v.literal("forbidden"),
+      v.null()
+    ),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    ok: boolean;
+    error: "not_found" | "not_submitted" | "forbidden" | null;
+  }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { ok: false, error: "forbidden" };
+    }
+
+    const submission = await ctx.db
+      .query("onboardingQuestionnaireSubmissions")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
+      )
+      .first();
+    if (!submission) {
+      return { ok: false, error: "not_found" };
+    }
+    if (submission.status !== "submitted") {
+      return { ok: false, error: "not_submitted" };
+    }
+
+    const staffRole = await lookupStaffRole(ctx, identity.subject);
+    if (staffRole === null) {
+      const onboarding = await ctx.db.get(args.onboardingId);
+      if (!onboarding) {
+        return { ok: false, error: "not_found" };
+      }
+      let matched = false;
+      for (const assigned of onboarding.perInstructor) {
+        const instructor = await ctx.db.get(
+          "instructors",
+          assigned.instructorId
+        );
+        if (instructor?.userId && instructor.userId === identity.subject) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        return { ok: false, error: "forbidden" };
+      }
+    }
+
+    const shouldReview = args.reviewed ?? true;
+    await ctx.db.patch(submission._id, {
+      reviewedAt: shouldReview ? Date.now() : undefined,
+      reviewedByUserId: shouldReview ? identity.subject : undefined,
+    });
+
+    return { ok: true, error: null };
+  },
+});
 
 async function lookupStaffRole(
   ctx: QueryCtx,

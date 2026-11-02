@@ -296,7 +296,7 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                       ) : null}
                       {p.capacityOverride ? (
                         <Badge variant="outline" className="text-amber-700 border-amber-500">
-                          Capacity override
+                          Seat limit auto-expanded
                         </Badge>
                       ) : null}
                     </li>

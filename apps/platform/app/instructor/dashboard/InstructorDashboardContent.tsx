@@ -33,24 +33,46 @@ type StudentSessionRow = StudentSessionRows[number];
 /**
  * Resolve what to render in the first line of a student row.
  *
- * `headline` falls back through `fullName → email → "Unnamed student"`
- * so the rendered row never collapses to a raw Clerk id. The Clerk
- * id is rendered as a subdued mono line below the email subline (see
- * AGENTS.md "Clerk User ID Display Convention") so support still has
- * a copyable identifier without it dominating the row.
+ * Priority order:
+ *   1. `workspaceAlias` — the instructor's private rename of the
+ *      workspace. This is the most human-meaningful label because the
+ *      instructor chose it (e.g. "Jordan — oil painting").
+ *   2. `fullName` from the student's `users` row.
+ *   3. `studentEmail` when no name is on file.
+ *   4. "Unnamed student".
+ *
+ * The rendered row therefore never collapses to a raw Clerk id. The
+ * Clerk id is rendered as a subdued mono line below the email subline
+ * (see AGENTS.md "Clerk User ID Display Convention") so support still
+ * has a copyable identifier without it dominating the row.
  */
 function getStudentHeadline(row: StudentSessionRow): {
   headline: string;
   headlineIsFallback: boolean;
+  headlineIsAlias: boolean;
 } {
+  const alias = row.workspaceAlias?.trim();
+  if (alias) {
+    return { headline: alias, headlineIsFallback: false, headlineIsAlias: true };
+  }
   const fullName = [row.studentFirstName, row.studentLastName]
     .filter(Boolean)
     .join(" ");
-  if (fullName) return { headline: fullName, headlineIsFallback: false };
-  if (row.studentEmail) {
-    return { headline: row.studentEmail, headlineIsFallback: false };
+  if (fullName) {
+    return { headline: fullName, headlineIsFallback: false, headlineIsAlias: false };
   }
-  return { headline: "Unnamed student", headlineIsFallback: true };
+  if (row.studentEmail) {
+    return {
+      headline: row.studentEmail,
+      headlineIsFallback: false,
+      headlineIsAlias: false,
+    };
+  }
+  return {
+    headline: "Unnamed student",
+    headlineIsFallback: true,
+    headlineIsAlias: false,
+  };
 }
 
 function getSessionBadgeVariant(
@@ -94,8 +116,7 @@ export function InstructorDashboardContent({
         ) : (
           <div className="divide-y rounded-lg border">
             {studentRows.map((row) => {
-              const { headline, headlineIsFallback } = getStudentHeadline(row);
-              // Only render the email as a sub-line when it differs from
+              const { headline, headlineIsFallback } = getStudentHeadline(row);              // Only render the email as a sub-line when it differs from
               // the headline. Email-as-headline is the common case for
               // brand-new students; rendering it twice would be noisy.
               const showEmailSubline =

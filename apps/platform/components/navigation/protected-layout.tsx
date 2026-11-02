@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import {
   MessageSquare,
   LayoutDashboard,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -166,12 +167,22 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         : SAFE_DEFAULT;
 
   // Workspace is always the first/top nav item, followed by the role-specific
-  // dashboard. Instructor/student-specific pages are intentionally hidden while
-  // those surfaces are further developed.
+  // dashboard. Instructors also get an "Onboardings" inbox so submitted
+  // student questionnaires are discoverable without knowing the URL — the
+  // page itself splits rows into Reviewed / Unreviewed.
   const dashboardHref = instructorRecord ? "/instructor/dashboard" : "/dashboard";
   const navItems: NavItem[] = [
     { href: "/workspace", label: "Workspace", icon: MessageSquare },
     { href: dashboardHref, label: "Dashboard", icon: LayoutDashboard },
+    ...(instructorRecord
+      ? [
+          {
+            href: "/instructor/onboarding",
+            label: "Onboardings",
+            icon: ClipboardList,
+          },
+        ]
+      : []),
   ];
 
   return (

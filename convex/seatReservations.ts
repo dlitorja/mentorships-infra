@@ -1,8 +1,31 @@
 import { query, mutation, internalMutation, internalAction, internalQuery } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
+
+/**
+ * Reads the caller's private alias for a workspace, returning `null`
+ * when no alias row exists (or it is blank). Unlike
+ * `resolveWorkspaceDisplayName`, this does NOT fall back to
+ * `workspaces.name` — dashboard rows render a fallback chain of
+ * alias → student name → student email, so they need to know whether
+ * the workspace was actually renamed.
+ */
+async function resolveWorkspaceAlias(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  userId: string
+): Promise<string | null> {
+  const aliasRow = await ctx.db
+    .query("workspaceAliases")
+    .withIndex("by_workspaceId_userId", (q) =>
+      q.eq("workspaceId", workspaceId).eq("userId", userId)
+    )
+    .first();
+  return aliasRow?.alias?.trim() || null;
+}
 
 
 
@@ -233,10 +256,21 @@ export const getInstructorStudentsWithRemainingSessions = query({
       })
     );
 
-    const dedupedSeatRowsWithWorkspace = dedupedSeatRows.map((row) => ({
-      ...row,
-      workspaceId: workspaceByUserId.get(row.userId) ?? null,
-    }));
+    const dedupedSeatRowsWithWorkspace = await Promise.all(
+      dedupedSeatRows.map(async (row) => {
+        const workspaceId = workspaceByUserId.get(row.userId) ?? null;
+        return {
+          ...row,
+          workspaceId,
+          // Per-user workspace alias for this instructor. The
+          // dashboard headline prefers alias → student name →
+          // student email; `null` here means "not renamed".
+          workspaceAlias: workspaceId
+            ? await resolveWorkspaceAlias(ctx, workspaceId, user.subject)
+            : null,
+        };
+      })
+    );
 
     // PR archive-gating: drop a seat row whose ONLY non-deleted
     // workspace pair for this instructor is archived (the
@@ -354,26 +388,34 @@ export const getInstructorStudentsWithRemainingSessions = query({
       workspaceOwners.map((ownerId, index) => [ownerId, workspaceOwnerUsers[index]])
     );
 
-    const workspaceRows = Array.from(workspaceByOwnerId.values()).map((workspace) => {
-      const student = userByOwnerId.get(workspace.ownerId) ?? null;
-      const sessionPack = latestActivePackByUserId.get(workspace.ownerId) ?? null;
+    const workspaceRows = await Promise.all(
+      Array.from(workspaceByOwnerId.values()).map(async (workspace) => {
+        const student = userByOwnerId.get(workspace.ownerId) ?? null;
+        const sessionPack =
+          latestActivePackByUserId.get(workspace.ownerId) ?? null;
 
-      return {
-        userId: workspace.ownerId,
-        seatId: null,
-        workspaceId: workspace._id,
-        sessionPackId: sessionPack?._id ?? null,
-        isAggregate: false,
-        hasSessionPack: sessionPack !== null,
-        studentEmail: student?.email ?? null,
-        studentFirstName: student?.firstName ?? null,
-        studentLastName: student?.lastName ?? null,
-        totalSessions: sessionPack?.totalSessions ?? 0,
-        remainingSessions: sessionPack?.remainingSessions ?? 0,
-        expiresAt: sessionPack?.expiresAt ?? null,
-        status: "workspace" as const,
-      };
-    });
+        return {
+          userId: workspace.ownerId,
+          seatId: null,
+          workspaceId: workspace._id,
+          workspaceAlias: await resolveWorkspaceAlias(
+            ctx,
+            workspace._id,
+            user.subject
+          ),
+          sessionPackId: sessionPack?._id ?? null,
+          isAggregate: false,
+          hasSessionPack: sessionPack !== null,
+          studentEmail: student?.email ?? null,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+          totalSessions: sessionPack?.totalSessions ?? 0,
+          remainingSessions: sessionPack?.remainingSessions ?? 0,
+          expiresAt: sessionPack?.expiresAt ?? null,
+          status: "workspace" as const,
+        };
+      })
+    );
 
     return [...dedupedSeatRowsVisible, ...workspaceRows]
       .sort((a, b) => {
