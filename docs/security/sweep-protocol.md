@@ -336,10 +336,25 @@ On-PR triggers fire on every push that touches `convex/**`,
 Scanner dependencies are installed with `npm ci` against the
 committed `.scripts/convex-probe/package-lock.json`, so a given
 workflow revision always runs the same `tsx`/`esbuild` versions.
-There is no per-week diff against a stored
-baseline yet — Phase A produces findings and a tally; the diff
-landscape is the per-tier owner's call to introduce when
-establishing the Phase B gate.
+The weekly run diffs against the committed
+`tier1.diff.json` baseline (see *Baseline + suppressions* below);
+`artifacts/tier1.diff.json` carries the per-scanner `new`/`fixed`
+lists.
+
+**Baseline + suppressions (HUC-121).** `tier1.diff.json` is the
+committed post-hardening baseline, keyed by `(file, function,
+shape)`. Every run diffs against it (`diff.ts`) and reports
+`new`/`fixed` per scanner; the PR comment includes both counts.
+`suppressions.json` records accepted public surfaces with a
+reason, owner, and optional expiry — expired entries stop
+suppressing so the finding resurfaces. Suppressions are applied
+before the diff, so the baseline is exactly the surface a gate
+would block on.
+
+The Phase B switch is `diff.ts --fail-on-new` on the diff step.
+It is **not** enabled: it blocks only on new scan-d hits, never
+on the committed backlog. Enabling it is a one-line workflow
+change gated on the per-tier owner's measured-FP-rate decision.
 
 This is the only tier whose output feeds into a PR-merge gate;
 the PR-merge itself remains Greptile + CodeRabbit as canonical

@@ -6,9 +6,15 @@
   "scripts": {
     "scan-b": "tsx scan-b.ts ../../convex",
     "scan-d": "tsx scan-d.ts ../../convex",
-    "scan": "npm run scan-b && npm run scan-d"
+    "scan": "npm run scan-b && npm run scan-d",
+    "diff": "tsx diff.ts",
+    "baseline": "tsx diff.ts --update",
+    "test": "node --import tsx --test detector.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "tsx": "^4.19.0"
+    "@types/node": "^24.19.2",
+    "tsx": "^4.19.0",
+    "typescript": "5.9.3"
   }
 }

@@ -15,6 +15,22 @@
 
 import { mkdirSync, readFileSync, statSync, readdirSync, writeFileSync } from "node:fs";
 import { relative } from "node:path";
+import {
+  hasAuthCheck as libHasAuthCheck,
+  hasIdentityComparison,
+  lineAt,
+  loadSuppressions,
+  partitionSuppressed,
+  probeDirFromArgv,
+  writeSuppressedArtifact,
+} from "./lib";
+
+/**
+ * scan-b treats *any* `identity.subject` mention as "has some auth" so shape
+ * (b) can distinguish "authorized but no row comparison" from "no auth at all".
+ */
+const hasAuthCheck = (body: string) =>
+  libHasAuthCheck(body, { allowBareSubjectReference: true });
 
 // CONVEX_DIR is supplied as the first positional CLI argument; defaults
 // to `./convex` for local invocation from repo root. On CI, the workflow
@@ -108,66 +124,7 @@ function matchPublicFunction(src: string): Fn[] {
   return funcs;
 }
 
-function lineAt(src: string, offset: number): number {
-  return src.slice(0, offset).split("\n").length;
-}
-
 const findings: { file: string; line: number; shape: string; name: string; msg: string }[] = [];
-
-function hasAuthCheck(body: string): boolean {
-  // Either ctx.auth is referenced, OR a role/identity helper is used.
-  if (/\bctx\.auth\b/.test(body)) return true;
-  const whitelist = [
-    "getUserIdentity", "requireIdentity", "requireIdentityForMutation",
-    "requireRole", "requireOwner", "assertOwner", "assertRole", "getIdentity",
-    "getAuthedIdentity", "getCurrentUser", "requireUser", "requireCaller",
-    // Role / admin helpers
-    "requireAdminUser", "requireStaffRole", "requireAdmin", "requireAdminOrSupport",
-    "requireAdminOrSelfVideoEditor", "isStaffCaller", "isAdmin", "isAdminUser",
-    "lookupStaffRole", "ensureAssignedStudent", "canViewSubmission",
-    "canViewOnboarding", "detectRenewal",
-    // Workspace / participation helpers
-    "assertParticipantForSession", "assertParticipant", "assertWorkspaceParticipant",
-    "assertSessionBelongsToWorkspace", "assertB2FileUploadOwnedByCaller",
-    "assertResourceBelongsToInstructor", "assertCanModifySessionPack",
-    "getWorkspaceRole", "getCallerWorkspaceRole", "requireCallerWorkspaceRole",
-    "isInstructorForWorkspace", "isOwnedByIdentity"
-  ];
-  for (const h of whitelist) {
-    if (new RegExp(`\\b${h}\\s*\\(`).test(body)) return true;
-  }
-  if (/\bidentity\s*\.\s*subject\b/.test(body)) return true;
-  return false;
-}
-
-function hasIdentityComparison(body: string): boolean {
-  // Strip block/line comments and string literals before checking.
-  const stripped = body
-    .replace(/\/\/.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/`[^`]*`/g, '""')
-    .replace(/\"(?:[^\"\\]|\\.)*\"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
-  // Any === or !== with identity.subject on either side, OR a helper invocation.
-  if (/identity\s*\.\s*subject\s*(===|!==|==|!=)/.test(stripped)) return true;
-  if (/(===|!==|==|!=)\s*identity\s*\.\s*subject/.test(stripped)) return true;
-  if (/\.\s*subject\s*(===|!==|==|!=)/.test(stripped)) return true; // generic .subject comparison
-  const cmpWhitelist = [
-    "requireOwner", "assertOwner", "requireIdentity", "getIdentity",
-    "isStaffCaller", "requireAdminUser", "assertParticipantForSession",
-    "assertParticipant", "requireStaffRole", "requireRole", "requireUser",
-    "requireAdmin", "requireAdminOrSupport", "requireAdminOrSelfVideoEditor",
-    "assertSessionBelongsToWorkspace", "assertB2FileUploadOwnedByCaller",
-    "assertResourceBelongsToInstructor", "assertCanModifySessionPack",
-    "getWorkspaceRole", "getCallerWorkspaceRole", "requireCallerWorkspaceRole",
-    "isInstructorForWorkspace", "ensureAssignedStudent", "canViewSubmission",
-    "canViewOnboarding", "isOwnedByIdentity", "getCurrentUser"
-  ];
-  for (const h of cmpWhitelist) {
-    if (new RegExp(`\\b${h}\\b`).test(stripped)) return true;
-  }
-  return false;
-}
 
 for (const file of files) {
   const src = readFileSync(file, "utf8");
@@ -304,8 +261,26 @@ for (const file of files) {
   }
 }
 
+// Shape (b) reports once per `ctx.db.get(args.X)` occurrence, so the same
+// function can appear several times. Collapse per (file, function, shape).
+const seen = new Set<string>();
+const deduped = findings.filter((f) => {
+  const key = `${f.file}::${f.shape}::${f.name}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return true;
+});
+
+const probeDir = probeDirFromArgv();
+const { active, expired, invalid } = loadSuppressions(probeDir);
+for (const bad of invalid) console.warn(`[scan-b] ignoring invalid suppression: ${bad}`);
+for (const old of expired) {
+  console.warn(`[scan-b] suppression expired, hit resurfaced: ${old.file}::${old.function}`);
+}
+const { kept, suppressed } = partitionSuppressed(deduped, active, "scan-b");
+
 // Group by file
-const out = findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+const out = kept.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 
 // Write findings to ./artifacts/ — relative to wherever the script is invoked
 // from. CI uploads these via actions/upload-artifact@v4.
@@ -319,5 +294,10 @@ writeFileSync(
     ? ""
     : out.map((f) => `${f.file.padEnd(50)} :${String(f.line).padEnd(5)} [${f.shape}] ${f.name.padEnd(35)} ${f.msg}`).join("\n") + "\n"
 );
+writeSuppressedArtifact("./artifacts/findings-suppressed-scan-b.json", suppressed);
 console.log(`Total hits: ${out.length}`);
+if (suppressed.length > 0) console.log(`Suppressed (accepted): ${suppressed.length}`);
+if (findings.length !== deduped.length) {
+  console.log(`Deduped: ${findings.length - deduped.length}`);
+}
 console.log(`By shape: a=${out.filter((f) => f.shape === "a").length} b=${out.filter((f) => f.shape === "b").length} c=${out.filter((f) => f.shape === "c").length} d=${out.filter((f) => f.shape === "d").length}`);

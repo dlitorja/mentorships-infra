@@ -30,9 +30,22 @@ Baseline drift since the probe merged:
 | #956 (probe PR) | 37 | 79 |
 | `main@6cf769bd` (after #957 + #958) | 37 | 64 |
 | #959 | 37 | 62 |
+| #962 (+ scan-b wave) | 36 | 62 |
+| HUC-121 (detector hardening, 2026-11-02) | 24 | 48 visible (50 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
+
+HUC-121 recovered 12 scan-d false positives (5 service-key guards, 6 upload
+delete guards, 1 `caller.role` check) → 50 detected, all TP. Two accepted public
+surfaces (`contacts.addContact`, `orders.updateOrder`) are now recorded in
+`suppressions.json`, so the *visible* surface is 48. On scan-b, 10 unique
+findings were recovered, 1 new shape-d candidate surfaced, and 3 duplicate rows
+collapsed (36 reported / 33 unique → 24 reported / 24 unique). The new
+candidate is `instructorUploads.createUpload`
+because `caller.role` is now recognised as auth; it is a known FP — the
+function validates the target instructor by the `by_userId` index — and is
+recorded in the baseline rather than suppressed.
 
 ---
 
@@ -53,13 +66,14 @@ scan-b hit — none of the converted functions were shape-b/d candidates.
 
 Recommended sequence:
 
-1. **Detector hardening PR** (§4): teach `scan-d` the missing guards and
-   dedupe per function. Expected result: scan-d 62 → 50, all TP; scan-b
-   37 → 34 unique (still noisy).
-2. **Remediation waves** (§5) for the 50 real no-auth writers.
-3. **Phase B, new-hits-only:** commit the post-hardening baseline as an
-   allowlist and block on *new* scan-d hits. Do not block on the existing
-   backlog — it would fail every PR until the waves land.
+1. ~~**Detector hardening PR** (§4)~~ — **done (HUC-121)**: scan-d 62 → 50
+   detected (48 visible after suppressions), all TP; scan-b 36 → 24.
+2. **Remediation waves** (§5) for the 50 real no-auth writers (HUC-116 –
+   HUC-120).
+3. **Phase B, new-hits-only:** the post-hardening baseline is committed as
+   `tier1.diff.json`; `diff.ts --fail-on-new` is the switch. Do not block on
+   the existing backlog — it would fail every PR until the waves land. Not
+   enabled yet; requires the per-tier owner's sign-off.
 4. Keep `scan-b` advisory permanently unless the ownership heuristic is
    redesigned. Its signal is real (3 TPs) but the ratio makes it unusable as a
    gate.
@@ -148,7 +162,7 @@ Recommended sequence:
 
 ---
 
-## 4. Detector gaps to close (hardening PR)
+## 4. Detector gaps (hardening PR — delivered in HUC-121)
 
 | # | Gap | Fix | Hits recovered |
 | ---: | --- | --- | ---: |
@@ -159,12 +173,27 @@ Recommended sequence:
 | 5 | Ownership check via an indirection (`workspace.instructorId !== instructor._id`) | treat a comparison between a loaded row's FK and a variable named `instructor`/`owner` as an ownership check | 1 (scan-b) |
 | 6 | Duplicate hits per `ctx.db.get` occurrence | dedupe findings per `(file, function)` | 3 scan-b rows |
 
-Expected post-fix output: **scan-d 50 hits (all TP, 0% FP)**; scan-b 34 unique
-hits, still dominated by admin-by-design FPs.
+Delivered (HUC-121):
 
-Also worth adding: a `suppressions` file (`{file, function, reason, owner,
-expires}`) so accepted public surfaces (`contacts.addContact`,
-`orders.updateOrder`) do not need to stay in the allowlist forever.
+- All six gaps above are implemented in `.scripts/convex-probe/lib.ts` and
+  covered by `detector.test.ts` (18 tests).
+- An additional gap found after #962: `hasIdentityComparison` did not recognise
+  the `isAdminUser` / `requireAdminActor` helper gates, so fixed admin
+  mutations (e.g. `products.getProductForAdmin`) stayed flagged. Both helpers
+  are now recognised, matching the "admin gate OR owner gate" model this
+  document argues for.
+- `suppressions.json` exists with `{file, function, scanner, reason, owner,
+  expires}`; expired entries stop suppressing automatically so the finding
+  resurfaces.
+- `tier1.diff.json` is the committed post-hardening baseline. `diff.ts`
+  reports `new`/`fixed` per scanner and writes `artifacts/tier1.diff.json`;
+  `--fail-on-new` is the Phase B switch (not enabled).
+
+Actual post-fix output: **scan-d 50 detected (all TP, 0% FP), 48 visible after
+the two accepted suppressions**; scan-b **24** (17 shape b, 7 shape d), still
+dominated by admin-by-design and public-read FPs. That is 10 unique findings
+fewer than the triage's 34 estimate because the admin-helper recognition
+removes the admin-by-design class the estimate assumed would stay.
 
 ---
 

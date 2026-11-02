@@ -1,0 +1,330 @@
+{
+  "generatedAt": "2026-11-02T16:57:52.487Z",
+  "$comment": "Phase A exit artifact / week-over-week baseline for the Tier 1 convex authz probe. Regenerate with `npx tsx diff.ts --update` after a remediation wave merges. Findings are post-suppression (see suppressions.json).",
+  "scanB": {
+    "total": 24,
+    "byShape": {
+      "b": 17,
+      "d": 7
+    },
+    "findings": [
+      {
+        "file": "adminOnboarding.ts",
+        "name": "retryAdminOnboarding",
+        "shape": "b"
+      },
+      {
+        "file": "adminOnboarding.ts",
+        "name": "resendAdminOnboardingInvitation",
+        "shape": "b"
+      },
+      {
+        "file": "adminOnboarding.ts",
+        "name": "cancelAdminOnboarding",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "getWorkspaceByIdAdmin",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "createAdminInstructorWorkspace",
+        "shape": "d"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "deleteWorkspaceAdmin",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "updateWorkspaceAdmin",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "updateWorkspaceOwner",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "updateWorkspaceInstructor",
+        "shape": "b"
+      },
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "clearWorkspaceInstructor",
+        "shape": "b"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "getInstructorById",
+        "shape": "b"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "updateStudentResultStorageId",
+        "shape": "b"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "getTestimonialById",
+        "shape": "b"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "getStudentResultById",
+        "shape": "b"
+      },
+      {
+        "file": "instructorUploads.ts",
+        "name": "createUpload",
+        "shape": "d"
+      },
+      {
+        "file": "studentInvitations.ts",
+        "name": "createStudentInvitation",
+        "shape": "d"
+      },
+      {
+        "file": "studentOnboarding.ts",
+        "name": "create",
+        "shape": "d"
+      },
+      {
+        "file": "studentSessionCounts.ts",
+        "name": "upsertSessionCount",
+        "shape": "d"
+      },
+      {
+        "file": "users.ts",
+        "name": "getUserByClerkIdPublic",
+        "shape": "b"
+      },
+      {
+        "file": "videoEditorAssignments.ts",
+        "name": "setVideoEditorAssignmentQuota",
+        "shape": "b"
+      },
+      {
+        "file": "videoEditorAssignments.ts",
+        "name": "setVideoEditorAssignmentQuotaByIds",
+        "shape": "d"
+      },
+      {
+        "file": "videoEditorAssignments.ts",
+        "name": "createVideoEditorAssignment",
+        "shape": "d"
+      },
+      {
+        "file": "workspaces.ts",
+        "name": "archiveWorkspace",
+        "shape": "b"
+      },
+      {
+        "file": "workspaces.ts",
+        "name": "unarchiveWorkspace",
+        "shape": "b"
+      }
+    ]
+  },
+  "scanD": {
+    "total": 48,
+    "findings": [
+      {
+        "file": "adminWorkspaces.ts",
+        "name": "linkWorkspaceToSessionPack"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "createInstructor"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "decrementInventory"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "incrementInventory"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "upsertInstructorTestimonial"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "upsertStudentResult"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "uploadInstructorProfileImage"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "uploadInstructorPortfolioImage"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "uploadStudentResultImage"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "updateInstructorProfileImage"
+      },
+      {
+        "file": "instructors.ts",
+        "name": "updateInstructorPortfolioImage"
+      },
+      {
+        "file": "instructorUploads.ts",
+        "name": "updateUploadStarted"
+      },
+      {
+        "file": "instructorUploads.ts",
+        "name": "completeUpload"
+      },
+      {
+        "file": "mutations/http.ts",
+        "name": "createRetentionNotification"
+      },
+      {
+        "file": "mutations/http.ts",
+        "name": "updateWorkspaceExportStatus"
+      },
+      {
+        "file": "orders.ts",
+        "name": "createOrder"
+      },
+      {
+        "file": "payments.ts",
+        "name": "createPayment"
+      },
+      {
+        "file": "payments.ts",
+        "name": "updatePayment"
+      },
+      {
+        "file": "payments.ts",
+        "name": "completePayment"
+      },
+      {
+        "file": "payments.ts",
+        "name": "refundPayment"
+      },
+      {
+        "file": "payments.ts",
+        "name": "failPayment"
+      },
+      {
+        "file": "payments.ts",
+        "name": "deletePayment"
+      },
+      {
+        "file": "products.ts",
+        "name": "createProduct"
+      },
+      {
+        "file": "products.ts",
+        "name": "updateProduct"
+      },
+      {
+        "file": "products.ts",
+        "name": "deleteProduct"
+      },
+      {
+        "file": "products.ts",
+        "name": "deactivateProduct"
+      },
+      {
+        "file": "products.ts",
+        "name": "activateProduct"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "createSeatReservation"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "updateSeatReservation"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "releaseSeat"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "extendSeat"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "deleteSeatReservation"
+      },
+      {
+        "file": "seatReservations.ts",
+        "name": "processExpiredSeats"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "createSessionPack"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "updateSessionPack"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "useSession"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "refundSessionPack"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "expireSessionPack"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "processExpiredSessionPacks"
+      },
+      {
+        "file": "sessionPacks.ts",
+        "name": "deleteSessionPack"
+      },
+      {
+        "file": "sessions.ts",
+        "name": "updateSession"
+      },
+      {
+        "file": "sessions.ts",
+        "name": "completeSession"
+      },
+      {
+        "file": "sessions.ts",
+        "name": "deleteSession"
+      },
+      {
+        "file": "studentOnboarding.ts",
+        "name": "markReviewed"
+      },
+      {
+        "file": "userIdentities.ts",
+        "name": "upsertUserIdentity"
+      },
+      {
+        "file": "workspaces.ts",
+        "name": "logViewWorkspaceAudit"
+      },
+      {
+        "file": "workspaces.ts",
+        "name": "createRetentionNotification"
+      },
+      {
+        "file": "workspaces.ts",
+        "name": "acknowledgeNotification"
+      }
+    ]
+  }
+}
