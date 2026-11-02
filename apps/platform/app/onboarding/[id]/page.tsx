@@ -429,6 +429,21 @@ const submittedWorkExamples = (
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Reviewer context: the student's timezone is captured
+                  by the questionnaire's <TimezonePicker>, but it lives
+                  on the adminOnboardings row rather than the answers
+                  array. Surface it inside the review card so the
+                  instructor sees it alongside the answers without
+                  hunting for the header line. */}
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-sm font-medium">Student timezone</p>
+                <p className="text-sm text-muted-foreground">
+                  {onboarding.studentTimezone ?? "Not set"}
+                  {onboarding.studentTimezoneSetAt && (
+                    <> · captured {formatDateTime(onboarding.studentTimezoneSetAt)}</>
+                  )}
+                </p>
+              </div>
               <div className="space-y-4">
                 {(submittedForViewer.submission?.answers ?? []).map(
                   (a: {

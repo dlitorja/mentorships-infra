@@ -706,6 +706,10 @@ export const listSubmittedQuestionnairesForInstructor = query({
         instructorCount: v.number(),
         reviewedAt: v.union(v.number(), v.null()),
         reviewedByUserId: v.union(v.string(), v.null()),
+        // Student timezone is scheduling context the reviewer needs
+        // while reading the answers. Returned alongside the row so
+        // the inbox can show it without a second query.
+        studentTimezone: v.union(v.string(), v.null()),
       })
     ),
     nextCursor: v.union(v.string(), v.null()),
@@ -719,6 +723,7 @@ export const listSubmittedQuestionnairesForInstructor = query({
       instructorCount: number;
       reviewedAt: number | null;
       reviewedByUserId: string | null;
+      studentTimezone: string | null;
     }>;
     nextCursor: string | null;
     isDone: boolean;
@@ -758,6 +763,7 @@ export const listSubmittedQuestionnairesForInstructor = query({
       instructorCount: number;
       reviewedAt: number | null;
       reviewedByUserId: string | null;
+      studentTimezone: string | null;
     }> = [];
 
     for (const submission of page.page) {
@@ -791,6 +797,7 @@ export const listSubmittedQuestionnairesForInstructor = query({
         instructorCount: onboarding.perInstructor.length,
         reviewedAt: callerReview?.reviewedAt ?? null,
         reviewedByUserId: callerReview?.userId ?? null,
+        studentTimezone: onboarding.studentTimezone ?? null,
       });
     }
 
