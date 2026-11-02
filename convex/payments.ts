@@ -52,6 +52,26 @@ export const getPaymentByProviderId = query({
   },
 });
 
+/**
+ * Identity-free lookup for the `CONVEX_HTTP_KEY`-gated
+ * `/payments/get-by-provider-id` endpoint (platform refund workers).
+ * They authenticate with the shared bearer, not a Clerk user token.
+ */
+export const getPaymentByProviderIdInternal = internalQuery({
+  args: {
+    provider: v.union(v.literal("stripe"), v.literal("paypal")),
+    providerPaymentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("payments")
+      .withIndex("by_provider_providerPaymentId", (q) =>
+        q.eq("provider", args.provider).eq("providerPaymentId", args.providerPaymentId)
+      )
+      .first();
+  },
+});
+
 /** Finds a completed payment for an order by provider. Used by onboarding flow. */
 export const getCompletedPaymentByOrderAndProvider = query({
   args: {

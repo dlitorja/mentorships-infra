@@ -3,28 +3,6 @@ import { httpAction } from "./_generated/server";
 import { api } from "./_generated/api";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import {
-  getWorkspacesNeedingDeletion,
-  getWorkspacesForNotification,
-  getUserEmail,
-  getWorkspaceExportData,
-  getWorkspaceExport,
-} from "./queries/http";
-import {
-  createRetentionNotification,
-  updateWorkspaceExportStatus,
-} from "./mutations/http";
-import {
-  getInstructorGoogleCredentialsInternal,
-  getInstructorNameById,
-  updateInstructor,
-} from "./instructors";
-import { markNotifiedByInstructor } from "./waitlist";
-import { getOrderPublicStatus, getOrderByIdInternal, completeOrder, refundOrder } from "./orders";
-import { createPayment, getPaymentByProviderId, refundPayment } from "./payments";
-import { getPublicProductById, getProductsByInstructorId } from "./products";
-import { createSessionPack, getSessionPackByPaymentId, refundSessionPack } from "./sessionPacks";
-import { createSeatReservation, getSeatReservationBySessionPack } from "./seatReservations";
 
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
@@ -76,7 +54,7 @@ function verifyAuth(request: Request): boolean {
 export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const workspaces = await ctx.runQuery(getWorkspacesNeedingDeletion as any);
+  const workspaces = await ctx.runQuery(api.queries.http.getWorkspacesNeedingDeletion);
 
   return new Response(JSON.stringify({ workspaces }), {
     headers: { "Content-Type": "application/json" },
@@ -87,7 +65,7 @@ export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) 
 export const httpGetWorkspacesForNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const notifications = await ctx.runQuery(getWorkspacesForNotification as any);
+  const notifications = await ctx.runQuery(api.queries.http.getWorkspacesForNotification);
 
   return new Response(JSON.stringify({ notifications }), {
     headers: { "Content-Type": "application/json" },
@@ -113,7 +91,7 @@ export const httpCreateRetentionNotification = httpAction(async (ctx, request) =
 
   const { workspaceId, userId, notificationType } = await request.json();
 
-  const result = await ctx.runMutation(createRetentionNotification as any, {
+  const result = await ctx.runMutation(api.mutations.http.createRetentionNotification, {
     workspaceId: workspaceId as any,
     userId,
     notificationType,
@@ -130,7 +108,7 @@ export const httpGetUserEmail = httpAction(async (ctx, request) => {
 
   const { clerkId } = await request.json();
 
-  const result = await ctx.runQuery(getUserEmail as any, { clerkId });
+  const result = await ctx.runQuery(api.queries.http.getUserEmail, { clerkId });
 
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
@@ -144,7 +122,7 @@ export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   const { workspaceId, imageIds } = await request.json();
 
   try {
-    const result = await ctx.runQuery(getWorkspaceExportData as any, {
+    const result = await ctx.runQuery(api.queries.http.getWorkspaceExportData, {
       workspaceId: workspaceId as any,
       imageIds: imageIds as any,
     });
@@ -168,7 +146,7 @@ export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) =
   const { exportId, status, downloadUrl, expiresAt, errorMessage } = await request.json();
 
   try {
-    const result = await ctx.runMutation(updateWorkspaceExportStatus as any, {
+    const result = await ctx.runMutation(api.mutations.http.updateWorkspaceExportStatus, {
       exportId: exportId as any,
       status,
       downloadUrl,
@@ -200,7 +178,7 @@ export const httpGetWorkspaceExport = httpAction(async (ctx, request) => {
   const { exportId } = await request.json();
 
   try {
-    const exportDoc = await ctx.runQuery(getWorkspaceExport as any, {
+    const exportDoc = await ctx.runQuery(api.queries.http.getWorkspaceExport, {
       exportId: exportId as any,
     });
     if (!exportDoc) {
@@ -328,7 +306,7 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
       updates.groupInventory = groupInventory;
     }
 
-    const result = await ctx.runMutation(updateInstructor as any, {
+    const result = await ctx.runMutation(internal.instructors.updateInstructorInternal, {
       id: resolvedIdTyped,
       ...updates,
     });
@@ -477,11 +455,11 @@ export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
 
   try {
     // Look up existing instructor by slug using runQuery
-    const existing: any = await ctx.runQuery(api.instructors.getInstructorBySlugForAdmin, { slug });
+    const existing: any = await ctx.runQuery(internal.instructors.getInstructorBySlugInternal, { slug });
 
     if (existing) {
       // Update existing record using runMutation
-      const updated = await ctx.runMutation(api.instructors.updateInstructor, {
+      const updated = await ctx.runMutation(internal.instructors.updateInstructorInternal, {
         id: existing._id,
         name: name ?? undefined,
         email: email ?? undefined,
@@ -532,7 +510,7 @@ export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
 
   try {
-    const result = await ctx.runMutation(markNotifiedByInstructor as any, {
+    const result = await ctx.runMutation(internal.waitlist.markNotifiedByInstructorInternal, {
       instructorSlug,
       mentorshipType: normalizedType,
     });
@@ -661,7 +639,7 @@ export const httpNormalizeWaitlistEmails = httpAction(async (ctx, request) => {
 const httpGetOrderPublicStatus = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runQuery(getOrderPublicStatus as any, { id });
+  const result = await ctx.runQuery(api.orders.getOrderPublicStatus, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -678,28 +656,28 @@ const httpGetOrderPublicStatus = httpAction(async (ctx, request) => {
 const httpGetOrderByIdInternal = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runQuery(getOrderByIdInternal as any, { id });
+  const result = await ctx.runQuery(internal.orders.getOrderByIdInternal, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpCompleteOrder = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(completeOrder as any, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
+  const result = await ctx.runMutation(api.orders.completeOrder, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpRefundOrder = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(refundOrder as any, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
+  const result = await ctx.runMutation(api.orders.refundOrder, { id, serviceKey: CONVEX_HTTP_KEY ?? "" });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpCreatePayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(createPayment as any, args);
+  const result = await ctx.runMutation(api.payments.createPayment, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -712,7 +690,7 @@ const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
   }
-  const result = await ctx.runQuery(getPaymentByProviderId as any, {
+  const result = await ctx.runQuery(internal.payments.getPaymentByProviderIdInternal, {
     provider,
     providerPaymentId,
   });
@@ -722,21 +700,21 @@ const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
 const httpRefundPayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id, refundedAmount } = await request.json();
-  const result = await ctx.runMutation(refundPayment as any, { id, refundedAmount });
+  const result = await ctx.runMutation(api.payments.refundPayment, { id, refundedAmount });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpGetPublicProductById = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runQuery(getPublicProductById as any, { id });
+  const result = await ctx.runQuery(api.products.getPublicProductById, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpGetProductsByInstructorId = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { instructorId } = await request.json();
-  const result = await ctx.runQuery(getProductsByInstructorId as any, { instructorId });
+  const result = await ctx.runQuery(api.products.getProductsByInstructorId, { instructorId });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -764,42 +742,42 @@ const httpMigrateDiscordAction = httpAction(async (ctx, request) => {
 const httpCreateSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(createSessionPack as any, args);
+  const result = await ctx.runMutation(api.sessionPacks.createSessionPack, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpGetSessionPackByPaymentId = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { paymentId } = await request.json();
-  const result = await ctx.runQuery(getSessionPackByPaymentId as any, { paymentId });
+  const result = await ctx.runQuery(internal.sessionPacks.getSessionPackByPaymentIdInternal, { paymentId });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpRefundSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(refundSessionPack as any, { id });
+  const result = await ctx.runMutation(api.sessionPacks.refundSessionPack, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpCreateSeatReservation = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(createSeatReservation as any, args);
+  const result = await ctx.runMutation(api.seatReservations.createSeatReservation, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpGetSeatReservationBySessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { sessionPackId } = await request.json();
-  const result = await ctx.runQuery(getSeatReservationBySessionPack as any, { sessionPackId });
+  const result = await ctx.runQuery(internal.seatReservations.getSeatReservationBySessionPackInternal, { sessionPackId });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
 const httpGetInstructorNameById = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runQuery(getInstructorNameById as any, { id });
+  const result = await ctx.runQuery(api.instructors.getInstructorNameById, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -839,7 +817,7 @@ const httpGetInstructorGoogleCredentials = httpAction(async (ctx, request) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  const result = await ctx.runQuery(getInstructorGoogleCredentialsInternal as any, {
+  const result = await ctx.runQuery(internal.instructors.getInstructorGoogleCredentialsInternal, {
     instructorId,
   });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
@@ -1174,7 +1152,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (testimonials && testimonials.length > 0) {
     for (const testimonial of testimonials) {
-      await ctx.runMutation(api.instructors.createTestimonial as any, {
+      await ctx.runMutation(internal.instructors.upsertInstructorTestimonial, {
         instructorId,
         name: testimonial.author,
         text: testimonial.text,
@@ -1184,7 +1162,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (studentBeforeAfterImages && studentBeforeAfterImages.length > 0) {
     for (const imageUrl of studentBeforeAfterImages) {
-      await ctx.runMutation(api.instructors.createStudentResult as any, {
+      await ctx.runMutation(internal.instructors.upsertStudentResult, {
         instructorId,
         imageUrl,
       });

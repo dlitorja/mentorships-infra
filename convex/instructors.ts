@@ -1699,6 +1699,31 @@ export const getConnectedInstructorsForAdmin = query({
 });
 
 /** Returns an instructor by slug from the instructors table. */
+/**
+ * Identity-free slug lookup for the `CONVEX_HTTP_KEY`-gated
+ * `/inventory/admin-sync` endpoint.
+ */
+export const getInstructorBySlugInternal = internalQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    // Mirror `getPublicInventoryBySlug`'s row selection: a slug can be
+    // shared by a soft-deleted/hidden historical row and the live one.
+    // `.first()` would let admin-sync update the hidden row while the
+    // public page reads the listed row, leaving its inventory stale.
+    const candidates = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .collect();
+    const active = candidates.filter((c) => !c.deletedAt);
+    if (active.length === 0) return null;
+    // Prefer the publicly listed row (a hidden historical row must not
+    // shadow it), but fall back to an unlisted row so admin-sync updates
+    // it instead of hitting createInstructor's existing-slug no-op.
+    const visible = active.filter((c) => c.isListed !== false);
+    return visible.length > 0 ? visible[0] : active[0];
+  },
+});
+
 export const getInstructorBySlugForAdmin = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -1918,10 +1943,9 @@ export const migrateInstructor = internalMutation({
 });
 
 /** Updates the specified instructor fields and returns the updated document. */
-export const updateInstructor = mutation({
-  args: {
-    id: v.id("instructors"),
-    userId: v.optional(v.string()),
+const instructorUpdateArgs = {
+  id: v.id("instructors"),
+  userId: v.optional(v.string()),
     name: v.optional(v.string()),
     slug: v.optional(v.string()),
     // Allow clearing via null from API layer
@@ -1952,7 +1976,10 @@ export const updateInstructor = mutation({
     useKajabiCheckout: v.optional(v.boolean()),
     kajabiCheckoutUrlOneOnOne: v.optional(v.union(v.string(), v.null())),
     kajabiCheckoutUrlGroup: v.optional(v.union(v.string(), v.null())),
-  },
+};
+
+export const updateInstructor = mutation({
+  args: instructorUpdateArgs,
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
@@ -2022,6 +2049,40 @@ export const updateInstructor = mutation({
         fields: updates,
       }
     );
+    return await ctx.db.get(id);
+  },
+});
+
+/**
+ * Identity-free update for the `CONVEX_HTTP_KEY`-gated admin endpoints
+ * (`/inventory/set`, `/inventory/admin-sync`). Mirrors the public
+ * mutation's admin branch; the bearer check is the authorization.
+ */
+export const updateInstructorInternal = internalMutation({
+  args: instructorUpdateArgs,
+  handler: async (ctx, args) => {
+    const { id, ...updates } = args as typeof args & Record<string, any>;
+    const nullableKeys = [
+      "email",
+      "bio",
+      "tagline",
+      "profileImageUrl",
+      "profileImageUploadPath",
+      "socials",
+      "googleCalendarId",
+      "googleRefreshToken",
+      "discordVoiceChannelUrl",
+      "legacyInstructorRef",
+      "kajabiCheckoutUrlOneOnOne",
+      "kajabiCheckoutUrlGroup",
+    ] as const;
+    for (const key of nullableKeys) {
+      if ((updates as any)[key] === null) (updates as any)[key] = undefined;
+    }
+    await ctx.runMutation(internal.instructors.internalAtomicFullUpdateInstructor, {
+      instructorId: id,
+      fields: updates,
+    });
     return await ctx.db.get(id);
   },
 });

@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -202,6 +202,20 @@ export const getSessionPackByPaymentId = query({
     if (!user) {
       return null;
     }
+    return await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_paymentId", (q) => q.eq("paymentId", args.paymentId))
+      .first();
+  },
+});
+
+/**
+ * Identity-free lookup for the `CONVEX_HTTP_KEY`-gated
+ * `/session-packs/get-by-payment-id` endpoint (platform refund workers).
+ */
+export const getSessionPackByPaymentIdInternal = internalQuery({
+  args: { paymentId: v.id("payments") },
+  handler: async (ctx, args) => {
     return await ctx.db
       .query("sessionPacks")
       .withIndex("by_paymentId", (q) => q.eq("paymentId", args.paymentId))

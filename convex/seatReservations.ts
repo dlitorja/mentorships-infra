@@ -33,6 +33,21 @@ export const getSeatReservationBySessionPack = query({
   },
 });
 
+/**
+ * Identity-free lookup for the `CONVEX_HTTP_KEY`-gated
+ * `/seat-reservations/get-by-session-pack` endpoint (platform checkout
+ * workers).
+ */
+export const getSeatReservationBySessionPackInternal = internalQuery({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+  },
+});
+
 /** Returns all seat reservations for a given user ID. */
 export const getUserSeatReservations = query({
   args: { userId: v.string() },

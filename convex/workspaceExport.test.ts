@@ -355,11 +355,17 @@ test("HTTP /workspace/export/data filters images by imageIds", async () => {
 test("HTTP /workspace/export/data returns 404 for a missing workspace", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  // Use a valid-but-deleted id: a malformed id fails argument validation
+  // before the handler can map "not found" to 404.
+  const seeded = await seedWorkspaceAndUsers(t);
+  await t.run(async (ctx) => {
+    await ctx.db.delete(seeded.workspaceId as any);
+  });
 
   const r = await t.fetch("/workspace/export/data", {
     method: "POST",
     headers: bearerHeaders(HTTP_KEY),
-    body: JSON.stringify({ workspaceId: "workspaces_does_not_exist" }),
+    body: JSON.stringify({ workspaceId: seeded.workspaceId }),
   });
   expect(r.status).toBe(404);
   const body = await r.json();
@@ -498,11 +504,23 @@ test("HTTP /workspace/export/get returns the export's owner + workspace", async 
 test("HTTP /workspace/export/get returns 404 for a missing export", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  // Valid-but-deleted id, for the same validation reason as above.
+  const seeded = await seedWorkspaceAndUsers(t);
+  const exportId = await t.run(async (ctx) => {
+    const id = await ctx.db.insert("workspaceExports", {
+      workspaceId: seeded.workspaceId as any,
+      userId: "user_export_student",
+      format: "pdf",
+      status: "pending",
+    });
+    await ctx.db.delete(id);
+    return id;
+  });
 
   const r = await t.fetch("/workspace/export/get", {
     method: "POST",
     headers: bearerHeaders(HTTP_KEY),
-    body: JSON.stringify({ exportId: "workspaceExports_does_not_exist" }),
+    body: JSON.stringify({ exportId }),
   });
   expect(r.status).toBe(404);
 });
