@@ -40,6 +40,14 @@ jobs:
         working-directory: .scripts/convex-probe
         run: npm ci --no-audit --no-fund
 
+      - name: Probe self-tests (detectors, suppressions, diff)
+        working-directory: .scripts/convex-probe
+        run: npm test
+
+      - name: Typecheck probe sources
+        working-directory: .scripts/convex-probe
+        run: npm run typecheck
+
       - name: Run scan-b (convex-authz 4-shape taxonomy)
         working-directory: .scripts/convex-probe
         run: npx tsx scan-b.ts ../../convex
@@ -47,6 +55,12 @@ jobs:
       - name: Run scan-d (no-auth writable public mutations)
         working-directory: .scripts/convex-probe
         run: npx tsx scan-d.ts ../../convex
+
+      # Advisory in Phase A. `diff.ts --fail-on-new` is the Phase B switch;
+      # it is deliberately NOT passed here until the per-tier owner signs off.
+      - name: Diff vs committed baseline (advisory)
+        working-directory: .scripts/convex-probe
+        run: npx tsx diff.ts
 
       - name: Build PR-comment summary
         if: github.event_name == 'pull_request'
@@ -82,6 +96,30 @@ jobs:
               echo "_scan-d produced no findings file._"
             fi
             echo ""
+            echo "**Diff vs committed baseline** (\`tier1.diff.json\`)"
+            echo ""
+            if [ -f artifacts/tier1.diff.json ]; then
+              node -e '
+                const fs = require("fs");
+                const d = JSON.parse(fs.readFileSync("artifacts/tier1.diff.json", "utf8"));
+                const row = (name, x) =>
+                  "- " + name + ": " + "`" + x.total + "`" + " hits (baseline " +
+                  "`" + x.baselineTotal + "`" + ") — new " + "`" + x.new.length + "`" +
+                  ", fixed " + "`" + x.fixed.length + "`";
+                console.log(row("scan-b", d.scanB));
+                console.log(row("scan-d", d.scanD));
+                if (d.scanD.new.length > 0) {
+                  console.log("");
+                  console.log("New scan-d hits:");
+                  for (const f of d.scanD.new.slice(0, 20)) {
+                    console.log("  - `" + f.file + "::" + f.name + "`");
+                  }
+                }
+              '
+            else
+              echo "_no diff artifact (baseline missing?)_"
+            fi
+            echo ""
             echo "**Operator note**: this is a deterministic shape scan, not a substitute for the manual Tier 2 run. Treat hits as candidates that need confirmation."
           } > convex-probe-pr-comment.md
           cat convex-probe-pr-comment.md
@@ -110,3 +148,7 @@ jobs:
             .scripts/convex-probe/artifacts/findings-raw.json
             .scripts/convex-probe/artifacts/findings-raw.txt
             .scripts/convex-probe/artifacts/findings-noauth.txt
+            .scripts/convex-probe/artifacts/findings-noauth.json
+            .scripts/convex-probe/artifacts/findings-suppressed-scan-b.json
+            .scripts/convex-probe/artifacts/findings-suppressed-scan-d.json
+            .scripts/convex-probe/artifacts/tier1.diff.json

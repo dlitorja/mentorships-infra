@@ -1,0 +1,21 @@
+{
+  "$comment": "Accepted public surfaces for the Tier 1 convex authz probe. Each entry hides one finding from one scanner. Entries expire automatically: after `expires` the finding resurfaces so it gets re-reviewed. Add a suppression only with a written reason and an owner. See README.md.",
+  "suppressions": [
+    {
+      "file": "contacts.ts",
+      "function": "addContact",
+      "scanner": "scan-d",
+      "reason": "Public marketing contact form by design. Abuse is handled by route-level rate limiting, not authorization; this is not an authz defect.",
+      "owner": "@dlitorja",
+      "expires": "2027-04-30"
+    },
+    {
+      "file": "orders.ts",
+      "function": "updateOrder",
+      "scanner": "scan-d",
+      "reason": "Documented narrow surface: only transitions to status=failed and is guarded by a terminal-state check. Deliberately public so the Inngest payment worker can mark an order failed.",
+      "owner": "@dlitorja",
+      "expires": "2027-04-30"
+    }
+  ]
+}

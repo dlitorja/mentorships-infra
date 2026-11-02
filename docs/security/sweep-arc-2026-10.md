@@ -305,10 +305,12 @@ Done during this arc:
 
 Open:
 
-1. **Detector hardening** before Phase B: teach `scan-d` the five guard idioms
-   it misses and dedupe per function (expected 62 → 50 hits, 0% FP). Keep
-   `scan-b` advisory — it is 91.9% FP because it flags admin-by-design
-   mutations. Details in the triage doc §4. Tracked as **HUC-121**.
+1. ~~**Detector hardening** before Phase B~~ — **done (HUC-121)**: all five
+   `scan-d` guard idioms plus the admin-helper gap on `scan-b`; duplicates
+   collapsed, `suppressions.json` + `tier1.diff.json` added. Measured: scan-d
+   62 → 50 detected (48 visible after two accepted suppressions), all TP;
+   scan-b 36 → 24. Phase B remains off until the per-tier owner signs off.
+   Details in the triage doc §4.
 2. **Remediate the 50 real no-auth writable mutations** in five domain waves
    (money, instructor-profile integrity, entitlements, catalogue/identity,
    housekeeping). Until they land, Phase B must use an allowlist and block only

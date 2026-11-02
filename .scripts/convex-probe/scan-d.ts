@@ -10,6 +10,13 @@
 
 import { mkdirSync, readFileSync, statSync, readdirSync, writeFileSync } from "node:fs";
 import { relative } from "node:path";
+import {
+  hasAuthCheck,
+  loadSuppressions,
+  partitionSuppressed,
+  probeDirFromArgv,
+  writeSuppressedArtifact,
+} from "./lib";
 
 // CONVEX_DIR is supplied as the first positional CLI argument; defaults
 // to `./convex` for local invocation from repo root. On CI, the workflow
@@ -105,28 +112,6 @@ function lineAt(src: string, offset: number): number {
   return src.slice(0, offset).split("\n").length;
 }
 
-function hasAuthCheck(body: string): boolean {
-  if (/\bctx\.auth\b/.test(body)) return true;
-  const whitelist = [
-    "getUserIdentity", "requireIdentity", "requireIdentityForMutation",
-    "requireRole", "requireOwner", "assertOwner", "assertRole", "getIdentity",
-    "getAuthedIdentity", "getCurrentUser", "requireUser", "requireCaller",
-    "requireAdminUser", "requireStaffRole", "requireAdmin", "requireAdminOrSupport",
-    "requireAdminOrSelfVideoEditor", "isStaffCaller", "isAdmin", "isAdminUser",
-    "lookupStaffRole", "ensureAssignedStudent", "canViewSubmission",
-    "canViewOnboarding", "detectRenewal",
-    "assertParticipantForSession", "assertParticipant", "assertWorkspaceParticipant",
-    "assertSessionBelongsToWorkspace", "assertB2FileUploadOwnedByCaller",
-    "assertResourceBelongsToInstructor", "assertCanModifySessionPack",
-    "getWorkspaceRole", "getCallerWorkspaceRole", "requireCallerWorkspaceRole",
-    "isInstructorForWorkspace", "isOwnedByIdentity"
-  ];
-  for (const h of whitelist) {
-    if (new RegExp(`\\b${h}\\s*\\(`).test(body)) return true;
-  }
-  return false;
-}
-
 const findings: { file: string; line: number; name: string; msg: string }[] = [];
 
 for (const file of files) {
@@ -151,7 +136,15 @@ for (const file of files) {
   }
 }
 
-const out = findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+const probeDir = probeDirFromArgv();
+const { active, expired, invalid } = loadSuppressions(probeDir);
+for (const bad of invalid) console.warn(`[scan-d] ignoring invalid suppression: ${bad}`);
+for (const old of expired) {
+  console.warn(`[scan-d] suppression expired, hit resurfaced: ${old.file}::${old.function}`);
+}
+const { kept, suppressed } = partitionSuppressed(findings, active, "scan-d");
+
+const out = kept.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 
 // Write findings to ./artifacts/ — relative to wherever the script is invoked
 // from. CI uploads these via actions/upload-artifact@v4.
@@ -164,4 +157,7 @@ writeFileSync(
     ? ""
     : out.map((f) => `${f.file.padEnd(50)} :${String(f.line).padEnd(5)} ${f.name.padEnd(40)} ${f.msg}`).join("\n") + "\n"
 );
+writeFileSync("./artifacts/findings-noauth.json", JSON.stringify(out, null, 2));
+writeSuppressedArtifact("./artifacts/findings-suppressed-scan-d.json", suppressed);
 console.log(`No-auth writable mutations: ${out.length}`);
+if (suppressed.length > 0) console.log(`Suppressed (accepted): ${suppressed.length}`);
