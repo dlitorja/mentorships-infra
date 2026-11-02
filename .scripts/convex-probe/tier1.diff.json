@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T17:38:47.577Z",
+  "generatedAt": "2026-11-02T17:49:53.291Z",
   "$comment": "Phase A exit artifact / week-over-week baseline for the Tier 1 convex authz probe. Regenerate with `npx tsx diff.ts --update` after a remediation wave merges. Findings are post-suppression (see suppressions.json).",
   "scanB": {
     "total": 24,
@@ -131,7 +131,7 @@
     ]
   },
   "scanD": {
-    "total": 39,
+    "total": 32,
     "findings": [
       {
         "file": "adminWorkspaces.ts",
@@ -143,39 +143,11 @@
       },
       {
         "file": "instructors.ts",
-        "name": "decrementInventory"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "incrementInventory"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "upsertInstructorTestimonial"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "upsertStudentResult"
-      },
-      {
-        "file": "instructors.ts",
         "name": "uploadInstructorProfileImage"
       },
       {
         "file": "instructors.ts",
         "name": "uploadInstructorPortfolioImage"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "uploadStudentResultImage"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "updateInstructorProfileImage"
-      },
-      {
-        "file": "instructors.ts",
-        "name": "updateInstructorPortfolioImage"
       },
       {
         "file": "instructorUploads.ts",

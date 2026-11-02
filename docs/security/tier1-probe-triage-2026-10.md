@@ -33,6 +33,7 @@ Baseline drift since the probe merged:
 | #962 (+ scan-b wave) | 36 | 62 |
 | HUC-121 (detector hardening, 2026-11-02) | 24 | 48 visible (50 detected) |
 | HUC-116 wave 1a (dead money writers internalized, 2026-11-02) | 24 | 39 visible (41 detected) |
+| HUC-119 wave 2a (instructor writers + inventory, 2026-11-02) | 24 | 32 visible (34 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -214,6 +215,19 @@ Wave 1b remains: the five server-only creators/refunders
 `orders.createOrder` need the bearer-endpoint migration of their Inngest /
 checkout callers (endpoints already exist for four of them; `/orders/create` is
 new).
+
+**Wave 2a delivered (HUC-119):** `instructors.decrementInventory` /
+`incrementInventory` (server-only; the two Inngest call sites now use the
+existing bearer-gated `/inventory/*` endpoints) plus five dead or script-only
+writers — `upsertInstructorTestimonial`, `upsertStudentResult`,
+`uploadStudentResultImage`, `updateInstructorProfileImage`,
+`updateInstructorPortfolioImage` — are now `internalMutation`, pinned by
+`convex/instructorSurface.test.ts`. scan-d: 39 → 32 visible (34 detected).
+
+Wave 2b remains: `instructors.createInstructor`,
+`uploadInstructorProfileImage`, and `uploadInstructorPortfolioImage` are
+browser-callable (client hooks / admin route) and need in-function
+owner-or-admin authorization rather than internalization.
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.
