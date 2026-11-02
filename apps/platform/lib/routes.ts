@@ -140,6 +140,7 @@ export const ApiRoutes = {
   videoConsent: (target: string) => `/api/video/consent/${encodeURIComponent(target)}`,
   videoToken: (roomName: string) => `/api/video/token/${encodeURIComponent(roomName)}`,
   videoRecordingRetry: (sessionId: string) => `/api/video/recording/${encodeURIComponent(sessionId)}/retry`,
+  videoRecordingDeleteDaily: (sessionId: string) => `/api/video/recording/${encodeURIComponent(sessionId)}/delete-daily`,
   videoRecording: (sessionId: string) => `/api/video/recording/${encodeURIComponent(sessionId)}`,
 
   // Auth

@@ -2239,6 +2239,13 @@ export type CallRecording = {
   // UI previously rendered the button for everyone, leaking the
   // affordance to viewers who would get a 403 on click.
   canRetryRecording: boolean;
+  // Daily-side cleanup state, independent of the B2 transfer. A failed
+  // cleanup keeps the recording playable but leaves the Daily source
+  // in place until it is retried or Daily purges it.
+  recordingDailyCleanupStatus: "pending" | "done" | "failed" | null;
+  // Server-derived permission for the "Retry cleanup" affordance:
+  // instructor only, B2 copy ready, Daily delete failed.
+  canRetryCleanup: boolean;
   // R12: scheduled deletion time (ms epoch). Stamped by
   // `attachRecordingFromB2Upload` at `now + retentionDays` and
   // backfilled for legacy rows by
@@ -2401,6 +2408,11 @@ export const getCallRecordingsForWorkspace = query({
             : null,
         canRetryRecording:
           isInstructor && s.recordingTransferStatus === "failed",
+        recordingDailyCleanupStatus: s.recordingDailyCleanupStatus ?? null,
+        canRetryCleanup:
+          isInstructor &&
+          s.recordingTransferStatus === "ready" &&
+          s.recordingDailyCleanupStatus === "failed",
         // R12: surface the retention deadline so the UI can render
         // a per-row countdown. `null` for legacy rows that haven't
         // been backfilled yet (the migration script fills these

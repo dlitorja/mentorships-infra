@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
+import { useRecordingCleanupRetry } from "@/lib/hooks/use-recording-cleanup-retry";
 import { ApiRoutes } from "@/lib/routes";
 import { z } from "zod";
 import { convexQueryClient } from "@/lib/providers/query-provider";
@@ -487,6 +488,12 @@ function VideoCard({
   const { retry, isPending: isRetryPending, error: retryError } =
     useRecordingRetry(recording.sessionId);
   const retryErrorMessage = retryError ? retryError.message : null;
+  const {
+    cleanup,
+    isPending: isCleanupPending,
+    error: cleanupError,
+  } = useRecordingCleanupRetry(recording.sessionId);
+  const cleanupErrorMessage = cleanupError ? cleanupError.message : null;
 
   return (
     <Card id={deepLinkId} className="overflow-hidden">
@@ -607,6 +614,37 @@ function VideoCard({
                 : ""}
             </span>
           ) : null}
+          {isReady &&
+          recording.recordingDailyCleanupStatus === "failed" &&
+          recording.canRetryCleanup ? (
+            <>
+              <span
+                className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                aria-label="Daily copy still exists; cleanup can be retried"
+              >
+                <AlertCircle className="h-3 w-3" aria-hidden="true" />
+                Daily copy still exists
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => cleanup()}
+                disabled={isCleanupPending}
+                aria-label={`Retry Daily cleanup for recording from ${dateLabel}`}
+              >
+                {isCleanupPending ? (
+                  <Loader2
+                    className="h-3 w-3 mr-1 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <RefreshCw className="h-3 w-3 mr-1" aria-hidden="true" />
+                )}
+                {isCleanupPending ? "Cleaning…" : "Retry cleanup"}
+              </Button>
+            </>
+          ) : null}
         </div>
 
         {isFailed && recording.recordingTransferErrorCode ? (
@@ -617,6 +655,11 @@ function VideoCard({
         {retryErrorMessage ? (
           <p className="text-xs text-destructive mt-2" role="status" aria-live="polite">
             {`Retry failed: ${retryErrorMessage}`}
+          </p>
+        ) : null}
+        {cleanupErrorMessage ? (
+          <p className="text-xs text-destructive mt-2" role="status" aria-live="polite">
+            {`Cleanup failed: ${cleanupErrorMessage}`}
           </p>
         ) : null}
       </CardContent>
