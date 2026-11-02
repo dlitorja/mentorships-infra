@@ -24,8 +24,9 @@ remediated; the Tier 1 baseline is triaged in
 | 6 | #959 `fix(convex): close remaining public queue/linking mutations` | `9ba524d2` | 10 files, +276 / −25 | Greptile pass, 0 comments |
 | 7 | #960 `docs(security): commit sweep arc record and Tier 1 triage` | `827d023e` | 2 files | Greptile pass, 0 comments |
 | 8 | #962 `fix(convex): close scan-b authz findings and gate instructor credentials` | `5ab209e3` | 24 files, +1,000 / −147 | Greptile 5/5 after 3 P1 + 1 P2 fixes |
+| 9 | #972 `chore(probe): harden Tier 1 detectors and commit the Phase A baseline` | `312ee203` | 15 files, +1,331 / −118 | Greptile 4/5 after 2 P2 fixes |
 
-Rows 4–8 are the follow-up remediation described in §5. CodeRabbit skipped
+Rows 4–9 are the follow-up remediation described in §5. CodeRabbit skipped
 every PR with *"manual review required for this OSS repository"* (repo < 10
 stars) — treated as unavailable, per AGENTS.md.
 
@@ -305,7 +306,8 @@ Done during this arc:
 
 Open:
 
-1. ~~**Detector hardening** before Phase B~~ — **done (HUC-121)**: all five
+1. ~~**Detector hardening** before Phase B~~ — **done (HUC-121, #972
+   `312ee203`)**: all five
    `scan-d` guard idioms plus the admin-helper gap on `scan-b`; duplicates
    collapsed, `suppressions.json` + `tier1.diff.json` added. Measured: scan-d
    62 → 50 detected (48 visible after two accepted suppressions), all TP;

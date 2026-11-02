@@ -39,6 +39,9 @@ The default is `./convex`. The CI workflow passes `../../convex` (relative to `.
 | `--fail-on-new` | Exit 1 when `scan-d` has findings absent from the baseline. **This is the Phase B switch.** |
 | `--update` | Rewrite `tier1.diff.json` from the current scans (run after each remediation wave). |
 
+`diff.ts` refuses to run (exit 1) when either scan artifact is missing — a missing
+scan must never look like a clean diff.
+
 ## Suppressions
 
 `suppressions.json` records accepted public surfaces so they do not need a permanent
