@@ -152,7 +152,13 @@ describe("attemptDailyCleanup", () => {
       attempts: 3,
       error: "Daily API 500",
     });
-    expect(log.error).toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith(
+      "Daily cleanup failed-callback also failed",
+      {
+        recordingId: "rec_5",
+        error: "callback down",
+      }
+    );
   });
 
   it("does not fail the recording when the done callback fails", async () => {
