@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -10,6 +10,14 @@ import { Id, type Doc } from '@/convex/_generated/dataModel';
 import { uploadFileToB2 } from '@/lib/b2-workspace-upload';
 import { MAX_IMAGE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { NoteImage } from '../extensions/note-image';
+
+// HUC-63: signed B2 GET URLs live for one hour. Refresh well before
+// expiry while the same note stays open, and re-check on focus/visibility
+// (e.g. after laptop sleep) if the last resolution is more than five
+// minutes old.
+const NOTE_IMAGE_URL_LIFETIME_SECONDS = 3600;
+const NOTE_IMAGE_URL_REFRESH_MS = 55 * 60 * 1000;
+const NOTE_IMAGE_URL_FOCUS_MIN_AGE_MS = 5 * 60 * 1000;
 
 type UseEmbedImageInNote = {
   mutateAsync: (args: { noteId: Id<'workspaceNotes'>; b2Key: string }) => Promise<string | undefined>;
@@ -109,6 +117,111 @@ export function useNoteEditor({
   const editorRef = useRef(editor);
   const selectedNoteIdRef = useRef(selectedNoteId);
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  // HUC-63: last time note image URLs were (re)resolved. Focus/visibility
+  // refreshes skip when this is recent.
+  const lastResolvedAtRef = useRef(0);
+
+  const resolveDownloadUrlRef = useRef(resolveDownloadUrl);
+  useEffect(() => {
+    resolveDownloadUrlRef.current = resolveDownloadUrl;
+  }, [resolveDownloadUrl]);
+
+  // PR workspace-storage-3c (Greptile P1 "Saved note images
+  // expire"): walks the editor's doc, finds every image node
+  // with a non-null `b2Key` attribute, resolves it to a fresh
+  // signed GET URL via `getWorkspaceDownloadUrl`, and patches
+  // the node's `src`. Called from `onCreate` (initial editor
+  // mount) and the note-switch effect. Per-image errors
+  // (cancelled / never-completed ledger) are swallowed so one
+  // bad row doesn't blank the whole note.
+  //
+  // Greptile P1 round 4 #13 ("Image loading moves the cursor"):
+  // the earlier implementation called `setNodeSelection(pos)`
+  // BEFORE `updateAttributes("image", { src: url })`, which
+  // jumped the user's caret to the image node. If the user
+  // started editing elsewhere while the download was in
+  // flight, their caret moved mid-keystroke. Use a raw
+  // `tr.setNodeMarkup(pos, undefined, attrs)` transaction
+  // instead — `setNodeMarkup` mutates only the node attrs,
+  // NOT the selection, so the caret stays put. Also guard the
+  // whole pass with `selectedNoteIdRef.current` so if the user
+  // switched notes during the await, we don't write into a
+  // stale editor document.
+  //
+  // Greptile P1 #15 (round 5 review of 8a87e73d): we look up
+  // images by `b2Key` AFTER the await, NOT by position. The
+  // user may have inserted text before an image while the
+  // download requests were in flight, shifting the image's
+  // position — checking `nodeAt(pos)` would then miss it and
+  // leave its URL stale until reload. Re-scanning by `b2Key`
+  // is position-independent and survives concurrent edits.
+  const resolveB2KeyImageSrcs = useCallback(async (
+    editorInstance: NonNullable<ReturnType<typeof useEditor>>,
+    noteIdAtCall: Id<'workspaceNotes'> | null
+  ): Promise<void> => {
+    const b2Keys = new Set<string>();
+    editorInstance.state.doc.descendants((node) => {
+      if (node.type.name !== "image") return;
+      const b2Key = node.attrs.b2Key as string | null | undefined;
+      if (typeof b2Key === "string" && b2Key.length > 0) {
+        b2Keys.add(b2Key);
+      }
+    });
+    if (b2Keys.size === 0) return;
+
+    lastResolvedAtRef.current = Date.now();
+
+    const resolved = await Promise.all(
+      Array.from(b2Keys).map(async (b2Key) => {
+        try {
+          const { url } = await resolveDownloadUrlRef.current.mutateAsync({
+            workspaceId,
+            b2Key,
+            expiresInSeconds: NOTE_IMAGE_URL_LIFETIME_SECONDS,
+          });
+          return { b2Key, url };
+        } catch {
+          return { b2Key, url: null };
+        }
+      })
+    );
+
+    // Same-note guard: bail out if the user switched notes
+    // while the awaits were in flight. Without this, we'd
+    // mutate the new note's doc with the old note's image
+    // URLs (Greptile P1 #13 — "pending request also has no
+    // check that the same note is still open").
+    if (selectedNoteIdRef.current !== noteIdAtCall) return;
+    if (editorRef.current !== editorInstance) return;
+
+    const urlByKey = new Map<string, string>();
+    for (const { b2Key, url } of resolved) {
+      if (url) urlByKey.set(b2Key, url);
+    }
+    if (urlByKey.size === 0) return;
+
+    // Re-scan the doc AFTER the await, keying by `b2Key` so
+    // concurrent edits that shifted image positions still
+    // get their URLs updated. Group into one transaction so
+    // the editor emits a single render cycle; `setNodeMarkup`
+    // on `tr` does NOT change the selection.
+    const tr = editorInstance.state.tr;
+    let changed = false;
+    editorInstance.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "image") return;
+      const b2Key = node.attrs.b2Key as string | null | undefined;
+      if (typeof b2Key !== "string" || b2Key.length === 0) return;
+      const url = urlByKey.get(b2Key);
+      if (!url) return;
+      if (node.attrs.src === url) return;
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
+      changed = true;
+    });
+    if (changed) {
+      editorInstance.view.dispatch(tr);
+    }
+   }, [workspaceId]);
+
 
   useEffect(() => {
     selectedNoteIdRef.current = selectedNoteId;
@@ -141,7 +254,7 @@ export function useNoteEditor({
       loadedNoteIdRef.current = null;
       updateNoteImageUrls(editor);
     }
-  }, [editor, selectedNote, selectedNoteId, updateNoteImageUrls]);
+  }, [editor, selectedNote, selectedNoteId, updateNoteImageUrls, resolveB2KeyImageSrcs]);
 
   const handleDottedLineClick = () => {
     dottedLineFileInputRef.current?.click();
@@ -277,99 +390,36 @@ export function useNoteEditor({
     }
   };
 
-  // PR workspace-storage-3c (Greptile P1 "Saved note images
-  // expire"): walks the editor's doc, finds every image node
-  // with a non-null `b2Key` attribute, resolves it to a fresh
-  // signed GET URL via `getWorkspaceDownloadUrl`, and patches
-  // the node's `src`. Called from `onCreate` (initial editor
-  // mount) and the note-switch effect. Per-image errors
-  // (cancelled / never-completed ledger) are swallowed so one
-  // bad row doesn't blank the whole note.
-  //
-  // Greptile P1 round 4 #13 ("Image loading moves the cursor"):
-  // the earlier implementation called `setNodeSelection(pos)`
-  // BEFORE `updateAttributes("image", { src: url })`, which
-  // jumped the user's caret to the image node. If the user
-  // started editing elsewhere while the download was in
-  // flight, their caret moved mid-keystroke. Use a raw
-  // `tr.setNodeMarkup(pos, undefined, attrs)` transaction
-  // instead — `setNodeMarkup` mutates only the node attrs,
-  // NOT the selection, so the caret stays put. Also guard the
-  // whole pass with `selectedNoteIdRef.current` so if the user
-  // switched notes during the await, we don't write into a
-  // stale editor document.
-  //
-  // Greptile P1 #15 (round 5 review of 8a87e73d): we look up
-  // images by `b2Key` AFTER the await, NOT by position. The
-  // user may have inserted text before an image while the
-  // download requests were in flight, shifting the image's
-  // position — checking `nodeAt(pos)` would then miss it and
-  // leave its URL stale until reload. Re-scanning by `b2Key`
-  // is position-independent and survives concurrent edits.
-  const resolveB2KeyImageSrcs = async (
-    editorInstance: NonNullable<ReturnType<typeof useEditor>>,
-    noteIdAtCall: Id<'workspaceNotes'> | null
-  ): Promise<void> => {
-    const b2Keys = new Set<string>();
-    editorInstance.state.doc.descendants((node) => {
-      if (node.type.name !== "image") return;
-      const b2Key = node.attrs.b2Key as string | null | undefined;
-      if (typeof b2Key === "string" && b2Key.length > 0) {
-        b2Keys.add(b2Key);
+  // HUC-63: a note left open past the one-hour signed-URL lifetime used
+  // to show broken images until it was reopened. Refresh before expiry
+  // and on focus/visibility when the last resolution is stale.
+  useEffect(() => {
+    if (!editor || !selectedNoteId) return;
+
+    const refresh = () => {
+      void resolveB2KeyImageSrcs(editor, selectedNoteIdRef.current);
+    };
+    const refreshIfStale = () => {
+      if (
+        Date.now() - lastResolvedAtRef.current >=
+        NOTE_IMAGE_URL_FOCUS_MIN_AGE_MS
+      ) {
+        refresh();
       }
-    });
-    if (b2Keys.size === 0) return;
+    };
 
-    const resolved = await Promise.all(
-      Array.from(b2Keys).map(async (b2Key) => {
-        try {
-          const { url } = await resolveDownloadUrl.mutateAsync({
-            workspaceId,
-            b2Key,
-            expiresInSeconds: 3600,
-          });
-          return { b2Key, url };
-        } catch {
-          return { b2Key, url: null };
-        }
-      })
-    );
-
-    // Same-note guard: bail out if the user switched notes
-    // while the awaits were in flight. Without this, we'd
-    // mutate the new note's doc with the old note's image
-    // URLs (Greptile P1 #13 — "pending request also has no
-    // check that the same note is still open").
-    if (selectedNoteIdRef.current !== noteIdAtCall) return;
-    if (editorRef.current !== editorInstance) return;
-
-    const urlByKey = new Map<string, string>();
-    for (const { b2Key, url } of resolved) {
-      if (url) urlByKey.set(b2Key, url);
-    }
-    if (urlByKey.size === 0) return;
-
-    // Re-scan the doc AFTER the await, keying by `b2Key` so
-    // concurrent edits that shifted image positions still
-    // get their URLs updated. Group into one transaction so
-    // the editor emits a single render cycle; `setNodeMarkup`
-    // on `tr` does NOT change the selection.
-    const tr = editorInstance.state.tr;
-    let changed = false;
-    editorInstance.state.doc.descendants((node, pos) => {
-      if (node.type.name !== "image") return;
-      const b2Key = node.attrs.b2Key as string | null | undefined;
-      if (typeof b2Key !== "string" || b2Key.length === 0) return;
-      const url = urlByKey.get(b2Key);
-      if (!url) return;
-      if (node.attrs.src === url) return;
-      tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: url });
-      changed = true;
-    });
-    if (changed) {
-      editorInstance.view.dispatch(tr);
-    }
-  };
+    const timer = setInterval(refresh, NOTE_IMAGE_URL_REFRESH_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshIfStale();
+    };
+    window.addEventListener("focus", refreshIfStale);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshIfStale);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [editor, selectedNoteId, resolveB2KeyImageSrcs]);
 
   return {
     editor,
