@@ -34,6 +34,18 @@ interface FailedUpload {
   file: File;
   preview: string;
   error: string;
+  /**
+   * Set when the B2 PUT succeeded but the image-record mutation failed.
+   * Retries then only re-run `createImage` instead of uploading the same
+   * bytes again and leaving an orphaned B2 object.
+   */
+  b2Key?: string;
+}
+
+function imageRecordErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "Failed to save image. Tap to retry.";
 }
 
 interface WorkspaceImagesProps {
@@ -183,16 +195,31 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       );
 
       if (result.success) {
-        await createImage.mutateAsync({
-          workspaceId,
-          b2Key: result.b2Key,
-          // PR workspace-storage-3c: B2 rows store `imageUrl: ""`
-          // server-side; the resolver hook `useBatchWorkspaceImageUrls`
-          // swaps it for a signed GET URL at render time.
-          imageUrl: "",
-          // PR #4b: tag uploads to the active call when present.
-          sessionId: activeSessionId ?? undefined,
-        });
+        try {
+          await createImage.mutateAsync({
+            workspaceId,
+            b2Key: result.b2Key,
+            // PR workspace-storage-3c: B2 rows store `imageUrl: ""`
+            // server-side; the resolver hook `useBatchWorkspaceImageUrls`
+            // swaps it for a signed GET URL at render time.
+            imageUrl: "",
+            // PR #4b: tag uploads to the active call when present.
+            sessionId: activeSessionId ?? undefined,
+          });
+        } catch (error) {
+          // HUC-64: the B2 upload succeeded but the image record did
+          // not (e.g. the image cap was reached concurrently). Keep the
+          // batch going, reset the UI at the end, and surface the file
+          // in the retry queue instead of rejecting the whole drop.
+          const message = imageRecordErrorMessage(error);
+          newFailedUploads.push({
+            file,
+            preview: previewImagesCopy[previewIndex],
+            error: message,
+            b2Key: result.b2Key,
+          });
+          toast.error(`${file.name}: ${message}`);
+        }
       } else {
         newFailedUploads.push({
           file,
@@ -209,7 +236,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       setFailedUploads(newFailedUploads);
       setPreviewImages(newFailedUploads.map(f => f.preview));
       setImageFiles(newFailedUploads.map(f => f.file));
-      toast.error(`${newFailedUploads.length} of ${imageFiles.length} images failed to upload. Tap to retry.`);
+      toast.error(`${newFailedUploads.length} of ${imageFiles.length} images failed to upload or save. Tap to retry.`);
     } else {
       setPreviewImages([]);
       setImageFiles([]);
@@ -219,29 +246,47 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   };
 
   const handleRetryUpload = async (failedUpload: FailedUpload, index: number): Promise<void> => {
-    const result = await uploadFileToB2(
-      workspaceId,
-      failedUpload.file,
-      generateUploadUrl.mutateAsync,
-      recordB2FileUpload.mutateAsync
-    );
+    let b2Key = failedUpload.b2Key;
+    if (!b2Key) {
+      const result = await uploadFileToB2(
+        workspaceId,
+        failedUpload.file,
+        generateUploadUrl.mutateAsync,
+        recordB2FileUpload.mutateAsync
+      );
+      if (!result.success) {
+        setFailedUploads((prev) =>
+          prev.map((f, i) => (i === index ? { ...f, error: (result as B2UploadError).error } : f))
+        );
+        return;
+      }
+      b2Key = result.b2Key;
+    }
 
-    if (result.success) {
+    try {
       await createImage.mutateAsync({
         workspaceId,
-        b2Key: result.b2Key,
+        b2Key,
         imageUrl: "",
         sessionId: activeSessionId ?? undefined,
       });
-      setFailedUploads((prev) => prev.filter((_, i) => i !== index));
-      setPreviewImages((prev) => prev.filter((_, i) => i !== index));
-      setImageFiles((prev) => prev.filter((_, i) => i !== index));
-      toast.success('Image uploaded successfully');
-    } else {
+    } catch (error) {
+      // HUC-64: keep the file (and the already-uploaded key) in the
+      // retry queue with the real reason.
+      const message = imageRecordErrorMessage(error);
       setFailedUploads((prev) =>
-        prev.map((f, i) => (i === index ? { ...f, error: result.error } : f))
+        prev.map((f, i) =>
+          i === index ? { ...f, error: message, b2Key } : f
+        )
       );
+      toast.error(`${failedUpload.file.name}: ${message}`);
+      return;
     }
+
+    setFailedUploads((prev) => prev.filter((_, i) => i !== index));
+    setPreviewImages((prev) => prev.filter((_, i) => i !== index));
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    toast.success('Image uploaded successfully');
   };
 
   const handleRetryAll = async (): Promise<void> => {
@@ -253,22 +298,42 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
-      const result = await uploadFileToB2(
-        workspaceId,
-        failed[i].file,
-        generateUploadUrl.mutateAsync,
-        recordB2FileUpload.mutateAsync
-      );
 
-      if (result.success) {
+      let b2Key = failed[i].b2Key;
+      if (!b2Key) {
+        const result = await uploadFileToB2(
+          workspaceId,
+          failed[i].file,
+          generateUploadUrl.mutateAsync,
+          recordB2FileUpload.mutateAsync
+        );
+        if (!result.success) {
+          stillFailed.push({
+            ...failed[i],
+            error: (result as B2UploadError).error,
+          });
+          continue;
+        }
+        b2Key = result.b2Key;
+      }
+
+      try {
         await createImage.mutateAsync({
           workspaceId,
-          b2Key: result.b2Key,
+          b2Key,
           imageUrl: "",
           sessionId: activeSessionId ?? undefined,
         });
-      } else {
-        stillFailed.push({ ...failed[i], error: (result as B2UploadError).error });
+      } catch (error) {
+        // HUC-64: the B2 object exists but the record was rejected;
+        // keep the key so the next retry only re-runs createImage.
+        const message = imageRecordErrorMessage(error);
+        stillFailed.push({
+          ...failed[i],
+          error: message,
+          b2Key,
+        });
+        toast.error(`${failed[i].file.name}: ${message}`);
       }
     }
 
@@ -279,7 +344,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       setFailedUploads(stillFailed);
       setPreviewImages(stillFailed.map(f => f.preview));
       setImageFiles(stillFailed.map(f => f.file));
-      toast.error(`${stillFailed.length} image${stillFailed.length !== 1 ? 's' : ''} still failed to upload`);
+      toast.error(`${stillFailed.length} image${stillFailed.length !== 1 ? 's' : ''} still failed to upload or save`);
     } else {
       setFailedUploads([]);
       setPreviewImages([]);
@@ -326,13 +391,19 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         toast.error((result as B2UploadError).error || "Upload failed");
         return;
       }
-      await createImage.mutateAsync({
-        workspaceId,
-        b2Key: result.b2Key,
-        imageUrl: "",
-        sessionId: activeSessionId,
-      });
-      toast.success("Clipboard image saved to this call");
+      try {
+        await createImage.mutateAsync({
+          workspaceId,
+          b2Key: result.b2Key,
+          imageUrl: "",
+          sessionId: activeSessionId,
+        });
+        toast.success("Clipboard image saved to this call");
+      } catch (error) {
+        // HUC-64: otherwise the rejected mutation becomes an unhandled
+        // promise rejection with no user-visible reason.
+        toast.error(imageRecordErrorMessage(error));
+      }
     };
 
     window.addEventListener("paste", onPaste);
