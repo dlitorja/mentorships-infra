@@ -44,7 +44,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Cannot share a deleted file" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    // Unassigned files must be triaged before sharing, for every role
+    // (including admins). The Convex mutation enforces the same rule.
+    if (upload.instructorId === undefined) {
+      return NextResponse.json(
+        { error: "Assign this file to an instructor before sharing it" },
+        { status: 403 }
+      );
+    }
+
+    const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
     if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized to share this file" }, { status: 403 });
     }

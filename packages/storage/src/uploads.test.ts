@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { ListPartsCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { ListPartsCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand, CreateMultipartUploadCommand } from "@aws-sdk/client-s3";
 
 vi.mock("@aws-sdk/client-s3", async () => {
   const actual = await vi.importActual<typeof import("@aws-sdk/client-s3")>(
@@ -289,6 +289,25 @@ describe("initiateMultipartUpload", () => {
     expect(result.partCount).toBe(1);
     expect(result.presignedUrls).toHaveLength(1);
     expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the unassigned key segment when no instructor is provided", async (): Promise<void> => {
+    mockSend.mockResolvedValue({ UploadId: "upload-123" });
+
+    await initiateMultipartUpload({
+      fileId: "file-123",
+      filename: "test.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+    });
+
+    const createCall = mockSend.mock.calls.find(
+      ([command]) => command instanceof CreateMultipartUploadCommand
+    );
+    expect(createCall).toBeDefined();
+    expect(createCall?.[0].input.Key).toMatch(
+      /\/unassigned\/file-123\/test\.mp4$/
+    );
   });
 
   it("retries on retryable B2 server errors and then succeeds", async (): Promise<void> => {

@@ -424,3 +424,36 @@ test("resolveShareByToken: owning instructor sees file_missing when file is dele
 
   expect(result.kind).toBe("file_missing");
 });
+
+test("createShareLink: rejects an unassigned upload for every role", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_share_unassigned";
+  const instructorId = "inst_share_unassigned";
+  const uploadId = "upload_share_unassigned";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await ctx.db.insert("instructorUploads", {
+      filename: `key/${uploadId}`,
+      originalName: `${uploadId}.mp4`,
+      contentType: "video/mp4",
+      size: 1024,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: uploadId,
+    });
+  });
+
+  for (const subject of [adminId, instructorId]) {
+    await expect(
+      t.withIdentity({ subject }).mutation(api.hdShareLinks.createShareLink, {
+        uploadLegacyId: uploadId,
+        token: `token-${subject}`,
+      })
+    ).rejects.toThrow("Assign this file to an instructor before sharing it");
+  }
+});

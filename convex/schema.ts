@@ -1265,7 +1265,12 @@ export default defineSchema({
     .index("by_placeholder", ["lastUpdatedAt"]),
 
   instructorUploads: defineTable({
-    instructorId: v.string(),
+    // Unassigned uploads (widen): `undefined` means the file has not been
+    // assigned to an instructor yet. Admins or video editors can upload
+    // without picking an instructor, then an admin assigns one later via
+    // `instructorUploads.assignUploadInstructor`. Access to unassigned
+    // rows is limited to admins and the uploader (`uploadedById`).
+    instructorId: v.optional(v.string()),
     filename: v.string(),
     originalName: v.string(),
     contentType: v.string(),

@@ -10,7 +10,7 @@ interface ExpiredDeletion {
   originalName: string;
   deletedAt: number;
   daysExpired: number;
-  instructorId: string;
+  instructorId?: string;
   size: number;
 }
 

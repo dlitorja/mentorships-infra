@@ -17,7 +17,8 @@ const ExpiredDeletionSchema = z.object({
   s3Key: z.string().optional(),
   originalName: z.string(),
   deletedAt: z.number(),
-  instructorId: z.string(),
+  // `undefined` for unassigned uploads.
+  instructorId: z.string().optional(),
   size: z.number(),
 });
 

@@ -51,6 +51,12 @@ export const createShareLink = mutation({
       .first();
     if (!upload) throw new Error("Upload not found");
     if (upload.status === "deleted") throw new Error("Cannot share a deleted file");
+    // Unassigned uploads must be triaged before they can be exposed via a
+    // public share link. Enforced here (not only in the route) so a
+    // direct public-mutation caller cannot bypass it.
+    if (upload.instructorId === undefined) {
+      throw new Error("Assign this file to an instructor before sharing it");
+    }
 
     const existing = await ctx.db
       .query("hdShareLinks")
@@ -237,7 +243,13 @@ export const resolveShareByToken = query({
     if (!upload) {
       upload = await ctx.db.get(share.uploadId);
     }
-    if (!upload || upload.status === "deleted") {
+    // Defense in depth: an unassigned upload is not shareable, even if a
+    // share row was created before this rule (or written directly).
+    if (
+      !upload ||
+      upload.status === "deleted" ||
+      upload.instructorId === undefined
+    ) {
       return { kind: "file_missing" as const };
     }
 

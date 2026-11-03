@@ -9,7 +9,8 @@ type UploadStatus = "pending" | "uploading" | "completed" | "archived" | "failed
 interface Upload {
   _id: string;
   legacyId?: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
   filename: string;
   originalName: string;
   contentType: string;

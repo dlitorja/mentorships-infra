@@ -88,11 +88,26 @@ async function withRetry<T>(
   throw lastError;
 }
 
-function generateKey(instructorId: string, fileId: string, filename: string): string {
+/**
+ * Prefix used for files uploaded before an instructor is assigned.
+ * Keys are opaque and are never rewritten when a file is assigned, so
+ * this segment survives reassignment by design.
+ */
+export const UNASSIGNED_STORAGE_SEGMENT = "unassigned";
+
+function generateKey(
+  instructorId: string | undefined,
+  fileId: string,
+  filename: string
+): string {
   const safeSegment = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, "_");
   const date = new Date().toISOString().split("T")[0];
-  return `${date}/${safeSegment(instructorId)}/${safeSegment(fileId)}/${sanitizedFilename}`;
+  const ownerSegment =
+    instructorId === undefined
+      ? UNASSIGNED_STORAGE_SEGMENT
+      : safeSegment(instructorId);
+  return `${date}/${ownerSegment}/${safeSegment(fileId)}/${sanitizedFilename}`;
 }
 
 export async function initiateMultipartUpload(params: {
@@ -100,7 +115,10 @@ export async function initiateMultipartUpload(params: {
   filename: string;
   contentType: string;
   size: number;
-  instructorId: string;
+  // Omitted for unassigned uploads: the object key uses the
+  // `unassigned` segment and is not rewritten when an admin later
+  // assigns an instructor.
+  instructorId?: string;
 }): Promise<UploadInit> {
   if (!Number.isFinite(params.size) || params.size <= 0) {
     throw new Error("Invalid file size");

@@ -64,7 +64,10 @@ export async function requireVideoEditor(): Promise<User> {
   return dbUser as User;
 }
 
-export async function canAccessInstructorData(instructorId: string): Promise<boolean> {
+export async function canAccessInstructorData(
+  instructorId: string | undefined,
+  uploadedById?: string
+): Promise<boolean> {
   const { userId, getToken } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
@@ -74,6 +77,14 @@ export async function canAccessInstructorData(instructorId: string): Promise<boo
 
   if (dbUser.role === "admin") return true;
   const canonicalUserId = dbUser.userId;
+
+  // Unassigned uploads are visible to the uploader only (admins already
+  // returned above). Instructors and other editors cannot see a file
+  // that has not been assigned to them yet.
+  if (instructorId === undefined) {
+    return uploadedById !== undefined && uploadedById === canonicalUserId;
+  }
+
   if (dbUser.role === "instructor" && instructorId === canonicalUserId) return true;
   if (dbUser.role === "video_editor") {
     return await fetchQuery(api.videoEditorAssignments.isVideoEditorAssignedToInstructor, {
