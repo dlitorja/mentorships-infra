@@ -226,6 +226,32 @@ async function authorizeShareCaller(
   return { kind: "forbidden", upload: null };
 }
 
+export type ResolveShareResult =
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "not_found" }
+  | { kind: "file_missing" }
+  | { kind: "revoked"; revokedAt: number }
+  | { kind: "expired"; expiresAt: number }
+  | {
+      kind: "ok";
+      share: {
+        id: Id<"hdShareLinks">;
+        token: string;
+        createdByUserId: string;
+        createdAt: number;
+        expiresAt: number | null;
+        label: string | null;
+      };
+      upload: {
+        id: Id<"instructorUploads">;
+        originalName: string;
+        contentType: string;
+        size: number;
+        filename: string;
+      };
+    };
+
 /**
  * Cheap live check used by the Edge Worker on every share-cache hit.
  *
@@ -283,10 +309,10 @@ export const resolveShareByToken = query({
   args: {
     token: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ResolveShareResult> => {
     const user = await getCurrentUser(ctx);
     if (!user) {
-      return { kind: "unauthenticated" as const };
+      return { kind: "unauthenticated" };
     }
 
     const share = await ctx.db
@@ -295,12 +321,14 @@ export const resolveShareByToken = query({
       .first();
 
     if (!share) {
-      return { kind: "not_found" as const };
+      return { kind: "not_found" };
     }
 
     const auth = await authorizeShareCaller(ctx, user, share);
     if (auth.kind !== "allowed") {
-      return { kind: auth.kind };
+      return auth.kind === "unauthenticated"
+        ? { kind: "unauthenticated" }
+        : { kind: "forbidden" };
     }
     let upload = auth.upload;
 
