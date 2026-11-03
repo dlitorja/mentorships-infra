@@ -269,7 +269,19 @@ function b2Post<T>(auth: B2Auth, fn: string, body: unknown): Promise<T> {
   });
 }
 
+/**
+ * Resolve the recordings bucket id.
+ *
+ * Prefers `RECORDINGS_BUCKET_ID` because the Convex deployment's key does
+ * not carry the `listBuckets` capability (B2 answers `unauthorized`), and
+ * a reconciliation job should not need account-wide listing rights just to
+ * find one bucket. `b2_list_buckets` stays as a fallback for keys that do
+ * have it.
+ */
 async function resolveBucketId(auth: B2Auth, bucketName: string): Promise<string> {
+  const configured = process.env.RECORDINGS_BUCKET_ID?.trim();
+  if (configured) return configured;
+
   const data = await b2Post<{ buckets: Array<{ bucketName: string; bucketId: string }> }>(
     auth,
     "b2_list_buckets",
@@ -277,7 +289,10 @@ async function resolveBucketId(auth: B2Auth, bucketName: string): Promise<string
   );
   const bucket = data.buckets.find((b) => b.bucketName === bucketName);
   if (!bucket) {
-    throw new Error(`Recordings bucket "${bucketName}" not found in the B2 account`);
+    throw new Error(
+      `Recordings bucket "${bucketName}" not found in the B2 account. ` +
+        "If this key cannot list buckets, set RECORDINGS_BUCKET_ID instead."
+    );
   }
   return bucket.bucketId;
 }
