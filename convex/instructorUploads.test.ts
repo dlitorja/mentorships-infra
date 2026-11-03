@@ -695,3 +695,41 @@ test("assignUploadInstructor: admin can reassign an upload", async () => {
   );
   expect(updated?.instructorId).toBe(toInstructorId);
 });
+
+test("assignUploadInstructor: an instructor change revokes existing share links", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_revoke_shares_on_unassign";
+  const instructorId = "inst_revoke_shares_on_unassign";
+  const uploadId = "upload_revoke_shares_on_unassign";
+  const shareToken = "revoke-shares-on-unassign-123456789";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUpload(ctx, uploadId, instructorId);
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first();
+    await ctx.db.insert("hdShareLinks", {
+      uploadId: upload!._id,
+      token: shareToken,
+      createdByUserId: adminId,
+      createdAt: Date.now(),
+    });
+  });
+
+  await t.withIdentity({ subject: adminId }).mutation(
+    api.instructorUploads.assignUploadInstructor,
+    { id: uploadId, instructorId: null }
+  );
+
+  const share = await t.run(async (ctx) =>
+    ctx.db
+      .query("hdShareLinks")
+      .withIndex("by_token", (q) => q.eq("token", shareToken))
+      .first()
+  );
+  expect(share?.revokedAt).toBeDefined();
+});

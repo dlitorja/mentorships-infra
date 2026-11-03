@@ -457,3 +457,68 @@ test("createShareLink: rejects an unassigned upload for every role", async () =>
     ).rejects.toThrow("Assign this file to an instructor before sharing it");
   }
 });
+
+test("listActiveShareTokensForUpload: admin gets active tokens only", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_list_share_tokens";
+  const instructorId = "inst_list_share_tokens";
+  const uploadId = "upload_list_share_tokens";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUpload(ctx, uploadId, instructorId);
+    await seedShare(ctx, "active-token-list-share-1234567890", uploadId, adminId);
+    await seedShare(ctx, "revoked-token-list-share-123456789", uploadId, adminId, {
+      revokedAt: Date.now(),
+    });
+    await seedShare(ctx, "expired-token-list-share-123456789", uploadId, adminId, {
+      expiresAt: Date.now() - 1000,
+    });
+  });
+
+  const tokens = await t
+    .withIdentity({ subject: adminId })
+    .query(api.hdShareLinks.listActiveShareTokensForUpload, {
+      uploadLegacyId: uploadId,
+    });
+  expect(tokens).toEqual(["active-token-list-share-1234567890"]);
+
+  await expect(
+    t
+      .withIdentity({ subject: instructorId })
+      .query(api.hdShareLinks.listActiveShareTokensForUpload, {
+        uploadLegacyId: uploadId,
+      })
+  ).rejects.toThrow("only admins");
+});
+
+test("resolveShareByToken: an unassigned upload is unavailable", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_resolve_unassigned";
+  const uploadId = "upload_resolve_unassigned";
+  const token = "test-token-resolve-unassigned-123456";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await ctx.db.insert("instructorUploads", {
+      filename: `key/${uploadId}`,
+      originalName: `${uploadId}.mp4`,
+      contentType: "video/mp4",
+      size: 1024,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: uploadId,
+    });
+    await seedShare(ctx, token, uploadId, adminId);
+  });
+
+  const result = await t
+    .withIdentity({ subject: adminId })
+    .query(api.hdShareLinks.resolveShareByToken, { token });
+
+  expect(result.kind).toBe("file_missing");
+});

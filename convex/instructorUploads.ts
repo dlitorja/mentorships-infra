@@ -725,6 +725,24 @@ export const assignUploadInstructor = mutation({
       updatedAt: Date.now(),
     });
 
+    // Changing the instructor invalidates existing share links: an
+    // unassigned file must not remain shareable, and a reassigned file
+    // must not keep serving the previous instructor from a cached share.
+    // Marking the rows revoked handles the share list and the Worker's
+    // live resolve; the Next route additionally writes the Worker's KV
+    // revocation markers before calling this mutation so cached entries
+    // stop immediately.
+    const shares = await ctx.db
+      .query("hdShareLinks")
+      .withIndex("by_uploadId", (q) => q.eq("uploadId", upload._id))
+      .collect();
+    const now = Date.now();
+    for (const share of shares) {
+      if (share.revokedAt === undefined) {
+        await ctx.db.patch(share._id, { revokedAt: now });
+      }
+    }
+
     return {
       success: true,
       action:

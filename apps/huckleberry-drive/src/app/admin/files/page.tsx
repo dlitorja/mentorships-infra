@@ -230,7 +230,8 @@ setDownloadingIds((prev) => {
   }, [handleFilesChange]);
 
   const handleAssignInstructor = useCallback(async (fileId: string) => {
-    if (!assignInstructorId) return;
+    // Empty string is a valid value here ("Unassigned"), so do not guard
+    // on it — the Save button is disabled when nothing changed.
     setIsAssigning(true);
     try {
       // Empty string means "Unassigned"; the API expects null.

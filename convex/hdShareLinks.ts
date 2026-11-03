@@ -184,6 +184,38 @@ export const listMyShareLinks = query({
   },
 });
 
+/**
+ * Admin-only: list the active share tokens for an upload. Used before an
+ * instructor assignment change so the Next route can write the worker's
+ * KV revocation markers for every cached share of that file.
+ */
+export const listActiveShareTokensForUpload = query({
+  args: { uploadLegacyId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    if (user.role !== "admin") {
+      throw new Error(
+        "Forbidden: only admins can list share links for an upload"
+      );
+    }
+
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.uploadLegacyId))
+      .first();
+    if (!upload) return [];
+
+    const shares = await ctx.db
+      .query("hdShareLinks")
+      .withIndex("by_uploadId", (q) => q.eq("uploadId", upload._id))
+      .collect();
+    const now = Date.now();
+    return shares
+      .filter((share) => isActive(share, now))
+      .map((share) => share.token);
+  },
+});
+
 export const resolveShareByToken = query({
   args: {
     token: v.string(),

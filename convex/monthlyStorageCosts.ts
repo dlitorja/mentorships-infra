@@ -11,13 +11,20 @@ async function isAdmin(ctx: QueryCtx, subject: string): Promise<boolean> {
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", subject))
     .first();
-  const user =
-    byUserId ??
-    (await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", subject))
-      .first());
-  return user?.role === "admin" && user.deletedAt === undefined;
+  if (byUserId?.role === "admin" && byUserId.deletedAt === undefined) {
+    return true;
+  }
+
+  // Do not stop at a non-admin `by_userId` row: linked accounts can have
+  // multiple rows sharing one Clerk id, and the admin row may be the
+  // `clerkId` match. Check every row for an active admin.
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", subject))
+    .collect();
+  return byClerkId.some(
+    (user) => user.role === "admin" && user.deletedAt === undefined
+  );
 }
 
 export const list = query({
