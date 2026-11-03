@@ -60,7 +60,12 @@ export interface CostData {
 }
 
 export interface CostResponse {
-  currentMonth: CostData;
+  /**
+   * `null` when no cost record has been recorded for the current
+   * month. Callers must render an explicit "not measured" state —
+   * never coerce this to `$0.00`.
+   */
+  currentMonth: CostData | null;
   historical: CostData[];
 }
 

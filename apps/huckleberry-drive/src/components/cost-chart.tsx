@@ -16,9 +16,17 @@ import type { CostData } from "@/lib/api";
 
 interface CostChartProps {
   costs: CostData[];
+  /**
+   * Whether `costs[0]` is the current month. When false the newest entry is
+   * historical, and labelling its total "current month" would be wrong.
+   */
+  currentMonthIncluded?: boolean;
 }
 
-export function CostChart({ costs }: CostChartProps): React.ReactElement {
+export function CostChart({
+  costs,
+  currentMonthIncluded = false,
+}: CostChartProps): React.ReactElement {
   const formatMonth = (month: string): string => {
     const [year, monthNum] = month.split("-");
     const date = new Date(parseInt(year), parseInt(monthNum) - 1);
@@ -127,7 +135,9 @@ export function CostChart({ costs }: CostChartProps): React.ReactElement {
       {data.length > 0 && (
         <div className="mt-4 pt-4 border-t border-slate-700">
           <div className="flex justify-between items-center">
-            <span className="text-slate-400">Total (current month)</span>
+            <span className="text-slate-400">
+              {currentMonthIncluded ? "Total (current month)" : "Total (latest recorded month)"}
+            </span>
             <span className="text-xl font-bold text-emerald-400">
               ${(data[0]?.total || 0).toFixed(2)}
             </span>
