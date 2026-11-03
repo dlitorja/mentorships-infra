@@ -31,7 +31,7 @@
  *   ... --apply --key "recordings/kd7abc/rec.mp4"
  *
  *   # 4. remove the leftover size-probe files from the recordings bucket
- *   ... --apply --purge-probes
+ *   ... --apply --purge-probes     # additive: migrates AND purges
  *
  * Env:
  *   RECORDINGS_BUCKET_NAME  target (default `mentorship-call-storage`)
@@ -193,7 +193,10 @@ async function main() {
       );
       console.log(`deleted probe ${config.target}/${probe.Key}`);
     }
-    if (!args.key) return;
+    // NOTE: do NOT return here. `--purge-probes` is additive: an operator
+    // running the script expects the migration to happen too. Returning
+    // early made `--apply --purge-probes` delete the probes and quietly
+    // skip every recording (hit in production on 2026-11-03).
   }
 
   const objects = args.key
