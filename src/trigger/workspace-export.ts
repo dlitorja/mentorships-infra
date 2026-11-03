@@ -10,11 +10,36 @@ const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const B2_KEY_ID = process.env.B2_KEY_ID;
 const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
-const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
-const B2_REGION = process.env.B2_REGION || "us-west-002";
-const B2_ENDPOINT = process.env.B2_ENDPOINT || `https://s3.${B2_REGION}.backblazeb2.com`;
+// Workspace exports read workspace file objects and write the ZIP back
+// beside them, so every B2 call here targets the WORKSPACE bucket, not
+// the generic `B2_BUCKET_NAME` (video-editor uploads). They were
+// different buckets in production, which made every export fail with
+// NoSuchKey.
+const WORKSPACE_BUCKET = process.env.WORKSPACE_STORAGE_BUCKET_NAME;
+const B2_REGION =
+  process.env.WORKSPACE_STORAGE_BUCKET_REGION ||
+  process.env.B2_REGION ||
+  "us-east-005";
+// Derive from the workspace region instead of falling back to the generic
+// `B2_ENDPOINT`: that endpoint points at a *different* bucket's region
+// (us-west-002 historically), so reusing it would send workspace uploads
+// to the wrong host even when the region is right.
+const B2_ENDPOINT =
+  process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
+  `https://s3.${B2_REGION}.backblazeb2.com`;
 
 const EXPORT_URL_EXPIRY_DAYS = 7;
+
+function getWorkspaceBucket(): string {
+  if (!WORKSPACE_BUCKET) {
+    throw new Error(
+      "WORKSPACE_STORAGE_BUCKET_NAME is not set. Workspace exports must not " +
+        "fall back to B2_BUCKET_NAME — workspace objects live in a dedicated " +
+        "bucket, so a fallback silently exports the wrong (empty) set."
+    );
+  }
+  return WORKSPACE_BUCKET;
+}
 
 function getB2Client(): S3Client {
   if (!B2_KEY_ID || !B2_APPLICATION_KEY) {
@@ -116,7 +141,7 @@ async function uploadZipToB2(
 
   await client.send(
     new PutObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       Body: zipBuffer,
       ContentType: "application/zip",
@@ -130,7 +155,7 @@ async function uploadZipToB2(
   return getSignedUrl(
     client,
     new GetObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
@@ -381,7 +406,7 @@ async function uploadPdfToB2(
 
   await client.send(
     new PutObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       Body: pdfBuffer,
       ContentType: "application/pdf",
@@ -392,7 +417,7 @@ async function uploadPdfToB2(
   return getSignedUrl(
     client,
     new GetObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
@@ -413,7 +438,7 @@ async function uploadMarkdownToB2(
 
   await client.send(
     new PutObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       Body: markdownBuffer,
       ContentType: "text/markdown",
@@ -424,7 +449,7 @@ async function uploadMarkdownToB2(
   return getSignedUrl(
     client,
     new GetObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: getWorkspaceBucket(),
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
