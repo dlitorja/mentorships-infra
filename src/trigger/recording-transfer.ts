@@ -5,7 +5,10 @@ import {
   getDailyRecordingAccessLink,
   deleteDailyRecording,
 } from "../../apps/platform/lib/daily";
-import { uploadFromUrl, headFile } from "@mentorships/storage";
+import {
+  uploadRecordingFromUrl,
+  headRecordingFile,
+} from "@mentorships/storage";
 import { createRecordingCleanup } from "./lib/recording-cleanup";
 
 const CONVEX_DEPLOYMENT_URL = (
@@ -19,7 +22,9 @@ const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const CALLBACK_SECRET = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
 
 const { verifyB2Recording, attemptDailyCleanup } = createRecordingCleanup({
-  headFile,
+  // Reads from the recordings bucket, not the shared B2 bucket — the
+  // verification HEAD must hit the same bucket the upload wrote to.
+  headFile: headRecordingFile,
   deleteDailyRecording,
   notify: (path, body) =>
     convexCallback(path, body as unknown as CallbackBody),
@@ -176,7 +181,7 @@ export const transferDailyRecordingToB2 = task({
     // A stable key makes retries overwrite the same object instead of
     // leaking one B2 object whenever upload succeeds but the callback fails.
     const b2Key = `recordings/${payload.sessionId}/${encodeURIComponent(payload.recordingId)}.mp4`;
-    const uploadResult = await uploadFromUrl({
+    const uploadResult = await uploadRecordingFromUrl({
       sourceUrl: downloadUrl,
       key: b2Key,
       contentType: "video/mp4",

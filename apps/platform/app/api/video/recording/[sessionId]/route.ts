@@ -4,8 +4,8 @@ import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import {
-  getStreamUrl,
-  getDownloadUrlWithContentDisposition,
+  getRecordingStreamUrl,
+  getRecordingDownloadUrl,
 } from "@mentorships/storage";
 import { convexIdSchema } from "@/lib/validators";
 import { recordingDownloadFilename } from "@/lib/video/recording-filename";
@@ -17,10 +17,10 @@ export const runtime = "nodejs";
  * PR #4c-1: returns a short-lived signed B2 URL for a session's
  * call recording. Two flavours:
  *
- *   ?kind=stream    → `getStreamUrl(key, "video/mp4", 3600)`
+ *   ?kind=stream    → `getRecordingStreamUrl(key, contentType, 3600)`
  *                     → returned as `<video src>` in the modal.
  *
- *   ?kind=download  → `getDownloadUrlWithContentDisposition(...)`
+ *   ?kind=download  → `getRecordingDownloadUrl(key, filename, 3600)`
  *                     → returned as `<a href download>` so the
  *                       browser saves the file with a clean name.
  *
@@ -98,7 +98,7 @@ export async function GET(
         participant.callStartedAt,
         participant.recordingS3Key
       );
-      const url = await getDownloadUrlWithContentDisposition(
+      const url = await getRecordingDownloadUrl(
         participant.recordingS3Key,
         filename,
         ttlSeconds
@@ -118,7 +118,7 @@ export async function GET(
       // 302 redirect to the signed B2 URL so the browser follows
       // the redirect and B2 serves the file with
       // `Content-Disposition: attachment; filename="..."` baked
-      // into the signed URL by `getDownloadUrlWithContentDisposition`.
+      // into the signed URL by `getRecordingDownloadUrl`.
       // Returning JSON here would cause the browser to save the
       // JSON payload instead of the video.
       const redirectResponse = NextResponse.redirect(url, 302);
@@ -126,7 +126,7 @@ export async function GET(
       return redirectResponse;
     }
 
-    const url = await getStreamUrl(
+    const url = await getRecordingStreamUrl(
       participant.recordingS3Key,
       participant.contentType,
       ttlSeconds
