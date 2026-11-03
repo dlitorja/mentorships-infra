@@ -5,15 +5,17 @@ import {
   listB2Objects,
 } from "@mentorships/storage";
 import {
-  classifyRecordingObjects,
+  runReconciliation,
+  type AlertResult,
   type DriftItem,
-  type ReconSessionRow,
-  type RecordingObject,
-} from "./lib/recording-reconciliation";
+  type ReconciliationSummary,
+} from "./lib/run-recording-reconciliation";
+import type { ReconSessionRow } from "./lib/recording-reconciliation";
 
 const RECORDINGS_PREFIX = "recordings/";
 const SESSIONS_PATH = "/recordings-reconciliation/sessions";
 const MAX_LIST_PAGES = 200;
+const MAX_SESSION_PAGES = 200;
 
 const CONVEX_DEPLOYMENT_URL = (
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL
@@ -23,72 +25,53 @@ const CONVEX_DEPLOYMENT_URL = (
   .replace(/\.convex\.cloud$/, ".convex.site");
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
-type Summary = {
-  bucket: string;
-  scanned: number;
-  truncated: boolean;
-  healthy: number;
-  skippedInFlight: number;
-  drift: number;
-  purgedButPresent: number;
-  orphans: number;
-  expiredNotPurged: number;
-  deleted: number;
-  deleteFailures: string[];
-  alert: "sent" | "skipped" | "failed";
-};
-
-async function fetchSessions(): Promise<ReconSessionRow[]> {
+/**
+ * Session rows are paginated server-side: the `sessions` table grows with
+ * all history, so a single unpaginated read eventually exceeds Convex's
+ * per-query read limits and would fail the whole weekly job.
+ */
+async function fetchAllSessions(): Promise<ReconSessionRow[]> {
   if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
     throw new Error("Convex deployment URL or HTTP key not configured");
   }
-  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}${SESSIONS_PATH}`, {
-    headers: { Authorization: `Bearer ${CONVEX_HTTP_KEY}` },
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(
-      `Convex ${SESSIONS_PATH} failed: ${response.status} ${text.slice(0, 200)}`
-    );
-  }
-  const body = (await response.json()) as { sessions?: ReconSessionRow[] };
-  return body.sessions ?? [];
-}
 
-async function listRecordings(bucket: string): Promise<{
-  objects: RecordingObject[];
-  truncated: boolean;
-}> {
-  const objects: RecordingObject[] = [];
-  let continuationToken: string | undefined;
+  const sessions: ReconSessionRow[] = [];
+  let cursor: string | null = null;
 
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const result = await listB2Objects({
-      bucket,
-      prefix: RECORDINGS_PREFIX,
-      maxKeys: 1000,
-      continuationToken,
+  for (let page = 0; page < MAX_SESSION_PAGES; page++) {
+    const url = new URL(`${CONVEX_DEPLOYMENT_URL}${SESSIONS_PATH}`);
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${CONVEX_HTTP_KEY}` },
     });
-
-    for (const object of result.objects) {
-      objects.push({
-        key: object.key,
-        size: object.size,
-        lastModified: new Date(object.lastModified).getTime(),
-      });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `Convex ${SESSIONS_PATH} failed: ${response.status} ${text.slice(0, 200)}`
+      );
     }
 
-    if (!result.isTruncated || !result.nextContinuationToken) {
-      return { objects, truncated: false };
-    }
-    continuationToken = result.nextContinuationToken;
+    const body = (await response.json()) as {
+      sessions?: ReconSessionRow[];
+      isDone?: boolean;
+      continueCursor?: string | null;
+    };
+    sessions.push(...(body.sessions ?? []));
+
+    if (body.isDone !== false || !body.continueCursor) return sessions;
+    cursor = body.continueCursor;
   }
 
-  // Safety bound only; report it rather than silently claiming a clean scan.
-  return { objects, truncated: true };
+  throw new Error(
+    `Session pagination exceeded ${MAX_SESSION_PAGES} pages — refusing to reconcile with a partial session set`
+  );
 }
 
-async function sendAlert(summary: Summary, drift: DriftItem[]): Promise<Summary["alert"]> {
+async function sendAlert(
+  summary: ReconciliationSummary,
+  drift: DriftItem[]
+): Promise<AlertResult> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM_TRANSACTIONAL ?? process.env.EMAIL_FROM;
   const to =
@@ -138,9 +121,9 @@ async function sendAlert(summary: Summary, drift: DriftItem[]): Promise<Summary[
  *
  * Lives in Trigger rather than Convex because the Convex deployment's B2
  * key cannot use the native API (`b2_list_file_names` → 401
- * `unauthorized`), while the S3-compatible API — which this task uses
- * through `@mentorships/storage` — works there and is already the path
- * the retention cleanup relies on.
+ * `unauthorized`), while the S3-compatible API — used here through
+ * `@mentorships/storage` — works and is already the path the retention
+ * cleanup relies on.
  *
  * See `./lib/recording-reconciliation.ts` for the classification rules
  * and why Event Notifications would not catch this class of drift.
@@ -149,7 +132,7 @@ export const reconcileRecordingsBucket = schedules.task({
   id: "reconcile-recordings-bucket",
   cron: "0 6 * * 0",
   maxDuration: 1800,
-  run: async (payload): Promise<Summary> => {
+  run: async (payload): Promise<ReconciliationSummary> => {
     const bucket = getRecordingsBucketName();
     logger.info("Starting recordings-bucket reconciliation", {
       bucket,
@@ -157,70 +140,17 @@ export const reconcileRecordingsBucket = schedules.task({
       lastTimestamp: payload.lastTimestamp,
     });
 
-    const [sessions, listing] = await Promise.all([
-      fetchSessions(),
-      listRecordings(bucket),
-    ]);
-
-    const now = Date.now();
-    const { drift, healthy, skippedInFlight } = classifyRecordingObjects(
-      listing.objects,
-      sessions,
-      now
-    );
-
-    let deleted = 0;
-    const deleteFailures: string[] = [];
-    for (const item of drift) {
-      if (!item.deletable) continue;
-      try {
-        await deleteRecordingFromB2(item.key);
-        deleted++;
-      } catch (error) {
-        deleteFailures.push(
-          `${item.key}: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-
-    const summary: Summary = {
+    const summary = await runReconciliation({
       bucket,
-      scanned: listing.objects.length,
-      truncated: listing.truncated,
-      healthy,
-      skippedInFlight,
-      drift: drift.length,
-      purgedButPresent: drift.filter((d) => d.kind === "purged_but_present").length,
-      orphans: drift.filter((d) => d.kind === "orphan").length,
-      expiredNotPurged: drift.filter((d) => d.kind === "expired_not_purged").length,
-      deleted,
-      deleteFailures,
-      alert: "skipped",
-    };
-
-    if (drift.length > 0) summary.alert = await sendAlert(summary, drift);
-
-    if (listing.truncated) {
-      // Never report an incomplete scan as clean.
-      logger.error("Recordings listing was truncated — later objects were NOT checked", {
-        bucket,
-        scanned: listing.objects.length,
-        maxPages: MAX_LIST_PAGES,
-      });
-    }
-
-    if (drift.length > 0) {
-      logger.error("Recordings bucket drift detected", {
-        ...summary,
-        driftDetail: drift,
-      });
-    } else {
-      logger.info("Recordings bucket clean", {
-        scanned: summary.scanned,
-        healthy,
-        skippedInFlight,
-      });
-    }
+      prefix: RECORDINGS_PREFIX,
+      maxListPages: MAX_LIST_PAGES,
+      now: () => Date.now(),
+      log: logger,
+      fetchSessions: fetchAllSessions,
+      listObjects: (params) => listB2Objects(params),
+      deleteObject: (key) => deleteRecordingFromB2(key),
+      sendAlert,
+    });
 
     return summary;
   },

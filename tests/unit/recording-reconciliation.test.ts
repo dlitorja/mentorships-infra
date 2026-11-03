@@ -7,6 +7,7 @@ import {
   type ReconSessionRow,
   type RecordingObject,
 } from "../../src/trigger/lib/recording-reconciliation";
+import { runReconciliation } from "../../src/trigger/lib/run-recording-reconciliation";
 
 const modules = import.meta.glob("../../convex/**/*.ts");
 const DAY = 24 * 60 * 60 * 1000;
@@ -170,5 +171,156 @@ describe("GET /recordings-reconciliation/sessions", () => {
     expect(body.count).toBe(1);
     expect(body.sessions[0]).toMatchObject({ status: "failed" });
     expect(body.sessions[0].recordingUrl).toBeUndefined();
+  });
+});
+
+describe("runReconciliation", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = 1_800_000_000_000;
+
+  function deps(overrides: Partial<Parameters<typeof runReconciliation>[0]> = {}) {
+    const deleted: string[] = [];
+    const alerts: Array<{ summary: { drift: number }; drift: unknown[] }> = [];
+    const listCalls: Array<{ continuationToken?: string; bucket: string }> = [];
+
+    const base: Parameters<typeof runReconciliation>[0] = {
+      bucket: "mentorship-call-storage",
+      prefix: "recordings/",
+      maxListPages: 10,
+      now: () => NOW,
+      log: { info: () => {}, error: () => {} },
+      fetchSessions: async () => [],
+      listObjects: async (params) => {
+        listCalls.push({ continuationToken: params.continuationToken, bucket: params.bucket });
+        return { objects: [], isTruncated: false, nextContinuationToken: null };
+      },
+      deleteObject: async (key) => {
+        deleted.push(key);
+      },
+      sendAlert: async (summary, drift) => {
+        alerts.push({ summary: summary as never, drift });
+        return "sent";
+      },
+      ...overrides,
+    };
+    return { base, deleted, alerts, listCalls };
+  }
+
+  it("uses the configured bucket and follows continuation tokens", async () => {
+    const { base, listCalls } = deps({
+      listObjects: async (params) => {
+        listCalls.push({ continuationToken: params.continuationToken, bucket: params.bucket });
+        if (!params.continuationToken) {
+          return {
+            objects: [{ key: "recordings/s1/a.mp4", size: 10, lastModified: NOW }],
+            isTruncated: true,
+            nextContinuationToken: "page-2",
+          };
+        }
+        return {
+          objects: [{ key: "recordings/s2/b.mp4", size: 20, lastModified: NOW }],
+          isTruncated: false,
+          nextContinuationToken: null,
+        };
+      },
+    });
+
+    const summary = await runReconciliation(base);
+
+    expect(listCalls.map((c) => c.bucket)).toEqual([
+      "mentorship-call-storage",
+      "mentorship-call-storage",
+    ]);
+    expect(listCalls[1].continuationToken).toBe("page-2");
+    expect(summary.scanned).toBe(2);
+    expect(summary.truncated).toBe(false);
+  });
+
+  it("deletes purged-but-present objects and counts delete failures", async () => {
+    const { base, deleted } = deps({
+      fetchSessions: async () => [
+        { sessionId: "s1", status: "purged" },
+        { sessionId: "s2", status: "purged" },
+      ],
+      listObjects: async () => ({
+        objects: [
+          { key: "recordings/s1/a.mp4", size: 10, lastModified: NOW - 10 * DAY },
+          { key: "recordings/s2/b.mp4", size: 20, lastModified: NOW - 10 * DAY },
+        ],
+        isTruncated: false,
+        nextContinuationToken: null,
+      }),
+      deleteObject: async (key) => {
+        deleted.push(key);
+        if (key.includes("s2")) throw new Error("access denied");
+      },
+    });
+
+    const summary = await runReconciliation(base);
+
+    expect(deleted).toHaveLength(2);
+    expect(summary.deleted).toBe(1);
+    expect(summary.deleteFailures).toHaveLength(1);
+    expect(summary.deleteFailures[0]).toContain("s2");
+  });
+
+  it("sends exactly one alert for multiple drift items", async () => {
+    const { base, alerts } = deps({
+      listObjects: async () => ({
+        objects: [
+          { key: "recordings/s9/a.mp4", size: 10, lastModified: NOW - 30 * DAY },
+          { key: "recordings/s8/b.mp4", size: 20, lastModified: NOW - 30 * DAY },
+          { key: "recordings/s7/c.mp4", size: 30, lastModified: NOW - 30 * DAY },
+        ],
+        isTruncated: false,
+        nextContinuationToken: null,
+      }),
+    });
+
+    const summary = await runReconciliation(base);
+
+    expect(summary.drift).toBe(3);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].drift).toHaveLength(3);
+    expect(summary.alert).toBe("sent");
+  });
+
+  it("does not alert when everything is healthy", async () => {
+    const { base, alerts } = deps({
+      fetchSessions: async () => [
+        { sessionId: "s1", status: "ready", recordingUrl: "recordings/s1/a.mp4", expiresAt: NOW + DAY },
+      ],
+      listObjects: async () => ({
+        objects: [{ key: "recordings/s1/a.mp4", size: 10, lastModified: NOW }],
+        isTruncated: false,
+        nextContinuationToken: null,
+      }),
+    });
+
+    const summary = await runReconciliation(base);
+
+    expect(summary.healthy).toBe(1);
+    expect(alerts).toHaveLength(0);
+    expect(summary.alert).toBe("skipped");
+  });
+
+  it("reports a truncated listing instead of claiming a clean scan", async () => {
+    let page = 0;
+    const { base } = deps({
+      maxListPages: 2,
+      listObjects: async () => {
+        page++;
+        return {
+          objects: [{ key: `recordings/s${page}/a.mp4`, size: 10, lastModified: NOW }],
+          isTruncated: true,
+          nextContinuationToken: `page-${page + 1}`,
+        };
+      },
+    });
+
+    const summary = await runReconciliation(base);
+
+    expect(summary.truncated).toBe(true);
+    expect(summary.scanned).toBe(2);
   });
 });

@@ -1,3 +1,5 @@
+import { paginationOptsValidator } from "convex/server";
+import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 
 /**
@@ -14,9 +16,14 @@ import { internalQuery } from "./_generated/server";
  * query is served over `/recordings-reconciliation/sessions`.
  */
 export const listSessionsForReconciliation = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    const all = await ctx.db.query("sessions").collect();
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    // Paginated: the table grows with all history, so an unpaginated read
+    // eventually exceeds Convex's per-query read limits and would fail the
+    // whole weekly job.
+    const page = await ctx.db
+      .query("sessions")
+      .paginate(args.paginationOpts);
     const sessions: Array<{
       sessionId: string;
       status?: string;
@@ -24,7 +31,7 @@ export const listSessionsForReconciliation = internalQuery({
       expiresAt?: number;
     }> = [];
 
-    for (const session of all) {
+    for (const session of page.page) {
       const status = session.recordingTransferStatus;
       if (status === undefined) continue;
       sessions.push({
@@ -35,6 +42,11 @@ export const listSessionsForReconciliation = internalQuery({
       });
     }
 
-    return { sessions, count: sessions.length };
+    return {
+      sessions,
+      count: sessions.length,
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
   },
 });

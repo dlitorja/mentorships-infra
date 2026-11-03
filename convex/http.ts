@@ -3409,9 +3409,10 @@ http.route({
 const httpListSessionsForRecordingsReconciliation = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
+  const cursor = new URL(request.url).searchParams.get("cursor");
   const result = await ctx.runQuery(
     internal.recordingsReconciliation.listSessionsForReconciliation,
-    {}
+    { paginationOpts: { cursor, numItems: 500 } }
   );
 
   return new Response(JSON.stringify(result), {
