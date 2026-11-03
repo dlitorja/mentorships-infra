@@ -20,9 +20,12 @@ const B2_REGION =
   process.env.WORKSPACE_STORAGE_BUCKET_REGION ||
   process.env.B2_REGION ||
   "us-east-005";
+// Derive from the workspace region instead of falling back to the generic
+// `B2_ENDPOINT`: that endpoint points at a *different* bucket's region
+// (us-west-002 historically), so reusing it would send workspace uploads
+// to the wrong host even when the region is right.
 const B2_ENDPOINT =
   process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
-  process.env.B2_ENDPOINT ||
   `https://s3.${B2_REGION}.backblazeb2.com`;
 
 const EXPORT_URL_EXPIRY_DAYS = 7;

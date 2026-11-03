@@ -57,10 +57,6 @@ export default defineConfig({
         pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
         pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);
         pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
-        pushIfPresent(
-          "WORKSPACE_STORAGE_BUCKET_NAME",
-          process.env.WORKSPACE_STORAGE_BUCKET_NAME
-        );
         pushIfPresent("RESEND_API_KEY", process.env.RESEND_API_KEY);
         pushIfPresent("EMAIL_FROM", process.env.EMAIL_FROM);
         pushIfPresent("EMAIL_FROM_TRANSACTIONAL", process.env.EMAIL_FROM_TRANSACTIONAL);
@@ -73,29 +69,39 @@ export default defineConfig({
           "CONVEX_TRIGGER_CALLBACK_SECRET",
           process.env.CONVEX_TRIGGER_CALLBACK_SECRET
         );
-        // Bucket/region must ALSO be guarded. They are not secrets, but
-        // `override: true` means a deploy from a machine whose local
-        // `.env.local` still says `instructor-uploads` / `us-west-002`
-        // would silently overwrite the corrected production values and
-        // re-break the tasks that resolve them (video-editor uploads,
-        // bulk downloads, workspace exports). Never emit a code default
-        // over a dashboard value.
-        pushIfPresent("B2_BUCKET_NAME", process.env.B2_BUCKET_NAME);
-        pushIfPresent("B2_REGION", process.env.B2_REGION);
-        pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
-        pushIfPresent("B2_DOWNLOAD_HOST", process.env.B2_DOWNLOAD_HOST);
-        pushIfPresent(
-          "RECORDINGS_BUCKET_NAME",
-          process.env.RECORDINGS_BUCKET_NAME
-        );
-        pushIfPresent(
-          "WORKSPACE_STORAGE_BUCKET_REGION",
-          process.env.WORKSPACE_STORAGE_BUCKET_REGION
-        );
-        pushIfPresent(
-          "WORKSPACE_STORAGE_BUCKET_ENDPOINT",
-          process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT
-        );
+        // Bucket configuration is OPT-IN. `syncEnvVars` uses
+        // `override: true`, so emitting these on every deploy means a
+        // developer whose local `.env.local` still says
+        // `instructor-uploads` / `us-west-002` silently reverts the
+        // corrected dashboard values and re-breaks video-editor uploads,
+        // bulk downloads and recordings. Guarding on "is it set locally"
+        // is not enough — a *stale but present* value is just as harmful.
+        //
+        // The dashboard is therefore the source of truth. Set
+        // SYNC_BUCKET_ENV_TO_TRIGGER=1 to deliberately push the local
+        // bucket config (e.g. from CI when rotating buckets).
+        if (process.env.SYNC_BUCKET_ENV_TO_TRIGGER === "1") {
+          pushIfPresent("B2_BUCKET_NAME", process.env.B2_BUCKET_NAME);
+          pushIfPresent("B2_REGION", process.env.B2_REGION);
+          pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
+          pushIfPresent("B2_DOWNLOAD_HOST", process.env.B2_DOWNLOAD_HOST);
+          pushIfPresent(
+            "RECORDINGS_BUCKET_NAME",
+            process.env.RECORDINGS_BUCKET_NAME
+          );
+          pushIfPresent(
+            "WORKSPACE_STORAGE_BUCKET_NAME",
+            process.env.WORKSPACE_STORAGE_BUCKET_NAME
+          );
+          pushIfPresent(
+            "WORKSPACE_STORAGE_BUCKET_REGION",
+            process.env.WORKSPACE_STORAGE_BUCKET_REGION
+          );
+          pushIfPresent(
+            "WORKSPACE_STORAGE_BUCKET_ENDPOINT",
+            process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT
+          );
+        }
         return emitted;
       }),
     ],
