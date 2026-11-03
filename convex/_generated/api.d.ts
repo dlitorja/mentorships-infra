@@ -21,6 +21,7 @@ import type * as adminRefunds from "../adminRefunds.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as audit_recordingRetentionAudit from "../audit/recordingRetentionAudit.js";
 import type * as audit_recordingTransferAudit from "../audit/recordingTransferAudit.js";
+import type * as audit_recordingsBucketReconciliation from "../audit/recordingsBucketReconciliation.js";
 import type * as audit_sessionWorkspaceAudit from "../audit/sessionWorkspaceAudit.js";
 import type * as audit_videoRoomNameAudit from "../audit/videoRoomNameAudit.js";
 import type * as auditLog from "../auditLog.js";
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   adminWorkspaces: typeof adminWorkspaces;
   "audit/recordingRetentionAudit": typeof audit_recordingRetentionAudit;
   "audit/recordingTransferAudit": typeof audit_recordingTransferAudit;
+  "audit/recordingsBucketReconciliation": typeof audit_recordingsBucketReconciliation;
   "audit/sessionWorkspaceAudit": typeof audit_sessionWorkspaceAudit;
   "audit/videoRoomNameAudit": typeof audit_videoRoomNameAudit;
   auditLog: typeof auditLog;
