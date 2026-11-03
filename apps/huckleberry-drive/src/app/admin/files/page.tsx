@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play, UserPlus, UserCog } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
+import { listFilesWithParams, getAdminInstructors, getAssignableInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
 import { BulkDownloadProgress } from "@/components/bulk-download-progress";
@@ -13,7 +13,10 @@ const UNASSIGNED_FILTER = "__unassigned__";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
+  // All instructor-role users, used for display names on legacy files.
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
+  // Only valid assignment targets (active user + active profile).
+  const [assignableInstructors, setAssignableInstructors] = useState<InstructorOption[]>([]);
   const [pagination, setPagination] = useState<{ cursor: number | null; hasMore: boolean }>({
     cursor: null,
     hasMore: false,
@@ -38,6 +41,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [assigningFileId, setAssigningFileId] = useState<string | null>(null);
   const [assignInstructorId, setAssignInstructorId] = useState<string>("");
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
@@ -154,7 +158,16 @@ setDownloadingIds((prev) => {
       })
       .catch((err) => {
         if (cancelled) return;
-        console.error("Failed to fetch instructors:", err);
+        console.error("Failed to fetch instructor names:", err);
+      });
+    getAssignableInstructors()
+      .then((data) => {
+        if (cancelled) return;
+        setAssignableInstructors(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to fetch assignable instructors:", err);
       });
     return () => {
       cancelled = true;
@@ -233,6 +246,7 @@ setDownloadingIds((prev) => {
     // Empty string is a valid value here ("Unassigned"), so do not guard
     // on it — the Save button is disabled when nothing changed.
     setIsAssigning(true);
+    setAssignError(null);
     try {
       // Empty string means "Unassigned"; the API expects null.
       await assignFileInstructor(fileId, assignInstructorId || null);
@@ -241,7 +255,11 @@ setDownloadingIds((prev) => {
       await handleFilesChange();
     } catch (err) {
       console.error("Assign instructor failed:", err);
-      setError(err instanceof Error ? err.message : "Failed to assign instructor");
+      // Keep the table visible; surface the mutation's message in a
+      // dismissible banner instead of replacing the whole page.
+      setAssignError(
+        err instanceof Error ? err.message : "Failed to assign instructor"
+      );
     } finally {
       setIsAssigning(false);
     }
@@ -375,6 +393,19 @@ setSelectedFileIds(new Set());
           )}
         </div>
       </div>
+
+      {assignError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-center justify-between gap-4">
+          <span className="text-sm text-red-300">{assignError}</span>
+          <button
+            onClick={() => setAssignError(null)}
+            className="text-slate-400 hover:text-white transition-colors"
+            aria-label="Dismiss assignment error"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       <BulkDownloadProgress
         status={bulk.status}
@@ -551,7 +582,21 @@ setSelectedFileIds(new Set());
                                       className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                                     >
                                       <option value="">Unassigned</option>
-                                      {instructors.map((inst) => (
+                                      {/* Preserve a legacy/invalid current
+                                          target in the select so admins can
+                                          see it and move the file to a
+                                          valid instructor. */}
+                                      {assignInstructorId &&
+                                        !assignableInstructors.some(
+                                          (inst) => inst.id === assignInstructorId
+                                        ) && (
+                                          <option value={assignInstructorId}>
+                                            {instructorNameMap[assignInstructorId] ||
+                                              assignInstructorId}{" "}
+                                            (current — not assignable)
+                                          </option>
+                                        )}
+                                      {assignableInstructors.map((inst) => (
                                         <option key={inst.id} value={inst.id}>
                                           {inst.name || inst.email}
                                         </option>
@@ -584,6 +629,7 @@ setSelectedFileIds(new Set());
                                     onClick={() => {
                                       setAssigningFileId(file.id);
                                       setAssignInstructorId(file.instructorId ?? "");
+                                      setAssignError(null);
                                     }}
                                     className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors"
                                     title={

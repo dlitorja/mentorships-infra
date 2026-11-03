@@ -210,8 +210,23 @@ export async function getAdminStats(): Promise<AdminStats> {
   return fetchApi<AdminStats>("/api/admin/stats");
 }
 
+/**
+ * Every user with role "instructor", including legacy profile-less rows.
+ * Use for display names on files that may already point at one of them.
+ */
 export async function getAdminInstructors(): Promise<InstructorOption[]> {
   const data = await fetchApi<{ instructors: InstructorOption[] }>("/api/admin/instructors");
+  return data.instructors;
+}
+
+/**
+ * Only instructors the assignment mutation accepts (active user +
+ * active `instructors` profile). Use for assignment dropdowns.
+ */
+export async function getAssignableInstructors(): Promise<InstructorOption[]> {
+  const data = await fetchApi<{ instructors: InstructorOption[] }>(
+    "/api/admin/instructors?assignable=true"
+  );
   return data.instructors;
 }
 
