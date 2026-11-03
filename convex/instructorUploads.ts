@@ -325,33 +325,32 @@ async function assertActiveInstructorTarget(
   ctx: GenericQueryCtx<DataModel>,
   instructorId: string
 ): Promise<void> {
-  const targetInstructor = await ctx.db
-    .query("instructors")
-    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
-    .first();
-  if (!targetInstructor) {
-    throw new ConvexError("Target instructor not found");
-  }
-  // The instructors profile itself may be soft-deleted. Profile
-  // deletion is independent of users.deletedAt (an admin may
-  // decommission the instructor profile while leaving the user row).
-  // Both must be checked.
-  if (targetInstructor.deletedAt !== undefined) {
-    throw new ConvexError("Target instructor profile is no longer active");
-  }
+  // The authoritative HD target is the users row: uploads and assignments
+  // are keyed by `users.userId`. The public `instructors` profile is
+  // optional (the seeded profiles are not linked), but if a profile exists
+  // its soft-delete still means the instructor was decommissioned.
   const targetUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", instructorId))
     .first();
-  if (targetUser?.deletedAt !== undefined) {
+  if (!targetUser) {
+    throw new ConvexError("Target instructor not found");
+  }
+  if (targetUser.deletedAt !== undefined) {
     throw new ConvexError("Target instructor is no longer active");
   }
-  // Role changes can leave an instructors profile row intact while
-  // demoting the user out of the instructor role. Without this check,
-  // an editor with open access could submit a former-instructor's
-  // userId and create a file in a non-instructor's storage.
-  if (targetUser?.role !== "instructor") {
+  // Role changes must also be rejected: a former instructor's userId must
+  // not receive files just because it still exists.
+  if (targetUser.role !== "instructor") {
     throw new ConvexError("Target is no longer an instructor");
+  }
+
+  const targetInstructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  if (targetInstructor?.deletedAt !== undefined) {
+    throw new ConvexError("Target instructor profile is no longer active");
   }
 }
 
@@ -366,22 +365,26 @@ async function isActiveInstructorTarget(
   ctx: GenericQueryCtx<DataModel>,
   instructorId: string
 ): Promise<boolean> {
-  const targetInstructor = await ctx.db
-    .query("instructors")
-    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
-    .first();
-  if (!targetInstructor || targetInstructor.deletedAt !== undefined) {
-    return false;
-  }
   const targetUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", instructorId))
     .first();
-  return (
-    targetUser !== null &&
-    targetUser.deletedAt === undefined &&
-    targetUser.role === "instructor"
-  );
+  if (
+    targetUser === null ||
+    targetUser.deletedAt !== undefined ||
+    targetUser.role !== "instructor"
+  ) {
+    return false;
+  }
+
+  const targetInstructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  if (targetInstructor?.deletedAt !== undefined) {
+    return false;
+  }
+  return true;
 }
 
 /**

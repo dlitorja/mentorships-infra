@@ -734,7 +734,7 @@ test("assignUploadInstructor: an instructor change revokes existing share links"
   expect(share?.revokedAt).toBeDefined();
 });
 
-test("assignUploadInstructor: readable error when the target has no instructor profile", async () => {
+test("assignUploadInstructor: assigns to an active instructor user without a profile", async () => {
   const t = convexTest(schema, modules);
   const adminId = "admin_assign_no_profile";
   const targetUserId = "instructor_user_without_profile";
@@ -742,8 +742,9 @@ test("assignUploadInstructor: readable error when the target has no instructor p
 
   await t.run(async (ctx) => {
     await seedUser(ctx, adminId, "admin");
-    // Role only; no `instructors` profile row. This is the state the old
-    // admin dropdown surfaced, and it caused a generic Server Error.
+    // Role only; no `instructors` profile row. HD keys uploads by
+    // `users.userId`, so this is a valid target (the seeded public
+    // profiles are not linked to user rows).
     await seedUser(ctx, targetUserId, "instructor");
     await seedUnassignedUpload(ctx, uploadId);
   });
@@ -753,5 +754,62 @@ test("assignUploadInstructor: readable error when the target has no instructor p
       api.instructorUploads.assignUploadInstructor,
       { id: uploadId, instructorId: targetUserId }
     )
+  ).resolves.toEqual({ success: true, action: "assigned" });
+
+  const updated = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first()
+  );
+  expect(updated?.instructorId).toBe(targetUserId);
+});
+
+test("assignUploadInstructor: readable error when the target user does not exist", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_missing_user";
+  const uploadId = "upload_assign_missing_user";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUnassignedUpload(ctx, uploadId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId: "user_does_not_exist" }
+    )
   ).rejects.toMatchObject({ data: "Target instructor not found" });
+});
+
+test("createUpload: video editor can delegate to an instructor user without a profile", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_unlinked_delegate";
+  const editorId = "editor_unlinked_delegate";
+
+  await t.run(async (ctx) => {
+    // Active instructor user, no `instructors` profile row.
+    await seedUser(ctx, instructorId, "instructor");
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const upload = await t
+    .withIdentity({ subject: editorId })
+    .mutation(api.instructorUploads.createUpload, {
+      id: "upload_unlinked_delegate",
+      instructorId,
+      filename: "key/upload_unlinked_delegate",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: editorId,
+    });
+
+  expect(upload?.instructorId).toBe(instructorId);
 });
