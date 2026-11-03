@@ -126,6 +126,12 @@ export default function CostsPage(): React.ReactElement {
     (currentMonth?.b2ApiCost ?? 0);
   const s3StorageOnly = currentMonth?.s3StorageCost ?? 0;
 
+  // The chart and the breakdown table both need the current month when it
+  // exists. Keeping it out of `costs` (which is historical-only) dropped a
+  // recorded current month from both and made the chart label the newest
+  // historical total as "current month".
+  const allCosts = currentMonth ? [currentMonth, ...costs] : costs;
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
@@ -183,11 +189,11 @@ export default function CostsPage(): React.ReactElement {
         />
       </div>
 
-      <CostChart costs={costs} />
+      <CostChart costs={allCosts} currentMonthIncluded={currentMonth !== null} />
 
       <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Cost Breakdown</h2>
-        {costs.length === 0 ? (
+        {allCosts.length === 0 ? (
           <div className="text-center py-8 text-slate-500">
             <p>No cost data available yet</p>
           </div>
@@ -206,7 +212,7 @@ export default function CostsPage(): React.ReactElement {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {costs.map((cost) => (
+                {allCosts.map((cost) => (
                   <tr key={cost.month}>
                     <td className="px-4 py-3 text-slate-200">{cost.month}</td>
                     <td className="px-4 py-3 text-right text-slate-400">

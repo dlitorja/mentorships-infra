@@ -82,20 +82,23 @@ export function estimateB2EgressCost(
 }
 
 /**
- * Estimated Class D (Event Notification) cost in cents, after the
- * per-day free allowance. Pass `daysInMonth` to model a full month;
- * the free tier resets daily, so it cannot be expressed as a single
- * monthly allowance.
+ * Estimated Class D (Event Notification) cost in cents.
+ *
+ * Pass the **per-day** call counts, not a monthly total: the 2,500/day
+ * free allowance resets daily, so 75,000 calls on a single day costs
+ * money even though it is below `2,500 x 31`. Pooling them would report
+ * zero.
  */
 export function calculateNotificationTransactionCost(
-  callsPerMonth: number,
-  daysInMonth: number = 30
+  callsByDay: readonly number[]
 ): number {
-  const billableCalls = Math.max(
-    0,
-    callsPerMonth - B2_CLASS_D_FREE_PER_DAY * daysInMonth
+  const billableCalls = callsByDay.reduce(
+    (sum, calls) => sum + Math.max(0, calls - B2_CLASS_D_FREE_PER_DAY),
+    0
   );
-  return Math.round((billableCalls / 10000) * B2_CLASS_D_RATE_PER_10000 * 100);
+  return Math.round(
+    (billableCalls / 10000) * B2_CLASS_D_RATE_PER_10000 * 100
+  );
 }
 
 /**

@@ -67,14 +67,21 @@ describe("costs — egress", () => {
 });
 
 describe("costs — Class D (event notifications)", () => {
-  it("is free at the daily allowance", () => {
-    expect(calculateNotificationTransactionCost(2_500 * 30)).toBe(0);
+  it("is free when every day stays under the daily allowance", () => {
+    expect(calculateNotificationTransactionCost(Array(30).fill(2_500))).toBe(0);
   });
 
   it("charges $0.004 per 10,000 calls above the daily free tier", () => {
-    // 30 days of 2,500 free = 75,000 free calls.
-    // 175,000 total - 75,000 free = 100,000 billable = $0.04 = 4 cents.
-    expect(calculateNotificationTransactionCost(175_000)).toBe(4);
+    // 100,000 billable calls above the day's allowance = $0.04 = 4 cents.
+    expect(calculateNotificationTransactionCost([102_500])).toBe(4);
+  });
+
+  it("does not pool the daily free allowance across the month", () => {
+    // One busy day of 75,000 calls, 29 idle days. A monthly-pooling
+    // implementation would report 0 (75,000 < 2,500 x 30) even though
+    // 72,500 calls exceeded that day's allowance.
+    const callsByDay = [75_000, ...Array(29).fill(0)];
+    expect(calculateNotificationTransactionCost(callsByDay)).toBe(3);
   });
 });
 
