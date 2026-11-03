@@ -2,7 +2,7 @@ import { mutation, query, internalMutation, internalQuery, internalAction, actio
 import { env } from "./_generated/server";
 import type { GenericQueryCtx } from "convex/server";
 import type { MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { applyCounterDelta, computeFullAggregate } from "./storageCounter";
@@ -330,28 +330,28 @@ async function assertActiveInstructorTarget(
     .withIndex("by_userId", (q) => q.eq("userId", instructorId))
     .first();
   if (!targetInstructor) {
-    throw new Error("Target instructor not found");
+    throw new ConvexError("Target instructor not found");
   }
   // The instructors profile itself may be soft-deleted. Profile
   // deletion is independent of users.deletedAt (an admin may
   // decommission the instructor profile while leaving the user row).
   // Both must be checked.
   if (targetInstructor.deletedAt !== undefined) {
-    throw new Error("Target instructor profile is no longer active");
+    throw new ConvexError("Target instructor profile is no longer active");
   }
   const targetUser = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", instructorId))
     .first();
   if (targetUser?.deletedAt !== undefined) {
-    throw new Error("Target instructor is no longer active");
+    throw new ConvexError("Target instructor is no longer active");
   }
   // Role changes can leave an instructors profile row intact while
   // demoting the user out of the instructor role. Without this check,
   // an editor with open access could submit a former-instructor's
   // userId and create a file in a non-instructor's storage.
   if (targetUser?.role !== "instructor") {
-    throw new Error("Target is no longer an instructor");
+    throw new ConvexError("Target is no longer an instructor");
   }
 }
 
@@ -658,7 +658,7 @@ export const assignUploadInstructor = mutation({
       throw new Error("Unauthorized: authentication required");
     }
     if (caller.role !== "admin") {
-      throw new Error("Forbidden: only admins can assign an instructor");
+      throw new ConvexError("Forbidden: only admins can assign an instructor");
     }
 
     const upload = await ctx.db
@@ -666,16 +666,18 @@ export const assignUploadInstructor = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) {
-      throw new Error("Upload not found");
+      throw new ConvexError("Upload not found");
     }
     if (upload.status === "deleted" || upload.status === "deleting") {
-      throw new Error("Cannot assign a deleted upload");
+      throw new ConvexError("Cannot assign a deleted upload");
     }
     // Reassigning mid-upload can strand the multipart session: the
     // completion route authorizes against the file's current instructor,
     // and the uploader may not have access to the newly assigned one.
     if (upload.status === "pending" || upload.status === "uploading") {
-      throw new Error("Cannot assign an instructor while the upload is in progress");
+      throw new ConvexError(
+        "Cannot assign an instructor while the upload is in progress"
+      );
     }
 
     const nextInstructorId = args.instructorId ?? undefined;
@@ -711,7 +713,7 @@ export const assignUploadInstructor = mutation({
             nextInstructorId
           );
           if (editorUsed + upload.size > quota) {
-            throw new Error(
+            throw new ConvexError(
               `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to assign ${upload.size} bytes, quota is ${quota} bytes`
             );
           }
@@ -728,10 +730,9 @@ export const assignUploadInstructor = mutation({
     // Changing the instructor invalidates existing share links: an
     // unassigned file must not remain shareable, and a reassigned file
     // must not keep serving the previous instructor from a cached share.
-    // Marking the rows revoked handles the share list and the Worker's
-    // live resolve; the Next route additionally writes the Worker's KV
-    // revocation markers before calling this mutation so cached entries
-    // stop immediately.
+    // Marking the rows revoked updates the share list and the live
+    // resolve; the Edge Worker also calls `isShareDownloadable` on cache
+    // hits so cached entries stop on the next request.
     const shares = await ctx.db
       .query("hdShareLinks")
       .withIndex("by_uploadId", (q) => q.eq("uploadId", upload._id))

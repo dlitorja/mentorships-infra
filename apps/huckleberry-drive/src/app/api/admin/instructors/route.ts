@@ -8,16 +8,28 @@ export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
 
-    const instructors = await fetchQuery(api.users.getAllInstructors, {}) as {
+    // Only list instructors the assignment mutation will accept: active
+    // user, active `instructors` profile, and role still "instructor".
+    // `getAllInstructors` includes role-only legacy users without a
+    // profile, which produced "Target instructor not found" when an
+    // admin picked one from the assignment dropdown.
+    const instructors = await fetchQuery(
+      api.users.getActiveUsersByRole,
+      { role: "instructor" },
+    ) as Array<{
       userId: string;
-      name: string;
-      email: string;
-    }[];
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+    }>;
 
     const formatted: InstructorOption[] = instructors.map((i) => ({
       id: i.userId,
-      name: i.name || null,
-      email: i.email,
+      name:
+        [i.firstName, i.lastName].filter(Boolean).join(" ") ||
+        i.email ||
+        null,
+      email: i.email || "",
     }));
 
     return NextResponse.json({ instructors: formatted });

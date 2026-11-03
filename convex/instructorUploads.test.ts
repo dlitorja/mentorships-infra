@@ -733,3 +733,25 @@ test("assignUploadInstructor: an instructor change revokes existing share links"
   );
   expect(share?.revokedAt).toBeDefined();
 });
+
+test("assignUploadInstructor: readable error when the target has no instructor profile", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_no_profile";
+  const targetUserId = "instructor_user_without_profile";
+  const uploadId = "upload_assign_no_profile";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    // Role only; no `instructors` profile row. This is the state the old
+    // admin dropdown surfaced, and it caused a generic Server Error.
+    await seedUser(ctx, targetUserId, "instructor");
+    await seedUnassignedUpload(ctx, uploadId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId: targetUserId }
+    )
+  ).rejects.toMatchObject({ data: "Target instructor not found" });
+});
