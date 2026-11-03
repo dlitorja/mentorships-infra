@@ -148,28 +148,32 @@ export const getActiveUsersByRole = query({
       .collect();
     const active = all.filter((u) => u.deletedAt === undefined);
 
-    // For the instructor role, additionally require an instructors profile
-    // row. createUpload rejects editor uploads to a user without a profile.
+    if (args.role !== "instructor") {
+      return active;
+    }
+
+    // The `instructors` profile is optional. huckleberry-drive keys uploads
+    // and assignments by `users.userId`; the seeded public profiles
+    // (ash-kirk, andrea-sipl, …) are not linked to user rows, and requiring
+    // one excluded real, active instructors from assignment dropdowns and
+    // made `createUpload`/assignment reject them.
+    //
+    // If a profile does exist, honor its own soft-delete: profile deletion
+    // is independent of user deletion (an admin may decommission the public
+    // profile while leaving the users row active), so both the upload and
+    // assignment paths reject such targets.
+    //
     // Use the by_userId index for each lookup instead of a full-table
     // collect, so the read budget scales with the number of active
     // instructors (typically <100) rather than the entire instructors
     // table (which can grow as soft-deleted profiles accumulate).
-    if (args.role !== "instructor") {
-      return active;
-    }
-    // Round-21 Greptile P2 #3: also exclude profiles whose own
-    // deletedAt is set. Profile deletion is independent from user
-    // deletion: an admin may decommission the instructor profile
-    // while leaving the users row intact with role='instructor'.
-    // createUpload also rejects uploads to such profiles, so the
-    // dropdown / switcher must not surface them.
     const withProfile = await Promise.all(
       active.map(async (u) => {
         const profile = await ctx.db
           .query("instructors")
           .withIndex("by_userId", (q) => q.eq("userId", u.userId))
           .first();
-        if (!profile) return null;
+        if (!profile) return u;
         if (profile.deletedAt !== undefined) return null;
         return u;
       })

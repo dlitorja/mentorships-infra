@@ -1,6 +1,6 @@
 import { mutation, query, internalMutation } from "./_generated/server";
 import type { GenericQueryCtx } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 
 interface StorageStats {
@@ -456,19 +456,35 @@ export const createVideoEditorAssignment = mutation({
       throw new Error("Invalid video editor");
     }
 
+    const instructorId = args.instructorId;
     let existing;
-    if (args.instructorId !== undefined) {
-      const instructor = await ctx.db
-        .query("instructors")
-        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
+    if (instructorId !== undefined) {
+      // HD targets are users with the instructor role. The public
+      // `instructors` profile is optional (seeded profiles are unlinked),
+      // but a soft-deleted profile still means the instructor was
+      // decommissioned.
+      const instructorUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", instructorId))
         .first();
-      if (!instructor) {
-        throw new Error("Invalid instructor");
+      if (
+        !instructorUser ||
+        instructorUser.deletedAt !== undefined ||
+        instructorUser.role !== "instructor"
+      ) {
+        throw new ConvexError("Invalid instructor");
+      }
+      const instructorProfile = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+        .first();
+      if (instructorProfile?.deletedAt !== undefined) {
+        throw new ConvexError("Invalid instructor");
       }
       existing = await ctx.db
         .query("videoEditorAssignments")
         .withIndex("by_videoEditorId_instructorId", (q) =>
-          q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId as string)
+          q.eq("videoEditorId", args.videoEditorId).eq("instructorId", instructorId)
         )
         .first();
     } else {
@@ -484,7 +500,7 @@ export const createVideoEditorAssignment = mutation({
 
     const id = await ctx.db.insert("videoEditorAssignments", {
       videoEditorId: args.videoEditorId,
-      instructorId: args.instructorId,
+      instructorId,
       assignedAt: Date.now(),
       assignedBy: callerByClerkId.userId,
     });
