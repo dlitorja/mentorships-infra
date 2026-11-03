@@ -25,6 +25,96 @@ bar. Do not mix waves in one PR: the caller migrations and authz models differ.
   - records the new `scan-d` count in the triage drift table;
   - runs `CI=true pnpm test:convex`, root/web/platform typecheck, and Greptile.
 
+## Rollout, idempotency, and identity
+
+### Function visibility is not atomic with the app deploy
+
+Convex and Vercel deploy independently on `main`. Internalizing a function in
+the same deploy that migrates its callers creates a window where Convex has
+already removed the public function and the old app is still calling it.
+
+Use widen → migrate → narrow for **function visibility**:
+
+1. **Widen:** add the internal function + bearer endpoint; keep a thin public
+   wrapper (one-line delegate to the internal mutation) for existing callers.
+2. **Migrate:** update the app/Inngest callers to the new endpoint and deploy.
+3. **Narrow:** in a follow-up PR, remove the public wrapper / internalize the
+   old function.
+
+The intermediate state is safe and independently revertible. Do not rely on
+Convex and Vercel deploy ordering.
+
+### Idempotency for money and seat writes
+
+Internalization does not fix retries. Inngest retries can duplicate rows; make
+these mutations idempotent before routing production traffic through them:
+
+| Mutation | Idempotency requirement |
+| --- | --- |
+| `payments.createPayment` | Unique / return-existing on `(provider, providerPaymentId)` |
+| `sessionPacks.createSessionPack` | Unique / return-existing on `paymentId` |
+| `orders.createOrder` | `checkoutAttemptId` unique per attempt, or explicit pending-order dedupe/cleanup |
+| `seatReservations.createSeatReservation` | Existing `(sessionPackId)` check enforced inside the mutation; consider a unique index |
+
+A retried mutation must return the existing row, not insert a second one. Add
+the uniqueness constraints or in-mutation lookup in the same PR as the caller
+migration.
+
+### One caller resolver, one policy matrix
+
+Use a single `getCallerUser(ctx)` helper that resolves `by_userId` first and
+falls back to `by_clerkId` (huckleberry-drive keeps the canonical `userId`
+separate from the Clerk id). Every new gate must use it; do not compare
+`identity.subject` directly to `instructors.userId` / `users.userId` without
+the fallback.
+
+Define the policy in the PR description before coding:
+
+| Function group | Allowed actor |
+| --- | --- |
+| `products.*`, `instructors.createInstructor` | admin |
+| `instructors.*ImageUpload` | owning instructor, admin |
+| `sessions.updateSession` | assigned instructor, student owner, admin |
+| `sessions.completeSession` | assigned instructor, admin (confirm whether students may self-complete) |
+| `sessions.deleteSession` | admin (or internal) |
+| `studentOnboarding.markReviewed` | assigned instructor (`perInstructor`), admin/support |
+| `instructorUploads.updateUploadStarted` / `completeUpload` | uploader, owning instructor, admin |
+| `workspaces.logViewWorkspaceAudit` | admin, or participant if participant views also log |
+| `workspaces.acknowledgeNotification` | notification recipient, admin |
+
+### Placeholder instructor rows
+
+Some `instructors` rows still have placeholder `userId` values
+(`admin-<slug>`, `seed-<slug>`, empty). Decide explicitly for profile/portfolio
+image writes: owner uploads are allowed only when the row is linked to the
+caller; placeholder rows require an admin (or the email-claim flow). Test the
+placeholder case so onboarding does not regress.
+
+### B2 object cleanup on rejected upload transitions
+
+`instructorUploads.completeUpload` is called after `completeMultipartUpload`
+has already succeeded. If the new authz check rejects, the B2 object is
+orphaned. Authorize before completing the multipart in the route, or delete the
+B2 object on rejection.
+
+### Contacts
+
+Prefer moving `contacts.addContact` to a bearer endpoint called by the existing
+`/api/contacts` routes (which already validate email). That removes the
+accepted-public suppression instead of adding Turnstile/rate-limit to a public
+Convex mutation. If the public path is kept, add Turnstile + rate limiting and
+record the suppression with a reason.
+
+### Observability, rollback, and verification
+
+- Log rejected authz outcomes with function name, actor, and request id (no
+  secrets); alert on 401/403 spikes after each wave.
+- Run the matching HUC-115 smoke subset after each PR, not only at the end.
+- Add a guest-checkout canary after 1b and a payment-refund canary after 1b.
+- Each PR must be independently revertible; the public-wrapper phase is the
+  rollback path for 1b/3a.
+- Update the probe drift table per PR; do not batch the baseline update.
+
 ## PR sequence
 
 | # | Issue | Scope | Depends on |
@@ -51,6 +141,22 @@ bar. Do not mix waves in one PR: the caller migrations and authz models differ.
 
 `orders.migrateOrder` stays public + `assertServiceKey`.
 `payments.adminProcessRefund` / `adminProcessRefundInternal` are already done in #962.
+
+### Deployment shape
+
+Use the widen → migrate → narrow sequence from the rollout section. Phase 1
+adds the internal mutations + bearer endpoints (and `/orders/create`) while
+keeping thin public wrappers. Phase 2 lands the caller migrations below. Phase
+3 removes the wrappers. The wrappers are one-line delegates, so the
+intermediate state is safe and revertible.
+
+### Idempotency
+
+Add the idempotency requirements from the rollout table in this PR:
+`createPayment` deduped on `(provider, providerPaymentId)`,
+`createSessionPack` deduped on `paymentId`, `createOrder` keyed by a
+`checkoutAttemptId` (or explicit pending-order cleanup), and
+`createSeatReservation`'s existing check made authoritative.
 
 ### Caller migrations
 
@@ -102,6 +208,11 @@ Guest checkout and Stripe/PayPal webhooks are the blast radius. Keep orders
 No caller-supplied actor args should be trusted. If a route already verifies
 admin/ownership, keep the mutation check as defense in depth.
 
+Placeholder rows (`admin-<slug>`, `seed-<slug>`, empty `userId`) must be handled
+explicitly: owner uploads are allowed only for a row linked to the caller;
+placeholder rows require an admin or the email-claim flow. Add a positive
+onboarding test and a negative unrelated-instructor test.
+
 ### Tests
 
 - Negative: unauthenticated, other instructor, non-admin → rejected.
@@ -122,6 +233,9 @@ admin/ownership, keep the mutation check as defense in depth.
 - `apps/web/inngest/functions/payments.ts` (Stripe + PayPal purchase paths) → `convexServerCall("/seat-reservations/create", args)`.
 - `convex/http.ts` seat handler → `internal.seatReservations.createSeatReservation`.
 - Existing read queries (`getSeatReservationBySessionPack`, `getInstructorStudentsWithRemainingSessions`) are unchanged.
+- Make the existing “reservation already exists for this session pack” check
+  authoritative inside `createSeatReservation` (and consider a unique index) so
+  concurrent purchase/refund retries cannot double-create.
 
 ### Tests
 
@@ -145,6 +259,13 @@ admin/ownership, keep the mutation check as defense in depth.
 - Instructor session routes (`apps/web`, `apps/platform`) + client hooks.
 - Instructor onboarding review routes (`apps/web`, `apps/platform`).
 - Keep `sessions.updateSessionNotes` separate; only update/complete/delete are in scope.
+- Confirm the product policy for `completeSession` before coding: if students
+  can currently self-complete, changing that is a behavior change. Document
+  the chosen actor set in the PR.
+- `markReviewed` must overwrite `reviewedByUserId` with the derived actor and
+  verify the caller is in the onboarding's `perInstructor` set (or
+  admin/support). Existing caller-supplied values are not trusted going
+  forward.
 
 ### Tests
 
@@ -161,6 +282,12 @@ admin/ownership, keep the mutation check as defense in depth.
 - `products.createProduct` / `updateProduct` / `deleteProduct` / `deactivateProduct` / `activateProduct` — add an admin gate inside each; admin routes + hooks keep working.
 - `userIdentities.upsertUserIdentity` — server-only: `internalMutation` + a bearer endpoint; migrate the two Inngest onboarding callers and the Discord role-sync route to `convexServerCall`.
 - `adminWorkspaces.linkWorkspaceToSessionPack` — no app callers; internalize (keep `confirmSeed` guard) or admin-gate.
+- Split `userIdentities.upsertUserIdentity`: an internal bearer path for the
+  Inngest onboarding writers, plus a small public `linkMyDiscordIdentity` (or
+  `upsertMyUserIdentity`) that derives `userId` from the Clerk identity for the
+  Discord sync route. Do not put `CONVEX_HTTP_KEY` in a user-facing route.
+- Check the product routes that import from Stripe; any server-only writer needs
+  the bearer path rather than an admin identity.
 
 ### Tests
 
@@ -179,9 +306,22 @@ admin/ownership, keep the mutation check as defense in depth.
 - `workspaces.createRetentionNotification` — internalize or admin-gate (no external callers found; distinct from `mutations.http`).
 - `workspaces.acknowledgeNotification` — verify the caller is the notification recipient (or admin).
 - `instructorUploads.updateUploadStarted` / `completeUpload` — derive caller; allow the uploader (`uploadedById`) or admin, matching the HD route's authenticated uploader. Keep `createUpload`'s existing checks unchanged.
-- `contacts.addContact` — accepted public marketing surface. Choose one in the PR and document it:
-  1. keep public + add rate limit/Turnstile at the route, record suppression; or
-  2. move to a bearer endpoint called by the web/platform contact routes.
+- `contacts.addContact` — accepted public marketing surface. Prefer option 2:
+  move it to a bearer endpoint called by the existing `/api/contacts` routes
+  (the routes already validate email). Option 1 remains acceptable if a
+  public Convex call is required: keep it public + add rate limit/Turnstile and
+  record a suppression with a reason.
+- `instructorUploads.completeUpload` — authorize **before** the route completes
+  the multipart upload, or delete the B2 object when the mutation rejects;
+  otherwise an authz failure orphans a completed object.
+- `logViewWorkspaceAudit` — confirm whether only admin views call it. If
+  participant views also log, use a relationship check instead of admin-only.
+- `acknowledgeNotification` — verify the notification belongs to the caller;
+  admins are a separate override.
+- Consolidate the duplicate retention-notification paths
+  (`mutations/http.createRetentionNotification` and
+  `workspaces.createRetentionNotification`) so there is one authoritative
+  writer behind the bearer endpoint.
 
 ### Tests
 
@@ -205,6 +345,11 @@ covered by #957–#959; T9–T11 by #962. After PRs 1b–5:
 - T7: Discord queue bearer 200/401.
 - T8: Google Calendar linking for placeholder instructor rows.
 - T9–T11: re-check refund gate, product admin gate, credential non-exposure.
+
+Run the matching subset after each wave PR: T1–T3 after 1b/2b (public surface +
+CLI paths), T4/T7/T8 after the relevant caller migrations, and T5's 24-hour log
+window after the final wave. Add a guest-checkout canary after 1b and a
+payment-refund canary after 1b.
 
 Close HUC-115 only after this passes; then regenerate the probe baseline
 (`scan-d` visible count 0 or documented suppressions) and move the wave issues
