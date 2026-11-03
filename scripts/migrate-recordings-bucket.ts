@@ -101,6 +101,21 @@ function loadConfig() {
   };
 }
 
+/**
+ * Moving objects between a bucket and itself is not a move. Both size
+ * checks would read the same object, so a matching size would not prove a
+ * second copy exists — and the `--apply` path would delete the only copy.
+ */
+export function assertDistinctBuckets(source: string, target: string): void {
+  if (source === target) {
+    throw new Error(
+      `Refusing to run: source and target are the same bucket ("${source}"). ` +
+        "Set LEGACY_RECORDINGS_SOURCE_BUCKET and RECORDINGS_BUCKET_NAME to " +
+        "different buckets."
+    );
+  }
+}
+
 function makeClient(config: ReturnType<typeof loadConfig>): S3Client {
   return new S3Client({
     region: config.region,
@@ -154,6 +169,7 @@ function encodeCopySource(bucket: string, key: string): string {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
+  assertDistinctBuckets(config.source, config.target);
   const client = makeClient(config);
 
   console.log(
@@ -272,7 +288,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// Only run when invoked directly so the exported helpers stay unit-testable.
+if (process.env.VITEST === undefined) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
