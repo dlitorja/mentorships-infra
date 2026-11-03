@@ -325,6 +325,11 @@ export async function assertB2FileUploadOwnedByCaller(
       "B2 key is not owned by the caller. Re-upload and try again."
     );
   }
+  if (row.retentionDeletedAt !== undefined) {
+    throw new ConvexError(
+      "B2 key upload was deleted by retention. Re-upload and try again."
+    );
+  }
   if (row.cancelledAt !== undefined) {
     throw new ConvexError(
       "B2 key upload was cancelled. Re-upload and try again."

@@ -30,6 +30,7 @@ async function seedWorkspace(t: ReturnType<typeof convexTest>, args: {
   type?: "mentorship" | "admin_student" | "admin_instructor";
   instructorImageCount?: number;
   activeImageRows?: number;
+  retentionDeletedAt?: number;
 }): Promise<{ workspaceId: string; noteId: string; b2Key: string }> {
   let workspaceId = "";
   let noteId = "";
@@ -78,6 +79,7 @@ async function seedWorkspace(t: ReturnType<typeof convexTest>, args: {
       contentType: "image/png",
       size: 1024,
       completedAt: now,
+      retentionDeletedAt: args.retentionDeletedAt,
     });
   });
   return { workspaceId, noteId, b2Key };
@@ -242,6 +244,22 @@ test("embedImageInNote: rejects b2Key whose ledger row is not yet completed", as
   // workspaceId is unused here but the t.run scope requires it
   // to be declared at the top level.
   expect(workspaceId).toBeTruthy();
+});
+
+test("embedImageInNote: rejects a ledger row deleted by retention", async () => {
+  const t = convexTest({ schema, modules });
+  const seed = await seedWorkspace(t, {
+    studentUserId: "user_student_1",
+    instructorUserId: "user_instructor_1",
+    retentionDeletedAt: Date.now(),
+  });
+  const instructorT = t.withIdentity({ subject: "user_instructor_1" });
+  await expect(
+    instructorT.mutation(api.workspaces.embedImageInNote, {
+      noteId: seed.noteId as any,
+      b2Key: seed.b2Key,
+    })
+  ).rejects.toThrow(/deleted by retention/);
 });
 
 test("embedImageInNote: rejects non-image content type", async () => {
