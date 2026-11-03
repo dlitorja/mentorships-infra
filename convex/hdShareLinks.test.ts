@@ -457,3 +457,96 @@ test("createShareLink: rejects an unassigned upload for every role", async () =>
     ).rejects.toThrow("Assign this file to an instructor before sharing it");
   }
 });
+
+test("isShareDownloadable: audience check + live share/assignment state", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_share_downloadable";
+  const ownerInstructorId = "inst_share_downloadable";
+  const otherInstructorId = "inst_share_downloadable_other";
+  const editorId = "editor_share_downloadable";
+  const studentId = "student_share_downloadable";
+  const uploadId = "upload_share_downloadable";
+  const activeToken = "active-token-downloadable-1234567890";
+  const revokedToken = "revoked-token-downloadable-123456789";
+  const expiredToken = "expired-token-downloadable-123456789";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, ownerInstructorId, "instructor");
+    await seedInstructor(ctx, ownerInstructorId);
+    await seedUser(ctx, otherInstructorId, "instructor");
+    await seedInstructor(ctx, otherInstructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await seedUser(ctx, studentId, "student");
+    await seedUpload(ctx, uploadId, ownerInstructorId);
+    await seedShare(ctx, activeToken, uploadId, adminId);
+    await seedShare(ctx, revokedToken, uploadId, adminId, {
+      revokedAt: Date.now(),
+    });
+    await seedShare(ctx, expiredToken, uploadId, adminId, {
+      expiresAt: Date.now() - 1000,
+    });
+  });
+
+  const downloadable = async (token: string, subject?: string) => {
+    const query = subject
+      ? t.withIdentity({ subject })
+      : t;
+    return (await query.query(api.hdShareLinks.isShareDownloadable, { token }))
+      .downloadable;
+  };
+
+  // Audience: creator/admin, owning instructor, and video editors can
+  // check; unrelated instructors and students get a uniform false.
+  expect(await downloadable(activeToken, adminId)).toBe(true);
+  expect(await downloadable(activeToken, ownerInstructorId)).toBe(true);
+  expect(await downloadable(activeToken, editorId)).toBe(true);
+  expect(await downloadable(activeToken, otherInstructorId)).toBe(false);
+  expect(await downloadable(activeToken, studentId)).toBe(false);
+  expect(await downloadable(activeToken)).toBe(false);
+
+  // Share state.
+  expect(await downloadable(revokedToken, adminId)).toBe(false);
+  expect(await downloadable(expiredToken, adminId)).toBe(false);
+
+  // Unassigning the upload immediately makes even a previously active
+  // share non-downloadable on the next cache-hit check.
+  await t.run(async (ctx) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first();
+    await ctx.db.patch(upload!._id, { instructorId: undefined });
+  });
+
+  expect(await downloadable(activeToken, adminId)).toBe(false);
+});
+
+test("resolveShareByToken: an unassigned upload is unavailable", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_resolve_unassigned";
+  const uploadId = "upload_resolve_unassigned";
+  const token = "test-token-resolve-unassigned-123456";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await ctx.db.insert("instructorUploads", {
+      filename: `key/${uploadId}`,
+      originalName: `${uploadId}.mp4`,
+      contentType: "video/mp4",
+      size: 1024,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: uploadId,
+    });
+    await seedShare(ctx, token, uploadId, adminId);
+  });
+
+  const result = await t
+    .withIdentity({ subject: adminId })
+    .query(api.hdShareLinks.resolveShareByToken, { token });
+
+  expect(result.kind).toBe("file_missing");
+});

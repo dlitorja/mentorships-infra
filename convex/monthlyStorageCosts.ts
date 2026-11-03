@@ -2,12 +2,29 @@ import { internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 
-async function isAdmin(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+async function isAdmin(ctx: QueryCtx, subject: string): Promise<boolean> {
+  // The Clerk `subject` may be stored in `users.userId` (apps/platform
+  // writes Clerk IDs there) or in `users.clerkId` (huckleberry-drive keeps
+  // the canonical userId separate). Resolve both indexes before denying;
+  // checking only `by_userId` 500s the costs page for HD admins.
+  const byUserId = await ctx.db
     .query("users")
-    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .withIndex("by_userId", (q) => q.eq("userId", subject))
     .first();
-  return user?.role === "admin";
+  if (byUserId?.role === "admin" && byUserId.deletedAt === undefined) {
+    return true;
+  }
+
+  // Do not stop at a non-admin `by_userId` row: linked accounts can have
+  // multiple rows sharing one Clerk id, and the admin row may be the
+  // `clerkId` match. Check every row for an active admin.
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", subject))
+    .collect();
+  return byClerkId.some(
+    (user) => user.role === "admin" && user.deletedAt === undefined
+  );
 }
 
 export const list = query({

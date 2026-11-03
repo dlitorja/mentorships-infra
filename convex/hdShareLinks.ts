@@ -184,14 +184,135 @@ export const listMyShareLinks = query({
   },
 });
 
+type ShareAudience =
+  | { kind: "unauthenticated"; upload: null }
+  | { kind: "forbidden"; upload: null }
+  | {
+      kind: "allowed";
+      // Populated for instructor callers so the caller does not re-read it.
+      upload: Doc<"instructorUploads"> | null;
+    };
+
+/**
+ * Shared audience check for share queries. Returns `unauthenticated` /
+ * `forbidden` without revealing file state, or `allowed` plus the loaded
+ * upload when the caller is the owning instructor.
+ */
+async function authorizeShareCaller(
+  ctx: QueryCtx,
+  user: Doc<"users">,
+  share: Doc<"hdShareLinks">
+): Promise<ShareAudience> {
+  // Phase 1: cheap authorization. None of these need the upload, so an
+  // unauthorized caller never learns whether the underlying file exists
+  // or has been deleted.
+  const isCreator = share.createdByUserId === user.userId;
+  if (isCreator || user.role === "admin" || user.role === "video_editor") {
+    return { kind: "allowed", upload: null };
+  }
+
+  // Phase 2: for instructor callers not already authorized above, look
+  // up the upload to check whether they own the underlying file. This
+  // read is restricted to the instructor role so non-owner callers
+  // cannot distinguish "active file" from "deleted file" via differing
+  // forbidden/file_missing responses.
+  if (user.role === "instructor") {
+    const upload = await ctx.db.get(share.uploadId);
+    if (upload && upload.instructorId === user.userId) {
+      return { kind: "allowed", upload };
+    }
+  }
+
+  return { kind: "forbidden", upload: null };
+}
+
+export type ResolveShareResult =
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
+  | { kind: "not_found" }
+  | { kind: "file_missing" }
+  | { kind: "revoked"; revokedAt: number }
+  | { kind: "expired"; expiresAt: number }
+  | {
+      kind: "ok";
+      share: {
+        id: Id<"hdShareLinks">;
+        token: string;
+        createdByUserId: string;
+        createdAt: number;
+        expiresAt: number | null;
+        label: string | null;
+      };
+      upload: {
+        id: Id<"instructorUploads">;
+        originalName: string;
+        contentType: string;
+        size: number;
+        filename: string;
+      };
+    };
+
+/**
+ * Cheap live check used by the Edge Worker on every share-cache hit.
+ *
+ * The KV cache stores file metadata and skips the full authorization
+ * resolve. That means a share cached before an instructor assignment
+ * change (reassign/unassign) or a revocation would otherwise keep
+ * serving a download until its TTL expires. This query re-reads the
+ * authoritative share + upload state so any assignment change takes
+ * effect on the next request, including changes made by callers that
+ * bypassed the Next route (e.g. a direct Convex mutation call).
+ */
+export const isShareDownloadable = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      return { downloadable: false as const };
+    }
+
+    const share = await ctx.db
+      .query("hdShareLinks")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (!share) {
+      return { downloadable: false as const };
+    }
+
+    // Same audience check as `resolveShareByToken`: an unrelated caller
+    // must not be able to probe a file's availability with the token.
+    const auth = await authorizeShareCaller(ctx, user, share);
+    if (auth.kind !== "allowed") {
+      return { downloadable: false as const };
+    }
+
+    if (!isActive(share, Date.now())) {
+      return { downloadable: false as const };
+    }
+
+    const upload = auth.upload ?? (await ctx.db.get(share.uploadId));
+    if (
+      !upload ||
+      upload.status === "deleted" ||
+      upload.status === "deleting" ||
+      // Unassigned files are not shareable.
+      upload.instructorId === undefined
+    ) {
+      return { downloadable: false as const };
+    }
+
+    return { downloadable: true as const };
+  },
+});
+
 export const resolveShareByToken = query({
   args: {
     token: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ResolveShareResult> => {
     const user = await getCurrentUser(ctx);
     if (!user) {
-      return { kind: "unauthenticated" as const };
+      return { kind: "unauthenticated" };
     }
 
     const share = await ctx.db
@@ -200,33 +321,16 @@ export const resolveShareByToken = query({
       .first();
 
     if (!share) {
-      return { kind: "not_found" as const };
+      return { kind: "not_found" };
     }
 
-    // Phase 1: cheap authorization. None of these need the upload, so
-    // an unauthorized caller never learns whether the underlying file
-    // exists or has been deleted (Greptile P2).
-    const isCreator = share.createdByUserId === user.userId;
-    const isAdmin = user.role === "admin";
-    const isVideoEditor = user.role === "video_editor";
-
-    // Phase 2: for instructor callers not already authorized above,
-    // look up the upload to check whether they own the underlying file.
-    // This read is restricted to the instructor role so non-owner
-    // callers cannot distinguish "active file" from "deleted file" via
-    // the differing `forbidden` vs `file_missing` responses.
-    let upload: Doc<"instructorUploads"> | null = null;
-    let isOwningInstructor = false;
-    if (!isCreator && !isAdmin && !isVideoEditor && user.role === "instructor") {
-      upload = await ctx.db.get(share.uploadId);
-      if (upload && upload.instructorId === user.userId) {
-        isOwningInstructor = true;
-      }
+    const auth = await authorizeShareCaller(ctx, user, share);
+    if (auth.kind !== "allowed") {
+      return auth.kind === "unauthenticated"
+        ? { kind: "unauthenticated" }
+        : { kind: "forbidden" };
     }
-
-    if (!isCreator && !isAdmin && !isVideoEditor && !isOwningInstructor) {
-      return { kind: "forbidden" as const };
-    }
+    let upload = auth.upload;
 
     if (share.revokedAt !== undefined) {
       return { kind: "revoked" as const, revokedAt: share.revokedAt };

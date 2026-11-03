@@ -103,6 +103,33 @@ export async function handleSharedDownload(
   let shareId: string | undefined;
 
   if (cachedResult) {
+    // The cache stores file metadata but skips the full authorization
+    // resolve. Re-check the authoritative share + upload state so a
+    // reassignment/unassignment (or any other revocation) takes effect
+    // on the next request instead of waiting for the cache TTL. This
+    // also covers assignment changes made by callers that bypassed the
+    // huckleberry-drive API route.
+    const liveState = await callConvexQuery<{ downloadable: boolean }>(
+      env,
+      "hdShareLinks:isShareDownloadable",
+      { token },
+      convexToken
+    );
+
+    if (!liveState.ok) {
+      logError(source, new Error(liveState.message), "Failed to verify cached share");
+      return json({ error: "Internal server error" }, 500);
+    }
+
+    if (!liveState.value.downloadable) {
+      if (userId) {
+        await deleteCachedShareForUser(env, token, userId);
+      } else {
+        await deleteCachedShare(env, token);
+      }
+      return json({ error: "Share or file not found" }, 404);
+    }
+
     upload = cachedResult.upload;
     shareId = cachedResult.shareId;
   } else {
