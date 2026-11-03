@@ -2,12 +2,22 @@ import { internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 
-async function isAdmin(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+async function isAdmin(ctx: QueryCtx, subject: string): Promise<boolean> {
+  // The Clerk `subject` may be stored in `users.userId` (apps/platform
+  // writes Clerk IDs there) or in `users.clerkId` (huckleberry-drive keeps
+  // the canonical userId separate). Resolve both indexes before denying;
+  // checking only `by_userId` 500s the costs page for HD admins.
+  const byUserId = await ctx.db
     .query("users")
-    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .withIndex("by_userId", (q) => q.eq("userId", subject))
     .first();
-  return user?.role === "admin";
+  const user =
+    byUserId ??
+    (await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", subject))
+      .first());
+  return user?.role === "admin" && user.deletedAt === undefined;
 }
 
 export const list = query({
