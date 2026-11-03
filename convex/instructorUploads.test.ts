@@ -568,3 +568,69 @@ test("createUpload: a stale assignment does not grant unassigned upload rights",
     })
   ).rejects.toThrow("You are not assigned to any instructor");
 });
+
+test("createUpload: a stale quota-less assignment does not remove the active quota cap", async () => {
+  const t = convexTest(schema, modules);
+  const activeInstructorId = "inst_quota_active";
+  const staleInstructorId = "inst_quota_stale";
+  const editorId = "editor_quota_mixed";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, activeInstructorId, "instructor");
+    await seedInstructor(ctx, activeInstructorId);
+    await seedUser(ctx, staleInstructorId, "instructor");
+    await seedInstructor(ctx, staleInstructorId);
+    await seedUser(ctx, editorId, "video_editor");
+
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: activeInstructorId,
+      assignedAt: Date.now(),
+      storageQuotaBytes: 1000,
+    });
+    // Stale row: no quota, instructor profile soft-deleted. Before the
+    // fix this made the editor appear "unlimited".
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId: staleInstructorId,
+      assignedAt: Date.now(),
+    });
+    const staleProfile = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", staleInstructorId))
+      .first();
+    await ctx.db.patch(staleProfile!._id, { deletedAt: Date.now() });
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_quota_mixed",
+      filename: "key/upload_quota_mixed",
+      originalName: "over.mp4",
+      contentType: "video/mp4",
+      size: 1500,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("storage quota exceeded");
+});
+
+test("assignUploadInstructor: rejects an in-progress upload", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_in_progress";
+  const instructorId = "inst_assign_in_progress";
+  const uploadId = "upload_assign_in_progress";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUnassignedUpload(ctx, uploadId, undefined, "uploading");
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).rejects.toThrow("while the upload is in progress");
+});

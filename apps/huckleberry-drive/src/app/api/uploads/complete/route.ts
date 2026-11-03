@@ -73,6 +73,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
+    const dbUser = await getCurrentUser();
+
+    // Unassigned uploads: uploader read access must not imply permission
+    // to finalize. The uploader retains read/download access (useful for
+    // cleanup), but a video editor whose assignments were all revoked
+    // must abort rather than add data to storage. This check runs for
+    // the whole lifetime of the upload, not just the grace window.
+    if (
+      upload.instructorId === undefined &&
+      dbUser?.role === "video_editor" &&
+      upload.uploadedById === dbUser.userId
+    ) {
+      const accessible = await getAccessibleInstructorIds();
+      const hasSomeAccess = accessible === null || accessible.length > 0;
+      if (!hasSomeAccess) {
+        return NextResponse.json(
+          { error: "All assignments have been revoked — abort the upload" },
+          { status: 403 }
+        );
+      }
+    }
+
     // Fallback: if the uploader is the caller and the upload is still in a
     // non-terminal state AND was started within the grace window, allow
     // them to finish an in-progress multipart upload after their access
@@ -99,7 +121,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       isInProgress &&
       isWithinGraceWindow
     ) {
-      const dbUser = await getCurrentUser();
       if (dbUser && upload.uploadedById === dbUser.userId) {
         // Confirm the editor still has SOME access (open or specific)
         // at complete time. If all assignments have been revoked,

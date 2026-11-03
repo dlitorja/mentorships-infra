@@ -520,32 +520,38 @@ export const createUpload = mutation({
           (a) => a.instructorId !== undefined
         );
 
-        // A stale specific assignment (instructor soft-deleted or role
-        // removed) must not grant unassigned upload rights. Open access
-        // has no instructor to validate, so it always qualifies.
-        if (!hasOpenAssignment) {
-          let hasActiveSpecificAssignment = false;
-          for (const assignment of specificAssignments) {
-            if (assignment.instructorId === undefined) continue;
-            if (
-              await isActiveInstructorTarget(ctx, assignment.instructorId)
-            ) {
-              hasActiveSpecificAssignment = true;
-              break;
-            }
+        // Filter out stale specific assignments (instructor soft-deleted
+        // or role removed) before calculating eligibility and quotas.
+        // Otherwise a stale quota-less row would silently remove the cap
+        // for an otherwise quota-limited editor, and a stale row with a
+        // quota would inflate it. Open access has no instructor to
+        // validate, so it always qualifies.
+        const activeSpecificAssignments: Array<{
+          instructorId?: string;
+          storageQuotaBytes?: number;
+        }> = [];
+        for (const assignment of specificAssignments) {
+          if (assignment.instructorId === undefined) continue;
+          if (
+            await isActiveInstructorTarget(ctx, assignment.instructorId)
+          ) {
+            activeSpecificAssignments.push(assignment);
           }
-          if (!hasActiveSpecificAssignment) {
-            throw new Error("You are not assigned to any instructor");
-          }
+        }
+
+        if (!hasOpenAssignment && activeSpecificAssignments.length === 0) {
+          throw new Error("You are not assigned to any instructor");
         }
 
         const everySpecificAssignmentHasQuota =
           !hasOpenAssignment &&
-          specificAssignments.length > 0 &&
-          specificAssignments.every((a) => a.storageQuotaBytes !== undefined);
+          activeSpecificAssignments.length > 0 &&
+          activeSpecificAssignments.every(
+            (a) => a.storageQuotaBytes !== undefined
+          );
 
         if (everySpecificAssignmentHasQuota) {
-          const totalQuota = specificAssignments.reduce(
+          const totalQuota = activeSpecificAssignments.reduce(
             (sum, a) => sum + (a.storageQuotaBytes ?? 0),
             0
           );
@@ -661,6 +667,12 @@ export const assignUploadInstructor = mutation({
     }
     if (upload.status === "deleted" || upload.status === "deleting") {
       throw new Error("Cannot assign a deleted upload");
+    }
+    // Reassigning mid-upload can strand the multipart session: the
+    // completion route authorizes against the file's current instructor,
+    // and the uploader may not have access to the newly assigned one.
+    if (upload.status === "pending" || upload.status === "uploading") {
+      throw new Error("Cannot assign an instructor while the upload is in progress");
     }
     if (upload.instructorId === args.instructorId) {
       return { success: true, action: "noop" as const };

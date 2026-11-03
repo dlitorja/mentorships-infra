@@ -117,7 +117,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
 
         // Stale assignments (deleted instructor / role removed) do not
-        // grant upload rights on their own. Matches `createUpload`.
+        // grant upload rights and must not affect the quota union.
+        // Matches `createUpload`.
+        let activeSpecificAssignments = specificAssignments;
         if (!hasOpenAssignment) {
           const activeInstructors = await fetchQuery(
             api.users.getActiveUsersByRole,
@@ -127,12 +129,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           const activeInstructorIds = new Set(
             activeInstructors.map((u) => u.userId)
           );
-          const hasActiveSpecificAssignment = specificAssignments.some(
+          activeSpecificAssignments = specificAssignments.filter(
             (a) =>
               a.instructorId !== undefined &&
               activeInstructorIds.has(a.instructorId)
           );
-          if (!hasActiveSpecificAssignment) {
+          if (activeSpecificAssignments.length === 0) {
             return NextResponse.json(
               { error: "You are not assigned to any instructor" },
               { status: 403 }
@@ -142,11 +144,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         const everySpecificAssignmentHasQuota =
           !hasOpenAssignment &&
-          specificAssignments.length > 0 &&
-          specificAssignments.every((a) => a.storageQuotaBytes !== undefined);
+          activeSpecificAssignments.length > 0 &&
+          activeSpecificAssignments.every(
+            (a) => a.storageQuotaBytes !== undefined
+          );
 
         if (everySpecificAssignmentHasQuota) {
-          const totalQuota = specificAssignments.reduce(
+          const totalQuota = activeSpecificAssignments.reduce(
             (sum, a) => sum + (a.storageQuotaBytes ?? 0),
             0
           );

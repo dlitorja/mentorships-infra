@@ -11,7 +11,7 @@ import {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireInstructor();
+    await requireInstructor();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
@@ -44,10 +44,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Cannot share a deleted file" }, { status: 400 });
     }
 
-    // Unassigned files can only be shared by admins. Letting the
-    // uploader create a public link would expose a file that has not
-    // been reviewed/assigned yet.
-    if (upload.instructorId === undefined && dbUser.role !== "admin") {
+    // Unassigned files must be triaged before sharing, for every role
+    // (including admins). The Convex mutation enforces the same rule.
+    if (upload.instructorId === undefined) {
       return NextResponse.json(
         { error: "Assign this file to an instructor before sharing it" },
         { status: 403 }
