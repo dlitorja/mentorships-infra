@@ -36,6 +36,12 @@ interface FailedUpload {
   error: string;
 }
 
+function imageRecordErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "Failed to save image. Tap to retry.";
+}
+
 interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
@@ -183,16 +189,28 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       );
 
       if (result.success) {
-        await createImage.mutateAsync({
-          workspaceId,
-          b2Key: result.b2Key,
-          // PR workspace-storage-3c: B2 rows store `imageUrl: ""`
-          // server-side; the resolver hook `useBatchWorkspaceImageUrls`
-          // swaps it for a signed GET URL at render time.
-          imageUrl: "",
-          // PR #4b: tag uploads to the active call when present.
-          sessionId: activeSessionId ?? undefined,
-        });
+        try {
+          await createImage.mutateAsync({
+            workspaceId,
+            b2Key: result.b2Key,
+            // PR workspace-storage-3c: B2 rows store `imageUrl: ""`
+            // server-side; the resolver hook `useBatchWorkspaceImageUrls`
+            // swaps it for a signed GET URL at render time.
+            imageUrl: "",
+            // PR #4b: tag uploads to the active call when present.
+            sessionId: activeSessionId ?? undefined,
+          });
+        } catch (error) {
+          // HUC-64: the B2 upload succeeded but the image record did
+          // not (e.g. the image cap was reached concurrently). Keep the
+          // batch going, reset the UI at the end, and surface the file
+          // in the retry queue instead of rejecting the whole drop.
+          newFailedUploads.push({
+            file,
+            preview: previewImagesCopy[previewIndex],
+            error: imageRecordErrorMessage(error),
+          });
+        }
       } else {
         newFailedUploads.push({
           file,
@@ -227,12 +245,22 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     );
 
     if (result.success) {
-      await createImage.mutateAsync({
-        workspaceId,
-        b2Key: result.b2Key,
-        imageUrl: "",
-        sessionId: activeSessionId ?? undefined,
-      });
+      try {
+        await createImage.mutateAsync({
+          workspaceId,
+          b2Key: result.b2Key,
+          imageUrl: "",
+          sessionId: activeSessionId ?? undefined,
+        });
+      } catch (error) {
+        // HUC-64: keep the file in the retry queue with the real reason.
+        const message = imageRecordErrorMessage(error);
+        setFailedUploads((prev) =>
+          prev.map((f, i) => (i === index ? { ...f, error: message } : f))
+        );
+        toast.error(`${failedUpload.file.name}: ${message}`);
+        return;
+      }
       setFailedUploads((prev) => prev.filter((_, i) => i !== index));
       setPreviewImages((prev) => prev.filter((_, i) => i !== index));
       setImageFiles((prev) => prev.filter((_, i) => i !== index));
@@ -261,12 +289,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
       );
 
       if (result.success) {
-        await createImage.mutateAsync({
-          workspaceId,
-          b2Key: result.b2Key,
-          imageUrl: "",
-          sessionId: activeSessionId ?? undefined,
-        });
+        try {
+          await createImage.mutateAsync({
+            workspaceId,
+            b2Key: result.b2Key,
+            imageUrl: "",
+            sessionId: activeSessionId ?? undefined,
+          });
+        } catch (error) {
+          // HUC-64: the B2 object exists but the record was rejected;
+          // keep the file in the retry list and continue the batch.
+          stillFailed.push({
+            ...failed[i],
+            error: imageRecordErrorMessage(error),
+          });
+        }
       } else {
         stillFailed.push({ ...failed[i], error: (result as B2UploadError).error });
       }
@@ -326,13 +363,19 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         toast.error((result as B2UploadError).error || "Upload failed");
         return;
       }
-      await createImage.mutateAsync({
-        workspaceId,
-        b2Key: result.b2Key,
-        imageUrl: "",
-        sessionId: activeSessionId,
-      });
-      toast.success("Clipboard image saved to this call");
+      try {
+        await createImage.mutateAsync({
+          workspaceId,
+          b2Key: result.b2Key,
+          imageUrl: "",
+          sessionId: activeSessionId,
+        });
+        toast.success("Clipboard image saved to this call");
+      } catch (error) {
+        // HUC-64: otherwise the rejected mutation becomes an unhandled
+        // promise rejection with no user-visible reason.
+        toast.error(imageRecordErrorMessage(error));
+      }
     };
 
     window.addEventListener("paste", onPaste);
