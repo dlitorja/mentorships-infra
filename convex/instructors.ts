@@ -2148,6 +2148,29 @@ export const hardDeleteInstructor = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
     if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
+
+    // A hard-deleted instructor loses the public profile row. HD now
+    // treats an active users row with role=instructor as a valid upload/
+    // assignment target (the profile is optional), so leaving the user
+    // active would silently make the deleted instructor assignable
+    // again. Mark the linked user inactive in the same transaction.
+    // Callers (platform/web) also delete the Clerk user; this guard
+    // covers a failed/deferred Clerk deletion.
+    const instructor = await ctx.db.get(args.id);
+    const linkedUserId = instructor?.userId;
+    if (linkedUserId) {
+      const linkedUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", linkedUserId))
+        .first();
+      if (linkedUser && linkedUser.deletedAt === undefined) {
+        await ctx.db.patch(linkedUser._id, {
+          deletedAt: Date.now(),
+          deletedBy: identity.subject,
+        });
+      }
+    }
+
     await ctx.db.delete(args.id);
   },
 });

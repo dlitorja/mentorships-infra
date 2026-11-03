@@ -1850,3 +1850,75 @@ test("createVideoEditorAssignment: accepts an instructor without a profile", asy
     });
   expect(result.action).toBe("created");
 });
+
+test("createVideoEditorAssignment: rejects invalid instructor targets", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_invalid_targets";
+  const editorId = "editor_assign_invalid_targets";
+  const deletedUserId = "inst_assign_deleted_user";
+  const studentId = "inst_assign_student";
+  const deletedProfileId = "inst_assign_deleted_profile";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      clerkId: adminId,
+      email: "admin@example.com",
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: editorId,
+      clerkId: editorId,
+      email: "editor@example.com",
+      role: "video_editor",
+    });
+    await ctx.db.insert("users", {
+      userId: deletedUserId,
+      clerkId: deletedUserId,
+      email: "deleted@example.com",
+      role: "instructor",
+      deletedAt: Date.now(),
+    });
+    await ctx.db.insert("users", {
+      userId: studentId,
+      clerkId: studentId,
+      email: "student@example.com",
+      role: "student",
+    });
+    await ctx.db.insert("users", {
+      userId: deletedProfileId,
+      clerkId: deletedProfileId,
+      email: "deleted-profile@example.com",
+      role: "instructor",
+    });
+    await ctx.db.insert("instructors", {
+      userId: deletedProfileId,
+      email: "deleted-profile@example.com",
+      name: "Deleted Profile",
+      deletedAt: Date.now(),
+    });
+  });
+
+  const admin = t.withIdentity({ subject: adminId });
+  for (const instructorId of [
+    "user_missing_entirely",
+    deletedUserId,
+    studentId,
+    deletedProfileId,
+  ]) {
+    await expect(
+      admin.mutation(api.videoEditorAssignments.createVideoEditorAssignment, {
+        videoEditorId: editorId,
+        instructorId,
+      })
+    ).rejects.toThrow("Invalid instructor");
+  }
+
+  const assignments = await t.run(async (ctx) =>
+    ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", editorId))
+      .collect()
+  );
+  expect(assignments).toHaveLength(0);
+});

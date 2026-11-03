@@ -638,3 +638,42 @@ test("linkMyInstructorProfile: refuses to steal a row already linked to another 
   const row = await t.run(async (ctx) => await ctx.db.get(instructorId as any));
   expect(row?.userId).toBe(OLD_CLERK_USER);
 });
+
+test("hardDeleteInstructor: marks the linked user inactive", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_hard_delete_instructor";
+
+  const instructorId = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      clerkId: adminId,
+      email: "admin@example.com",
+      role: "admin",
+    });
+    await ctx.db.insert("users", {
+      userId: OLD_CLERK_USER,
+      clerkId: OLD_CLERK_USER,
+      email: "instructor@example.com",
+      role: "instructor",
+    });
+    return await seedExistingInstructor(ctx, { userId: OLD_CLERK_USER });
+  });
+
+  await t
+    .withIdentity({ subject: adminId })
+    .mutation(api.instructors.hardDeleteInstructor, {
+      id: instructorId as any,
+    });
+
+  await t.run(async (ctx) => {
+    const profile = await ctx.db.get(instructorId as any);
+    expect(profile).toBeNull();
+
+    const linkedUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", OLD_CLERK_USER))
+      .first();
+    expect(linkedUser?.deletedAt).toBeDefined();
+    expect(linkedUser?.deletedBy).toBe(adminId);
+  });
+});
