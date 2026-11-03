@@ -73,18 +73,29 @@ export default defineConfig({
           "CONVEX_TRIGGER_CALLBACK_SECRET",
           process.env.CONVEX_TRIGGER_CALLBACK_SECRET
         );
-        emitted.push({
-          name: "B2_BUCKET_NAME",
-          value: process.env.B2_BUCKET_NAME ?? "instructor-uploads",
-        });
-        emitted.push({
-          name: "B2_REGION",
-          value: process.env.B2_REGION ?? "us-west-002",
-        });
-        emitted.push({
-          name: "B2_DOWNLOAD_HOST",
-          value: process.env.B2_DOWNLOAD_HOST ?? "download.backblazeb2.com",
-        });
+        // Bucket/region must ALSO be guarded. They are not secrets, but
+        // `override: true` means a deploy from a machine whose local
+        // `.env.local` still says `instructor-uploads` / `us-west-002`
+        // would silently overwrite the corrected production values and
+        // re-break the tasks that resolve them (video-editor uploads,
+        // bulk downloads, workspace exports). Never emit a code default
+        // over a dashboard value.
+        pushIfPresent("B2_BUCKET_NAME", process.env.B2_BUCKET_NAME);
+        pushIfPresent("B2_REGION", process.env.B2_REGION);
+        pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
+        pushIfPresent("B2_DOWNLOAD_HOST", process.env.B2_DOWNLOAD_HOST);
+        pushIfPresent(
+          "RECORDINGS_BUCKET_NAME",
+          process.env.RECORDINGS_BUCKET_NAME
+        );
+        pushIfPresent(
+          "WORKSPACE_STORAGE_BUCKET_REGION",
+          process.env.WORKSPACE_STORAGE_BUCKET_REGION
+        );
+        pushIfPresent(
+          "WORKSPACE_STORAGE_BUCKET_ENDPOINT",
+          process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT
+        );
         return emitted;
       }),
     ],
