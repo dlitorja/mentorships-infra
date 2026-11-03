@@ -282,11 +282,27 @@ async function resolveBucketId(auth: B2Auth, bucketName: string): Promise<string
   const configured = process.env.RECORDINGS_BUCKET_ID?.trim();
   if (configured) return configured;
 
-  const data = await b2Post<{ buckets: Array<{ bucketName: string; bucketId: string }> }>(
-    auth,
-    "b2_list_buckets",
-    { accountId: auth.accountId }
-  );
+  let data: { buckets: Array<{ bucketName: string; bucketId: string }> };
+  try {
+    data = await b2Post<{ buckets: Array<{ bucketName: string; bucketId: string }> }>(
+      auth,
+      "b2_list_buckets",
+      { accountId: auth.accountId }
+    );
+  } catch (error) {
+    // B2 answers `unauthorized` (not `bad_auth_token`) when the key is
+    // valid but lacks a capability. Surface the actual fix rather than a
+    // bare 401.
+    const message = error instanceof Error ? error.message : String(error);
+    if (/\b401\b|unauthorized/i.test(message)) {
+      throw new Error(
+        `RECORDINGS_BUCKET_ID is not set and this B2 key cannot list buckets ` +
+          `(${message}). Set RECORDINGS_BUCKET_ID to the bucket id, or grant ` +
+          `the key the listBuckets capability.`
+      );
+    }
+    throw error;
+  }
   const bucket = data.buckets.find((b) => b.bucketName === bucketName);
   if (!bucket) {
     throw new Error(

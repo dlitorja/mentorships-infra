@@ -181,6 +181,7 @@ describe("reconcileRecordingsBucket action", () => {
 
   beforeEach(() => {
     process.env.RECORDINGS_BUCKET_NAME = "mentorship-call-storage";
+    delete process.env.RECORDINGS_BUCKET_ID;
     process.env.B2_KEY_ID = "key-id";
     process.env.B2_APPLICATION_KEY = "app-key";
     delete process.env.RESEND_API_KEY; // keep the alert path out of this test
@@ -189,6 +190,73 @@ describe("reconcileRecordingsBucket action", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it("skips b2_list_buckets when RECORDINGS_BUCKET_ID is configured", async () => {
+    const t = convexTest(schema, modules);
+    process.env.RECORDINGS_BUCKET_ID = "bucket-id";
+
+    const urls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("b2_authorize_account")) {
+        return new Response(
+          JSON.stringify({
+            accountId: "acct",
+            authorizationToken: "token",
+            apiInfo: { storageApi: { apiUrl: "https://api005.example" } },
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.endsWith("b2_list_file_names")) {
+        return new Response(JSON.stringify({ files: [], nextFileName: null }), {
+          status: 200,
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    }) as unknown as typeof fetch;
+
+    const result = await t.action(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (await import("./_generated/api")).internal.audit
+        .recordingsBucketReconciliation.reconcileRecordingsBucket as any,
+      {}
+    );
+
+    expect(result).toMatchObject({ scanned: 0, drift: 0 });
+    expect(urls.some((u) => u.endsWith("b2_list_buckets"))).toBe(false);
+    delete process.env.RECORDINGS_BUCKET_ID;
+  });
+
+  it("explains the fix when the key cannot list buckets", async () => {
+    const t = convexTest(schema, modules);
+    delete process.env.RECORDINGS_BUCKET_ID;
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("b2_authorize_account")) {
+        return new Response(
+          JSON.stringify({
+            accountId: "acct",
+            authorizationToken: "token",
+            apiInfo: { storageApi: { apiUrl: "https://api005.example" } },
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response('{"code":"unauthorized"}', { status: 401 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      t.action(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (await import("./_generated/api")).internal.audit
+          .recordingsBucketReconciliation.reconcileRecordingsBucket as any,
+        {}
+      )
+    ).rejects.toThrow(/RECORDINGS_BUCKET_ID is not set and this B2 key cannot list buckets/);
   });
 
   it("deletes a purged-but-present object and reports it", async () => {
