@@ -56,7 +56,10 @@ export default function AdminPage(): React.ReactElement {
     return `${value} ${sizes[i]}`;
   };
 
-  const B2_COST_PER_GB_PER_MONTH = 0.006;
+  // Backblaze B2 storage: $6.95/TB/month = $0.00695/GB (first 10 GB free).
+  // Verify against https://www.backblaze.com/cloud-storage/pricing before
+  // changing; the pre-May-2026 rate was $0.006/GB.
+  const B2_COST_PER_GB_PER_MONTH = 0.00695;
 
   const estimateMonthlyCost = (bytes: number): string => {
     const gb = bytes / (1024 * 1024 * 1024);

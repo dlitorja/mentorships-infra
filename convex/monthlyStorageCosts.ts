@@ -31,19 +31,13 @@ export const list = query({
     const currentRecord = sorted.find((c) => c.month === currentMonth);
     
     return {
-      currentMonth: currentRecord ?? {
-        month: currentMonth,
-        b2StorageCost: 0,
-        b2DownloadCost: 0,
-        b2ApiCost: 0,
-        s3StorageCost: 0,
-        s3RetrievalCost: 0,
-        totalCost: 0,
-        alertSent: false,
-        alertThreshold: 5000,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
+      // Do NOT synthesise a zero-filled record here. A fabricated
+      // `$0.00` row is indistinguishable from a measured `$0.00` and
+      // made the admin dashboard report "spend is fine" when in fact
+      // nothing had ever been recorded. Backblaze has no billing API,
+      // so the honest signal is "no data for this month" — the UI
+      // renders an explicit placeholder.
+      currentMonth: currentRecord ?? null,
       historical: sorted.filter((c) => c.month !== currentMonth),
     };
   },
