@@ -961,22 +961,30 @@ export async function listAccessibleFiles(userId: string) {
 
 ## Cost Estimates
 
+> Rates below reflect Backblaze's published pricing as of 2026-11-02
+> (https://www.backblaze.com/cloud-storage/pricing). The pre-2026-05
+> figures ($0.006/GB storage, $0.004/1,000 Class A, $0.002/1,000
+> Class B) are obsolete: storage is now $6.95/TB/month and Class A/B/C
+> API calls are free.
+
 ### Backblaze B2 + Cloudflare CDN (Short-term, 30 days)
-- Storage: ~$0.006/GB/month
-- Download/Egress: **FREE** (via Cloudflare Bandwidth Alliance)
-- B2 Class A transactions: ~$0.004/1000 (upload)
-- B2 Class B transactions: ~$0.002/1000 (download via CDN)
+- Storage: **$6.95/TB/month = $0.00695/GB/month** (first 10 GB free)
+- Download/Egress: **free up to 3x average monthly stored**; beyond that `$0.01/GB`.
+  Unlimited and free through Bandwidth Alliance partners (Cloudflare) when the
+  bytes actually traverse the partner.
+- B2 Class A/B/C transactions: **free**
+- B2 Class D (Event Notifications only): `$0.004/10,000` after 2,500/day free
 
 ### AWS S3 Glacier Deep Archive (Long-term)
 - Storage: ~$0.00099/GB/month (~$1/GB/year)
 - Retrieval: $0.02/GB + request fees
 
 ### Example: 100GB instructor uploads/month
-- B2 storage (30 days): ~$0.06/month
-- B2 transactions: ~$0.02/month
+- B2 storage (30 days, after 10 GB free): ~$0.63/month
+- B2 transactions: **$0.00** (Class A/B/C are free)
 - Cloudflare egress: **FREE**
 - S3 Archive (335 days): ~$0.33/month
-- **Total: ~$0.41/month for 100GB**
+- **Total: ~$0.96/month for 100GB**
 
 ---
 
