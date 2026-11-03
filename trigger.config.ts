@@ -56,7 +56,9 @@ export default defineConfig({
         pushIfPresent("CONVEX_HTTP_KEY", process.env.CONVEX_HTTP_KEY);
         pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
         pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);
-        pushIfPresent("B2_ENDPOINT", process.env.B2_ENDPOINT);
+        // B2_ENDPOINT is bucket configuration — emitted only in the
+        // opt-in block below, so it cannot drift from the dashboard value
+        // (it was previously emitted twice).
         pushIfPresent("RESEND_API_KEY", process.env.RESEND_API_KEY);
         pushIfPresent("EMAIL_FROM", process.env.EMAIL_FROM);
         pushIfPresent("EMAIL_FROM_TRANSACTIONAL", process.env.EMAIL_FROM_TRANSACTIONAL);
