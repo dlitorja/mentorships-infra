@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play, UserPlus, UserCog } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
+import { listFilesWithParams, getAdminInstructors, getAssignableInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
 import { BulkDownloadProgress } from "@/components/bulk-download-progress";
@@ -13,7 +13,10 @@ const UNASSIGNED_FILTER = "__unassigned__";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
+  // All instructor-role users, used for display names on legacy files.
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
+  // Only valid assignment targets (active user + active profile).
+  const [assignableInstructors, setAssignableInstructors] = useState<InstructorOption[]>([]);
   const [pagination, setPagination] = useState<{ cursor: number | null; hasMore: boolean }>({
     cursor: null,
     hasMore: false,
@@ -155,7 +158,16 @@ setDownloadingIds((prev) => {
       })
       .catch((err) => {
         if (cancelled) return;
-        console.error("Failed to fetch instructors:", err);
+        console.error("Failed to fetch instructor names:", err);
+      });
+    getAssignableInstructors()
+      .then((data) => {
+        if (cancelled) return;
+        setAssignableInstructors(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to fetch assignable instructors:", err);
       });
     return () => {
       cancelled = true;
@@ -570,7 +582,21 @@ setSelectedFileIds(new Set());
                                       className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                                     >
                                       <option value="">Unassigned</option>
-                                      {instructors.map((inst) => (
+                                      {/* Preserve a legacy/invalid current
+                                          target in the select so admins can
+                                          see it and move the file to a
+                                          valid instructor. */}
+                                      {assignInstructorId &&
+                                        !assignableInstructors.some(
+                                          (inst) => inst.id === assignInstructorId
+                                        ) && (
+                                          <option value={assignInstructorId}>
+                                            {instructorNameMap[assignInstructorId] ||
+                                              assignInstructorId}{" "}
+                                            (current — not assignable)
+                                          </option>
+                                        )}
+                                      {assignableInstructors.map((inst) => (
                                         <option key={inst.id} value={inst.id}>
                                           {inst.name || inst.email}
                                         </option>

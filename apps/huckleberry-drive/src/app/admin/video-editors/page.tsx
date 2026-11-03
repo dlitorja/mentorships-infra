@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import {
   getVideoEditors,
-  getAdminInstructors,
+  getAssignableInstructors,
   updateVideoEditorAssignmentQuota,
   createVideoEditorAssignment,
   removeVideoEditorOpenAssignment,
@@ -348,7 +348,7 @@ export default function AdminVideoEditorsPage(): React.ReactElement {
       // Load instructors independently so a failure here does not hide the
       // existing quota-management UI.
       try {
-        const instructorData = await getAdminInstructors();
+        const instructorData = await getAssignableInstructors();
         setInstructors(instructorData);
       } catch (instructorErr) {
         const message = instructorErr instanceof Error ? instructorErr.message : "Failed to load instructors";
