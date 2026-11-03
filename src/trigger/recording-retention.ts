@@ -1,5 +1,5 @@
 import { logger, schedules } from "@trigger.dev/sdk";
-import { deleteFromB2 } from "@mentorships/storage";
+import { deleteRecordingFromB2 } from "@mentorships/storage";
 
 const CONVEX_DEPLOYMENT_URL =
   process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
@@ -62,7 +62,7 @@ async function callConvex(
  *      The HTTP query is bounded at 200 rows; we re-fetch
  *      until empty (drain pattern, MAX_ITERATIONS=50 →
  *      ≈ 10,000 rows per run).
- *   2. For each: call `deleteFromB2(recordingUrl)` (the B2
+ *   2. For each: call `deleteRecordingFromB2(recordingUrl)` (the B2
  *      API call is idempotent — a missing object returns 404
  *      silently).
  *   3. POST `/recording-retention/mark-deleted` → patches the
@@ -123,7 +123,7 @@ export const cleanupExpiredCallRecordings = schedules.task({
         const sessionId = candidate._id;
         const recordingUrl = candidate.recordingUrl;
         try {
-          await deleteFromB2(recordingUrl);
+          await deleteRecordingFromB2(recordingUrl);
           await callConvex("/recording-retention/mark-deleted", {
             method: "POST",
             body: JSON.stringify({ sessionId }),

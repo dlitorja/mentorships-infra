@@ -738,7 +738,7 @@ Failure modes:
 
 ### Recording Retention (R12)
 
-Call recordings uploaded to B2 are auto-deleted after **90 days** (configurable via `RECORDING_RETENTION_DAYS`). The deadline is stamped at upload time by `attachRecordingFromB2Upload` into `sessions.recordingExpiresAt`; legacy rows are backfilled by `convex/migrations/backfillRecordingExpiry.ts` to `_creationTime + 90d` on first run. The cleanup + warning flow:
+Call recordings uploaded to B2 are auto-deleted after **30 days** by default (`DEFAULT_RECORDING_RETENTION_DAYS` in `convex/recordingRetention.ts`, tunable per environment via `RECORDING_RETENTION_DAYS`). The deadline is stamped at upload time by `attachRecordingFromB2Upload` into `sessions.recordingExpiresAt`; legacy rows are backfilled by `convex/migrations/backfillRecordingExpiry.ts` to `_creationTime + 90d` on first run (historical rows keep their original, longer deadline). The cleanup + warning flow:
 
 ```
 [Upload complete]
@@ -757,7 +757,7 @@ Call recordings uploaded to B2 are auto-deleted after **90 days** (configurable 
     │  → sessions.recordingUrl = undefined
     ▼
 [Daily at 10 AM UTC]  send-recording-retention-warnings (Trigger schedule)
-    │  GET /recording-retention/for-notification (30/7/1-day windows)
+    │  GET /recording-retention/for-notification (single 7-day window)
     │  POST /recording-retention/notify per (session, recipient, threshold)
     │  Resend email + dedupe-write recordingRetentionNotifications row
     ▼
@@ -781,7 +781,7 @@ Key implementation files (R12):
 - `apps/platform/components/workspace/recording-retention-warning-banner.tsx` — in-app banner mounted in `workspace-client-page.tsx`
 - `apps/platform/lib/queries/convex/use-recordings.ts` — TanStack Query hooks
 
-Warning thresholds (30/7/1) are tighter than the workspace retention (90/30/7) because recordings are sub-resources of a workspace — the email is more actionable when it says "download before May 14" rather than "90 days from now."
+Recordings use a **single 7-day warning** (`WARNING_THRESHOLDS_DAYS = [7]` in `convex/recordingRetention.ts`), tighter than the workspace retention (90/30/7) because recordings are sub-resources of a workspace — the email is more actionable when it says "download before May 14" rather than "90 days from now". The same notification row also powers the in-app banner, so recipients get a second surface without a second email.
 
 Idempotency: `deleteFromB2` is idempotent (B2 returns 404 silently for missing keys); `markRecordingDeleted` early-returns when status is already `"purged"`. The notification dedupe key `(sessionId, recipientUserId, daysUntilDeletion)` prevents spam when the cron runs daily against the same window.
 

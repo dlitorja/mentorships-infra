@@ -12,24 +12,30 @@ const fileMetadataSchema = z.object({
 
 export type FileMetadata = z.infer<typeof fileMetadataSchema>;
 
-export async function deleteFile(key: string): Promise<void> {
+export async function deleteFile(
+  key: string,
+  bucket: string = B2_BUCKET_NAME
+): Promise<void> {
   const client = getB2Client();
 
   await client.send(
     new DeleteObjectCommand({
-      Bucket: B2_BUCKET_NAME,
+      Bucket: bucket,
       Key: key,
     })
   );
 }
 
-export async function headFile(key: string): Promise<FileMetadata | null> {
+export async function headFile(
+  key: string,
+  bucket: string = B2_BUCKET_NAME
+): Promise<FileMetadata | null> {
   const client = getB2Client();
 
   try {
     const response = await client.send(
       new HeadObjectCommand({
-        Bucket: B2_BUCKET_NAME,
+        Bucket: bucket,
         Key: key,
       })
     );

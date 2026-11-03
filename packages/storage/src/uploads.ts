@@ -436,6 +436,8 @@ export type UploadFromUrlParams = {
   key: string;
   contentType: string;
   maxBytes?: number;
+  /** Destination bucket. Defaults to `B2_BUCKET_NAME`. */
+  bucket?: string;
 };
 
 export type UploadFromUrlResult = {
@@ -534,7 +536,7 @@ export async function uploadFromUrl(
 
   const client = getB2Client();
   const command = new PutObjectCommand({
-    Bucket: B2_BUCKET_NAME,
+    Bucket: params.bucket ?? B2_BUCKET_NAME,
     Key: params.key,
     Body: body,
     ContentType: params.contentType,
