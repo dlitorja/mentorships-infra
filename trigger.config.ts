@@ -60,6 +60,12 @@ export default defineConfig({
         // opt-in block below, so it cannot drift from the dashboard value
         // (it was previously emitted twice).
         pushIfPresent("RESEND_API_KEY", process.env.RESEND_API_KEY);
+        // Where the reconciliation job emails its drift report. Safe to
+        // sync whenever present (not bucket configuration).
+        pushIfPresent(
+          "RECORDING_RECONCILIATION_ALERT_EMAIL",
+          process.env.RECORDING_RECONCILIATION_ALERT_EMAIL
+        );
         pushIfPresent("EMAIL_FROM", process.env.EMAIL_FROM);
         pushIfPresent("EMAIL_FROM_TRANSACTIONAL", process.env.EMAIL_FROM_TRANSACTIONAL);
         pushIfPresent("EMAIL_FROM_MARKETING", process.env.EMAIL_FROM_MARKETING);

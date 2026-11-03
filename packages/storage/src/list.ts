@@ -16,6 +16,8 @@ export interface ListB2ObjectsOptions {
   prefix?: string;
   maxKeys?: number;
   continuationToken?: string;
+  /** Bucket to list. Defaults to `B2_BUCKET_NAME`. */
+  bucket?: string;
 }
 
 export interface ListB2ObjectsResult {
@@ -29,11 +31,16 @@ export interface ListB2ObjectsResult {
 export async function listB2Objects(
   options: ListB2ObjectsOptions = {}
 ): Promise<ListB2ObjectsResult> {
-  const { prefix = "", maxKeys = 1000, continuationToken } = options;
+  const {
+    prefix = "",
+    maxKeys = 1000,
+    continuationToken,
+    bucket = B2_BUCKET_NAME,
+  } = options;
   const client = getB2Client();
 
   const command = new ListObjectsV2Command({
-    Bucket: B2_BUCKET_NAME,
+    Bucket: bucket,
     Prefix: prefix,
     MaxKeys: maxKeys,
     ContinuationToken: continuationToken,

@@ -23,12 +23,10 @@ import { internal } from "./_generated/api";
  *   recordings whose `recordingExpiresAt` has passed but were not
  *   marked `purged` by the cleanup schedule. See
  *   `convex/audit/recordingRetentionAudit.ts`.
- * - reconcile-recordings-bucket: Runs weekly (Sunday 06:00 UTC), lists
- *   `recordings/` in the recordings bucket and diffs it against `sessions`
- *   to catch "purged in the DB but the object still exists" — invisible to
- *   the DB-side audits because S3 DeleteObject is idempotent. Logs,
- *   emails, and retries one delete. See
- *   `convex/audit/recordingsBucketReconciliation.ts`.
+ * - reconcile-recordings-bucket runs in Trigger.dev as a weekly schedule
+ *   (`src/trigger/reconcile-recordings-bucket.ts`), not here: the Convex
+ *   deployment's B2 key cannot use the native API, so the job uses the
+ *   S3-compatible API via `@mentorships/storage`.
  * - reconcile-resend-suppression-list: Runs every 6 hours, syncs the
  *   Resend Suppression List against `suppressionEvents` to detect
  *   rows the webhook missed + entries that have been removed. See
@@ -138,13 +136,6 @@ crons.interval(
   "audit-recording-retention-drift",
   { hours: 1 },
   internal.audit.recordingRetentionAudit.auditRecordingRetentionDriftMonitor,
-  {}
-);
-
-crons.cron(
-  "reconcile-recordings-bucket",
-  "0 6 * * 0",
-  internal.audit.recordingsBucketReconciliation.reconcileRecordingsBucket,
   {}
 );
 
