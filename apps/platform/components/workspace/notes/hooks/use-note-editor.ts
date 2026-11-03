@@ -18,6 +18,7 @@ import { NoteImage } from '../extensions/note-image';
 const NOTE_IMAGE_URL_LIFETIME_SECONDS = 3600;
 const NOTE_IMAGE_URL_REFRESH_MS = 55 * 60 * 1000;
 const NOTE_IMAGE_URL_FOCUS_MIN_AGE_MS = 5 * 60 * 1000;
+const NOTE_IMAGE_URL_RETRY_MS = 5 * 60 * 1000;
 
 type UseEmbedImageInNote = {
   mutateAsync: (args: { noteId: Id<'workspaceNotes'>; b2Key: string }) => Promise<string | undefined>;
@@ -99,7 +100,7 @@ export function useNoteEditor({
     },
     onUpdate: ({ editor }) => {
       const noteId = selectedNoteIdRef.current;
-      if (noteId) {
+      if (noteId && !isRefreshingImageUrlsRef.current) {
         scheduleAutosave(noteId, editor.getHTML());
       }
       updateNoteImageUrls(editor);
@@ -120,6 +121,8 @@ export function useNoteEditor({
   // HUC-63: last time note image URLs were (re)resolved. Focus/visibility
   // refreshes skip when this is recent.
   const lastResolvedAtRef = useRef(0);
+  // HUC-63: URL-only transactions must not schedule an autosave.
+  const isRefreshingImageUrlsRef = useRef(false);
 
   const resolveDownloadUrlRef = useRef(resolveDownloadUrl);
   useEffect(() => {
@@ -158,7 +161,7 @@ export function useNoteEditor({
   const resolveB2KeyImageSrcs = useCallback(async (
     editorInstance: NonNullable<ReturnType<typeof useEditor>>,
     noteIdAtCall: Id<'workspaceNotes'> | null
-  ): Promise<void> => {
+  ): Promise<{ total: number; resolved: number }> => {
     const b2Keys = new Set<string>();
     editorInstance.state.doc.descendants((node) => {
       if (node.type.name !== "image") return;
@@ -167,9 +170,7 @@ export function useNoteEditor({
         b2Keys.add(b2Key);
       }
     });
-    if (b2Keys.size === 0) return;
-
-    lastResolvedAtRef.current = Date.now();
+    if (b2Keys.size === 0) return { total: 0, resolved: 0 };
 
     const resolved = await Promise.all(
       Array.from(b2Keys).map(async (b2Key) => {
@@ -191,14 +192,24 @@ export function useNoteEditor({
     // mutate the new note's doc with the old note's image
     // URLs (Greptile P1 #13 — "pending request also has no
     // check that the same note is still open").
-    if (selectedNoteIdRef.current !== noteIdAtCall) return;
-    if (editorRef.current !== editorInstance) return;
+    if (selectedNoteIdRef.current !== noteIdAtCall) {
+      return { total: b2Keys.size, resolved: 0 };
+    }
+    if (editorRef.current !== editorInstance) {
+      return { total: b2Keys.size, resolved: 0 };
+    }
 
     const urlByKey = new Map<string, string>();
     for (const { b2Key, url } of resolved) {
       if (url) urlByKey.set(b2Key, url);
     }
-    if (urlByKey.size === 0) return;
+    if (urlByKey.size === 0) {
+      return { total: b2Keys.size, resolved: 0 };
+    }
+    // HUC-63: only a successful batch resets the freshness clock, so a
+    // failed refresh is retried on the next focus/timer instead of
+    // being treated as fresh for another full lifetime.
+    lastResolvedAtRef.current = Date.now();
 
     // Re-scan the doc AFTER the await, keying by `b2Key` so
     // concurrent edits that shifted image positions still
@@ -218,9 +229,16 @@ export function useNoteEditor({
       changed = true;
     });
     if (changed) {
-      editorInstance.view.dispatch(tr);
+      // HUC-63: URL-only attribute changes must not autosave the note.
+      isRefreshingImageUrlsRef.current = true;
+      try {
+        editorInstance.view.dispatch(tr);
+      } finally {
+        isRefreshingImageUrlsRef.current = false;
+      }
     }
-   }, [workspaceId]);
+    return { total: b2Keys.size, resolved: urlByKey.size };
+  }, [workspaceId]);
 
 
   useEffect(() => {
@@ -396,26 +414,51 @@ export function useNoteEditor({
   useEffect(() => {
     if (!editor || !selectedNoteId) return;
 
-    const refresh = () => {
-      void resolveB2KeyImageSrcs(editor, selectedNoteIdRef.current);
-    };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let running = false;
+    let cancelled = false;
+
+    function scheduleNext(delayMs: number) {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void run();
+      }, delayMs);
+    }
+
+    async function run() {
+      if (cancelled || running) return;
+      running = true;
+      const { total, resolved } = await resolveB2KeyImageSrcs(
+        editor,
+        selectedNoteIdRef.current
+      );
+      running = false;
+      if (cancelled) return;
+      // HUC-63: partial/all failures retry in five minutes instead of
+      // waiting for the next full lifetime.
+      const retry = total > 0 && resolved < total;
+      scheduleNext(retry ? NOTE_IMAGE_URL_RETRY_MS : NOTE_IMAGE_URL_REFRESH_MS);
+    }
+
     const refreshIfStale = () => {
       if (
         Date.now() - lastResolvedAtRef.current >=
         NOTE_IMAGE_URL_FOCUS_MIN_AGE_MS
       ) {
-        refresh();
+        void run();
       }
     };
 
-    const timer = setInterval(refresh, NOTE_IMAGE_URL_REFRESH_MS);
+    scheduleNext(NOTE_IMAGE_URL_REFRESH_MS);
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") refreshIfStale();
     };
     window.addEventListener("focus", refreshIfStale);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      clearInterval(timer);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
       window.removeEventListener("focus", refreshIfStale);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
