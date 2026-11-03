@@ -128,19 +128,44 @@ export function buildRule(): LifecycleRule {
   };
 }
 
+/**
+ * Structural comparison of a bucket rule against the rule this script
+ * intends to install.
+ *
+ * Comparing only `ID` (or only `Status` + `DaysAfterInitiation`) is not
+ * enough: a same-ID rule scoped to `tmp/` would leave every other upload
+ * unhandled, and a rule carrying an `Expiration` action would break the
+ * "never deletes completed objects" promise. Both must be rejected.
+ */
+export function ruleMatches(rule: LifecycleRule): boolean {
+  const prefix = rule.Filter?.Prefix ?? rule.Prefix ?? "";
+  const hasExpiration =
+    rule.Expiration !== undefined ||
+    rule.NoncurrentVersionExpiration !== undefined;
+  const hasTransitions = (rule.Transitions?.length ?? 0) > 0;
+
+  return (
+    rule.ID === RULE_ID &&
+    rule.Status === "Enabled" &&
+    prefix === "" &&
+    !hasExpiration &&
+    !hasTransitions &&
+    rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation ===
+      DAYS_AFTER_INITIATION
+  );
+}
+
 export function mergeRules(existing: LifecycleRule[]): LifecycleRule[] {
   const next = buildRule();
   const sameId = existing.find((rule) => rule.ID === RULE_ID);
 
   if (sameId) {
-    const identical =
-      sameId.Status === next.Status &&
-      sameId.AbortIncompleteMultipartUpload?.DaysAfterInitiation ===
-        DAYS_AFTER_INITIATION;
-    if (!identical) {
+    if (!ruleMatches(sameId)) {
       throw new Error(
-        `A rule with ID "${RULE_ID}" already exists with a different body. ` +
-          "Refusing to overwrite it — reconcile by hand first."
+        `A rule with ID "${RULE_ID}" already exists but differs from the ` +
+          "intended rule (prefix, status, abort window, or an extra " +
+          "Expiration/Transition action). Refusing to overwrite it — " +
+          "reconcile by hand first."
       );
     }
     return [sameId, ...existing.filter((rule) => rule.ID !== RULE_ID)];
@@ -195,6 +220,15 @@ async function main() {
       process.exitCode = 1;
       return;
     }
+    if (!ruleMatches(rule)) {
+      console.log(
+        `MISMATCH: "${RULE_ID}" exists on ${config.bucket} but is not the ` +
+          "intended rule (disabled, wrong prefix, wrong abort window, or an " +
+          `extra action). Found: ${JSON.stringify(rule)}`
+      );
+      process.exitCode = 1;
+      return;
+    }
     console.log(
       `OK: "${RULE_ID}" present on ${config.bucket} — aborts incomplete multipart uploads after ` +
         `${rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation} day(s). Total rules: ${existing.length}.`
@@ -225,10 +259,10 @@ async function main() {
   // Re-read instead of trusting the PUT response: B2 has historically
   // accepted writes it then ignores (see the versioning caveat below).
   const after = await readExistingRules(client, config.bucket);
-  const applied = after.find((rule) => rule.ID === RULE_ID);
+  const applied = after.find((rule) => ruleMatches(rule));
   if (!applied) {
     throw new Error(
-      `PUT succeeded but "${RULE_ID}" is not present on read-back. ` +
+      `PUT succeeded but "${RULE_ID}" is not present in the intended form on read-back. ` +
         "B2 silently ignores lifecycle rules on some bucket configurations — " +
         "check bucket versioning in the console before retrying."
     );
