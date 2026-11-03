@@ -8,14 +8,21 @@ function sanitizeFilename(filename: string): string {
   return filename.replace(/["\r\n;]/g, "_").slice(0, 255);
 }
 
+/**
+ * Every helper accepts an optional `bucket` so recording call sites can
+ * pass `getRecordingsBucketName()` instead of relying on the shared
+ * `B2_BUCKET_NAME`. Defaults preserve existing behaviour for
+ * instructor-upload and workspace callers.
+ */
 export async function getDownloadUrl(
   key: string,
-  expiresInSeconds: number = DEFAULT_URL_EXPIRY
+  expiresInSeconds: number = DEFAULT_URL_EXPIRY,
+  bucket: string = B2_BUCKET_NAME
 ): Promise<string> {
   const client = getB2Client();
 
   const command = new GetObjectCommand({
-    Bucket: B2_BUCKET_NAME,
+    Bucket: bucket,
     Key: key,
   });
 
@@ -25,12 +32,13 @@ export async function getDownloadUrl(
 export async function getDownloadUrlWithContentDisposition(
   key: string,
   filename: string,
-  expiresInSeconds: number = DEFAULT_URL_EXPIRY
+  expiresInSeconds: number = DEFAULT_URL_EXPIRY,
+  bucket: string = B2_BUCKET_NAME
 ): Promise<string> {
   const client = getB2Client();
 
   const command = new GetObjectCommand({
-    Bucket: B2_BUCKET_NAME,
+    Bucket: bucket,
     Key: key,
     ResponseContentDisposition: `attachment; filename="${sanitizeFilename(filename)}"`,
   });
@@ -41,12 +49,13 @@ export async function getDownloadUrlWithContentDisposition(
 export async function getStreamUrl(
   key: string,
   contentType: string,
-  expiresInSeconds: number = DEFAULT_URL_EXPIRY
+  expiresInSeconds: number = DEFAULT_URL_EXPIRY,
+  bucket: string = B2_BUCKET_NAME
 ): Promise<string> {
   const client = getB2Client();
 
   const command = new GetObjectCommand({
-    Bucket: B2_BUCKET_NAME,
+    Bucket: bucket,
     Key: key,
     ResponseContentType: contentType,
   });

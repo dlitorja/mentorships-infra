@@ -40,3 +40,34 @@ export function getB2Client(): S3Client {
 
 export const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
 export const B2_BUCKET_REGION = B2_REGION;
+
+/**
+ * Bucket that holds call recordings, resolved from
+ * `RECORDINGS_BUCKET_NAME`.
+ *
+ * There is deliberately **no fallback to `B2_BUCKET_NAME`**. Call
+ * recordings previously shared the generic bucket, and because three
+ * runtimes disagreed about `B2_BUCKET_NAME`, live transfers landed in
+ * `instructor-uploads` while the signing path pointed at
+ * `mentorship-call-storage` — unplayable recordings, and purges that
+ * returned success against the wrong bucket (S3 `DeleteObject` is
+ * idempotent, so nothing surfaced).
+ *
+ * Failing loudly beats silently writing to the wrong bucket. Every
+ * runtime that touches recordings must set `RECORDINGS_BUCKET_NAME`
+ * (Convex, Trigger.dev, the platform app).
+ */
+export function getRecordingsBucketName(): string {
+  const bucket = process.env.RECORDINGS_BUCKET_NAME?.trim();
+  if (!bucket) {
+    throw new Error(
+      "RECORDINGS_BUCKET_NAME is not set. Call recordings must not fall " +
+        "back to B2_BUCKET_NAME. Set RECORDINGS_BUCKET_NAME to the " +
+        "recordings bucket (mentorship-call-storage) in this runtime."
+    );
+  }
+  return bucket;
+}
+
+/** Constant used by the recording helpers to guard key shape. */
+export const RECORDINGS_KEY_PREFIX = "recordings/";
