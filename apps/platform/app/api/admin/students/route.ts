@@ -110,7 +110,8 @@ export async function GET(req: NextRequest) {
     // can run, so re-resolve the email through Clerk and re-run the query
     // with the resulting Clerk user ids. Only on an empty email search;
     // partial-email searches still use the Convex path.
-    if (result.total === 0 && search.includes("@")) {
+    const isCompleteEmail = z.string().email().safeParse(search.trim()).success;
+    if (result.total === 0 && isCompleteEmail) {
       try {
         const client = await clerkClient();
         const clerkUsers = await client.users.getUserList({
