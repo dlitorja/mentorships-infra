@@ -2,18 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
 
+// Keep the real `getRecordingsBucketName` (so the missing-env test
+// exercises production code, not a copy of it) and stub only the SDK
+// client.
 vi.mock("./client", async () => {
   const actual = await vi.importActual<typeof import("./client")>("./client");
   return {
     ...actual,
     getB2Client: () => ({ send: sendMock }),
-    getRecordingsBucketName: () => {
-      const bucket = process.env.RECORDINGS_BUCKET_NAME?.trim();
-      if (!bucket) {
-        throw new Error("RECORDINGS_BUCKET_NAME is not set");
-      }
-      return bucket;
-    },
   };
 });
 
@@ -48,6 +44,11 @@ describe("recording bucket resolution", () => {
     delete process.env.RECORDINGS_BUCKET_NAME;
     await expect(getRecordingStreamUrl(KEY, "video/mp4")).rejects.toThrow(
       /RECORDINGS_BUCKET_NAME is not set/
+    );
+    // Prove the real resolver ran, not a mock: the production message
+    // mentions the forbidden fallback.
+    await expect(deleteRecordingFromB2(KEY)).rejects.toThrow(
+      /must not fall back to B2_BUCKET_NAME/
     );
   });
 });

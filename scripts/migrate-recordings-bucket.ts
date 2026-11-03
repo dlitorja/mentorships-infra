@@ -64,6 +64,14 @@ function parseArgs(argv: string[]): Args {
   if (keyIndex >= 0 && !key) {
     throw new Error("--key requires a value");
   }
+  if (key !== undefined && !key.startsWith(RECORDINGS_PREFIX)) {
+    // Without this guard an operator could move an instructor-upload or
+    // workspace file into the recordings bucket and delete the original,
+    // breaking every existing link to it.
+    throw new Error(
+      `--key must start with "${RECORDINGS_PREFIX}" (got "${key}")`
+    );
+  }
   return {
     apply: argv.includes("--apply"),
     purgeProbes: argv.includes("--purge-probes"),
@@ -199,8 +207,22 @@ async function main() {
 
       const targetSize = await headSize(client, config.target, key);
       if (targetSize === sourceSize) {
-        skipped++;
-        console.log(`skip (already present, ${sourceSize} bytes) ${key}`);
+        // A previous run copied but never deleted the source (or its
+        // delete failed). Retention only deletes from the recordings
+        // bucket and then marks the session `purged`, so leaving the
+        // legacy copy here orphans it forever. Finish the job.
+        if (!args.apply) {
+          skipped++;
+          console.log(
+            `[dry-run] would delete duplicate source (target already matches, ${sourceSize} bytes) ${config.source}/${key}`
+          );
+          continue;
+        }
+        await client.send(
+          new DeleteObjectCommand({ Bucket: config.source, Key: key })
+        );
+        moved++;
+        console.log(`deleted duplicate source (target already matched) ${key}`);
         continue;
       }
 
