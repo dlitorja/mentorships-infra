@@ -166,7 +166,7 @@ function encodeCopySource(bucket: string, key: string): string {
   return `${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-async function main() {
+export async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   assertDistinctBuckets(config.source, config.target);
