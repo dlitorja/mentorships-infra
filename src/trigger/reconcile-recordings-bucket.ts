@@ -7,10 +7,9 @@ import {
 import {
   runReconciliation,
   type AlertResult,
-  type DriftItem,
   type ReconciliationSummary,
 } from "./lib/run-recording-reconciliation";
-import type { ReconSessionRow } from "./lib/recording-reconciliation";
+import type { DriftItem, ReconSessionRow } from "./lib/recording-reconciliation";
 
 const RECORDINGS_PREFIX = "recordings/";
 const SESSIONS_PATH = "/recordings-reconciliation/sessions";
