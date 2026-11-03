@@ -78,6 +78,19 @@ describe("classifyRecordingObjects", () => {
     expect(result.skippedInFlight).toBe(3);
   });
 
+  it("never deletes the object of a failed transfer (the only copy that survives)", () => {
+    // A failed row has no `recordingUrl`, so an earlier implementation
+    // dropped it from the session map entirely and deleted its object as
+    // an "orphan" after 7 days — destroying the only copy.
+    const result = classifyRecordingObjects(
+      [obj("recordings/s1/rec1.mp4", 30 * DAY)],
+      [session("s1", "failed")],
+      NOW
+    );
+    expect(result.drift).toHaveLength(0);
+    expect(result.skippedInFlight).toBe(1);
+  });
+
   it("reports (but does not delete) an expired recording the daily cleanup missed", () => {
     const key = "recordings/s1/rec1.mp4";
     const result = classifyRecordingObjects(
@@ -127,6 +140,39 @@ describe("classifyRecordingObjects", () => {
   it("is clean when every purged row has no object", () => {
     const result = classifyRecordingObjects([], [session("s1", "purged")], NOW);
     expect(result.drift).toHaveLength(0);
+  });
+});
+
+describe("getSessionsByIds", () => {
+  it("returns failed rows that have no recordingUrl", async () => {
+    const t = convexTest(schema, modules);
+    const sessionId = await t.run(async (ctx) => {
+      const instructorId = await ctx.db.insert("instructors", {
+        userId: "user_instructor",
+        email: "instructor@example.com",
+        slug: "test-instructor",
+        name: "Test Instructor",
+      } as never);
+      return await ctx.db.insert("sessions", {
+        instructorId,
+        studentId: "user_student",
+        scheduledAt: NOW,
+        status: "completed",
+        recordingConsent: true,
+        recordingTransferStatus: "failed",
+      });
+    });
+
+    const rows = await t.query(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (await import("./_generated/api")).internal.audit
+        .recordingsBucketReconciliation.getSessionsByIds as any,
+      { ids: [sessionId] }
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "failed" });
+    expect(rows[0].recordingUrl).toBeUndefined();
   });
 });
 

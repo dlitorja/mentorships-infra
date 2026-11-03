@@ -175,23 +175,28 @@ export function classifyRecordingObjects(
 }
 
 /**
- * Sessions that can own a recording object. `purged` rows have
- * `recordingUrl` cleared by `markRecordingDeleted`, so the object can
- * only be matched by the session id embedded in its key — which is why
- * this query returns purged rows too.
+ * Look up the sessions referenced by a batch of object keys.
+ *
+ * Looked up **by id** rather than by scanning `sessions`: the table grows
+ * with all history, so a full scan eventually exceeds Convex's per-query
+ * read limits, and filtering it by `recordingUrl` silently dropped
+ * `failed` / `pending` / `uploading` rows (which have no URL) — making
+ * their objects look like orphans and eligible for deletion.
+ *
+ * `purged` rows have `recordingUrl` cleared by `markRecordingDeleted`;
+ * they are returned here because they are matched by the session id
+ * embedded in the key.
  */
-export const listSessionsForReconciliation = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<SessionRow[]> => {
-    const all = await ctx.db.query("sessions").collect();
+export const getSessionsByIds = internalQuery({
+  args: { ids: v.array(v.id("sessions")) },
+  handler: async (ctx, args): Promise<SessionRow[]> => {
     const rows: SessionRow[] = [];
-    for (const session of all) {
-      const status = session.recordingTransferStatus;
-      if (status === undefined) continue;
-      if (status !== "purged" && session.recordingUrl === undefined) continue;
+    for (const id of args.ids) {
+      const session = await ctx.db.get(id);
+      if (!session) continue;
       rows.push({
         sessionId: session._id,
-        status,
+        status: session.recordingTransferStatus,
         recordingUrl: session.recordingUrl,
         expiresAt: session.recordingExpiresAt,
       });
@@ -277,14 +282,20 @@ async function resolveBucketId(auth: B2Auth, bucketName: string): Promise<string
   return bucket.bucketId;
 }
 
+const MAX_LIST_PAGES = 1000;
+const SESSION_LOOKUP_BATCH = 500;
+const CONVEX_ID_PATTERN = /^[a-z0-9]{20,40}$/;
+
 async function listRecordingObjects(
   auth: B2Auth,
   bucketId: string
-): Promise<RecordingObjectRow[]> {
+): Promise<{ objects: RecordingObjectRow[]; truncated: boolean }> {
   const out: RecordingObjectRow[] = [];
   let startFileName: string | undefined;
 
-  for (let page = 0; page < 50; page++) {
+  // Safety bound only — 1000 pages is ~1M objects. If it is ever hit we
+  // report truncation instead of silently claiming a clean scan.
+  for (let page = 0; page < MAX_LIST_PAGES; page++) {
     const body: Record<string, unknown> = {
       bucketId,
       prefix: RECORDINGS_PREFIX,
@@ -311,11 +322,11 @@ async function listRecordingObjects(
       });
     }
 
-    if (!data.nextFileName) break;
+    if (!data.nextFileName) return { objects: out, truncated: false };
     startFileName = data.nextFileName;
   }
 
-  return out;
+  return { objects: out, truncated: true };
 }
 
 async function deleteObject(auth: B2Auth, item: DriftItem): Promise<void> {
@@ -401,11 +412,30 @@ export const reconcileRecordingsBucket = internalAction({
 
     const auth = await authorizeB2();
     const bucketId = await resolveBucketId(auth, bucketName);
-    const objects = await listRecordingObjects(auth, bucketId);
-    const sessions = await ctx.runQuery(
-      internal.audit.recordingsBucketReconciliation.listSessionsForReconciliation,
-      {}
-    );
+    const { objects, truncated } = await listRecordingObjects(auth, bucketId);
+
+    // Resolve only the sessions these objects refer to, in batches. Ids are
+    // validated first: `ctx.db.get` throws on a malformed id, and the key
+    // segment is attacker-influenced only in the sense that it is whatever
+    // was uploaded.
+    const sessionIds = new Set<string>();
+    for (const object of objects) {
+      const candidate = object.fileName.split("/")[1] ?? "";
+      if (CONVEX_ID_PATTERN.test(candidate)) sessionIds.add(candidate);
+    }
+
+    const sessions: SessionRow[] = [];
+    const idList = Array.from(sessionIds);
+    for (let i = 0; i < idList.length; i += SESSION_LOOKUP_BATCH) {
+      const batch = idList
+        .slice(i, i + SESSION_LOOKUP_BATCH)
+        .map((id) => id as Id<"sessions">);
+      const rows = await ctx.runQuery(
+        internal.audit.recordingsBucketReconciliation.getSessionsByIds,
+        { ids: batch }
+      );
+      sessions.push(...rows);
+    }
 
     const now = Date.now();
     const { drift, healthy, skippedInFlight } = classifyRecordingObjects(
@@ -441,6 +471,8 @@ export const reconcileRecordingsBucket = internalAction({
     const summary = {
       bucket: bucketName,
       scanned: objects.length,
+      truncated,
+      sessionsResolved: sessions.length,
       healthy,
       skippedInFlight,
       drift: drift.length,
@@ -452,6 +484,14 @@ export const reconcileRecordingsBucket = internalAction({
       alert,
       ranAt: now,
     };
+
+    if (truncated) {
+      // Incomplete scan: never report this as clean.
+      console.error(
+        `[recordingsBucketReconciliation] scan truncated at ${MAX_LIST_PAGES} pages (${objects.length} objects) — later objects were NOT checked`,
+        { bucket: bucketName, objects: objects.length }
+      );
+    }
 
     if (drift.length > 0) {
       // Structured log for the Axiom export, same shape as the hourly audits.
