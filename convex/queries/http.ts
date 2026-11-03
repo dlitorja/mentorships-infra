@@ -136,26 +136,34 @@ export const getWorkspaceExportData = query({
         ? allImages.filter((img) => imageIds.includes(img._id))
         : allImages;
 
+    // PR workspace-storage-3c (Greptile P1 "Exports omit B2 images"):
+    // resolve B2 keys via the shared resolver so the export trigger task
+    // receives real signed URLs. HUC-65: batch every key into ONE resolver
+    // call — the previous loop repeated the workspace read and internal
+    // query once per image.
+    const b2Keys = images
+      .map((img) => img.b2Key)
+      .filter((key): key is string => key !== undefined);
+    const resolvedB2 =
+      b2Keys.length > 0
+        ? await ctx.runQuery(
+            internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
+            { workspaceId, b2Keys }
+          )
+        : [];
+    const b2UrlByKey = new Map<string, string>();
+    for (const resolved of resolvedB2) {
+      if (resolved.ok) {
+        b2UrlByKey.set(resolved.b2Key, resolved.url);
+      }
+    }
+
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
         let imageUrl = img.imageUrl;
         let contentType: string | undefined;
-        // PR workspace-storage-3c (Greptile P1 "Exports omit B2
-        // images"): resolve B2 keys via the shared
-        // `resolveWorkspaceB2FileUploadsForKeys` internal query
-        // so the export trigger task receives a real signed URL
-        // (not the b2Key literal, which it used to embed as
-        // `imageUrl` and then fail to fetch).
         if (img.b2Key !== undefined) {
-          const [resolved] = await ctx.runQuery(
-            internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-            { workspaceId, b2Keys: [img.b2Key] }
-          );
-          if (resolved.ok) {
-            imageUrl = resolved.url;
-          } else {
-            imageUrl = "";
-          }
+          imageUrl = b2UrlByKey.get(img.b2Key) ?? "";
           return {
             imageUrl,
             b2Key: img.b2Key,
