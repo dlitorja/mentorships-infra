@@ -1,10 +1,11 @@
 import { mutation, query, internalMutation, internalQuery, internalAction, action } from "./_generated/server";
 import { env } from "./_generated/server";
 import type { GenericQueryCtx } from "convex/server";
+import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { applyCounterDelta } from "./storageCounter";
+import { applyCounterDelta, computeFullAggregate } from "./storageCounter";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -221,8 +222,18 @@ async function getVideoEditorStorageUsed(
 async function hasActiveVideoEditorAssignment(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string,
-  instructorId: string
+  instructorId: string | undefined
 ): Promise<boolean> {
+  if (instructorId === undefined) {
+    // Unassigned uploads are not scoped to an instructor, so "assignment"
+    // means the editor still has at least one active assignment of any
+    // kind. Used by the delete path only.
+    const allAssignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", videoEditorId))
+      .collect();
+    return allAssignments.length > 0;
+  }
   const specific = await ctx.db
     .query("videoEditorAssignments")
     .withIndex("by_videoEditorId_instructorId", (q) =>
@@ -304,21 +315,136 @@ async function requireAdminDeleteAccess(
   }
 }
 
+/**
+ * Validate that `instructorId` points at an active instructor. Used for
+ * delegated uploads (video editors) and for admin reassignment of an
+ * unassigned file. Callers that upload to their own storage are exempt
+ * (see the `isSelfUpload` checks at the call sites).
+ */
+async function assertActiveInstructorTarget(
+  ctx: GenericQueryCtx<DataModel>,
+  instructorId: string
+): Promise<void> {
+  const targetInstructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  if (!targetInstructor) {
+    throw new Error("Target instructor not found");
+  }
+  // The instructors profile itself may be soft-deleted. Profile
+  // deletion is independent of users.deletedAt (an admin may
+  // decommission the instructor profile while leaving the user row).
+  // Both must be checked.
+  if (targetInstructor.deletedAt !== undefined) {
+    throw new Error("Target instructor profile is no longer active");
+  }
+  const targetUser = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  if (targetUser?.deletedAt !== undefined) {
+    throw new Error("Target instructor is no longer active");
+  }
+  // Role changes can leave an instructors profile row intact while
+  // demoting the user out of the instructor role. Without this check,
+  // an editor with open access could submit a former-instructor's
+  // userId and create a file in a non-instructor's storage.
+  if (targetUser?.role !== "instructor") {
+    throw new Error("Target is no longer an instructor");
+  }
+}
+
+/**
+ * Non-throwing version of `assertActiveInstructorTarget`, used to
+ * decide whether an editor still has at least one usable assignment.
+ * A specific assignment row can outlive the instructor it points at
+ * (deleted profile or role removed), and such a row must not grant
+ * upload rights on its own.
+ */
+async function isActiveInstructorTarget(
+  ctx: GenericQueryCtx<DataModel>,
+  instructorId: string
+): Promise<boolean> {
+  const targetInstructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  if (!targetInstructor || targetInstructor.deletedAt !== undefined) {
+    return false;
+  }
+  const targetUser = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+    .first();
+  return (
+    targetUser !== null &&
+    targetUser.deletedAt === undefined &&
+    targetUser.role === "instructor"
+  );
+}
+
+/**
+ * Read a video editor's total active storage usage across every
+ * instructor (including unassigned uploads). Prefers the denormalized
+ * counter, falling back to a full aggregate scan when the counter has
+ * not been backfilled yet. Quota-limited editors can only upload
+ * unassigned when we can verify their total usage, so a failed scan
+ * fails closed.
+ */
+async function getVideoEditorTotalUsed(
+  ctx: MutationCtx,
+  videoEditorId: string
+): Promise<number> {
+  const counter = await ctx.db
+    .query("videoEditorStorageStats")
+    .withIndex("by_videoEditorId", (q) =>
+      q.eq("videoEditorId", videoEditorId)
+    )
+    .first();
+
+  if (counter && counter.lastUpdatedAt !== 0) {
+    return counter.usedBytes;
+  }
+
+  try {
+    const aggregate = await computeFullAggregate(ctx, videoEditorId);
+    return aggregate.usedBytes;
+  } catch (error) {
+    console.error(
+      "[instructorUploads] failed to verify total usage for quota-limited unassigned upload",
+      {
+        videoEditorId,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+    throw new Error(
+      "Unable to verify storage quota for unassigned upload; please retry"
+    );
+  }
+}
+
 export const createUpload = mutation({
   args: {
     id: v.string(),
-    instructorId: v.string(),
+    // Unassigned uploads omit `instructorId`. The explicit `undefined`
+    // distinguishes "assign later" from the `/api/uploads/initiate`
+    // route's legacy "no instructorId means upload to myself" fallback
+    // for instructors and admins.
+    instructorId: v.optional(v.string()),
     filename: v.string(),
     originalName: v.string(),
     contentType: v.string(),
     size: v.number(),
     uploadedById: v.optional(v.string()),
   },
-    handler: async (ctx, args) => {
+  handler: async (ctx, args) => {
     const caller = await getAuthenticatedUser(ctx);
     if (!caller) {
       throw new Error("Unauthorized: authentication required");
     }
+
+    const targetInstructorId = args.instructorId;
 
     // Validate that the target instructor exists before accepting an
     // editor's upload. Without this, an editor with open access could
@@ -338,41 +464,15 @@ export const createUpload = mutation({
     // reason — admin uploads target the admin's own user ID without
     // needing an instructor profile.
     //
-    // Also reject soft-deleted instructors: an admin may have
-    // decommissioned the user but the profile row still exists. Without
-    // this check, the mutation would accept an upload targeting a
-    // deleted instructor.
-    const isSelfUpload =
-      (caller.role === "instructor" && args.instructorId === caller.userId) ||
-      (caller.role === "admin" && args.instructorId === caller.userId);
-    if (!isSelfUpload) {
-      const targetInstructor = await ctx.db
-        .query("instructors")
-        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
-        .first();
-      if (!targetInstructor) {
-        throw new Error("Target instructor not found");
-      }
-      // The instructors profile itself may be soft-deleted. Profile
-      // deletion is independent of users.deletedAt (an admin may
-      // decommission the instructor profile while leaving the user
-      // row). Both must be checked.
-      if (targetInstructor.deletedAt !== undefined) {
-        throw new Error("Target instructor profile is no longer active");
-      }
-      const targetUser = await ctx.db
-        .query("users")
-        .withIndex("by_userId", (q) => q.eq("userId", args.instructorId))
-        .first();
-      if (targetUser?.deletedAt !== undefined) {
-        throw new Error("Target instructor is no longer active");
-      }
-      // Role changes can leave an instructors profile row intact while
-      // demoting the user out of the instructor role. Without this check,
-      // an editor with open access could submit a former-instructor's
-      // userId and create a file in a non-instructor's storage.
-      if (targetUser?.role !== "instructor") {
-        throw new Error("Target is no longer an instructor");
+    // Unassigned uploads (`targetInstructorId === undefined`) skip this
+    // validation entirely: there is no instructor to validate until an
+    // admin assigns one later.
+    if (targetInstructorId !== undefined) {
+      const isSelfUpload =
+        (caller.role === "instructor" && targetInstructorId === caller.userId) ||
+        (caller.role === "admin" && targetInstructorId === caller.userId);
+      if (!isSelfUpload) {
+        await assertActiveInstructorTarget(ctx, targetInstructorId);
       }
     }
 
@@ -381,10 +481,13 @@ export const createUpload = mutation({
     // storage limits. Instructors have no storage cap; only video editors
     // with an explicit per-instructor quota are limited.
     if (caller.role === "instructor") {
+      if (targetInstructorId === undefined) {
+        throw new Error("Instructors can only upload to their own storage");
+      }
       if (args.uploadedById && args.uploadedById !== caller.userId) {
         throw new Error("Instructors can only upload to their own storage");
       }
-      if (args.instructorId !== caller.userId) {
+      if (targetInstructorId !== caller.userId) {
         throw new Error("Instructors can only upload to their own storage");
       }
     } else if (caller.role === "video_editor") {
@@ -395,34 +498,107 @@ export const createUpload = mutation({
         .query("videoEditorAssignments")
         .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", caller.userId))
         .collect();
-      const specificAssignment = assignments.find(
-        (a) => a.instructorId === args.instructorId
-      );
-      const openAssignment = assignments.find((a) => a.instructorId === undefined);
-      if (!specificAssignment && !openAssignment) {
-        throw new Error("You are not assigned to this instructor");
-      }
-      // PR-quotas: enforce a per-editor per-instructor quota when one is set
-      // on a specific assignment. Open assignments have no quota.
-      const quota = specificAssignment?.storageQuotaBytes;
-      if (quota !== undefined) {
-        const editorUsed = await getVideoEditorStorageUsed(
-          ctx,
-          caller.userId,
-          args.instructorId
+
+      if (targetInstructorId === undefined) {
+        // Unassigned upload: the editor must still have at least one
+        // active assignment (open or specific), otherwise they have no
+        // upload rights at all.
+        if (assignments.length === 0) {
+          throw new Error("You are not assigned to any instructor");
+        }
+
+        // Quota: open access is unlimited (matching the per-instructor
+        // rule). When the editor only has specific assignments, enforce
+        // the sum of their quotas as a single cap so an unassigned
+        // upload cannot be used to bypass a per-instructor quota. If any
+        // specific assignment has no quota, the editor is unlimited
+        // under the existing semantics.
+        const hasOpenAssignment = assignments.some(
+          (a) => a.instructorId === undefined
         );
-        if (editorUsed + args.size > quota) {
-          throw new Error(
-            `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to add ${args.size} bytes, quota is ${quota} bytes`
+        const specificAssignments = assignments.filter(
+          (a) => a.instructorId !== undefined
+        );
+
+        // A stale specific assignment (instructor soft-deleted or role
+        // removed) must not grant unassigned upload rights. Open access
+        // has no instructor to validate, so it always qualifies.
+        if (!hasOpenAssignment) {
+          let hasActiveSpecificAssignment = false;
+          for (const assignment of specificAssignments) {
+            if (assignment.instructorId === undefined) continue;
+            if (
+              await isActiveInstructorTarget(ctx, assignment.instructorId)
+            ) {
+              hasActiveSpecificAssignment = true;
+              break;
+            }
+          }
+          if (!hasActiveSpecificAssignment) {
+            throw new Error("You are not assigned to any instructor");
+          }
+        }
+
+        const everySpecificAssignmentHasQuota =
+          !hasOpenAssignment &&
+          specificAssignments.length > 0 &&
+          specificAssignments.every((a) => a.storageQuotaBytes !== undefined);
+
+        if (everySpecificAssignmentHasQuota) {
+          const totalQuota = specificAssignments.reduce(
+            (sum, a) => sum + (a.storageQuotaBytes ?? 0),
+            0
           );
+          const editorUsed = await getVideoEditorTotalUsed(ctx, caller.userId);
+          if (editorUsed + args.size > totalQuota) {
+            throw new Error(
+              `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to add ${args.size} bytes, quota is ${totalQuota} bytes`
+            );
+          }
+        }
+      } else {
+        const specificAssignment = assignments.find(
+          (a) => a.instructorId === targetInstructorId
+        );
+        const openAssignment = assignments.find(
+          (a) => a.instructorId === undefined
+        );
+        if (!specificAssignment && !openAssignment) {
+          throw new Error("You are not assigned to this instructor");
+        }
+        // PR-quotas: enforce a per-editor per-instructor quota when one
+        // is set on a specific assignment. Open assignments have no
+        // quota.
+        const quota = specificAssignment?.storageQuotaBytes;
+        if (quota !== undefined) {
+          const editorUsed = await getVideoEditorStorageUsed(
+            ctx,
+            caller.userId,
+            targetInstructorId
+          );
+          if (editorUsed + args.size > quota) {
+            throw new Error(
+              `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to add ${args.size} bytes, quota is ${quota} bytes`
+            );
+          }
         }
       }
-    } else if (caller.role !== "admin") {
+    } else if (caller.role === "admin") {
+      // Admins may upload unassigned. They may not upload "on behalf of"
+      // another user: `uploadedById` is what grants access to an
+      // unassigned file before it is assigned.
+      if (
+        args.uploadedById !== undefined &&
+        args.uploadedById !== caller.userId
+      ) {
+        throw new Error("Admins cannot upload on behalf of another user");
+      }
+    } else {
       throw new Error("Forbidden: only instructors, admins, and video editors can upload");
     }
 
     await ctx.db.insert("instructorUploads", {
-      instructorId: args.instructorId,
+      instructorId: targetInstructorId,
       filename: args.filename,
       originalName: args.originalName,
       contentType: args.contentType,
@@ -447,6 +623,88 @@ export const createUpload = mutation({
       .query("instructorUploads")
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
+  },
+});
+
+/**
+ * Assign an instructor to an upload. Admins use this to triage files
+ * uploaded without an instructor. The B2 object key is intentionally
+ * left unchanged (`.../unassigned/...`): the key is an opaque storage
+ * path, and moving objects would require a costly copy+delete against
+ * B2 for no product benefit.
+ *
+ * Reassignment is also allowed so an admin can correct a mistake. The
+ * editor's total usage counter is unaffected by the instructor label,
+ * but the target instructor's per-editor quota is enforced so a
+ * reassignment cannot silently push the editor past a configured cap.
+ */
+export const assignUploadInstructor = mutation({
+  args: {
+    id: v.string(),
+    instructorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const caller = await getAuthenticatedUser(ctx);
+    if (!caller) {
+      throw new Error("Unauthorized: authentication required");
+    }
+    if (caller.role !== "admin") {
+      throw new Error("Forbidden: only admins can assign an instructor");
+    }
+
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
+      .first();
+    if (!upload) {
+      throw new Error("Upload not found");
+    }
+    if (upload.status === "deleted" || upload.status === "deleting") {
+      throw new Error("Cannot assign a deleted upload");
+    }
+    if (upload.instructorId === args.instructorId) {
+      return { success: true, action: "noop" as const };
+    }
+
+    await assertActiveInstructorTarget(ctx, args.instructorId);
+
+    // If a video editor uploaded this file, moving it under a
+    // quota-bearing instructor must not silently exceed that
+    // instructor's cap. The editor's upload was not counted against
+    // this instructor while unassigned, so `used + size` is the
+    // post-assignment total. Reassignment from another instructor is
+    // safe to check the same way: the target instructor's usage does
+    // not include this row.
+    if (upload.uploadedById !== undefined) {
+      const assignment = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId_instructorId", (q) =>
+          q
+            .eq("videoEditorId", upload.uploadedById as string)
+            .eq("instructorId", args.instructorId)
+        )
+        .first();
+      const quota = assignment?.storageQuotaBytes;
+      if (quota !== undefined) {
+        const editorUsed = await getVideoEditorStorageUsed(
+          ctx,
+          upload.uploadedById,
+          args.instructorId
+        );
+        if (editorUsed + upload.size > quota) {
+          throw new Error(
+            `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to assign ${upload.size} bytes, quota is ${quota} bytes`
+          );
+        }
+      }
+    }
+
+    await ctx.db.patch(upload._id, {
+      instructorId: args.instructorId,
+      updatedAt: Date.now(),
+    });
+
+    return { success: true, action: "assigned" as const };
   },
 });
 
@@ -1110,6 +1368,10 @@ export const getAllUploads = query({
     search: v.optional(v.string()),
     cursor: v.optional(v.number()),
     limit: v.optional(v.number()),
+    // Admin triage filter: only return uploads with no instructor yet.
+    // Kept separate from `instructorId` because an omitted
+    // `instructorId` already means "no instructor filter".
+    unassigned: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 50, 100);
@@ -1175,11 +1437,13 @@ export const getAllUploads = query({
       (a, b) => (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime)
     );
 
-    let filtered = sorted;
+    let filtered = args.unassigned
+      ? sorted.filter((u) => u.instructorId === undefined)
+      : sorted;
     if (args.status === "deleted") {
-      filtered = sorted.filter((u) => u.status === "deleted");
+      filtered = filtered.filter((u) => u.status === "deleted");
     } else if (args.status !== undefined && args.status !== "all") {
-      filtered = sorted.filter((u) => u.status === args.status && u.status !== "deleted");
+      filtered = filtered.filter((u) => u.status === args.status && u.status !== "deleted");
     }
     // else: no filter, return all uploads (including deleted)
 
@@ -1260,7 +1524,10 @@ export const getTotalStorageStats = query({
     const instructors = new Set<string>();
     for (const upload of allUploads) {
       if (upload.status !== "deleted" && upload.status !== "deleting") {
-        instructors.add(upload.instructorId);
+        // Unassigned uploads have no instructor to count.
+        if (upload.instructorId !== undefined) {
+          instructors.add(upload.instructorId);
+        }
       }
     }
 

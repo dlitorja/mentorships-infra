@@ -380,7 +380,13 @@ return userRole === "admin";
                 )}
                 {showInstructorColumn && (
                   <td className="px-4 py-3 text-slate-400">
-                    {instructorNames[file.instructorId || ""] || file.instructorId || "-"}
+                    {file.instructorId ? (
+                      instructorNames[file.instructorId] || file.instructorId
+                    ) : (
+                      <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+                        Unassigned
+                      </span>
+                    )}
                   </td>
                 )}
                 {showUploadedByColumn && (
@@ -394,6 +400,11 @@ return userRole === "admin";
                     <span className="font-medium text-slate-200 truncate max-w-xs">
                       {file.originalName}
                     </span>
+                    {!file.instructorId && (
+                      <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300 whitespace-nowrap">
+                        Unassigned
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td className="px-4 py-3 text-slate-400">{formatBytes(file.size)}</td>
@@ -473,9 +484,13 @@ return userRole === "admin";
                                 <Download className="w-4 h-4" />
                               )}
                             </button>
-                            {(file.status === "completed" || file.status === "archived") && (
-                              <ShareFileButton fileId={file.id} originalName={file.originalName} />
-                            )}
+                            {(file.status === "completed" || file.status === "archived") &&
+                              // Unassigned files cannot be shared until an
+                              // admin assigns them (the share API enforces
+                              // this too).
+                              file.instructorId && (
+                                <ShareFileButton fileId={file.id} originalName={file.originalName} />
+                              )}
                           </>
                         )}
                         {file.status === "deleted" && canRestoreThisFile && (

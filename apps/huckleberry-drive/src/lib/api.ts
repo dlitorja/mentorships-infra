@@ -165,6 +165,8 @@ export interface ListFilesParams {
   search?: string;
   cursor?: number;
   limit?: number;
+  // Admin-only triage filter: only files with no instructor assigned.
+  unassigned?: boolean;
 }
 
 async function fetchApi<T>(
@@ -192,7 +194,8 @@ export async function listFilesWithParams(
   params: ListFilesParams = {}
 ): Promise<FileListResponse> {
   const searchParams = new URLSearchParams();
-  if (params.instructorId) searchParams.set("instructorId", params.instructorId);
+  if (params.unassigned) searchParams.set("unassigned", "true");
+  if (params.instructorId && !params.unassigned) searchParams.set("instructorId", params.instructorId);
   if (params.uploadedById) searchParams.set("uploadedById", params.uploadedById);
   if (params.status) searchParams.set("status", params.status);
   if (params.search) searchParams.set("search", params.search);
@@ -221,12 +224,22 @@ export async function initiateUpload(
   contentType: string,
   size: number,
   instructorId: string | undefined,
-  turnstileToken: string
+  turnstileToken: string,
+  unassigned = false
 ): Promise<UploadInitiateResponse> {
   return fetchApi<UploadInitiateResponse>("/api/uploads/initiate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, contentType, size, instructorId, turnstileToken }),
+    body: JSON.stringify({
+      filename,
+      contentType,
+      size,
+      // `instructorId` and `unassigned` are mutually exclusive; omit the
+      // id entirely when uploading unassigned.
+      instructorId: unassigned ? undefined : instructorId,
+      unassigned: unassigned || undefined,
+      turnstileToken,
+    }),
   });
 }
 
@@ -268,6 +281,24 @@ export async function hardDeleteFile(fileId: string): Promise<void> {
   await fetchApi(`/api/files/${fileId}/hard`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Admin triage: assign an instructor to an upload that was created
+ * unassigned. The storage key is not rewritten.
+ */
+export async function assignFileInstructor(
+  fileId: string,
+  instructorId: string
+): Promise<{ success: boolean; action: "assigned" | "noop" }> {
+  return fetchApi<{ success: boolean; action: "assigned" | "noop" }>(
+    `/api/admin/files/${encodeURIComponent(fileId)}/assign`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instructorId }),
+    }
+  );
 }
 
 export async function getStreamUrl(fileId: string, expiresIn?: number): Promise<string> {

@@ -61,12 +61,16 @@ interface UploadZoneProps {
   // per-file telemetry.
   onBatchComplete?: () => void;
   instructorId?: string;
+  // Upload without an instructor. Admins and video editors may use
+  // this; an admin assigns an instructor later from Admin → Files.
+  unassigned?: boolean;
 }
 
 export function UploadZone({
   onUploadComplete,
   onBatchComplete,
   instructorId,
+  unassigned = false,
 }: UploadZoneProps): React.ReactElement {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [rejectedFiles, setRejectedFiles] = useState<
@@ -159,7 +163,8 @@ export function UploadZone({
           file.type,
           file.size,
           instructorId,
-          turnstileToken
+          turnstileToken,
+          unassigned
         );
 
         initiatedFileId = initiateResult.fileId;
@@ -326,7 +331,7 @@ export function UploadZone({
         }
       }
     },
-    [onUploadComplete, settleUpload, instructorId, requestTurnstileToken]
+    [onUploadComplete, settleUpload, instructorId, unassigned, requestTurnstileToken]
   );
 
   const onDrop = useCallback(

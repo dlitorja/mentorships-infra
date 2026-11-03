@@ -37,6 +37,9 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
   const token = await getToken({ template: "convex" }) ?? undefined;
   const dbUser = await getCurrentUser();
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
+  // Admins can always upload unassigned. Video editors need at least one
+  // active assignment (open or specific) to have any upload rights.
+  let canUploadUnassigned = dbUser?.role === "admin";
 
   if (dbUser?.role === "video_editor") {
     const assignments = await fetchQuery(
@@ -44,6 +47,7 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
       { videoEditorId: dbUser.userId },
       { token }
     ) as Assignment[];
+    canUploadUnassigned = assignments.length > 0;
     const hasOpenAssignment = assignments.some((a) => a.instructorId === undefined);
 
     if (hasOpenAssignment) {
@@ -95,6 +99,7 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
     <UploadsClient
       userRole={dbUser?.role || null}
       instructors={instructors}
+      canUploadUnassigned={canUploadUnassigned}
     />
   );
 }

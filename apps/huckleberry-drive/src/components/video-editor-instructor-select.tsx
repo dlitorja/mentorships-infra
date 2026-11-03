@@ -9,16 +9,25 @@ interface Instructor {
   email: string;
 }
 
+/**
+ * Sentinel value for the "Unassigned — assign later" option. Kept out
+ * of the instructor id namespace so `selectedInstructorId` can stay a
+ * plain string.
+ */
+export const UNASSIGNED_INSTRUCTOR_VALUE = "__unassigned__";
+
 interface VideoEditorInstructorSelectProps {
   instructors: Instructor[];
   selectedInstructorId: string | null;
   onSelect: (instructorId: string) => void;
+  canUploadUnassigned: boolean;
 }
 
 export function VideoEditorInstructorSelect({
   instructors,
   selectedInstructorId,
   onSelect,
+  canUploadUnassigned,
 }: VideoEditorInstructorSelectProps): React.ReactElement {
   return (
     <div className="space-y-2">
@@ -37,9 +46,15 @@ export function VideoEditorInstructorSelect({
             {instructor.name || instructor.email}
           </option>
         ))}
+        {canUploadUnassigned && (
+          <option value={UNASSIGNED_INSTRUCTOR_VALUE}>
+            Unassigned — assign later
+          </option>
+        )}
       </select>
       <p className="text-xs text-slate-500">
-        Select the instructor whose files you are uploading for
+        Select the instructor whose files you are uploading for, or upload
+        unassigned and an admin will assign one later.
       </p>
     </div>
   );

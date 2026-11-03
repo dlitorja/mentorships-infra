@@ -14,7 +14,8 @@ import {
 
 interface Upload {
   _id: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
   uploadedById?: string;
   filename: string;
   originalName: string;
@@ -51,6 +52,7 @@ function canAccessUpload(
 ): boolean {
   if (dbUser.role === "admin") return true;
   if (upload.uploadedById === dbUser.userId) return true;
+  if (upload.instructorId === undefined) return false;
   if (upload.instructorId === dbUser.userId) return true;
   if (dbUser.role === "video_editor") {
     if (accessibleInstructorIds !== null) {

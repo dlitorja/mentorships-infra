@@ -182,3 +182,389 @@ test("deleteUpload: hard delete is admin-only", async () => {
     })
   ).resolves.toMatchObject({ success: true, status: "deleting" });
 });
+
+/**
+ * Unassigned uploads. `instructorId` is optional on `instructorUploads`;
+ * `undefined` means an admin or video editor uploaded a file before an
+ * instructor was chosen. Access is limited to admins + the uploader
+ * until `assignUploadInstructor` runs.
+ */
+
+test("createUpload: video editor with an assignment can upload unassigned", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_unassigned_editor";
+  const editorId = "editor_unassigned_editor";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const upload = await t
+    .withIdentity({ subject: editorId })
+    .mutation(api.instructorUploads.createUpload, {
+      id: "upload_unassigned_editor",
+      filename: "key/upload_unassigned_editor",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: editorId,
+    });
+
+  expect(upload?.instructorId).toBeUndefined();
+  expect(upload?.uploadedById).toBe(editorId);
+});
+
+test("createUpload: video editor without any assignment cannot upload unassigned", async () => {
+  const t = convexTest(schema, modules);
+  const editorId = "editor_no_assignment";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, editorId, "video_editor");
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_no_assignment",
+      filename: "key/upload_no_assignment",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("You are not assigned to any instructor");
+});
+
+test("createUpload: instructor cannot upload unassigned", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_cannot_unassign";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: instructorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_instructor_unassigned",
+      filename: "key/upload_instructor_unassigned",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+    })
+  ).rejects.toThrow("Instructors can only upload to their own storage");
+});
+
+test("createUpload: admin can upload unassigned", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_unassigned_upload";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+  });
+
+  const upload = await t
+    .withIdentity({ subject: adminId })
+    .mutation(api.instructorUploads.createUpload, {
+      id: "upload_admin_unassigned",
+      filename: "key/upload_admin_unassigned",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+    });
+
+  expect(upload?.instructorId).toBeUndefined();
+  expect(upload?.uploadedById).toBeUndefined();
+});
+
+test("createUpload: unassigned editor uploads count against the union of specific quotas", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_unassigned_quota";
+  const editorId = "editor_unassigned_quota";
+  const quota = 1000;
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+      storageQuotaBytes: quota,
+    });
+  });
+
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  // Consume 500 bytes with an assigned upload so the counter exists.
+  await editorClient.mutation(api.instructorUploads.createUpload, {
+    id: "upload_quota_seed",
+    instructorId,
+    filename: "key/upload_quota_seed",
+    originalName: "seed.mp4",
+    contentType: "video/mp4",
+    size: 500,
+    uploadedById: editorId,
+  });
+
+  // 500 + 600 > 1000: rejected.
+  await expect(
+    editorClient.mutation(api.instructorUploads.createUpload, {
+      id: "upload_quota_unassigned_over",
+      filename: "key/upload_quota_unassigned_over",
+      originalName: "over.mp4",
+      contentType: "video/mp4",
+      size: 600,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("storage quota exceeded");
+
+  // 500 + 400 <= 1000: allowed.
+  const allowed = await editorClient.mutation(api.instructorUploads.createUpload, {
+    id: "upload_quota_unassigned_ok",
+    filename: "key/upload_quota_unassigned_ok",
+    originalName: "ok.mp4",
+    contentType: "video/mp4",
+    size: 400,
+    uploadedById: editorId,
+  });
+  expect(allowed?.instructorId).toBeUndefined();
+});
+
+test("createUpload: unassigned editor uploads are unlimited with open access", async () => {
+  const t = convexTest(schema, modules);
+  const editorId = "editor_unassigned_open";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      assignedAt: Date.now(),
+    });
+  });
+
+  const upload = await t
+    .withIdentity({ subject: editorId })
+    .mutation(api.instructorUploads.createUpload, {
+      id: "upload_open_unassigned",
+      filename: "key/upload_open_unassigned",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024 * 1024 * 1024,
+      uploadedById: editorId,
+    });
+
+  expect(upload?.instructorId).toBeUndefined();
+});
+
+async function seedUnassignedUpload(
+  ctx: any,
+  id: string,
+  uploadedById?: string,
+  status = "completed"
+) {
+  await ctx.db.insert("instructorUploads", {
+    filename: `key/${id}`,
+    originalName: `${id}.mp4`,
+    contentType: "video/mp4",
+    size: 1024,
+    status,
+    transferRetryCount: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    legacyId: id,
+    uploadedById,
+  });
+}
+
+test("assignUploadInstructor: admin assigns an unassigned upload", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_upload";
+  const instructorId = "inst_assign_upload";
+  const uploadId = "upload_assign_me";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUnassignedUpload(ctx, uploadId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).resolves.toEqual({ success: true, action: "assigned" });
+
+  const updated = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first()
+  );
+  expect(updated?.instructorId).toBe(instructorId);
+});
+
+test("assignUploadInstructor: non-admins are rejected", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_assign_forbidden";
+  const editorId = "editor_assign_forbidden";
+  const uploadId = "upload_assign_forbidden";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+    await seedUnassignedUpload(ctx, uploadId, editorId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).rejects.toThrow("only admins can assign an instructor");
+
+  await expect(
+    t.withIdentity({ subject: instructorId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).rejects.toThrow("only admins can assign an instructor");
+});
+
+test("assignUploadInstructor: rejects an inactive instructor", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_inactive";
+  const instructorId = "inst_assign_inactive";
+  const uploadId = "upload_assign_inactive";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await ctx.db.patch(
+      (
+        await ctx.db
+          .query("instructors")
+          .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+          .first()
+      )!._id,
+      { deletedAt: Date.now() }
+    );
+    await seedUnassignedUpload(ctx, uploadId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).rejects.toThrow("no longer active");
+});
+
+test("getAllUploads: unassigned filter returns only files with no instructor", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_list_unassigned";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUpload(ctx, "upload_assigned_list", instructorId);
+    await seedUnassignedUpload(ctx, "upload_unassigned_list");
+  });
+
+  const result = await t.query(api.instructorUploads.getAllUploads, {
+    unassigned: true,
+  });
+
+  expect(result.uploads.map((u) => u.legacyId)).toEqual([
+    "upload_unassigned_list",
+  ]);
+});
+
+test("assignUploadInstructor: enforces the target instructor's editor quota", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_assign_quota";
+  const instructorId = "inst_assign_quota";
+  const editorId = "editor_assign_quota";
+  const uploadId = "upload_assign_quota";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+      storageQuotaBytes: 1000,
+    });
+    await ctx.db.insert("instructorUploads", {
+      filename: `key/${uploadId}`,
+      originalName: "large.mp4",
+      contentType: "video/mp4",
+      size: 1200,
+      status: "completed",
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      legacyId: uploadId,
+      uploadedById: editorId,
+    });
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId }
+    )
+  ).rejects.toThrow("storage quota exceeded");
+});
+
+test("createUpload: a stale assignment does not grant unassigned upload rights", async () => {
+  const t = convexTest(schema, modules);
+  const instructorId = "inst_stale_unassigned";
+  const editorId = "editor_stale_unassigned";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUser(ctx, editorId, "video_editor");
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: editorId,
+      instructorId,
+      assignedAt: Date.now(),
+    });
+    const profile = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", instructorId))
+      .first();
+    await ctx.db.patch(profile!._id, { deletedAt: Date.now() });
+  });
+
+  await expect(
+    t.withIdentity({ subject: editorId }).mutation(api.instructorUploads.createUpload, {
+      id: "upload_stale_unassigned",
+      filename: "key/upload_stale_unassigned",
+      originalName: "clip.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      uploadedById: editorId,
+    })
+  ).rejects.toThrow("You are not assigned to any instructor");
+});

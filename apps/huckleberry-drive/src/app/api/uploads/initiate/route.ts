@@ -34,6 +34,10 @@ const initiateSchema = z.object({
   // of a generic schema validation error.
   size: z.number().positive(),
   instructorId: z.string().trim().min(1).optional(),
+  // Upload without assigning an instructor. Admins and video editors
+  // may use this; instructors always upload to their own storage.
+  // Mutually exclusive with `instructorId`.
+  unassigned: z.boolean().optional(),
   turnstileToken: z.string().min(1),
 });
 
@@ -54,7 +58,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { filename, contentType, size, instructorId, turnstileToken } = parsed.data;
+    const { filename, contentType, size, instructorId, unassigned, turnstileToken } = parsed.data;
+
+    if (unassigned === true && instructorId !== undefined) {
+      return NextResponse.json(
+        { error: "Specify either instructorId or unassigned, not both" },
+        { status: 400 }
+      );
+    }
 
     const ip = getClientIp(request);
     const isValid = await isTurnstileTokenValid(turnstileToken, {
@@ -68,42 +79,132 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    targetInstructorId = instructorId ?? dbUser.userId;
-    const isDelegatedUpload = dbUser.userId !== targetInstructorId;
+    const isUnassigned = unassigned === true;
+    let isDelegatedUpload = false;
 
-    if (isDelegatedUpload) {
+    if (isUnassigned) {
+      // Unassigned uploads are an admin/editor feature. Instructors own
+      // their own storage and must always target themselves.
       if (dbUser.role === "instructor") {
         return NextResponse.json(
           { error: "Instructors can only upload to their own storage" },
           { status: 403 }
         );
       }
+
       if (dbUser.role === "video_editor") {
-        const assignmentWithStorage = await fetchQuery(
-          api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
-          { videoEditorId: dbUser.userId, instructorId: targetInstructorId },
+        // Mirror the mutation's eligibility + quota-union pre-check so
+        // the user gets a clean 403 instead of a generic server error.
+        // `createUpload` remains authoritative for concurrent races.
+        const assignments = await fetchQuery(
+          api.videoEditorAssignments.getVideoEditorAssignments,
+          { videoEditorId: dbUser.userId },
           { token: convexToken }
-        );
-        if (!assignmentWithStorage?.assignment) {
-          const openAssignment = await fetchQuery(
-            api.videoEditorAssignments.getVideoEditorOpenAssignment,
-            { videoEditorId: dbUser.userId },
-            { token: convexToken }
+        ) as Array<{ instructorId?: string; storageQuotaBytes?: number }>;
+
+        if (assignments.length === 0) {
+          return NextResponse.json(
+            { error: "You are not assigned to any instructor" },
+            { status: 403 }
           );
-          if (!openAssignment) {
+        }
+
+        const hasOpenAssignment = assignments.some(
+          (a) => a.instructorId === undefined
+        );
+        const specificAssignments = assignments.filter(
+          (a) => a.instructorId !== undefined
+        );
+
+        // Stale assignments (deleted instructor / role removed) do not
+        // grant upload rights on their own. Matches `createUpload`.
+        if (!hasOpenAssignment) {
+          const activeInstructors = await fetchQuery(
+            api.users.getActiveUsersByRole,
+            { role: "instructor" },
+            { token: convexToken }
+          ) as Array<{ userId: string }>;
+          const activeInstructorIds = new Set(
+            activeInstructors.map((u) => u.userId)
+          );
+          const hasActiveSpecificAssignment = specificAssignments.some(
+            (a) =>
+              a.instructorId !== undefined &&
+              activeInstructorIds.has(a.instructorId)
+          );
+          if (!hasActiveSpecificAssignment) {
             return NextResponse.json(
-              { error: "You are not assigned to this instructor" },
+              { error: "You are not assigned to any instructor" },
               { status: 403 }
             );
           }
-        } else {
-          const quota = assignmentWithStorage.assignment.storageQuotaBytes;
-          if (quota !== undefined && quota !== null) {
-            if (assignmentWithStorage.usedBytes + size > quota) {
+        }
+
+        const everySpecificAssignmentHasQuota =
+          !hasOpenAssignment &&
+          specificAssignments.length > 0 &&
+          specificAssignments.every((a) => a.storageQuotaBytes !== undefined);
+
+        if (everySpecificAssignmentHasQuota) {
+          const totalQuota = specificAssignments.reduce(
+            (sum, a) => sum + (a.storageQuotaBytes ?? 0),
+            0
+          );
+          const stats = await fetchQuery(
+            api.instructorUploads.getVideoEditorTotalStorageStats,
+            { videoEditorId: dbUser.userId },
+            { token: convexToken }
+          ) as { usedBytes: number };
+          if (stats.usedBytes + size > totalQuota) {
+            return NextResponse.json(
+              { error: "Video editor storage quota exceeded for unassigned uploads" },
+              { status: 403 }
+            );
+          }
+        }
+      }
+
+      // No instructor to authorize against; the Convex mutation
+      // re-validates and aborts the B2 multipart session if it rejects.
+      targetInstructorId = undefined;
+    } else {
+      targetInstructorId = instructorId ?? dbUser.userId;
+      isDelegatedUpload = dbUser.userId !== targetInstructorId;
+
+      if (isDelegatedUpload) {
+        if (dbUser.role === "instructor") {
+          return NextResponse.json(
+            { error: "Instructors can only upload to their own storage" },
+            { status: 403 }
+          );
+        }
+        if (dbUser.role === "video_editor") {
+          const assignmentWithStorage = await fetchQuery(
+            api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
+            { videoEditorId: dbUser.userId, instructorId: targetInstructorId },
+            { token: convexToken }
+          );
+          if (!assignmentWithStorage?.assignment) {
+            const openAssignment = await fetchQuery(
+              api.videoEditorAssignments.getVideoEditorOpenAssignment,
+              { videoEditorId: dbUser.userId },
+              { token: convexToken }
+            );
+            if (!openAssignment) {
               return NextResponse.json(
-                { error: "Video editor storage quota exceeded for this instructor" },
+                { error: "You are not assigned to this instructor" },
                 { status: 403 }
               );
+            }
+          } else {
+            const quota = assignmentWithStorage.assignment.storageQuotaBytes;
+            if (quota !== undefined && quota !== null) {
+              if (assignmentWithStorage.usedBytes + size > quota) {
+                return NextResponse.json(
+                  { error: "Video editor storage quota exceeded for this instructor" },
+                  { status: 403 }
+                );
+              }
             }
           }
         }
@@ -133,6 +234,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileId = crypto.randomUUID();
 
+    // For unassigned uploads the uploader is the only non-admin with
+    // access until an instructor is assigned, so a video editor must be
+    // recorded as `uploadedById`. Admin unassigned uploads leave it
+    // unset (admins already have access; no editor counter to update).
+    const uploadedById = isUnassigned
+      ? dbUser.role === "video_editor"
+        ? dbUser.userId
+        : undefined
+      : isDelegatedUpload
+        ? dbUser.userId
+        : undefined;
+
     const upload = await initiateMultipartUpload({
       fileId,
       filename: sanitizedFilename,
@@ -149,7 +262,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         originalName: filename,
         contentType,
         size,
-        uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
+        uploadedById,
       }, { token: convexToken });
     } catch (error) {
       // Authoritative mutation rejected the upload (e.g., assignment removed,
@@ -255,6 +368,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (error instanceof Error) {
+      // Authoritative rejections from `createUpload` (concurrent
+      // assignment/quota changes after the route pre-check). The B2
+      // multipart session has already been aborted above.
+      if (
+        error.message.includes("storage quota exceeded") ||
+        error.message.includes("You are not assigned")
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+      if (error.message.includes("Admins cannot upload on behalf")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
       // Known validation failures surfaced by the storage package. These should
       // be reported as client errors, not server errors.
       if (error.message.includes("Invalid file size")) {

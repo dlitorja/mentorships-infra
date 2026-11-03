@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
+import { Loader2, Search, X, Trash2, Download, Play, UserPlus } from "lucide-react";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
 import { BulkDownloadProgress } from "@/components/bulk-download-progress";
 import { useBulkDownload } from "@/hooks/use-bulk-download";
+
+// Sentinel for the instructor filter: show uploads with no instructor.
+const UNASSIGNED_FILTER = "__unassigned__";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
@@ -32,6 +35,9 @@ export default function AdminFilesPage(): React.ReactElement {
   const bulk = useBulkDownload();
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [confirmSoftDeleteId, setConfirmSoftDeleteId] = useState<string | null>(null);
+  const [assigningFileId, setAssigningFileId] = useState<string | null>(null);
+  const [assignInstructorId, setAssignInstructorId] = useState<string>("");
+  const [isAssigning, setIsAssigning] = useState(false);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
@@ -99,7 +105,9 @@ setDownloadingIds((prev) => {
         cursor: pagination.cursor,
         limit: 50,
       };
-      if (instructorFilter) {
+      if (instructorFilter === UNASSIGNED_FILTER) {
+        params.unassigned = true;
+      } else if (instructorFilter) {
         params.instructorId = instructorFilter;
       }
       const result: FileListResponse = await listFilesWithParams(params);
@@ -120,7 +128,9 @@ setDownloadingIds((prev) => {
         search: debouncedSearch || undefined,
         limit: 50,
       };
-      if (instructorFilter) {
+      if (instructorFilter === UNASSIGNED_FILTER) {
+        params.unassigned = true;
+      } else if (instructorFilter) {
         params.instructorId = instructorFilter;
       }
       const result: FileListResponse = await listFilesWithParams(params);
@@ -158,7 +168,9 @@ setDownloadingIds((prev) => {
       search: debouncedSearch || undefined,
       limit: 50,
     };
-    if (instructorFilter) {
+    if (instructorFilter === UNASSIGNED_FILTER) {
+      params.unassigned = true;
+    } else if (instructorFilter) {
       params.instructorId = instructorFilter;
     }
     listFilesWithParams(params)
@@ -216,6 +228,22 @@ setDownloadingIds((prev) => {
       setConfirmSoftDeleteId(null);
     }
   }, [handleFilesChange]);
+
+  const handleAssignInstructor = useCallback(async (fileId: string) => {
+    if (!assignInstructorId) return;
+    setIsAssigning(true);
+    try {
+      await assignFileInstructor(fileId, assignInstructorId);
+      setAssigningFileId(null);
+      setAssignInstructorId("");
+      await handleFilesChange();
+    } catch (err) {
+      console.error("Assign instructor failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to assign instructor");
+    } finally {
+      setIsAssigning(false);
+    }
+  }, [assignInstructorId, handleFilesChange]);
 
   const handleBulkHardDelete = useCallback(async () => {
     if (selectedFileIds.size === 0) return;
@@ -296,6 +324,7 @@ setSelectedFileIds(new Set());
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
               <option value="">All Instructors</option>
+              <option value={UNASSIGNED_FILTER}>Unassigned</option>
               {instructors.map((inst) => (
                 <option key={inst.id} value={inst.id}>
                   {inst.name || inst.email}
@@ -487,7 +516,13 @@ setSelectedFileIds(new Set());
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-400">
-                          {instructorNameMap[file.instructorId || ""] || file.instructorId || "-"}
+                          {file.instructorId ? (
+                            instructorNameMap[file.instructorId] || file.instructorId
+                          ) : (
+                            <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
+                              Unassigned
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
 {file.uploadedById ? "Video Editor" : "-"}
@@ -505,6 +540,53 @@ setSelectedFileIds(new Set());
 <div className="flex items-center justify-end gap-1">
                             {file.status !== "deleted" && file.status !== "deleting" && (
                               <>
+                                {!file.instructorId && (
+                                  assigningFileId === file.id ? (
+                                    <>
+                                      <select
+                                        value={assignInstructorId}
+                                        onChange={(e) => setAssignInstructorId(e.target.value)}
+                                        aria-label="Assign instructor"
+                                        className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                                      >
+                                        <option value="">Select instructor...</option>
+                                        {instructors.map((inst) => (
+                                          <option key={inst.id} value={inst.id}>
+                                            {inst.name || inst.email}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => handleAssignInstructor(file.id)}
+                                        disabled={!assignInstructorId || isAssigning}
+                                        className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
+                                      >
+                                        {isAssigning ? "Saving..." : "Save"}
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setAssigningFileId(null);
+                                          setAssignInstructorId("");
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        setAssigningFileId(file.id);
+                                        setAssignInstructorId("");
+                                      }}
+                                      className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors"
+                                      title="Assign instructor"
+                                      aria-label="Assign instructor"
+                                    >
+                                      <UserPlus className="w-4 h-4" />
+                                    </button>
+                                  )
+                                )}
                                 {file.contentType.startsWith("video/") && (
                                   <button
                                     onClick={() => handlePlay(file)}
@@ -533,9 +615,13 @@ setSelectedFileIds(new Set());
                                     <Download className="w-4 h-4" />
                                   )}
                                 </button>
-                                {(file.status === "completed" || file.status === "archived") && (
-                                  <ShareFileButton fileId={file.id} originalName={file.originalName} />
-                                )}
+                                {(file.status === "completed" || file.status === "archived") &&
+                                  // Share links are only created for
+                                  // assigned files; unassigned files must
+                                  // be triaged first.
+                                  file.instructorId && (
+                                    <ShareFileButton fileId={file.id} originalName={file.originalName} />
+                                  )}
                                 {confirmSoftDeleteId === file.id ? (
                                   <>
                                     <button

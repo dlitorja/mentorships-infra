@@ -7,7 +7,8 @@ import { api } from "@/convex/_generated/api";
 interface Upload {
   _id: string;
   legacyId?: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
   uploadedById?: string;
   filename: string;
   originalName: string;

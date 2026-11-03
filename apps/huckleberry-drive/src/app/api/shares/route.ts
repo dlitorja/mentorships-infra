@@ -11,7 +11,7 @@ import {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireInstructor();
+    const dbUser = await requireInstructor();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
@@ -44,7 +44,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Cannot share a deleted file" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    // Unassigned files can only be shared by admins. Letting the
+    // uploader create a public link would expose a file that has not
+    // been reviewed/assigned yet.
+    if (upload.instructorId === undefined && dbUser.role !== "admin") {
+      return NextResponse.json(
+        { error: "Assign this file to an instructor before sharing it" },
+        { status: 403 }
+      );
+    }
+
+    const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
     if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized to share this file" }, { status: 403 });
     }

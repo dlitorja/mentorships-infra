@@ -7,7 +7,9 @@ import { api } from "@/convex/_generated/api";
 interface Upload {
   _id: string;
   legacyId?: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
+  uploadedById?: string;
   filename: string;
   originalName: string;
   contentType: string;
@@ -29,7 +31,7 @@ interface Params {
 
 interface FileResponse {
   id: string;
-  instructorId: string;
+  instructorId?: string;
   originalName: string;
   contentType: string;
   size: number;
@@ -93,7 +95,7 @@ export async function GET(
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
     if (!hasAccess) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }

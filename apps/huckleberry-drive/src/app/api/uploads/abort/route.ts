@@ -9,7 +9,8 @@ import { api } from "@/convex/_generated/api";
 interface Upload {
   _id: string;
   legacyId?: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
   filename: string;
   uploadedById?: string;
   status?: string;
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
     }
 
-    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
     // Fallback: if the uploader is the caller and the upload is still in a
     // non-terminal state, allow them to abort an in-progress multipart
     // upload that started under open access that has since been revoked.

@@ -7,7 +7,8 @@ import { api } from "@/convex/_generated/api";
 interface Upload {
   _id: string;
   legacyId?: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
   uploadedById?: string;
   filename: string;
   originalName: string;
@@ -77,6 +78,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const dbUser = await requireInstructor() as User;
 
     const instructorId = searchParams.get("instructorId") ?? undefined;
+    // Admin triage: files uploaded without an instructor. Ignored for
+    // non-admin callers (editors use `uploadedById` to see their own).
+    const unassigned = searchParams.get("unassigned") === "true";
     const uploadedById = searchParams.get("uploadedById") ?? undefined;
     const status = searchParams.get("status") ?? undefined;
     const search = searchParams.get("search") ?? undefined;
@@ -87,12 +91,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (dbUser.role === "admin") {
       result = await fetchQuery(api.instructorUploads.getAllUploads, {
-        instructorId: instructorId || undefined,
+        instructorId: unassigned ? undefined : (instructorId || undefined),
         uploadedById: uploadedById || undefined,
         status: status || undefined,
         search: search || undefined,
         cursor,
         limit,
+        unassigned: unassigned || undefined,
       }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
     } else if (dbUser.role === "instructor") {
       result = await fetchQuery(api.instructorUploads.getAllUploads, {

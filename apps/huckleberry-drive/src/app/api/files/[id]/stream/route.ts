@@ -6,7 +6,9 @@ import { api } from "@/convex/_generated/api";
 
 interface Upload {
   _id: string;
-  instructorId: string;
+  // `undefined` for unassigned uploads.
+  instructorId?: string;
+  uploadedById?: string;
   filename: string;
   originalName: string;
   contentType: string;
@@ -56,7 +58,7 @@ export async function GET(
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
 
-    const hasAccess = await canAccessInstructorData(upload.instructorId);
+    const hasAccess = await canAccessInstructorData(upload.instructorId, upload.uploadedById);
     if (!hasAccess && dbUser.role !== "admin") {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
