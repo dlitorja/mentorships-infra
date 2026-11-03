@@ -72,20 +72,24 @@ export async function GET(req: NextRequest) {
     }
     convex.setAuth(token);
 
+    const baseArgs = {
+      instructorId: instructorId || undefined,
+      status: status || undefined,
+      expiresAfter,
+      expiresBefore,
+      purchasedAfter,
+      purchasedBefore,
+      remainingMin,
+      remainingMax,
+      page,
+      pageSize,
+    };
+
     let result: GetStudentsForAdminResult;
     try {
       result = (await convex.query(api.admin.getStudentsForAdmin, {
+        ...baseArgs,
         search: search || undefined,
-        instructorId: instructorId || undefined,
-        status: status || undefined,
-        expiresAfter,
-        expiresBefore,
-        purchasedAfter,
-        purchasedBefore,
-        remainingMin,
-        remainingMax,
-        page,
-        pageSize,
       })) as GetStudentsForAdminResult;
     } catch (err) {
       const msg = (err instanceof Error ? err.message : String(err)) || "";
@@ -98,6 +102,33 @@ export async function GET(req: NextRequest) {
         );
       }
       throw err;
+    }
+
+    // HUC-14: an email can exist only in Clerk (no Convex `users` row —
+    // e.g. a session-pack holder whose webhook sync never landed). The
+    // Convex search filters against `users.email` before email enrichment
+    // can run, so re-resolve the email through Clerk and re-run the query
+    // with the resulting Clerk user ids. Only on an empty email search;
+    // partial-email searches still use the Convex path.
+    if (result.total === 0 && search.includes("@")) {
+      try {
+        const client = await clerkClient();
+        const clerkUsers = await client.users.getUserList({
+          emailAddress: [search.trim().toLowerCase()],
+          limit: 10,
+        });
+        const clerkUserIds = clerkUsers.data.map((user) => user.id);
+        if (clerkUserIds.length > 0) {
+          result = (await convex.query(api.admin.getStudentsForAdmin, {
+            ...baseArgs,
+            userIds: clerkUserIds,
+          })) as GetStudentsForAdminResult;
+        }
+      } catch (err) {
+        // Keep the empty result rather than failing the whole page; the
+        // user can retry. Log for observability.
+        console.error("[admin/students] Clerk email fallback failed:", err);
+      }
     }
 
     const items = await enrichStudentEmails(result.items, clerkClient);

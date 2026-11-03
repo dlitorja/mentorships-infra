@@ -357,6 +357,10 @@ type StudentWithSessionInfo = {
 export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
+    // Explicit user-id allowlist used by the API route's Clerk-side email
+    // fallback: when an email exists only in Clerk, the route resolves it
+    // to Clerk user ids and re-runs this query with them.
+    userIds: v.optional(v.array(v.string())),
     instructorId: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
     expiresAfter: v.optional(v.number()),
@@ -385,7 +389,10 @@ export const getStudentsForAdmin = query({
       sessionPacks = sessionPacks.filter(sp => sp.instructorId === (args.instructorId as any));
     }
 
-    if (args.search) {
+    if (args.userIds !== undefined) {
+      const allowed = new Set(args.userIds);
+      sessionPacks = sessionPacks.filter((sp) => allowed.has(sp.userId));
+    } else if (args.search) {
       const searchLower = args.search.toLowerCase();
       const userIds = new Set<string>();
       const users = await ctx.db.query("users").collect();
