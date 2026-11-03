@@ -184,6 +184,48 @@ export const listMyShareLinks = query({
   },
 });
 
+type ShareAudience =
+  | { kind: "unauthenticated"; upload: null }
+  | { kind: "forbidden"; upload: null }
+  | {
+      kind: "allowed";
+      // Populated for instructor callers so the caller does not re-read it.
+      upload: Doc<"instructorUploads"> | null;
+    };
+
+/**
+ * Shared audience check for share queries. Returns `unauthenticated` /
+ * `forbidden` without revealing file state, or `allowed` plus the loaded
+ * upload when the caller is the owning instructor.
+ */
+async function authorizeShareCaller(
+  ctx: QueryCtx,
+  user: Doc<"users">,
+  share: Doc<"hdShareLinks">
+): Promise<ShareAudience> {
+  // Phase 1: cheap authorization. None of these need the upload, so an
+  // unauthorized caller never learns whether the underlying file exists
+  // or has been deleted.
+  const isCreator = share.createdByUserId === user.userId;
+  if (isCreator || user.role === "admin" || user.role === "video_editor") {
+    return { kind: "allowed", upload: null };
+  }
+
+  // Phase 2: for instructor callers not already authorized above, look
+  // up the upload to check whether they own the underlying file. This
+  // read is restricted to the instructor role so non-owner callers
+  // cannot distinguish "active file" from "deleted file" via differing
+  // forbidden/file_missing responses.
+  if (user.role === "instructor") {
+    const upload = await ctx.db.get(share.uploadId);
+    if (upload && upload.instructorId === user.userId) {
+      return { kind: "allowed", upload };
+    }
+  }
+
+  return { kind: "forbidden", upload: null };
+}
+
 /**
  * Cheap live check used by the Edge Worker on every share-cache hit.
  *
@@ -198,15 +240,31 @@ export const listMyShareLinks = query({
 export const isShareDownloadable = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      return { downloadable: false as const };
+    }
+
     const share = await ctx.db
       .query("hdShareLinks")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .first();
-    if (!share || !isActive(share, Date.now())) {
+    if (!share) {
       return { downloadable: false as const };
     }
 
-    const upload = await ctx.db.get(share.uploadId);
+    // Same audience check as `resolveShareByToken`: an unrelated caller
+    // must not be able to probe a file's availability with the token.
+    const auth = await authorizeShareCaller(ctx, user, share);
+    if (auth.kind !== "allowed") {
+      return { downloadable: false as const };
+    }
+
+    if (!isActive(share, Date.now())) {
+      return { downloadable: false as const };
+    }
+
+    const upload = auth.upload ?? (await ctx.db.get(share.uploadId));
     if (
       !upload ||
       upload.status === "deleted" ||
@@ -240,30 +298,11 @@ export const resolveShareByToken = query({
       return { kind: "not_found" as const };
     }
 
-    // Phase 1: cheap authorization. None of these need the upload, so
-    // an unauthorized caller never learns whether the underlying file
-    // exists or has been deleted (Greptile P2).
-    const isCreator = share.createdByUserId === user.userId;
-    const isAdmin = user.role === "admin";
-    const isVideoEditor = user.role === "video_editor";
-
-    // Phase 2: for instructor callers not already authorized above,
-    // look up the upload to check whether they own the underlying file.
-    // This read is restricted to the instructor role so non-owner
-    // callers cannot distinguish "active file" from "deleted file" via
-    // the differing `forbidden` vs `file_missing` responses.
-    let upload: Doc<"instructorUploads"> | null = null;
-    let isOwningInstructor = false;
-    if (!isCreator && !isAdmin && !isVideoEditor && user.role === "instructor") {
-      upload = await ctx.db.get(share.uploadId);
-      if (upload && upload.instructorId === user.userId) {
-        isOwningInstructor = true;
-      }
+    const auth = await authorizeShareCaller(ctx, user, share);
+    if (auth.kind !== "allowed") {
+      return { kind: auth.kind };
     }
-
-    if (!isCreator && !isAdmin && !isVideoEditor && !isOwningInstructor) {
-      return { kind: "forbidden" as const };
-    }
+    let upload = auth.upload;
 
     if (share.revokedAt !== undefined) {
       return { kind: "revoked" as const, revokedAt: share.revokedAt };
