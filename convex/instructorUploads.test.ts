@@ -634,3 +634,64 @@ test("assignUploadInstructor: rejects an in-progress upload", async () => {
     )
   ).rejects.toThrow("while the upload is in progress");
 });
+
+test("assignUploadInstructor: admin can unassign an upload", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_unassign_upload";
+  const instructorId = "inst_unassign_upload";
+  const uploadId = "upload_unassign_me";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, instructorId, "instructor");
+    await seedInstructor(ctx, instructorId);
+    await seedUpload(ctx, uploadId, instructorId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId: null }
+    )
+  ).resolves.toEqual({ success: true, action: "unassigned" });
+
+  const updated = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first()
+  );
+  expect(updated?.instructorId).toBeUndefined();
+});
+
+test("assignUploadInstructor: admin can reassign an upload", async () => {
+  const t = convexTest(schema, modules);
+  const adminId = "admin_reassign_upload";
+  const fromInstructorId = "inst_reassign_from";
+  const toInstructorId = "inst_reassign_to";
+  const uploadId = "upload_reassign_me";
+
+  await t.run(async (ctx) => {
+    await seedUser(ctx, adminId, "admin");
+    await seedUser(ctx, fromInstructorId, "instructor");
+    await seedInstructor(ctx, fromInstructorId);
+    await seedUser(ctx, toInstructorId, "instructor");
+    await seedInstructor(ctx, toInstructorId);
+    await seedUpload(ctx, uploadId, fromInstructorId);
+  });
+
+  await expect(
+    t.withIdentity({ subject: adminId }).mutation(
+      api.instructorUploads.assignUploadInstructor,
+      { id: uploadId, instructorId: toInstructorId }
+    )
+  ).resolves.toEqual({ success: true, action: "assigned" });
+
+  const updated = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first()
+  );
+  expect(updated?.instructorId).toBe(toInstructorId);
+});

@@ -639,15 +639,18 @@ export const createUpload = mutation({
  * path, and moving objects would require a costly copy+delete against
  * B2 for no product benefit.
  *
- * Reassignment is also allowed so an admin can correct a mistake. The
+ * Reassignment is also allowed so an admin can correct a mistake, and
+ * `null` unassigns the file (moving it back into the triage queue). The
  * editor's total usage counter is unaffected by the instructor label,
  * but the target instructor's per-editor quota is enforced so a
  * reassignment cannot silently push the editor past a configured cap.
+ * Unassigning has no quota to enforce.
  */
 export const assignUploadInstructor = mutation({
   args: {
     id: v.string(),
-    instructorId: v.string(),
+    // `null` unassigns the file; a string assigns/reassigns it.
+    instructorId: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
     const caller = await getAuthenticatedUser(ctx);
@@ -674,49 +677,61 @@ export const assignUploadInstructor = mutation({
     if (upload.status === "pending" || upload.status === "uploading") {
       throw new Error("Cannot assign an instructor while the upload is in progress");
     }
-    if (upload.instructorId === args.instructorId) {
+
+    const nextInstructorId = args.instructorId ?? undefined;
+
+    if (upload.instructorId === nextInstructorId) {
       return { success: true, action: "noop" as const };
     }
 
-    await assertActiveInstructorTarget(ctx, args.instructorId);
+    if (nextInstructorId !== undefined) {
+      await assertActiveInstructorTarget(ctx, nextInstructorId);
 
-    // If a video editor uploaded this file, moving it under a
-    // quota-bearing instructor must not silently exceed that
-    // instructor's cap. The editor's upload was not counted against
-    // this instructor while unassigned, so `used + size` is the
-    // post-assignment total. Reassignment from another instructor is
-    // safe to check the same way: the target instructor's usage does
-    // not include this row.
-    if (upload.uploadedById !== undefined) {
-      const assignment = await ctx.db
-        .query("videoEditorAssignments")
-        .withIndex("by_videoEditorId_instructorId", (q) =>
-          q
-            .eq("videoEditorId", upload.uploadedById as string)
-            .eq("instructorId", args.instructorId)
-        )
-        .first();
-      const quota = assignment?.storageQuotaBytes;
-      if (quota !== undefined) {
-        const editorUsed = await getVideoEditorStorageUsed(
-          ctx,
-          upload.uploadedById,
-          args.instructorId
-        );
-        if (editorUsed + upload.size > quota) {
-          throw new Error(
-            `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to assign ${upload.size} bytes, quota is ${quota} bytes`
+      // If a video editor uploaded this file, moving it under a
+      // quota-bearing instructor must not silently exceed that
+      // instructor's cap. The editor's upload was not counted against
+      // this instructor while unassigned, so `used + size` is the
+      // post-assignment total. Reassignment from another instructor is
+      // safe to check the same way: the target instructor's usage does
+      // not include this row.
+      if (upload.uploadedById !== undefined) {
+        const assignment = await ctx.db
+          .query("videoEditorAssignments")
+          .withIndex("by_videoEditorId_instructorId", (q) =>
+            q
+              .eq("videoEditorId", upload.uploadedById as string)
+              .eq("instructorId", nextInstructorId)
+          )
+          .first();
+        const quota = assignment?.storageQuotaBytes;
+        if (quota !== undefined) {
+          const editorUsed = await getVideoEditorStorageUsed(
+            ctx,
+            upload.uploadedById,
+            nextInstructorId
           );
+          if (editorUsed + upload.size > quota) {
+            throw new Error(
+              `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to assign ${upload.size} bytes, quota is ${quota} bytes`
+            );
+          }
         }
       }
     }
 
     await ctx.db.patch(upload._id, {
-      instructorId: args.instructorId,
+      // `undefined` removes the field (unassigned).
+      instructorId: nextInstructorId,
       updatedAt: Date.now(),
     });
 
-    return { success: true, action: "assigned" as const };
+    return {
+      success: true,
+      action:
+        nextInstructorId === undefined
+          ? ("unassigned" as const)
+          : ("assigned" as const),
+    };
   },
 });
 

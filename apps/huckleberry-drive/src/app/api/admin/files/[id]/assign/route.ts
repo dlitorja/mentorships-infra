@@ -10,7 +10,8 @@ interface Params {
 }
 
 const assignSchema = z.object({
-  instructorId: z.string().trim().min(1),
+  // `null` clears the assignment; a string assigns or reassigns it.
+  instructorId: z.string().trim().min(1).nullable(),
 });
 
 /**

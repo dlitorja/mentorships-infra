@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, Search, X, Trash2, Download, Play, UserPlus } from "lucide-react";
+import { Loader2, Search, X, Trash2, Download, Play, UserPlus, UserCog } from "lucide-react";
 import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, getDownloadUrl, getStreamUrl, assignFileInstructor, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
@@ -233,7 +233,8 @@ setDownloadingIds((prev) => {
     if (!assignInstructorId) return;
     setIsAssigning(true);
     try {
-      await assignFileInstructor(fileId, assignInstructorId);
+      // Empty string means "Unassigned"; the API expects null.
+      await assignFileInstructor(fileId, assignInstructorId || null);
       setAssigningFileId(null);
       setAssignInstructorId("");
       await handleFilesChange();
@@ -540,52 +541,67 @@ setSelectedFileIds(new Set());
 <div className="flex items-center justify-end gap-1">
                             {file.status !== "deleted" && file.status !== "deleting" && (
                               <>
-                                {!file.instructorId && (
-                                  assigningFileId === file.id ? (
-                                    <>
-                                      <select
-                                        value={assignInstructorId}
-                                        onChange={(e) => setAssignInstructorId(e.target.value)}
-                                        aria-label="Assign instructor"
-                                        className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                                      >
-                                        <option value="">Select instructor...</option>
-                                        {instructors.map((inst) => (
-                                          <option key={inst.id} value={inst.id}>
-                                            {inst.name || inst.email}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <button
-                                        onClick={() => handleAssignInstructor(file.id)}
-                                        disabled={!assignInstructorId || isAssigning}
-                                        className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
-                                      >
-                                        {isAssigning ? "Saving..." : "Save"}
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setAssigningFileId(null);
-                                          setAssignInstructorId("");
-                                        }}
-                                        className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </>
-                                  ) : (
+                                {assigningFileId === file.id ? (
+                                  <>
+                                    <select
+                                      value={assignInstructorId}
+                                      onChange={(e) => setAssignInstructorId(e.target.value)}
+                                      aria-label="File instructor assignment"
+                                      className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                                    >
+                                      <option value="">Unassigned</option>
+                                      {instructors.map((inst) => (
+                                        <option key={inst.id} value={inst.id}>
+                                          {inst.name || inst.email}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      onClick={() => handleAssignInstructor(file.id)}
+                                      // Disable when nothing changed so admins
+                                      // don't issue a no-op write.
+                                      disabled={
+                                        isAssigning ||
+                                        assignInstructorId === (file.instructorId ?? "")
+                                      }
+                                      className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
+                                    >
+                                      {isAssigning ? "Saving..." : "Save"}
+                                    </button>
                                     <button
                                       onClick={() => {
-                                        setAssigningFileId(file.id);
+                                        setAssigningFileId(null);
                                         setAssignInstructorId("");
                                       }}
-                                      className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors"
-                                      title="Assign instructor"
-                                      aria-label="Assign instructor"
+                                      className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
                                     >
-                                      <UserPlus className="w-4 h-4" />
+                                      Cancel
                                     </button>
-                                  )
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setAssigningFileId(file.id);
+                                      setAssignInstructorId(file.instructorId ?? "");
+                                    }}
+                                    className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors"
+                                    title={
+                                      file.instructorId
+                                        ? "Change or remove instructor"
+                                        : "Assign instructor"
+                                    }
+                                    aria-label={
+                                      file.instructorId
+                                        ? "Change or remove instructor"
+                                        : "Assign instructor"
+                                    }
+                                  >
+                                    {file.instructorId ? (
+                                      <UserCog className="w-4 h-4" />
+                                    ) : (
+                                      <UserPlus className="w-4 h-4" />
+                                    )}
+                                  </button>
                                 )}
                                 {file.contentType.startsWith("video/") && (
                                   <button

@@ -284,21 +284,24 @@ export async function hardDeleteFile(fileId: string): Promise<void> {
 }
 
 /**
- * Admin triage: assign an instructor to an upload that was created
- * unassigned. The storage key is not rewritten.
+ * Admin triage: assign, reassign, or unassign (`null`) an upload's
+ * instructor. The storage key is never rewritten.
  */
 export async function assignFileInstructor(
   fileId: string,
-  instructorId: string
-): Promise<{ success: boolean; action: "assigned" | "noop" }> {
-  return fetchApi<{ success: boolean; action: "assigned" | "noop" }>(
-    `/api/admin/files/${encodeURIComponent(fileId)}/assign`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instructorId }),
-    }
-  );
+  instructorId: string | null
+): Promise<{
+  success: boolean;
+  action: "assigned" | "unassigned" | "noop";
+}> {
+  return fetchApi<{
+    success: boolean;
+    action: "assigned" | "unassigned" | "noop";
+  }>(`/api/admin/files/${encodeURIComponent(fileId)}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instructorId }),
+  });
 }
 
 export async function getStreamUrl(fileId: string, expiresIn?: number): Promise<string> {
