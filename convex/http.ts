@@ -3406,6 +3406,19 @@ http.route({
  * transaction.
  */
 
+const httpListSessionsForRecordingsReconciliation = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const result = await ctx.runQuery(
+    internal.recordingsReconciliation.listSessionsForReconciliation,
+    {}
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 const httpGetRecordingsNeedingCleanup = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -3559,6 +3572,12 @@ const httpFinalizeRecordingRetentionNotification = httpAction(async (ctx, reques
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });
+});
+
+http.route({
+  path: "/recordings-reconciliation/sessions",
+  method: "GET",
+  handler: httpListSessionsForRecordingsReconciliation,
 });
 
 http.route({
