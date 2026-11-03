@@ -458,40 +458,49 @@ test("createShareLink: rejects an unassigned upload for every role", async () =>
   }
 });
 
-test("listActiveShareTokensForUpload: admin gets active tokens only", async () => {
+test("isShareDownloadable: reflects share state and current assignment", async () => {
   const t = convexTest(schema, modules);
-  const adminId = "admin_list_share_tokens";
-  const instructorId = "inst_list_share_tokens";
-  const uploadId = "upload_list_share_tokens";
+  const adminId = "admin_share_downloadable";
+  const instructorId = "inst_share_downloadable";
+  const uploadId = "upload_share_downloadable";
+  const activeToken = "active-token-downloadable-1234567890";
+  const revokedToken = "revoked-token-downloadable-123456789";
+  const expiredToken = "expired-token-downloadable-123456789";
 
   await t.run(async (ctx) => {
     await seedUser(ctx, adminId, "admin");
     await seedUser(ctx, instructorId, "instructor");
     await seedInstructor(ctx, instructorId);
     await seedUpload(ctx, uploadId, instructorId);
-    await seedShare(ctx, "active-token-list-share-1234567890", uploadId, adminId);
-    await seedShare(ctx, "revoked-token-list-share-123456789", uploadId, adminId, {
+    await seedShare(ctx, activeToken, uploadId, adminId);
+    await seedShare(ctx, revokedToken, uploadId, adminId, {
       revokedAt: Date.now(),
     });
-    await seedShare(ctx, "expired-token-list-share-123456789", uploadId, adminId, {
+    await seedShare(ctx, expiredToken, uploadId, adminId, {
       expiresAt: Date.now() - 1000,
     });
   });
 
-  const tokens = await t
-    .withIdentity({ subject: adminId })
-    .query(api.hdShareLinks.listActiveShareTokensForUpload, {
-      uploadLegacyId: uploadId,
-    });
-  expect(tokens).toEqual(["active-token-list-share-1234567890"]);
+  const downloadable = async (token: string) =>
+    (
+      await t.query(api.hdShareLinks.isShareDownloadable, { token })
+    ).downloadable;
 
-  await expect(
-    t
-      .withIdentity({ subject: instructorId })
-      .query(api.hdShareLinks.listActiveShareTokensForUpload, {
-        uploadLegacyId: uploadId,
-      })
-  ).rejects.toThrow("only admins");
+  expect(await downloadable(activeToken)).toBe(true);
+  expect(await downloadable(revokedToken)).toBe(false);
+  expect(await downloadable(expiredToken)).toBe(false);
+
+  // Unassigning the upload immediately makes even a previously active
+  // share non-downloadable on the next cache-hit check.
+  await t.run(async (ctx) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", uploadId))
+      .first();
+    await ctx.db.patch(upload!._id, { instructorId: undefined });
+  });
+
+  expect(await downloadable(activeToken)).toBe(false);
 });
 
 test("resolveShareByToken: an unassigned upload is unavailable", async () => {

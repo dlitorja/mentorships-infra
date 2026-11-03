@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { revokeShareViaWorker } from "@/lib/kv";
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -37,42 +36,6 @@ export async function POST(
         { error: "Invalid request", details: parsed.error.flatten() },
         { status: 400 }
       );
-    }
-
-    // Any instructor change invalidates existing share links. Revoke
-    // them through the Worker *before* changing the row so the KV
-    // revocation marker is written first; cached share downloads stop
-    // immediately instead of lasting until the cache TTL. Skip the
-    // revocation on a no-op assignment (the UI disables Save, but a
-    // direct API call could still land here).
-    const current = await fetchQuery(
-      api.instructorUploads.getUploadById,
-      { id },
-      { token }
-    ) as { instructorId?: string } | null;
-    const nextInstructorId = parsed.data.instructorId ?? undefined;
-    const isNoop =
-      current !== null &&
-      (current.instructorId ?? undefined) === nextInstructorId;
-
-    if (!isNoop) {
-      const activeShareTokens = await fetchQuery(
-        api.hdShareLinks.listActiveShareTokensForUpload,
-        { uploadLegacyId: id },
-        { token }
-      ) as string[];
-
-      if (activeShareTokens.length > 0) {
-        if (!token) {
-          return NextResponse.json(
-            { error: "Cannot revoke share links without a Convex token" },
-            { status: 500 }
-          );
-        }
-        for (const shareToken of activeShareTokens) {
-          await revokeShareViaWorker(shareToken, token);
-        }
-      }
     }
 
     const result = await fetchMutation(

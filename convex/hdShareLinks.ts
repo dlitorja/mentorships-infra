@@ -185,34 +185,39 @@ export const listMyShareLinks = query({
 });
 
 /**
- * Admin-only: list the active share tokens for an upload. Used before an
- * instructor assignment change so the Next route can write the worker's
- * KV revocation markers for every cached share of that file.
+ * Cheap live check used by the Edge Worker on every share-cache hit.
+ *
+ * The KV cache stores file metadata and skips the full authorization
+ * resolve. That means a share cached before an instructor assignment
+ * change (reassign/unassign) or a revocation would otherwise keep
+ * serving a download until its TTL expires. This query re-reads the
+ * authoritative share + upload state so any assignment change takes
+ * effect on the next request, including changes made by callers that
+ * bypassed the Next route (e.g. a direct Convex mutation call).
  */
-export const listActiveShareTokensForUpload = query({
-  args: { uploadLegacyId: v.string() },
+export const isShareDownloadable = query({
+  args: { token: v.string() },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    if (user.role !== "admin") {
-      throw new Error(
-        "Forbidden: only admins can list share links for an upload"
-      );
+    const share = await ctx.db
+      .query("hdShareLinks")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+    if (!share || !isActive(share, Date.now())) {
+      return { downloadable: false as const };
     }
 
-    const upload = await ctx.db
-      .query("instructorUploads")
-      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.uploadLegacyId))
-      .first();
-    if (!upload) return [];
+    const upload = await ctx.db.get(share.uploadId);
+    if (
+      !upload ||
+      upload.status === "deleted" ||
+      upload.status === "deleting" ||
+      // Unassigned files are not shareable.
+      upload.instructorId === undefined
+    ) {
+      return { downloadable: false as const };
+    }
 
-    const shares = await ctx.db
-      .query("hdShareLinks")
-      .withIndex("by_uploadId", (q) => q.eq("uploadId", upload._id))
-      .collect();
-    const now = Date.now();
-    return shares
-      .filter((share) => isActive(share, now))
-      .map((share) => share.token);
+    return { downloadable: true as const };
   },
 });
 
