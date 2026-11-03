@@ -40,6 +40,7 @@ function SummaryCard({ title, value, icon, subValue, alert }: SummaryCardProps) 
 }
 
 export default function CostsPage(): React.ReactElement {
+  const [currentMonth, setCurrentMonth] = useState<CostData | null>(null);
   const [costs, setCosts] = useState<CostData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,8 @@ export default function CostsPage(): React.ReactElement {
     getCosts()
       .then((data) => {
         if (cancelled) return;
-        setCosts([data.currentMonth, ...data.historical]);
+        setCurrentMonth(data.currentMonth);
+        setCosts(data.historical);
         setError(null);
         setIsLoading(false);
       })
@@ -69,7 +71,8 @@ export default function CostsPage(): React.ReactElement {
     setIsRefreshing(true);
     getCosts()
       .then((data) => {
-        setCosts([data.currentMonth, ...data.historical]);
+        setCurrentMonth(data.currentMonth);
+        setCosts(data.historical);
         setError(null);
         setIsRefreshing(false);
       })
@@ -111,20 +114,23 @@ export default function CostsPage(): React.ReactElement {
     );
   }
 
-  const currentMonthData = costs[0];
-  const hasData = currentMonthData && (
-    currentMonthData.b2StorageCost > 0 ||
-    currentMonthData.b2DownloadCost > 0 ||
-    currentMonthData.b2ApiCost > 0 ||
-    currentMonthData.s3StorageCost > 0 ||
-    currentMonthData.s3RetrievalCost > 0
-  );
-  const isPlaceholder = !hasData;
+  // No record for the current month means "not measured", not "$0.00".
+  // Backblaze has no billing API; costs are recorded monthly from the
+  // invoice via `migrateMonthlyStorageCost`.
+  const isPlaceholder = currentMonth === null;
 
-  const b2StorageOnly = currentMonthData?.b2StorageCost ?? 0;
-  const b2DownloadsAndApi = (currentMonthData?.b2DownloadCost ?? 0) +
-    (currentMonthData?.b2ApiCost ?? 0);
-  const s3StorageOnly = currentMonthData?.s3StorageCost ?? 0;
+  const notMeasured = "—";
+
+  const b2StorageOnly = (currentMonth?.b2StorageCost ?? 0);
+  const b2DownloadsAndApi = (currentMonth?.b2DownloadCost ?? 0) +
+    (currentMonth?.b2ApiCost ?? 0);
+  const s3StorageOnly = currentMonth?.s3StorageCost ?? 0;
+
+  // The chart and the breakdown table both need the current month when it
+  // exists. Keeping it out of `costs` (which is historical-only) dropped a
+  // recorded current month from both and made the chart label the newest
+  // historical total as "current month".
+  const allCosts = currentMonth ? [currentMonth, ...costs] : costs;
 
   return (
     <div className="space-y-8">
@@ -149,8 +155,10 @@ export default function CostsPage(): React.ReactElement {
           <div>
             <p className="text-amber-400 font-medium">Cost data not yet available</p>
             <p className="text-amber-200/70 text-sm mt-1">
-              Historical cost data is still being migrated. Showing placeholder values of $0.00.
-              Once billing integration is configured, actual costs will be displayed.
+              Nothing has been recorded for this month, so these figures are
+              unknown — not zero. Backblaze has no billing API; the monthly
+              total is entered from the invoice and stored in
+              <code className="mx-1 rounded bg-amber-500/10 px-1">monthlyStorageCosts</code>.
             </p>
           </div>
         </div>
@@ -159,33 +167,33 @@ export default function CostsPage(): React.ReactElement {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
           title="Total This Month"
-          value={formatCost(currentMonthData?.totalCost ?? 0)}
+          value={currentMonth ? formatCost(currentMonth.totalCost) : notMeasured}
           icon={<DollarSign className="w-5 h-5" />}
-          subValue={currentMonthData?.month ?? ""}
+          subValue={currentMonth?.month ?? ""}
         />
         <SummaryCard
           title="B2 Cloud Storage"
-          value={formatCost(b2StorageOnly)}
+          value={currentMonth ? formatCost(b2StorageOnly) : notMeasured}
           icon={<Cloud className="w-5 h-5" />}
         />
         <SummaryCard
           title="B2 Downloads & API"
-          value={formatCost(b2DownloadsAndApi)}
+          value={currentMonth ? formatCost(b2DownloadsAndApi) : notMeasured}
           icon={<Download className="w-5 h-5" />}
-          subValue={`Downloads: ${formatCost(currentMonthData?.b2DownloadCost ?? 0)} | API: ${formatCost(currentMonthData?.b2ApiCost ?? 0)}`}
+          subValue={currentMonth ? `Downloads: ${formatCost(currentMonth.b2DownloadCost)} | API: ${formatCost(currentMonth.b2ApiCost)}` : undefined}
         />
         <SummaryCard
           title="S3 Storage"
-          value={formatCost(s3StorageOnly)}
+          value={currentMonth ? formatCost(s3StorageOnly) : notMeasured}
           icon={<Database className="w-5 h-5" />}
         />
       </div>
 
-      <CostChart costs={costs} />
+      <CostChart costs={allCosts} currentMonthIncluded={currentMonth !== null} />
 
       <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Cost Breakdown</h2>
-        {costs.length === 0 ? (
+        {allCosts.length === 0 ? (
           <div className="text-center py-8 text-slate-500">
             <p>No cost data available yet</p>
           </div>
@@ -204,7 +212,7 @@ export default function CostsPage(): React.ReactElement {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {costs.map((cost) => (
+                {allCosts.map((cost) => (
                   <tr key={cost.month}>
                     <td className="px-4 py-3 text-slate-200">{cost.month}</td>
                     <td className="px-4 py-3 text-right text-slate-400">

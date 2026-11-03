@@ -1,5 +1,7 @@
 "use client";
 
+import { estimateB2StorageCost } from "@mentorships/storage";
+
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { DollarSign, Loader2, RefreshCw } from "lucide-react";
@@ -56,12 +58,11 @@ export default function AdminPage(): React.ReactElement {
     return `${value} ${sizes[i]}`;
   };
 
-  const B2_COST_PER_GB_PER_MONTH = 0.006;
-
   const estimateMonthlyCost = (bytes: number): string => {
-    const gb = bytes / (1024 * 1024 * 1024);
-    const cost = gb * B2_COST_PER_GB_PER_MONTH;
-    return `$${cost.toFixed(2)}`;
+    // Shared helper: applies Backblaze's current $6.95/TB rate and the
+    // 10 GB free storage allowance, so this page cannot drift from the
+    // real cost model. Returns cents.
+    return `$${(estimateB2StorageCost(bytes) / 100).toFixed(2)}`;
   };
 
   return (

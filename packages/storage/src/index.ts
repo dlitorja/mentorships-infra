@@ -76,11 +76,19 @@ export {
 } from "./bulk-download-jobs";
 
 export {
+  B2_STORAGE_RATE_PER_GB,
+  B2_FREE_STORAGE_GB,
+  B2_EGRESS_RATE_PER_GB,
+  B2_FREE_EGRESS_MULTIPLE,
+  B2_CLASS_D_RATE_PER_10000,
+  B2_CLASS_D_FREE_PER_DAY,
   fetchMonthlyCosts,
   checkCostThreshold,
   formatCost,
   formatBytesToGB,
   estimateB2StorageCost,
+  estimateB2EgressCost,
+  calculateNotificationTransactionCost,
   calculateUploadTransactionCost,
   calculateDownloadTransactionCost,
   type StorageCosts,
