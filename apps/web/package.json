@@ -32,6 +32,7 @@
     "@tanstack/react-query-devtools": "^5.90.2",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.7",
+    "@vercel/speed-insights": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "embla-carousel-react": "^8.6.0",
