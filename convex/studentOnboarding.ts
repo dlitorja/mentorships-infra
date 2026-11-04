@@ -14,6 +14,20 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   return user?.role === "admin";
 }
 
+async function isAdminOrSupportUser(ctx: QueryCtx, userId: string): Promise<boolean> {
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  if (byUserId?.role === "admin" || byUserId?.role === "support") return true;
+
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .first();
+  return byClerkId?.role === "admin" || byClerkId?.role === "support";
+}
+
 /**
  * Returns the authenticated user identity or throws "Unauthorized".
  */
@@ -230,20 +244,28 @@ export const deleteStorageObjects = action({
 export const markReviewed = mutation({
   args: {
     legacyId: v.string(),
-    instructorId: v.id("instructors"),
-    reviewedByUserId: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+
     const sub = await ctx.db
       .query("studentOnboardingSubmissions")
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.legacyId))
       .first();
     if (!sub) return { ok: false as const, error: "not_found" };
-    if (sub.instructorId !== args.instructorId) return { ok: false as const, error: "forbidden" };
+
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    const isAssignedInstructor = instructor?._id === sub.instructorId;
+    if (!isAssignedInstructor && !(await isAdminOrSupportUser(ctx, identity.subject))) {
+      return { ok: false as const, error: "forbidden" };
+    }
 
     await ctx.db.patch(sub._id, {
       reviewedAt: Date.now(),
-      reviewedByUserId: args.reviewedByUserId,
+      reviewedByUserId: identity.subject,
       updatedAt: Date.now(),
     });
     return { ok: true as const };

@@ -45,8 +45,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const result = await convex.mutation(api.studentOnboarding.markReviewed, {
       legacyId: submissionId,
-      instructorId: instructor._id,
-      reviewedByUserId: user.id,
     });
 
     if (!result.ok) {

@@ -296,24 +296,49 @@ test("deleteStorageObjects requires authentication and removes files", async () 
   expect(remaining).toHaveLength(0);
 });
 
-test("markReviewed records reviewedAt", async () => {
+test("markReviewed derives the actor and records reviewedAt", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
   await createSubmission(t, "sub-004", instructorId);
 
-  const result = await t.mutation(api.studentOnboarding.markReviewed, {
-    legacyId: "sub-004",
-    instructorId: instructorId as any,
-    reviewedByUserId: INSTRUCTOR_USER_ID,
-  });
+  await expect(
+    t.mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" })
+  ).rejects.toThrow("Unauthorized");
 
+  const forbidden = await t
+    .withIdentity({ subject: OTHER_USER_ID })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" });
+  expect(forbidden).toEqual({ ok: false, error: "forbidden" });
+
+  const result = await t
+    .withIdentity({ subject: INSTRUCTOR_USER_ID })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" });
   expect(result.ok).toBe(true);
 
-  const submissions = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
-    api.studentOnboarding.listByInstructor,
-    { instructorId: instructorId as any }
-  );
-  expect(submissions[0].reviewedAt).toBeDefined();
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("studentOnboardingSubmissions")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", "sub-004"))
+      .first();
+  });
+  expect(row?.reviewedAt).toBeDefined();
+  expect(row?.reviewedByUserId).toBe(INSTRUCTOR_USER_ID);
+
+  // Admin rows may be linked by clerkId rather than userId.
+  const LINKED_ADMIN = "user_linked_admin3b";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "admin-row-3b",
+      clerkId: LINKED_ADMIN,
+      email: "linked-admin@example.com",
+      role: "admin",
+    });
+  });
+  await createSubmission(t, "sub-005", instructorId);
+  const adminResult = await t
+    .withIdentity({ subject: LINKED_ADMIN })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-005" });
+  expect(adminResult.ok).toBe(true);
 });
 
 test("generateImageUploadUrl requires authentication", async () => {

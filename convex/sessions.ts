@@ -13,6 +13,7 @@ import {
   resolveWorkspaceForNewSession,
 } from "./lib/sessionWorkspace";
 import { DEFAULT_RECORDING_RETENTION_DAYS } from "./recordingRetention";
+import { isAdminUser } from "./admin";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -646,6 +647,21 @@ export const updateSession = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
+    if (!session) throw new Error("Session not found");
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const isStudent = session.studentId === identity.subject;
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor = instructor?.userId === identity.subject;
+    if (!isStudent && !isInstructor) {
+      if (!(await isAdminUser(ctx, identity.subject))) {
+        throw new Error("Forbidden");
+      }
+    }
+
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
@@ -659,6 +675,21 @@ export const completeSession = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
+    if (!session) throw new Error("Session not found");
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const isStudent = session.studentId === identity.subject;
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor = instructor?.userId === identity.subject;
+    if (!isStudent && !isInstructor) {
+      if (!(await isAdminUser(ctx, identity.subject))) {
+        throw new Error("Forbidden");
+      }
+    }
+
     const { id, ...updates } = args;
     const patch: Partial<Doc<"sessions">> = {
       status: "completed",
@@ -771,7 +802,7 @@ export const updateSessionNotes = mutation({
 });
 
 /** Soft-deletes a session by setting its deletedAt timestamp. */
-export const deleteSession = mutation({
+export const deleteSession = internalMutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
