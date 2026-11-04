@@ -1,4 +1,5 @@
 import { internalMutation, internalQuery, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -63,36 +64,71 @@ export const migrateUserIdentity = internalMutation({
   },
 });
 
+async function upsertIdentity(
+  ctx: MutationCtx,
+  args: {
+    userId: string;
+    provider: "discord";
+    providerUserId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query("userIdentities")
+    .withIndex("by_userId_provider", (q) =>
+      q.eq("userId", args.userId).eq("provider", args.provider)
+    )
+    .first();
+
+  if (existing) {
+    return existing;
+  }
+
+  const insertResult = await ctx.db.insert("userIdentities", {
+    userId: args.userId,
+    provider: args.provider,
+    providerUserId: args.providerUserId,
+    connectedAt: Date.now(),
+  });
+
+  return {
+    _id: insertResult,
+    userId: args.userId,
+    provider: args.provider,
+    providerUserId: args.providerUserId,
+  };
+}
+
 /**
- * Creates or retrieves a user identity for a provider (e.g., Discord).
- * Returns existing identity if one already exists for the user and provider.
+ * Server-side upsert for Inngest onboarding workers. Callers use the
+ * bearer `/user-identities/upsert` endpoint.
  */
-export const upsertUserIdentity = mutation({
+export const upsertUserIdentityInternal = internalMutation({
   args: {
     userId: v.string(),
     provider: v.union(v.literal("discord")),
     providerUserId: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("userIdentities")
-      .withIndex("by_userId_provider", (q) =>
-        q.eq("userId", args.userId).eq("provider", args.provider)
-      )
-      .first();
+    return await upsertIdentity(ctx, args);
+  },
+});
 
-    if (existing) {
-      return existing;
-    }
+/**
+ * Links the authenticated caller's Discord identity to their own Clerk
+ * user id. Used by the user-facing Discord role sync route; the caller
+ * cannot choose another user's id.
+ */
+export const linkMyDiscordIdentity = mutation({
+  args: { providerUserId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const insertResult = await ctx.db.insert("userIdentities", {
-      userId: args.userId,
-      provider: args.provider,
+    return await upsertIdentity(ctx, {
+      userId: identity.subject,
+      provider: "discord",
       providerUserId: args.providerUserId,
-      connectedAt: Date.now(),
     });
-
-    return { _id: insertResult, userId: args.userId, provider: args.provider, providerUserId: args.providerUserId };
   },
 });
 

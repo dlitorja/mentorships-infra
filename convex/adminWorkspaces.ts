@@ -604,7 +604,7 @@ export const clearWorkspaceInstructor = mutation({
  *
  * Logs an audit event.
  */
-export const linkWorkspaceToSessionPack = mutation({
+export const linkWorkspaceToSessionPack = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     sessionPackId: v.id("sessionPacks"),

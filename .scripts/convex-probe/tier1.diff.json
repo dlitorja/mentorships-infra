@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-04T01:33:29.402Z",
+  "generatedAt": "2026-11-04T01:47:30.848Z",
   "$comment": "Phase A exit artifact / week-over-week baseline for the Tier 1 convex authz probe. Regenerate with `npx tsx diff.ts --update` after a remediation wave merges. Findings are post-suppression (see suppressions.json).",
   "scanB": {
     "total": 24,
@@ -131,12 +131,8 @@
     ]
   },
   "scanD": {
-    "total": 14,
+    "total": 7,
     "findings": [
-      {
-        "file": "adminWorkspaces.ts",
-        "name": "linkWorkspaceToSessionPack"
-      },
       {
         "file": "instructorUploads.ts",
         "name": "updateUploadStarted"
@@ -152,30 +148,6 @@
       {
         "file": "mutations/http.ts",
         "name": "updateWorkspaceExportStatus"
-      },
-      {
-        "file": "products.ts",
-        "name": "createProduct"
-      },
-      {
-        "file": "products.ts",
-        "name": "updateProduct"
-      },
-      {
-        "file": "products.ts",
-        "name": "deleteProduct"
-      },
-      {
-        "file": "products.ts",
-        "name": "deactivateProduct"
-      },
-      {
-        "file": "products.ts",
-        "name": "activateProduct"
-      },
-      {
-        "file": "userIdentities.ts",
-        "name": "upsertUserIdentity"
       },
       {
         "file": "workspaces.ts",

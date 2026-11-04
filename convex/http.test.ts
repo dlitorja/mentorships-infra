@@ -2134,3 +2134,50 @@ test("http /seat-reservations/create: bearer gate + creates seat and workspace",
   });
   expect(after).toBe(1);
 });
+
+test("http /user-identities/upsert: bearer gate + idempotent link", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const body = JSON.stringify({
+    userId: "user_http_identity",
+    provider: "discord",
+    providerUserId: "discord_http_identity",
+  });
+
+  const unauth = await t.fetch("/user-identities/upsert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  expect(unauth.status).toBe(401);
+
+  const first = await t.fetch("/user-identities/upsert", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(first.status).toBe(200);
+  const firstJson = (await first.json()) as { _id: string; userId: string };
+  expect(firstJson.userId).toBe("user_http_identity");
+
+  const second = await t.fetch("/user-identities/upsert", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(second.status).toBe(200);
+  const secondJson = (await second.json()) as { _id: string };
+  expect(secondJson._id).toBe(firstJson._id);
+
+  const count = await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("userIdentities")
+      .withIndex("by_userId_provider", (q) =>
+        q.eq("userId", "user_http_identity").eq("provider", "discord")
+      )
+      .collect();
+    return rows.length;
+  });
+  expect(count).toBe(1);
+});

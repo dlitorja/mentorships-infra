@@ -1,4 +1,6 @@
 import { query, mutation, internalMutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { isAdminUser } from "./admin";
@@ -183,23 +185,24 @@ export const getProductForAdmin = query({
   },
 });
 
-/** Creates a new product with the given details. */
-export const createProduct = mutation({
-  args: {
-    instructorId: v.id("instructors"),
-    title: v.string(),
-    description: v.optional(v.string()),
-    imageUrl: v.optional(v.string()),
-    price: v.string(),
-    currency: v.optional(v.string()),
-    sessionsPerPack: v.optional(v.number()),
-    validityDays: v.optional(v.number()),
-    stripePriceId: v.optional(v.string()),
-    stripeProductId: v.optional(v.string()),
-    paypalProductId: v.optional(v.string()),
-    mentorshipType: v.optional(v.string()),
-    active: v.optional(v.boolean()),
-  },
+const createProductArgs = {
+  instructorId: v.id("instructors"),
+  title: v.string(),
+  description: v.optional(v.string()),
+  imageUrl: v.optional(v.string()),
+  price: v.string(),
+  currency: v.optional(v.string()),
+  sessionsPerPack: v.optional(v.number()),
+  validityDays: v.optional(v.number()),
+  stripePriceId: v.optional(v.string()),
+  stripeProductId: v.optional(v.string()),
+  paypalProductId: v.optional(v.string()),
+  mentorshipType: v.optional(v.string()),
+  active: v.optional(v.boolean()),
+};
+
+export const createProductInternal = internalMutation({
+  args: createProductArgs,
   handler: async (ctx, args) => {
     return await ctx.db.insert("products", {
       ...args,
@@ -209,6 +212,19 @@ export const createProduct = mutation({
       mentorshipType: args.mentorshipType ?? "one-on-one",
       active: args.active ?? true,
     });
+  },
+});
+
+/** Creates a new product with the given details. Admin-only. */
+export const createProduct = mutation({
+  args: createProductArgs,
+  handler: async (ctx, args): Promise<Id<"products">> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
+    return await ctx.runMutation(internal.products.createProductInternal, args);
   },
 });
 
@@ -229,6 +245,11 @@ export const updateProduct = mutation({
     active: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
@@ -239,6 +260,11 @@ export const updateProduct = mutation({
 export const deleteProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
@@ -247,6 +273,11 @@ export const deleteProduct = mutation({
 export const deactivateProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
     await ctx.db.patch(args.id, { active: false });
     return await ctx.db.get(args.id);
   },
@@ -256,6 +287,11 @@ export const deactivateProduct = mutation({
 export const activateProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
     await ctx.db.patch(args.id, { active: true });
     return await ctx.db.get(args.id);
   },

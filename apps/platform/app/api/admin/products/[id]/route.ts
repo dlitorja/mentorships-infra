@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -42,7 +42,7 @@ export async function GET(
     await requireRoleForApi("admin");
     const { id } = await params;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
@@ -141,7 +141,7 @@ export async function PUT(
       deactivateOldPrice,
     } = validationResult.data as UpdateProductInput;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
@@ -297,7 +297,7 @@ export async function DELETE(
     await requireRoleForApi("admin");
     const { id } = await params;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {

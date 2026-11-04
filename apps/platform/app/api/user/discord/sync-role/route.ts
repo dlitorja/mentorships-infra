@@ -86,9 +86,7 @@ export async function POST(): Promise<NextResponse> {
     }
     convex.setAuth(token);
 
-    await convex.mutation(api.userIdentities.upsertUserIdentity, {
-      userId,
-      provider: "discord",
+    await convex.mutation(api.userIdentities.linkMyDiscordIdentity, {
       providerUserId: discordUserId,
     });
 

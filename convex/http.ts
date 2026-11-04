@@ -767,6 +767,13 @@ const httpRefundSessionPack = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
+const httpUpsertUserIdentity = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.userIdentities.upsertUserIdentityInternal, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpCreateSeatReservation = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
@@ -1025,6 +1032,12 @@ http.route({
 });
 
 http.route({
+  path: "/user-identities/upsert",
+  method: "POST",
+  handler: httpUpsertUserIdentity,
+});
+
+http.route({
   path: "/seat-reservations/get-by-session-pack",
   method: "POST",
   handler: httpGetSeatReservationBySessionPack,
@@ -1138,7 +1151,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
   });
 
   if (pricing?.oneOnOne) {
-    await ctx.runMutation(api.products.createProduct as any, {
+    await ctx.runMutation(internal.products.createProductInternal, {
       instructorId,
       title: "1-on-1 Mentorship",
       description: `4-session mentorship with ${name}`,
@@ -1151,7 +1164,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
   }
 
   if (pricing?.group) {
-    await ctx.runMutation(api.products.createProduct as any, {
+    await ctx.runMutation(internal.products.createProductInternal, {
       instructorId,
       title: "Group Mentorship",
       description: `4-session group mentorship with ${name}`,

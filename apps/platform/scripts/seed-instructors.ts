@@ -139,7 +139,7 @@ async function seedInstructor(instructor: any): Promise<any> {
   // Create products
   if (instructor.pricing?.oneOnOne) {
     console.log(`  Creating 1-on-1 product...`);
-    await runConvexMutation("products:createProduct", {
+    await runConvexMutation("products:createProductInternal", {
       instructorId,
       title: "1-on-1 Mentorship",
       description: `4-session mentorship with ${instructor.name}`,
@@ -153,7 +153,7 @@ async function seedInstructor(instructor: any): Promise<any> {
 
   if (instructor.pricing?.group) {
     console.log(`  Creating group product...`);
-    await runConvexMutation("products:createProduct", {
+    await runConvexMutation("products:createProductInternal", {
       instructorId,
       title: "Group Mentorship",
       description: `4-session group mentorship with ${instructor.name}`,
