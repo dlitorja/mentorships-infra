@@ -1,8 +1,8 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
-import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import { v } from "convex/values";
 import { writeAuditLog } from "./auditLog";
 import { isAdminUser } from "./admin";
 
@@ -114,13 +114,8 @@ const createPaymentArgs = {
  * existing row for the same `(provider, providerPaymentId)` instead of
  * inserting a duplicate.
  */
-const createPaymentInternalArgs = {
-  ...createPaymentArgs,
-  allowExisting: v.optional(v.boolean()),
-};
-
 export const createPaymentInternal = internalMutation({
-  args: createPaymentInternalArgs,
+  args: createPaymentArgs,
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("payments")
@@ -129,34 +124,15 @@ export const createPaymentInternal = internalMutation({
       )
       .first();
     if (existing) {
-      if (args.allowExisting) {
-        return existing;
-      }
-      throw new ConvexError("Payment already exists");
+      return existing;
     }
 
-    const { allowExisting: _allowExisting, ...paymentFields } = args;
     const id = await ctx.db.insert("payments", {
-      ...paymentFields,
+      ...args,
       currency: args.currency ?? "usd",
       status: args.status ?? "pending",
     });
     return await ctx.db.get(id);
-  },
-});
-
-/**
- * Temporary public wrapper kept for the widen → migrate → narrow rollout
- * (PR 1b phase 1). The app callers migrate to the bearer endpoint in phase
- * 2; a follow-up removes this wrapper.
- */
-export const createPayment = mutation({
-  args: createPaymentArgs,
-  handler: async (ctx, args): Promise<Doc<"payments"> | null> => {
-    return await ctx.runMutation(internal.payments.createPaymentInternal, {
-      ...args,
-      allowExisting: false,
-    });
   },
 });
 

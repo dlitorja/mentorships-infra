@@ -1,7 +1,6 @@
 import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import { assertServiceKey } from "./lib/serviceAuth";
 
 /**
@@ -231,14 +230,6 @@ export const createOrderInternal = internalMutation({
       currency: args.currency ?? "usd",
     });
     return await ctx.db.get(id);
-  },
-});
-
-/** Temporary public wrapper for the widen → migrate → narrow rollout. */
-export const createOrder = mutation({
-  args: createOrderArgs,
-  handler: async (ctx, args): Promise<Doc<"orders"> | null> => {
-    return await ctx.runMutation(internal.orders.createOrderInternal, args);
   },
 });
 
