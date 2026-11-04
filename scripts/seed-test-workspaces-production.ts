@@ -107,7 +107,7 @@ async function createInstructor(): Promise<string> {
   console.log(`  Creating instructor record...`);
   const slug = `test-instructor-workspace`;
   try {
-    const result = await runConvexMutation("instructors:createInstructor", {
+    const result = await runConvexMutation("instructors:createInstructorWithDetailsInternal", {
       userId: TEST_INSTRUCTOR.userId,
       name: `${TEST_INSTRUCTOR.firstName} ${TEST_INSTRUCTOR.lastName}`,
       slug,

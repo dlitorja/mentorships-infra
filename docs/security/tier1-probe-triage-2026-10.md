@@ -34,6 +34,8 @@ Baseline drift since the probe merged:
 | HUC-121 (detector hardening, 2026-11-02) | 24 | 48 visible (50 detected) |
 | HUC-116 wave 1a (dead money writers internalized, 2026-11-02) | 24 | 39 visible (41 detected) |
 | HUC-119 wave 2a (instructor writers + inventory, 2026-11-02) | 24 | 32 visible (34 detected) |
+| HUC-116 wave 1b (money writers internalized, 2026-11-04) | 24 | 27 visible (29 detected) |
+| HUC-119 wave 2b (instructor profile writes admin/owner gated, 2026-11-04) | 24 | 24 visible (26 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -209,12 +211,13 @@ They had no live callers (only unused client hooks, removed in the same PR), so
 the public surface closes with no caller migration. Pinned by
 `convex/moneySurface.test.ts`. scan-d: 48 → 39 visible (41 detected).
 
-Wave 1b remains: the five server-only creators/refunders
+**Wave 1b delivered (HUC-116):** the five server-only creators/refunders
 (`payments.createPayment`, `payments.refundPayment`,
 `sessionPacks.createSessionPack`, `sessionPacks.refundSessionPack`) and
-`orders.createOrder` need the bearer-endpoint migration of their Inngest /
-checkout callers (endpoints already exist for four of them; `/orders/create` is
-new).
+`orders.createOrder` are now `internalMutation` behind the existing bearer
+endpoints (plus the new `/orders/create`). The Inngest and checkout callers
+were migrated first, then the temporary public create wrappers were removed in
+the narrow follow-up. scan-d: 32 → 27 visible (29 detected).
 
 **Wave 2a delivered (HUC-119):** `instructors.decrementInventory` /
 `incrementInventory` (server-only; the two Inngest call sites now use the
@@ -224,10 +227,12 @@ writers — `upsertInstructorTestimonial`, `upsertStudentResult`,
 `updateInstructorPortfolioImage` — are now `internalMutation`, pinned by
 `convex/instructorSurface.test.ts`. scan-d: 39 → 32 visible (34 detected).
 
-Wave 2b remains: `instructors.createInstructor`,
-`uploadInstructorProfileImage`, and `uploadInstructorPortfolioImage` are
-browser-callable (client hooks / admin route) and need in-function
-owner-or-admin authorization rather than internalization.
+**Wave 2b delivered (HUC-119):** `instructors.createInstructor` is now
+admin-or-self gated, and `uploadInstructorProfileImage` /
+`uploadInstructorPortfolioImage` require the row to be linked to the caller
+(or an admin). Placeholder `admin-…` / `seed-…` rows require an admin or the
+email-claim flow. Pinned by `convex/instructorSurface.test.ts`. scan-d:
+27 → 24 visible (26 detected).
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.

@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { DISCORD_URL_REGEX } from "@/lib/validation/discord";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -72,7 +64,7 @@ export async function GET(req: NextRequest) {
 
     const { search, page, pageSize } = parsedQuery.data;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const result = await convex.query(api.admin.getInstructorsForAdmin, {
       search: search || undefined,
       page,
@@ -149,7 +141,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const userId = data.userId || crypto.randomUUID();
 
     console.log("[createInstructor] Creating instructor in Convex");
