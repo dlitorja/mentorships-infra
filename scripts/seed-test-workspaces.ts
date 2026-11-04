@@ -164,7 +164,7 @@ async function createSeedSessionPack(
 ): Promise<string> {
   console.log(`  Creating seed session pack for ${userId}...`);
   try {
-    const result = await runConvexMutation("sessionPacks:createSessionPack", {
+    const result = await runConvexMutation("sessionPacks:createSessionPackInternal", {
       userId,
       instructorId,
       totalSessions: 4,

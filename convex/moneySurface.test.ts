@@ -1,8 +1,5 @@
 /// <reference types="vite/client" />
 import { expect, test } from "vitest";
-import { convexTest } from "convex-test";
-import { api } from "./_generated/api";
-import schema from "./schema";
 import * as payments from "./payments";
 import * as sessionPacks from "./sessionPacks";
 import * as orders from "./orders";
@@ -10,10 +7,9 @@ import * as orders from "./orders";
 /**
  * Wave 1 (HUC-116) regression guard — money writers.
  *
- * Wave 1a internalized the dead writers (no live callers). Wave 1b adds the
- * live money writers: their implementations are internal, the bearer HTTP
- * endpoints are the only production callers, and the public wrappers are
- * temporary rollout shims removed in the narrow follow-up.
+ * Wave 1a internalized the dead writers (no live callers). Wave 1b moves the
+ * live money writers behind internal mutations + bearer HTTP endpoints, and
+ * the narrow follow-up removes the temporary public wrappers entirely.
  *
  * Same visibility-metadata pattern as `migrationSurface.test.ts`: the Convex
  * runtime stamps `isInternal` / `isPublic` on every registered function, so a
@@ -21,8 +17,6 @@ import * as orders from "./orders";
  */
 
 type Visibility = { isInternal?: boolean; isPublic?: boolean };
-
-const modules = import.meta.glob("./**/*.ts");
 
 const INTERNAL_ONLY: ReadonlyArray<readonly [string, string, Visibility]> = [
   ["payments", "createPaymentInternal", payments.createPaymentInternal as Visibility],
@@ -53,56 +47,10 @@ test("wave 1 dead money writers are internal-only", () => {
   }
 });
 
-test("public create wrappers do not return existing money records", async () => {
-  const t = convexTest({ schema, modules });
-
-  const seeded = await t.run(async (ctx) => {
-    const instructorId = await ctx.db.insert("instructors", {
-      userId: "inst_money_wrapper",
-      name: "Wrapper Instructor",
-      slug: "wrapper-instructor",
-    });
-    const orderId = await ctx.db.insert("orders", {
-      userId: "user_money_wrapper",
-      provider: "stripe",
-      totalAmount: "100.00",
-      currency: "usd",
-      status: "pending",
-    });
-    const paymentId = await ctx.db.insert("payments", {
-      orderId,
-      provider: "stripe",
-      providerPaymentId: "pi_wrapper_existing",
-      amount: "100.00",
-      currency: "usd",
-      status: "completed",
-    });
-    await ctx.db.insert("sessionPacks", {
-      userId: "user_money_wrapper",
-      instructorId,
-      totalSessions: 4,
-      remainingSessions: 4,
-      purchasedAt: Date.now(),
-      status: "active",
-      paymentId,
-    });
-    return { instructorId, orderId, paymentId };
-  });
-
-  await expect(
-    t.mutation(api.payments.createPayment, {
-      orderId: seeded.orderId,
-      provider: "stripe",
-      providerPaymentId: "pi_wrapper_existing",
-      amount: "100.00",
-    })
-  ).rejects.toThrow("Payment already exists");
-
-  await expect(
-    t.mutation(api.sessionPacks.createSessionPack, {
-      userId: "user_money_wrapper",
-      instructorId: seeded.instructorId,
-      paymentId: seeded.paymentId,
-    })
-  ).rejects.toThrow("Session pack already exists");
+test("wave 1b public money wrappers are removed", () => {
+  expect("createPayment" in payments).toBe(false);
+  expect("refundPayment" in payments).toBe(false);
+  expect("createSessionPack" in sessionPacks).toBe(false);
+  expect("refundSessionPack" in sessionPacks).toBe(false);
+  expect("createOrder" in orders).toBe(false);
 });
