@@ -122,7 +122,7 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const payment = await step.run("create-payment", async () => {
-      return await convex.mutation(api.payments.createPayment, {
+      return await convexServerCall<any>("/payments/create", {
         orderId: orderId as Id<"orders">,
         provider: "stripe",
         providerPaymentId: fullSession.payment_intent as string || sessionId,
@@ -195,7 +195,7 @@ const completedOrder = await step.run("update-order", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      return await convex.mutation(api.sessionPacks.createSessionPack, {
+      return await convexServerCall<any>("/session-packs/create", {
         userId: resolvedUserId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
@@ -427,7 +427,7 @@ export const processStripeRefund = inngest.createFunction(
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
 const refundedSessionPack = await step.run("refund-session-pack", async () => {
-      return await convex.mutation(api.sessionPacks.refundSessionPack, {
+      return await convexServerCall<any>("/session-packs/refund", {
         id: sessionPack._id,
       });
     });
@@ -456,7 +456,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     const refundedPayment = await step.run("update-payment-status", async () => {
-      return await convex.mutation(api.payments.refundPayment, {
+      return await convexServerCall<any>("/payments/refund", {
         id: payment._id,
         refundedAmount: payment.amount,
       });
@@ -576,7 +576,7 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     const payment = await step.run("create-payment", async () => {
-      return await convex.mutation(api.payments.createPayment, {
+      return await convexServerCall<any>("/payments/create", {
         orderId: orderId as Id<"orders">,
         provider: "paypal",
         providerPaymentId: captureId,
@@ -631,7 +631,7 @@ export const processPayPalCheckout = inngest.createFunction(
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      return await convex.mutation(api.sessionPacks.createSessionPack, {
+      return await convexServerCall<any>("/session-packs/create", {
         userId: resolvedUserId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
@@ -871,7 +871,7 @@ export const processPayPalRefund = inngest.createFunction(
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
 const refundedSessionPack = await step.run("refund-session-pack", async () => {
-      return await convex.mutation(api.sessionPacks.refundSessionPack, {
+      return await convexServerCall<any>("/session-packs/refund", {
         id: sessionPack._id,
       });
     });
@@ -900,7 +900,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     const refundedPayment = await step.run("update-payment-status", async () => {
-      return await convex.mutation(api.payments.refundPayment, {
+      return await convexServerCall<any>("/payments/refund", {
         id: payment._id,
         refundedAmount: payment.amount,
       });

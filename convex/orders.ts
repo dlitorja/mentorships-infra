@@ -1,5 +1,7 @@
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { assertServiceKey } from "./lib/serviceAuth";
 
 /**
@@ -213,13 +215,15 @@ export const getOrdersForAdminInternal = internalQuery({
  * Stripe/PayPal. Payment completion goes through `completeOrder`, which is
  * gated by the service key and only called from verified webhook handlers.
  */
-export const createOrder = mutation({
-  args: {
-    userId: v.string(),
-    provider: v.union(v.literal("stripe"), v.literal("paypal")),
-    totalAmount: v.string(),
-    currency: v.optional(v.string()),
-  },
+const createOrderArgs = {
+  userId: v.string(),
+  provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  totalAmount: v.string(),
+  currency: v.optional(v.string()),
+};
+
+export const createOrderInternal = internalMutation({
+  args: createOrderArgs,
   handler: async (ctx, args) => {
     const id = await ctx.db.insert("orders", {
       ...args,
@@ -227,6 +231,14 @@ export const createOrder = mutation({
       currency: args.currency ?? "usd",
     });
     return await ctx.db.get(id);
+  },
+});
+
+/** Temporary public wrapper for the widen → migrate → narrow rollout. */
+export const createOrder = mutation({
+  args: createOrderArgs,
+  handler: async (ctx, args): Promise<Doc<"orders"> | null> => {
+    return await ctx.runMutation(internal.orders.createOrderInternal, args);
   },
 });
 

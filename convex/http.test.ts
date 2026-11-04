@@ -1938,3 +1938,123 @@ test("POST /inventory/admin-sync updates an unlisted-only instructor", async () 
   expect(after?.oneOnOneInventory).toBe(6);
   expect(after?.groupInventory).toBe(2);
 });
+
+test("http money endpoints: bearer gate + idempotent creates", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const seeded = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "inst_http_money",
+      name: "HTTP Money",
+      slug: "http-money",
+    });
+    const orderId = await ctx.db.insert("orders", {
+      userId: "user_http_money",
+      provider: "stripe",
+      totalAmount: "100.00",
+      currency: "usd",
+      status: "pending",
+    });
+    const paymentId = await ctx.db.insert("payments", {
+      orderId,
+      provider: "stripe",
+      providerPaymentId: "pi_http_money_seed",
+      amount: "100.00",
+      currency: "usd",
+      status: "completed",
+    });
+    return { instructorId, orderId, paymentId };
+  });
+
+  // /orders/create is bearer-gated.
+  const unauthOrder = await t.fetch("/orders/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: "guest",
+      provider: "stripe",
+      totalAmount: "100.00",
+    }),
+  });
+  expect(unauthOrder.status).toBe(401);
+
+  // /orders/create with a valid bearer creates a pending order.
+  const orderResponse = await t.fetch("/orders/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "guest",
+      provider: "stripe",
+      totalAmount: "100.00",
+    }),
+  });
+  expect(orderResponse.status).toBe(200);
+  const orderJson = (await orderResponse.json()) as { status: string };
+  expect(orderJson.status).toBe("pending");
+
+  // Retrying the same provider payment id returns the same payment.
+  const paymentBody = {
+    orderId: seeded.orderId,
+    provider: "stripe",
+    providerPaymentId: "pi_http_idempotent",
+    amount: "100.00",
+    status: "completed",
+  };
+  const payment1 = await t.fetch("/payments/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify(paymentBody),
+  });
+  const payment2 = await t.fetch("/payments/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify(paymentBody),
+  });
+  expect(payment1.status).toBe(200);
+  expect(payment2.status).toBe(200);
+  const payment1Json = (await payment1.json()) as { _id: string };
+  const payment2Json = (await payment2.json()) as { _id: string };
+  expect(payment2Json._id).toBe(payment1Json._id);
+
+  // Retrying the same payment id returns the same session pack.
+  const packBody = {
+    userId: "user_http_money",
+    instructorId: seeded.instructorId,
+    paymentId: seeded.paymentId,
+    totalSessions: 4,
+  };
+  const pack1 = await t.fetch("/session-packs/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify(packBody),
+  });
+  const pack2 = await t.fetch("/session-packs/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify(packBody),
+  });
+  expect(pack1.status).toBe(200);
+  expect(pack2.status).toBe(200);
+  const pack1Json = (await pack1.json()) as { _id: string };
+  const pack2Json = (await pack2.json()) as { _id: string };
+  expect(pack2Json._id).toBe(pack1Json._id);
+
+  const counts = await t.run(async (ctx) => {
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_provider_providerPaymentId", (q) =>
+        q.eq("provider", "stripe").eq("providerPaymentId", "pi_http_idempotent")
+      )
+      .collect();
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_paymentId", (q) => q.eq("paymentId", seeded.paymentId))
+      .collect();
+    return {
+      payments: payments.length,
+      packs: packs.length,
+    };
+  });
+  expect(counts).toEqual({ payments: 1, packs: 1 });
+});

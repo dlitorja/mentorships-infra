@@ -248,17 +248,41 @@ export const hasPriorPackWithInstructor = query({
   },
 });
 
-/** Creates a new session pack for a user and instructor. */
-export const createSessionPack = mutation({
-  args: {
-    userId: v.string(),
-    instructorId: v.id("instructors"),
-    totalSessions: v.optional(v.number()),
-    remainingSessions: v.optional(v.number()),
-    expiresAt: v.optional(v.number()),
-    paymentId: v.optional(v.id("payments")),
-  },
+const createSessionPackArgs = {
+  userId: v.string(),
+  instructorId: v.id("instructors"),
+  totalSessions: v.optional(v.number()),
+  remainingSessions: v.optional(v.number()),
+  expiresAt: v.optional(v.number()),
+  paymentId: v.optional(v.id("payments")),
+};
+
+/**
+ * Creates a session pack idempotently. A retried Inngest purchase step
+ * passes the same `paymentId`, so return the existing pack instead of
+ * creating a duplicate entitlement.
+ */
+const createSessionPackInternalArgs = {
+  ...createSessionPackArgs,
+  allowExisting: v.optional(v.boolean()),
+};
+
+export const createSessionPackInternal = internalMutation({
+  args: createSessionPackInternalArgs,
   handler: async (ctx, args) => {
+    if (args.paymentId !== undefined) {
+      const existing = await ctx.db
+        .query("sessionPacks")
+        .withIndex("by_paymentId", (q) => q.eq("paymentId", args.paymentId))
+        .first();
+      if (existing) {
+        if (args.allowExisting) {
+          return existing;
+        }
+        throw new ConvexError("Session pack already exists");
+      }
+    }
+
     const totalSessions = args.totalSessions ?? 4;
     const id = await ctx.db.insert("sessionPacks", {
       userId: args.userId,
@@ -271,6 +295,17 @@ export const createSessionPack = mutation({
       paymentId: args.paymentId ?? undefined,
     });
     return await ctx.db.get(id);
+  },
+});
+
+/** Temporary public wrapper for the widen → migrate → narrow rollout. */
+export const createSessionPack = mutation({
+  args: createSessionPackArgs,
+  handler: async (ctx, args): Promise<Doc<"sessionPacks"> | null> => {
+    return await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, {
+      ...args,
+      allowExisting: false,
+    });
   },
 });
 
@@ -356,7 +391,7 @@ export const useSession = internalMutation({
 });
 
 /** Marks a session pack as refunded. */
-export const refundSessionPack = mutation({
+export const refundSessionPackInternal = internalMutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "refunded" });

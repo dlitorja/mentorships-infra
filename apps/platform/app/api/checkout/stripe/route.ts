@@ -7,6 +7,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const order = await convex.mutation(api.orders.createOrder, {
+    const order = await convexServerCall<{ _id: string }>("/orders/create", {
       userId: userIdForOrder!,
       provider: "stripe",
       totalAmount: finalPrice,

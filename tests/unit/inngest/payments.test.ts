@@ -8,6 +8,26 @@ process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
 // reaches the real server.
 process.env.CONVEX_HTTP_KEY = "test-convex-http-key";
 
+const serverCalls = vi.hoisted(
+  () => [] as Array<{ path: string; args: any }>,
+);
+
+vi.mock("../../../apps/web/lib/convex-server-call", () => ({
+  convexServerCall: vi.fn(async (path: string, args: any) => {
+    serverCalls.push({ path, args });
+    if (path === "/payments/create") return { _id: "payment_test", ...args };
+    if (path === "/session-packs/create") return { _id: "pack_test", ...args };
+    if (path === "/seat-reservations/create") return { _id: "seat_test", ...args };
+    if (path === "/payments/refund") return { _id: "payment_test", ...args };
+    if (path === "/session-packs/refund") return { _id: "pack_test", ...args };
+    return {};
+  }),
+}));
+
+beforeEach(() => {
+  serverCalls.length = 0;
+});
+
 // Stub fetch so the post-payment `ensure-admin-student-workspace` step
 // (which now passes the inner env-var check above and fires) doesn't hit
 // the real network. Tests that don't reach that step are unaffected.
@@ -368,7 +388,7 @@ describe("Inngest Payment Functions", () => {
       await handler({ event: mockEvent, step: mockStep as any } as any);
 
       const calls = convexMock.__getMutationCalls!();
-      const sp = calls.find((c: any) => c.name === "sessionPacks.createSessionPack");
+      const sp = serverCalls.find((c) => c.path === "/session-packs/create");
       const sr = calls.find((c: any) => c.name === "seatReservations.createSeatReservation");
       const complete = calls.find((c: any) => c.name === "orders.completeOrder");
       expect(sp?.args.userId).toBe("email:guest@example.com");

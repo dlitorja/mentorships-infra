@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_URL;
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Pack not found" }, { status: 404 });
     }
 
-    const order = await convex.mutation(api.orders.createOrder, {
+    const order = await convexServerCall<{ _id: string }>("/orders/create", {
       userId: "guest",
       provider: "paypal",
       totalAmount: pack.price,

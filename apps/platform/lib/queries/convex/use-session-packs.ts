@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -76,26 +76,3 @@ export function useUserTotalRemainingSessions(userId: string) {
     enabled: !!userId,
   });
 }
-
-/**
- * Mutation hook for creating a new session pack.
- * Invalidates session pack and workspace queries on success.
- */
-export function useCreateSessionPack() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.sessionPacks.createSessionPack),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        predicate: (q) =>
-          q.queryKey[0] === "convexQuery" &&
-          typeof q.queryKey[1] === "string" &&
-          (q.queryKey[1].startsWith("sessionPacks:") ||
-            q.queryKey[1].startsWith("workspaces:")),
-        refetchType: "all",
-      });
-    },
-  });
-}
-
