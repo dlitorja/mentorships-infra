@@ -1,7 +1,11 @@
 # Vercel Security Review — enablement and triage runbook
 
-> Status (2026-11-04): **documented, not yet enabled.** Enablement is a dashboard action
-> (see §3) and is blocked on an Owner clicking through; no code change turns it on.
+> Status (2026-11-04): **enabled.** Owner turned on *Review Deployments Automatically*,
+> selected the three live projects, and enabled Agent chat. Verified from outside the dashboard:
+> `vercel security vulnerabilities --scope dustin-litorjas-projects-95e47775` returns an empty
+> list, while the same command against a team without the feature errors with
+> `reason: not_found` / "Security Review isn't enabled". The policy paste (§4) is the one item
+> that cannot be verified through the API — confirm it in **Settings → Agent**.
 > Owner of this runbook: whoever most recently ran a Tier 2 sweep
 > (`docs/security/sweep-protocol.md` §3).
 > Sources: <https://vercel.com/docs/agent/security-review>,
@@ -205,6 +209,7 @@ runtime.
 | 2026-11-04 | Scope reviews to the three live projects; exclude the paused `mentorships-infra` duplicate and `5head-app`. | `AGENTS.md` §"Project topology": `mentorships-infra` rebuilds `apps/platform`, so including it doubles reviews of one tree. |
 | 2026-11-04 | No CI job for `vercel security vulnerabilities` / `vercel security check`. | Repo is public; both commands emit source snippets and security posture, and public Action logs/artifacts are readable by anyone. |
 | 2026-11-04 | `accepted-risk` dismissals require a Linear issue; `false-positive` dismissals do not. | Dismissals leave no git trace; the risk has to live somewhere re-reviewable. |
+| 2026-11-04 | **Enabled** for `platform`, `marketing`, `huckleberry-drive` (Owner dashboard action); Agent chat on so *Fix with Vercel Agent* is available. Empty-vs-error CLI comparison confirms the team-level toggle; project selection and policy text are dashboard-only and are confirmed by the first review check on a push. | Operator confirmed setup; verification recorded in the doc header. |
 
 ## 12. Cross-references
 
