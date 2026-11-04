@@ -119,6 +119,23 @@ test("product writes: unauthenticated and non-admin are rejected", async () => {
       title: "Student edit",
     }),
   ).rejects.toThrow("Forbidden");
+
+  for (const mutation of [
+    () => t.mutation(api.products.deleteProduct, { id: productId }),
+    () => t.mutation(api.products.deactivateProduct, { id: productId }),
+    () => t.mutation(api.products.activateProduct, { id: productId }),
+    () => t.mutation(api.products.updateProduct, { id: productId, title: "anon" }),
+  ]) {
+    await expect(mutation()).rejects.toThrow("Unauthorized");
+  }
+
+  for (const mutation of [
+    () => t.withIdentity({ subject: STUDENT }).mutation(api.products.deleteProduct, { id: productId }),
+    () => t.withIdentity({ subject: STUDENT }).mutation(api.products.deactivateProduct, { id: productId }),
+    () => t.withIdentity({ subject: STUDENT }).mutation(api.products.activateProduct, { id: productId }),
+  ]) {
+    await expect(mutation()).rejects.toThrow("Forbidden");
+  }
 });
 
 test("product writes: admin can create, update, deactivate, activate, delete", async () => {
