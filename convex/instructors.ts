@@ -1860,8 +1860,26 @@ export const createInstructor = mutation({
     if (!identity) throw new Error("Unauthorized");
 
     const isSelf = args.userId !== undefined && args.userId === identity.subject;
-    if (!isSelf && !(await isAdminUser(ctx, identity.subject))) {
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isSelf && !isAdmin) {
       throw new Error("Forbidden");
+    }
+
+    // Self-provisioning is onboarding, not admin setup. Ignore inventory,
+    // pricing, visibility, and checkout settings supplied by a non-admin so a
+    // newly signed-in instructor cannot grant themselves extra capacity or
+    // change their listing state.
+    if (!isAdmin) {
+      return await ctx.runMutation(
+        internal.instructors.createInstructorWithDetailsInternal,
+        {
+          userId: args.userId,
+          name: args.name,
+          email: args.email,
+          isActive: true,
+          isNew: true,
+        }
+      );
     }
 
     return await ctx.runMutation(

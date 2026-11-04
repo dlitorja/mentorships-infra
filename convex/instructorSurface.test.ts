@@ -40,6 +40,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 const ADMIN = "user_admin_wave2b";
 const OWNER = "user_ownerwave2b";
+const SELF = "user_selfwave2b";
 const OTHER = "user_other_wave2b";
 
 async function seedWave2b(t: ReturnType<typeof convexTest>) {
@@ -82,12 +83,18 @@ test("createInstructor: admin or self only", async () => {
   ).rejects.toThrow("Forbidden");
 
   const selfId = await t
-    .withIdentity({ subject: OWNER })
+    .withIdentity({ subject: SELF })
     .mutation(api.instructors.createInstructor, {
-      userId: OWNER,
+      userId: SELF,
       name: "Self Provisioned",
+      oneOnOneInventory: 999,
+      isActive: false,
     });
   expect(selfId).toBeTruthy();
+
+  const selfRow = await t.run(async (ctx) => ctx.db.get(selfId));
+  expect(selfRow?.oneOnOneInventory).toBe(0);
+  expect(selfRow?.isActive).toBe(true);
 
   const adminId = await t
     .withIdentity({ subject: ADMIN })
