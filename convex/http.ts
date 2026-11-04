@@ -770,7 +770,7 @@ const httpRefundSessionPack = httpAction(async (ctx, request) => {
 const httpCreateSeatReservation = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(api.seatReservations.createSeatReservation, args);
+  const result = await ctx.runMutation(internal.seatReservations.createSeatReservation, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 

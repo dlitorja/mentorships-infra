@@ -36,6 +36,7 @@ Baseline drift since the probe merged:
 | HUC-119 wave 2a (instructor writers + inventory, 2026-11-02) | 24 | 32 visible (34 detected) |
 | HUC-116 wave 1b (money writers internalized, 2026-11-04) | 24 | 27 visible (29 detected) |
 | HUC-119 wave 2b (instructor profile writes admin/owner gated, 2026-11-04) | 24 | 24 visible (26 detected) |
+| HUC-117 wave 3a (seat writers internalized, 2026-11-04) | 24 | 18 visible (20 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -233,6 +234,13 @@ admin-or-self gated, and `uploadInstructorProfileImage` /
 (or an admin). Placeholder `admin-…` / `seed-…` rows require an admin or the
 email-claim flow. Pinned by `convex/instructorSurface.test.ts`. scan-d:
 27 → 24 visible (26 detected).
+
+**Wave 3a delivered (HUC-117):** `createSeatReservation` and the five
+unused seat writers (`updateSeatReservation`, `releaseSeat`, `extendSeat`,
+`deleteSeatReservation`, `processExpiredSeats`) are now `internalMutation`.
+The two Inngest purchase paths create seats through the existing bearer
+`/seat-reservations/create` endpoint. Pinned by
+`convex/seatSurface.test.ts`. scan-d: 24 → 18 visible (20 detected).
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.

@@ -389,7 +389,7 @@ describe("Inngest Payment Functions", () => {
 
       const calls = convexMock.__getMutationCalls!();
       const sp = serverCalls.find((c) => c.path === "/session-packs/create");
-      const sr = calls.find((c: any) => c.name === "seatReservations.createSeatReservation");
+      const sr = serverCalls.find((c) => c.path === "/seat-reservations/create");
       const complete = calls.find((c: any) => c.name === "orders.completeOrder");
       expect(sp?.args.userId).toBe("email:guest@example.com");
       expect(sr?.args.userId).toBe("email:guest@example.com");

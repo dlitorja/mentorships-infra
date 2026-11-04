@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-04T01:02:58.878Z",
+  "generatedAt": "2026-11-04T01:18:31.263Z",
   "$comment": "Phase A exit artifact / week-over-week baseline for the Tier 1 convex authz probe. Regenerate with `npx tsx diff.ts --update` after a remediation wave merges. Findings are post-suppression (see suppressions.json).",
   "scanB": {
     "total": 24,
@@ -131,7 +131,7 @@
     ]
   },
   "scanD": {
-    "total": 24,
+    "total": 18,
     "findings": [
       {
         "file": "adminWorkspaces.ts",
@@ -172,30 +172,6 @@
       {
         "file": "products.ts",
         "name": "activateProduct"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "createSeatReservation"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "updateSeatReservation"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "releaseSeat"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "extendSeat"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "deleteSeatReservation"
-      },
-      {
-        "file": "seatReservations.ts",
-        "name": "processExpiredSeats"
       },
       {
         "file": "sessions.ts",

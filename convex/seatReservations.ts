@@ -458,7 +458,7 @@ export const getUserInstructorSeat = query({
 });
 
 /** Creates a new seat reservation and associated workspace, returning both IDs. */
-export const createSeatReservation = mutation({
+export const createSeatReservation = internalMutation({
   args: {
     instructorId: v.id("instructors"),
     userId: v.string(),
@@ -505,7 +505,7 @@ export const createSeatReservation = mutation({
 });
 
 /** Updates the expiration, grace period, notification status, or status of an existing seat reservation. */
-export const updateSeatReservation = mutation({
+export const updateSeatReservation = internalMutation({
   args: {
     id: v.id("seatReservations"),
     seatExpiresAt: v.optional(v.number()),
@@ -521,7 +521,7 @@ export const updateSeatReservation = mutation({
 });
 
 /** Releases a seat reservation and ends its associated workspaces by setting endedAt. */
-export const releaseSeat = mutation({
+export const releaseSeat = internalMutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
     const seat = await ctx.db.get(args.id);
@@ -545,7 +545,7 @@ export const releaseSeat = mutation({
 });
 
 /** Extends a seat reservation's expiration date by a number of days and reactivates it. */
-export const extendSeat = mutation({
+export const extendSeat = internalMutation({
   args: { 
     id: v.id("seatReservations"), 
     days: v.number() 
@@ -567,7 +567,7 @@ export const extendSeat = mutation({
 });
 
 /** Permanently deletes a seat reservation by ID. */
-export const deleteSeatReservation = mutation({
+export const deleteSeatReservation = internalMutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
@@ -575,7 +575,7 @@ export const deleteSeatReservation = mutation({
 });
 
 /** Transitions expired active seats to grace period, and releases seats whose grace period has ended, ending associated workspaces. */
-export const processExpiredSeats = mutation({
+export const processExpiredSeats = internalMutation({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const now = Date.now();
