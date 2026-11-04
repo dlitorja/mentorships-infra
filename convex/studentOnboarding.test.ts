@@ -296,24 +296,33 @@ test("deleteStorageObjects requires authentication and removes files", async () 
   expect(remaining).toHaveLength(0);
 });
 
-test("markReviewed records reviewedAt", async () => {
+test("markReviewed derives the actor and records reviewedAt", async () => {
   const t = convexTest(schema, modules);
   const { instructorId } = await seedInstructorAndSessionPack(t);
   await createSubmission(t, "sub-004", instructorId);
 
-  const result = await t.mutation(api.studentOnboarding.markReviewed, {
-    legacyId: "sub-004",
-    instructorId: instructorId as any,
-    reviewedByUserId: INSTRUCTOR_USER_ID,
-  });
+  await expect(
+    t.mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" })
+  ).rejects.toThrow("Unauthorized");
 
+  const forbidden = await t
+    .withIdentity({ subject: OTHER_USER_ID })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" });
+  expect(forbidden).toEqual({ ok: false, error: "forbidden" });
+
+  const result = await t
+    .withIdentity({ subject: INSTRUCTOR_USER_ID })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-004" });
   expect(result.ok).toBe(true);
 
-  const submissions = await t.withIdentity({ subject: INSTRUCTOR_USER_ID }).query(
-    api.studentOnboarding.listByInstructor,
-    { instructorId: instructorId as any }
-  );
-  expect(submissions[0].reviewedAt).toBeDefined();
+  const row = await t.run(async (ctx) => {
+    return await ctx.db
+      .query("studentOnboardingSubmissions")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", "sub-004"))
+      .first();
+  });
+  expect(row?.reviewedAt).toBeDefined();
+  expect(row?.reviewedByUserId).toBe(INSTRUCTOR_USER_ID);
 });
 
 test("generateImageUploadUrl requires authentication", async () => {

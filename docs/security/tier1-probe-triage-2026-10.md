@@ -37,6 +37,7 @@ Baseline drift since the probe merged:
 | HUC-116 wave 1b (money writers internalized, 2026-11-04) | 24 | 27 visible (29 detected) |
 | HUC-119 wave 2b (instructor profile writes admin/owner gated, 2026-11-04) | 24 | 24 visible (26 detected) |
 | HUC-117 wave 3a (seat writers internalized, 2026-11-04) | 24 | 18 visible (20 detected) |
+| HUC-117 wave 3b (session writes + onboarding review authz, 2026-11-04) | 24 | 14 visible (16 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -241,6 +242,14 @@ unused seat writers (`updateSeatReservation`, `releaseSeat`, `extendSeat`,
 The two Inngest purchase paths create seats through the existing bearer
 `/seat-reservations/create` endpoint. Pinned by
 `convex/seatSurface.test.ts`. scan-d: 24 → 18 visible (20 detected).
+
+**Wave 3b delivered (HUC-117):** `sessions.updateSession` / `completeSession`
+allow only the session's instructor, student, or an admin; `deleteSession` is
+`internalMutation`. `studentOnboarding.markReviewed` derives the reviewer from
+`ctx.auth.getUserIdentity()` and verifies the caller is the assigned instructor
+or admin/support; caller-supplied `instructorId` / `reviewedByUserId` are gone.
+Pinned by `convex/sessionSurface.test.ts` and `convex/studentOnboarding.test.ts`.
+scan-d: 18 → 14 visible (16 detected).
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.

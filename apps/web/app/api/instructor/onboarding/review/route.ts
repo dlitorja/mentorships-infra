@@ -4,7 +4,7 @@ import { z } from "zod";
 // Removed legacy DB instructor lookup; Convex is the source of truth
 import { and, db, eq } from "@mentorships/db";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRole } from "@/lib/auth-helpers";
 
 const schema = z.object({
@@ -19,15 +19,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const form = await request.formData();
     const submissionId = schema.parse({ submissionId: form.get("submissionId") }).submissionId;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
     if (!instructor) {
       return NextResponse.json({ error: "Instructor profile not found", errorId }, { status: 404 });
     }
     const result = await convex.mutation(api.studentOnboarding.markReviewed, {
       legacyId: submissionId,
-      instructorId: instructor._id,
-      reviewedByUserId: user.id,
     });
     if (!result.ok) {
       let status = 500;

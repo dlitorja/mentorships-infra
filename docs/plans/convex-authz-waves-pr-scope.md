@@ -2,7 +2,7 @@
 
 **Status:** proposed PR boundaries, 2026-11-03
 **Source triage:** [`docs/security/tier1-probe-triage-2026-10.md`](../security/tier1-probe-triage-2026-10.md)
-**Baseline after wave 3a:** `scan-d` 18 visible (20 detected) — target is 0 visible, or documented suppressions.
+**Baseline after wave 3b:** `scan-d` 14 visible (16 detected) — target is 0 visible, or documented suppressions.
 **Tracking:** HUC-116 (Wave 1), HUC-119 (Wave 2), HUC-117 (Wave 3), HUC-120 (Wave 4), HUC-118 (Wave 5), HUC-115 (final prod verification).
 
 This document scopes the remaining remediation into reviewable PRs. Each PR is
