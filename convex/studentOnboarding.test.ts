@@ -323,6 +323,22 @@ test("markReviewed derives the actor and records reviewedAt", async () => {
   });
   expect(row?.reviewedAt).toBeDefined();
   expect(row?.reviewedByUserId).toBe(INSTRUCTOR_USER_ID);
+
+  // Admin rows may be linked by clerkId rather than userId.
+  const LINKED_ADMIN = "user_linked_admin3b";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: "admin-row-3b",
+      clerkId: LINKED_ADMIN,
+      email: "linked-admin@example.com",
+      role: "admin",
+    });
+  });
+  await createSubmission(t, "sub-005", instructorId);
+  const adminResult = await t
+    .withIdentity({ subject: LINKED_ADMIN })
+    .mutation(api.studentOnboarding.markReviewed, { legacyId: "sub-005" });
+  expect(adminResult.ok).toBe(true);
 });
 
 test("generateImageUploadUrl requires authentication", async () => {

@@ -15,11 +15,17 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
 }
 
 async function isAdminOrSupportUser(ctx: QueryCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const byUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin" || user?.role === "support";
+  if (byUserId?.role === "admin" || byUserId?.role === "support") return true;
+
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", userId))
+    .first();
+  return byClerkId?.role === "admin" || byClerkId?.role === "support";
 }
 
 /**

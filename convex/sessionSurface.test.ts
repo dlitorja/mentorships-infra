@@ -50,6 +50,16 @@ test("session update/complete require instructor, student, or admin", async () =
       .mutation(api.sessions.updateSession, { id: sessionId, notes: "other" })
   ).rejects.toThrow("Forbidden");
 
+  await expect(
+    t.mutation(api.sessions.completeSession, { id: sessionId })
+  ).rejects.toThrow("Unauthorized");
+
+  await expect(
+    t
+      .withIdentity({ subject: OTHER })
+      .mutation(api.sessions.completeSession, { id: sessionId })
+  ).rejects.toThrow("Forbidden");
+
   const studentUpdate = await t
     .withIdentity({ subject: STUDENT })
     .mutation(api.sessions.updateSession, { id: sessionId, notes: "student note" });
