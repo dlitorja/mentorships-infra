@@ -2108,6 +2108,40 @@ Traps:
 
 <!-- VERCEL PLUGIN END -->
 
+<!-- VERCEL SECURITY REVIEW START -->
+# Vercel Security Review
+
+Vercel Agent's Security Review statically scans pushes and files findings in the team's
+**Vulnerabilities** dashboard. It is **supplementary**: it does not replace Greptile + CodeRabbit
+per PR (see "Pull Request Merge Policy") or the recurring cadence in
+`docs/security/sweep-protocol.md`.
+
+- Runbook (enablement, triage, severity SLAs, cost, rollback):
+  `docs/security/vercel-security-review.md`
+- Policy text that must be pasted into **Settings → Agent → Security Reviews → Policy**:
+  `docs/security/vercel-security-review-policy.md` — edit the file first, then re-paste.
+- Status: the feature is **not enabled yet**; turning it on is an Owner-only dashboard action.
+  Do not claim it is running because this section exists.
+
+Hard rules:
+
+- **Never run `vercel security vulnerabilities` or `vercel security check` in CI, and never put
+  their output in a PR body, commit message, Linear description, or committed doc.** This
+  repository is public; both commands print source snippets, member emails, and security
+  posture, and public Actions logs/artifacts are readable by anyone. Link the finding instead.
+- Reviews are triggered by **Git pushes**, not pull requests, and are scoped per project root.
+  The selected projects are the three live ones (`platform`, `marketing`,
+  `huckleberry-drive`); the paused `mentorships-infra` duplicate is excluded so one push does not
+  buy two reviews of the same tree.
+- Every finding becomes a Linear issue (Critical/High: same week; Medium: next Tier 2 pass),
+  or a `dismiss` with `--reason false-positive|accepted-risk` and a message. `accepted-risk`
+  dismissals **also** get a Linear issue so the risk stays re-reviewable — a dismissal leaves no
+  trace in git.
+- A finding that requires changing Clerk is report-only. Nobody edits Clerk config to satisfy
+  it without explicit approval (see "Clerk Changes Policy (Do Not Touch)").
+
+<!-- VERCEL SECURITY REVIEW END -->
+
 <!-- CONTEXT7 START -->
 # Context7 Documentation
 

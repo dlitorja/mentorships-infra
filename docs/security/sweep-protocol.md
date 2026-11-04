@@ -416,6 +416,10 @@ PR gated on Greptile + CodeRabbit per AGENTS.md.
   `.scripts/convex-probe/scan-b.ts`,
   `.scripts/convex-probe/scan-d.ts`.
 - Tier 1 workflow: `.github/workflows/convex-probe.yml`.
+- Continuous, push-triggered Vercel Agent review (supplementary; covers every app, not just
+  `convex/`): `docs/security/vercel-security-review.md` (runbook) and
+  `docs/security/vercel-security-review-policy.md` (policy text pasted into the Vercel
+  dashboard). Findings triaged there feed the Tier 2 diff rather than being triaged twice.
 - Prior-tier-output convention (still applies to ongoing runs):
   `/tmp/opencode/audit/tier1/weekly-<isoweek>/` (Tier 1's actual
   workflow-artifact output is now `/tmp/opencode/audit/tier1`-shaped
