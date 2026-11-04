@@ -1,5 +1,7 @@
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { assertServiceKey } from "./lib/serviceAuth";
 
 /**
@@ -213,20 +215,46 @@ export const getOrdersForAdminInternal = internalQuery({
  * Stripe/PayPal. Payment completion goes through `completeOrder`, which is
  * gated by the service key and only called from verified webhook handlers.
  */
-export const createOrder = mutation({
-  args: {
-    userId: v.string(),
-    provider: v.union(v.literal("stripe"), v.literal("paypal")),
-    totalAmount: v.string(),
-    currency: v.optional(v.string()),
-  },
+const createOrderArgs = {
+  userId: v.string(),
+  provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  totalAmount: v.string(),
+  currency: v.optional(v.string()),
+  // Optional checkout-attempt idempotency key. When provided, a retry /
+  // double-submit returns the existing pending order instead of creating
+  // a duplicate.
+  checkoutAttemptId: v.optional(v.string()),
+};
+
+export const createOrderInternal = internalMutation({
+  args: createOrderArgs,
   handler: async (ctx, args) => {
+    if (args.checkoutAttemptId !== undefined) {
+      const existing = await ctx.db
+        .query("orders")
+        .withIndex("by_checkoutAttemptId", (q) =>
+          q.eq("checkoutAttemptId", args.checkoutAttemptId)
+        )
+        .first();
+      if (existing) {
+        return existing;
+      }
+    }
+
     const id = await ctx.db.insert("orders", {
       ...args,
       status: "pending",
       currency: args.currency ?? "usd",
     });
     return await ctx.db.get(id);
+  },
+});
+
+/** Temporary public wrapper for the widen → migrate → narrow rollout. */
+export const createOrder = mutation({
+  args: createOrderArgs,
+  handler: async (ctx, args): Promise<Doc<"orders"> | null> => {
+    return await ctx.runMutation(internal.orders.createOrderInternal, args);
   },
 });
 

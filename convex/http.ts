@@ -674,10 +674,17 @@ const httpRefundOrder = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
+const httpCreateOrder = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.orders.createOrderInternal, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpCreatePayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(api.payments.createPayment, args);
+  const result = await ctx.runMutation(internal.payments.createPaymentInternal, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -700,7 +707,7 @@ const httpGetPaymentByProviderId = httpAction(async (ctx, request) => {
 const httpRefundPayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id, refundedAmount } = await request.json();
-  const result = await ctx.runMutation(api.payments.refundPayment, { id, refundedAmount });
+  const result = await ctx.runMutation(internal.payments.refundPaymentInternal, { id, refundedAmount });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -742,7 +749,7 @@ const httpMigrateDiscordAction = httpAction(async (ctx, request) => {
 const httpCreateSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(api.sessionPacks.createSessionPack, args);
+  const result = await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, args);
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -756,7 +763,7 @@ const httpGetSessionPackByPaymentId = httpAction(async (ctx, request) => {
 const httpRefundSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
-  const result = await ctx.runMutation(api.sessionPacks.refundSessionPack, { id });
+  const result = await ctx.runMutation(internal.sessionPacks.refundSessionPackInternal, { id });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -943,6 +950,12 @@ http.route({
   path: "/orders/refund",
   method: "POST",
   handler: httpRefundOrder,
+});
+
+http.route({
+  path: "/orders/create",
+  method: "POST",
+  handler: httpCreateOrder,
 });
 
 http.route({

@@ -287,11 +287,16 @@ export default defineSchema({
     provider: v.union(v.literal("stripe"), v.literal("paypal")),
     totalAmount: v.string(),
     currency: v.string(),
+    // Checkout-attempt idempotency key. Optional for legacy callers; when
+    // present, `createOrder` returns the existing row instead of inserting
+    // a duplicate pending order on a retry/double-submit.
+    checkoutAttemptId: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_status", ["status"])
-    .index("by_userId_status", ["userId", "status"]),
+    .index("by_userId_status", ["userId", "status"])
+    .index("by_checkoutAttemptId", ["checkoutAttemptId"]),
 
   payments: defineTable({
     orderId: v.id("orders"),

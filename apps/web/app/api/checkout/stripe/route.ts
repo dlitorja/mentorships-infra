@@ -6,6 +6,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -17,6 +18,7 @@ function getConvexClient() {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
+  checkoutAttemptId: z.string().trim().min(1).optional(),
   promotionCode: z.string().optional(),
 });
 
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId, promotionCode } = validationResult.data;
+    const { packId, promotionCode, checkoutAttemptId } = validationResult.data;
     const convex = getConvexClient();
 
     const pack = await convex.query(api.products.getProductById, {
@@ -54,11 +56,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     let finalPrice = pack.price;
 
-    const order = await convex.mutation(api.orders.createOrder, {
+    const order = await convexServerCall<{ _id: string }>("/orders/create", {
       userId: "guest",
       provider: "stripe",
       totalAmount: finalPrice,
       currency: "usd",
+      checkoutAttemptId,
     });
 
     if (!order) {

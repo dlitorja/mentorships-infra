@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_URL;
@@ -16,6 +17,7 @@ function getConvexClient() {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
+  checkoutAttemptId: z.string().trim().min(1).optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId } = validationResult.data;
+    const { packId, checkoutAttemptId } = validationResult.data;
     const convex = getConvexClient();
 
     const pack = await convex.query(api.products.getProductById, {
@@ -44,11 +46,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Pack not found" }, { status: 404 });
     }
 
-    const order = await convex.mutation(api.orders.createOrder, {
+    const order = await convexServerCall<{ _id: string }>("/orders/create", {
       userId: "guest",
       provider: "paypal",
       totalAmount: pack.price,
       currency: "usd",
+      checkoutAttemptId,
     });
 
     if (!order) {

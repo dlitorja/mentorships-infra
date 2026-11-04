@@ -193,49 +193,6 @@ export function useCancelSession() {
 }
 
 /**
- * Mutation hook for creating a new session pack.
- * Invalidates session pack queries on success to refresh the session pack list.
- */
-export function useCreateSessionPack() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.sessionPacks.createSessionPack),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        predicate: (q) =>
-          q.queryKey[0] === "convexQuery" &&
-          typeof q.queryKey[1] === "string" &&
-          (q.queryKey[1].startsWith("sessionPacks:") ||
-            q.queryKey[1].startsWith("workspaces:")),
-        refetchType: "all",
-      });
-    },
-  });
-}
-
-/**
- * Mutation hook for updating user information.
- * Invalidates user queries on success to refresh user data.
- */
-export function useUpdateUser() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.users.updateUser),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        predicate: (q) =>
-          q.queryKey[0] === "convexQuery" &&
-          typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("users:"),
-        refetchType: "all",
-      });
-    },
-  });
-}
-
-/**
  * Mutation hook for creating a testimonial.
  * Invalidates testimonial queries on success to refresh the testimonial list.
  */

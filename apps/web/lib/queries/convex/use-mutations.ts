@@ -139,21 +139,6 @@ export function useCancelSession() {
 }
 
 /**
- * Mutation hook for creating a new session pack.
- * Invalidates session pack queries on success to refresh the session pack list.
- */
-export function useCreateSessionPack() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.sessionPacks.createSessionPack),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
-    },
-  });
-}
-
-/**
  * Mutation hook for updating user information.
  * Invalidates user queries on success to refresh user data.
  */

@@ -2,14 +2,15 @@
 import { expect, test } from "vitest";
 import * as payments from "./payments";
 import * as sessionPacks from "./sessionPacks";
+import * as orders from "./orders";
 
 /**
- * Wave 1 (HUC-116) regression guard — dead money writers.
+ * Wave 1 (HUC-116) regression guard — money writers.
  *
- * These functions had no live callers (only unused client hooks), but were
- * still public Convex mutations: anyone holding `NEXT_PUBLIC_CONVEX_URL`
- * could call them. They are now `internalMutation`, so `api.<module>.<fn>`
- * stops typechecking and the callable surface is closed.
+ * Wave 1a internalized the dead writers (no live callers). Wave 1b adds the
+ * live money writers: their implementations are internal, the bearer HTTP
+ * endpoints are the only production callers, and the public wrappers are
+ * temporary rollout shims removed in the narrow follow-up.
  *
  * Same visibility-metadata pattern as `migrationSurface.test.ts`: the Convex
  * runtime stamps `isInternal` / `isPublic` on every registered function, so a
@@ -19,6 +20,11 @@ import * as sessionPacks from "./sessionPacks";
 type Visibility = { isInternal?: boolean; isPublic?: boolean };
 
 const INTERNAL_ONLY: ReadonlyArray<readonly [string, string, Visibility]> = [
+  ["payments", "createPaymentInternal", payments.createPaymentInternal as Visibility],
+  ["payments", "refundPaymentInternal", payments.refundPaymentInternal as Visibility],
+  ["sessionPacks", "createSessionPackInternal", sessionPacks.createSessionPackInternal as Visibility],
+  ["sessionPacks", "refundSessionPackInternal", sessionPacks.refundSessionPackInternal as Visibility],
+  ["orders", "createOrderInternal", orders.createOrderInternal as Visibility],
   ["payments", "updatePayment", payments.updatePayment as Visibility],
   ["payments", "completePayment", payments.completePayment as Visibility],
   ["payments", "failPayment", payments.failPayment as Visibility],

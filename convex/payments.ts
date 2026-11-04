@@ -1,6 +1,7 @@
 import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { writeAuditLog } from "./auditLog";
 import { isAdminUser } from "./admin";
@@ -97,23 +98,53 @@ export const getCompletedPaymentByOrderAndProvider = query({
   },
 });
 
-/** Creates a new payment record for an order. */
-export const createPayment = mutation({
-  args: {
-    orderId: v.id("orders"),
-    provider: v.union(v.literal("stripe"), v.literal("paypal")),
-    providerPaymentId: v.string(),
-    amount: v.string(),
-    currency: v.optional(v.string()),
-    status: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed"))),
-  },
+const createPaymentArgs = {
+  orderId: v.id("orders"),
+  provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  providerPaymentId: v.string(),
+  amount: v.string(),
+  currency: v.optional(v.string()),
+  status: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed"))),
+};
+
+/**
+ * Creates a payment record idempotently.
+ *
+ * Inngest retries the payment steps, so a retried create must return the
+ * existing row for the same `(provider, providerPaymentId)` instead of
+ * inserting a duplicate.
+ */
+export const createPaymentInternal = internalMutation({
+  args: createPaymentArgs,
   handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("payments")
+      .withIndex("by_provider_providerPaymentId", (q) =>
+        q.eq("provider", args.provider).eq("providerPaymentId", args.providerPaymentId)
+      )
+      .first();
+    if (existing) {
+      return existing;
+    }
+
     const id = await ctx.db.insert("payments", {
       ...args,
       currency: args.currency ?? "usd",
       status: args.status ?? "pending",
     });
     return await ctx.db.get(id);
+  },
+});
+
+/**
+ * Temporary public wrapper kept for the widen → migrate → narrow rollout
+ * (PR 1b phase 1). The app callers migrate to the bearer endpoint in phase
+ * 2; a follow-up removes this wrapper.
+ */
+export const createPayment = mutation({
+  args: createPaymentArgs,
+  handler: async (ctx, args): Promise<Doc<"payments"> | null> => {
+    return await ctx.runMutation(internal.payments.createPaymentInternal, args);
   },
 });
 
@@ -140,15 +171,28 @@ export const completePayment = internalMutation({
   },
 });
 
+const refundPaymentArgs = {
+  id: v.id("payments"),
+  refundedAmount: v.string(),
+};
+
 /** Marks a payment as refunded with the given refunded amount. */
-export const refundPayment = mutation({
-  args: { id: v.id("payments"), refundedAmount: v.string() },
+export const refundPaymentInternal = internalMutation({
+  args: refundPaymentArgs,
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { 
+    await ctx.db.patch(args.id, {
       status: "refunded",
       refundedAmount: args.refundedAmount,
     });
     return await ctx.db.get(args.id);
+  },
+});
+
+/** Temporary public wrapper for the widen → migrate → narrow rollout. */
+export const refundPayment = mutation({
+  args: refundPaymentArgs,
+  handler: async (ctx, args): Promise<Doc<"payments"> | null> => {
+    return await ctx.runMutation(internal.payments.refundPaymentInternal, args);
   },
 });
 
