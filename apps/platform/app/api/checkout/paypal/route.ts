@@ -10,7 +10,6 @@ import { convexServerCall } from "@/lib/convex-server-call";
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
-  checkoutAttemptId: z.string().trim().min(1).optional(),
   email: z.string().email().optional(),
   fullName: z.string().optional(),
 });
@@ -42,7 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId, email, fullName, checkoutAttemptId } = validationResult.data;
+    const { packId, email, fullName } = validationResult.data;
     const convex = getConvexClient();
 
     // Use public lookup to support guest checkout
@@ -123,7 +122,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       provider: "paypal",
       totalAmount: pack.price,
       currency: "usd",
-      checkoutAttemptId,
     });
 
     if (!order) {

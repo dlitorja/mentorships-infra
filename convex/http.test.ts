@@ -1975,33 +1975,23 @@ test("http money endpoints: bearer gate + idempotent creates", async () => {
       userId: "guest",
       provider: "stripe",
       totalAmount: "100.00",
-      checkoutAttemptId: "attempt_unauth",
     }),
   });
   expect(unauthOrder.status).toBe(401);
 
-  // Retrying the same checkout attempt returns the same order.
-  const orderBody = {
-    userId: "guest",
-    provider: "stripe",
-    totalAmount: "100.00",
-    checkoutAttemptId: "attempt_idempotent",
-  };
-  const order1 = await t.fetch("/orders/create", {
+  // /orders/create with a valid bearer creates a pending order.
+  const orderResponse = await t.fetch("/orders/create", {
     method: "POST",
     headers: bearerHeaders(VALID_KEY),
-    body: JSON.stringify(orderBody),
+    body: JSON.stringify({
+      userId: "guest",
+      provider: "stripe",
+      totalAmount: "100.00",
+    }),
   });
-  const order2 = await t.fetch("/orders/create", {
-    method: "POST",
-    headers: bearerHeaders(VALID_KEY),
-    body: JSON.stringify(orderBody),
-  });
-  expect(order1.status).toBe(200);
-  expect(order2.status).toBe(200);
-  const order1Json = (await order1.json()) as { _id: string };
-  const order2Json = (await order2.json()) as { _id: string };
-  expect(order2Json._id).toBe(order1Json._id);
+  expect(orderResponse.status).toBe(200);
+  const orderJson = (await orderResponse.json()) as { status: string };
+  expect(orderJson.status).toBe("pending");
 
   // Retrying the same provider payment id returns the same payment.
   const paymentBody = {
@@ -2061,17 +2051,10 @@ test("http money endpoints: bearer gate + idempotent creates", async () => {
       .query("sessionPacks")
       .withIndex("by_paymentId", (q) => q.eq("paymentId", seeded.paymentId))
       .collect();
-    const orders = await ctx.db
-      .query("orders")
-      .withIndex("by_checkoutAttemptId", (q) =>
-        q.eq("checkoutAttemptId", "attempt_idempotent")
-      )
-      .collect();
     return {
       payments: payments.length,
       packs: packs.length,
-      orders: orders.length,
     };
   });
-  expect(counts).toEqual({ payments: 1, packs: 1, orders: 1 });
+  expect(counts).toEqual({ payments: 1, packs: 1 });
 });

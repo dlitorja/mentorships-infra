@@ -220,27 +220,11 @@ const createOrderArgs = {
   provider: v.union(v.literal("stripe"), v.literal("paypal")),
   totalAmount: v.string(),
   currency: v.optional(v.string()),
-  // Optional checkout-attempt idempotency key. When provided, a retry /
-  // double-submit returns the existing pending order instead of creating
-  // a duplicate.
-  checkoutAttemptId: v.optional(v.string()),
 };
 
 export const createOrderInternal = internalMutation({
   args: createOrderArgs,
   handler: async (ctx, args) => {
-    if (args.checkoutAttemptId !== undefined) {
-      const existing = await ctx.db
-        .query("orders")
-        .withIndex("by_checkoutAttemptId", (q) =>
-          q.eq("checkoutAttemptId", args.checkoutAttemptId)
-        )
-        .first();
-      if (existing) {
-        return existing;
-      }
-    }
-
     const id = await ctx.db.insert("orders", {
       ...args,
       status: "pending",

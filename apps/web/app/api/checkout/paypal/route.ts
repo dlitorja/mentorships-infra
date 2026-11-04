@@ -17,7 +17,6 @@ function getConvexClient() {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
-  checkoutAttemptId: z.string().trim().min(1).optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -35,7 +34,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId, checkoutAttemptId } = validationResult.data;
+    const { packId } = validationResult.data;
     const convex = getConvexClient();
 
     const pack = await convex.query(api.products.getProductById, {
@@ -51,7 +50,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       provider: "paypal",
       totalAmount: pack.price,
       currency: "usd",
-      checkoutAttemptId,
     });
 
     if (!order) {

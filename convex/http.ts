@@ -684,7 +684,7 @@ const httpCreateOrder = httpAction(async (ctx, request) => {
 const httpCreatePayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(internal.payments.createPaymentInternal, args);
+  const result = await ctx.runMutation(internal.payments.createPaymentInternal, { ...args, allowExisting: true });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -749,7 +749,7 @@ const httpMigrateDiscordAction = httpAction(async (ctx, request) => {
 const httpCreateSessionPack = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const args = await request.json();
-  const result = await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, args);
+  const result = await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, { ...args, allowExisting: true });
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 

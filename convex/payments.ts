@@ -2,7 +2,7 @@ import { query, mutation, internalQuery, internalMutation } from "./_generated/s
 import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { writeAuditLog } from "./auditLog";
 import { isAdminUser } from "./admin";
 
@@ -114,8 +114,13 @@ const createPaymentArgs = {
  * existing row for the same `(provider, providerPaymentId)` instead of
  * inserting a duplicate.
  */
+const createPaymentInternalArgs = {
+  ...createPaymentArgs,
+  allowExisting: v.optional(v.boolean()),
+};
+
 export const createPaymentInternal = internalMutation({
-  args: createPaymentArgs,
+  args: createPaymentInternalArgs,
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("payments")
@@ -124,11 +129,15 @@ export const createPaymentInternal = internalMutation({
       )
       .first();
     if (existing) {
-      return existing;
+      if (args.allowExisting) {
+        return existing;
+      }
+      throw new ConvexError("Payment already exists");
     }
 
+    const { allowExisting: _allowExisting, ...paymentFields } = args;
     const id = await ctx.db.insert("payments", {
-      ...args,
+      ...paymentFields,
       currency: args.currency ?? "usd",
       status: args.status ?? "pending",
     });
@@ -144,7 +153,10 @@ export const createPaymentInternal = internalMutation({
 export const createPayment = mutation({
   args: createPaymentArgs,
   handler: async (ctx, args): Promise<Doc<"payments"> | null> => {
-    return await ctx.runMutation(internal.payments.createPaymentInternal, args);
+    return await ctx.runMutation(internal.payments.createPaymentInternal, {
+      ...args,
+      allowExisting: false,
+    });
   },
 });
 
@@ -185,14 +197,6 @@ export const refundPaymentInternal = internalMutation({
       refundedAmount: args.refundedAmount,
     });
     return await ctx.db.get(args.id);
-  },
-});
-
-/** Temporary public wrapper for the widen → migrate → narrow rollout. */
-export const refundPayment = mutation({
-  args: refundPaymentArgs,
-  handler: async (ctx, args): Promise<Doc<"payments"> | null> => {
-    return await ctx.runMutation(internal.payments.refundPaymentInternal, args);
   },
 });
 

@@ -262,8 +262,13 @@ const createSessionPackArgs = {
  * passes the same `paymentId`, so return the existing pack instead of
  * creating a duplicate entitlement.
  */
+const createSessionPackInternalArgs = {
+  ...createSessionPackArgs,
+  allowExisting: v.optional(v.boolean()),
+};
+
 export const createSessionPackInternal = internalMutation({
-  args: createSessionPackArgs,
+  args: createSessionPackInternalArgs,
   handler: async (ctx, args) => {
     if (args.paymentId !== undefined) {
       const existing = await ctx.db
@@ -271,7 +276,10 @@ export const createSessionPackInternal = internalMutation({
         .withIndex("by_paymentId", (q) => q.eq("paymentId", args.paymentId))
         .first();
       if (existing) {
-        return existing;
+        if (args.allowExisting) {
+          return existing;
+        }
+        throw new ConvexError("Session pack already exists");
       }
     }
 
@@ -294,7 +302,10 @@ export const createSessionPackInternal = internalMutation({
 export const createSessionPack = mutation({
   args: createSessionPackArgs,
   handler: async (ctx, args): Promise<Doc<"sessionPacks"> | null> => {
-    return await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, args);
+    return await ctx.runMutation(internal.sessionPacks.createSessionPackInternal, {
+      ...args,
+      allowExisting: false,
+    });
   },
 });
 
@@ -385,17 +396,6 @@ export const refundSessionPackInternal = internalMutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { status: "refunded" });
     return await ctx.db.get(args.id);
-  },
-});
-
-/** Temporary public wrapper for the widen → migrate → narrow rollout. */
-export const refundSessionPack = mutation({
-  args: { id: v.id("sessionPacks") },
-  handler: async (ctx, args): Promise<Doc<"sessionPacks"> | null> => {
-    return await ctx.runMutation(
-      internal.sessionPacks.refundSessionPackInternal,
-      args
-    );
   },
 });
 

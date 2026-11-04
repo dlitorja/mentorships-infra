@@ -3,6 +3,7 @@ import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { getConvexClient } from "@/lib/convex";
 import { stripe } from "@/lib/stripe";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 vi.mock("@/lib/convex", () => ({
   getConvexClient: vi.fn(),
@@ -38,6 +39,11 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 const mockGetConvexClient = vi.mocked(getConvexClient);
 const mockStripeCheckoutCreate = vi.mocked(stripe.checkout.sessions.create);
+const mockConvexServerCall = vi.mocked(convexServerCall);
+
+vi.mock("@/lib/convex-server-call", () => ({
+  convexServerCall: vi.fn(),
+}));
 
 const convexClient = {
   query: vi.fn(),
@@ -77,6 +83,7 @@ describe("POST /api/checkout/stripe", () => {
       if (args.status === "failed") return { ...order, status: "failed" }; // updateOrder
       return null;
     });
+    mockConvexServerCall.mockResolvedValue(order);
     mockStripeCheckoutCreate.mockResolvedValue({
       url: "https://checkout.stripe.com/session_123",
     });

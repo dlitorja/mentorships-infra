@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { POST } from "./route";
 import { makeRequest } from "tests/unit/api-route-utils";
 import { stripe } from "@/lib/stripe";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 vi.mock("convex/browser", () => ({
   ConvexHttpClient: vi.fn(() => convexClient),
@@ -20,6 +21,10 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
+vi.mock("@/lib/convex-server-call", () => ({
+  convexServerCall: vi.fn(),
+}));
+
 const convexClient = {
   query: vi.fn(),
   mutation: vi.fn(),
@@ -27,6 +32,7 @@ const convexClient = {
 
 const mockPromotionCodesList = vi.mocked(stripe.promotionCodes.list);
 const mockStripeCheckoutCreate = vi.mocked(stripe.checkout.sessions.create);
+const mockConvexServerCall = vi.mocked(convexServerCall);
 
 const validBody = {
   packId: "pack_1",
@@ -65,6 +71,7 @@ describe("POST /api/checkout/stripe (web)", () => {
     mockPromotionCodesList.mockResolvedValue({
       data: [{ id: "promo_123", active: true }],
     } as any);
+    mockConvexServerCall.mockResolvedValue(order);
     mockStripeCheckoutCreate.mockResolvedValue({
       url: "https://checkout.stripe.test/session_123",
     });
