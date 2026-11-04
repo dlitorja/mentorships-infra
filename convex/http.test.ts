@@ -2058,3 +2058,79 @@ test("http money endpoints: bearer gate + idempotent creates", async () => {
   });
   expect(counts).toEqual({ payments: 1, packs: 1 });
 });
+
+test("http /seat-reservations/create: bearer gate + creates seat and workspace", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const seeded = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: "inst_http_seat",
+      name: "HTTP Seat Instructor",
+      slug: "http-seat-instructor",
+    });
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: "user_http_seat",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+    return { instructorId, sessionPackId };
+  });
+
+  const body = JSON.stringify({
+    instructorId: seeded.instructorId,
+    userId: "user_http_seat",
+    sessionPackId: seeded.sessionPackId,
+    seatExpiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  });
+
+  const unauth = await t.fetch("/seat-reservations/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  expect(unauth.status).toBe(401);
+
+  const created = await t.fetch("/seat-reservations/create", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body,
+  });
+  expect(created.status).toBe(200);
+  const seat = (await created.json()) as { _id: string; status: string };
+  expect(seat.status).toBe("active");
+
+  const state = await t.run(async (ctx) => {
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", seeded.sessionPackId))
+      .collect();
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seats[0]?._id))
+      .collect();
+    return { seats: seats.length, workspaces: workspaces.length };
+  });
+  expect(state).toEqual({ seats: 1, workspaces: 1 });
+
+  // A retry must not create a second seat/workspace.
+  await expect(
+    t.fetch("/seat-reservations/create", {
+      method: "POST",
+      headers: bearerHeaders(VALID_KEY),
+      body,
+    })
+  ).rejects.toThrow("Seat reservation already exists");
+
+  const after = await t.run(async (ctx) => {
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", seeded.sessionPackId))
+      .collect();
+    return seats.length;
+  });
+  expect(after).toBe(1);
+});
