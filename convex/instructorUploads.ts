@@ -772,7 +772,12 @@ async function requireUploadOwnerOrAdmin(
     upload.uploadedById !== undefined &&
     (upload.uploadedById === caller.userId ||
       upload.uploadedById === caller.clerkId);
-  if (!isUploader) {
+  const isInstructorSelfUpload =
+    upload.uploadedById === undefined &&
+    upload.instructorId !== undefined &&
+    (upload.instructorId === caller.userId ||
+      upload.instructorId === caller.clerkId);
+  if (!isUploader && !isInstructorSelfUpload) {
     throw new Error("Forbidden: only the uploader or an admin can update this upload");
   }
 }

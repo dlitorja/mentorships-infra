@@ -12,6 +12,7 @@ const ADMIN = "user_admin_housekeeping";
 const RECIPIENT = "user_recipient_housekeeping";
 const OTHER = "user_other_housekeeping";
 const UPLOADER = "user_uploader_housekeeping";
+const SELF_INSTRUCTOR = "user_self_instructor_housekeeping";
 
 async function seedHousekeeping(t: ReturnType<typeof convexTest>) {
   return await t.run(async (ctx) => {
@@ -25,6 +26,7 @@ async function seedHousekeeping(t: ReturnType<typeof convexTest>) {
       [RECIPIENT, "student"],
       [OTHER, "student"],
       [UPLOADER, "instructor"],
+      [SELF_INSTRUCTOR, "instructor"],
     ] as const) {
       await ctx.db.insert("users", {
         userId,
@@ -67,6 +69,15 @@ async function seedHousekeeping(t: ReturnType<typeof convexTest>) {
       status: "pending",
       legacyId: "upload_housekeeping",
       uploadedById: UPLOADER,
+    });
+    await ctx.db.insert("instructorUploads", {
+      instructorId: SELF_INSTRUCTOR,
+      filename: "housekeeping/self.mp4",
+      originalName: "self.mp4",
+      contentType: "video/mp4",
+      size: 1024,
+      status: "pending",
+      legacyId: "upload_self",
     });
     return { workspaceId, notificationId, otherNotificationId, uploadId };
   });
@@ -192,4 +203,25 @@ test("instructor upload status writes require the uploader or admin", async () =
       .first()
   );
   expect(completed?.status).toBe("completed");
+
+  // Instructor self-uploads omit uploadedById; the instructorId is the owner.
+  await t
+    .withIdentity({ subject: SELF_INSTRUCTOR })
+    .mutation(api.instructorUploads.updateUploadStarted, {
+      id: "upload_self",
+      b2UploadId: "b2_self",
+    });
+  await t
+    .withIdentity({ subject: SELF_INSTRUCTOR })
+    .mutation(api.instructorUploads.completeUpload, {
+      id: "upload_self",
+      b2FileId: "b2_self_file",
+    });
+  const selfRow = await t.run(async (ctx) =>
+    ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", "upload_self"))
+      .first()
+  );
+  expect(selfRow?.status).toBe("completed");
 });

@@ -157,7 +157,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       upload.uploadedById !== undefined &&
       (upload.uploadedById === dbUser?.userId ||
         upload.uploadedById === dbUser?.clerkId);
-    if (dbUser?.role !== "admin" && !isUploader) {
+    const isInstructorSelfUpload =
+      upload.uploadedById === undefined &&
+      upload.instructorId !== undefined &&
+      (upload.instructorId === dbUser?.userId ||
+        upload.instructorId === dbUser?.clerkId);
+    if (dbUser?.role !== "admin" && !isUploader && !isInstructorSelfUpload) {
       return NextResponse.json(
         { error: "Not authorized to finalize this upload" },
         { status: 403 }
