@@ -233,7 +233,7 @@ const completedOrder = await step.run("update-order", async () => {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
-        return await convex.mutation(api.seatReservations.createSeatReservation, {
+        return await convexServerCall<any>("/seat-reservations/create", {
           instructorId: product.instructorId as Id<"instructors">,
           userId: resolvedUserId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
@@ -669,7 +669,7 @@ export const processPayPalCheckout = inngest.createFunction(
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
-        return await convex.mutation(api.seatReservations.createSeatReservation, {
+        return await convexServerCall<any>("/seat-reservations/create", {
           instructorId: product.instructorId as Id<"instructors">,
           userId: resolvedUserId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
