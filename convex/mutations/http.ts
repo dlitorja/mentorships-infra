@@ -1,4 +1,4 @@
-import { mutation, internalMutation } from "../_generated/server";
+import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
 /** Deletes all notes, links, images, messages, and per-user aliases belonging to a workspace and resets its image counts. */
@@ -71,7 +71,7 @@ export const deleteAllWorkspaceContent = internalMutation({
 });
 
 /** Creates a retention notification for a workspace user if one of the same type doesn't already exist. */
-export const createRetentionNotification = mutation({
+export const createRetentionNotification = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.string(),
@@ -104,7 +104,7 @@ export const createRetentionNotification = mutation({
 });
 
 /** Updates a workspace export record's status and optionally its download URL and expiration time. */
-export const updateWorkspaceExportStatus = mutation({
+export const updateWorkspaceExportStatus = internalMutation({
   args: {
     exportId: v.id("workspaceExports"),
     status: v.union(

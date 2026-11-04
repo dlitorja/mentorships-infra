@@ -23,11 +23,17 @@ type AuthorRole = Exclude<WorkspaceRole, null>;
 type WorkspaceCtx = QueryCtx | MutationCtx;
 
 async function isAdmin(ctx: WorkspaceCtx, userId: string): Promise<boolean> {
-  const user = await ctx.db
+  const byUserId = await ctx.db
     .query("users")
     .withIndex("by_userId", (q: any) => q.eq("userId", userId))
     .first();
-  return user?.role === "admin";
+  if (byUserId?.role === "admin") return true;
+
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q: any) => q.eq("clerkId", userId))
+    .first();
+  return byClerkId?.role === "admin";
 }
 
 export async function getWorkspaceRole(
@@ -538,12 +544,17 @@ export async function resolveActiveWorkspaceForPair(
 export const logViewWorkspaceAudit = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    adminId: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    if (!(await isAdmin(ctx, identity.subject))) {
+      throw new Error("Forbidden: Admin role required");
+    }
+
     await ctx.db.insert("workspaceAuditLogs", {
       workspaceId: args.workspaceId,
-      adminId: args.adminId,
+      adminId: identity.subject,
       action: "view_workspace",
       timestamp: Date.now(),
     });
@@ -3944,25 +3955,22 @@ export const getUnacknowledgedRetentionNotifications = query({
   },
 });
 
-/** Creates a retention notification (expiry warning or deleted). */
-export const createRetentionNotification = mutation({
-  args: {
-    workspaceId: v.id("workspaces"),
-    userId: v.string(),
-    notificationType: v.union(v.literal("expiry_warning"), v.literal("deleted")),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceRetentionNotifications", {
-      ...args,
-      sentAt: Date.now(),
-    });
-  },
-});
-
 /** Marks a retention notification as acknowledged. */
 export const acknowledgeNotification = mutation({
   args: { id: v.id("workspaceRetentionNotifications") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const notification = await ctx.db.get(args.id);
+    if (!notification) throw new Error("Notification not found");
+
+    if (notification.userId !== identity.subject) {
+      if (!(await isAdmin(ctx, identity.subject))) {
+        throw new Error("Forbidden");
+      }
+    }
+
     await ctx.db.patch(args.id, { acknowledgedAt: Date.now() });
     return await ctx.db.get(args.id);
   },

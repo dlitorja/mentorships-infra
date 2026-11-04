@@ -757,6 +757,26 @@ export const assignUploadInstructor = mutation({
   },
 });
 
+async function requireUploadOwnerOrAdmin(
+  ctx: MutationCtx,
+  upload: Doc<"instructorUploads">
+): Promise<void> {
+  const caller = await getAuthenticatedUser(ctx);
+  if (!caller) {
+    throw new Error("Unauthorized: authentication required");
+  }
+
+  if (caller.role === "admin") return;
+
+  const isUploader =
+    upload.uploadedById !== undefined &&
+    (upload.uploadedById === caller.userId ||
+      upload.uploadedById === caller.clerkId);
+  if (!isUploader) {
+    throw new Error("Forbidden: only the uploader or an admin can update this upload");
+  }
+}
+
 export const updateUploadStarted = mutation({
   args: {
     id: v.string(),
@@ -768,6 +788,11 @@ export const updateUploadStarted = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized: authentication required");
+    }
+    await requireUploadOwnerOrAdmin(ctx, upload);
     const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       b2UploadId: args.b2UploadId,
@@ -837,6 +862,11 @@ export const completeUpload = mutation({
       .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
       .first();
     if (!upload) return null;
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized: authentication required");
+    }
+    await requireUploadOwnerOrAdmin(ctx, upload);
     const previousStatus = upload.status;
     await ctx.db.patch(upload._id, {
       b2FileId: args.b2FileId,

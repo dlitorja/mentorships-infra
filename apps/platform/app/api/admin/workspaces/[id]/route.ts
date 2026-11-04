@@ -80,7 +80,6 @@ export async function GET(
     if (clerkUserId) {
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
         workspaceId: validatedId,
-        adminId: clerkUserId,
       }).catch((err) => {
         console.warn("Failed to log workspace view audit:", err);
       });

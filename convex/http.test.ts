@@ -2181,3 +2181,68 @@ test("http /user-identities/upsert: bearer gate + idempotent link", async () => 
   });
   expect(count).toBe(1);
 });
+
+test("http workspace retention/export writes: bearer gate + internal handlers", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+
+  const seeded = await t.run(async (ctx) => {
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "HTTP Housekeeping Workspace",
+      ownerId: "user_http_housekeeping",
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+    const exportId = await ctx.db.insert("workspaceExports", {
+      workspaceId,
+      userId: "user_http_housekeeping",
+      format: "pdf",
+      status: "pending",
+    });
+    return { workspaceId, exportId };
+  });
+
+  const retentionBody = JSON.stringify({
+    workspaceId: seeded.workspaceId,
+    userId: "user_http_housekeeping",
+    notificationType: "expiry_warning",
+  });
+  const retentionUnauth = await t.fetch("/workspace/retention/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: retentionBody,
+  });
+  expect(retentionUnauth.status).toBe(401);
+
+  const retention = await t.fetch("/workspace/retention/notify", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: retentionBody,
+  });
+  expect(retention.status).toBe(200);
+  const retentionJson = (await retention.json()) as { created: boolean };
+  expect(retentionJson.created).toBe(true);
+
+  const exportBody = JSON.stringify({
+    exportId: seeded.exportId,
+    status: "completed",
+    downloadUrl: "https://example.com/export.pdf",
+  });
+  const exportUnauth = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: exportBody,
+  });
+  expect(exportUnauth.status).toBe(401);
+
+  const updated = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: exportBody,
+  });
+  expect(updated.status).toBe(200);
+  const row = await t.run((ctx) => ctx.db.get(seeded.exportId));
+  expect(row?.status).toBe("completed");
+  expect(row?.downloadUrl).toBe("https://example.com/export.pdf");
+});

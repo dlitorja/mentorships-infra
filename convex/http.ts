@@ -91,7 +91,7 @@ export const httpCreateRetentionNotification = httpAction(async (ctx, request) =
 
   const { workspaceId, userId, notificationType } = await request.json();
 
-  const result = await ctx.runMutation(api.mutations.http.createRetentionNotification, {
+  const result = await ctx.runMutation(internal.mutations.http.createRetentionNotification, {
     workspaceId: workspaceId as any,
     userId,
     notificationType,
@@ -146,7 +146,7 @@ export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) =
   const { exportId, status, downloadUrl, expiresAt, errorMessage } = await request.json();
 
   try {
-    const result = await ctx.runMutation(api.mutations.http.updateWorkspaceExportStatus, {
+    const result = await ctx.runMutation(internal.mutations.http.updateWorkspaceExportStatus, {
       exportId: exportId as any,
       status,
       downloadUrl,
