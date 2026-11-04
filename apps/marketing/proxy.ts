@@ -129,10 +129,11 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
 
 export const config = {
   matcher: [
-    // `_vercel/speed-insights` is the platform-served Speed Insights script and
-    // its vitals beacon. They must bypass this proxy entirely: the instructor-domain
-    // rewrite would redirect the script to the courses page, and the signed-out
-    // `auth.protect()` fallthrough would block it, so no measurements would be sent.
-    "/((?!_next/static|_next/image|favicon.ico|_vercel/speed-insights|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // `_vercel/speed-insights` and `_vercel/insights` are the platform-served
+    // Speed Insights / Web Analytics scripts and their beacons. They must bypass
+    // this proxy entirely: the instructor-domain rewrite would redirect them to
+    // the courses page, and the signed-out `auth.protect()` fallthrough would
+    // block them, so no measurements would be sent.
+    "/((?!_next/static|_next/image|favicon.ico|_vercel/speed-insights|_vercel/insights|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

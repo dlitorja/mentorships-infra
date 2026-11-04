@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "sonner";
 import { QueryProvider } from "@/lib/providers/query-provider";
@@ -42,6 +43,7 @@ export default function RootLayout({
               {children}
               <Footer />
               <Toaster position="top-right" duration={4000} richColors />
+              <Analytics />
               <SpeedInsights />
             </QueryProvider>
           </ConvexClientProvider>
@@ -63,6 +65,7 @@ export default function RootLayout({
               {children}
               <Footer />
               <Toaster position="top-right" duration={4000} richColors />
+              <Analytics />
               <SpeedInsights />
             </QueryProvider>
           </ConvexClientProvider>

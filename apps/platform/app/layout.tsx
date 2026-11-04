@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 
 export const dynamic = "force-dynamic";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "sonner";
 import { Header } from "@/components/navigation/header";
@@ -50,6 +51,7 @@ export default function RootLayout({
               </HeaderErrorBoundary>
               {children}
               <Toaster />
+              <Analytics />
               <SpeedInsights />
             </QueryProvider>
           </ConvexClientProvider>
@@ -72,6 +74,7 @@ export default function RootLayout({
               </HeaderErrorBoundary>
               {children}
               <Toaster />
+              <Analytics />
               <SpeedInsights />
             </QueryProvider>
           </ConvexClientProvider>
