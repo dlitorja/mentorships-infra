@@ -480,7 +480,7 @@ export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
       // was not recognized, leaving some instructors unable to use
       // video calling. With the format-based placeholder check, both
       // legacy rows are healed on the next Clerk sign-in.)
-      const id = await ctx.runMutation(api.instructors.createInstructor, {
+      const id = await ctx.runMutation(internal.instructors.createInstructorWithDetailsInternal, {
         name: name ?? undefined,
         slug: slug,
         email: email ?? undefined,
@@ -1119,7 +1119,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
   const oneOnOneInventory = 3;
   const groupInventory = pricing?.group ? 2 : 0;
 
-  const instructorId = await ctx.runMutation(api.instructors.createInstructor as any, {
+  const instructorId = await ctx.runMutation(internal.instructors.createInstructorWithDetailsInternal, {
     userId: `seed-${slug}`,
     name,
     slug,

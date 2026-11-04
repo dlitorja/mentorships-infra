@@ -97,7 +97,7 @@ async function seedInstructor(instructor: any): Promise<any> {
   // the instructor from ever using video calling.)
   let instructorId;
   try {
-    const instructorResult = await runConvexMutation("instructors:createInstructor", {
+    const instructorResult = await runConvexMutation("instructors:createInstructorWithDetailsInternal", {
       name: instructor.name,
       slug: instructor.slug,
       tagline: instructor.tagline,

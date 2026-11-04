@@ -1748,38 +1748,46 @@ export const getInstructorBySlugForAdmin = query({
 });
 
 /** Creates a new instructor or returns the existing instructor id if one already exists. */
-export const createInstructor = mutation({
-  args: {
-    userId: v.optional(v.string()),
-    name: v.optional(v.string()),
-    slug: v.optional(v.string()),
-    email: v.optional(v.string()),
-    discordVoiceChannelUrl: v.optional(v.string()),
-    googleCalendarId: v.optional(v.string()),
-    googleRefreshToken: v.optional(v.string()),
-    timeZone: v.optional(v.string()),
-    workingHours: v.optional(v.any()),
-    maxActiveStudents: v.optional(v.number()),
-    bio: v.optional(v.string()),
-    pricing: v.optional(v.string()),
-    oneOnOneInventory: v.optional(v.number()),
-    groupInventory: v.optional(v.number()),
-    tagline: v.optional(v.string()),
-    background: v.optional(v.array(v.string())),
-    specialties: v.optional(v.array(v.string())),
-    portfolioImages: v.optional(v.array(v.string())),
-    socials: v.optional(v.any()),
-    isActive: v.optional(v.boolean()),
-    isNew: v.optional(v.boolean()),
-    isListed: v.optional(v.boolean()),
-    profileImageUrl: v.optional(v.string()),
-    profileImageUploadPath: v.optional(v.string()),
-    profileImageStorageId: v.optional(v.string()),
-    useKajabiCheckout: v.optional(v.boolean()),
-    kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
-    kajabiCheckoutUrlGroup: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
+const createInstructorArgs = {
+  userId: v.optional(v.string()),
+  name: v.optional(v.string()),
+  slug: v.optional(v.string()),
+  email: v.optional(v.string()),
+  discordVoiceChannelUrl: v.optional(v.string()),
+  googleCalendarId: v.optional(v.string()),
+  googleRefreshToken: v.optional(v.string()),
+  timeZone: v.optional(v.string()),
+  workingHours: v.optional(v.any()),
+  maxActiveStudents: v.optional(v.number()),
+  bio: v.optional(v.string()),
+  pricing: v.optional(v.string()),
+  oneOnOneInventory: v.optional(v.number()),
+  groupInventory: v.optional(v.number()),
+  tagline: v.optional(v.string()),
+  background: v.optional(v.array(v.string())),
+  specialties: v.optional(v.array(v.string())),
+  portfolioImages: v.optional(v.array(v.string())),
+  socials: v.optional(v.any()),
+  isActive: v.optional(v.boolean()),
+  isNew: v.optional(v.boolean()),
+  isListed: v.optional(v.boolean()),
+  profileImageUrl: v.optional(v.string()),
+  profileImageUploadPath: v.optional(v.string()),
+  profileImageStorageId: v.optional(v.string()),
+  useKajabiCheckout: v.optional(v.boolean()),
+  kajabiCheckoutUrlOneOnOne: v.optional(v.string()),
+  kajabiCheckoutUrlGroup: v.optional(v.string()),
+};
+
+/**
+ * Full-payload instructor create for server-side callers (bearer HTTP
+ * endpoints and `npx convex run` seed scripts). The public `createInstructor`
+ * below enforces admin-or-self authz before delegating here.
+ */
+export const createInstructorWithDetailsInternal = internalMutation({
+  args: createInstructorArgs,
+  returns: v.id("instructors"),
+  handler: async (ctx, args): Promise<Id<"instructors">> => {
     // Skip the userId dedup check when no userId is supplied — the
     // index lookup can't match `undefined`. Seed/admin-sync callers
     // intentionally omit userId so the Clerk webhook can claim the
@@ -1834,6 +1842,32 @@ export const createInstructor = mutation({
       kajabiCheckoutUrlOneOnOne: args.kajabiCheckoutUrlOneOnOne,
       kajabiCheckoutUrlGroup: args.kajabiCheckoutUrlGroup,
     });
+  },
+});
+
+/**
+ * Creates a new instructor or returns the existing instructor id.
+ *
+ * Authz: an admin may create any row; a signed-in instructor may self-provision
+ * the row linked to their own Clerk id (used by Google Calendar onboarding).
+ * Every other caller is rejected.
+ */
+export const createInstructor = mutation({
+  args: createInstructorArgs,
+  returns: v.id("instructors"),
+  handler: async (ctx, args): Promise<Id<"instructors">> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const isSelf = args.userId !== undefined && args.userId === identity.subject;
+    if (!isSelf && !(await isAdminUser(ctx, identity.subject))) {
+      throw new Error("Forbidden");
+    }
+
+    return await ctx.runMutation(
+      internal.instructors.createInstructorWithDetailsInternal,
+      args
+    );
   },
 });
 
@@ -2503,6 +2537,26 @@ export const generateAuthenticatedInstructorUploadUrl = mutation({
   },
 });
 
+/**
+ * Authorizes a write to an instructor row.
+ *
+ * Admin always allowed. An instructor may write only their own row, and only
+ * when that row is linked to a real Clerk user id (not an `admin-…` /
+ * `seed-…` placeholder). Placeholder rows therefore require an admin or the
+ * email-claim flow before the instructor can upload.
+ */
+async function assertInstructorWriteAccess(
+  ctx: MutationCtx,
+  instructor: Doc<"instructors">,
+  actorId: string
+): Promise<void> {
+  const isOwner =
+    isClerkUserId(instructor.userId) && instructor.userId === actorId;
+  if (isOwner) return;
+  if (await isAdminUser(ctx, actorId)) return;
+  throw new Error("Forbidden");
+}
+
 export const uploadInstructorProfileImage = mutation({
   args: {
     instructorId: v.id("instructors"),
@@ -2510,10 +2564,15 @@ export const uploadInstructorProfileImage = mutation({
     contentType: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
     const instructor = await ctx.db.get(args.instructorId);
     if (!instructor || !instructor.slug) {
       throw new Error("Instructor not found or missing slug");
     }
+
+    await assertInstructorWriteAccess(ctx, instructor, identity.subject);
 
     const storageKey = buildStorageKey(instructor.slug, "profile", args.storageId);
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
@@ -2538,10 +2597,15 @@ export const uploadInstructorPortfolioImage = mutation({
     index: v.number(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
     const instructor = await ctx.db.get(args.instructorId);
     if (!instructor || !instructor.slug) {
       throw new Error("Instructor not found or missing slug");
     }
+
+    await assertInstructorWriteAccess(ctx, instructor, identity.subject);
 
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
     if (!url) {

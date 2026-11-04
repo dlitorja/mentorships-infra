@@ -112,7 +112,7 @@ async function createInstructor(userId: string, email: string, name: string): Pr
   console.log(`  Creating instructor: ${email}...`);
   const slug = `test-instructor-${Date.now()}`;
   try {
-    const result = await runConvexMutation("instructors:createInstructor", {
+    const result = await runConvexMutation("instructors:createInstructorWithDetailsInternal", {
       userId,
       name,
       slug,
