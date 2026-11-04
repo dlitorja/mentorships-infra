@@ -2,7 +2,6 @@ import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
-import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
 
 /**
@@ -422,8 +421,9 @@ export default hasClerkKey
  */
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files, unless found in search params
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // Skip Next.js internals, Vercel Speed Insights (script + vitals beacon),
+    // and all static files, unless found in search params
+    "/((?!_next|_vercel/speed-insights|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // Always run for API routes
     "/(api|trpc)(.*)",
   ],

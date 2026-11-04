@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "sonner";
 import { Suspense } from "react";
 import { Header } from "@/components/navigation/header";
@@ -55,6 +56,7 @@ export default function RootLayout({
           {children}
         </Suspense>
         <Toaster />
+        <SpeedInsights />
       </body>
     </html>
   );
