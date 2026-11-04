@@ -151,6 +151,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
 
+    // Authorize before completing the multipart upload so a rejected
+    // completeUpload mutation cannot orphan a finished B2 object.
+    const isUploader =
+      upload.uploadedById !== undefined &&
+      (upload.uploadedById === dbUser?.userId ||
+        upload.uploadedById === dbUser?.clerkId);
+    const isInstructorSelfUpload =
+      upload.uploadedById === undefined &&
+      upload.instructorId !== undefined &&
+      (upload.instructorId === dbUser?.userId ||
+        upload.instructorId === dbUser?.clerkId);
+    if (dbUser?.role !== "admin" && !isUploader && !isInstructorSelfUpload) {
+      return NextResponse.json(
+        { error: "Not authorized to finalize this upload" },
+        { status: 403 }
+      );
+    }
+
     console.log("completeMultipartUpload called with:", {
       key,
       uploadId,

@@ -39,6 +39,7 @@ Baseline drift since the probe merged:
 | HUC-117 wave 3a (seat writers internalized, 2026-11-04) | 24 | 18 visible (20 detected) |
 | HUC-117 wave 3b (session writes + onboarding review authz, 2026-11-04) | 24 | 14 visible (16 detected) |
 | HUC-120 wave 4 (product admin gates, identity bearer, workspace link, 2026-11-04) | 24 | 7 visible (9 detected) |
+| HUC-118 wave 5 (housekeeping + accepted contacts/order suppressions, 2026-11-04) | 24 | 0 visible (2 detected, both suppressed) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -259,6 +260,16 @@ sync uses `linkMyDiscordIdentity` (userId derived from the Clerk identity);
 `adminWorkspaces.linkWorkspaceToSessionPack` is internal. Pinned by
 `convex/productAdminAuthz.test.ts` and `convex/identitySurface.test.ts`.
 scan-d: 14 → 7 visible (9 detected).
+
+**Wave 5 delivered (HUC-118):** retention/export writers are internal behind the
+existing bearer endpoints; `workspaces.logViewWorkspaceAudit` is admin-gated and
+records the derived actor; `acknowledgeNotification` is recipient-or-admin;
+instructor upload status writes are uploader-or-admin, and the HD complete
+route authorizes before completing the multipart upload. The duplicate
+`workspaces.createRetentionNotification` writer is removed. Pinned by
+`convex/housekeepingSurface.test.ts`. scan-d: 7 → 0 visible; the two remaining
+detections are the accepted `contacts.addContact` and `orders.updateOrder`
+suppressions.
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.
