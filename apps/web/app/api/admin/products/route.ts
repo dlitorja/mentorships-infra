@@ -11,14 +11,8 @@ import {
   deletePayPalProduct,
 } from "@mentorships/payments";
 import { getAdminProducts } from "@mentorships/db";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 const createProductSchema = z.object({
   instructorId: z.string().min(1, "Instructor ID is required"),
@@ -97,7 +91,7 @@ export async function POST(req: NextRequest) {
       enablePayPal,
     } = validationResult.data as CreateProductInput;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
     if (!instructor) {

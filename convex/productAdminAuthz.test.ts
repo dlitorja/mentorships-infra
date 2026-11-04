@@ -92,3 +92,71 @@ test("getProductForAdmin: returns null for a missing product when admin", async 
 
   expect(product).toBeNull();
 });
+
+test("product writes: unauthenticated and non-admin are rejected", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId, productId } = await t.run((ctx) => seed(ctx));
+
+  await expect(
+    t.mutation(api.products.createProduct, {
+      instructorId,
+      title: "Anonymous product",
+      price: "10.00",
+    }),
+  ).rejects.toThrow("Unauthorized");
+
+  await expect(
+    t.withIdentity({ subject: STUDENT }).mutation(api.products.createProduct, {
+      instructorId,
+      title: "Student product",
+      price: "10.00",
+    }),
+  ).rejects.toThrow("Forbidden");
+
+  await expect(
+    t.withIdentity({ subject: STUDENT }).mutation(api.products.updateProduct, {
+      id: productId,
+      title: "Student edit",
+    }),
+  ).rejects.toThrow("Forbidden");
+});
+
+test("product writes: admin can create, update, deactivate, activate, delete", async () => {
+  const t = convexTest(schema, modules);
+  const { instructorId, productId } = await t.run((ctx) => seed(ctx));
+
+  const createdId = await t
+    .withIdentity({ subject: ADMIN })
+    .mutation(api.products.createProduct, {
+      instructorId,
+      title: "Admin product",
+      price: "25.00",
+    });
+  expect(createdId).toBeTruthy();
+
+  const updated = await t
+    .withIdentity({ subject: ADMIN })
+    .mutation(api.products.updateProduct, {
+      id: productId,
+      title: "Updated by admin",
+    });
+  expect(updated?.title).toBe("Updated by admin");
+
+  await t
+    .withIdentity({ subject: ADMIN })
+    .mutation(api.products.deactivateProduct, { id: productId });
+  const deactivated = await t.run((ctx) => ctx.db.get(productId));
+  expect(deactivated?.active).toBe(false);
+
+  await t
+    .withIdentity({ subject: ADMIN })
+    .mutation(api.products.activateProduct, { id: productId });
+  const activated = await t.run((ctx) => ctx.db.get(productId));
+  expect(activated?.active).toBe(true);
+
+  await t
+    .withIdentity({ subject: ADMIN })
+    .mutation(api.products.deleteProduct, { id: productId });
+  const deleted = await t.run((ctx) => ctx.db.get(productId));
+  expect(deleted?.deletedAt).toBeDefined();
+});

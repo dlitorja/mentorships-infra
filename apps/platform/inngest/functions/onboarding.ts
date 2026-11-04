@@ -187,7 +187,7 @@ export const onboardingFlow = createDefer(
 
     if (discordId) {
       await step.run("persist-discord-identity", async () => {
-        return await convex.mutation(api.userIdentities.upsertUserIdentity, {
+        return await convexServerCall("/user-identities/upsert", {
           userId: clerkId,
           provider: "discord",
           providerUserId: discordId,

@@ -38,6 +38,7 @@ Baseline drift since the probe merged:
 | HUC-119 wave 2b (instructor profile writes admin/owner gated, 2026-11-04) | 24 | 24 visible (26 detected) |
 | HUC-117 wave 3a (seat writers internalized, 2026-11-04) | 24 | 18 visible (20 detected) |
 | HUC-117 wave 3b (session writes + onboarding review authz, 2026-11-04) | 24 | 14 visible (16 detected) |
+| HUC-120 wave 4 (product admin gates, identity bearer, workspace link, 2026-11-04) | 24 | 7 visible (9 detected) |
 
 The F-series removed 17 public writers from scan-d without changing a single
 scan-b hit — none of the converted functions were shape-b/d candidates.
@@ -250,6 +251,14 @@ allow only the session's instructor, student, or an admin; `deleteSession` is
 or admin/support; caller-supplied `instructorId` / `reviewedByUserId` are gone.
 Pinned by `convex/sessionSurface.test.ts` and `convex/studentOnboarding.test.ts`.
 scan-d: 18 → 14 visible (16 detected).
+
+**Wave 4 delivered (HUC-120):** the five product writers are admin-gated;
+`userIdentities.upsertUserIdentity` moved to the bearer
+`/user-identities/upsert` endpoint for Inngest, and the user-facing Discord
+sync uses `linkMyDiscordIdentity` (userId derived from the Clerk identity);
+`adminWorkspaces.linkWorkspaceToSessionPack` is internal. Pinned by
+`convex/productAdminAuthz.test.ts` and `convex/identitySurface.test.ts`.
+scan-d: 14 → 7 visible (9 detected).
 
 Grouped for sequencing. Severity is the writer's blast radius, not the
 detector's.

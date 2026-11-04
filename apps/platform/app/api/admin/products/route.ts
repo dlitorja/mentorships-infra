@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       enablePayPal,
     } = validationResult.data as CreateProductInput;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
@@ -299,7 +299,7 @@ export async function GET(req: NextRequest) {
       pageSize,
     } = parsedQuery.data;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
