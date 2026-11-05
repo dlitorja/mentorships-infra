@@ -2005,12 +2005,24 @@ export const createInstructor = mutation({
     // newly signed-in instructor cannot grant themselves extra capacity or
     // change their listing state.
     if (!isAdmin) {
+      // Email-squatting guard: an unverified caller must not be able to
+      // pre-claim someone else's address. The duplicate-email guards make a
+      // claimed address block the real owner's Clerk onboarding (the "verified
+      // email" link is refused as already-linked), so a self-provisioning
+      // caller may only use the email on their own Clerk identity.
+      const identityEmail = identity.email?.trim().toLowerCase();
+      const requestedEmail = args.email?.trim().toLowerCase();
+      if (requestedEmail && requestedEmail !== identityEmail) {
+        throw new Error(
+          "Forbidden: self-provisioned instructors may only use their verified email",
+        );
+      }
       return await ctx.runMutation(
         internal.instructors.createInstructorWithDetailsInternal,
         {
           userId: args.userId,
           name: args.name,
-          email: args.email,
+          email: identityEmail,
           isActive: true,
           isNew: true,
         }

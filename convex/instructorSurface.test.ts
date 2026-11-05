@@ -105,6 +105,38 @@ test("createInstructor: admin or self only", async () => {
   expect(adminId).toBeTruthy();
 });
 
+test("createInstructor: self-provisioning cannot claim another instructor's email", async () => {
+  // The duplicate-email guards intentionally refuse to link a second Clerk
+  // account to an already-claimed email. Without this check, any signed-in
+  // caller could pre-claim a real instructor's address and block their
+  // onboarding (Vercel Security Review medium finding on PR #1021).
+  const t = convexTest(schema, modules);
+  await seedWave2b(t);
+
+  await expect(
+    t
+      .withIdentity({ subject: SELF, email: "self@example.com" })
+      .mutation(api.instructors.createInstructor, {
+        userId: SELF,
+        name: "Squatter",
+        email: "victim@example.com",
+      }),
+  ).rejects.toThrow(/verified email/);
+
+  // The verified identity email is accepted (case/whitespace normalized).
+  const id = await t
+    .withIdentity({ subject: SELF, email: " Self@Example.com " })
+    .mutation(api.instructors.createInstructor, {
+      userId: SELF,
+      name: "Self Provisioned",
+      email: "SELF@example.com",
+    });
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(id);
+    expect(row?.email).toBe("self@example.com");
+  });
+});
+
 test("instructor image uploads: owner or admin only", async () => {
   const t = convexTest(schema, modules);
   const { ownerInstructorId, placeholderInstructorId } = await seedWave2b(t);
