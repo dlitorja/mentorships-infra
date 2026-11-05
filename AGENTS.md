@@ -6,6 +6,11 @@
 - Aim: both `Greptile Review` and `CodeRabbit` should be visible and have approved the PR before merging.
 - Minimum: at least one of the two must be visible and have approved the PR. Greptile is the primary reviewer; CodeRabbit is supplementary.
 - If a review raises actionable issues (P1/P2 from Greptile, or actionable comments from CodeRabbit), fix them and re-run the check before merging.
+- **A green check is not a clean review.** `Greptile Review` can conclude `success` while the same review has posted P1/P2 **inline comments** — that happened on PR #1018 (green check, two P1s merged past). Before merging, read the review bodies *and* the inline comments, not just `gh pr checks`:
+  - `gh pr view <n> --json reviews --jq '.reviews[] | {author: .author.login, state, body}'`
+  - `gh api repos/{owner}/{repo}/pulls/<n>/comments --jq '.[] | "\(.user.login) \(.path):\(.line // .original_line)\n\(.body)"'`
+  - Check the latest head commit specifically: a comment on an older commit (`original_commit_id`) may already be fixed, and a fix is not reviewed until the bot re-runs on the new head. Ping `@greptileai` if no check run exists for the head.
+  - The same applies to `Vercel Agent Review`: its check goes `neutral` when it has suggestions, which is not a failure and will not block a merge.
 - If CodeRabbit is unavailable (e.g., the bot posts a "skip review" notice because the repo has fewer than 10 stars), skip it and rely on Greptile alone.
 - If Greptile is unavailable for any reason, wait for it to catch up; only fall back to CodeRabbit alone if Greptile's bot has not responded after a reasonable wait AND the user has been informed.
 - Do not rely on local-only verification; at least one bot review must be visible in GitHub.
