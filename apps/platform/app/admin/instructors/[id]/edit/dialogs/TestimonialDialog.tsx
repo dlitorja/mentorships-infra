@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 
 interface TestimonialDialogProps {
@@ -29,6 +29,9 @@ export function TestimonialDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Testimonial</DialogTitle>
+          <DialogDescription>
+            Add a testimonial to this instructor&apos;s profile.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>

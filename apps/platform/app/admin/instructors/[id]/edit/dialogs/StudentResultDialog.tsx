@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 
@@ -31,6 +31,9 @@ export function StudentResultDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Student Result</DialogTitle>
+          <DialogDescription>
+            Upload a student result image and optionally add the student&apos;s name.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <ImageUploadField
