@@ -184,6 +184,14 @@ export function normalizeFinding(raw, index, repositories) {
   }
 
   const findingId = raw.findingId ? String(raw.findingId) : undefined;
+  const change = (value) =>
+    value && typeof value === "object"
+      ? {
+          repository: value.repository,
+          commitSha: value.commitSha,
+          pullRequestNumber: value.pullRequestNumber,
+        }
+      : undefined;
 
   return {
     reference: String(reference),
@@ -200,6 +208,11 @@ export function normalizeFinding(raw, index, repositories) {
     fix: truncate(pick(raw, ["fix", "suggestedFix", "suggestion"])),
     url: pick(raw, ["url", "permalink", "dashboardUrl"]),
     dashboardPath: findingId ? `~/security/vulnerabilities/${findingId}` : undefined,
+    // Real payloads carry epoch milliseconds; keep ISO when a caller already supplies it.
+    createdAt:
+      typeof raw.createdAt === "number" ? new Date(raw.createdAt).toISOString() : raw.createdAt,
+    foundIn: change(raw.foundIn),
+    resolvedIn: change(raw.resolvedIn),
     raw,
   };
 }
@@ -250,6 +263,37 @@ export function extractPage(payload) {
   };
 }
 
+/**
+ * Project ids are not resolved by the list payload: findings targeting a project carry
+ * `target: { kind: "project", id: "prj_..." }` and `repositories` is empty, so the reference would
+ * come out as `prj_Qcxbu.../1` instead of `mentorships-infra-platform/1`. The CLI itself resolves
+ * these through a project lookup (`targetNames` -> `getProjectByNameOrId`); we do the same with a
+ * single `project ls` call, only when an id is actually unresolved.
+ */
+function resolveProjectNames(flags, unresolvedIds) {
+  const names = new Map();
+  if (unresolvedIds.size === 0) return names;
+
+  const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
+  const args = ["project", "ls", "--json", "--scope", scope];
+  const payload = parseVercelJson(runVercel(flags, args), args);
+  for (const project of payload?.projects ?? []) {
+    if (project?.id && project?.name) names.set(project.id, project.name);
+  }
+  return names;
+}
+
+function unresolvedProjectIds(raw, repositories) {
+  const ids = new Set();
+  for (const item of raw) {
+    const target = item?.target;
+    if (target?.kind === "project" && target.id && !repositories.has(target.id)) {
+      ids.add(target.id);
+    }
+  }
+  return ids;
+}
+
 const MAX_PAGES = 20;
 
 /**
@@ -271,6 +315,11 @@ async function fetchFindings(flags) {
     for (const page of pages) {
       const extracted = extractPage(page);
       for (const [id, name] of extracted.repositories) repositories.set(id, name);
+      // `projects: [{ id, name }]` is our own addition so a saved fixture can resolve project
+      // targets without a network call; the live payload only carries `repositories`.
+      for (const project of page?.projects ?? []) {
+        if (project?.id && project?.name) repositories.set(project.id, project.name);
+      }
       raw.push(...extracted.list);
     }
     return {
@@ -309,6 +358,19 @@ async function fetchFindings(flags) {
       `Stopped after ${MAX_PAGES} pages with a cursor still pending. Triage is incomplete; ` +
         `raise MAX_PAGES or narrow with --project/--severity.`
     );
+  }
+
+  const unresolved = unresolvedProjectIds(raw, repositories);
+  if (unresolved.size > 0) {
+    try {
+      for (const [id, name] of resolveProjectNames(flags, unresolved)) {
+        repositories.set(id, name);
+      }
+    } catch (error) {
+      // A missing name is cosmetic (the reference falls back to the project id); do not fail
+      // the run over it, but say so because `dismiss <reference>` needs the readable form.
+      console.error(`[warn] could not resolve project names: ${error.message}`);
+    }
   }
 
   return {
@@ -500,6 +562,10 @@ export function buildIssue(finding, flags) {
       (finding.branch ? ` · **Branch:** ${finding.branch}` : "") +
       (finding.vulnerabilityClass ? ` · **Class:** ${finding.vulnerabilityClass}` : ""),
     finding.findingId ? `**Vercel finding id:** \`${finding.findingId}\`` : undefined,
+    finding.foundIn?.pullRequestNumber
+      ? `**Found in:** PR #${finding.foundIn.pullRequestNumber}` +
+        (finding.foundIn.commitSha ? ` (\`${finding.foundIn.commitSha.slice(0, 7)}\`)` : "")
+      : undefined,
     "",
     finding.summary ?? "See the Vulnerabilities dashboard for the summary.",
     "",

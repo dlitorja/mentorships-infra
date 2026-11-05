@@ -173,3 +173,62 @@ describe("severity ranking", () => {
     expect(rank("unknown")).toBe(0);
   });
 });
+
+describe("real payload (first finding surfaced by Security Review)", () => {
+  // Verbatim shape of finding 01M6NZZKFVZZVZFRFW9DXKJN1P, as returned by
+  // `vercel security vulnerabilities --status all --json`. Note `repositories: []` and a
+  // project-id target: the CLI resolves the name with a project lookup, and so must we.
+  const real = {
+    vulnerabilities: [
+      {
+        findingId: "01M6NZZKFVZZVZFRFW9DXKJN1P",
+        number: 1,
+        environment: "preview",
+        branchRef: "fix/duplicate-instructor-email",
+        vulnerabilityClass: "business-logic",
+        severity: "medium",
+        title: "Unverified self-provisioning can squat another instructor's email",
+        summary: "A signed-in user can self-provision with someone else's email.",
+        status: "closed",
+        createdAt: 1793887030779,
+        target: { kind: "project", id: "prj_Qcxbu6iZDxeUibBLGaydhOQ916pB" },
+        foundIn: {
+          repository: "dlitorja/mentorships-infra",
+          commitSha: "ca0a6ae747a32a8344db005fea708d2f7ae9d704",
+          pullRequestNumber: 1021,
+        },
+        relatedFindings: [],
+      },
+    ],
+    repositories: [],
+    pagination: { next: null },
+  };
+
+  const projects = new Map([["prj_Qcxbu6iZDxeUibBLGaydhOQ916pB", "mentorships-infra-platform"]]);
+  const [raw] = extractPage(real).list;
+
+  it("resolves the project name so the reference matches the dashboard", () => {
+    const finding = normalizeFinding(raw, 0, projects);
+    expect(finding.reference).toBe("mentorships-infra-platform/1");
+    expect(finding.findingId).toBe("01M6NZZKFVZZVZFRFW9DXKJN1P");
+    expect(finding.status).toBe("closed");
+    expect(finding.vulnerabilityClass).toBe("business-logic");
+  });
+
+  it("degrades to the project id when the name cannot be resolved", () => {
+    expect(normalizeFinding(raw, 0, new Map()).reference).toBe(
+      "prj_Qcxbu6iZDxeUibBLGaydhOQ916pB/1"
+    );
+  });
+
+  it("carries the pull request that surfaced it", () => {
+    const finding = normalizeFinding(raw, 0, projects);
+    expect(finding.foundIn).toEqual({
+      repository: "dlitorja/mentorships-infra",
+      commitSha: "ca0a6ae747a32a8344db005fea708d2f7ae9d704",
+      pullRequestNumber: 1021,
+    });
+    expect(finding.createdAt).toBe("2026-11-05T13:57:10.779Z");
+    expect(buildIssue(finding, {}).description).toContain("**Found in:** PR #1021");
+  });
+});

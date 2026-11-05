@@ -2138,9 +2138,12 @@ Hard rules:
   logs or artifacts. This repository is public; both commands print source snippets, member
   emails, and security posture. Linear is private and is where the triage detail belongs; link the
   dashboard finding instead of quoting source snippets.
-- Do not wire the triage script into a workflow for the same reason. Run it locally: at the start
-  of a Tier 2 sweep, or right after a push whose commit shows a non-green
-  `Vercel Security Review` check.
+- Do not wire the triage script into a workflow for the same reason. Run it locally: right after a
+  push whose commit shows a non-green `Vercel Security Review` check, or at the start of a Tier 2
+  sweep.
+- A finding marks that check **`failure`** (confirmed on PR #1021), so a red check is the
+  notification — but it only links to the dashboard. Turning it into a Linear issue with the triage
+  steps is still the script's job.
 - Reviews are triggered by **Git pushes**, not pull requests, and are scoped per project root.
   The selected projects are the three live ones (`platform`, `marketing`,
   `huckleberry-drive`); the paused `mentorships-infra` duplicate is excluded so one push does not

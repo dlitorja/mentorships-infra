@@ -140,18 +140,32 @@ because those fields can quote source, and Linear issues get pasted around. It c
 `inspect --json` call per finding: the CLI deliberately strips `description` and `fix` from the
 list payload, so they cannot come from the listing call.
 
+Findings that target a project arrive as `target: { kind: "project", id: "prj_…" }` with an empty
+`repositories` array, so the script resolves the id to a project name with one `vercel project ls`
+call; without that, the reference comes out as `prj_Qcxbu…/1` instead of
+`mentorships-infra-platform/1` and `dismiss <reference>` is awkward.
+
 The script follows `pagination.next` until it is empty (20 findings per page by default), so a
-long backlog cannot silently triage only the first page. Its pure helpers are covered by
-`tests/unit/security-review-triage.test.mjs` (`pnpm test:unit`), which pins the reference-matching,
-payload-shape and Linear-failure behaviour so a future edit cannot reintroduce those bugs. Re-running is safe: anything already
+long backlog cannot silently triage only the first page. Re-running is safe: anything already
 carrying a marker is reported as "already tracked" instead of duplicated, and markers are matched
 as whole references — `platform/12` and `platform/1` are different findings.
 
+Its pure helpers are covered by `tests/unit/security-review-triage.test.mjs` (`pnpm test:unit`),
+which pins the reference-matching, payload-shape and Linear-failure behaviour — including the
+real payload of the first finding, where the project name has to be resolved from a `prj_…` id.
+
 Cadence, in order of preference:
 
-1. At the start of every Tier 2 sweep (`sweep-protocol.md` §3) — same operator, same window.
-2. Immediately after any push whose commit shows a non-green `Vercel Security Review` check.
+1. Immediately after any push whose commit shows a non-green `Vercel Security Review` check.
+   **Confirmed 2026-11-05:** a finding marks that check `failure` — on PR #1021 the check was
+   `failure` on the commit where the finding was detected (`ca0a6ae7`) and `success` on the fix
+   commit (`ddd68ee6`). So a red check *is* the notification; you do not need a timer or a poller.
+2. At the start of every Tier 2 sweep (`sweep-protocol.md` §3) — catches anything dismissed or
+   left open without a red check.
 3. After enabling the feature on a new project, once its first review completes.
+
+The check only links to the dashboard; it does not create a Linear issue. That is what the script
+below is for.
 
 It is deliberately **not** a workflow: a scheduled CI job would have to print findings into public
 logs or persist them to a public artifact. A local cron/timer is acceptable if the output goes to
@@ -254,6 +268,7 @@ runtime.
 | 2026-11-04 | No CI job for `vercel security vulnerabilities` / `vercel security check`. | Repo is public; both commands emit source snippets and security posture, and public Action logs/artifacts are readable by anyone. |
 | 2026-11-04 | `accepted-risk` dismissals require a Linear issue; `false-positive` dismissals do not. | Dismissals leave no git trace; the risk has to live somewhere re-reviewable. |
 | 2026-11-04 | **Enabled** for `platform`, `marketing`, `huckleberry-drive` (Owner dashboard action); Agent chat on so *Fix with Vercel Agent* is available. Empty-vs-error CLI comparison confirms the team-level toggle; project selection and policy text are dashboard-only and are confirmed by the first review check on a push. | Operator confirmed setup; verification recorded in the doc header. |
+| 2026-11-05 | A finding marks the `Vercel Security Review` check `failure` (observed on PR #1021: `failure` at detection `ca0a6ae7`, `success` at fix `ddd68ee6`). Trigger #2 is therefore automatic; no timer needed. First real finding (business-logic, email squatting, Medium) verified fixed in `main` by the `identity.email` guard in `createInstructor`. | First finding since enablement; answers T2 of HUC-137. |
 | 2026-11-04 | Triage is automated by `scripts/security-review-triage.mjs` (dry run by default, `--apply` to open Linear issues, dedupe on a `security-review-ref` marker). Deliberately **not** a workflow: on a public repo, findings must not reach CI logs or artifacts. | Nothing notifies the team when a Critical/High lands; the dashboard requires someone to remember to look. |
 
 ## 12. Cross-references
