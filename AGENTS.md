@@ -2120,15 +2120,22 @@ per PR (see "Pull Request Merge Policy") or the recurring cadence in
   `docs/security/vercel-security-review.md`
 - Policy text that must be pasted into **Settings → Agent → Security Reviews → Policy**:
   `docs/security/vercel-security-review-policy.md` — edit the file first, then re-paste.
-- Status: the feature is **not enabled yet**; turning it on is an Owner-only dashboard action.
-  Do not claim it is running because this section exists.
+- Triage automation: `node scripts/security-review-triage.mjs` (dry run by default, `--apply` to
+  open Linear issues, skips anything already carrying a `security-review-ref` marker).
+- Status: **enabled** for the three live projects. The team-level toggle was verified by comparing
+  the CLI result against a team without the feature; project selection and the policy paste are
+  dashboard-only. Do not describe the policy as active without checking the dashboard.
 
 Hard rules:
 
 - **Never run `vercel security vulnerabilities` or `vercel security check` in CI, and never put
-  their output in a PR body, commit message, Linear description, or committed doc.** This
-  repository is public; both commands print source snippets, member emails, and security
-  posture, and public Actions logs/artifacts are readable by anyone. Link the finding instead.
+  their output on a public surface** — PR bodies or comments, commit messages, committed docs, CI
+  logs or artifacts. This repository is public; both commands print source snippets, member
+  emails, and security posture. Linear is private and is where the triage detail belongs; link the
+  dashboard finding instead of quoting source snippets.
+- Do not wire the triage script into a workflow for the same reason. Run it locally: at the start
+  of a Tier 2 sweep, or right after a push whose commit shows a non-green
+  `Vercel Security Review` check.
 - Reviews are triggered by **Git pushes**, not pull requests, and are scoped per project root.
   The selected projects are the three live ones (`platform`, `marketing`,
   `huckleberry-drive`); the paused `mentorships-infra` duplicate is excluded so one push does not

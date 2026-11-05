@@ -371,8 +371,8 @@ Commands:
   project <id>                       Get project by id
   labels [--team <key>]              List issue labels
   issue <id>                         Get issue by id or identifier (e.g. HUC-12)
-  issues [--team <key>] [--project <id>] [--limit <n>]
-                                      List issues (filters: team, project, limit)
+  issues [--team <key>] [--project <id>] [--query <text>] [--limit <n>]
+                                      List issues (filters: team, project, keyword search, limit)
 update-issue <id> [--state <name>] [--title <t>] [--description <d>]
                   [--assignee <u>] [--priority <0-4>] [--project <id>]
                   [--team <key>]
@@ -487,6 +487,7 @@ async function main() {
       result = await session.toolCall("list_issues", {
         team: args.flags.team,
         project: args.flags.project,
+        query: args.flags.query,
         limit: args.flags.limit ? parseInt(args.flags.limit, 10) : undefined,
       });
       break;
