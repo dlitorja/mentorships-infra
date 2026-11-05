@@ -118,9 +118,14 @@ snippets.
 ### Automation: `scripts/security-review-triage.mjs`
 
 Nothing notifies the team when a Critical or High lands, so this script closes the loop on
-demand. It pulls the open findings, filters by severity, dedupes against Linear (on the
-`security-review-ref` marker it writes into each issue), and with `--apply` opens one issue per new
-finding with the triage steps from this section.
+demand. It pulls the open findings, filters by severity, dedupes against Linear, and with `--apply`
+opens one issue per new finding with the triage steps from this section.
+
+Each issue carries two markers on its first lines: `security-review-ref` (the `<project>/<number>`
+the dashboard shows) and `security-review-finding` (the finding's ULID). **Dedupe keys on the
+finding id**, because the reference is not stable — a run where the project-name lookup failed
+records `prj_…/1`, and a later run records `mentorships-infra-platform/1` for the same finding.
+Issues filed before the id marker existed are still matched by reference.
 
 ```bash
 # Dry run — shows what it would open, creates nothing
