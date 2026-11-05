@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import type { ActiveProduct } from "../types";
 
@@ -25,6 +25,9 @@ export function ProductDeactivationDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Deactivate Products</DialogTitle>
+          <DialogDescription>
+            Confirm deactivating this instructor together with their active Stripe products.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">

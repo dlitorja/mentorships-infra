@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 interface SuccessDialogProps {
   open: boolean;
@@ -26,6 +26,9 @@ export function SuccessDialog({
           <DialogTitle>
             {deactivationResults?.stripeFailed && deactivationResults.stripeFailed.length > 0 ? "Partial Success" : "Success"}
           </DialogTitle>
+          <DialogDescription>
+            Review the result of this action.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm">{successMessage}</p>
