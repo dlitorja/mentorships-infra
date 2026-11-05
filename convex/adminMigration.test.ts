@@ -462,6 +462,34 @@ test("relinkDuplicateInstructorEmail: clears the user link on an already-deleted
   });
 });
 
+test("relinkDuplicateInstructorEmail: is idempotent when the retry omits all stale arguments", async () => {
+  // Greptile P2 + Vercel Agent: without the stale arguments the second call
+  // used to mistake the users row re-keyed by the first call for an
+  // independent account and throw.
+  const t = convexTest(schema, modules);
+  const ids = await t.run((ctx) => seedDuplicateEmailFixture(ctx));
+
+  await t.mutation(internal.adminMigration.relinkDuplicateInstructorEmail, {
+    canonicalInstructorId: ids.canonicalInstructorId,
+    duplicateInstructorId: ids.stubInstructorId,
+    liveClerkUserId: LIVE_CLERK,
+    staleClerkUserId: CANONICAL_CLERK,
+    staleUserId: ids.staleUserId,
+  } as any);
+
+  const retry = await t.mutation(
+    internal.adminMigration.relinkDuplicateInstructorEmail,
+    {
+      canonicalInstructorId: ids.canonicalInstructorId,
+      duplicateInstructorId: ids.stubInstructorId,
+      liveClerkUserId: LIVE_CLERK,
+    } as any,
+  );
+
+  expect((retry as any).appliedCount).toBe(0);
+  expect((retry as any).alreadyCompleted).toBe(true);
+});
+
 test("relinkDuplicateInstructorEmail: refuses when the duplicate owns records", async () => {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {

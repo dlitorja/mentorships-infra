@@ -558,10 +558,40 @@ export const relinkDuplicateInstructorEmail = internalMutation({
       staleUser = byPrimary ?? byClerk ?? null;
     }
 
+    // A previous run with the same arguments may have re-keyed the stale
+    // `users` row to the live Clerk id. On a retry where the caller omits
+    // `staleUserId`/`staleClerkUserId`, that repaired row looks like an
+    // independent account. Recognize our own audit trail so repeat calls are
+    // idempotent instead of throwing.
+    const priorReKeyForThisRepair =
+      liveUser === null
+        ? false
+        : (
+            await ctx.db
+              .query("auditLogs")
+              .withIndex("by_action", (q) =>
+                q.eq("action", "rekey_duplicate_instructor_users_row"),
+              )
+              .filter((q) => q.eq(q.field("targetId"), liveUser._id))
+              .collect()
+          ).some((row) => {
+            const meta = row.metadata as Record<string, unknown> | undefined;
+            return (
+              meta?.canonicalInstructorId === args.canonicalInstructorId &&
+              meta?.duplicateInstructorId === args.duplicateInstructorId &&
+              meta?.liveClerkUserId === args.liveClerkUserId
+            );
+          });
+    if (priorReKeyForThisRepair && !staleUser && liveUser) {
+      staleUser = liveUser;
+    }
+
     const staleUserAlreadyReKeyed =
       staleUser !== null && staleUser.userId === args.liveClerkUserId;
     const liveUserIsIndependent =
-      liveUser !== null && (!staleUser || liveUser._id !== staleUser._id);
+      liveUser !== null &&
+      (!staleUser || liveUser._id !== staleUser._id) &&
+      !priorReKeyForThisRepair;
     if (liveUserIsIndependent) {
       throw new Error(
         `relinkDuplicateInstructorEmail: users row ${liveUser._id} already exists for live Clerk user ${args.liveClerkUserId}; refusing to merge roles automatically`,
