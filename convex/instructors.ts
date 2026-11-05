@@ -24,6 +24,50 @@ function isClerkUserId(id: string | undefined): boolean {
 }
 
 /**
+ * Every instructor row that belongs to `email`, matching case-insensitively
+ * and ignoring surrounding whitespace.
+ *
+ * `instructors.by_email` is an exact-match index. Legacy rows written before
+ * email normalization (or by `migrateInstructor`) may store `Teacher@X.com`
+ * or ` teacher@x.com `, so an exact index hit is not enough to prove the
+ * address is unused. The fallback scan only runs when the index has NO live
+ * row — in steady state (after `runNormalizeAllInstructorEmails`) the index
+ * finds everything and this costs one indexed read.
+ *
+ * Soft-deleted rows are included (callers filter); this preserves the
+ * previous `getInstructorByEmailInternal` contract.
+ */
+async function collectInstructorsByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string,
+): Promise<Doc<"instructors">[]> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return [];
+  const indexed = await ctx.db
+    .query("instructors")
+    .withIndex("by_email", (q) => q.eq("email", normalized))
+    .collect();
+  if (indexed.some((inst) => inst.deletedAt === undefined)) {
+    return indexed;
+  }
+  const scanned = await ctx.db
+    .query("instructors")
+    .take(FALLBACK_EMAIL_SCAN_BOUND);
+  const merged = new Map<Id<"instructors">, Doc<"instructors">>(
+    indexed.map((inst) => [inst._id, inst] as const),
+  );
+  for (const inst of scanned) {
+    if (
+      inst.deletedAt === undefined &&
+      inst.email?.trim().toLowerCase() === normalized
+    ) {
+      merged.set(inst._id, inst);
+    }
+  }
+  return [...merged.values()];
+}
+
+/**
  * Upper bound for the case-insensitive fallback scan in
  * `getInstructorLinkingStatusForCurrentUser`. Set well under
  * Convex's per-transaction document limit (8192) so the read
@@ -1625,6 +1669,61 @@ export const getInstructorsForAdmin = query({
 });
 
 /**
+ * Ranks two live instructor rows that share an email so the admin picker
+ * shows the profile an admin actually means. Auto-created stubs (the
+ * duplicate-email bug class) have no `slug`/`name`/inventory; the real
+ * profile almost always does, and predates the stub. Higher score wins;
+ * ties fall back to the older `_creationTime`.
+ */
+function instructorProfileScore(inst: Doc<"instructors">): number {
+  let score = 0;
+  if (typeof inst.slug === "string" && inst.slug.trim().length > 0) score += 8;
+  if (typeof inst.name === "string" && inst.name.trim().length > 0) score += 4;
+  if ((inst.oneOnOneInventory ?? 0) > 0 || (inst.groupInventory ?? 0) > 0) score += 2;
+  if (inst.profileImageStorageId || inst.profileImageUrl) score += 1;
+  return score;
+}
+
+/**
+ * Defense-in-depth for the "Instructor ID" picker: `instructors.by_email` is
+ * not unique, so a legacy duplicate pair renders the same email twice with no
+ * way for an admin to tell the rows apart (and picking the wrong one splits
+ * the instructor's data). Keep the highest-scoring row per normalized email.
+ * Rows without an email are always kept — they cannot be conflated.
+ *
+ * This does not replace the write-side duplicate guards: the duplicate row
+ * still exists in the table and must be reconciled with
+ * `internal.adminMigration.relinkDuplicateInstructorEmail`.
+ */
+function dedupeInstructorsByEmail(
+  instructors: Doc<"instructors">[],
+): Doc<"instructors">[] {
+  const preferredByEmail = new Map<string, Doc<"instructors">>();
+  for (const inst of instructors) {
+    const email = inst.email?.trim().toLowerCase();
+    if (!email) continue;
+    const current = preferredByEmail.get(email);
+    if (!current) {
+      preferredByEmail.set(email, inst);
+      continue;
+    }
+    const instScore = instructorProfileScore(inst);
+    const currentScore = instructorProfileScore(current);
+    if (
+      instScore > currentScore ||
+      (instScore === currentScore && inst._creationTime < current._creationTime)
+    ) {
+      preferredByEmail.set(email, inst);
+    }
+  }
+  return instructors.filter((inst) => {
+    const email = inst.email?.trim().toLowerCase();
+    if (!email) return true;
+    return preferredByEmail.get(email) === inst;
+  });
+}
+
+/**
  * Returns non-deleted instructors who have completed Clerk user creation.
  * A row qualifies when its `userId` is a real Clerk user ID (matches the
  * `user_…` pattern), so placeholder values like `admin-${slug}` are excluded.
@@ -1637,11 +1736,16 @@ export const getInstructorsForAdmin = query({
  * per matched instructor and the dropdown doesn't display them anyway;
  * the list page gets its counts from the unfiltered query.
  *
+ * Results are deduped by normalized email (see `dedupeInstructorsByEmail`)
+ * so a legacy duplicate-email pair cannot show the same address twice in
+ * the picker.
+ *
  * The scan is bounded: it paginates the `by_deletedAt` index (rows where
  * `deletedAt === undefined`) in fixed-size pages, applies the connected
- * filter per row, and stops once `limit` rows have been collected. The
- * loop is capped at `maxIterations` pages (8000 reads under Convex's
- * 8192-doc per-query budget) so a sparse active set can't blow the budget.
+ * filter per row, and stops once `limit` DISTINCT addresses have been
+ * collected (duplicate rows do not consume limit slots). The loop is capped
+ * at `maxIterations` pages (8000 reads under Convex's 8192-doc per-query
+ * budget) so a sparse active set can't blow the budget.
  * The `limit` arg is validated to be a finite positive integer and capped
  * at `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
  */
@@ -1669,9 +1773,15 @@ export const getConnectedInstructorsForAdmin = query({
     const pageSize = 200;
     const maxIterations = Math.floor(8000 / pageSize);
     const connected: Doc<"instructors">[] = [];
+    // `limit` bounds the number of distinct addresses the picker shows, not
+    // raw rows: duplicate-email rows are deduped below, so counting them
+    // against the limit would return a short list even when more distinct
+    // instructors exist further down the index. Rows without an email count
+    // individually (they cannot be conflated).
+    const distinctEmails = new Set<string>();
     let cursor: string | null = null;
     let iterations = 0;
-    while (connected.length < limit && iterations < maxIterations) {
+    while (distinctEmails.size < limit && iterations < maxIterations) {
       iterations++;
       const result = await ctx.db
         .query("instructors")
@@ -1680,7 +1790,10 @@ export const getConnectedInstructorsForAdmin = query({
       for (const inst of result.page) {
         if (isClerkUserId(inst.userId)) {
           connected.push(inst);
-          if (connected.length >= limit) break;
+          distinctEmails.add(
+            inst.email?.trim().toLowerCase() ?? `__no_email__:${inst._id}`,
+          );
+          if (distinctEmails.size >= limit) break;
         }
       }
       if (result.isDone) break;
@@ -1693,7 +1806,9 @@ export const getConnectedInstructorsForAdmin = query({
     // 0 keeps the wire shape compatible with callers that parse
     // activeStudentCount as a required number.
     return Promise.all(
-      connected.map(async (inst) => toInstructorListItem(ctx, inst, { activeStudentCount: 0 }))
+      dedupeInstructorsByEmail(connected).map(async (inst) =>
+        toInstructorListItem(ctx, inst, { activeStudentCount: 0 }),
+      )
     );
   },
 });
@@ -1818,12 +1933,32 @@ export const createInstructorWithDetailsInternal = internalMutation({
         return existingBySlug._id;
       }
     }
-    
+
+    // Same invariant as `createInstructorInternal`: one live instructor per
+    // email. The admin create form and seed scripts both reach this mutation,
+    // and two live rows for one address is exactly what makes the admin
+    // "Instructor ID" picker show duplicate entries. Returning the existing
+    // profile id mirrors the userId/slug dedup behavior above (and the
+    // function's documented contract).
+    const normalizedEmail = args.email?.toLowerCase().trim();
+    if (normalizedEmail) {
+      const existingByEmail = await collectInstructorsByEmail(
+        ctx,
+        normalizedEmail,
+      );
+      const liveByEmail = existingByEmail.find(
+        (inst) => inst.deletedAt === undefined,
+      );
+      if (liveByEmail) {
+        return liveByEmail._id;
+      }
+    }
+
     return await ctx.db.insert("instructors", {
       userId: args.userId,
       name: args.name ?? undefined,
       slug: args.slug ?? undefined,
-      email: args.email ?? undefined,
+      email: normalizedEmail,
       discordVoiceChannelUrl: args.discordVoiceChannelUrl ?? undefined,
       tagline: args.tagline ?? undefined,
       background: args.background ?? undefined,
@@ -1870,12 +2005,24 @@ export const createInstructor = mutation({
     // newly signed-in instructor cannot grant themselves extra capacity or
     // change their listing state.
     if (!isAdmin) {
+      // Email-squatting guard: an unverified caller must not be able to
+      // pre-claim someone else's address. The duplicate-email guards make a
+      // claimed address block the real owner's Clerk onboarding (the "verified
+      // email" link is refused as already-linked), so a self-provisioning
+      // caller may only use the email on their own Clerk identity.
+      const identityEmail = identity.email?.trim().toLowerCase();
+      const requestedEmail = args.email?.trim().toLowerCase();
+      if (requestedEmail && requestedEmail !== identityEmail) {
+        throw new Error(
+          "Forbidden: self-provisioned instructors may only use their verified email",
+        );
+      }
       return await ctx.runMutation(
         internal.instructors.createInstructorWithDetailsInternal,
         {
           userId: args.userId,
           name: args.name,
-          email: args.email,
+          email: identityEmail,
           isActive: true,
           isNew: true,
         }
@@ -3242,10 +3389,7 @@ export const getStudentDetails = query({
 export const getInstructorByEmailInternal = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("instructors")
-      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
-      .collect();
+    return await collectInstructorsByEmail(ctx, args.email);
   },
 });
 
@@ -3539,8 +3683,15 @@ export const linkClerkUserToInstructor = internalAction({
 
     let instructorResult: LinkResult = { linked: false, reason: "No instructor found with matching email", email };
 
-    if (instructorsWithEmail.length > 0) {
-      const instructor = instructorsWithEmail[0];
+    // `getInstructorByEmailInternal` returns soft-deleted rows too. Linking a
+    // Clerk user to a deleted profile would resurrect a row the admin already
+    // retired (and the duplicate-repair runbook leaves a soft-deleted row
+    // behind on purpose), so only live rows are eligible.
+    const liveInstructorsWithEmail = instructorsWithEmail.filter(
+      (inst) => inst.deletedAt === undefined,
+    );
+    if (liveInstructorsWithEmail.length > 0) {
+      const instructor = liveInstructorsWithEmail[0];
 
       // If userId is set and different, only refuse if it already
       // matches a real Clerk user ID format. Anything else (the
@@ -3719,10 +3870,45 @@ export const createInstructorInternal = internalMutation({
     // Pre-existing mixed-case rows are still tolerated by the
     // case-insensitive fallback scan in the status query, but
     // normalizing on write prevents the legacy state from growing.
+    const normalizedEmail = args.email?.toLowerCase().trim();
+
+    // Duplicate-email guard. `instructors.by_email` is NOT unique, and
+    // `createInstructorForClerkUserInternal` used to fall through to this
+    // insert when an instructor profile already existed for the same email
+    // but was linked to a DIFFERENT (e.g. stale) Clerk user. That produced
+    // two live rows for one email, which surfaced as the same email twice
+    // in the admin "Instructor ID" picker and split the profile between the
+    // two Clerk accounts. The read path now refuses that case with a
+    // friendly reason; this atomic write-side guard closes the race between
+    // that read and this insert (and protects every other internal caller).
+    //
+    // Soft-deleted rows are deliberately ignored: re-hiring an instructor
+    // whose old profile was deleted must still be possible.
+    if (normalizedEmail) {
+      const existingForEmail = await collectInstructorsByEmail(
+        ctx,
+        normalizedEmail,
+      );
+      const liveForEmail = existingForEmail.find(
+        (inst) => inst.deletedAt === undefined,
+      );
+      if (liveForEmail) {
+        throw new Error(
+          `INSTRUCTOR_EMAIL_EXISTS:${JSON.stringify({
+            email: normalizedEmail,
+            existingInstructorId: liveForEmail._id,
+            existingClerkUserId: isClerkUserId(liveForEmail.userId)
+              ? liveForEmail.userId
+              : null,
+          })}`,
+        );
+      }
+    }
+
     return await ctx.db.insert("instructors", {
       userId: args.userId,
       name: args.name ?? undefined,
-      email: args.email?.toLowerCase().trim() ?? undefined,
+      email: normalizedEmail,
       isActive: args.isActive,
       isNew: args.isNew,
       maxActiveStudents: 10,
@@ -4020,33 +4206,79 @@ export const createInstructorForClerkUserInternal = internalAction({
     // one in public metadata; this prevents ambiguous email matches when
     // multiple placeholder records exist for the same address.
     const normalizedEmail = args.email?.toLowerCase().trim();
+
+    /**
+     * Surface an email conflict instead of silently creating a second
+     * instructor row. `instructors.by_email` is not unique, so the old
+     * fall-through-to-insert path turned a stale Clerk link into a duplicate
+     * profile: two live rows for the same email, which the admin "Instructor
+     * ID" picker rendered as the same address twice and which split the
+     * instructor's data between their old and new Clerk accounts.
+     *
+     * The write-side guard in `createInstructorInternal` already blocks the
+     * duplicate atomically; this helper only makes the refusal observable
+     * (action result + deduped audit row) so operators can find the record
+     * that needs reconciliation.
+     */
+    const refuseDuplicateEmail = async (
+      instructor: Doc<"instructors">,
+      existingClerkUserId: string,
+      source: string,
+    ): Promise<{ success: false; instructorId: Id<"instructors">; reason: string }> => {
+      const reason =
+        `Instructor profile ${instructor._id} (${normalizedEmail ?? instructor.email ?? "<no email>"}) ` +
+        `is already linked to Clerk user ${existingClerkUserId}; refusing to create a duplicate profile for ${args.userId}`;
+      console.warn(`[createInstructorForClerkUser] ${source}: ${reason}`);
+      if (normalizedEmail) {
+        await ctx.runMutation(
+          internal.auditLog.recordInstructorLinkingRefusedAudit,
+          {
+            instructorId: instructor._id,
+            existingClerkUserId,
+            newClerkUserId: args.userId,
+            email: normalizedEmail,
+            details: `${source}: ${reason}. Run internal.adminMigration.relinkDuplicateInstructorEmail to reconcile.`,
+          },
+        );
+      }
+      return { success: false, instructorId: instructor._id, reason };
+    };
+
     if (args.instructorId) {
       const invited = await ctx.runQuery(
         internal.instructors.getInstructorByIdInternal,
         { instructorId: args.instructorId }
       );
-      if (invited && !isClerkUserId(invited.userId)) {
-        console.log(
-          "createInstructorForClerkUser: Linking invited instructor to Clerk user",
-          args.userId,
-          invited._id
-        );
-        await ctx.runMutation(internal.instructors.backfillInstructorUserId, {
-          instructorId: invited._id,
-          userId: args.userId,
-        });
-        await syncRole({
-          userId: args.userId,
-          role: "instructor",
-          audit: {
-            action: "create_instructor_for_clerk_user",
-            targetType: "instructor",
-            targetId: invited._id,
-            details: `Linked invited instructor profile (${invited._id}) to Clerk user ${args.userId}`,
-            metadata: { userId: args.userId, email: normalizedEmail, name: args.name },
-          },
-        });
-        return { success: true, instructorId: invited._id, reason: "Linked invited instructor" };
+      if (invited && invited.deletedAt === undefined) {
+        if (!isClerkUserId(invited.userId)) {
+          console.log(
+            "createInstructorForClerkUser: Linking invited instructor to Clerk user",
+            args.userId,
+            invited._id
+          );
+          await ctx.runMutation(internal.instructors.backfillInstructorUserId, {
+            instructorId: invited._id,
+            userId: args.userId,
+          });
+          await syncRole({
+            userId: args.userId,
+            role: "instructor",
+            audit: {
+              action: "create_instructor_for_clerk_user",
+              targetType: "instructor",
+              targetId: invited._id,
+              details: `Linked invited instructor profile (${invited._id}) to Clerk user ${args.userId}`,
+              metadata: { userId: args.userId, email: normalizedEmail, name: args.name },
+            },
+          });
+          return { success: true, instructorId: invited._id, reason: "Linked invited instructor" };
+        }
+        // The invited profile is already bound to a real Clerk user. If that
+        // is not the caller's user, this is the stale-link case: refund the
+        // conflict instead of inserting a duplicate.
+        if (invited.userId && invited.userId !== args.userId) {
+          return await refuseDuplicateEmail(invited, invited.userId, "invited instructor");
+        }
       }
     }
 
@@ -4058,7 +4290,8 @@ export const createInstructorForClerkUserInternal = internalAction({
         internal.instructors.getInstructorByEmailInternal,
         { email: normalizedEmail }
       );
-      const placeholder = byEmail.find((inst) => !isClerkUserId(inst.userId));
+      const liveByEmail = byEmail.filter((inst) => inst.deletedAt === undefined);
+      const placeholder = liveByEmail.find((inst) => !isClerkUserId(inst.userId));
       if (placeholder) {
         console.log(
           "createInstructorForClerkUser: Linking existing instructor to Clerk user",
@@ -4082,15 +4315,60 @@ export const createInstructorForClerkUserInternal = internalAction({
         });
         return { success: true, instructorId: placeholder._id, reason: "Linked existing instructor" };
       }
+
+      // Any remaining live row for this email is already linked to a
+      // different Clerk user. Creating another row here is exactly how the
+      // duplicate-email bug was born.
+      const linkedElsewhere = liveByEmail.find(
+        (inst) => inst.userId && inst.userId !== args.userId,
+      );
+      if (linkedElsewhere?.userId) {
+        return await refuseDuplicateEmail(
+          linkedElsewhere,
+          linkedElsewhere.userId,
+          "email match",
+        );
+      }
     }
 
-    const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
-      userId: args.userId,
-      name: args.name,
-      email: args.email,
-      isActive: true,
-      isNew: true,
-    });
+    let instructorId: Id<"instructors">;
+    try {
+      instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
+        userId: args.userId,
+        name: args.name,
+        email: args.email,
+        isActive: true,
+        isNew: true,
+      });
+    } catch (e) {
+      // `createInstructorInternal` re-checks email uniqueness atomically. A
+      // concurrent webhook could have inserted the winning row between the
+      // lookups above and this write; translate that tagged error into the
+      // same refusal shape instead of surfacing a 500.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.startsWith("INSTRUCTOR_EMAIL_EXISTS:")) {
+        try {
+          const conflict = JSON.parse(msg.slice("INSTRUCTOR_EMAIL_EXISTS:".length)) as {
+            existingInstructorId: Id<"instructors">;
+            existingClerkUserId: string | null;
+          };
+          const conflictRow = await ctx.runQuery(
+            internal.instructors.getInstructorByIdInternal,
+            { instructorId: conflict.existingInstructorId },
+          );
+          if (conflictRow && conflict.existingClerkUserId) {
+            return await refuseDuplicateEmail(
+              conflictRow,
+              conflict.existingClerkUserId,
+              "insert race",
+            );
+          }
+        } catch {
+          // Fall through to the generic error below.
+        }
+      }
+      throw e;
+    }
 
     console.log("createInstructorForClerkUser: Created instructor", args.userId, instructorId);
 

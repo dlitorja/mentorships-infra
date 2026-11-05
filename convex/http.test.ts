@@ -339,6 +339,115 @@ test("http /instructors/create-for-clerk-user: links invited instructor by instr
   expect(otherRecord?.userId).toBe("admin-other");
 });
 
+test("http /instructors/create-for-clerk-user: refuses to create a duplicate when the email is already linked to another Clerk user", async () => {
+  // Regression test for the katjbritt@gmail.com duplicate: the canonical
+  // instructor was already linked to a (now stale) Clerk user, and a second
+  // sign-up for the same email used to insert a bare stub next to it. The
+  // endpoint must refuse instead of creating a second live row for the email.
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const canonicalId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: "user_oldClerk123",
+      slug: "cedarcia",
+      name: "Cedarcia",
+      email: "dup-http-instructor@example.com",
+      isActive: true,
+      isListed: true,
+      isNew: false,
+      oneOnOneInventory: 3,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+  });
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_newClerk456",
+      email: "Dup-Http-Instructor@example.com",
+      name: "Cedarcia",
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body).toMatchObject({
+    success: false,
+    instructorId: canonicalId,
+  });
+  expect(body.reason).toContain("already linked");
+
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", "dup-http-instructor@example.com"))
+      .collect();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?._id).toBe(canonicalId);
+    expect(rows[0]?.userId).toBe("user_oldClerk123");
+
+    const audit = await ctx.db
+      .query("auditLogs")
+      .withIndex("by_targetType_targetId_timestamp", (q) =>
+        q.eq("targetType", "instructor").eq("targetId", canonicalId),
+      )
+      .collect();
+    expect(
+      audit.some(
+        (row) =>
+          row.action === "instructor_linking_refused" &&
+          (row.metadata as Record<string, unknown> | undefined)?.newClerkUserId ===
+            "user_newClerk456",
+      ),
+    ).toBe(true);
+  });
+});
+
+test("http /instructors/create-for-clerk-user: invited instructorId pointing at an already-linked profile is refused, not duplicated", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await setupAdmin(t);
+
+  const canonicalId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: "user_oldClerk789",
+      slug: "invited-linked",
+      name: "Invited Linked",
+      email: "invited-linked@example.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+  });
+
+  const r = await t.fetch("/instructors/create-for-clerk-user", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      userId: "user_newClerk012",
+      email: "invited-linked@example.com",
+      name: "Invited Linked",
+      instructorId: canonicalId,
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body).toMatchObject({ success: false, instructorId: canonicalId });
+
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", "invited-linked@example.com"))
+      .collect();
+    expect(rows).toHaveLength(1);
+  });
+});
+
 test("http /instructors/deactivate-by-user-id: writes audit row", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = VALID_KEY;

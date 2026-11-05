@@ -639,6 +639,159 @@ test("linkMyInstructorProfile: refuses to steal a row already linked to another 
   expect(row?.userId).toBe(OLD_CLERK_USER);
 });
 
+test("createInstructorInternal: refuses a second live instructor for an existing email", async () => {
+  // The duplicate-email bug: a second Clerk sign-up for the same address
+  // fell through to `createInstructorInternal` and inserted a stub next to
+  // the real profile. The admin "Instructor ID" picker then rendered the
+  // same email twice. The atomic write-side guard is the last line of
+  // defense against that class of duplicate.
+  const t = convexTest(schema, modules);
+  const existingId = await t.run(async (ctx) => {
+    return await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Rakasa",
+      slug: "rakasa",
+      email: EMAIL.toLowerCase(),
+      isActive: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  });
+
+  await expect(
+    t.mutation(internal.instructors.createInstructorInternal, {
+      userId: NEW_CLERK_USER,
+      name: "Rakasa",
+      email: "  Rakasa.Art+Recon@Example.com  ",
+      isActive: true,
+      isNew: true,
+    }),
+  ).rejects.toThrow(
+    new RegExp(`INSTRUCTOR_EMAIL_EXISTS:.*${existingId}`),
+  );
+
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", EMAIL.toLowerCase()))
+      .collect();
+    expect(rows).toHaveLength(1);
+  });
+});
+
+test("createInstructorInternal: allows reusing the email of a soft-deleted instructor", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Rakasa",
+      slug: "rakasa-old",
+      email: EMAIL.toLowerCase(),
+      isActive: false,
+      isNew: false,
+      deletedAt: Date.now(),
+    });
+  });
+
+  const newId = await t.mutation(internal.instructors.createInstructorInternal, {
+    userId: NEW_CLERK_USER,
+    name: "Rakasa",
+    email: EMAIL,
+    isActive: true,
+    isNew: true,
+  });
+  const stored = await t.run(async (ctx) => ctx.db.get(newId));
+  expect(stored?.email).toBe(EMAIL.toLowerCase());
+  expect(stored?.deletedAt).toBeUndefined();
+});
+
+test("createInstructorWithDetailsInternal: returns the existing live profile for a duplicate email", async () => {
+  // Admin create + seed paths also reach this mutation. Enforce the same
+  // one-live-instructor-per-email invariant as `createInstructorInternal`,
+  // but return the existing id (matching the documented userId/slug dedup
+  // contract) so callers do not error on an idempotent re-run.
+  const t = convexTest(schema, modules);
+  const firstId = await t.mutation(
+    internal.instructors.createInstructorWithDetailsInternal,
+    {
+      name: "Duplicate Email",
+      slug: "duplicate-email-one",
+      email: "duplicate-details@example.com",
+      isActive: true,
+    },
+  );
+
+  const secondId = await t.mutation(
+    internal.instructors.createInstructorWithDetailsInternal,
+    {
+      name: "Duplicate Email",
+      slug: "duplicate-email-two",
+      email: "  Duplicate-Details@Example.com ",
+      isActive: true,
+    },
+  );
+
+  expect(secondId).toBe(firstId);
+  await t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", "duplicate-details@example.com"))
+      .collect();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.email).toBe("duplicate-details@example.com");
+  });
+});
+
+test("getConnectedInstructorsForAdmin: dedupes a duplicate-email pair in favour of the real profile", async () => {
+  // Defense-in-depth for the admin picker: even if a duplicate row exists
+  // (e.g. from an older deploy, before the write-side guard), the picker
+  // must show one entry per email and pick the profile with the real
+  // details rather than the bare auto-created stub.
+  const t = convexTest(schema, modules);
+  const adminId = "user_admin_connected";
+  const { canonicalId } = await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminId,
+      clerkId: adminId,
+      email: "admin-connected@example.com",
+      role: "admin",
+    });
+    const canonicalId = await ctx.db.insert("instructors", {
+      userId: OLD_CLERK_USER,
+      name: "Cedarcia",
+      slug: "cedarcia",
+      email: "dup-instructor@example.com",
+      isActive: true,
+      isListed: true,
+      isNew: false,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 3,
+      groupInventory: 0,
+    });
+    // Bare stub created by the old auto-create path, same email.
+    await ctx.db.insert("instructors", {
+      userId: NEW_CLERK_USER,
+      email: "dup-instructor@example.com",
+      isActive: true,
+      isNew: true,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+    return { canonicalId };
+  });
+
+  const rows = await t
+    .withIdentity({ subject: adminId })
+    .query(api.instructors.getConnectedInstructorsForAdmin, { limit: 50 });
+
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?._id).toBe(canonicalId);
+  expect(rows[0]?.slug).toBe("cedarcia");
+});
+
 test("hardDeleteInstructor: marks the linked user inactive", async () => {
   const t = convexTest(schema, modules);
   const adminId = "admin_hard_delete_instructor";
