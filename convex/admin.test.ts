@@ -602,6 +602,45 @@ test("syncUser: refuses to merge when an existing row's clerkId differs (P1 #12 
   expect(adminRow?.role).toBe("admin");
 });
 
+test("syncUser: userId matching the live Clerk subject wins over a stale clerkId", async () => {
+  // Production regression: a Clerk account was recreated, leaving
+  // `users.userId` = the live `user_…` id and `users.clerkId` = the deleted
+  // one. `isOwnedByIdentity` only trusted `clerkId`, so the real owner's
+  // syncUser threw "Refusing to link" and every profile-image upload 500'd
+  // (the upload route syncs the user first).
+  const t = convexTest(schema, modules);
+  const liveClerkId = "user_liveClerk123";
+  const staleClerkId = "user_deletedClerk456";
+  const email = "recreated-account@example.com";
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: liveClerkId,
+      clerkId: staleClerkId,
+      email,
+      role: "admin",
+    });
+  });
+
+  const synced = await t
+    .withIdentity({ subject: liveClerkId, email })
+    .mutation(api.users.syncUser, {});
+
+  expect(synced).not.toBeNull();
+  expect(synced?.userId).toBe(liveClerkId);
+  // The stale link is normalized to the live account.
+  expect(synced?.clerkId).toBe(liveClerkId);
+  expect(synced?.role).toBe("admin");
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect(),
+  );
+  expect(rows).toHaveLength(1);
+});
+
 test("syncUser: legacy mixed-case migrated row is still findable (P1 #13)", async () => {
   // Greptile P1 #13 (PR #905): rows written before normalization
   // (mixed-case `email`) must still be reachable from syncUser

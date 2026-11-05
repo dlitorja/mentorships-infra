@@ -363,21 +363,30 @@ const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
  * or clerkId a non-placeholder string that doesn't match the
  * subject) means the email is in use by another account — refuse.
  */
+const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;
+
 function isOwnedByIdentity(
   row: Pick<Doc<"users">, "clerkId" | "userId">,
   identitySubject: string,
 ): boolean {
   if (row.clerkId === identitySubject) return true;
-  if (
+  if (typeof row.userId !== "string" || row.userId !== identitySubject) {
+    return false;
+  }
+  // The primary `userId` matching the caller's Clerk subject is unambiguous
+  // ownership, even when `clerkId` points at a different account. Production
+  // has rows whose Clerk account was recreated: `userId` holds the live
+  // `user_…` id while `clerkId` still holds the since-deleted one. Refusing
+  // those rows locked the real owner out of `syncUser` (every profile-image
+  // upload 500'd for the admin account).
+  if (CLERK_USER_ID_PATTERN.test(row.userId)) return true;
+  // Legacy migration rows: the old `userId` was the owning account while
+  // `clerkId` carried a placeholder until the real link was written.
+  return (
     typeof row.clerkId === "string" &&
-    typeof row.userId === "string" &&
-    row.userId === identitySubject &&
     (row.clerkId.startsWith("migrated_") ||
       row.clerkId.startsWith("placeholder_"))
-  ) {
-    return true;
-  }
-  return false;
+  );
 }
 
 export const setNotificationPreference = mutation({
