@@ -136,8 +136,14 @@ node scripts/security-review-triage.mjs --apply
 Defaults: `--min-severity high`, Vercel scope `dustin-litorjas-projects-95e47775` (override with
 `--scope` or `VERCEL_SCOPE`), Linear team `HUC` (override with `--team` or `LINEAR_TEAM`).
 `--with-details` adds the finding's description and suggested fix to the issue — off by default
-because those fields can quote source, and Linear issues get pasted around. Re-running is safe:
-anything already carrying a marker is reported as "already tracked" instead of duplicated.
+because those fields can quote source, and Linear issues get pasted around. It costs one extra
+`inspect --json` call per finding: the CLI deliberately strips `description` and `fix` from the
+list payload, so they cannot come from the listing call.
+
+The script follows `pagination.next` until it is empty (20 findings per page by default), so a
+long backlog cannot silently triage only the first page. Re-running is safe: anything already
+carrying a marker is reported as "already tracked" instead of duplicated, and markers are matched
+as whole references — `platform/12` and `platform/1` are different findings.
 
 Cadence, in order of preference:
 

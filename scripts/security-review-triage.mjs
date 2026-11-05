@@ -28,9 +28,11 @@
  *   --project <id>          Vercel project name/ID to filter on (optional).
  *   --from-file <path>      Read a saved `vercel security vulnerabilities --json` payload
  *                           instead of calling the CLI. For testing the triage logic.
- *   --vercel-bin <path>     Vercel CLI binary (default: `vercel` if on PATH, else `npx`).
- *   --with-details          Include the finding description and suggested fix in the
- *                           Linear issue. Off by default: those fields can quote source.
+ *   --vercel-bin <path>     Vercel CLI binary (default: `npx vercel@latest`).
+ *   --with-details          Include the finding description and suggested fix in the Linear
+ *                           issue. One extra `inspect --json` call per finding, and off by
+ *                           default: those fields can quote source. (`--json` listing strips
+ *                           them, so they cannot come from the list call.)
  *   --no-dedupe             Create issues without checking Linear first. Debugging only.
  *   --json                  Print the machine-readable summary instead of the table.
  *   --help                  Show this help.
@@ -40,7 +42,7 @@
  *   LINEAR_TEAM      Default Linear team key.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,7 +91,7 @@ function help() {
     "  --project <name>        Only findings for this Vercel project",
     "  --from-file <path>      Read a saved vulnerabilities --json payload instead of calling the CLI",
     "  --vercel-bin <path>     Vercel CLI binary (default: npx vercel@latest)",
-    "  --with-details          Include description + suggested fix in the issue (may quote source)",
+    "  --with-details          Include description + suggested fix (inspect call per finding; may quote source)",
     "  --no-dedupe             Skip the Linear dedupe check (debugging only)",
     "  --json                  Print the machine-readable summary",
     "  --help                  Show this help",
@@ -147,103 +149,150 @@ function truncate(text, max = MAX_CHARS) {
 }
 
 /**
- * Normalise one finding. The exact API shape is not published and we had zero findings
- * to sample against, so every field goes through candidate keys and nothing is assumed
- * to exist. A finding without a stable reference still gets one, derived from project +
- * title, so dedupe does not silently break when the API renames a field.
+ * Normalise one finding.
+ *
+ * Shape confirmed against the installed CLI (`vercel@65.11.0`, dist/commands-core.js):
+ * `--json` prints `{ vulnerabilities, repositories, pagination: { next } }`, where each
+ * vulnerability is the full finding minus `description` and `fix` (those are stripped and only
+ * available from `inspect --json`). Identity is `findingId` (a ULID) plus the derived reference
+ * `<targetName>/<number>`, which is what `toReference()` builds for the CLI's own output:
+ *
+ *   function toReference(names, { target, number }) {
+ *     return `${names.get(target.id) ?? target.id}/${number}`;
+ *   }
+ *
+ * `names` comes from `repositories` (id -> name) and, on the CLI, a project lookup fallback.
+ * We cannot do that lookup cheaply, so an unmatched target id is used verbatim as the project
+ * segment — never silently replaced with "unknown", which would collapse distinct findings into
+ * one dedupe key.
  */
-function normalizeFinding(raw, index) {
-  const project =
-    pick(raw, ["project.name", "projectName", "project.slug", "project"]) ?? "unknown-project";
-  const title = pick(raw, ["title", "name", "vulnerabilityClass", "class"]) ?? `Finding ${index + 1}`;
-  const severity = String(pick(raw, ["severity", "risk"]) ?? "unknown").toLowerCase();
+function normalizeFinding(raw, index, repositories) {
+  const target = raw.target ?? {};
+  const targetName = repositories.get(target.id) ?? target.name ?? target.id ?? undefined;
+  const number = raw.number;
   const reference =
-    pick(raw, ["reference", "ref", "slug", "identifier", "key"]) ??
-    `${project}/${slugify(title)}`;
+    raw.reference ??
+    (targetName && number !== undefined && number !== null ? `${targetName}/${number}` : undefined) ??
+    raw.findingId;
+
+  if (!reference) {
+    throw new Error(
+      `Finding ${index + 1} has no reference, findingId, or target/number, so it cannot be ` +
+        `deduped safely. Keys present: ${Object.keys(raw).join(", ") || "(none)"}. ` +
+        `Re-check the payload shape against the installed CLI before running with --apply.`
+    );
+  }
+
+  const findingId = raw.findingId ? String(raw.findingId) : undefined;
 
   return {
     reference: String(reference),
-    project: String(project),
-    title: String(title),
-    severity,
+    findingId,
+    project: String(targetName ?? "unknown"),
+    title: String(pick(raw, ["title", "name", "vulnerabilityClass", "class"]) ?? `Finding ${index + 1}`),
+    severity: String(pick(raw, ["severity", "risk"]) ?? "unknown").toLowerCase(),
     status: String(pick(raw, ["status", "state"]) ?? "open").toLowerCase(),
-    environment: pick(raw, ["environment", "env"]),
-    branch: pick(raw, ["branch", "gitBranch", "git_branch"]),
-    summary: truncate(pick(raw, ["summary", "shortDescription"])),
-    description: truncate(pick(raw, ["description", "details", "detail"]), 4000),
-    fix: truncate(pick(raw, ["fix", "suggestedFix", "suggestion", "fixSuggestion"]), 4000),
-    url: pick(raw, ["url", "permalink", "dashboardUrl", "link"]),
+    vulnerabilityClass: pick(raw, ["vulnerabilityClass", "class"]),
+    environment: pick(raw, ["environment"]),
+    branch: pick(raw, ["branchRef", "branch", "gitBranch"]),
+    summary: truncate(pick(raw, ["summary"])),
+    description: truncate(pick(raw, ["description"]), 4000),
+    fix: truncate(pick(raw, ["fix", "suggestedFix", "suggestion"])),
+    url: pick(raw, ["url", "permalink", "dashboardUrl"]),
+    dashboardPath: findingId ? `~/security/vulnerabilities/${findingId}` : undefined,
     raw,
   };
-}
-
-function slugify(text) {
-  return String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
 }
 
 function rank(severity) {
   return SEVERITY_RANK[severity] ?? 0;
 }
 
-function extractFindings(payload) {
+function extractPage(payload) {
   const list =
-    (Array.isArray(payload) && payload) ||
     (Array.isArray(payload?.vulnerabilities) && payload.vulnerabilities) ||
     (Array.isArray(payload?.findings) && payload.findings) ||
     (Array.isArray(payload?.data) && payload.data) ||
+    (Array.isArray(payload) && payload) ||
     [];
 
-  return list
-    .filter((item) => item && typeof item === "object")
-    .map((item, index) => normalizeFinding(item, index));
-}
-
-async function fetchFindings(flags) {
-  if (flags.fromFile) {
-    const payload = JSON.parse(await readFile(flags.fromFile, "utf8"));
-    return { findings: extractFindings(payload), source: `file:${flags.fromFile}` };
+  const repositories = new Map();
+  for (const repository of payload?.repositories ?? []) {
+    if (repository?.id && repository?.name) repositories.set(repository.id, repository.name);
   }
 
+  return {
+    list: list.filter((item) => item && typeof item === "object"),
+    repositories,
+    next: payload?.pagination?.next ?? payload?.nextCursor ?? null,
+  };
+}
+
+const MAX_PAGES = 20;
+
+/**
+ * Fetch every page of findings.
+ *
+ * The CLI prints `pagination.next` and accepts `--next <cursor>`; the default page size is 20.
+ * Ignoring the cursor silently caps triage at the first page, so later High/Critical findings
+ * would never be tracked — the failure mode is invisible, which is why this loops rather than
+ * trusting a single call.
+ */
+async function fetchFindings(flags) {
   const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
+
+  if (flags.fromFile) {
+    const payload = JSON.parse(await readFile(flags.fromFile, "utf8"));
+    const pages = Array.isArray(payload) ? payload : [payload];
+    const repositories = new Map();
+    const raw = [];
+    for (const page of pages) {
+      const extracted = extractPage(page);
+      for (const [id, name] of extracted.repositories) repositories.set(id, name);
+      raw.push(...extracted.list);
+    }
+    return {
+      findings: raw.map((item, index) => normalizeFinding(item, index, repositories)),
+      source: `file:${flags.fromFile}`,
+      scope,
+    };
+  }
+
   const minSeverity = (flags.minSeverity ?? "high").toLowerCase();
   const severities = Object.keys(SEVERITY_RANK)
     .filter((level) => rank(level) >= rank(minSeverity))
     .join(",");
 
-  const args = ["security", "vulnerabilities", "--json", "--scope", scope, "--severity", severities];
-  if (flags.project) args.push("--project", flags.project);
+  const baseArgs = ["security", "vulnerabilities", "--json", "--scope", scope, "--severity", severities, "--limit", "100"];
+  if (flags.project) baseArgs.push("--project", flags.project);
 
-  const { command, commandArgs } = resolveVercel(flags);
+  const repositories = new Map();
+  const raw = [];
+  let cursor = null;
+  let pages = 0;
 
-  let stdout;
-  try {
-    ({ stdout } = await execFileAsync(command, [...commandArgs, ...args], {
-      cwd: REPO_ROOT,
-      maxBuffer: 32 * 1024 * 1024,
-      env: { ...process.env, NO_COLOR: "1" },
-    }));
-  } catch (error) {
-    const detail = (error.stderr || error.stdout || error.message || "").toString().trim();
+  do {
+    const args = cursor ? [...baseArgs, "--next", cursor] : baseArgs;
+    const payload = parseVercelJson(runVercel(flags, args), args);
+    const page = extractPage(payload);
+    for (const [id, name] of page.repositories) repositories.set(id, name);
+    raw.push(...page.list);
+    cursor = page.next ?? null;
+    pages++;
+  } while (cursor && pages < MAX_PAGES);
+
+  if (cursor) {
     throw new Error(
-      `Vercel CLI failed (${command} ${args.join(" ")}).\n${detail}\n\n` +
-        "If this says Security Review is not enabled, check the team scope in Settings → Agent.\n" +
-        "If it says the team is wrong, pass --scope <slug>."
+      `Stopped after ${MAX_PAGES} pages with a cursor still pending. Triage is incomplete; ` +
+        `raise MAX_PAGES or narrow with --project/--severity.`
     );
   }
 
-  // The CLI may emit banner lines before the JSON object.
-  const start = stdout.indexOf("{");
-  if (start === -1) {
-    throw new Error(`Could not find a JSON payload in the Vercel CLI output:\n${stdout.slice(0, 400)}`);
-  }
-
   return {
-    findings: extractFindings(JSON.parse(stdout.slice(start))),
+    findings: raw.map((item, index) => normalizeFinding(item, index, repositories)),
     source: `vercel:${scope}`,
+    scope,
+    pages,
   };
 }
 
@@ -252,24 +301,110 @@ function resolveVercel(flags) {
   return { command: "npx", commandArgs: ["--yes", "vercel@latest"] };
 }
 
+function runVercel(flags, args) {
+  const { command, commandArgs } = resolveVercel(flags);
+  try {
+    const result = spawnSync(command, [...commandArgs, ...args], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+    if (result.status !== 0) {
+      const detail = (result.stderr || result.stdout || "").toString().trim();
+      throw new Error(
+        `Vercel CLI failed (${command} ${args.join(" ")}).\n${detail}\n\n` +
+          "If this says Security Review is not enabled, check the team scope in Settings → Agent.\n" +
+          "If it says the team is wrong, pass --scope <slug>."
+      );
+    }
+    return result.stdout;
+  } catch (error) {
+    if (error.message?.startsWith("Vercel CLI failed")) throw error;
+    throw new Error(`Could not run the Vercel CLI (${command}): ${error.message}`);
+  }
+}
+
+function parseVercelJson(stdout, args) {
+  // The CLI may emit banner lines before the JSON object.
+  const start = stdout.indexOf("{");
+  if (start === -1) {
+    throw new Error(
+      `Could not find a JSON payload in the output of ${args.join(" ")}:\n${stdout.slice(0, 400)}`
+    );
+  }
+  try {
+    return JSON.parse(stdout.slice(start));
+  } catch (error) {
+    throw new Error(`Vercel CLI returned unparseable JSON for ${args.join(" ")}: ${error.message}`);
+  }
+}
+
+/**
+ * `--json` deliberately strips `description` and `fix` (see the CLI's list handler), so detail
+ * can only come from `inspect --json`. One extra call per finding, opt-in.
+ */
+function fetchDetail(finding, flags) {
+  if (!finding.findingId) return null;
+  const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
+  const args = ["security", "vulnerabilities", "inspect", finding.findingId, "--json", "--scope", scope];
+  const payload = parseVercelJson(runVercel(flags, args), args);
+  const detail = payload?.vulnerability ?? payload;
+  return {
+    description: truncate(detail?.description, 4000),
+    fix: truncate(detail?.fix, 4000),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Linear
 // ---------------------------------------------------------------------------
 
+/**
+ * Call the Linear wrapper and insist on a usable answer.
+ *
+ * A wrapper/tool failure can arrive as successful stdout containing a `{ status: "error" }`
+ * envelope, or as unparseable text. Treating either as "no results" would silently turn a broken
+ * dedupe lookup into "no match" (duplicate issues) and a rejected creation into a reported
+ * success, so both are hard errors here.
+ */
 async function linear(args) {
-  const { stdout } = await execFileAsync(process.execPath, [LINEAR_CLI, ...args], {
-    cwd: REPO_ROOT,
-    maxBuffer: 16 * 1024 * 1024,
-    env: { ...process.env, NO_COLOR: "1" },
-  });
-  const start = stdout.indexOf("{");
-  const startArray = stdout.indexOf("[");
-  const from = start === -1 ? startArray : startArray === -1 ? start : Math.min(start, startArray);
-  if (from === -1) return null;
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(process.execPath, [LINEAR_CLI, ...args], {
+      cwd: REPO_ROOT,
+      maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, NO_COLOR: "1" },
+    }));
+  } catch (error) {
+    const detail = (error.stderr || error.stdout || error.message || "").toString().trim();
+    throw new Error(`linear ${args[0]} failed: ${detail || "no output"}`);
+  }
+
+  const parsed = parseJsonEnvelope(stdout);
+  if (parsed === undefined) {
+    throw new Error(
+      `linear ${args[0]} returned unreadable output, refusing to guess: ${stdout.slice(0, 300)}`
+    );
+  }
+  if (parsed && typeof parsed === "object" && parsed.status === "error") {
+    throw new Error(
+      `linear ${args[0]} reported an error: ${parsed.message ?? JSON.stringify(parsed).slice(0, 300)}`
+    );
+  }
+  return parsed;
+}
+
+function parseJsonEnvelope(stdout) {
+  const brace = stdout.indexOf("{");
+  const bracket = stdout.indexOf("[");
+  const candidates = [brace, bracket].filter((index) => index !== -1);
+  if (candidates.length === 0) return undefined;
+  const from = Math.min(...candidates);
   try {
     return JSON.parse(stdout.slice(from));
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -285,9 +420,18 @@ function markerFor(reference) {
   return `${MARKER}: ${reference}`;
 }
 
+// Capture the whole reference token, stopping before the comment terminator. Matching the
+// complete token (not a prefix) matters: `platform/1` is a different finding from `platform/12`,
+// and a prefix match would mark the second as already tracked and never file it.
+const REFERENCE_PATTERN = /security-review-ref:\s*([^\s>]+)/g;
+
+function referencesIn(issue) {
+  const text = `${issue?.title ?? ""}\n${issue?.description ?? ""}`;
+  return [...text.matchAll(REFERENCE_PATTERN)].map((match) => match[1]);
+}
+
 function issueCarriesFinding(issue, reference) {
-  const haystack = `${issue?.title ?? ""}\n${issue?.description ?? ""}`;
-  return haystack.includes(markerFor(reference));
+  return referencesIn(issue).includes(reference);
 }
 
 async function findExistingIssue(team, reference) {
@@ -296,32 +440,42 @@ async function findExistingIssue(team, reference) {
     return true;
   }
 
-  // Fallback: keyword search may be ignored by the MCP tool. Scan recent issues for the
+  // Fallback: the keyword search may be ignored by the MCP tool. Scan recent issues for the
   // marker directly, so a dedupe miss cannot create a duplicate issue.
   const recent = await linear(["issues", "--team", team, "--limit", "100"]);
   return linearIssues(recent).some((issue) => issueCarriesFinding(issue, reference));
+}
+
+function dashboardLink(finding, flags) {
+  if (finding.url) return finding.url;
+  if (!finding.dashboardPath) return undefined;
+  const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
+  return `https://vercel.com/${scope}/${finding.dashboardPath}`;
 }
 
 function buildIssue(finding, flags) {
   const lines = [
     `<!-- ${markerFor(finding.reference)} -->`,
     "",
-    `**Severity:** ${finding.severity} · **Vercel project:** ${finding.project}` +
+    `**Severity:** ${finding.severity} · **Vercel target:** ${finding.project}` +
       (finding.environment ? ` · **Environment:** ${finding.environment}` : "") +
-      (finding.branch ? ` · **Branch:** ${finding.branch}` : ""),
+      (finding.branch ? ` · **Branch:** ${finding.branch}` : "") +
+      (finding.vulnerabilityClass ? ` · **Class:** ${finding.vulnerabilityClass}` : ""),
+    finding.findingId ? `**Vercel finding id:** \`${finding.findingId}\`` : undefined,
     "",
     finding.summary ?? "See the Vulnerabilities dashboard for the summary.",
     "",
-  ];
+  ].filter((line) => line !== undefined);
 
   if (flags.withDetails) {
     if (finding.description) lines.push("**Details**", "", finding.description, "");
     if (finding.fix) lines.push("**Suggested fix (from Vercel Agent)**", "", finding.fix, "");
   }
 
+  const link = dashboardLink(finding, flags);
   lines.push(
     "**Where to look:** Vercel → team → Security → Vulnerabilities" +
-      (finding.url ? ` (${finding.url})` : `, finding \`${finding.reference}\``),
+      (link ? ` (${link})` : `, finding \`${finding.reference}\``),
     "",
     "**Triage** (`docs/security/vercel-security-review.md` §5):",
     "- Treat this as an estimate, not a score. Confirm the finding against our own threat model before spending a week on it.",
@@ -356,6 +510,14 @@ async function reconcile(findings, flags) {
       continue;
     }
 
+    if (flags.withDetails) {
+      try {
+        Object.assign(finding, fetchDetail(finding, flags) ?? {});
+      } catch (error) {
+        console.error(`[warn] could not fetch details for ${finding.reference}: ${error.message}`);
+      }
+    }
+
     const { title, description } = buildIssue(finding, flags);
     const created = await linear([
       "create-issue",
@@ -368,10 +530,17 @@ async function reconcile(findings, flags) {
       "--priority",
       String(PRIORITY[finding.severity] ?? 3),
     ]);
-    const identifier =
-      pick(created ?? {}, ["identifier", "issue.identifier", "id"]) ??
-      pick(created?.issue ?? {}, ["identifier", "id"]);
-    results.push({ finding, action: "created", identifier: identifier ? String(identifier) : undefined });
+
+    const identifier = pick(created ?? {}, ["identifier", "issue.identifier", "id", "issue.id"]);
+    if (!identifier) {
+      throw new Error(
+        `Linear accepted create-issue for ${finding.reference} but returned no identifier: ` +
+          `${JSON.stringify(created)?.slice(0, 300)}. Treating this as a failure. ` +
+          `Re-running is safe: anything already filed carries a ${MARKER} marker and is skipped.`
+      );
+    }
+
+    results.push({ finding, action: "created", identifier: String(identifier) });
   }
 
   return results;
@@ -437,7 +606,7 @@ async function main() {
     throw new Error(`--min-severity must be one of ${Object.keys(SEVERITY_RANK).join(", ")}`);
   }
 
-  const { findings, source } = await fetchFindings({ ...flags, minSeverity });
+  const { findings, source, scope, pages } = await fetchFindings({ ...flags, minSeverity });
   const actionable = findings.filter((finding) => rank(finding.severity) >= rank(minSeverity));
   const results = await reconcile(actionable, { ...flags, minSeverity });
 
@@ -446,10 +615,14 @@ async function main() {
       JSON.stringify(
         {
           source,
+          scope,
+          pages: pages ?? 1,
+          fetched: findings.length,
           minSeverity,
           apply: Boolean(flags.apply),
           results: results.map(({ finding, action, identifier }) => ({
             reference: finding.reference,
+            findingId: finding.findingId,
             project: finding.project,
             severity: finding.severity,
             title: finding.title,
