@@ -141,7 +141,9 @@ because those fields can quote source, and Linear issues get pasted around. It c
 list payload, so they cannot come from the listing call.
 
 The script follows `pagination.next` until it is empty (20 findings per page by default), so a
-long backlog cannot silently triage only the first page. Re-running is safe: anything already
+long backlog cannot silently triage only the first page. Its pure helpers are covered by
+`tests/unit/security-review-triage.test.mjs` (`pnpm test:unit`), which pins the reference-matching,
+payload-shape and Linear-failure behaviour so a future edit cannot reintroduce those bugs. Re-running is safe: anything already
 carrying a marker is reported as "already tracked" instead of duplicated, and markers are matched
 as whole references — `platform/12` and `platform/1` are different findings.
 

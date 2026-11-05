@@ -166,7 +166,7 @@ function truncate(text, max = MAX_CHARS) {
  * segment — never silently replaced with "unknown", which would collapse distinct findings into
  * one dedupe key.
  */
-function normalizeFinding(raw, index, repositories) {
+export function normalizeFinding(raw, index, repositories) {
   const target = raw.target ?? {};
   const targetName = repositories.get(target.id) ?? target.name ?? target.id ?? undefined;
   const number = raw.number;
@@ -204,11 +204,33 @@ function normalizeFinding(raw, index, repositories) {
   };
 }
 
-function rank(severity) {
+export function rank(severity) {
   return SEVERITY_RANK[severity] ?? 0;
 }
 
-function extractPage(payload) {
+/**
+ * A saved payload may be a single page, an array of pages, or (the original, still-supported
+ * form) a bare array of findings. Treating every array as pages silently dropped findings —
+ * `extractPage()` on a finding returns an empty list, so the run reported "nothing to triage".
+ */
+function isPagePayload(value) {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (Array.isArray(value.vulnerabilities) ||
+      Array.isArray(value.findings) ||
+      Array.isArray(value.data))
+  );
+}
+
+export function toPages(payload) {
+  if (!Array.isArray(payload)) return [payload];
+  if (payload.length > 0 && payload.every(isPagePayload)) return payload;
+  return [{ vulnerabilities: payload }];
+}
+
+export function extractPage(payload) {
   const list =
     (Array.isArray(payload?.vulnerabilities) && payload.vulnerabilities) ||
     (Array.isArray(payload?.findings) && payload.findings) ||
@@ -243,7 +265,7 @@ async function fetchFindings(flags) {
 
   if (flags.fromFile) {
     const payload = JSON.parse(await readFile(flags.fromFile, "utf8"));
-    const pages = Array.isArray(payload) ? payload : [payload];
+    const pages = toPages(payload);
     const repositories = new Map();
     const raw = [];
     for (const page of pages) {
@@ -255,6 +277,7 @@ async function fetchFindings(flags) {
       findings: raw.map((item, index) => normalizeFinding(item, index, repositories)),
       source: `file:${flags.fromFile}`,
       scope,
+      pages: pages.length,
     };
   }
 
@@ -381,18 +404,33 @@ async function linear(args) {
     throw new Error(`linear ${args[0]} failed: ${detail || "no output"}`);
   }
 
+  return interpretLinearOutput(args[0], stdout);
+}
+
+/**
+ * Reject anything we cannot act on. A tool failure can arrive as `{ status: "error" }` on a
+ * zero exit code, and a wrapper that prints prose would otherwise parse as "no results" —
+ * which turns a broken dedupe lookup into "no match" and a rejected creation into success.
+ */
+export function interpretLinearOutput(command, stdout) {
   const parsed = parseJsonEnvelope(stdout);
   if (parsed === undefined) {
     throw new Error(
-      `linear ${args[0]} returned unreadable output, refusing to guess: ${stdout.slice(0, 300)}`
+      `linear ${command} returned unreadable output, refusing to guess: ${String(stdout).slice(0, 300)}`
     );
   }
-  if (parsed && typeof parsed === "object" && parsed.status === "error") {
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.status === "error") {
     throw new Error(
-      `linear ${args[0]} reported an error: ${parsed.message ?? JSON.stringify(parsed).slice(0, 300)}`
+      `linear ${command} reported an error: ${parsed.message ?? JSON.stringify(parsed).slice(0, 300)}`
     );
   }
   return parsed;
+}
+
+export function pickIdentifier(created) {
+  const identifier = pick(created ?? {}, ["identifier", "issue.identifier", "id", "issue.id"]);
+  if (identifier === undefined || identifier === null || identifier === "") return undefined;
+  return String(identifier);
 }
 
 function parseJsonEnvelope(stdout) {
@@ -416,7 +454,7 @@ function linearIssues(payload) {
   return [];
 }
 
-function markerFor(reference) {
+export function markerFor(reference) {
   return `${MARKER}: ${reference}`;
 }
 
@@ -425,12 +463,12 @@ function markerFor(reference) {
 // and a prefix match would mark the second as already tracked and never file it.
 const REFERENCE_PATTERN = /security-review-ref:\s*([^\s>]+)/g;
 
-function referencesIn(issue) {
+export function referencesIn(issue) {
   const text = `${issue?.title ?? ""}\n${issue?.description ?? ""}`;
   return [...text.matchAll(REFERENCE_PATTERN)].map((match) => match[1]);
 }
 
-function issueCarriesFinding(issue, reference) {
+export function issueCarriesFinding(issue, reference) {
   return referencesIn(issue).includes(reference);
 }
 
@@ -453,7 +491,7 @@ function dashboardLink(finding, flags) {
   return `https://vercel.com/${scope}/${finding.dashboardPath}`;
 }
 
-function buildIssue(finding, flags) {
+export function buildIssue(finding, flags) {
   const lines = [
     `<!-- ${markerFor(finding.reference)} -->`,
     "",
@@ -531,7 +569,7 @@ async function reconcile(findings, flags) {
       String(PRIORITY[finding.severity] ?? 3),
     ]);
 
-    const identifier = pick(created ?? {}, ["identifier", "issue.identifier", "id", "issue.id"]);
+    const identifier = pickIdentifier(created);
     if (!identifier) {
       throw new Error(
         `Linear accepted create-issue for ${finding.reference} but returned no identifier: ` +
@@ -540,7 +578,7 @@ async function reconcile(findings, flags) {
       );
     }
 
-    results.push({ finding, action: "created", identifier: String(identifier) });
+    results.push({ finding, action: "created", identifier });
   }
 
   return results;
@@ -640,7 +678,10 @@ async function main() {
   printTable(results, { source, minSeverity, apply: Boolean(flags.apply) });
 }
 
-main().catch((error) => {
-  console.error(paint("red", `Error: ${error.message}`));
-  process.exit(1);
-});
+// Only run when executed directly, so the pure helpers stay importable by tests.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((error) => {
+    console.error(paint("red", `Error: ${error.message}`));
+    process.exit(1);
+  });
+}
