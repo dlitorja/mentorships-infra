@@ -58,6 +58,7 @@ const LINEAR_CLI = process.env.LINEAR_CLI_PATH ?? join(SCRIPT_DIR, "linear-cli.m
 const DEFAULT_SCOPE = "dustin-litorjas-projects-95e47775";
 const DEFAULT_TEAM = "HUC";
 const MARKER = "security-review-ref";
+const FINDING_MARKER = "security-review-finding";
 const MAX_CHARS = 1500;
 
 const SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -184,6 +185,14 @@ export function normalizeFinding(raw, index, repositories) {
   }
 
   const findingId = raw.findingId ? String(raw.findingId) : undefined;
+  const change = (value) =>
+    value && typeof value === "object"
+      ? {
+          repository: value.repository,
+          commitSha: value.commitSha,
+          pullRequestNumber: value.pullRequestNumber,
+        }
+      : undefined;
 
   return {
     reference: String(reference),
@@ -200,6 +209,11 @@ export function normalizeFinding(raw, index, repositories) {
     fix: truncate(pick(raw, ["fix", "suggestedFix", "suggestion"])),
     url: pick(raw, ["url", "permalink", "dashboardUrl"]),
     dashboardPath: findingId ? `~/security/vulnerabilities/${findingId}` : undefined,
+    // Real payloads carry epoch milliseconds; keep ISO when a caller already supplies it.
+    createdAt:
+      typeof raw.createdAt === "number" ? new Date(raw.createdAt).toISOString() : raw.createdAt,
+    foundIn: change(raw.foundIn),
+    resolvedIn: change(raw.resolvedIn),
     raw,
   };
 }
@@ -250,6 +264,37 @@ export function extractPage(payload) {
   };
 }
 
+/**
+ * Project ids are not resolved by the list payload: findings targeting a project carry
+ * `target: { kind: "project", id: "prj_..." }` and `repositories` is empty, so the reference would
+ * come out as `prj_Qcxbu.../1` instead of `mentorships-infra-platform/1`. The CLI itself resolves
+ * these through a project lookup (`targetNames` -> `getProjectByNameOrId`); we do the same with a
+ * single `project ls` call, only when an id is actually unresolved.
+ */
+function resolveProjectNames(flags, unresolvedIds) {
+  const names = new Map();
+  if (unresolvedIds.size === 0) return names;
+
+  const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
+  const args = ["project", "ls", "--json", "--scope", scope];
+  const payload = parseVercelJson(runVercel(flags, args), args);
+  for (const project of payload?.projects ?? []) {
+    if (project?.id && project?.name) names.set(project.id, project.name);
+  }
+  return names;
+}
+
+function unresolvedProjectIds(raw, repositories) {
+  const ids = new Set();
+  for (const item of raw) {
+    const target = item?.target;
+    if (target?.kind === "project" && target.id && !repositories.has(target.id)) {
+      ids.add(target.id);
+    }
+  }
+  return ids;
+}
+
 const MAX_PAGES = 20;
 
 /**
@@ -260,7 +305,7 @@ const MAX_PAGES = 20;
  * would never be tracked — the failure mode is invisible, which is why this loops rather than
  * trusting a single call.
  */
-async function fetchFindings(flags) {
+export async function fetchFindings(flags) {
   const scope = flags.scope ?? process.env.VERCEL_SCOPE ?? DEFAULT_SCOPE;
 
   if (flags.fromFile) {
@@ -271,6 +316,11 @@ async function fetchFindings(flags) {
     for (const page of pages) {
       const extracted = extractPage(page);
       for (const [id, name] of extracted.repositories) repositories.set(id, name);
+      // `projects: [{ id, name }]` is our own addition so a saved fixture can resolve project
+      // targets without a network call; the live payload only carries `repositories`.
+      for (const project of page?.projects ?? []) {
+        if (project?.id && project?.name) repositories.set(project.id, project.name);
+      }
       raw.push(...extracted.list);
     }
     return {
@@ -309,6 +359,19 @@ async function fetchFindings(flags) {
       `Stopped after ${MAX_PAGES} pages with a cursor still pending. Triage is incomplete; ` +
         `raise MAX_PAGES or narrow with --project/--severity.`
     );
+  }
+
+  const unresolved = unresolvedProjectIds(raw, repositories);
+  if (unresolved.size > 0) {
+    try {
+      for (const [id, name] of resolveProjectNames(flags, unresolved)) {
+        repositories.set(id, name);
+      }
+    } catch (error) {
+      // A missing name is cosmetic (the reference falls back to the project id); do not fail
+      // the run over it, but say so because `dismiss <reference>` needs the readable form.
+      console.error(`[warn] could not resolve project names: ${error.message}`);
+    }
   }
 
   return {
@@ -458,30 +521,61 @@ export function markerFor(reference) {
   return `${MARKER}: ${reference}`;
 }
 
-// Capture the whole reference token, stopping before the comment terminator. Matching the
-// complete token (not a prefix) matters: `platform/1` is a different finding from `platform/12`,
-// and a prefix match would mark the second as already tracked and never file it.
+/**
+ * Two markers, because the reference is not stable and the finding id is.
+ *
+ * `prj_Qcxbu…/1` and `mentorships-infra-platform/1` are the same finding; if the project lookup
+ * fails on one run and succeeds on the next, a reference-only marker would miss the earlier issue
+ * and `--apply` would file a duplicate. The finding id never changes, so dedupe keys on it and
+ * falls back to the reference for issues filed before this marker existed.
+ */
+export function markerLines(finding) {
+  const lines = [`<!-- ${markerFor(finding.reference)} -->`];
+  if (finding.findingId) lines.push(`<!-- ${FINDING_MARKER}: ${finding.findingId} -->`);
+  return lines.join("\n");
+}
+
+// Capture the whole token, stopping before the comment terminator. Matching the complete token
+// (not a prefix) matters: `platform/1` is a different finding from `platform/12`, and a prefix
+// match would mark the second as already tracked and never file it.
 const REFERENCE_PATTERN = /security-review-ref:\s*([^\s>]+)/g;
+const FINDING_ID_PATTERN = /security-review-finding:\s*([^\s>]+)/g;
 
 export function referencesIn(issue) {
   const text = `${issue?.title ?? ""}\n${issue?.description ?? ""}`;
   return [...text.matchAll(REFERENCE_PATTERN)].map((match) => match[1]);
 }
 
-export function issueCarriesFinding(issue, reference) {
-  return referencesIn(issue).includes(reference);
+export function findingIdsIn(issue) {
+  const text = `${issue?.title ?? ""}\n${issue?.description ?? ""}`;
+  return [...text.matchAll(FINDING_ID_PATTERN)].map((match) => match[1]);
 }
 
-async function findExistingIssue(team, reference) {
-  const searched = await linear(["issues", "--team", team, "--query", reference, "--limit", "25"]);
-  if (linearIssues(searched).some((issue) => issueCarriesFinding(issue, reference))) {
+/**
+ * @param issue Linear issue
+ * @param finding a normalized finding, or a bare reference string (pre-findingId behaviour)
+ */
+export function issueCarriesFinding(issue, finding) {
+  const reference = typeof finding === "string" ? finding : finding?.reference;
+  const findingId = typeof finding === "string" ? undefined : finding?.findingId;
+
+  if (findingId && findingIdsIn(issue).includes(findingId)) return true;
+  return reference ? referencesIn(issue).includes(reference) : false;
+}
+
+async function findExistingIssue(team, finding) {
+  // The finding id is a ULID: unique, and stable across reference changes. Prefer it for the
+  // keyword search, fall back to the reference for issues filed before ids were recorded.
+  const query = finding.findingId ?? finding.reference;
+  const searched = await linear(["issues", "--team", team, "--query", query, "--limit", "25"]);
+  if (linearIssues(searched).some((issue) => issueCarriesFinding(issue, finding))) {
     return true;
   }
 
   // Fallback: the keyword search may be ignored by the MCP tool. Scan recent issues for the
   // marker directly, so a dedupe miss cannot create a duplicate issue.
   const recent = await linear(["issues", "--team", team, "--limit", "100"]);
-  return linearIssues(recent).some((issue) => issueCarriesFinding(issue, reference));
+  return linearIssues(recent).some((issue) => issueCarriesFinding(issue, finding));
 }
 
 function dashboardLink(finding, flags) {
@@ -493,13 +587,17 @@ function dashboardLink(finding, flags) {
 
 export function buildIssue(finding, flags) {
   const lines = [
-    `<!-- ${markerFor(finding.reference)} -->`,
+    markerLines(finding),
     "",
     `**Severity:** ${finding.severity} · **Vercel target:** ${finding.project}` +
       (finding.environment ? ` · **Environment:** ${finding.environment}` : "") +
       (finding.branch ? ` · **Branch:** ${finding.branch}` : "") +
       (finding.vulnerabilityClass ? ` · **Class:** ${finding.vulnerabilityClass}` : ""),
     finding.findingId ? `**Vercel finding id:** \`${finding.findingId}\`` : undefined,
+    finding.foundIn?.pullRequestNumber
+      ? `**Found in:** PR #${finding.foundIn.pullRequestNumber}` +
+        (finding.foundIn.commitSha ? ` (\`${finding.foundIn.commitSha.slice(0, 7)}\`)` : "")
+      : undefined,
     "",
     finding.summary ?? "See the Vulnerabilities dashboard for the summary.",
     "",
@@ -537,7 +635,7 @@ async function reconcile(findings, flags) {
   const results = [];
 
   for (const finding of findings) {
-    const existing = flags.noDedupe ? false : await findExistingIssue(team, finding.reference);
+    const existing = flags.noDedupe ? false : await findExistingIssue(team, finding);
     if (existing) {
       results.push({ finding, action: "skip-existing" });
       continue;
