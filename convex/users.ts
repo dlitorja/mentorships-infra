@@ -347,6 +347,13 @@ const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
  *
  *   - `clerkId === identity.subject` — proven Clerk link (the
  *     normal case for rows written by syncUser/seed-role).
+ *   - `userId === identity.subject` where `userId` is Clerk-format
+ *     (`user_…`) — the caller's primary account id. This stays
+ *     authoritative when `clerkId` points at a different account,
+ *     which happens when a Clerk account is recreated: `userId` is
+ *     the live id and `clerkId` still holds the deleted one. The
+ *     normal syncUser patch rewrites `clerkId` to the live subject
+ *     so this branch converges.
  *   - `clerkId.startsWith("migrated_") && userId === identity.subject`
  *     — a row written by the historical migration script that
  *     carried the user's real Clerk userId as `userId` but
@@ -359,9 +366,10 @@ const ALLOWED_KEYS: ReadonlyArray<string> = ["recordingReadyEmail"];
  *     "placeholder_<userId>" as clerkId when no Clerk link has
  *     been established yet. Same one-shot semantics.
  *
- * Anything else (clerkId set to someone else's ID, clerkId null,
- * or clerkId a non-placeholder string that doesn't match the
- * subject) means the email is in use by another account — refuse.
+ * Anything else (clerkId set to someone else's ID and a `userId`
+ * that does not match the subject, clerkId null with a non-matching
+ * or non-Clerk `userId`) means the email is in use by another
+ * account — refuse.
  */
 const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;
 
