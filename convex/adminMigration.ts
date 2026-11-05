@@ -297,11 +297,17 @@ function isClerkUserId(id: string | undefined): boolean {
  *   1. relinks the canonical instructor to the live Clerk user;
  *   2. re-keys the stale `users` row (userId + clerkId) to the live Clerk
  *      user so role/auth lookups resolve;
- *   3. moves `instructorUploads` rows from the stale Clerk id to the live
- *      one (uploads store the Clerk user id, not `instructors._id`);
- *   4. soft-deletes the duplicate stub row (never hard-deletes);
+ *   3. moves `instructorUploads` and `videoEditorAssignments` rows from the
+ *      stale Clerk id to the live one (both store the Clerk user id, not
+ *      `instructors._id`);
+ *   4. soft-deletes the duplicate stub row (never hard-deletes) and clears
+ *      its Clerk link even if it was deleted earlier;
  *   5. points accepted `hdInvitations` rows at the live Clerk user;
  *   6. writes an audit row for every step.
+ *
+ * `staleClerkUserId` may be omitted: it is derived from the canonical
+ * profile's current `userId`. `staleUserId` may be omitted too; the `users`
+ * row is found by the stale Clerk id.
  *
  * It is idempotent and re-runnable: every step checks the pre-fix state
  * first. `dryRun=true` returns the plan without writing.
@@ -312,6 +318,8 @@ function isClerkUserId(id: string | undefined): boolean {
  *     reservations, sessions, or bookings (reassign first);
  *   - the duplicate must not be linked to a third live Clerk user;
  *   - an independent `users` row for the live Clerk user must not exist;
+ *   - a video editor must not already have an assignment for the live
+ *     Clerk id (resolve the collision manually);
  *   - the live Clerk user must not be queued for deletion;
  *   - a re-keyed `users` row must not have a legacy primary `userId`
  *     that differs from its `clerkId`.
@@ -385,17 +393,32 @@ export const relinkDuplicateInstructorEmail = internalMutation({
     }
 
     const canonicalAlreadyRelinked = canonical.userId === args.liveClerkUserId;
-    if (!canonicalAlreadyRelinked) {
-      if (args.staleClerkUserId && canonical.userId !== args.staleClerkUserId) {
-        throw new Error(
-          `relinkDuplicateInstructorEmail: canonical.userId=${canonical.userId ?? "<null>"} does not match staleClerkUserId=${args.staleClerkUserId}; refusing to mutate`,
-        );
-      }
-      if (canonical.userId === args.liveClerkUserId) {
-        throw new Error(
-          "relinkDuplicateInstructorEmail: canonical instructor is already linked to liveClerkUserId",
-        );
-      }
+
+    // Derive the old account id when the caller omits it. The canonical
+    // profile's current userId IS the account being moved away from; without
+    // this, a caller that only knows the canonical id would relink the
+    // profile and delete the stub while leaving the stale `users` row,
+    // instructor uploads, and video-editor assignments on the old account.
+    const staleClerkUserId =
+      args.staleClerkUserId ??
+      (!canonicalAlreadyRelinked &&
+      canonical.userId &&
+      canonical.userId !== args.liveClerkUserId
+        ? canonical.userId
+        : undefined);
+    if (staleClerkUserId && !isClerkUserId(staleClerkUserId)) {
+      throw new Error(
+        `relinkDuplicateInstructorEmail: staleClerkUserId=${staleClerkUserId} is not a Clerk user id; pass an explicit staleClerkUserId`,
+      );
+    }
+    if (
+      !canonicalAlreadyRelinked &&
+      staleClerkUserId &&
+      canonical.userId !== staleClerkUserId
+    ) {
+      throw new Error(
+        `relinkDuplicateInstructorEmail: canonical.userId=${canonical.userId ?? "<null>"} does not match staleClerkUserId=${staleClerkUserId}; refusing to mutate`,
+      );
     }
 
     const duplicateIsLinkedToThirdUser =
@@ -460,14 +483,55 @@ export const relinkDuplicateInstructorEmail = internalMutation({
     // not `instructors._id`. Uploads assigned while the stale Clerk account
     // was the active identity must follow the person to the live account,
     // otherwise they disappear from the instructor's uploads dashboard.
-    const staleUploads = args.staleClerkUserId
+    const staleUploads = staleClerkUserId
       ? await ctx.db
           .query("instructorUploads")
           .withIndex("by_instructorId", (q) =>
-            q.eq("instructorId", args.staleClerkUserId),
+            q.eq("instructorId", staleClerkUserId),
           )
           .collect()
       : [];
+
+    // `videoEditorAssignments.instructorId` also stores the Clerk user id
+    // (`users.userId`), not `instructors._id`. A video editor with a specific
+    // assignment for the stale account would lose upload rights once the
+    // uploads move to the live account. Move the assignments too, and refuse
+    // on collisions rather than silently dropping an editor's quota/scope.
+    const staleEditorAssignments = staleClerkUserId
+      ? await ctx.db
+          .query("videoEditorAssignments")
+          .withIndex("by_instructorId", (q) =>
+            q.eq("instructorId", staleClerkUserId),
+          )
+          .collect()
+      : [];
+    const editorAssignmentCollisions: Array<{
+      staleAssignmentId: string;
+      existingAssignmentId: string;
+      videoEditorId: string;
+    }> = [];
+    for (const assignment of staleEditorAssignments) {
+      const counterpart = await ctx.db
+        .query("videoEditorAssignments")
+        .withIndex("by_videoEditorId_instructorId", (q) =>
+          q
+            .eq("videoEditorId", assignment.videoEditorId)
+            .eq("instructorId", args.liveClerkUserId),
+        )
+        .first();
+      if (counterpart) {
+        editorAssignmentCollisions.push({
+          staleAssignmentId: assignment._id,
+          existingAssignmentId: counterpart._id,
+          videoEditorId: assignment.videoEditorId,
+        });
+      }
+    }
+    if (editorAssignmentCollisions.length > 0) {
+      throw new Error(
+        `relinkDuplicateInstructorEmail: ${editorAssignmentCollisions.length} video-editor assignment(s) already exist for live Clerk user ${args.liveClerkUserId}; resolve the collisions first (${JSON.stringify(editorAssignmentCollisions)})`,
+      );
+    }
 
     // Resolve the orphan users row (keyed to the stale Clerk id) and any
     // independent row that already exists for the live Clerk id.
@@ -482,14 +546,14 @@ export const relinkDuplicateInstructorEmail = internalMutation({
     const liveUser = liveUserByUserId ?? liveUserByClerkId ?? null;
 
     let staleUser = args.staleUserId ? await ctx.db.get(args.staleUserId) : null;
-    if (!staleUser && args.staleClerkUserId) {
+    if (!staleUser && staleClerkUserId) {
       const byPrimary = await ctx.db
         .query("users")
-        .withIndex("by_userId", (q) => q.eq("userId", args.staleClerkUserId!))
+        .withIndex("by_userId", (q) => q.eq("userId", staleClerkUserId!))
         .first();
       const byClerk = await ctx.db
         .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", args.staleClerkUserId!))
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", staleClerkUserId!))
         .first();
       staleUser = byPrimary ?? byClerk ?? null;
     }
@@ -509,9 +573,9 @@ export const relinkDuplicateInstructorEmail = internalMutation({
           `relinkDuplicateInstructorEmail: users row ${staleUser._id} has a legacy primary userId=${staleUser.userId} that differs from clerkId=${staleUser.clerkId}; re-keying it would orphan the legacy lookup`,
         );
       }
-      if (args.staleClerkUserId && staleUser.clerkId !== args.staleClerkUserId) {
+      if (staleClerkUserId && staleUser.clerkId !== staleClerkUserId) {
         throw new Error(
-          `relinkDuplicateInstructorEmail: users row ${staleUser._id}.clerkId=${staleUser.clerkId} does not match staleClerkUserId=${args.staleClerkUserId}; refusing to re-key`,
+          `relinkDuplicateInstructorEmail: users row ${staleUser._id}.clerkId=${staleUser.clerkId} does not match staleClerkUserId=${staleClerkUserId}; refusing to re-key`,
         );
       }
     }
@@ -533,7 +597,7 @@ export const relinkDuplicateInstructorEmail = internalMutation({
         alreadyDeleted: duplicate.deletedAt !== undefined,
       },
       liveClerkUserId: args.liveClerkUserId,
-      staleClerkUserId: args.staleClerkUserId ?? null,
+      staleClerkUserId: staleClerkUserId ?? null,
       usersRow: staleUser
         ? {
             _id: staleUser._id,
@@ -545,6 +609,7 @@ export const relinkDuplicateInstructorEmail = internalMutation({
         : null,
       duplicateReferenceCounts,
       instructorUploadsToReassign: staleUploads.length,
+      videoEditorAssignmentsToReassign: staleEditorAssignments.length,
     };
 
     if (dryRun) {
@@ -590,27 +655,48 @@ export const relinkDuplicateInstructorEmail = internalMutation({
       });
     }
 
-    if (duplicate.deletedAt === undefined) {
-      await ctx.db.patch(args.duplicateInstructorId, {
-        deletedAt: now,
-        isActive: false,
-        isListed: false,
-        // The live Clerk user is now linked to the canonical profile. Clear
-        // the duplicate's `userId` too: leaving the same Clerk id on both
-        // rows would make every `by_userId` lookup ambiguous (`.first()`
-        // would depend on `_creationTime`). The audit row below keeps the
-        // duplicate↔Clerk association for the record.
-        userId: undefined,
-        updatedAt: now,
+    for (const assignment of staleEditorAssignments) {
+      await ctx.db.patch(assignment._id, {
+        instructorId: args.liveClerkUserId,
       });
       applied.push({
-        action: "soft_delete_duplicate_instructor",
-        targetType: "instructor",
-        targetId: args.duplicateInstructorId,
+        action: "reassign_video_editor_assignment_clerk_user",
+        targetType: "videoEditorAssignment",
+        targetId: assignment._id,
       });
     }
 
-    if (args.staleClerkUserId) {
+    const duplicateHasUserLink = duplicate.userId !== undefined;
+    if (duplicate.deletedAt === undefined || duplicateHasUserLink) {
+      await ctx.db.patch(args.duplicateInstructorId, {
+        ...(duplicate.deletedAt === undefined
+          ? { deletedAt: now, isActive: false, isListed: false }
+          : {}),
+        // The live Clerk user is now linked to the canonical profile. Clear
+        // the duplicate's `userId` even when a previous repair/delete already
+        // set `deletedAt`: `getInstructorByUserIdInternal` does not filter
+        // deleted rows, so a soft-deleted stub sharing the live Clerk id
+        // would still shadow the canonical profile on `.first()`.
+        ...(duplicateHasUserLink ? { userId: undefined } : {}),
+        updatedAt: now,
+      });
+      if (duplicate.deletedAt === undefined) {
+        applied.push({
+          action: "soft_delete_duplicate_instructor",
+          targetType: "instructor",
+          targetId: args.duplicateInstructorId,
+        });
+      }
+      if (duplicateHasUserLink) {
+        applied.push({
+          action: "clear_duplicate_instructor_user_link",
+          targetType: "instructor",
+          targetId: args.duplicateInstructorId,
+        });
+      }
+    }
+
+    if (staleClerkUserId) {
       const invitations = await ctx.db
         .query("hdInvitations")
         .withIndex("by_email", (q) => q.eq("email", canonicalEmail))
@@ -618,7 +704,7 @@ export const relinkDuplicateInstructorEmail = internalMutation({
       for (const invitation of invitations) {
         if (
           invitation.status === "accepted" &&
-          invitation.clerkInvitationId === args.staleClerkUserId
+          invitation.clerkInvitationId === staleClerkUserId
         ) {
           await ctx.db.patch(invitation._id, {
             clerkInvitationId: args.liveClerkUserId,
@@ -648,8 +734,8 @@ export const relinkDuplicateInstructorEmail = internalMutation({
           canonicalInstructorId: args.canonicalInstructorId,
           duplicateInstructorId: args.duplicateInstructorId,
           liveClerkUserId: args.liveClerkUserId,
-          staleClerkUserId: args.staleClerkUserId ?? null,
-          staleUserId: args.staleUserId ?? null,
+          staleClerkUserId: staleClerkUserId ?? null,
+          staleUserId: staleUser?._id ?? args.staleUserId ?? null,
         },
       });
     }

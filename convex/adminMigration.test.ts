@@ -253,7 +253,8 @@ async function seedDuplicateEmailFixture(ctx: any) {
     email: DUP_EMAIL,
     role: "instructor",
   });
-  // Uploads store the Clerk user id, not `instructors._id`.
+  // Uploads and video-editor assignments store the Clerk user id, not
+  // `instructors._id`.
   const uploadId = await ctx.db.insert("instructorUploads", {
     instructorId: CANONICAL_CLERK,
     filename: "cedarcia-trailer.mp4",
@@ -262,7 +263,18 @@ async function seedDuplicateEmailFixture(ctx: any) {
     size: 1024,
     status: "completed",
   });
-  return { canonicalInstructorId, stubInstructorId, staleUserId, uploadId };
+  const editorAssignmentId = await ctx.db.insert("videoEditorAssignments", {
+    videoEditorId: "user_editor123",
+    instructorId: CANONICAL_CLERK,
+    assignedAt: Date.now(),
+  });
+  return {
+    canonicalInstructorId,
+    stubInstructorId,
+    staleUserId,
+    uploadId,
+    editorAssignmentId,
+  };
 }
 
 test("relinkDuplicateInstructorEmail: dry run reports the plan without writing", async () => {
@@ -310,11 +322,14 @@ test("relinkDuplicateInstructorEmail: relinks the canonical profile, re-keys the
     } as any,
   );
 
-  expect((result as any).appliedCount).toBe(4);
+  expect((result as any).appliedCount).toBe(6);
 
   await t.run(async (ctx) => {
     const upload = await ctx.db.get(ids.uploadId);
     expect(upload?.instructorId).toBe(LIVE_CLERK);
+
+    const assignment = await ctx.db.get(ids.editorAssignmentId);
+    expect(assignment?.instructorId).toBe(LIVE_CLERK);
 
     const canonical = await ctx.db.get(ids.canonicalInstructorId);
     expect(canonical?.userId).toBe(LIVE_CLERK);
@@ -358,6 +373,93 @@ test("relinkDuplicateInstructorEmail: is idempotent on re-run", async () => {
 
   expect((second as any).appliedCount).toBe(0);
   expect((second as any).alreadyCompleted).toBe(true);
+});
+
+test("relinkDuplicateInstructorEmail: derives the stale Clerk id from the canonical profile when omitted", async () => {
+  // Greptile P1: omitting `staleClerkUserId` used to skip the upload move,
+  // the video-editor assignment move, and the stale `users` lookup while
+  // still relinking the profile and deleting the stub — leaving the account
+  // data behind on the old Clerk id.
+  const t = convexTest(schema, modules);
+  const ids = await t.run((ctx) => seedDuplicateEmailFixture(ctx));
+
+  const result = await t.mutation(
+    internal.adminMigration.relinkDuplicateInstructorEmail,
+    {
+      canonicalInstructorId: ids.canonicalInstructorId,
+      duplicateInstructorId: ids.stubInstructorId,
+      liveClerkUserId: LIVE_CLERK,
+      // no staleClerkUserId / staleUserId
+    } as any,
+  );
+
+  expect((result as any).plan.staleClerkUserId).toBe(CANONICAL_CLERK);
+  expect((result as any).appliedCount).toBe(6);
+
+  await t.run(async (ctx) => {
+    const upload = await ctx.db.get(ids.uploadId);
+    expect(upload?.instructorId).toBe(LIVE_CLERK);
+    const assignment = await ctx.db.get(ids.editorAssignmentId);
+    expect(assignment?.instructorId).toBe(LIVE_CLERK);
+    const user = await ctx.db.get(ids.staleUserId);
+    expect(user?.clerkId).toBe(LIVE_CLERK);
+  });
+});
+
+test("relinkDuplicateInstructorEmail: refuses when a video-editor assignment already exists for the live id", async () => {
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const ids = await seedDuplicateEmailFixture(ctx);
+    await ctx.db.insert("videoEditorAssignments", {
+      videoEditorId: "user_editor123",
+      instructorId: LIVE_CLERK,
+      assignedAt: Date.now(),
+    });
+    return ids;
+  });
+
+  await expect(
+    t.mutation(internal.adminMigration.relinkDuplicateInstructorEmail, {
+      canonicalInstructorId: ids.canonicalInstructorId,
+      duplicateInstructorId: ids.stubInstructorId,
+      liveClerkUserId: LIVE_CLERK,
+      staleClerkUserId: CANONICAL_CLERK,
+      staleUserId: ids.staleUserId,
+    } as any),
+  ).rejects.toThrow(/video-editor assignment/);
+});
+
+test("relinkDuplicateInstructorEmail: clears the user link on an already-deleted stub", async () => {
+  // Greptile P1: a stub soft-deleted by `deleteInstructor` keeps `userId`,
+  // so `by_userId` can still resolve to the deleted row.
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const ids = await seedDuplicateEmailFixture(ctx);
+    await ctx.db.patch(ids.stubInstructorId, {
+      deletedAt: Date.now() - 60_000,
+      isActive: false,
+    });
+    return ids;
+  });
+
+  const result = await t.mutation(
+    internal.adminMigration.relinkDuplicateInstructorEmail,
+    {
+      canonicalInstructorId: ids.canonicalInstructorId,
+      duplicateInstructorId: ids.stubInstructorId,
+      liveClerkUserId: LIVE_CLERK,
+      staleClerkUserId: CANONICAL_CLERK,
+      staleUserId: ids.staleUserId,
+    } as any,
+  );
+
+  // canonical + users + 2 uploads/assignment moves + clear link (no soft-delete)
+  expect((result as any).appliedCount).toBe(5);
+  await t.run(async (ctx) => {
+    const stub = await ctx.db.get(ids.stubInstructorId);
+    expect(stub?.deletedAt).toBeDefined();
+    expect(stub?.userId).toBeUndefined();
+  });
 });
 
 test("relinkDuplicateInstructorEmail: refuses when the duplicate owns records", async () => {

@@ -24,6 +24,50 @@ function isClerkUserId(id: string | undefined): boolean {
 }
 
 /**
+ * Every instructor row that belongs to `email`, matching case-insensitively
+ * and ignoring surrounding whitespace.
+ *
+ * `instructors.by_email` is an exact-match index. Legacy rows written before
+ * email normalization (or by `migrateInstructor`) may store `Teacher@X.com`
+ * or ` teacher@x.com `, so an exact index hit is not enough to prove the
+ * address is unused. The fallback scan only runs when the index has NO live
+ * row — in steady state (after `runNormalizeAllInstructorEmails`) the index
+ * finds everything and this costs one indexed read.
+ *
+ * Soft-deleted rows are included (callers filter); this preserves the
+ * previous `getInstructorByEmailInternal` contract.
+ */
+async function collectInstructorsByEmail(
+  ctx: QueryCtx | MutationCtx,
+  email: string,
+): Promise<Doc<"instructors">[]> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return [];
+  const indexed = await ctx.db
+    .query("instructors")
+    .withIndex("by_email", (q) => q.eq("email", normalized))
+    .collect();
+  if (indexed.some((inst) => inst.deletedAt === undefined)) {
+    return indexed;
+  }
+  const scanned = await ctx.db
+    .query("instructors")
+    .take(FALLBACK_EMAIL_SCAN_BOUND);
+  const merged = new Map<Id<"instructors">, Doc<"instructors">>(
+    indexed.map((inst) => [inst._id, inst] as const),
+  );
+  for (const inst of scanned) {
+    if (
+      inst.deletedAt === undefined &&
+      inst.email?.trim().toLowerCase() === normalized
+    ) {
+      merged.set(inst._id, inst);
+    }
+  }
+  return [...merged.values()];
+}
+
+/**
  * Upper bound for the case-insensitive fallback scan in
  * `getInstructorLinkingStatusForCurrentUser`. Set well under
  * Convex's per-transaction document limit (8192) so the read
@@ -1698,9 +1742,10 @@ function dedupeInstructorsByEmail(
  *
  * The scan is bounded: it paginates the `by_deletedAt` index (rows where
  * `deletedAt === undefined`) in fixed-size pages, applies the connected
- * filter per row, and stops once `limit` rows have been collected. The
- * loop is capped at `maxIterations` pages (8000 reads under Convex's
- * 8192-doc per-query budget) so a sparse active set can't blow the budget.
+ * filter per row, and stops once `limit` DISTINCT addresses have been
+ * collected (duplicate rows do not consume limit slots). The loop is capped
+ * at `maxIterations` pages (8000 reads under Convex's 8192-doc per-query
+ * budget) so a sparse active set can't blow the budget.
  * The `limit` arg is validated to be a finite positive integer and capped
  * at `MAX_PUBLIC_INSTRUCTOR_LIST_LIMIT` since the query is publicly callable.
  */
@@ -1728,9 +1773,15 @@ export const getConnectedInstructorsForAdmin = query({
     const pageSize = 200;
     const maxIterations = Math.floor(8000 / pageSize);
     const connected: Doc<"instructors">[] = [];
+    // `limit` bounds the number of distinct addresses the picker shows, not
+    // raw rows: duplicate-email rows are deduped below, so counting them
+    // against the limit would return a short list even when more distinct
+    // instructors exist further down the index. Rows without an email count
+    // individually (they cannot be conflated).
+    const distinctEmails = new Set<string>();
     let cursor: string | null = null;
     let iterations = 0;
-    while (connected.length < limit && iterations < maxIterations) {
+    while (distinctEmails.size < limit && iterations < maxIterations) {
       iterations++;
       const result = await ctx.db
         .query("instructors")
@@ -1739,7 +1790,10 @@ export const getConnectedInstructorsForAdmin = query({
       for (const inst of result.page) {
         if (isClerkUserId(inst.userId)) {
           connected.push(inst);
-          if (connected.length >= limit) break;
+          distinctEmails.add(
+            inst.email?.trim().toLowerCase() ?? `__no_email__:${inst._id}`,
+          );
+          if (distinctEmails.size >= limit) break;
         }
       }
       if (result.isDone) break;
@@ -1888,10 +1942,10 @@ export const createInstructorWithDetailsInternal = internalMutation({
     // function's documented contract).
     const normalizedEmail = args.email?.toLowerCase().trim();
     if (normalizedEmail) {
-      const existingByEmail = await ctx.db
-        .query("instructors")
-        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .collect();
+      const existingByEmail = await collectInstructorsByEmail(
+        ctx,
+        normalizedEmail,
+      );
       const liveByEmail = existingByEmail.find(
         (inst) => inst.deletedAt === undefined,
       );
@@ -3323,10 +3377,7 @@ export const getStudentDetails = query({
 export const getInstructorByEmailInternal = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("instructors")
-      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
-      .collect();
+    return await collectInstructorsByEmail(ctx, args.email);
   },
 });
 
@@ -3822,10 +3873,10 @@ export const createInstructorInternal = internalMutation({
     // Soft-deleted rows are deliberately ignored: re-hiring an instructor
     // whose old profile was deleted must still be possible.
     if (normalizedEmail) {
-      const existingForEmail = await ctx.db
-        .query("instructors")
-        .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
-        .collect();
+      const existingForEmail = await collectInstructorsByEmail(
+        ctx,
+        normalizedEmail,
+      );
       const liveForEmail = existingForEmail.find(
         (inst) => inst.deletedAt === undefined,
       );
