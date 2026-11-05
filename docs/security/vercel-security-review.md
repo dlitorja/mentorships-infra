@@ -110,8 +110,44 @@ non-interactive runs without `--reason`.
 **Never run `vercel security vulnerabilities` or `vercel security check` in CI on this repo.**
 The repo is public and both commands print source snippets, member emails, token names, and
 project settings. Actions logs are public, and Actions artifacts on a public repo are
-downloadable by anyone. Local invocation only; never paste raw output into a PR body, commit
-message, or Linear description (link the finding instead).
+downloadable by anyone. Local invocation only, and never put the raw output on a public surface
+(PR bodies or comments, commit messages, committed docs, CI logs or artifacts). Linear is private
+and is where the triage detail belongs; link the dashboard finding instead of quoting source
+snippets.
+
+### Automation: `scripts/security-review-triage.mjs`
+
+Nothing notifies the team when a Critical or High lands, so this script closes the loop on
+demand. It pulls the open findings, filters by severity, dedupes against Linear (on the
+`security-review-ref` marker it writes into each issue), and with `--apply` opens one issue per new
+finding with the triage steps from this section.
+
+```bash
+# Dry run — shows what it would open, creates nothing
+node scripts/security-review-triage.mjs
+
+# Only the urgent band, machine-readable
+node scripts/security-review-triage.mjs --min-severity critical --json
+
+# Open the issues (priority 1 for Critical, 2 for High)
+node scripts/security-review-triage.mjs --apply
+```
+
+Defaults: `--min-severity high`, Vercel scope `dustin-litorjas-projects-95e47775` (override with
+`--scope` or `VERCEL_SCOPE`), Linear team `HUC` (override with `--team` or `LINEAR_TEAM`).
+`--with-details` adds the finding's description and suggested fix to the issue — off by default
+because those fields can quote source, and Linear issues get pasted around. Re-running is safe:
+anything already carrying a marker is reported as "already tracked" instead of duplicated.
+
+Cadence, in order of preference:
+
+1. At the start of every Tier 2 sweep (`sweep-protocol.md` §3) — same operator, same window.
+2. Immediately after any push whose commit shows a non-green `Vercel Security Review` check.
+3. After enabling the feature on a new project, once its first review completes.
+
+It is deliberately **not** a workflow: a scheduled CI job would have to print findings into public
+logs or persist them to a public artifact. A local cron/timer is acceptable if the output goes to
+an operator-owned path, but the two triggers above already cover the real cases.
 
 ### Severity → commitment
 
@@ -210,11 +246,15 @@ runtime.
 | 2026-11-04 | No CI job for `vercel security vulnerabilities` / `vercel security check`. | Repo is public; both commands emit source snippets and security posture, and public Action logs/artifacts are readable by anyone. |
 | 2026-11-04 | `accepted-risk` dismissals require a Linear issue; `false-positive` dismissals do not. | Dismissals leave no git trace; the risk has to live somewhere re-reviewable. |
 | 2026-11-04 | **Enabled** for `platform`, `marketing`, `huckleberry-drive` (Owner dashboard action); Agent chat on so *Fix with Vercel Agent* is available. Empty-vs-error CLI comparison confirms the team-level toggle; project selection and policy text are dashboard-only and are confirmed by the first review check on a push. | Operator confirmed setup; verification recorded in the doc header. |
+| 2026-11-04 | Triage is automated by `scripts/security-review-triage.mjs` (dry run by default, `--apply` to open Linear issues, dedupe on a `security-review-ref` marker). Deliberately **not** a workflow: on a public repo, findings must not reach CI logs or artifacts. | Nothing notifies the team when a Critical/High lands; the dashboard requires someone to remember to look. |
 
 ## 12. Cross-references
 
 - Policy text (source of truth, paste into dashboard):
   [`vercel-security-review-policy.md`](./vercel-security-review-policy.md)
+- Triage automation: `scripts/security-review-triage.mjs` (dry run by default; `--apply` opens
+  Linear issues; dedupes on the `security-review-ref` marker it writes into each issue).
+  `scripts/linear-cli.mjs` gained `--query` for that dedupe.
 - Recurring cadence and tiers: [`sweep-protocol.md`](./sweep-protocol.md)
 - Historical security baseline: [`pilot-baseline/`](./pilot-baseline/)
 - Mother policy: `<repo>/AGENTS.md` — "Pull Request Merge Policy", "Secret Protection Policy",
