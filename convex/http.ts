@@ -3432,6 +3432,33 @@ http.route({
  * transaction.
  */
 
+const httpGetSessionNotificationWindow = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const params = new URL(request.url).searchParams;
+  const startMs = Number(params.get("start"));
+  const endMs = Number(params.get("end"));
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return new Response(JSON.stringify({ error: "start and end (ms) are required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runQuery(
+    internal.sessionNotifications.getReminderWindow,
+    {
+      startMs,
+      endMs,
+      paginationOpts: { cursor: params.get("cursor"), numItems: 100 },
+    }
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
 const httpListSessionsForRecordingsReconciliation = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -3599,6 +3626,12 @@ const httpFinalizeRecordingRetentionNotification = httpAction(async (ctx, reques
   return new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json" },
   });
+});
+
+http.route({
+  path: "/session-notifications/reminder-window",
+  method: "GET",
+  handler: httpGetSessionNotificationWindow,
 });
 
 http.route({

@@ -1,273 +1,147 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const capturedProjection: Array<Record<string, unknown>> = [];
-const capturedJoinCount = { value: 0 };
-let capturedSchedule: { id: string; cron: string; run: (payload: { timestamp: Date }) => Promise<unknown> } | null = null;
+/**
+ * `send-session-reminders` used to query Supabase/Postgres with Drizzle.
+ * It now pages `GET /session-notifications/reminder-window` on Convex, so
+ * this file mocks `fetch` instead of the ORM.
+ *
+ * The row-shaping assertions that lived here (projection keys, join count)
+ * described the SQL that no longer exists; they were replaced by the
+ * request-shape assertions below plus the Convex query tests in
+ * `convex/sessionNotifications.test.ts`.
+ */
 
-const EXPECTED_PROJECTION_KEYS = [
-  "sessionId",
-  "scheduledAt",
-  "studentId",
-  "instructorId",
-  "studentEmail",
-  "studentTimeZone",
-  "instructorName",
-  "instructorUserId",
-];
+type CapturedSchedule = {
+  id: string;
+  cron: string;
+  run: (payload: { timestamp: Date }) => Promise<{
+    sessionsFound: number;
+    sent: number;
+    skipped: number;
+    failed: number;
+    truncated: boolean;
+  }>;
+};
 
-const sendEmailMock = vi.fn().mockResolvedValue({ ok: true });
-const findFirstByInstructorUserIdMock = vi.fn();
+const state = vi.hoisted(() => ({
+  schedule: null as unknown as CapturedSchedule | null,
+}));
+
+const sendEmailMock = vi.hoisted(() => vi.fn().mockResolvedValue({ ok: true, id: "id" }));
 
 vi.mock("@trigger.dev/sdk", () => ({
   schedules: {
-    task: vi.fn((config) => {
+    task: vi.fn((config: { id: string; cron: string; run: CapturedSchedule["run"] }) => {
       if (config.id === "send-session-reminders") {
-        capturedSchedule = {
-          id: config.id,
-          cron: config.cron,
-          run: config.run as (payload: { timestamp: Date }) => Promise<unknown>,
-        };
+        state.schedule = { id: config.id, cron: config.cron, run: config.run };
       }
       return { id: config.id };
     }),
   },
-  task: vi.fn((config) => ({ id: config.id, run: config.run })),
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  },
+  task: vi.fn((config: { id: string }) => ({ id: config.id })),
+  logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
 vi.mock("../../../packages/emails/src/send", () => ({
   sendEmail: (...args: unknown[]) => sendEmailMock(...args),
 }));
 
-const buildSessionReminderEmailMock = vi.fn((args: unknown) => ({
-  subject: "reminder-subject",
-  text: "reminder-text",
-  html: "<p>reminder-html</p>",
-  headers: { "X-Email-Type": "session_reminder_student" },
-  __args: args,
-}));
-const buildInstructorReminderEmailMock = vi.fn((args: unknown) => ({
-  subject: "instructor-reminder-subject",
-  text: "instructor-reminder-text",
-  html: "<p>instructor-reminder-html</p>",
-  headers: { "X-Email-Type": "session_reminder_instructor" },
-  __args: args,
-}));
-
 vi.mock("../../../packages/emails/src/session-changes", () => ({
   buildSessionCanceledEmail: vi.fn(),
   buildSessionRescheduledEmail: vi.fn(),
-  buildStudentCanceledEmail: vi.fn(),
-  buildSessionReminderEmail: (...args: unknown[]) => buildSessionReminderEmailMock(...args),
-  buildInstructorReminderEmail: (...args: unknown[]) => buildInstructorReminderEmailMock(...args),
+  buildSessionReminderEmail: vi.fn(() => ({
+    subject: "reminder",
+    text: "text",
+    html: "<p>html</p>",
+    headers: { "X-Email-Type": "session_reminder_student" },
+  })),
+  buildInstructorReminderEmail: vi.fn(() => ({
+    subject: "instructor reminder",
+    text: "text",
+    html: "<p>html</p>",
+    headers: { "X-Email-Type": "session_reminder_instructor" },
+  })),
 }));
 
-let nextPage: unknown[] = [];
-
-const queryChain = {
-  from: vi.fn(),
-  innerJoin: vi.fn(),
-  where: vi.fn(),
-  orderBy: vi.fn(),
-  limit: vi.fn(),
-  offset: vi.fn(),
+const TICK = new Date("2026-11-06T14:30:00.000Z");
+const ROW = {
+  sessionId: "session_1",
+  scheduledAt: new Date("2026-11-06T15:00:00.000Z").getTime(),
+  studentEmail: "student@example.com",
+  studentTimeZone: "America/New_York",
+  instructorName: "Painter Pat",
+  instructorEmail: "pat@example.com",
+  instructorTimeZone: "America/Los_Angeles",
 };
 
-function resetQueryChain() {
-  queryChain.from.mockReturnValue(queryChain);
-  queryChain.innerJoin.mockImplementation(() => {
-    capturedJoinCount.value += 1;
-    return queryChain;
-  });
-  queryChain.where.mockReturnValue(queryChain);
-  queryChain.orderBy.mockReturnValue(queryChain);
-  queryChain.limit.mockReturnValue(queryChain);
-  queryChain.offset.mockImplementation(() => {
-    const page = nextPage;
-    nextPage = [];
-    return Promise.resolve(page);
-  });
+function mockFetch(pages: Array<{ rows: unknown[]; isDone: boolean; continueCursor: string | null }>) {
+  const calls: string[] = [];
+  let index = 0;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    const page = pages[Math.min(index++, pages.length - 1)];
+    return new Response(JSON.stringify(page), { status: 200 });
+  }) as unknown as typeof fetch;
+  return calls;
 }
 
-vi.mock("../../../packages/db/src/lib/drizzle", () => ({
-  db: {
-    select: (projection: Record<string, unknown>) => {
-      capturedProjection.push(projection);
-      resetQueryChain();
-      return queryChain;
-    },
-    query: {
-      users: {
-        findFirst: (args: { where: unknown }) => {
-          const eq = args?.where as { _val?: unknown } | undefined;
-          const target = eq?._val;
-          return findFirstByInstructorUserIdMock(target);
-        },
-      },
-      instructors: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
-      sessionPacks: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
-    },
-  },
-}));
-
-vi.mock("../../../packages/db/src/schema", () => ({
-  sessions: {
-    id: "sessions.id",
-    scheduledAt: "sessions.scheduledAt",
-    studentId: "sessions.studentId",
-    instructorId: "sessions.instructorId",
-    sessionPackId: "sessions.sessionPackId",
-    status: "sessions.status",
-  },
-  users: {
-    id: "users.id",
-    email: "users.email",
-    timeZone: "users.timeZone",
-  },
-  instructors: {
-    id: "instructors.id",
-    name: "instructors.name",
-    userId: "instructors.userId",
-  },
-  sessionPacks: {
-    id: "session_packs.id",
-  },
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: (col: unknown, val: unknown) => ({ _col: col, _val: val }),
-  and: vi.fn(() => "and"),
-  gte: vi.fn(() => "gte"),
-  lt: vi.fn(() => "lt"),
-}));
-
-describe("send-session-reminders query projection", () => {
-  beforeAll(async () => {
-    await import("../../../src/trigger/session-change-notifications");
-  });
-
-  beforeEach(() => {
-    capturedProjection.length = 0;
-    capturedJoinCount.value = 0;
-    nextPage = [];
+describe("send-session-reminders (Convex-backed)", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    process.env.CONVEX_HTTP_KEY = "test-key";
     sendEmailMock.mockClear();
-    findFirstByInstructorUserIdMock.mockReset();
-    resetQueryChain();
+    if (!state.schedule) {
+      await import("../../../src/trigger/session-change-notifications");
+    }
   });
 
-  it("registers the schedule with id send-session-reminders and */15 cron", () => {
-    expect(capturedSchedule).not.toBeNull();
-    expect(capturedSchedule!.id).toBe("send-session-reminders");
-    expect(capturedSchedule!.cron).toBe("*/15 * * * *");
+  it("registers the */15 schedule", () => {
+    expect(state.schedule).not.toBeNull();
+    expect(state.schedule!.id).toBe("send-session-reminders");
+    expect(state.schedule!.cron).toBe("*/15 * * * *");
   });
 
-  it("selects exactly the eight fields the email builders consume", async () => {
-    expect(capturedSchedule).not.toBeNull();
-    await capturedSchedule!.run({ timestamp: new Date("2026-10-12T02:30:00.000Z") });
+  it("requests the Convex reminder window over the .convex.site host", async () => {
+    const calls = mockFetch([{ rows: [], isDone: true, continueCursor: null }]);
+    await state.schedule!.run({ timestamp: TICK });
 
-    expect(capturedProjection).toHaveLength(1);
-    const actualKeys = Object.keys(capturedProjection[0]).sort();
-    const expectedKeys = [...EXPECTED_PROJECTION_KEYS].sort();
-    expect(actualKeys).toEqual(expectedKeys);
+    expect(calls).toHaveLength(1);
+    const url = new URL(calls[0]);
+    expect(url.host).toBe("example.convex.site");
+    expect(url.pathname).toBe("/session-notifications/reminder-window");
+    // 30-minute lead time, ±7.5 minute half-window around the tick.
+    expect(Number(url.searchParams.get("start"))).toBe(
+      TICK.getTime() + (30 - 7.5) * 60 * 1000
+    );
+    expect(Number(url.searchParams.get("end"))).toBe(
+      TICK.getTime() + (30 + 7.5) * 60 * 1000
+    );
+    expect(url.searchParams.get("cursor")).toBeNull();
   });
 
-  it("does not join sessionPacks in the reminder query", async () => {
-    expect(capturedSchedule).not.toBeNull();
-    await capturedSchedule!.run({ timestamp: new Date("2026-10-12T02:30:00.000Z") });
+  it("follows the continuation cursor and sends both reminder emails", async () => {
+    const calls = mockFetch([
+      { rows: [ROW], isDone: false, continueCursor: "cursor-2" },
+      { rows: [], isDone: true, continueCursor: null },
+    ]);
 
-    expect(capturedJoinCount.value).toBe(2);
-  });
+    const result = await state.schedule!.run({ timestamp: TICK });
 
-  it("sends both student and instructor reminder emails when the per-row shape is right", async () => {
-    expect(capturedSchedule).not.toBeNull();
-
-    const scheduledAt = new Date("2026-10-12T03:00:00.000Z");
-    nextPage = [
-      {
-        sessionId: "sess_1",
-        scheduledAt,
-        studentId: "user_student_1",
-        instructorId: "instr_1",
-        studentEmail: "student@example.com",
-        studentTimeZone: "America/New_York",
-        instructorName: "Painter Pat",
-        instructorUserId: "user_instructor_1",
-      },
-    ];
-
-    findFirstByInstructorUserIdMock.mockResolvedValue({
-      id: "user_instructor_1",
-      email: "pat@example.com",
-      timeZone: "America/Los_Angeles",
-    });
-
-    const result = (await capturedSchedule!.run({
-      timestamp: new Date("2026-10-12T02:30:00.000Z"),
-    })) as { sessionsFound: number; sent: number; skipped: number; failed: number };
-
-    expect(result.sessionsFound).toBe(1);
-    expect(result.sent).toBe(1);
-    expect(result.failed).toBe(0);
-
-    expect(buildSessionReminderEmailMock).toHaveBeenCalledTimes(1);
-    expect(buildInstructorReminderEmailMock).toHaveBeenCalledTimes(1);
-
-    const studentBuildArgs = buildSessionReminderEmailMock.mock.calls[0][0] as {
-      studentEmail: string;
-      studentName: string;
-      instructorName: string;
-      scheduledAt: Date;
-      minutesUntil: number;
-      studentTimeZone: string | null;
-    };
-    expect(studentBuildArgs.studentEmail).toBe("student@example.com");
-    expect(studentBuildArgs.studentName).toBe("student");
-    expect(studentBuildArgs.instructorName).toBe("Painter Pat");
-    expect(studentBuildArgs.scheduledAt).toBe(scheduledAt);
-    expect(studentBuildArgs.studentTimeZone).toBe("America/New_York");
-
-    const instructorBuildArgs = buildInstructorReminderEmailMock.mock.calls[0][0] as {
-      instructorEmail: string;
-      instructorName: string;
-      studentEmail: string;
-      scheduledAt: Date;
-    };
-    expect(instructorBuildArgs.instructorEmail).toBe("pat@example.com");
-    expect(instructorBuildArgs.instructorName).toBe("Painter Pat");
-    expect(instructorBuildArgs.studentEmail).toBe("student@example.com");
-    expect(instructorBuildArgs.scheduledAt).toBe(scheduledAt);
-
+    expect(calls).toHaveLength(2);
+    expect(new URL(calls[1]).searchParams.get("cursor")).toBe("cursor-2");
+    expect(result).toMatchObject({ sessionsFound: 1, sent: 1, failed: 0, truncated: false });
     expect(sendEmailMock).toHaveBeenCalledTimes(2);
-    const studentCall = sendEmailMock.mock.calls.find(
-      (c) => (c[0] as { to: string }).to === "student@example.com",
-    );
-    const instructorCall = sendEmailMock.mock.calls.find(
-      (c) => (c[0] as { to: string }).to === "pat@example.com",
-    );
-    expect(studentCall).toBeDefined();
-    expect(instructorCall).toBeDefined();
-    expect((studentCall![0] as { kind: string }).kind).toBe("transactional");
-    expect((instructorCall![0] as { kind: string }).kind).toBe("transactional");
+  });
 
-    const studentIdempotency = (studentCall![0] as { idempotencyKey: string })
-      .idempotencyKey;
-    const instructorIdempotency = (instructorCall![0] as { idempotencyKey: string })
-      .idempotencyKey;
-    expect(studentIdempotency).toBe(
-      `session-reminder:student:sess_1:${scheduledAt.toISOString()}`,
+  it("surfaces a non-2xx Convex response instead of silently sending nothing", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      new Response("boom", { status: 500 })
+    ) as unknown as typeof fetch;
+
+    await expect(state.schedule!.run({ timestamp: TICK })).rejects.toThrow(
+      /reminder-window failed: 500/
     );
-    expect(instructorIdempotency).toBe(
-      `session-reminder:instructor:sess_1:${scheduledAt.toISOString()}`,
-    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 });
-
-
