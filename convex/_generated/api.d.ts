@@ -74,6 +74,7 @@ import type * as recordingRetention from "../recordingRetention.js";
 import type * as recordingsReconciliation from "../recordingsReconciliation.js";
 import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
+import type * as sessionNotifications from "../sessionNotifications.js";
 import type * as sessionPacks from "../sessionPacks.js";
 import type * as sessions from "../sessions.js";
 import type * as storageCounter from "../storageCounter.js";
@@ -162,6 +163,7 @@ declare const fullApi: ApiFromModules<{
   recordingsReconciliation: typeof recordingsReconciliation;
   seatReservations: typeof seatReservations;
   seed: typeof seed;
+  sessionNotifications: typeof sessionNotifications;
   sessionPacks: typeof sessionPacks;
   sessions: typeof sessions;
   storageCounter: typeof storageCounter;
