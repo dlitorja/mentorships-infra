@@ -105,6 +105,45 @@ describe("getReminderWindow", () => {
     expect(result.isDone).toBe(true);
   });
 
+  it("finds a student whose users.userId differs from the session's Clerk id", async () => {
+    // Split-record students: `session.studentId` holds the Clerk id while
+    // `users.userId` is a distinct value. Looking up only by_userId dropped
+    // the whole session, so neither party got a reminder.
+    const t = convexTest(schema, modules);
+    const { instructorId } = await seed(t);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        userId: "internal_split_id",
+        clerkId: "user_split_student",
+        email: "split@example.com",
+        timeZone: "Asia/Tokyo",
+      } as never);
+      await ctx.db.insert("sessions", {
+        instructorId,
+        studentId: "user_split_student",
+        scheduledAt: NOW + 20 * 60 * 1000,
+        status: "scheduled",
+        recordingConsent: true,
+      } as never);
+    });
+
+    const result = await t.query(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (await import("./_generated/api")).internal.sessionNotifications.getReminderWindow as any,
+      {
+        startMs: NOW + 15 * 60 * 1000,
+        endMs: NOW + 25 * 60 * 1000,
+        paginationOpts: { cursor: null, numItems: 100 },
+      }
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      studentEmail: "split@example.com",
+      studentTimeZone: "Asia/Tokyo",
+    });
+  });
+
   it("skips sessions whose instructor has no user row (no email to send to)", async () => {
     const t = convexTest(schema, modules);
     await seed(t);

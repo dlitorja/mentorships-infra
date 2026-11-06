@@ -47,6 +47,27 @@ export const getReminderWindow = internalQuery({
       string,
       { email?: string; timeZone?: string } | null
     >();
+
+    // `session.studentId` is a Clerk id, but a split record can hold a
+    // different `users.userId` for the same person (adminOnboardings
+    // `isSeparateStudentRecord`). Match by `userId` first, then fall back to
+    // `clerkId` — otherwise those sessions silently lose their reminder.
+    const findUser = async (id: string) => {
+      if (usersByClerkId.has(id)) return usersByClerkId.get(id) ?? null;
+      const byUserId = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", id))
+        .first();
+      const doc =
+        byUserId ??
+        (await ctx.db
+          .query("users")
+          .withIndex("by_clerkId", (q) => q.eq("clerkId", id))
+          .first());
+      const value = doc ? { email: doc.email, timeZone: doc.timeZone } : null;
+      usersByClerkId.set(id, value);
+      return value;
+    };
     const instructorsById = new Map<
       string,
       { name?: string; userId?: string } | null
@@ -68,35 +89,14 @@ export const getReminderWindow = internalQuery({
       // dangling instructor reference was never reminded. Preserve that.
       if (!instructor) continue;
 
-      let student = usersByClerkId.get(session.studentId);
-      if (student === undefined) {
-        const doc = await ctx.db
-          .query("users")
-          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
-          .first();
-        student = doc ? { email: doc.email, timeZone: doc.timeZone } : null;
-        usersByClerkId.set(session.studentId, student);
-      }
+      const student = await findUser(session.studentId);
       // Same for `users`: the inner join dropped sessions without a student
       // row, and a row without an email produced no student reminder.
       if (!student) continue;
 
-      let instructorUser: { email?: string; timeZone?: string } | null = null;
-      if (instructor.userId) {
-        const clerkId = instructor.userId;
-        if (usersByClerkId.has(clerkId)) {
-          instructorUser = usersByClerkId.get(clerkId) ?? null;
-        } else {
-          const doc = await ctx.db
-            .query("users")
-            .withIndex("by_userId", (q) => q.eq("userId", clerkId))
-            .first();
-          instructorUser = doc
-            ? { email: doc.email, timeZone: doc.timeZone }
-            : null;
-          usersByClerkId.set(clerkId, instructorUser);
-        }
-      }
+      const instructorUser = instructor.userId
+        ? await findUser(instructor.userId)
+        : null;
 
       rows.push({
         sessionId: session._id,
