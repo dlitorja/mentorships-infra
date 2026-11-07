@@ -2,33 +2,32 @@
   "$schema": "https://opencode.ai/config.json",
   "model": "anthropic/claude-sonnet-4-20250514",
   "mcp": {
-    "resend": {
-      "type": "local",
-      "command": ["node", "./node_modules/resend-mcp/dist/index.js"],
-      "enabled": true,
-      "environment": {
-        "RESEND_API_KEY": "{env:RESEND_API_KEY}",
-        "SENDER_EMAIL_ADDRESS": "{env:EMAIL_FROM}"
+    "servers": {
+      "resend": {
+        "type": "local",
+        "command": ["node", "./node_modules/resend-mcp/dist/index.js"],
+        "environment": {
+          "RESEND_API_KEY": "{env:RESEND_API_KEY}",
+          "SENDER_EMAIL_ADDRESS": "{env:EMAIL_FROM}"
+        }
+      },
+      "firecrawl": {
+        "type": "local",
+        "command": ["node", "./node_modules/firecrawl-mcp/dist/index.js"],
+        "environment": {
+          "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}"
+        }
+      },
+      "linear": {
+        "type": "remote",
+        "url": "https://mcp.linear.app/mcp",
+        "pool": true,
+        "oauth": {}
+      },
+      "sprites": {
+        "type": "local",
+        "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"]
       }
-    },
-    "firecrawl": {
-      "type": "local",
-      "command": ["node", "./node_modules/firecrawl-mcp/dist/index.js"],
-      "enabled": true,
-      "environment": {
-        "FIRECRAWL_API_KEY": "{env:FIRECRAWL_API_KEY}"
-      }
-    },
-    "linear": {
-      "type": "remote",
-      "url": "https://mcp.linear.app/mcp",
-      "enabled": true,
-      "oauth": {}
-    },
-    "sprites": {
-      "type": "local",
-      "command": ["node", "./node_modules/mcp-remote/dist/proxy.js", "https://sprites.dev/mcp"],
-      "enabled": true
     }
   }
 }
