@@ -499,6 +499,10 @@ function VideoCallProviderInner({
     if (deepLinkHandledRef.current === deepLinkId) return;
     if (deepLinkStartInFlightRef.current === deepLinkId) return;
 
+    // Wait for Clerk so the expiry guard is based on real data BEFORE any
+    // `callStartedAt` write. The effect re-runs when `isLoaded` flips.
+    if (!sessionExpiry.isLoaded) return;
+
     // Outside the join window: remember the intent, but leave the deep
     // link unconsumed so it can be marked started once the window opens.
     if (session.status === "scheduled") {
@@ -568,6 +572,7 @@ function VideoCallProviderInner({
     initialJoinSessionId,
     markCallStarted,
     session,
+    sessionExpiry.isLoaded,
     workspaceId,
   ]);
 
