@@ -93,6 +93,19 @@ export type VideoCallContextValue = {
    * call is not auto-joined.
    */
   requestJoin: (sessionId: Id<"sessions">) => void;
+  /**
+   * Pre-join guard for Clerk's fixed maximum session lifetime.
+   *
+   * Returns `true` when the current session is due to expire before a
+   * call could end. The provider opens the "sign in again before
+   * joining" dialog and stores `retryJoin`; it runs if the user chooses
+   * "Join anyway". Returns `false` when the join should proceed
+   * immediately.
+   *
+   * Call this before any work that should not happen ahead of the user
+   * resolving the prompt (e.g. creating an ad-hoc session).
+   */
+  guardJoinAgainstSessionExpiry: (retryJoin: () => void) => boolean;
   leave: () => Promise<void>;
   toggleMute: () => void;
   toggleCamera: () => void;

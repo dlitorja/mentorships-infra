@@ -86,6 +86,7 @@ const renderButton = (
     session: overrides.session ?? null,
     isSessionLoading: overrides.isSessionLoading ?? false,
     requestJoin: vi.fn(),
+    guardJoinAgainstSessionExpiry: vi.fn(() => false),
   });
   return render(<StartAdhocButton workspaceId={"ws_test" as never} />);
 };

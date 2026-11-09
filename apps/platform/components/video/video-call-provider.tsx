@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DailyProvider } from "@daily-co/daily-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
@@ -12,6 +12,8 @@ import { VideoCallContext, type VideoCallContextValue } from "@/lib/video/video-
 import { useCurrentOrUpcomingSessionForWorkspace } from "@/lib/hooks/use-active-session";
 import { useVideoCall } from "@/lib/hooks/use-video-call";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
+import { useSessionExpiry } from "@/lib/hooks/use-session-expiry";
+import { SessionExpiryDialog } from "@/components/video/session-expiry-dialog";
 
 const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
@@ -245,6 +247,60 @@ function VideoCallProviderInner({
   // opens a workspace with a call in progress is not pulled in automatically.
   const [requestedJoinSessionId, setRequestedJoinSessionId] =
     useState<Id<"sessions"> | null>(null);
+
+  // Pre-call session-expiry guard.
+  //
+  // Clerk's maximum session lifetime is fixed at creation and is NOT
+  // extended by activity (the ~50s session-token refresh does not push
+  // `expireAt` out). On the current plan that lifetime is 7 days. When
+  // the expiry lands inside a call, Clerk stops issuing tokens, Convex
+  // auth flips to unauthenticated, and the next navigation redirects to
+  // /sign-in — tearing down the Daily call. This guard asks the user to
+  // re-authenticate before joining, which mints a new session with a
+  // fresh lifetime. See `lib/video/session-expiry.ts`.
+  const sessionExpiry = useSessionExpiry();
+  const [expiryDialogOpen, setExpiryDialogOpen] = useState(false);
+  const [allowJoinDespiteExpiry, setAllowJoinDespiteExpiry] = useState(false);
+  const pendingJoinActionRef = useRef<(() => void) | null>(null);
+
+  // A new session gets its own maximum lifetime; clear the "join anyway"
+  // override so the guard applies again if the new session has also
+  // entered its final hours.
+  useEffect(() => {
+    setAllowJoinDespiteExpiry(false);
+  }, [session?.sessionId]);
+
+  const guardJoinAgainstSessionExpiry = useCallback(
+    (retryJoin: () => void): boolean => {
+      if (!sessionExpiry.expiresDuringCall || allowJoinDespiteExpiry) {
+        return false;
+      }
+      pendingJoinActionRef.current = retryJoin;
+      setExpiryDialogOpen(true);
+      return true;
+    },
+    [allowJoinDespiteExpiry, sessionExpiry.expiresDuringCall],
+  );
+
+  const handleExpiryDialogOpenChange = useCallback((open: boolean): void => {
+    setExpiryDialogOpen(open);
+    if (!open) {
+      // Dismissed without choosing: drop any pending join so the guard
+      // does not immediately re-open the dialog against a still-requested
+      // session. The user can press Join again at any time.
+      pendingJoinActionRef.current = null;
+      setRequestedJoinSessionId(null);
+    }
+  }, []);
+
+  const handleJoinAnyway = useCallback((): void => {
+    setExpiryDialogOpen(false);
+    setAllowJoinDespiteExpiry(true);
+    const retryJoin = pendingJoinActionRef.current;
+    pendingJoinActionRef.current = null;
+    retryJoin?.();
+  }, []);
+
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
@@ -274,11 +330,21 @@ function VideoCallProviderInner({
     roomName: session?.videoRoomName ?? null,
   });
 
-  const requestJoin = useCallback((sessionId: Id<"sessions">): void => {
-    setRequestedJoinSessionId(sessionId);
-  }, []);
+  const requestJoin = useCallback(
+    (sessionId: Id<"sessions">): void => {
+      if (
+        guardJoinAgainstSessionExpiry(() => {
+          setRequestedJoinSessionId(sessionId);
+        })
+      ) {
+        return;
+      }
+      setRequestedJoinSessionId(sessionId);
+    },
+    [guardJoinAgainstSessionExpiry],
+  );
 
-  const joinCall = useCallback(async (): Promise<void> => {
+  const performJoin = useCallback(async (): Promise<void> => {
     if (!session) return;
     if (session.status === "active") {
       await call.join();
@@ -305,6 +371,21 @@ function VideoCallProviderInner({
       return;
     }
   }, [call, markCallStarted, session]);
+
+  const joinCall = useCallback(async (): Promise<void> => {
+    if (
+      guardJoinAgainstSessionExpiry(() => {
+        // "Join anyway" from the session-expiry dialog resumes the join
+        // without re-triggering the guard. `performJoin` already reports
+        // failures and exposes them via `errorMessage`, so swallow the
+        // rethrow to avoid an unhandled rejection from the retry path.
+        void performJoin().catch(() => {});
+      })
+    ) {
+      return;
+    }
+    await performJoin();
+  }, [guardJoinAgainstSessionExpiry, performJoin]);
 
   const togglePictureInPicture = useCallback((): void => {
     setIsPictureInPicture((prev) => !prev);
@@ -338,6 +419,15 @@ function VideoCallProviderInner({
     if (call.hasProgrammaticallyLeft) return;
     if (!session.videoRoomName) return;
 
+    // Wait for Clerk to resolve the session so the expiry decision is
+    // based on real data. The effect re-runs when `isLoaded` flips.
+    if (!sessionExpiry.isLoaded) return;
+    // If the session would expire mid-call, park the join behind the
+    // re-auth dialog. "Join anyway" flips `allowJoinDespiteExpiry`,
+    // which changes `guardJoinAgainstSessionExpiry`'s identity and
+    // re-runs this effect.
+    if (guardJoinAgainstSessionExpiry(() => {})) return;
+
     void call
       .join()
       .then(() => {
@@ -347,8 +437,16 @@ function VideoCallProviderInner({
         // Error already captured by useVideoCall state (errorMessage).
         // The caller (Start button / deep-link) can re-request if needed.
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.join, call.status, call.hasProgrammaticallyLeft, session, requestedJoinSessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- track the stable call fields, not the per-render `call` object identity
+  }, [
+    call.join,
+    call.status,
+    call.hasProgrammaticallyLeft,
+    guardJoinAgainstSessionExpiry,
+    requestedJoinSessionId,
+    session,
+    sessionExpiry.isLoaded,
+  ]);
 
   // Clear a stale request if the active session changed to a different one
   // (e.g. the user switched workspaces while a request was pending).
@@ -371,6 +469,14 @@ function VideoCallProviderInner({
     if (!session) return;
     if (String(session.sessionId) !== String(initialJoinSessionId)) return;
 
+    // Wait for Clerk so the expiry decision is based on real data.
+    if (!sessionExpiry.isLoaded) return;
+    // If the session would expire mid-call, do NOT mark the call started
+    // or request an auto-join yet. "Join anyway" flips
+    // `allowJoinDespiteExpiry`, changing `guardJoinAgainstSessionExpiry`'s
+    // identity and re-running this effect.
+    if (guardJoinAgainstSessionExpiry(() => {})) return;
+
     setRequestedJoinSessionId(session.sessionId);
 
     if (session.status === "joinable") {
@@ -389,7 +495,14 @@ function VideoCallProviderInner({
           });
         });
     }
-  }, [session, initialJoinSessionId, markCallStarted, workspaceId]);
+  }, [
+    guardJoinAgainstSessionExpiry,
+    initialJoinSessionId,
+    markCallStarted,
+    session,
+    sessionExpiry.isLoaded,
+    workspaceId,
+  ]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({
@@ -407,6 +520,7 @@ function VideoCallProviderInner({
       durationSeconds: call.durationSeconds,
       join: joinCall,
       requestJoin,
+      guardJoinAgainstSessionExpiry,
       leave: call.leave,
       toggleMute: call.toggleMute,
       toggleCamera: call.toggleCamera,
@@ -429,6 +543,7 @@ function VideoCallProviderInner({
       call.toggleCamera,
       call.toggleScreenShare,
       call.leave,
+      guardJoinAgainstSessionExpiry,
       joinCall,
       requestJoin,
       togglePictureInPicture,
@@ -436,7 +551,20 @@ function VideoCallProviderInner({
     ]
   );
 
+  const expiryReturnPath = workspaceId
+    ? `/workspace/${workspaceId}${initialJoinSessionId ? `?join=${initialJoinSessionId}` : ""}`
+    : null;
+
   return (
-    <VideoCallContext.Provider value={value}>{children}</VideoCallContext.Provider>
+    <VideoCallContext.Provider value={value}>
+      {children}
+      <SessionExpiryDialog
+        open={expiryDialogOpen}
+        expiresAt={sessionExpiry.expiresAt}
+        returnPath={expiryReturnPath}
+        onOpenChange={handleExpiryDialogOpenChange}
+        onJoinAnyway={handleJoinAnyway}
+      />
+    </VideoCallContext.Provider>
   );
 }

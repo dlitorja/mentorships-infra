@@ -8,6 +8,15 @@
 export const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 export const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
 
+/**
+ * Longest a participant can stay joined to a Daily room. Mirrors the
+ * server-side `DAILY_MAX_RECORDING_SECONDS` (`eject_after_elapsed`) and
+ * `JOIN_WINDOW_AFTER_MS`. Used by the pre-call session-expiry guard to
+ * decide whether the caller's Clerk session could expire before the call
+ * is forcibly ended.
+ */
+export const MAX_CALL_DURATION_MS = 4 * 60 * 60 * 1000;
+
 /** Minimum panel width for the resizable split (px). Below this the
  *  panel collapses into PiP. Matches docs/plans/video-calling.md. */
 export const MIN_PANEL_WIDTH_PX = 360;
