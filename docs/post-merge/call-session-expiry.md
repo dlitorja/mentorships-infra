@@ -69,13 +69,15 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
   and any `?join=` deep link survive re-auth) and "Join anyway" (advisory
   override).
 - `apps/platform/components/video/video-call-provider.tsx` — guards the
-  gated auto-join choke point (Join button, `requestJoin` from Start Call /
-  ad-hoc, and `?join=` deep links all converge there). The override is
-  ref-backed so a saved ad-hoc retry cannot re-prompt after the session has
-  been created, and a `?join=` deep link is consumed once acted on so the
-  5s session poll cannot resurrect a dismissed join. The deep-link effect
-  itself no longer guards, which prevents the time-based threshold from
-  opening the dialog over an already-joined call.
+  join at the idle-only auto-join choke point, and guards a `?join=` deep
+  link **before** it writes `callStartedAt` so a dismissed or re-authing
+  user cannot leave the room looking "in progress" with nobody in it. The
+  override is ref-backed so a saved ad-hoc retry cannot re-prompt after the
+  session has been created. A deep link is consumed once acted on (so the
+  5s session poll cannot resurrect a dismissed join or reopen the dialog
+  over an active call), is left unconsumed when `markCallStarted` fails so
+  a later poll retries, and surfaces a one-time toast instead of failing
+  silently.
 - `apps/platform/components/video/start-adhoc-button.tsx` — checks the guard
   **before** creating the ad-hoc session, so a user who re-authenticates first
   does not leave behind an active session nobody joined.

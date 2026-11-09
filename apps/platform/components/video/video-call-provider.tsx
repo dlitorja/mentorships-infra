@@ -274,6 +274,12 @@ function VideoCallProviderInner({
   // session poll cannot re-request it (and re-open the dialog) after a
   // dismissal. Keyed by session id; a full page reload (re-auth) resets it.
   const deepLinkHandledRef = useRef<string | null>(null);
+  // Avoid toasting the same deep-link start failure on every 5s poll while
+  // the link is intentionally left unconsumed for a retry.
+  const deepLinkErrorNotifiedRef = useRef<string | null>(null);
+  // Prevent a session poll from firing a duplicate `markCallStarted`
+  // request while the first one is still in flight.
+  const deepLinkStartInFlightRef = useRef<string | null>(null);
 
   const guardJoinAgainstSessionExpiry = useCallback(
     (retryJoin: () => void): boolean => {
@@ -488,21 +494,45 @@ function VideoCallProviderInner({
   useEffect(() => {
     if (!initialJoinSessionId) return;
     if (!session) return;
-    if (String(session.sessionId) !== String(initialJoinSessionId)) return;
-    if (deepLinkHandledRef.current === String(initialJoinSessionId)) return;
+    const deepLinkId = String(initialJoinSessionId);
+    if (String(session.sessionId) !== deepLinkId) return;
+    if (deepLinkHandledRef.current === deepLinkId) return;
+    if (deepLinkStartInFlightRef.current === deepLinkId) return;
 
-    setRequestedJoinSessionId(session.sessionId);
+    // Outside the join window: remember the intent, but leave the deep
+    // link unconsumed so it can be marked started once the window opens.
+    if (session.status === "scheduled") {
+      setRequestedJoinSessionId(session.sessionId);
+      return;
+    }
 
-    // Still outside the join window: leave the deep link unconsumed so
-    // this effect can mark it started once it becomes joinable.
-    if (session.status === "scheduled") return;
+    // Runs after the expiry guard passes (or when the user picks "Join
+    // anyway"). Marks the session started BEFORE requesting the gated
+    // join, because the gated effect requires `status === "active"`.
+    const requestAndMaybeStart = (): void => {
+      setRequestedJoinSessionId(session.sessionId);
+      if (session.status !== "joinable") return;
 
-    deepLinkHandledRef.current = String(initialJoinSessionId);
-
-    if (session.status === "joinable") {
+      deepLinkStartInFlightRef.current = deepLinkId;
       void markCallStarted
         .mutateAsync({ sessionId: session.sessionId })
+        .then(() => {
+          deepLinkStartInFlightRef.current = null;
+          deepLinkHandledRef.current = deepLinkId;
+        })
         .catch(async (err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          deepLinkStartInFlightRef.current = null;
+          // Leave the deep link unconsumed so a later poll retries. The
+          // mutation is idempotent server-side (`markCallStarted` returns
+          // the existing `callStartedAt`).
+          if (deepLinkHandledRef.current === deepLinkId) {
+            deepLinkHandledRef.current = null;
+          }
+          if (deepLinkErrorNotifiedRef.current !== deepLinkId) {
+            deepLinkErrorNotifiedRef.current = deepLinkId;
+            toast.error("Could not start the call", { description: message });
+          }
           await reportError({
             source: "videoCallProvider.deepLink.markCallStarted",
             error: err instanceof Error ? err : new Error(String(err)),
@@ -514,8 +544,32 @@ function VideoCallProviderInner({
             },
           });
         });
+    };
+
+    // Guard BEFORE writing `callStartedAt`: a user who dismisses the
+    // warning or leaves to sign in must not leave the room showing
+    // "Call in progress" with nobody in it. Consuming the link here keeps
+    // the poll from re-opening the dialog after a dismissal; "Join
+    // anyway" runs `requestAndMaybeStart` directly.
+    if (guardJoinAgainstSessionExpiry(requestAndMaybeStart)) {
+      deepLinkHandledRef.current = deepLinkId;
+      return;
     }
-  }, [initialJoinSessionId, markCallStarted, session, workspaceId]);
+
+    // Active sessions need no write; consume immediately. Joinable
+    // sessions are consumed by the mutation's success path so a failed
+    // start can be retried on a later poll.
+    if (session.status !== "joinable") {
+      deepLinkHandledRef.current = deepLinkId;
+    }
+    requestAndMaybeStart();
+  }, [
+    guardJoinAgainstSessionExpiry,
+    initialJoinSessionId,
+    markCallStarted,
+    session,
+    workspaceId,
+  ]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({
