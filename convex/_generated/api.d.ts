@@ -84,6 +84,7 @@ import type * as studentSessionCounts from "../studentSessionCounts.js";
 import type * as userIdentities from "../userIdentities.js";
 import type * as users from "../users.js";
 import type * as videoEditorAssignments from "../videoEditorAssignments.js";
+import type * as videoSessionExpiry from "../videoSessionExpiry.js";
 import type * as waitlist from "../waitlist.js";
 import type * as workspaceActions from "../workspaceActions.js";
 import type * as workspaceConstants from "../workspaceConstants.js";
@@ -173,6 +174,7 @@ declare const fullApi: ApiFromModules<{
   userIdentities: typeof userIdentities;
   users: typeof users;
   videoEditorAssignments: typeof videoEditorAssignments;
+  videoSessionExpiry: typeof videoSessionExpiry;
   waitlist: typeof waitlist;
   workspaceActions: typeof workspaceActions;
   workspaceConstants: typeof workspaceConstants;
