@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DailyProvider } from "@daily-co/daily-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { reportError } from "@/lib/observability";
@@ -261,18 +262,26 @@ function VideoCallProviderInner({
   const sessionExpiry = useSessionExpiry();
   const [expiryDialogOpen, setExpiryDialogOpen] = useState(false);
   const [allowJoinDespiteExpiry, setAllowJoinDespiteExpiry] = useState(false);
+  // The ref is authoritative. Saved join callbacks (e.g. the StartAdhoc
+  // retry) were captured in an earlier render and would otherwise read a
+  // stale `allowJoinDespiteExpiry=false`, re-opening the dialog after the
+  // ad-hoc session has already been created. The state value exists so
+  // this override changes `guardJoinAgainstSessionExpiry`'s identity and
+  // re-runs the effects that parked their join behind the dialog.
+  const allowJoinDespiteExpiryRef = useRef(false);
   const pendingJoinActionRef = useRef<(() => void) | null>(null);
-
-  // A new session gets its own maximum lifetime; clear the "join anyway"
-  // override so the guard applies again if the new session has also
-  // entered its final hours.
-  useEffect(() => {
-    setAllowJoinDespiteExpiry(false);
-  }, [session?.sessionId]);
+  // Consume a `?join=` deep link once it has been acted on so the 5s
+  // session poll cannot re-request it (and re-open the dialog) after a
+  // dismissal. Keyed by session id; a full page reload (re-auth) resets it.
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   const guardJoinAgainstSessionExpiry = useCallback(
     (retryJoin: () => void): boolean => {
-      if (!sessionExpiry.expiresDuringCall || allowJoinDespiteExpiry) {
+      if (
+        !sessionExpiry.expiresDuringCall ||
+        allowJoinDespiteExpiryRef.current ||
+        allowJoinDespiteExpiry
+      ) {
         return false;
       }
       pendingJoinActionRef.current = retryJoin;
@@ -294,6 +303,7 @@ function VideoCallProviderInner({
   }, []);
 
   const handleJoinAnyway = useCallback((): void => {
+    allowJoinDespiteExpiryRef.current = true;
     setExpiryDialogOpen(false);
     setAllowJoinDespiteExpiry(true);
     const retryJoin = pendingJoinActionRef.current;
@@ -376,10 +386,14 @@ function VideoCallProviderInner({
     if (
       guardJoinAgainstSessionExpiry(() => {
         // "Join anyway" from the session-expiry dialog resumes the join
-        // without re-triggering the guard. `performJoin` already reports
-        // failures and exposes them via `errorMessage`, so swallow the
-        // rethrow to avoid an unhandled rejection from the retry path.
-        void performJoin().catch(() => {});
+        // without re-triggering the guard. Surface failures the same way
+        // the normal Join button does — `performJoin` reports to
+        // observability and exposes the reason via `errorMessage`, but it
+        // throws, so without this toast the dialog would simply vanish.
+        void performJoin().catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          toast.error("Could not join call", { description: message });
+        });
       })
     ) {
       return;
@@ -464,20 +478,26 @@ function VideoCallProviderInner({
   // already reflects the deep-link target. We request a join and, if
   // the session is still joinable, mark it started first so the gated
   // auto-join effect can bring the user into the call.
+  //
+  // The session-expiry guard is deliberately NOT applied here: the
+  // gated auto-join effect is the single choke point, and it only runs
+  // while the local call is idle. Guarding here would let a time-based
+  // `expiresDuringCall` flip re-open the dialog over an already-joined
+  // call. The deep link is consumed once acted on (or once the session
+  // becomes joinable) so the 5s poll cannot resurrect a dismissed join.
   useEffect(() => {
     if (!initialJoinSessionId) return;
     if (!session) return;
     if (String(session.sessionId) !== String(initialJoinSessionId)) return;
-
-    // Wait for Clerk so the expiry decision is based on real data.
-    if (!sessionExpiry.isLoaded) return;
-    // If the session would expire mid-call, do NOT mark the call started
-    // or request an auto-join yet. "Join anyway" flips
-    // `allowJoinDespiteExpiry`, changing `guardJoinAgainstSessionExpiry`'s
-    // identity and re-running this effect.
-    if (guardJoinAgainstSessionExpiry(() => {})) return;
+    if (deepLinkHandledRef.current === String(initialJoinSessionId)) return;
 
     setRequestedJoinSessionId(session.sessionId);
+
+    // Still outside the join window: leave the deep link unconsumed so
+    // this effect can mark it started once it becomes joinable.
+    if (session.status === "scheduled") return;
+
+    deepLinkHandledRef.current = String(initialJoinSessionId);
 
     if (session.status === "joinable") {
       void markCallStarted
@@ -495,14 +515,7 @@ function VideoCallProviderInner({
           });
         });
     }
-  }, [
-    guardJoinAgainstSessionExpiry,
-    initialJoinSessionId,
-    markCallStarted,
-    session,
-    sessionExpiry.isLoaded,
-    workspaceId,
-  ]);
+  }, [initialJoinSessionId, markCallStarted, session, workspaceId]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({
@@ -551,8 +564,13 @@ function VideoCallProviderInner({
     ]
   );
 
+  // Preserve the join intent across re-auth. A deep link already carries
+  // the session id; a manual Join uses the current session's id so the
+  // post-sign-in deep-link effect resumes the call instead of dropping the
+  // user on a bare workspace page.
+  const joinTargetSessionId = initialJoinSessionId ?? session?.sessionId ?? null;
   const expiryReturnPath = workspaceId
-    ? `/workspace/${workspaceId}${initialJoinSessionId ? `?join=${initialJoinSessionId}` : ""}`
+    ? `/workspace/${workspaceId}${joinTargetSessionId ? `?join=${joinTargetSessionId}` : ""}`
     : null;
 
   return (

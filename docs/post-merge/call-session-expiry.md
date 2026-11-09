@@ -68,9 +68,14 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
   `/api/auth/bounce-redirect?redirect_url=/workspace/...`, so the workspace
   and any `?join=` deep link survive re-auth) and "Join anyway" (advisory
   override).
-- `apps/platform/components/video/video-call-provider.tsx` — guards every
-  join path: the Join button, `requestJoin` (Start Call / ad-hoc), the gated
-  auto-join effect, and the `?join=` deep-link effect.
+- `apps/platform/components/video/video-call-provider.tsx` — guards the
+  gated auto-join choke point (Join button, `requestJoin` from Start Call /
+  ad-hoc, and `?join=` deep links all converge there). The override is
+  ref-backed so a saved ad-hoc retry cannot re-prompt after the session has
+  been created, and a `?join=` deep link is consumed once acted on so the
+  5s session poll cannot resurrect a dismissed join. The deep-link effect
+  itself no longer guards, which prevents the time-based threshold from
+  opening the dialog over an already-joined call.
 - `apps/platform/components/video/start-adhoc-button.tsx` — checks the guard
   **before** creating the ad-hoc session, so a user who re-authenticates first
   does not leave behind an active session nobody joined.
