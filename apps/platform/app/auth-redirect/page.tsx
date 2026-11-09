@@ -7,6 +7,7 @@ import { fetchQuery } from "convex/nextjs";
 
 import { api } from "@/convex/_generated/api";
 import { getConvexAuthToken } from "@/lib/auth-helpers";
+import { shouldHonorRequestedDestination } from "@/lib/auth-redirect";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,22 @@ async function resolveRedirect({
   }
   if (!role) role = "student";
 
+  // A validated internal destination wins over the role default for
+  // students (onboarding questionnaires / workspace deep links) and for
+  // staff when it targets a workspace (call invites, recording-ready
+  // links, and the pre-call session-expiry re-auth prompt). Staff do NOT
+  // get onboarding-shaped destinations — those are student-only.
+  //
+  // Security: `requested` has already passed
+  // `whitelistedRedirectValue` (internal paths only, no `//host`, no
+  // `../` escapes); `shouldHonorRequestedDestination` re-checks the path
+  // shape and applies the role rule. A `/workspace/{id}` destination is
+  // still server-authorized by the workspace page, which redirects to
+  // `/workspace` when the caller is not a participant.
+  if (requested && shouldHonorRequestedDestination(role, requested)) {
+    redirect(requested);
+  }
+
   if (role === "admin") {
     redirect("/admin");
   }
@@ -89,15 +106,11 @@ async function resolveRedirect({
     redirect("/instructor/dashboard");
   }
 
-  // Student path: respect the requested redirect (set by
-  // reminder emails) if it's an internal onboarding URL,
-  // otherwise check for an active onboarding before falling
-  // through to /dashboard. The query is auth-gated server-
-  // side and uses the `by_assignedStudentClerkId_createdAt`
-  // index — bounded lookup so this stays cheap.
-  if (requested) {
-    redirect(requested);
-  }
+  // Student path without a requested destination: check for an active
+  // onboarding before falling through to /dashboard. The query is
+  // auth-gated server-side and uses the
+  // `by_assignedStudentClerkId_createdAt` index — bounded lookup so
+  // this stays cheap.
   const token = await getConvexAuthToken();
   const onboardingId = await fetchQuery(
     api.adminOnboarding.getIncompleteOnboardingForCurrentUser,

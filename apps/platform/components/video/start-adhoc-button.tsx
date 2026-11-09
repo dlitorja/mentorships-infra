@@ -49,7 +49,8 @@ export function StartAdhocButton({
 }: StartAdhocButtonProps): React.ReactElement | null {
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const { session, isSessionLoading, requestJoin } = useVideoCallContext();
+  const { session, isSessionLoading, requestJoin, guardJoinAgainstSessionExpiry } =
+    useVideoCallContext();
   const isInCall = useIsInCall();
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
@@ -192,6 +193,18 @@ export function StartAdhocButton({
         defaultRecording={true}
         mode="start"
         onResolved={(consent) => {
+          // Guard BEFORE creating the ad-hoc session so a user who has to
+          // re-authenticate first does not leave behind an active session
+          // nobody joined. If they choose "Join anyway", the retry below
+          // restarts the whole flow with the same consent choice.
+          if (
+            guardJoinAgainstSessionExpiry(() => {
+              void startAdhoc(consent);
+            })
+          ) {
+            setModalOpen(false);
+            return;
+          }
           void startAdhoc(consent);
         }}
         onCancel={() => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DailyProvider } from "@daily-co/daily-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { reportError } from "@/lib/observability";
@@ -12,9 +13,14 @@ import { VideoCallContext, type VideoCallContextValue } from "@/lib/video/video-
 import { useCurrentOrUpcomingSessionForWorkspace } from "@/lib/hooks/use-active-session";
 import { useVideoCall } from "@/lib/hooks/use-video-call";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
+import { useSessionExpiry } from "@/lib/hooks/use-session-expiry";
+import { SessionExpiryDialog } from "@/components/video/session-expiry-dialog";
 
 const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
+
+/** Explicit delay before retrying a failed `?join=` deep-link start. */
+const DEEP_LINK_RETRY_MS = 30_000;
 
 /**
  * PR #4c-2: derives the `CurrentOrUpcomingSession` shape that
@@ -245,6 +251,89 @@ function VideoCallProviderInner({
   // opens a workspace with a call in progress is not pulled in automatically.
   const [requestedJoinSessionId, setRequestedJoinSessionId] =
     useState<Id<"sessions"> | null>(null);
+
+  // Pre-call session-expiry guard.
+  //
+  // Clerk's maximum session lifetime is fixed at creation and is NOT
+  // extended by activity (the ~50s session-token refresh does not push
+  // `expireAt` out). On the current plan that lifetime is 7 days. When
+  // the expiry lands inside a call, Clerk stops issuing tokens, Convex
+  // auth flips to unauthenticated, and the next navigation redirects to
+  // /sign-in — tearing down the Daily call. This guard asks the user to
+  // re-authenticate before joining, which mints a new session with a
+  // fresh lifetime. See `lib/video/session-expiry.ts`.
+  const sessionExpiry = useSessionExpiry();
+  const [expiryDialogOpen, setExpiryDialogOpen] = useState(false);
+  const [allowJoinDespiteExpiry, setAllowJoinDespiteExpiry] = useState(false);
+  // The ref is authoritative. Saved join callbacks (e.g. the StartAdhoc
+  // retry) were captured in an earlier render and would otherwise read a
+  // stale `allowJoinDespiteExpiry=false`, re-opening the dialog after the
+  // ad-hoc session has already been created. The state value exists so
+  // this override changes `guardJoinAgainstSessionExpiry`'s identity and
+  // re-runs the effects that parked their join behind the dialog.
+  const allowJoinDespiteExpiryRef = useRef(false);
+  const pendingJoinActionRef = useRef<(() => void) | null>(null);
+  // Consume a `?join=` deep link once it has been acted on so the 5s
+  // session poll cannot re-request it (and re-open the dialog) after a
+  // dismissal. Keyed by session id; a full page reload (re-auth) resets it.
+  const deepLinkHandledRef = useRef<string | null>(null);
+  // Avoid toasting the same deep-link start failure on every 5s poll while
+  // the link is intentionally left unconsumed for a retry.
+  const deepLinkErrorNotifiedRef = useRef<string | null>(null);
+  // Prevent a session poll from firing a duplicate `markCallStarted`
+  // request while the first one is still in flight.
+  const deepLinkStartInFlightRef = useRef<string | null>(null);
+  // A failed deep-link start is retried on an explicit 30s delay instead of
+  // on every render. A lasting error (e.g. missing Daily room) must not turn
+  // into a request/report loop for as long as the page stays open.
+  const deepLinkRetryAfterRef = useRef(0);
+  const deepLinkRetryTimerRef = useRef<number | null>(null);
+  const [deepLinkRetryNonce, setDeepLinkRetryNonce] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      if (deepLinkRetryTimerRef.current !== null) {
+        window.clearTimeout(deepLinkRetryTimerRef.current);
+      }
+    };
+  }, []);
+
+  const guardJoinAgainstSessionExpiry = useCallback(
+    (retryJoin: () => void): boolean => {
+      if (
+        !sessionExpiry.expiresDuringCall ||
+        allowJoinDespiteExpiryRef.current ||
+        allowJoinDespiteExpiry
+      ) {
+        return false;
+      }
+      pendingJoinActionRef.current = retryJoin;
+      setExpiryDialogOpen(true);
+      return true;
+    },
+    [allowJoinDespiteExpiry, sessionExpiry.expiresDuringCall],
+  );
+
+  const handleExpiryDialogOpenChange = useCallback((open: boolean): void => {
+    setExpiryDialogOpen(open);
+    if (!open) {
+      // Dismissed without choosing: drop any pending join so the guard
+      // does not immediately re-open the dialog against a still-requested
+      // session. The user can press Join again at any time.
+      pendingJoinActionRef.current = null;
+      setRequestedJoinSessionId(null);
+    }
+  }, []);
+
+  const handleJoinAnyway = useCallback((): void => {
+    allowJoinDespiteExpiryRef.current = true;
+    setExpiryDialogOpen(false);
+    setAllowJoinDespiteExpiry(true);
+    const retryJoin = pendingJoinActionRef.current;
+    pendingJoinActionRef.current = null;
+    retryJoin?.();
+  }, []);
+
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
@@ -266,6 +355,12 @@ function VideoCallProviderInner({
     },
   });
 
+  // `mutateAsync` is stable across renders. Depending on the whole
+  // `markCallStarted` mutation object would make the deep-link effect re-run
+  // on every pending/error state transition — turning a failed start into an
+  // immediate retry loop.
+  const markCallStartedAsync = markCallStarted.mutateAsync;
+
   const call = useVideoCall({
     enabled:
       session?.status === "active" || session?.status === "joinable",
@@ -274,11 +369,21 @@ function VideoCallProviderInner({
     roomName: session?.videoRoomName ?? null,
   });
 
-  const requestJoin = useCallback((sessionId: Id<"sessions">): void => {
-    setRequestedJoinSessionId(sessionId);
-  }, []);
+  const requestJoin = useCallback(
+    (sessionId: Id<"sessions">): void => {
+      if (
+        guardJoinAgainstSessionExpiry(() => {
+          setRequestedJoinSessionId(sessionId);
+        })
+      ) {
+        return;
+      }
+      setRequestedJoinSessionId(sessionId);
+    },
+    [guardJoinAgainstSessionExpiry],
+  );
 
-  const joinCall = useCallback(async (): Promise<void> => {
+  const performJoin = useCallback(async (): Promise<void> => {
     if (!session) return;
     if (session.status === "active") {
       await call.join();
@@ -305,6 +410,25 @@ function VideoCallProviderInner({
       return;
     }
   }, [call, markCallStarted, session]);
+
+  const joinCall = useCallback(async (): Promise<void> => {
+    if (
+      guardJoinAgainstSessionExpiry(() => {
+        // "Join anyway" from the session-expiry dialog resumes the join
+        // without re-triggering the guard. Surface failures the same way
+        // the normal Join button does — `performJoin` reports to
+        // observability and exposes the reason via `errorMessage`, but it
+        // throws, so without this toast the dialog would simply vanish.
+        void performJoin().catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          toast.error("Could not join call", { description: message });
+        });
+      })
+    ) {
+      return;
+    }
+    await performJoin();
+  }, [guardJoinAgainstSessionExpiry, performJoin]);
 
   const togglePictureInPicture = useCallback((): void => {
     setIsPictureInPicture((prev) => !prev);
@@ -338,6 +462,15 @@ function VideoCallProviderInner({
     if (call.hasProgrammaticallyLeft) return;
     if (!session.videoRoomName) return;
 
+    // Wait for Clerk to resolve the session so the expiry decision is
+    // based on real data. The effect re-runs when `isLoaded` flips.
+    if (!sessionExpiry.isLoaded) return;
+    // If the session would expire mid-call, park the join behind the
+    // re-auth dialog. "Join anyway" flips `allowJoinDespiteExpiry`,
+    // which changes `guardJoinAgainstSessionExpiry`'s identity and
+    // re-runs this effect.
+    if (guardJoinAgainstSessionExpiry(() => {})) return;
+
     void call
       .join()
       .then(() => {
@@ -347,8 +480,16 @@ function VideoCallProviderInner({
         // Error already captured by useVideoCall state (errorMessage).
         // The caller (Start button / deep-link) can re-request if needed.
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.join, call.status, call.hasProgrammaticallyLeft, session, requestedJoinSessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- track the stable call fields, not the per-render `call` object identity
+  }, [
+    call.join,
+    call.status,
+    call.hasProgrammaticallyLeft,
+    guardJoinAgainstSessionExpiry,
+    requestedJoinSessionId,
+    session,
+    sessionExpiry.isLoaded,
+  ]);
 
   // Clear a stale request if the active session changed to a different one
   // (e.g. the user switched workspaces while a request was pending).
@@ -366,17 +507,70 @@ function VideoCallProviderInner({
   // already reflects the deep-link target. We request a join and, if
   // the session is still joinable, mark it started first so the gated
   // auto-join effect can bring the user into the call.
+  //
+  // The session-expiry guard runs BEFORE `markCallStarted` so a user who
+  // dismisses the warning or leaves to sign in cannot make the room look
+  // "in progress" with nobody in it. The gated auto-join effect then does
+  // the idle-only join. The deep link is consumed once acted on so the 5s
+  // poll cannot resurrect a dismissed join or reopen the dialog over an
+  // active call. A failed start is retried on an explicit 30s delay.
   useEffect(() => {
     if (!initialJoinSessionId) return;
     if (!session) return;
-    if (String(session.sessionId) !== String(initialJoinSessionId)) return;
+    const deepLinkId = String(initialJoinSessionId);
+    if (String(session.sessionId) !== deepLinkId) return;
+    if (deepLinkHandledRef.current === deepLinkId) return;
+    if (deepLinkStartInFlightRef.current === deepLinkId) return;
+    if (Date.now() < deepLinkRetryAfterRef.current) return;
 
-    setRequestedJoinSessionId(session.sessionId);
+    // Wait for Clerk so the expiry guard is based on real data BEFORE any
+    // `callStartedAt` write. The effect re-runs when `isLoaded` flips.
+    if (!sessionExpiry.isLoaded) return;
 
-    if (session.status === "joinable") {
-      void markCallStarted
-        .mutateAsync({ sessionId: session.sessionId })
+    // Outside the join window: remember the intent, but leave the deep
+    // link unconsumed so it can be marked started once the window opens.
+    if (session.status === "scheduled") {
+      setRequestedJoinSessionId(session.sessionId);
+      return;
+    }
+
+    // Runs after the expiry guard passes (or when the user picks "Join
+    // anyway"). Marks the session started BEFORE requesting the gated
+    // join, because the gated effect requires `status === "active"`.
+    const requestAndMaybeStart = (): void => {
+      setRequestedJoinSessionId(session.sessionId);
+      if (session.status !== "joinable") return;
+
+      deepLinkStartInFlightRef.current = deepLinkId;
+      void markCallStartedAsync({ sessionId: session.sessionId })
+        .then(() => {
+          deepLinkStartInFlightRef.current = null;
+          deepLinkHandledRef.current = deepLinkId;
+          deepLinkRetryAfterRef.current = 0;
+        })
         .catch(async (err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          deepLinkStartInFlightRef.current = null;
+          // Leave the deep link unconsumed so it can be retried after the
+          // explicit delay. The mutation is idempotent server-side
+          // (`markCallStarted` returns the existing `callStartedAt`).
+          if (deepLinkHandledRef.current === deepLinkId) {
+            deepLinkHandledRef.current = null;
+          }
+          deepLinkRetryAfterRef.current = Date.now() + DEEP_LINK_RETRY_MS;
+          if (deepLinkRetryTimerRef.current !== null) {
+            window.clearTimeout(deepLinkRetryTimerRef.current);
+          }
+          deepLinkRetryTimerRef.current = window.setTimeout(() => {
+            deepLinkRetryTimerRef.current = null;
+            deepLinkRetryAfterRef.current = 0;
+            // Re-run the effect for the explicit retry.
+            setDeepLinkRetryNonce((n) => n + 1);
+          }, DEEP_LINK_RETRY_MS);
+          if (deepLinkErrorNotifiedRef.current !== deepLinkId) {
+            deepLinkErrorNotifiedRef.current = deepLinkId;
+            toast.error("Could not start the call", { description: message });
+          }
           await reportError({
             source: "videoCallProvider.deepLink.markCallStarted",
             error: err instanceof Error ? err : new Error(String(err)),
@@ -388,8 +582,34 @@ function VideoCallProviderInner({
             },
           });
         });
+    };
+
+    // Guard BEFORE writing `callStartedAt`: a user who dismisses the
+    // warning or leaves to sign in must not leave the room showing
+    // "Call in progress" with nobody in it. Consuming the link here keeps
+    // the poll from re-opening the dialog after a dismissal; "Join
+    // anyway" runs `requestAndMaybeStart` directly.
+    if (guardJoinAgainstSessionExpiry(requestAndMaybeStart)) {
+      deepLinkHandledRef.current = deepLinkId;
+      return;
     }
-  }, [session, initialJoinSessionId, markCallStarted, workspaceId]);
+
+    // Active sessions need no write; consume immediately. Joinable
+    // sessions are consumed by the mutation's success path so a failed
+    // start can be retried after the delay.
+    if (session.status !== "joinable") {
+      deepLinkHandledRef.current = deepLinkId;
+    }
+    requestAndMaybeStart();
+  }, [
+    deepLinkRetryNonce,
+    guardJoinAgainstSessionExpiry,
+    initialJoinSessionId,
+    markCallStartedAsync,
+    session,
+    sessionExpiry.isLoaded,
+    workspaceId,
+  ]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({
@@ -407,6 +627,7 @@ function VideoCallProviderInner({
       durationSeconds: call.durationSeconds,
       join: joinCall,
       requestJoin,
+      guardJoinAgainstSessionExpiry,
       leave: call.leave,
       toggleMute: call.toggleMute,
       toggleCamera: call.toggleCamera,
@@ -429,6 +650,7 @@ function VideoCallProviderInner({
       call.toggleCamera,
       call.toggleScreenShare,
       call.leave,
+      guardJoinAgainstSessionExpiry,
       joinCall,
       requestJoin,
       togglePictureInPicture,
@@ -436,7 +658,25 @@ function VideoCallProviderInner({
     ]
   );
 
+  // Preserve the join intent across re-auth. A deep link already carries
+  // the session id; a manual Join uses the current session's id so the
+  // post-sign-in deep-link effect resumes the call instead of dropping the
+  // user on a bare workspace page.
+  const joinTargetSessionId = initialJoinSessionId ?? session?.sessionId ?? null;
+  const expiryReturnPath = workspaceId
+    ? `/workspace/${workspaceId}${joinTargetSessionId ? `?join=${joinTargetSessionId}` : ""}`
+    : null;
+
   return (
-    <VideoCallContext.Provider value={value}>{children}</VideoCallContext.Provider>
+    <VideoCallContext.Provider value={value}>
+      {children}
+      <SessionExpiryDialog
+        open={expiryDialogOpen}
+        expiresAt={sessionExpiry.expiresAt}
+        returnPath={expiryReturnPath}
+        onOpenChange={handleExpiryDialogOpenChange}
+        onJoinAnyway={handleJoinAnyway}
+      />
+    </VideoCallContext.Provider>
   );
 }
