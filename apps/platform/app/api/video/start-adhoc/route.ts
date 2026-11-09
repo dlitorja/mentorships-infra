@@ -21,6 +21,7 @@ export const runtime = "nodejs";
 type AdhocConvexErrorCode =
   | "VIDEO_UNAUTHORIZED"
   | "VIDEO_SESSION_NOT_FOUND"
+  | "VIDEO_SESSION_EXPIRING"
   | "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
   | "VIDEO_FORBIDDEN_CALL_ACTIVE"
   | "VIDEO_FORBIDDEN_CALL_ENDED"
@@ -41,6 +42,7 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
     if (
       code === "VIDEO_UNAUTHORIZED" ||
       code === "VIDEO_SESSION_NOT_FOUND" ||
+      code === "VIDEO_SESSION_EXPIRING" ||
       code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
       code === "VIDEO_FORBIDDEN_CALL_ACTIVE" ||
       code === "VIDEO_FORBIDDEN_CALL_ENDED" ||
@@ -143,6 +145,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json(
           { error: "Workspace not found or not joinable" },
           { status: 404 }
+        );
+      }
+      if (code === "VIDEO_SESSION_EXPIRING") {
+        return NextResponse.json(
+          {
+            error:
+              "Your sign-in has expired or will expire during this call. Sign in again before joining.",
+            code: "VIDEO_SESSION_EXPIRING",
+          },
+          { status: 403 }
         );
       }
       if (code === "VIDEO_UNAUTHORIZED") {

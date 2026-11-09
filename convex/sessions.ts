@@ -14,6 +14,7 @@ import {
 } from "./lib/sessionWorkspace";
 import { DEFAULT_RECORDING_RETENTION_DAYS } from "./recordingRetention";
 import { isAdminUser } from "./admin";
+import { assertSessionCanOutliveCall } from "./videoSessionExpiry";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -2023,6 +2024,12 @@ export const setVideoRoom = mutation({
       });
     }
 
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // Do not provision a Daily room for a caller whose session will expire
+    // before the call could end. Fails open when the `session_expire_at`
+    // claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
+
     return await setVideoRoomHelper(ctx, args);
   },
 });
@@ -2141,6 +2148,12 @@ export const getSessionByVideoRoomName = query({
     if (!identity) {
       return null;
     }
+
+    // Server-side backstop for Clerk's fixed maximum session lifetime:
+    // the token route cannot issue a Daily meeting token to a session
+    // that will expire before the call could end. Fails open when the
+    // `session_expire_at` claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
 
     const matches = await ctx.db
       .query("sessions")
@@ -3052,6 +3065,13 @@ export const markCallStarted = mutation({
       });
     }
 
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // A direct client call could otherwise set `callStartedAt` (showing
+    // "Call in progress") for a session that will be interrupted. Fails
+    // open when the `session_expire_at` claim is absent (legacy token /
+    // rollout window).
+    assertSessionCanOutliveCall(identity);
+
     if (session.callEndedAt !== undefined) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_CALL_ENDED",
@@ -3252,9 +3272,16 @@ export const startAdhocCall = mutation({
     if (!isInstructor && !isOwner) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
-        message: "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
+        message:
+          "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
       });
     }
+
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // Do not create an ad-hoc session for a caller whose session will
+    // expire before the call could end. Fails open when the
+    // `session_expire_at` claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
 
     // Refuse if any non-deleted, non-ended session for this workspace
     // already exists within the recent window. Catches BOTH:

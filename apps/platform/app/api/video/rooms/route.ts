@@ -17,7 +17,8 @@ export const runtime = "nodejs";
 
 type VideoConvexErrorCode =
   | "VIDEO_ROOM_NAME_CONFLICT"
-  | "VIDEO_ROOM_NAME_TAKEN";
+  | "VIDEO_ROOM_NAME_TAKEN"
+  | "VIDEO_SESSION_EXPIRING";
 
 function getVideoRoomsConvexErrorCode(
   error: unknown
@@ -35,6 +36,10 @@ function getVideoRoomsConvexErrorCode(
     // doesn't include a built-in retry, so the caller (UI) sees a
     // 409 + this message and is expected to retry the POST.
     if (code === "VIDEO_ROOM_NAME_TAKEN") return code;
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // The caller's session will not outlive the call; do not provision
+    // a Daily room.
+    if (code === "VIDEO_SESSION_EXPIRING") return code;
   }
   return null;
 }
@@ -135,6 +140,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ roomName, roomUrl });
   } catch (error) {
     const conflictCode = getVideoRoomsConvexErrorCode(error);
+    if (conflictCode === "VIDEO_SESSION_EXPIRING") {
+      await reportError({
+        source: "api/video/rooms",
+        error,
+        message: "Blocked Daily room creation for a session expiring during the call",
+        level: "warn",
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Your sign-in has expired or will expire during this call. Sign in again before joining.",
+          code: "VIDEO_SESSION_EXPIRING",
+        },
+        { status: 403 }
+      );
+    }
     if (conflictCode === "VIDEO_ROOM_NAME_CONFLICT") {
       await reportError({
         source: "api/video/rooms",

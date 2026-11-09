@@ -195,13 +195,8 @@ export function StartAdhocButton({
         onResolved={(consent) => {
           // Guard BEFORE creating the ad-hoc session so a user who has to
           // re-authenticate first does not leave behind an active session
-          // nobody joined. If they choose "Join anyway", the retry below
-          // restarts the whole flow with the same consent choice.
-          if (
-            guardJoinAgainstSessionExpiry(() => {
-              void startAdhoc(consent);
-            })
-          ) {
+          // nobody joined. The server enforces the same window.
+          if (guardJoinAgainstSessionExpiry()) {
             setModalOpen(false);
             return;
           }

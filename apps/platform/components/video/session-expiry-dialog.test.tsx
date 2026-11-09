@@ -52,11 +52,9 @@ beforeEach(() => {
 const renderDialog = (
   overrides: Partial<{
     returnPath: string | null;
-    onSubmitAnyway: () => void;
   }> = {}
 ) => {
   const onOpenChange = vi.fn();
-  const onJoinAnyway = overrides.onSubmitAnyway ?? vi.fn();
   render(
     <SessionExpiryDialog
       open
@@ -67,10 +65,9 @@ const renderDialog = (
           : overrides.returnPath
       }
       onOpenChange={onOpenChange}
-      onJoinAnyway={onJoinAnyway}
     />
   );
-  return { onOpenChange, onJoinAnyway };
+  return { onOpenChange };
 };
 
 describe("<SessionExpiryDialog>", () => {
@@ -89,13 +86,12 @@ describe("<SessionExpiryDialog>", () => {
     });
   });
 
-  it("lets the user join anyway without signing out", async () => {
-    const onJoinAnyway = vi.fn();
-    renderDialog({ onSubmitAnyway: onJoinAnyway });
+  it("dismisses without signing out when the user chooses Not now", async () => {
+    const { onOpenChange } = renderDialog();
 
-    await userEvent.click(screen.getByRole("button", { name: /join anyway/i }));
+    await userEvent.click(screen.getByRole("button", { name: /not now/i }));
 
-    expect(onJoinAnyway).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 
