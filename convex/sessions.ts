@@ -2141,6 +2141,27 @@ export type SessionRoleForVideo = {
  * Used by `GET /api/video/token/[roomName]` to determine whether the
  * caller should receive an owner-role or participant-role meeting JWT.
  */
+/**
+ * Identity-scoped preflight for room provisioning. `/api/video/rooms`
+ * calls this BEFORE creating a Daily room, so a caller inside the
+ * session-expiry window cannot leak an unused room for its 24h expiry. The
+ * authoritative write-time check remains in `setVideoRoom`.
+ */
+export const assertCanJoinCall = query({
+  args: {},
+  handler: async (ctx): Promise<true> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+    assertSessionCanOutliveCall(identity);
+    return true;
+  },
+});
+
 export const getSessionByVideoRoomName = query({
   args: { videoRoomName: v.string() },
   handler: async (ctx, args): Promise<SessionRoleForVideo | null> => {

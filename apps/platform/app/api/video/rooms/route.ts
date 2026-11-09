@@ -110,6 +110,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // Preflight the session-expiry window BEFORE any Daily room work.
+    // `setVideoRoom` enforces it again at write time, but creating the
+    // Daily room first would leave an orphan room for its 24h expiry.
+    await fetchQuery(api.sessions.assertCanJoinCall, {}, { token });
+
     const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
     if (
       existing.videoRoomName === expectedRoomName &&

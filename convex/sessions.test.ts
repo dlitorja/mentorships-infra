@@ -48,6 +48,30 @@ async function seedWorkspacePair(t: ReturnType<typeof convexTest>) {
   });
 }
 
+test("assertCanJoinCall rejects an expiring session and allows a fresh one", async () => {
+  const t = convexTest(schema, modules);
+
+  await expect(
+    t
+      .withIdentity({
+        subject: "user_preflight_sessions",
+        session_expire_at: Math.floor(Date.now() / 1000) + 60,
+      })
+      .query(api.sessions.assertCanJoinCall, {})
+  ).rejects.toMatchObject({
+    data: { code: "VIDEO_SESSION_EXPIRING" },
+  });
+
+  await expect(
+    t
+      .withIdentity({
+        subject: "user_preflight_sessions",
+        session_expire_at: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+      })
+      .query(api.sessions.assertCanJoinCall, {})
+  ).resolves.toBe(true);
+});
+
 test("markCallStarted rejects a session expiring during the call", async () => {
   const t = convexTest(schema, modules);
   const seeded = await seedWorkspacePair(t);

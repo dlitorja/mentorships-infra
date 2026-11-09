@@ -82,8 +82,11 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
   `setVideoRoom`, `startAdhocCall`, and `getSessionByVideoRoomName` reject
   with `VIDEO_SESSION_EXPIRING` when the caller's session cannot outlive the
   call. `/api/video/token`, `/api/video/rooms`, and `/api/video/start-adhoc`
-  map that code to a 403. Fails open when the claim is absent (tokens issued
-  before the template change), so rollout does not block joins.
+  map that code to a 403. `/api/video/rooms` also calls the read-only
+  `assertCanJoinCall` preflight **before** `resolveDailyRoom`, so a rejected
+  request does not leave an unused Daily room for its 24h expiry. Fails open
+  when the claim is absent (tokens issued before the template change), so
+  rollout does not block joins.
 - `apps/platform/components/video/start-adhoc-button.tsx` — checks the guard
   **before** creating the ad-hoc session, so a user who re-authenticates first
   does not leave behind an active session nobody joined.
