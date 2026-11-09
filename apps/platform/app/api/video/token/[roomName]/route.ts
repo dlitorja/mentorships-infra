@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { ConvexError } from "convex/values";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import {
@@ -72,6 +73,33 @@ export async function GET(
 
     return NextResponse.json({ token: meetingToken });
   } catch (error) {
+    // Server-side session-expiry backstop. `getSessionByVideoRoomName`
+    // rejects a caller whose Clerk session will not outlive the call
+    // (claim-gated; fails open when the claim is absent).
+    if (
+      error instanceof ConvexError &&
+      typeof error.data === "object" &&
+      error.data !== null &&
+      (error.data as { code?: unknown }).code === "VIDEO_SESSION_EXPIRING"
+    ) {
+      const data = error.data as { message?: unknown };
+      await reportError({
+        source: "api/video/token",
+        error,
+        message: "Blocked meeting token for a session expiring during the call",
+        level: "warn",
+      });
+      return NextResponse.json(
+        {
+          error:
+            typeof data.message === "string"
+              ? data.message
+              : "Your sign-in has expired or will expire during this call. Sign in again before joining.",
+          code: "VIDEO_SESSION_EXPIRING",
+        },
+        { status: 403 }
+      );
+    }
     if (error instanceof DailyApiError) {
       await reportError({
         source: "api/video/token",

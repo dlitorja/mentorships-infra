@@ -264,15 +264,6 @@ function VideoCallProviderInner({
   // fresh lifetime. See `lib/video/session-expiry.ts`.
   const sessionExpiry = useSessionExpiry();
   const [expiryDialogOpen, setExpiryDialogOpen] = useState(false);
-  const [allowJoinDespiteExpiry, setAllowJoinDespiteExpiry] = useState(false);
-  // The ref is authoritative. Saved join callbacks (e.g. the StartAdhoc
-  // retry) were captured in an earlier render and would otherwise read a
-  // stale `allowJoinDespiteExpiry=false`, re-opening the dialog after the
-  // ad-hoc session has already been created. The state value exists so
-  // this override changes `guardJoinAgainstSessionExpiry`'s identity and
-  // re-runs the effects that parked their join behind the dialog.
-  const allowJoinDespiteExpiryRef = useRef(false);
-  const pendingJoinActionRef = useRef<(() => void) | null>(null);
   // Consume a `?join=` deep link once it has been acted on so the 5s
   // session poll cannot re-request it (and re-open the dialog) after a
   // dismissal. Keyed by session id; a full page reload (re-auth) resets it.
@@ -298,21 +289,11 @@ function VideoCallProviderInner({
     };
   }, []);
 
-  const guardJoinAgainstSessionExpiry = useCallback(
-    (retryJoin: () => void): boolean => {
-      if (
-        !sessionExpiry.expiresDuringCall ||
-        allowJoinDespiteExpiryRef.current ||
-        allowJoinDespiteExpiry
-      ) {
-        return false;
-      }
-      pendingJoinActionRef.current = retryJoin;
-      setExpiryDialogOpen(true);
-      return true;
-    },
-    [allowJoinDespiteExpiry, sessionExpiry.expiresDuringCall],
-  );
+  const guardJoinAgainstSessionExpiry = useCallback((): boolean => {
+    if (!sessionExpiry.expiresDuringCall) return false;
+    setExpiryDialogOpen(true);
+    return true;
+  }, [sessionExpiry.expiresDuringCall]);
 
   const handleExpiryDialogOpenChange = useCallback((open: boolean): void => {
     setExpiryDialogOpen(open);
@@ -320,18 +301,8 @@ function VideoCallProviderInner({
       // Dismissed without choosing: drop any pending join so the guard
       // does not immediately re-open the dialog against a still-requested
       // session. The user can press Join again at any time.
-      pendingJoinActionRef.current = null;
       setRequestedJoinSessionId(null);
     }
-  }, []);
-
-  const handleJoinAnyway = useCallback((): void => {
-    allowJoinDespiteExpiryRef.current = true;
-    setExpiryDialogOpen(false);
-    setAllowJoinDespiteExpiry(true);
-    const retryJoin = pendingJoinActionRef.current;
-    pendingJoinActionRef.current = null;
-    retryJoin?.();
   }, []);
 
   const queryClient = useQueryClient();
@@ -371,13 +342,7 @@ function VideoCallProviderInner({
 
   const requestJoin = useCallback(
     (sessionId: Id<"sessions">): void => {
-      if (
-        guardJoinAgainstSessionExpiry(() => {
-          setRequestedJoinSessionId(sessionId);
-        })
-      ) {
-        return;
-      }
+      if (guardJoinAgainstSessionExpiry()) return;
       setRequestedJoinSessionId(sessionId);
     },
     [guardJoinAgainstSessionExpiry],
@@ -412,21 +377,7 @@ function VideoCallProviderInner({
   }, [call, markCallStarted, session]);
 
   const joinCall = useCallback(async (): Promise<void> => {
-    if (
-      guardJoinAgainstSessionExpiry(() => {
-        // "Join anyway" from the session-expiry dialog resumes the join
-        // without re-triggering the guard. Surface failures the same way
-        // the normal Join button does — `performJoin` reports to
-        // observability and exposes the reason via `errorMessage`, but it
-        // throws, so without this toast the dialog would simply vanish.
-        void performJoin().catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          toast.error("Could not join call", { description: message });
-        });
-      })
-    ) {
-      return;
-    }
+    if (guardJoinAgainstSessionExpiry()) return;
     await performJoin();
   }, [guardJoinAgainstSessionExpiry, performJoin]);
 
@@ -466,10 +417,9 @@ function VideoCallProviderInner({
     // based on real data. The effect re-runs when `isLoaded` flips.
     if (!sessionExpiry.isLoaded) return;
     // If the session would expire mid-call, park the join behind the
-    // re-auth dialog. "Join anyway" flips `allowJoinDespiteExpiry`,
-    // which changes `guardJoinAgainstSessionExpiry`'s identity and
-    // re-runs this effect.
-    if (guardJoinAgainstSessionExpiry(() => {})) return;
+    // re-auth dialog. The server enforces the same window, so there is no
+    // "join anyway" override.
+    if (guardJoinAgainstSessionExpiry()) return;
 
     void call
       .join()
@@ -587,9 +537,9 @@ function VideoCallProviderInner({
     // Guard BEFORE writing `callStartedAt`: a user who dismisses the
     // warning or leaves to sign in must not leave the room showing
     // "Call in progress" with nobody in it. Consuming the link here keeps
-    // the poll from re-opening the dialog after a dismissal; "Join
-    // anyway" runs `requestAndMaybeStart` directly.
-    if (guardJoinAgainstSessionExpiry(requestAndMaybeStart)) {
+    // the poll from reopening the dialog after a dismissal. Re-auth is
+    // required — the server enforces the same window.
+    if (guardJoinAgainstSessionExpiry()) {
       deepLinkHandledRef.current = deepLinkId;
       return;
     }
@@ -675,7 +625,6 @@ function VideoCallProviderInner({
         expiresAt={sessionExpiry.expiresAt}
         returnPath={expiryReturnPath}
         onOpenChange={handleExpiryDialogOpenChange}
-        onJoinAnyway={handleJoinAnyway}
       />
     </VideoCallContext.Provider>
   );

@@ -66,18 +66,27 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
 - `apps/platform/components/video/session-expiry-dialog.tsx` — dialog with
   "Sign in again" (signs out and routes through
   `/api/auth/bounce-redirect?redirect_url=/workspace/...`, so the workspace
-  and any `?join=` deep link survive re-auth) and "Join anyway" (advisory
-  override).
+  and any `?join=` deep link survive re-auth) and "Not now".
 - `apps/platform/components/video/video-call-provider.tsx` — guards the
   join at the idle-only auto-join choke point, and guards a `?join=` deep
   link **before** it writes `callStartedAt` so a dismissed or re-authing
-  user cannot leave the room looking "in progress" with nobody in it. The
-  override is ref-backed so a saved ad-hoc retry cannot re-prompt after the
-  session has been created. A deep link is consumed once acted on (so the
-  5s session poll cannot resurrect a dismissed join or reopen the dialog
-  over an active call), is left unconsumed when `markCallStarted` fails so
-  an explicit 30-second retry can recover (no immediate request loop), and
-  surfaces a one-time toast instead of failing silently.
+  user cannot leave the room looking "in progress" with nobody in it. A
+  deep link is consumed once acted on (so the 5s session poll cannot
+  resurrect a dismissed join or reopen the dialog over an active call), is
+  left unconsumed when `markCallStarted` fails so an explicit 30-second
+  retry can recover (no immediate request loop), and surfaces a one-time
+  toast instead of failing silently.
+- `convex/videoSessionExpiry.ts` + gates in `convex/sessions.ts` — server
+  backstop. The Clerk `convex` JWT template now includes
+  `"session_expire_at": "{{session.expire_at}}"`; `markCallStarted`,
+  `setVideoRoom`, `startAdhocCall`, and `getSessionByVideoRoomName` reject
+  with `VIDEO_SESSION_EXPIRING` when the caller's session cannot outlive the
+  call. `/api/video/token`, `/api/video/rooms`, and `/api/video/start-adhoc`
+  map that code to a 403. `/api/video/rooms` also calls the read-only
+  `assertCanJoinCall` preflight **before** `resolveDailyRoom`, so a rejected
+  request does not leave an unused Daily room for its 24h expiry. Fails open
+  when the claim is absent (tokens issued before the template change), so
+  rollout does not block joins.
 - `apps/platform/components/video/start-adhoc-button.tsx` — checks the guard
   **before** creating the ad-hoc session, so a user who re-authenticates first
   does not leave behind an active session nobody joined.
@@ -92,6 +101,15 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
 
 - The guard triggers only in the final ~4h15m of a session's lifetime, so it
   is not a per-call prompt.
+- The `convex` JWT template is additive: `session_expire_at` does not change
+  any existing claim. Tokens that were already issued before the template
+  change do not carry it; the Convex backstop fails open for those tokens
+  (up to the template's 1-hour lifetime) and then enforces the claim on the
+  next minted token.
+- The server backstop is defensive, not the primary UX: the client dialog
+  handles normal users, and the Convex gates catch a bypassed/stale client.
+  There is intentionally no "join anyway" override now that the server
+  enforces the same window.
 - After this ships, affected users will be asked to sign in **before** the
   call instead of being dropped mid-call, and they will still be prompted
   roughly weekly until the Clerk lifetime can be raised.

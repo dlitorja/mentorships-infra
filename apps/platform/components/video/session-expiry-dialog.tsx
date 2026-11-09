@@ -25,10 +25,8 @@ export type SessionExpiryDialogProps = {
    * falls back to `/workspace`.
    */
   returnPath: string | null;
-  /** Called when the user dismisses the dialog without joining. */
+  /** Called when the user dismisses the dialog without signing in. */
   onOpenChange: (open: boolean) => void;
-  /** Called when the user accepts the risk and joins anyway. */
-  onJoinAnyway: () => void;
 };
 
 function formatExpiry(expiresAt: Date | null): string {
@@ -54,16 +52,16 @@ function formatExpiry(expiresAt: Date | null): string {
  * Daily call. This dialog asks the user to re-authenticate first, minting
  * a new session with a fresh lifetime.
  *
- * "Join anyway" is intentionally available: a user joining a very short
- * call may prefer not to sign out now, and the guard is advisory rather
- * than a hard auth gate.
+ * "Sign in again" mints a brand-new session with a fresh lifetime. There is
+ * no "join anyway" path: the Convex layer enforces the same expiry window
+ * with the `session_expire_at` claim, so a join attempted in the window
+ * would fail server-side.
  */
 export function SessionExpiryDialog({
   open,
   expiresAt,
   returnPath,
   onOpenChange,
-  onJoinAnyway,
 }: SessionExpiryDialogProps) {
   const { signOut } = useClerk();
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -119,9 +117,9 @@ export function SessionExpiryDialog({
             type="button"
             variant="outline"
             disabled={isSigningOut}
-            onClick={onJoinAnyway}
+            onClick={() => onOpenChange(false)}
           >
-            Join anyway
+            Not now
           </Button>
           <Button
             type="button"

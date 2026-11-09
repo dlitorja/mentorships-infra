@@ -48,6 +48,95 @@ async function seedWorkspacePair(t: ReturnType<typeof convexTest>) {
   });
 }
 
+test("assertCanJoinCall rejects an expiring session and allows a fresh one", async () => {
+  const t = convexTest(schema, modules);
+
+  await expect(
+    t
+      .withIdentity({
+        subject: "user_preflight_sessions",
+        session_expire_at: Math.floor(Date.now() / 1000) + 60,
+      })
+      .query(api.sessions.assertCanJoinCall, {})
+  ).rejects.toMatchObject({
+    data: { code: "VIDEO_SESSION_EXPIRING" },
+  });
+
+  await expect(
+    t
+      .withIdentity({
+        subject: "user_preflight_sessions",
+        session_expire_at: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+      })
+      .query(api.sessions.assertCanJoinCall, {})
+  ).resolves.toBe(true);
+});
+
+test("markCallStarted rejects a session expiring during the call", async () => {
+  const t = convexTest(schema, modules);
+  const seeded = await seedWorkspacePair(t);
+  const student = t.withIdentity({ subject: "user_student_sessions" });
+
+  const sessionId = await student.mutation(api.sessions.createSession, {
+    instructorId: seeded.instructorId,
+    studentId: "user_student_sessions",
+    sessionPackId: seeded.sessionPackId,
+    scheduledAt: Date.now() + 60_000,
+    recordingConsent: true,
+  });
+
+  // markCallStarted requires a Daily room name; patch one in directly so
+  // this test focuses on the session-expiry claim, not room provisioning.
+  await t.run(async (ctx) => {
+    await ctx.db.patch(sessionId, {
+      videoRoomName: "room-expiry-test",
+      videoRoomUrl: "https://example.daily.co/room-expiry-test",
+    });
+  });
+
+  const expiring = t.withIdentity({
+    subject: "user_student_sessions",
+    session_expire_at: Math.floor(Date.now() / 1000) + 60,
+  });
+
+  await expect(
+    expiring.mutation(api.sessions.markCallStarted, { sessionId })
+  ).rejects.toMatchObject({
+    data: { code: "VIDEO_SESSION_EXPIRING" },
+  });
+});
+
+test("markCallStarted allows a session that outlives the call", async () => {
+  const t = convexTest(schema, modules);
+  const seeded = await seedWorkspacePair(t);
+  const student = t.withIdentity({ subject: "user_student_sessions" });
+
+  const sessionId = await student.mutation(api.sessions.createSession, {
+    instructorId: seeded.instructorId,
+    studentId: "user_student_sessions",
+    sessionPackId: seeded.sessionPackId,
+    scheduledAt: Date.now() + 60_000,
+    recordingConsent: true,
+  });
+
+  await t.run(async (ctx) => {
+    await ctx.db.patch(sessionId, {
+      videoRoomName: "room-expiry-happy",
+      videoRoomUrl: "https://example.daily.co/room-expiry-happy",
+    });
+  });
+
+  const fresh = t.withIdentity({
+    subject: "user_student_sessions",
+    session_expire_at: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+  });
+
+  const startedAt = await fresh.mutation(api.sessions.markCallStarted, {
+    sessionId,
+  });
+  expect(startedAt).toBeGreaterThan(0);
+});
+
 test("createSession persists the pack-backed workspace", async () => {
   const t = convexTest(schema, modules);
   const seeded = await seedWorkspacePair(t);

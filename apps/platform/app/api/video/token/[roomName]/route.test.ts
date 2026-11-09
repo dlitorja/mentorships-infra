@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ConvexError } from "convex/values";
 import { GET } from "./route";
 import { createMeetingToken, DailyApiError } from "@/lib/daily";
 import { makeRequest } from "tests/unit/api-route-utils";
@@ -151,6 +152,28 @@ describe("GET /api/video/token/[roomName]", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "Forbidden" });
+    expect(mockCreateMeetingToken).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when Convex rejects the caller's session as expiring during the call", async () => {
+    mockFetchQuery.mockRejectedValue(
+      new ConvexError({
+        code: "VIDEO_SESSION_EXPIRING",
+        message:
+          "Your sign-in has expired or will expire during this call. Sign in again before joining.",
+      })
+    );
+
+    const response = await GET(tokenRequest("room-1"), {
+      params: Promise.resolve({ roomName: "room-1" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error:
+        "Your sign-in has expired or will expire during this call. Sign in again before joining.",
+      code: "VIDEO_SESSION_EXPIRING",
+    });
     expect(mockCreateMeetingToken).not.toHaveBeenCalled();
   });
 

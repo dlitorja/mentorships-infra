@@ -14,6 +14,7 @@ import {
 } from "./lib/sessionWorkspace";
 import { DEFAULT_RECORDING_RETENTION_DAYS } from "./recordingRetention";
 import { isAdminUser } from "./admin";
+import { assertSessionCanOutliveCall } from "./videoSessionExpiry";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -2023,6 +2024,12 @@ export const setVideoRoom = mutation({
       });
     }
 
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // Do not provision a Daily room for a caller whose session will expire
+    // before the call could end. Fails open when the `session_expire_at`
+    // claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
+
     return await setVideoRoomHelper(ctx, args);
   },
 });
@@ -2134,6 +2141,27 @@ export type SessionRoleForVideo = {
  * Used by `GET /api/video/token/[roomName]` to determine whether the
  * caller should receive an owner-role or participant-role meeting JWT.
  */
+/**
+ * Identity-scoped preflight for room provisioning. `/api/video/rooms`
+ * calls this BEFORE creating a Daily room, so a caller inside the
+ * session-expiry window cannot leak an unused room for its 24h expiry. The
+ * authoritative write-time check remains in `setVideoRoom`.
+ */
+export const assertCanJoinCall = query({
+  args: {},
+  handler: async (ctx): Promise<true> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+    assertSessionCanOutliveCall(identity);
+    return true;
+  },
+});
+
 export const getSessionByVideoRoomName = query({
   args: { videoRoomName: v.string() },
   handler: async (ctx, args): Promise<SessionRoleForVideo | null> => {
@@ -2141,6 +2169,12 @@ export const getSessionByVideoRoomName = query({
     if (!identity) {
       return null;
     }
+
+    // Server-side backstop for Clerk's fixed maximum session lifetime:
+    // the token route cannot issue a Daily meeting token to a session
+    // that will expire before the call could end. Fails open when the
+    // `session_expire_at` claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
 
     const matches = await ctx.db
       .query("sessions")
@@ -3052,6 +3086,13 @@ export const markCallStarted = mutation({
       });
     }
 
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // A direct client call could otherwise set `callStartedAt` (showing
+    // "Call in progress") for a session that will be interrupted. Fails
+    // open when the `session_expire_at` claim is absent (legacy token /
+    // rollout window).
+    assertSessionCanOutliveCall(identity);
+
     if (session.callEndedAt !== undefined) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_CALL_ENDED",
@@ -3252,9 +3293,16 @@ export const startAdhocCall = mutation({
     if (!isInstructor && !isOwner) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
-        message: "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
+        message:
+          "Forbidden: only the workspace's instructor or student can start an ad-hoc call",
       });
     }
+
+    // Server-side backstop for Clerk's fixed maximum session lifetime.
+    // Do not create an ad-hoc session for a caller whose session will
+    // expire before the call could end. Fails open when the
+    // `session_expire_at` claim is absent (legacy token / rollout window).
+    assertSessionCanOutliveCall(identity);
 
     // Refuse if any non-deleted, non-ended session for this workspace
     // already exists within the recent window. Catches BOTH:
