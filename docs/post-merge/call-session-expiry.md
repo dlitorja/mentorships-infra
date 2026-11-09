@@ -76,8 +76,8 @@ expires `Nov 12 20:59 UTC`, so the next call would have hit him too.
   session has been created. A deep link is consumed once acted on (so the
   5s session poll cannot resurrect a dismissed join or reopen the dialog
   over an active call), is left unconsumed when `markCallStarted` fails so
-  a later poll retries, and surfaces a one-time toast instead of failing
-  silently.
+  an explicit 30-second retry can recover (no immediate request loop), and
+  surfaces a one-time toast instead of failing silently.
 - `apps/platform/components/video/start-adhoc-button.tsx` — checks the guard
   **before** creating the ad-hoc session, so a user who re-authenticates first
   does not leave behind an active session nobody joined.

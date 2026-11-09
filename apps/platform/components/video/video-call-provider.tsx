@@ -19,6 +19,9 @@ import { SessionExpiryDialog } from "@/components/video/session-expiry-dialog";
 const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
 
+/** Explicit delay before retrying a failed `?join=` deep-link start. */
+const DEEP_LINK_RETRY_MS = 30_000;
+
 /**
  * PR #4c-2: derives the `CurrentOrUpcomingSession` shape that
  * `useCurrentOrUpcomingSessionForWorkspace` returns, but starting
@@ -280,6 +283,20 @@ function VideoCallProviderInner({
   // Prevent a session poll from firing a duplicate `markCallStarted`
   // request while the first one is still in flight.
   const deepLinkStartInFlightRef = useRef<string | null>(null);
+  // A failed deep-link start is retried on an explicit 30s delay instead of
+  // on every render. A lasting error (e.g. missing Daily room) must not turn
+  // into a request/report loop for as long as the page stays open.
+  const deepLinkRetryAfterRef = useRef(0);
+  const deepLinkRetryTimerRef = useRef<number | null>(null);
+  const [deepLinkRetryNonce, setDeepLinkRetryNonce] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      if (deepLinkRetryTimerRef.current !== null) {
+        window.clearTimeout(deepLinkRetryTimerRef.current);
+      }
+    };
+  }, []);
 
   const guardJoinAgainstSessionExpiry = useCallback(
     (retryJoin: () => void): boolean => {
@@ -337,6 +354,12 @@ function VideoCallProviderInner({
       });
     },
   });
+
+  // `mutateAsync` is stable across renders. Depending on the whole
+  // `markCallStarted` mutation object would make the deep-link effect re-run
+  // on every pending/error state transition — turning a failed start into an
+  // immediate retry loop.
+  const markCallStartedAsync = markCallStarted.mutateAsync;
 
   const call = useVideoCall({
     enabled:
@@ -485,12 +508,12 @@ function VideoCallProviderInner({
   // the session is still joinable, mark it started first so the gated
   // auto-join effect can bring the user into the call.
   //
-  // The session-expiry guard is deliberately NOT applied here: the
-  // gated auto-join effect is the single choke point, and it only runs
-  // while the local call is idle. Guarding here would let a time-based
-  // `expiresDuringCall` flip re-open the dialog over an already-joined
-  // call. The deep link is consumed once acted on (or once the session
-  // becomes joinable) so the 5s poll cannot resurrect a dismissed join.
+  // The session-expiry guard runs BEFORE `markCallStarted` so a user who
+  // dismisses the warning or leaves to sign in cannot make the room look
+  // "in progress" with nobody in it. The gated auto-join effect then does
+  // the idle-only join. The deep link is consumed once acted on so the 5s
+  // poll cannot resurrect a dismissed join or reopen the dialog over an
+  // active call. A failed start is retried on an explicit 30s delay.
   useEffect(() => {
     if (!initialJoinSessionId) return;
     if (!session) return;
@@ -498,6 +521,7 @@ function VideoCallProviderInner({
     if (String(session.sessionId) !== deepLinkId) return;
     if (deepLinkHandledRef.current === deepLinkId) return;
     if (deepLinkStartInFlightRef.current === deepLinkId) return;
+    if (Date.now() < deepLinkRetryAfterRef.current) return;
 
     // Wait for Clerk so the expiry guard is based on real data BEFORE any
     // `callStartedAt` write. The effect re-runs when `isLoaded` flips.
@@ -518,21 +542,31 @@ function VideoCallProviderInner({
       if (session.status !== "joinable") return;
 
       deepLinkStartInFlightRef.current = deepLinkId;
-      void markCallStarted
-        .mutateAsync({ sessionId: session.sessionId })
+      void markCallStartedAsync({ sessionId: session.sessionId })
         .then(() => {
           deepLinkStartInFlightRef.current = null;
           deepLinkHandledRef.current = deepLinkId;
+          deepLinkRetryAfterRef.current = 0;
         })
         .catch(async (err) => {
           const message = err instanceof Error ? err.message : String(err);
           deepLinkStartInFlightRef.current = null;
-          // Leave the deep link unconsumed so a later poll retries. The
-          // mutation is idempotent server-side (`markCallStarted` returns
-          // the existing `callStartedAt`).
+          // Leave the deep link unconsumed so it can be retried after the
+          // explicit delay. The mutation is idempotent server-side
+          // (`markCallStarted` returns the existing `callStartedAt`).
           if (deepLinkHandledRef.current === deepLinkId) {
             deepLinkHandledRef.current = null;
           }
+          deepLinkRetryAfterRef.current = Date.now() + DEEP_LINK_RETRY_MS;
+          if (deepLinkRetryTimerRef.current !== null) {
+            window.clearTimeout(deepLinkRetryTimerRef.current);
+          }
+          deepLinkRetryTimerRef.current = window.setTimeout(() => {
+            deepLinkRetryTimerRef.current = null;
+            deepLinkRetryAfterRef.current = 0;
+            // Re-run the effect for the explicit retry.
+            setDeepLinkRetryNonce((n) => n + 1);
+          }, DEEP_LINK_RETRY_MS);
           if (deepLinkErrorNotifiedRef.current !== deepLinkId) {
             deepLinkErrorNotifiedRef.current = deepLinkId;
             toast.error("Could not start the call", { description: message });
@@ -562,15 +596,16 @@ function VideoCallProviderInner({
 
     // Active sessions need no write; consume immediately. Joinable
     // sessions are consumed by the mutation's success path so a failed
-    // start can be retried on a later poll.
+    // start can be retried after the delay.
     if (session.status !== "joinable") {
       deepLinkHandledRef.current = deepLinkId;
     }
     requestAndMaybeStart();
   }, [
+    deepLinkRetryNonce,
     guardJoinAgainstSessionExpiry,
     initialJoinSessionId,
-    markCallStarted,
+    markCallStartedAsync,
     session,
     sessionExpiry.isLoaded,
     workspaceId,
