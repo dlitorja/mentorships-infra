@@ -1957,23 +1957,18 @@ export const embedImageInNote = mutation({
     }
 
     const role = await getWorkspaceRole(ctx, workspace, user.subject);
-    if (role !== "instructor" && role !== "admin") {
-      // Greptile Security P2 round 4 (PR #908): "Note not found"
-      // vs "Only instructors and admins..." would otherwise let a
-      // non-participant enumerate note IDs — invalid ids hit the
-      // existence gate, valid-but-unwritable ids hit the role gate.
-      // Collapse the leak: callers with NO role in the workspace
-      // get the same "Note not found" they'd get for an invalid
-      // id. Legitimate workspace participants who happen to be
-      // students (the existing test case) still get the specific
-      // role message — they're already inside the workspace so
-      // there's nothing to disclose.
-      if (role === null) {
-        throw new ConvexError("Note not found");
-      }
-      throw new ConvexError(
-        "Only instructors and admins can embed images in notes"
-      );
+    // Any workspace participant may embed an image in a note — student,
+    // instructor and admin alike. Notes are already writable by every
+    // participant (`createWorkspaceNote` / `updateWorkspaceNote` only
+    // require a non-null role), and the B2 ledger below binds the upload
+    // to the caller, so restricting the embed step to instructors left
+    // students able to type a note but unable to illustrate it.
+    //
+    // Greptile Security P2 round 4 (PR #908): callers with NO role in the
+    // workspace get "Note not found", identical to an invalid id, so note
+    // ids cannot be enumerated by comparing error messages.
+    if (!role) {
+      throw new ConvexError("Note not found");
     }
 
     // PR workspace-storage-3c: gate on the B2 upload ledger so a
@@ -1997,15 +1992,30 @@ export const embedImageInNote = mutation({
       );
     }
 
+    // Per-role cap accounting, mirroring `createWorkspaceImage`: a
+    // student's note images draw from `studentImageCount` (cap 100),
+    // an instructor's from `instructorImageCount` (cap 250), and an
+    // admin's from the live row count. Before students were allowed
+    // here, the non-admin branch lumped them in with instructors,
+    // which would both let a student exceed their own allowance and
+    // eat the instructor's headroom.
+    const isStudent = role === "student";
     const isAdmin = role === "admin";
-    const currentCount = isAdmin
-      ? await countActiveWorkspaceImages(ctx, note.workspaceId)
-      : (workspace.instructorImageCount ?? 0);
-    const cap = isAdmin ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+    const studentCount = workspace.studentImageCount ?? 0;
+    const currentCount = isStudent
+      ? studentCount
+      : isAdmin
+        ? await countActiveWorkspaceImages(ctx, note.workspaceId)
+        : (workspace.instructorImageCount ?? 0);
+    const cap = isStudent
+      ? WORKSPACE_IMAGE_CAPS.student
+      : isAdmin
+        ? WORKSPACE_IMAGE_CAPS.admin
+        : WORKSPACE_IMAGE_CAPS.instructor;
 
     if (currentCount >= cap) {
       throw new ConvexError(
-        `Image limit reached (${cap} images allowed)`
+        `Image limit reached (${cap} ${role} images allowed per workspace)`
       );
     }
 
@@ -2024,7 +2034,11 @@ export const embedImageInNote = mutation({
     });
 
     await ctx.db.patch(note.workspaceId, {
-      instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
+      studentImageCount: isStudent ? studentCount + 1 : workspace.studentImageCount ?? 0,
+      instructorImageCount:
+        role === "instructor"
+          ? (workspace.instructorImageCount ?? 0) + 1
+          : workspace.instructorImageCount ?? 0,
     });
 
     await ctx.db.patch(args.noteId, {

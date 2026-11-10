@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
@@ -21,7 +22,6 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
-import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
 import WorkspaceResources from "@/components/workspace/resources";
@@ -46,6 +46,25 @@ import {
 import { useWorkspaceMessagesPaginated, useArchiveWorkspace, useUnarchiveWorkspace } from "@/lib/queries/convex/use-workspaces";
 import { toast } from "sonner";
 import type { UserRole } from "@/lib/auth-helpers";
+
+// Tiptap + ProseMirror is the largest dependency on this route (~137KB
+// compressed) and Notes is not the default tab — Chat is. Lazy-loading it
+// keeps the workspace shell, sidebar and Chat out of its shadow.
+//
+// This only delays the *first* mount. `<TabContent>` already unmounts
+// `WorkspaceNotes` whenever the active tab changes, so the autosave-backup
+// path (which flushes pending edits to sessionStorage on unmount) runs
+// exactly as it does today.
+const WorkspaceNotes = dynamic(() => import("@/components/workspace/notes"), {
+  ssr: false,
+  // Matches the component's own loading state so switching to Notes does
+  // not shift layout while the chunk arrives.
+  loading: () => (
+    <div className="h-full flex items-center justify-center">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  ),
+});
 
 type UserWorkspace = {
   _id: Id<"workspaces">;
