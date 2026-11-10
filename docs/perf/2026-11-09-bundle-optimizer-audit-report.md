@@ -55,7 +55,7 @@ The app baseline is ~464–477 KB on every route. `/workspace` carries
 
 ## 1. `@mentorships/ui` barrel ships the image-upload stack on 54 of 55 routes
 
-**Est. saving: ~43 KB on every route, including the public landing page.**
+**Status: FIX APPLIED AND VERIFIED. Measured saving 78.2 KB on 54 routes.**
 
 **Import chain** (verified in source):
 
@@ -71,42 +71,91 @@ app/layout.tsx
                                                (side-effect import)
 ```
 
-**Why the barrel does not tree-shake:** `packages/ui/package.json` declares
-no `sideEffects` field, so every module reachable from `src/index.ts` is
+**Why the barrel did not tree-shake:** `packages/ui/package.json` declared
+no `sideEffects` field, so every module reachable from `src/index.ts` was
 treated as possibly side-effectful and retained. `crop-dialog.tsx` imports
 CSS for its side effect, which is consistent with that assumption.
 
-**Measured:** one shared client chunk
-(`_next/static/chunks/2b4_5wnh3vn3_.js`) is referenced by the
+**Measured before:** one shared client chunk
+(`_next/static/chunks/2b4_5wnh3vn3_.js`) was referenced by the
 `render_dependent` group of **54 routes** — including `/`, `/_not-found`,
-`/admin/audit-logs`. Its attribution on `/` is 87.9 KB across 59 parts, of
-which the upload stack alone is:
+`/admin/audit-logs`. Its attribution on `/` was 87.9 KB across 59 parts.
 
-| Source | KB on `/` |
-|---|---|
-| `browser-image-compression` | 19.1 |
-| `file-selector` (dropzone dep) | 9.9 |
-| `react-dropzone` | 6.2 |
-| `react-image-crop` | 4.1 |
-| `packages/ui/src/components/image-upload-field.tsx` | 2.4 |
-| `packages/ui/src/components/crop-dialog.tsx` | 1.6 |
-| **total** | **43.3** |
+### The fix
 
-Plus ~25 KB of `zod` pulled in through `form-field.tsx` — but `zod` is used
-by platform forms independently, so it stays either way.
+```json
+// packages/ui/package.json
+"sideEffects": [
+  "**/*.css"
+],
+```
 
-**Proposed fix (not applied):** add `"sideEffects": ["**/*.css"]` to
-`packages/ui/package.json`. Marking CSS as the only side-effectful class
-keeps `ReactCrop.css` while letting the `Button`-only consumer drop
-`image-upload-field` and `crop-dialog`. Fallback if Turbopack ignores it:
-deep-import `@mentorships/ui/components/ui/button` from
-`apps/platform/components/ui/button.tsx`.
+Marking CSS as the only side-effectful class keeps `ReactCrop.css` while
+letting a `Button`-only consumer drop `image-upload-field` and
+`crop-dialog`. No source files changed.
 
-**Behaviour checks:** button styling/variants unchanged on every surface;
-image upload still works on `/instructor/profile` and the three `/admin`
-pages that use it; crop dialog CSS still applies there.
+### Verified result
+
+Snapshots `wt-before-1` → `wt-after-1`, same worktree, same commit, same
+metric. Baseline parity between the worktree and the main-tree capture was
+confirmed first (0.0 KB delta on `/`, `/workspace`, `/instructors`,
+`/admin/email-health`).
+
+| Route | Before | After | Delta |
+|---|---|---|---|
+| `/` | 474.3 | 396.1 | **−78.2** |
+| `/instructors` | 463.8 | 385.6 | **−78.2** |
+| `/admin/email-health` | 477.2 | 399.1 | −78.1 |
+| `/workspace` | 1010.0 | 979.7 | −30.3 |
+
+- **54 routes improved, 1 unchanged, 0 increased.**
+- Total attributable saving across all routes: **2 913.6 KB** (per-route
+  savings summed; a real user pays one route's worth).
+- The saving is larger than the original ~43 KB estimate because `zod`
+  (28.5 KB on `/`) was *also* reached only through the barrel's
+  `form-field.tsx` and is genuinely unused on those routes. `zod` still
+  ships on the 36 routes that do use it.
+
+**Reachability after** (route counts for each library's first-load graph):
+
+| Library | Before | After |
+|---|---|---|
+| `browser-image-compression` | 54 | 4 |
+| `react-dropzone` | 54 | 7 |
+| `react-image-crop` | 54 | 4 |
+| `file-selector` | 54 | 7 |
+| `zod` | 54 | 36 |
+| `@tanstack/react-form` | 4 | 4 (unchanged) |
+| `turnstile` | 54 | 1 |
+
+The 4 remaining `image-upload-field` routes are exactly the 4 importers:
+`/instructor/profile`, `/admin/instructors/[id]/edit`,
+`/admin/products/create`, `/admin/products/[id]/edit`. The single
+`turnstile` route is `/waitlist`, the only page that imports
+`TurnstileWidget`.
+
+### Behaviour checks run
+
+- `next build` passes (Turbopack, TypeScript, page-data collection).
+- `packages/ui` image-upload component tests: **7/7 pass**.
+- Build-artifact proof: the upload/crop JS chunk (`3_aac-qkqeis9.js`) and
+  its CSS chunk (`444w6_ysn6r8r.css`, containing `ReactCrop__crop-*`) are
+  referenced by the `page_client-reference-manifest.js` of **exactly those
+  4 routes** — no more, no fewer.
+- `pnpm --filter @mentorships/ui typecheck` fails on 3 pre-existing
+  `toBeInTheDocument` type errors in `image-upload-field.test.tsx`. The
+  identical 3 errors occur on the untouched main tree — **not caused by
+  this change**, and left alone.
+
+**Still required before merge:** a browser-level smoke test on a preview
+deployment — open the crop dialog on `/instructor/profile` and confirm
+styling, then upload an image end to end. First-open CSS is now
+route-scoped rather than global, so a flash of unstyled crop UI on a cold
+open is the one thing worth watching. `next analyze` and the chunk
+manifests cannot observe that.
 
 **Risk: low.** No lifecycle or data-flow semantics involved.
+
 
 ---
 
@@ -266,9 +315,10 @@ client chunk.
   framer-motion appear as `part` attribution but not in `output.modules`,
   so per-package reachability was established from parts rather than chunk
   membership. The union of the two agrees on every route checked.
-- **`sideEffects` behaviour unverified.** Whether Turbopack honours a new
-  `sideEffects` field in a `transpilePackages` workspace package has not
-  been tested. Candidate 1 must be validated with an after-snapshot.
+- **`sideEffects` behaviour: now verified.** Turbopack **does** honour a
+  `sideEffects` field in a `transpilePackages` workspace package — candidate 1
+  was applied and measured (see its section). The remaining unverified
+  surface is browser behaviour, not bundling.
 - **No runtime timings.** Nothing here claims an improvement in LCP, TBT or
   perceived latency.
 
@@ -276,14 +326,16 @@ client chunk.
 
 | Candidate | Saving | Blast radius | Gate (>30 KB, contained) |
 |---|---|---|---|
-| 1. `@mentorships/ui` sideEffects | ~43 KB × 54 routes | low | **PASS — do first** |
+| 1. `@mentorships/ui` sideEffects | **78.2 KB × 54 routes — verified** | low | **PASS — done** |
 | 2. Lazy Tiptap notes | ~137 KB | medium | **PASS** |
 | 3. Defer Daily + call overlay | ~134 KB | high | **PASS, do last** |
 | Home carousels | ~8 KB | low | FAIL — skip |
 
-If all three land, `/workspace` goes from 1010 KB to roughly 740 KB and every
-other route drops ~43 KB. That is the whole realistic prize for this audit;
-there is no 2 MB story in this repo.
+Candidate 1 is applied in this worktree. With it in place `/workspace` is
+979.7 KB; if candidates 2 and 3 also land it drops to roughly 710 KB, and
+every other route sits ~78 KB lighter. That is the whole realistic prize for
+this audit; there is no 2 MB story in this repo.
+
 
 Each change is one PR, verified against an after-snapshot
 (`audit-after-<n>`), with the manual behaviour checks listed under its

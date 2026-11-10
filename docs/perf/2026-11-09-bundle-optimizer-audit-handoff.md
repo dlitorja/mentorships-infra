@@ -227,8 +227,9 @@ finding 1.
 
 The report is **not thin** — three candidates clear the decision gate:
 
-1. `@mentorships/ui` barrel ships the image-upload stack on 54/55 routes
-   (~43 KB each, including the public landing page). **Do first** — lowest risk.
+1. `@mentorships/ui` barrel ships the image-upload stack on 54/55 routes.
+   **Applied and verified: −78.2 KB on 54 routes**, 0 routes larger
+   (snapshots `wt-before-1` → `wt-after-1`). **Do first** — lowest risk.
 2. Tiptap notes editor statically imported on `/workspace`, a page that
    opens on Chat (~137 KB). Medium risk.
 3. Daily.co + call overlay shipped before any call exists (~134 KB).
