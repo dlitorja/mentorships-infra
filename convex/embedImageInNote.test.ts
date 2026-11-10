@@ -29,8 +29,12 @@ async function seedWorkspace(t: ReturnType<typeof convexTest>, args: {
   instructorUserId: string;
   type?: "mentorship" | "admin_student" | "admin_instructor";
   instructorImageCount?: number;
+  studentImageCount?: number;
   activeImageRows?: number;
   retentionDeletedAt?: number;
+  // Who the seeded `fileUploads` ledger row belongs to. Defaults to the
+  // instructor; pass the student to exercise their embed path.
+  uploaderId?: string;
 }): Promise<{ workspaceId: string; noteId: string; b2Key: string }> {
   let workspaceId = "";
   let noteId = "";
@@ -49,7 +53,7 @@ async function seedWorkspace(t: ReturnType<typeof convexTest>, args: {
       name: "Embed Test",
       ownerId: args.studentUserId,
       isPublic: false,
-      studentImageCount: 0,
+      studentImageCount: args.studentImageCount ?? 0,
       instructorImageCount: args.instructorImageCount ?? 0,
       instructorId: instructorId as any,
       type: args.type ?? "mentorship",
@@ -74,7 +78,7 @@ async function seedWorkspace(t: ReturnType<typeof convexTest>, args: {
     await ctx.db.insert("fileUploads", {
       workspaceId: workspaceId as any,
       b2Key,
-      uploaderId: args.instructorUserId,
+      uploaderId: args.uploaderId ?? args.instructorUserId,
       uploadedAt: now,
       contentType: "image/png",
       size: 1024,
@@ -145,7 +149,47 @@ test("embedImageInNote: rejects unauthenticated callers (Server Error -> Unautho
   ).rejects.toThrow(/Unauthorized/);
 });
 
-test("embedImageInNote: rejects student callers with role gate message", async () => {
+test("embedImageInNote: allows student callers to embed their own upload", async () => {
+  // Students can create and edit notes, so they must be able to embed
+  // images in them too. The ledger row is bound to the caller, so the
+  // student can only embed a key they uploaded themselves.
+  const t = convexTest({ schema, modules });
+  const seed = await seedWorkspace(t, {
+    studentUserId: "user_student_1",
+    instructorUserId: "user_instructor_1",
+    instructorImageCount: 3,
+    uploaderId: "user_student_1",
+  });
+  const studentT = t.withIdentity({ subject: "user_student_1" });
+
+  const returnedKey = await studentT.mutation(api.workspaces.embedImageInNote, {
+    noteId: seed.noteId as any,
+    b2Key: seed.b2Key,
+  });
+  expect(returnedKey).toBe(seed.b2Key);
+
+  // Students charge their own counter (cap 100) rather than the
+  // instructor's (cap 250), so the seed's instructorImageCount of 3
+  // must stay untouched.
+  const workspace = await t.run(async (ctx) => ctx.db.get(seed.workspaceId as any));
+  expect(workspace?.studentImageCount).toBe(1);
+  expect(workspace?.instructorImageCount).toBe(3);
+
+  const images = await t.run(async (ctx) =>
+    ctx.db.query("workspaceImages").withIndex("by_b2Key", (q) => q.eq("b2Key", seed.b2Key)).collect()
+  );
+  expect(images).toHaveLength(1);
+  expect(images[0]).toMatchObject({
+    workspaceId: seed.workspaceId,
+    b2Key: seed.b2Key,
+    createdBy: "user_student_1",
+  });
+});
+
+test("embedImageInNote: student cannot embed another user's upload", async () => {
+  // The role gate no longer separates students from instructors, so the
+  // ledger ownership check is what stops a student from embedding a key
+  // minted by someone else in the workspace.
   const t = convexTest({ schema, modules });
   const seed = await seedWorkspace(t, {
     studentUserId: "user_student_1",
@@ -157,20 +201,18 @@ test("embedImageInNote: rejects student callers with role gate message", async (
       noteId: seed.noteId as any,
       b2Key: seed.b2Key,
     })
-  ).rejects.toThrow(/instructors and admins/);
+  ).rejects.toThrow();
 });
 
 test("embedImageInNote: hides note existence from non-participants", async () => {
   // Greptile Security P2 round 4 (PR #908): without this, a
   // caller who is NOT a participant in the workspace can
   // enumerate note IDs by watching which call returns
-  // "Note not found" vs "Only instructors and admins...". The
-  // fix in convex/workspaces.ts collapses both to "Note not
-  // found" when the caller has no role at all. Legitimate
-  // workspace participants who are students (covered by the
-  // separate "rejects student callers with role gate message"
-  // test above) still see the specific role message because
-  // they're already inside the workspace.
+  // "Note not found" vs a role-specific message. The fix in
+  // convex/workspaces.ts collapses both to "Note not found" when
+  // the caller has no role at all. Workspace participants —
+  // including students, covered by the student embed test above —
+  // are legitimate callers and never hit this branch.
   const t = convexTest({ schema, modules });
   const seed = await seedWorkspace(t, {
     studentUserId: "user_student_1",
@@ -322,7 +364,27 @@ test("embedImageInNote: rejects when instructor image cap reached", async () => 
       noteId: seed.noteId as any,
       b2Key: seed.b2Key,
     })
-  ).rejects.toThrow(/Image limit reached \(250 images allowed\)/);
+  ).rejects.toThrow(/Image limit reached \(250 instructor images allowed per workspace\)/);
+});
+
+test("embedImageInNote: rejects when student image cap reached", async () => {
+  const t = convexTest({ schema, modules });
+  // Student cap is 100 (WORKSPACE_IMAGE_CAPS.student) — separate from
+  // the instructor's counter, so a student at their own cap is refused
+  // even though the workspace's instructor counter is untouched.
+  const seed = await seedWorkspace(t, {
+    studentUserId: "user_student_1",
+    instructorUserId: "user_instructor_1",
+    studentImageCount: 100,
+    uploaderId: "user_student_1",
+  });
+  const studentT = t.withIdentity({ subject: "user_student_1" });
+  await expect(
+    studentT.mutation(api.workspaces.embedImageInNote, {
+      noteId: seed.noteId as any,
+      b2Key: seed.b2Key,
+    })
+  ).rejects.toThrow(/Image limit reached \(100 student images allowed per workspace\)/);
 });
 
 test("embedImageInNote: rejects b2Key owned by a different caller", async () => {
@@ -518,5 +580,5 @@ test("embedImageInNote: admin cap uses countActiveWorkspaceImages + WORKSPACE_IM
       noteId: seed.noteId as any,
       b2Key: seed.b2Key,
     })
-  ).rejects.toThrow(/Image limit reached \(9999 images allowed\)/);
+  ).rejects.toThrow(/Image limit reached \(9999 admin images allowed per workspace\)/);
 });
