@@ -372,8 +372,9 @@ export function useNoteEditor({
       console.error('Failed to embed image:', error);
       // Surface the server-side error message when available so the
       // user can tell "B2 key upload has not been confirmed" apart
-      // from "Image limit reached (250 images allowed)" — both
-      // would otherwise collapse into the same generic toast.
+      // from "Image limit reached (100 student images allowed per
+      // workspace)" — both would otherwise collapse into the same
+      // generic toast.
       // ConvexError carries its payload on `.data` (the user-facing
       // string the mutation threw); `Error.message` for raw Error
       // throws is redacted by Convex to "Server Error" in prod, so
