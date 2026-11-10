@@ -5,11 +5,7 @@
     "servers": {
       "resend": {
         "type": "local",
-        "command": ["node", "./node_modules/resend-mcp/dist/index.js"],
-        "environment": {
-          "RESEND_API_KEY": "{env:RESEND_API_KEY}",
-          "SENDER_EMAIL_ADDRESS": "{env:EMAIL_FROM}"
-        }
+        "command": ["bash", "./scripts/resend-mcp.sh"]
       },
       "firecrawl": {
         "type": "local",
