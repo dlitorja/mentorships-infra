@@ -2107,9 +2107,15 @@ Traps:
 - **An env-var change is inert until a redeploy.** Vercel snapshots env per deployment, so
   changing a var affects nothing until a new build runs. `NEXT_PUBLIC_*` in particular is inlined
   at build time.
-- Root `.env.local` is a **redacted template**: ~41 keys literally contain `[SENSITIVE]`. It is
-  not a source of real secret values. Only copy a value from it after confirming it isn't a
-  placeholder — blindly copying breaks the app (a `[SENSITIVE]` Upstash URL throws at boot).
+- Root `.env.local` is a **partially redacted template**: 40 of its 96 keys are literally
+  `[SENSITIVE]` and 12 are empty, but 44 hold real values (including `RESEND_API_KEY`,
+  `CONVEX_*`, `TRIGGER_*`, and `TURNSTILE_*`). Do not treat the file as fake. Check the
+  specific key before using it, and never print or commit a real value. Blindly copying a
+  placeholder still breaks the app (a `[SENSITIVE]` Upstash URL throws at boot).
+- OpenCode's Resend MCP server keeps no copy of the key. `scripts/resend-mcp.sh` reads
+  `apps/platform/.env.local` at spawn time and exports `RESEND_API_KEY` and
+  `SENDER_EMAIL_ADDRESS` before starting the server. Rotate the key in that env file; do not
+  add it to OpenCode's service environment (`opencode service set env`).
 
 <!-- VERCEL PLUGIN END -->
 
