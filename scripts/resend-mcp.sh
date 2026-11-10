@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${OPENCODE_RESEND_ENV_FILE:-$ROOT/apps/platform/.env.local}"
 
 read_key() {
-  grep -m1 "^$1=" "$ENV_FILE" 2>/dev/null \
+  { grep -m1 "^$1=" "$ENV_FILE" 2>/dev/null || true; } \
     | cut -d= -f2- \
     | sed -E "s/^[\"']//; s/[\"']$//"
 }
