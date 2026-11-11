@@ -738,17 +738,25 @@ export function useUnarchiveWorkspace() {
 }
 
 /**
- * Represents a workspace export job (ZIP, PDF, or Markdown).
+ * Represents a workspace export job (ZIP, PDF, Markdown, or CSV).
  */
 export interface WorkspaceExport {
   _id: Id<"workspaceExports">;
   workspaceId: Id<"workspaces">;
   userId: string;
   format: string;
+  /**
+   * Which tab produced the export: `images` builds the ZIP, `links`
+   * builds the CSV. Absent on rows created before scopes existed —
+   * treat those as the legacy full-workspace ZIP.
+   */
+  scope?: "workspace" | "images" | "links";
   status: 'pending' | 'processing' | 'completed' | 'failed';
   downloadUrl?: string;
   expiresAt?: number;
-  createdAt: number;
+  errorMessage?: string;
+  /** Convex document creation timestamp. */
+  _creationTime: number;
 }
 
 /**
@@ -766,6 +774,28 @@ export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
     ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
     enabled: !!workspaceId,
   });
+}
+
+/**
+ * Picks the most recent export that belongs to a workspace tab.
+ *
+ * Exports are workspace-scoped rows shared by every tab, so each tab
+ * has to filter to its own `scope` — otherwise the Links tab would
+ * render the Images ZIP as its own result (and offer to "download" a
+ * zip from a CSV button). Legacy rows with no `scope` are treated as
+ * the full-workspace ZIP, which is what the Images tab used before the
+ * `scope` column existed.
+ */
+export function latestExportForScope(
+  exports: WorkspaceExport[] | undefined,
+  scope: "images" | "links"
+): WorkspaceExport | undefined {
+  if (!exports || exports.length === 0) return undefined;
+  return exports.find((item) =>
+    scope === "images"
+      ? item.scope === "images" || item.scope === undefined || item.scope === "workspace"
+      : item.scope === "links"
+  );
 }
 
 /**

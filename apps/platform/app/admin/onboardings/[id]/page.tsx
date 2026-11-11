@@ -32,7 +32,7 @@ import { getOnboardingQuestionLabel } from "@/lib/onboarding-questions";
 import type { Id } from "@/convex/_generated/dataModel";
 import { RetryOnboardingButton } from "@/components/admin/retry-onboarding-button";
 import { ResendInvitationButton } from "@/components/admin/resend-invitation-button";
-import { WorkExampleThumb } from "@/components/onboarding/work-example-thumb";
+import { WorkExampleGallery } from "@/components/onboarding/work-example-gallery";
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -491,23 +491,14 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                         </p>
                       </div>
                     ) : activeWorkExamples.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                        {activeWorkExamples.map((w) => (
-                          <div
-                            key={w._id}
-                            className="relative aspect-square overflow-hidden rounded-md border bg-muted"
-                          >
-                            <WorkExampleThumb
-                              onboardingId={data._id}
-                              workExampleId={w._id}
-                              fileName={w.fileName}
-                            />
-                            <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
-                              <span className="line-clamp-1">{w.fileName}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <WorkExampleGallery
+                        onboardingId={String(data._id)}
+                        examples={activeWorkExamples.map((w) => ({
+                          _id: w._id,
+                          fileName: w.fileName,
+                          size: w.size,
+                        }))}
+                      />
                     ) : workExamplesQuery.isLoading ? (
                       <p className="text-sm text-muted-foreground italic">
                         Loading work examples…

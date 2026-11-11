@@ -3745,12 +3745,29 @@ export const createWorkspaceFileMessage = mutation({
   },
 });
 
-/** Creates a workspace export record and triggers a Trigger.dev task for zip format. Requires auth. */
+/** Creates a workspace export record and triggers a Trigger.dev task. Requires auth.
+ *
+ * Scopes map to the workspace tabs:
+ *   - `images` (or absent) → ZIP of the image bytes (+ notes), built by
+ *     `process-workspace-export`.
+ *   - `links` → CSV of the shared links, built by
+ *     `process-workspace-links-export`.
+ *
+ * `workspace` is accepted for the legacy full-export shape; the UI
+ * does not currently ask for it.
+ */
 export const createWorkspaceExport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.string(),
-    format: v.literal("zip"),
+    format: v.union(v.literal("zip"), v.literal("csv")),
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
   },
   returns: v.object({
@@ -3794,16 +3811,21 @@ export const createWorkspaceExport = mutation({
       workspaceId: args.workspaceId,
       userId: user.subject,
       format: args.format,
+      scope: args.scope,
       status: "pending",
     });
 
     const triggerSecretKey = process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
 
     const taskMap: Record<string, string> = {
-      zip: "process-workspace-export",
+      "zip:images": "process-workspace-export",
+      "zip:workspace": "process-workspace-export",
+      // Absent scope is the legacy full export (notes + images).
+      "zip:": "process-workspace-export",
+      "csv:links": "process-workspace-links-export",
     };
 
-    const taskName = taskMap[args.format];
+    const taskName = taskMap[`${args.format}:${args.scope ?? ""}`];
 
     const errorMessageMissingKey =
       "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.";
@@ -3820,40 +3842,48 @@ export const createWorkspaceExport = mutation({
       return { exportId, errorMessage: errorMessageMissingKey };
     }
 
-    if (taskName) {
-      try {
-        const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${triggerSecretKey}`,
-          },
-          body: JSON.stringify({
-            payload: {
-              workspaceId: args.workspaceId,
-              exportId: String(exportId),
-              imageIds: args.imageIds,
-            },
-          }),
-        });
+    if (!taskName) {
+      // An unsupported (format, scope) pair used to leave the row
+      // pending forever, because the trigger block was skipped. Fail
+      // loudly instead so the UI shows a real error.
+      const errorMessage = `Unsupported export (${args.format}/${args.scope ?? "workspace"}).`;
+      await ctx.db.patch(exportId, { status: "failed", errorMessage });
+      return { exportId, errorMessage };
+    }
 
-        if (!response.ok) {
-          const errorMessage = `Trigger.dev request failed: ${response.status}`;
-          await ctx.db.patch(exportId, {
-            status: "failed",
-            errorMessage,
-          });
-          return { exportId, errorMessage };
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+    try {
+      const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${triggerSecretKey}`,
+        },
+        body: JSON.stringify({
+          payload: {
+            workspaceId: args.workspaceId,
+            exportId: String(exportId),
+            imageIds: args.imageIds,
+            scope: args.scope,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorMessage = `Trigger.dev request failed: ${response.status}`;
         await ctx.db.patch(exportId, {
           status: "failed",
           errorMessage,
         });
-        console.error("Failed to trigger export task:", error);
         return { exportId, errorMessage };
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await ctx.db.patch(exportId, {
+        status: "failed",
+        errorMessage,
+      });
+      console.error("Failed to trigger export task:", error);
+      return { exportId, errorMessage };
     }
 
     return { exportId };

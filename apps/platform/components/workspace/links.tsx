@@ -8,6 +8,10 @@ import {
   useSharedResourcesForActiveSession,
   useCreateWorkspaceLink,
   useDeleteWorkspaceLink,
+  useCreateWorkspaceExport,
+  useCancelWorkspaceExport,
+  useWorkspaceExports,
+  latestExportForScope,
   type InstructorResource,
 } from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
@@ -15,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText } from 'lucide-react';
+import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText, Download, X } from 'lucide-react';
 
 interface Link {
   _id: Id<'workspaceLinks'>;
@@ -50,6 +54,10 @@ interface WorkspaceLinksProps {
   // call is active. New links default to being tagged to this
   // session (toggleable per-link).
   activeSessionId: Id<'sessions'> | null;
+  // Clerk subject of the signed-in user. Only used to satisfy the
+  // export mutation's legacy `userId` arg — the server ignores it in
+  // favour of the auth subject.
+  currentUserId: string;
 }
 
 /**
@@ -59,7 +67,7 @@ interface WorkspaceLinksProps {
  *
  * @param workspaceId - Convex workspace ID
  */
-export default function WorkspaceLinks({ workspaceId, activeSessionId }: WorkspaceLinksProps) {
+export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUserId }: WorkspaceLinksProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newTitle, setNewTitle] = useState('');
@@ -109,6 +117,15 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
   } = useSharedResourcesForActiveSession(workspaceId, activeSessionId);
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
+  // Links-tab export: a CSV of every shared link, built by the
+  // Trigger.dev task `process-workspace-links-export` and stored in
+  // B2 (never Convex storage).
+  const { data: exports } = useWorkspaceExports(workspaceId);
+  const createExport = useCreateWorkspaceExport();
+  const cancelExport = useCancelWorkspaceExport();
+  const latestExport = latestExportForScope(exports, 'links');
+  const isExportProcessing = latestExport?.status === 'processing';
+  const isExportPending = latestExport?.status === 'pending';
 
   const activeLinks = useMemo<Link[]>(() => (links as Link[] | undefined) ?? [], [links]);
 
@@ -286,6 +303,29 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
     }
   };
 
+  const handleExportCsv = async (): Promise<void> => {
+    if (createExport.isPending || isExportPending || isExportProcessing) return;
+    try {
+      const result = await createExport.mutateAsync({
+        workspaceId,
+        userId: currentUserId,
+        format: 'csv',
+        scope: 'links',
+      });
+      if (result.errorMessage) {
+        toast.error(result.errorMessage);
+      } else {
+        toast.success('Building links CSV — this usually takes a few seconds.');
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to start the links export.'
+      );
+    }
+  };
+
   if (linksQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -331,14 +371,101 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId }: Workspa
             </p>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setIsAdding(true)}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Add Link
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {isExportProcessing || isExportPending ? (
+            <>
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Building CSV…
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+                disabled={cancelExport.isPending}
+                title="Cancel export"
+                aria-label="Cancel links export"
+              >
+                {cancelExport.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
+              </Button>
+            </>
+          ) : latestExport?.status === 'completed' && latestExport.downloadUrl ? (
+            <>
+              <Button size="sm" variant="default" asChild>
+                <a href={latestExport.downloadUrl} download>
+                  <Download className="h-4 w-4 mr-1" />
+                  Download CSV
+                </a>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportCsv}
+                disabled={createExport.isPending}
+              >
+                {createExport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                Export again
+              </Button>
+            </>
+          ) : latestExport?.status === 'failed' && latestExport.errorMessage ? (
+            <>
+              <span
+                className="max-w-[16rem] truncate text-xs text-destructive"
+                title={latestExport.errorMessage}
+              >
+                Export failed: {latestExport.errorMessage}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleExportCsv}
+                disabled={createExport.isPending || activeLinks.length === 0}
+              >
+                {createExport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                Retry export
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportCsv}
+              disabled={createExport.isPending || activeLinks.length === 0}
+              title={
+                activeLinks.length === 0
+                  ? 'Add a link first'
+                  : 'Download every shared link as a CSV'
+              }
+            >
+              {createExport.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-1" />
+              )}
+              Export CSV
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setIsAdding(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Link
+          </Button>
+        </div>
       </div>
       {deleteError && (
         <div className="mb-3 text-sm text-destructive">{deleteError}</div>

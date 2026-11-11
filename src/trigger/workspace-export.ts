@@ -1,4 +1,5 @@
 import { task, logger } from "@trigger.dev/sdk";
+import { generateLinksCsv, uniqueArchiveName } from "@mentorships/storage";
 import archiver from "archiver";
 import PDFDocument from "pdfkit";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -77,16 +78,36 @@ async function callConvexHttp(path: string, body: Record<string, unknown>): Prom
   return response.json();
 }
 
-async function getExportData(workspaceId: string, imageIds?: string[]) {
-  return callConvexHttp("/workspace/export/data", { workspaceId, imageIds }) as Promise<{
+async function getExportData(
+  workspaceId: string,
+  imageIds?: string[],
+  scope?: "workspace" | "images" | "links"
+) {
+  return callConvexHttp("/workspace/export/data", {
+    workspaceId,
+    imageIds,
+    scope,
+  }) as Promise<{
     workspaceName: string;
-    notes: Array<{ title: string; content: string; updatedAt: number }>;
-    images: Array<{
+    notes?: Array<{ title: string; content: string; updatedAt: number }>;
+    images?: Array<{
       imageUrl: string;
+      // Present for rows uploaded through the B2 pipeline. When set,
+      // the task reads the object straight from the workspace bucket
+      // instead of re-fetching a signed URL — one auth round-trip
+      // saved per image and no 1-hour URL expiry race.
+      b2Key?: string;
+      fileName?: string;
       storageId?: string;
       contentType?: string;
-      fileName?: string;
       createdBy: string;
+      createdAt: number;
+    }>;
+    links?: Array<{
+      url: string;
+      title?: string;
+      createdBy: string;
+      sessionId?: string;
       createdAt: number;
     }>;
   }>;
@@ -164,25 +185,53 @@ async function uploadZipToB2(
 }
 
 /**
- * Fetches image bytes for an export entry. Two cases:
+ * Fetches image bytes for an export entry. Three cases, in priority
+ * order:
  *
- *   1. `imageUrl` starts with `data:` — a legacy image where the
- *      bytes were inlined into the row. Decode the base64 payload
- *      directly.
- *   2. `imageUrl` is a Convex storage URL — the modern path. Fetch
- *      the URL over HTTP and stream the bytes. This is the path
- *      the original code was missing: the inner `imageUrl.startsWith("data:")`
- *      branch skipped every storage-backed image, so the ZIP ended
- *      up with only `notes.md`.
+ *   1. `b2Key` — the current storage path. Stream the object straight
+ *      out of the workspace bucket with the S3 SDK.
+ *   2. `imageUrl` starts with `data:` — a very old image whose bytes
+ *      were inlined into the row. Decode the base64 payload.
+ *   3. `imageUrl` is a Convex storage URL (pre-B2 rows). Fetch over
+ *      HTTP.
  *
- * Returns null when the bytes cannot be retrieved (deleted
- * storage, network error). The caller logs and continues so one
- * bad image does not fail the entire export.
+ * Returns null when the bytes cannot be retrieved (deleted object,
+ * network error). The caller logs and continues so one bad image does
+ * not fail the entire export.
  */
 async function fetchImageBytes(img: {
   imageUrl: string;
+  b2Key?: string;
   storageId?: string;
 }): Promise<{ bytes: Buffer; contentType: string; extension: string } | null> {
+  // Preferred path: read the object straight out of the workspace
+  // bucket with the S3 SDK. No presigned GET (and therefore no URL
+  // expiry window) and no second network hop.
+  if (img.b2Key) {
+    try {
+      const response = await getB2Client().send(
+        new GetObjectCommand({
+          Bucket: getWorkspaceBucket(),
+          Key: img.b2Key,
+        })
+      );
+      if (!response.Body) return null;
+      const bytes = Buffer.from(await response.Body.transformToByteArray());
+      const contentType = response.ContentType || "application/octet-stream";
+      return {
+        bytes,
+        contentType,
+        extension: extensionForContentType(contentType),
+      };
+    } catch (error) {
+      logger.warn("Failed to read B2 object for export", {
+        b2Key: img.b2Key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   if (img.imageUrl.startsWith("data:")) {
     const match = /^data:([^;]+);base64,(.*)$/.exec(img.imageUrl);
     if (!match) return null;
@@ -209,6 +258,15 @@ async function fetchImageBytes(img: {
     return null;
   }
 }
+
+/**
+ * Returns a filename unique within `used`. Two uploads named
+ * `sketch.png` would otherwise collapse into one ZIP entry (archiver
+ * overwrites by name), so the second becomes `sketch-2.png`.
+ * Implementation lives in `@mentorships/storage` so the behaviour is
+ * unit-tested with the CSV helpers.
+ */
+const uniqueName = uniqueArchiveName;
 
 function extensionForContentType(contentType: string): string {
   // Strip parameters before lookup (e.g. `image/png; charset=utf-8` →
@@ -295,17 +353,24 @@ export const processWorkspaceExport = task({
   retry: {
     maxAttempts: 3,
   },
-  run: async (payload: { workspaceId: string; exportId: string; imageIds?: string[] }) => {
-    const { workspaceId, exportId, imageIds } = payload;
+  run: async (payload: {
+    workspaceId: string;
+    exportId: string;
+    imageIds?: string[];
+    scope?: "workspace" | "images" | "links";
+  }) => {
+    const { workspaceId, exportId, imageIds, scope } = payload;
     logger.info("Starting workspace export", { workspaceId, exportId, imageCount: imageIds?.length });
 
     try {
       await updateExportStatus(exportId, "processing");
 
-      const exportData = await getExportData(workspaceId, imageIds);
+      const exportData = await getExportData(workspaceId, imageIds, scope);
+      const notes = exportData.notes ?? [];
+      const images = exportData.images ?? [];
       logger.info("Retrieved export data", {
-        notesCount: exportData.notes.length,
-        imagesCount: exportData.images.length,
+        notesCount: notes.length,
+        imagesCount: images.length,
       });
 
       const chunks: Buffer[] = [];
@@ -319,19 +384,25 @@ export const processWorkspaceExport = task({
       // to fix. Pre-fetching first means the Promise body is purely
       // synchronous — append, finalize, resolve on `archive.end`.
       const imageEntries: Array<{ name: string; bytes: Buffer }> = [];
-      for (const img of exportData.images) {
+      const usedNames = new Set<string>();
+      for (const img of images) {
         const fetched = await fetchImageBytes(img);
         if (!fetched) continue;
-        const baseName = img.fileName || img.storageId || `image-${imageEntries.length + 1}`;
-        const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+        const baseName =
+          img.fileName || img.storageId || `image-${imageEntries.length + 1}`;
+        const safeStem = baseName
+          .replace(/\.[^./\\]+$/, "")
+          .replace(/[^a-zA-Z0-9._-]/g, "_")
+          .slice(0, 80);
+        const name = uniqueName(`${safeStem}.${fetched.extension}`, usedNames);
         imageEntries.push({
-          name: `images/${safeName}.${fetched.extension}`,
+          name: `images/${name}`,
           bytes: fetched.bytes,
         });
       }
       logger.info("Archived images", {
         imageCount: imageEntries.length,
-        totalImages: exportData.images.length,
+        totalImages: images.length,
       });
 
       await new Promise<void>((resolve, reject) => {
@@ -341,8 +412,8 @@ export const processWorkspaceExport = task({
         archive.on("error", reject);
         archive.on("end", () => resolve());
 
-        if (exportData.notes.length > 0) {
-          const markdown = generateMarkdown(exportData.notes);
+        if (notes.length > 0) {
+          const markdown = generateMarkdown(notes);
           archive.append(markdown, { name: "notes.md" });
         }
 
@@ -350,7 +421,7 @@ export const processWorkspaceExport = task({
           archive.append(entry.bytes, { name: entry.name });
         }
 
-        if (exportData.notes.length === 0 && imageEntries.length === 0) {
+        if (notes.length === 0 && imageEntries.length === 0) {
           archive.append("# No content to export", { name: "README.txt" });
         }
 
@@ -471,6 +542,7 @@ export const processWorkspacePdfExport = task({
       await updateExportStatus(exportId, "processing");
 
       const exportData = await getExportData(workspaceId);
+      const notes = exportData.notes ?? [];
 
       const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
         const doc = new PDFDocument({
@@ -495,10 +567,10 @@ export const processWorkspacePdfExport = task({
 
         doc.fillColor("black");
 
-        if (exportData.notes.length === 0) {
+        if (notes.length === 0) {
           doc.fontSize(14).text("No notes to export.");
         } else {
-          for (const note of exportData.notes) {
+          for (const note of notes) {
             doc.fontSize(16).text(note.title, { continued: false });
             doc.fontSize(10).fillColor("gray").text(`Last updated: ${new Date(note.updatedAt).toLocaleDateString()}`);
             doc.moveDown(0.5);
@@ -546,8 +618,9 @@ export const processWorkspaceMarkdownExport = task({
       await updateExportStatus(exportId, "processing");
 
       const exportData = await getExportData(workspaceId);
+      const notes = exportData.notes ?? [];
 
-      const markdown = generateMarkdown(exportData.notes);
+      const markdown = generateMarkdown(notes);
       const markdownBuffer = Buffer.from(markdown, "utf-8");
 
       const safeName = exportData.workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
@@ -563,6 +636,92 @@ export const processWorkspaceMarkdownExport = task({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Markdown export failed", { error: errorMessage });
+
+      await updateExportStatus(exportId, "failed", undefined, errorMessage);
+
+      return { success: false, error: errorMessage };
+    }
+  },
+});
+
+async function uploadCsvToB2(
+  csvBuffer: Buffer,
+  workspaceId: string,
+  workspaceName: string,
+  filename: string
+): Promise<string> {
+  const client = getB2Client();
+  const timestamp = Date.now();
+  const safeName = workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
+  const key = `exports/${workspaceId}/${timestamp}-${safeName}-links.csv`;
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: getWorkspaceBucket(),
+      Key: key,
+      Body: csvBuffer,
+      ContentType: "text/csv; charset=utf-8",
+      ContentDisposition: `attachment; filename="${filename}"`,
+    })
+  );
+
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: getWorkspaceBucket(),
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+  );
+}
+
+/**
+ * Links-tab export: a single CSV of the workspace's shared links.
+ *
+ * CSV rather than ZIP because the payload is tabular and small — a
+ * reviewer wants to open it in Sheets/Excel, not unzip one file. The
+ * archive is written to the workspace bucket and served via a 7-day
+ * signed URL, same lifecycle as the images ZIP.
+ */
+export const processWorkspaceLinksExport = task({
+  id: "process-workspace-links-export",
+  maxDuration: 120,
+  retry: {
+    maxAttempts: 3,
+  },
+  run: async (payload: { workspaceId: string; exportId: string }) => {
+    const { workspaceId, exportId } = payload;
+    logger.info("Starting links workspace export", { workspaceId, exportId });
+
+    try {
+      await updateExportStatus(exportId, "processing");
+
+      const exportData = await getExportData(workspaceId, undefined, "links");
+      const links = exportData.links ?? [];
+
+      const csv = generateLinksCsv(links);
+      const csvBuffer = Buffer.from(csv, "utf-8");
+
+      const safeName = exportData.workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
+      const downloadUrl = await uploadCsvToB2(
+        csvBuffer,
+        workspaceId,
+        exportData.workspaceName,
+        `${safeName}-links.csv`
+      );
+      await updateExportStatus(exportId, "completed", downloadUrl);
+
+      logger.info("Links export completed", {
+        exportId,
+        linkCount: links.length,
+        size: csvBuffer.length,
+      });
+
+      return { success: true, downloadUrl, linkCount: links.length };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error("Links export failed", { error: errorMessage });
 
       await updateExportStatus(exportId, "failed", undefined, errorMessage);
 

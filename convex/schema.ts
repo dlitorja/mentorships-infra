@@ -917,7 +917,27 @@ export default defineSchema({
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.string(),
-    format: v.union(v.literal("pdf"), v.literal("markdown"), v.literal("zip")),
+    // `csv` was added when the Links tab gained its own export. The
+    // pdf/markdown values are legacy — no live caller requests them,
+    // but existing rows must stay valid.
+    format: v.union(
+      v.literal("pdf"),
+      v.literal("markdown"),
+      v.literal("zip"),
+      v.literal("csv")
+    ),
+    // Which tab produced the export. Optional for backwards
+    // compatibility: rows created before this field existed are
+    // treated as the full-workspace ZIP (`scope` absent). The UI
+    // filters exports by scope so the Images tab does not surface a
+    // Links CSV (and vice versa).
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed")),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
@@ -1810,4 +1830,37 @@ export default defineSchema({
     // reservations by b2Key for the same onboarding so retries
     // collapse to one row.
     .index("by_onboardingId_b2Key", ["onboardingId", "b2Key"]),
+
+  /**
+   * Onboarding artwork ZIP exports. Mirrors `workspaceExports` but is
+   * keyed by onboarding instead of workspace, because the reviewer
+   * surface (instructor inbox → `/onboarding/[id]`) has no workspace
+   * yet — a workspace is only created once the onboarding completes.
+   *
+   * The Trigger.dev task `process-onboarding-artwork-export` zips the
+   * active work-example images straight from the workspace B2 bucket
+   * and writes the archive back to B2 under
+   * `onboarding/<onboardingId>/exports/...`. Nothing moves through
+   * Convex storage.
+   */
+  onboardingArtworkExports: defineTable({
+    onboardingId: v.id("adminOnboardings"),
+    // Clerk subject of the instructor/admin/support member who asked
+    // for the archive. Derived from auth, never from the client.
+    requestedBy: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    downloadUrl: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
+    // Number of images included. Written by the task on completion so
+    // the reviewer can tell a partial archive from a complete one.
+    fileCount: v.optional(v.number()),
+  })
+    .index("by_onboardingId", ["onboardingId"])
+    .index("by_status", ["status"]),
 });

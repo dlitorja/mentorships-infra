@@ -155,6 +155,12 @@ export const getWorkExampleDownloadUrl = action({
   args: {
     onboardingId: v.id("adminOnboardings"),
     b2Key: v.string(),
+    // When true, the signed URL carries a
+    // `Content-Disposition: attachment` header so the browser saves
+    // the file instead of navigating to the image. Needed because
+    // the `download` attribute on an <a> is ignored for cross-origin
+    // (B2) URLs.
+    download: v.optional(v.boolean()),
   },
   returns: v.object({ url: v.string() }),
   handler: async (ctx, args) => {
@@ -164,11 +170,13 @@ export const getWorkExampleDownloadUrl = action({
         onboardingId: args.onboardingId,
         b2Key: args.b2Key,
       }
-    );
+    ) as { authorized: boolean; fileName?: string } | null;
     if (!access) {
       throw new Error("Not authorized to read this work example");
     }
-    const url = await signedWorkspaceDownloadUrl(args.b2Key, 60 * 60);
+    const url = await signedWorkspaceDownloadUrl(args.b2Key, 60 * 60, {
+      fileName: args.download ? access.fileName : undefined,
+    });
     return { url };
   },
 });

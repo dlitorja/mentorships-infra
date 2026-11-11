@@ -20,13 +20,8 @@ import { Linkify } from "@/components/ui/linkify";
 import { OnboardingStepper } from "@/components/onboarding/onboarding-stepper";
 import { StudentTimezoneComparison } from "@/components/instructor/student-timezone-comparison";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import { WorkExampleGallery } from "@/components/onboarding/work-example-gallery";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
-// ApiRoutes is intentionally not used in this server component
-// (the WorkExampleThumb now goes through `convex.action()`); keep
-// the import path here as a placeholder for future client-side
-// fallbacks.
-import * as _ApiRoutesUnused from "@/lib/routes";
-void _ApiRoutesUnused;
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -244,6 +239,7 @@ const submittedWorkExamples = (
     _id: string;
     fileName: string;
     status: string;
+    size?: number;
   }>
 ).filter((w) => w.status === "active");
 
@@ -489,27 +485,21 @@ const submittedWorkExamples = (
                   )}
                 </ul>
               </div>
-              {/* Greptile P1 #7: render the uploaded images here so
-                 instructors can actually review the work before the
-                 first call. Each <img> fetches a fresh signed GET
-                 URL (1h TTL) from the work-examples download-url
-                 API route, which re-checks the viewer's auth gate. */}
+              {/* Greptile P1 #7 / artwork-review follow-up: the shared
+                 client gallery renders full-size previews plus
+                 per-image download and a "download all" ZIP (built by
+                 Trigger.dev from the workspace B2 bucket). Each signed
+                 URL is minted through the auth-gated download-url
+                 route, so access is re-checked on every call. */}
               {Array.isArray(submittedWorkExamples) && submittedWorkExamples.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">
-                    Work examples ({submittedWorkExamples.length})
-                  </p>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {submittedWorkExamples.map((w: { _id: string; fileName: string }) => (
-                      <WorkExampleThumb
-                        key={w._id}
-                        onboardingId={onboarding._id}
-                        exampleId={w._id}
-                        fileName={w.fileName}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <WorkExampleGallery
+                  onboardingId={String(onboarding._id)}
+                  examples={submittedWorkExamples.map((w) => ({
+                    _id: w._id as Id<"onboardingWorkExamples">,
+                    fileName: w.fileName,
+                    size: w.size,
+                  }))}
+                />
               )}
             </CardContent>
           </Card>
@@ -519,79 +509,3 @@ const submittedWorkExamples = (
   );
 }
 
-/**
- * Greptile P1 #7 helper: each thumbnail mints its own short-lived
- * signed GET URL on render (server component). The URL TTL is 1h and
- * the download-url API route re-checks the viewer is authorized
- * (student / matching instructor / admin / support).
- */
-async function WorkExampleThumb({
-  onboardingId,
-  exampleId,
-  fileName,
-}: {
-  onboardingId: string;
-  exampleId: string;
-  fileName: string;
-}): Promise<React.JSX.Element> {
-  // Greptile round-19 P1 #1: this server component was
-  // calling `fetchQuery` on an action (wrong API) and then
-  // falling back to a fetch() call that forwarded a Convex
-  // JWT as a bearer token to a Clerk-protected route. The
-  // route's `auth()` reads Clerk cookies, so the bearer was
-  // ignored and the call 401'd, showing "(image)" instead of
-  // the artwork.
-  //
-  // Fix: use the Convex HTTP client directly. It carries the
-  // Convex JWT (which the action's auth layer recognises) and
-  // supports actions via `client.action()`. The
-  // `getWorkExampleDownloadUrl` action is the same one the
-  // `/api/.../download-url` route uses, so the auth gate and
-  // presigned-URL mint logic are unchanged.
-  let url: string | null = null;
-  try {
-    const { getAuthenticatedConvexClient } = await import(
-      "@/lib/convex"
-    );
-    const convex = await getAuthenticatedConvexClient();
-    const workExample = await convex.query(
-      (api as any).onboardingWorkExamples.getWorkExampleByIdForViewer,
-      {
-        onboardingId: onboardingId as Id<"adminOnboardings">,
-        workExampleId: exampleId as Id<"onboardingWorkExamples">,
-      }
-    );
-    if (!workExample) {
-      throw new Error("Work example not found");
-    }
-    const { url: signedUrl } = await convex.action(
-      (api as any).onboardingWorkExamplesActions.getWorkExampleDownloadUrl,
-      {
-        onboardingId: onboardingId as Id<"adminOnboardings">,
-        b2Key: (workExample as { b2Key: string }).b2Key,
-      }
-    );
-    url = signedUrl;
-  } catch {
-    url = null;
-  }
-  return (
-    <div className="relative aspect-square overflow-hidden rounded-md border bg-muted">
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={url}
-          alt={fileName}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-          (image)
-        </div>
-      )}
-      <div className="absolute inset-x-0 bottom-0 bg-background/80 px-2 py-1 text-xs">
-        <span className="line-clamp-1">{fileName}</span>
-      </div>
-    </div>
-  );
-}

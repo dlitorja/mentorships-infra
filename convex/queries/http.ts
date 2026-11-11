@@ -1,5 +1,4 @@
 import { query } from "../_generated/server";
-import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 
@@ -100,21 +99,54 @@ export const getUserIdByEmail = query({
   },
 });
 
-/** Fetches a workspace's non-deleted notes and images for data export.
+/** Fetches a workspace's non-deleted notes and images for data export,
+ * or its shared links when `scope === "links"`.
  * When `imageIds` is provided, only those images are included; otherwise
  * all non-deleted images are exported.
+ *
+ * `scope: "links"` returns only `workspaceName` + `links` so the Links
+ * tab export never pays for loading note bodies and image rows it does
+ * not need.
  */
 export const getWorkspaceExportData = query({
   args: {
     workspaceId: v.id("workspaces"),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
   },
   handler: async (ctx, args) => {
-    const { workspaceId, imageIds } = args;
+    const { workspaceId, imageIds, scope } = args;
 
     const workspace = await ctx.db.get(workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
+    }
+
+    if (scope === "links") {
+      const links = await ctx.db
+        .query("workspaceLinks")
+        .withIndex("by_workspaceId_and_deletedAt", (q) =>
+          q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+        )
+        .collect();
+      // Newest first — matches the Links tab ordering.
+      links.sort((a, b) => b._creationTime - a._creationTime);
+      return {
+        workspaceName: workspace.name || "Workspace",
+        links: links.map((link) => ({
+          url: link.url,
+          title: link.title,
+          createdBy: link.createdBy,
+          sessionId: link.sessionId,
+          createdAt: link._creationTime,
+        })),
+      };
     }
 
     const notes = await ctx.db
@@ -136,42 +168,35 @@ export const getWorkspaceExportData = query({
         ? allImages.filter((img) => imageIds.includes(img._id))
         : allImages;
 
-    // PR workspace-storage-3c (Greptile P1 "Exports omit B2 images"):
-    // resolve B2 keys via the shared resolver so the export trigger task
-    // receives real signed URLs. HUC-65: batch every key into ONE resolver
-    // call — the previous loop repeated the workspace read and internal
-    // query once per image.
-    const b2Keys = images
-      .map((img) => img.b2Key)
-      .filter((key): key is string => key !== undefined);
-    const resolvedB2 =
-      b2Keys.length > 0
-        ? await ctx.runQuery(
-            internal.workspaceStorage.resolveWorkspaceB2FileUploadsForKeys,
-            { workspaceId, b2Keys }
-          )
-        : [];
-    const b2UrlByKey = new Map<string, string>();
-    for (const resolved of resolvedB2) {
-      if (resolved.ok) {
-        b2UrlByKey.set(resolved.b2Key, resolved.url);
-      }
-    }
-
+    // PR workspace-storage-3c+: the export trigger reads B2 objects
+    // directly with the S3 SDK, so this query only has to hand over the
+    // `b2Key` (plus a name hint). Previously it also minted a presigned
+    // GET URL per image, which the task then re-fetched over HTTPS —
+    // one signature per image plus an extra network hop for bytes the
+    // task could stream straight from the bucket.
+    //
+    // Legacy rows still need resolving: `imageUrl` can be a `data:`
+    // URI (very old) or a Convex storage URL (pre-B2).
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
-        let imageUrl = img.imageUrl;
-        let contentType: string | undefined;
         if (img.b2Key !== undefined) {
-          imageUrl = b2UrlByKey.get(img.b2Key) ?? "";
           return {
-            imageUrl,
+            // Empty string on purpose: the task branches on `b2Key`
+            // first and never reads `imageUrl` for B2 rows.
+            imageUrl: "",
             b2Key: img.b2Key,
-            contentType,
+            // The key's last segment is the sanitized original
+            // filename (`.../<fileId>/<fileName>`), so the task can
+            // produce human-readable archive entries without a
+            // schema change.
+            fileName: img.b2Key.split("/").pop(),
             createdBy: img.createdBy,
             createdAt: img._creationTime,
           };
         }
+
+        let imageUrl = img.imageUrl;
+        let contentType: string | undefined;
         if (img.storageId) {
           const [url, metadata] = await Promise.all([
             ctx.storage.getUrl(img.storageId as Id<"_storage">),

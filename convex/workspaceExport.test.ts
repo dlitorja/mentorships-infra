@@ -524,3 +524,151 @@ test("HTTP /workspace/export/get returns 404 for a missing export", async () => 
   });
   expect(r.status).toBe(404);
 });
+
+// ---------------------------------------------------------------------------
+// Scope-aware exports (Images ZIP vs Links CSV)
+// ---------------------------------------------------------------------------
+
+test("createWorkspaceExport stores the scope for a links CSV export", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.createWorkspaceExport, {
+    workspaceId,
+    userId: studentUserId,
+    format: "csv",
+    scope: "links",
+  });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceExports").collect());
+  expect(rows.length).toBe(1);
+  expect(rows[0].format).toBe("csv");
+  expect(rows[0].scope).toBe("links");
+});
+
+test("createWorkspaceExport stores the scope for an images ZIP export", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.createWorkspaceExport, {
+    workspaceId,
+    userId: studentUserId,
+    format: "zip",
+    scope: "images",
+  });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceExports").collect());
+  expect(rows[0].scope).toBe("images");
+  expect(rows[0].format).toBe("zip");
+});
+
+test("createWorkspaceExport fails loudly for an unsupported format/scope pair", async () => {
+  const t = convexTest(schema, modules);
+  // Keep a placeholder key so the credential guard passes and the
+  // unsupported-pair branch runs. That branch returns before any
+  // network call, so nothing is sent to Trigger.dev.
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const student = t.withIdentity({ subject: studentUserId });
+    const result = await student.mutation(api.workspaces.createWorkspaceExport, {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "images",
+    });
+    expect(result.errorMessage).toMatch(/Unsupported export/i);
+
+    const row = await t.run(async (ctx) => ctx.db.get(result.exportId));
+    expect(row?.status).toBe("failed");
+  } finally {
+    clearTriggerCredentials();
+  }
+});
+
+test("HTTP /workspace/export/data with scope=links returns links and no notes/images", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/older",
+      title: "Older link",
+      createdBy: "user_export_student",
+    });
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/newer",
+      title: "Newer link",
+      createdBy: "user_export_student",
+    });
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/deleted",
+      title: "Deleted link",
+      createdBy: "user_export_student",
+      deletedAt: Date.now(),
+    });
+    await ctx.db.insert("workspaceNotes", {
+      workspaceId: workspaceId as any,
+      title: "Should not be exported",
+      content: "note body",
+      createdBy: "user_export_student",
+      updatedAt: Date.now(),
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "links" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  expect(body.notes).toBeUndefined();
+  expect(body.images).toBeUndefined();
+  expect(body.links.map((l: { title: string }) => l.title)).toEqual([
+    "Newer link",
+    "Older link",
+  ]);
+  // Deleted links never reach the CSV.
+  expect(
+    body.links.some((l: { title: string }) => l.title === "Deleted link")
+  ).toBe(false);
+});
+
+test("HTTP /workspace/export/data returns the b2Key for B2-backed images", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  expect(body.images.length).toBe(1);
+  // The trigger reads the object directly; no signed URL is minted.
+  expect(body.images[0].b2Key).toBe("2026-01-01/workspaces/ws/file-1/sketch.png");
+  expect(body.images[0].imageUrl).toBe("");
+  expect(body.images[0].fileName).toBe("sketch.png");
+});
