@@ -148,6 +148,10 @@ after **72 hours**:
   `*/exports/*`, so uploaded artwork is never touched) and deletes
   anything older than 72 hours in batches of 1,000. Delete errors are
   retried on the next tick; the operation is idempotent.
+  **The bucket has B2 versioning enabled**, so the sweep lists object
+  *versions* (and delete markers) and deletes every version of an
+  expired key — a plain `DeleteObject` would only add a delete marker
+  and leave the bytes billed.
 - **Convex rows** — the hourly cron `cleanup-expired-export-records`
   (`convex/exportMaintenance.ts`) deletes terminal
   (`completed`/`failed`) rows older than the same window and marks any

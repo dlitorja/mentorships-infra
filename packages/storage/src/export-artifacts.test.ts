@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EXPORT_ARTIFACT_TTL_MS,
   isExportArtifactKey,
+  selectExpiredExportArtifactVersions,
   selectExpiredExportArtifacts,
 } from "./export-artifacts";
 
@@ -72,5 +73,67 @@ describe("selectExpiredExportArtifacts", () => {
         60 * 60 * 1000
       )
     ).toEqual(["exports/ws/two-hours.zip"]);
+  });
+});
+
+describe("selectExpiredExportArtifactVersions", () => {
+  const now = Date.UTC(2026, 0, 10);
+  const old = now - EXPORT_ARTIFACT_TTL_MS - 60_000;
+  const fresh = now - 60 * 60 * 1000;
+
+  it("deletes every version once the newest version is expired", () => {
+    const targets = selectExpiredExportArtifactVersions(
+      [
+        { key: "exports/ws/a.zip", versionId: "v1", lastModified: old },
+        { key: "exports/ws/a.zip", versionId: "v2", lastModified: old + 1000 },
+        // Delete marker from an earlier plain delete.
+        { key: "exports/ws/a.zip", versionId: "dm", lastModified: old + 2000 },
+      ],
+      now
+    );
+    expect(targets).toEqual([
+      { key: "exports/ws/a.zip", versionId: "v1" },
+      { key: "exports/ws/a.zip", versionId: "v2" },
+      { key: "exports/ws/a.zip", versionId: "dm" },
+    ]);
+  });
+
+  it("keeps a key with any recent version", () => {
+    expect(
+      selectExpiredExportArtifactVersions(
+        [
+          { key: "exports/ws/a.zip", versionId: "old", lastModified: old },
+          { key: "exports/ws/a.zip", versionId: "new", lastModified: fresh },
+        ],
+        now
+      )
+    ).toEqual([]);
+  });
+
+  it("ignores uploaded artwork and unrelated keys", () => {
+    expect(
+      selectExpiredExportArtifactVersions(
+        [
+          { key: "onboarding/ob/file/u.png", versionId: "v1", lastModified: old },
+          { key: "bulk-downloads/x.zip", versionId: "v1", lastModified: old },
+        ],
+        now
+      )
+    ).toEqual([]);
+  });
+
+  it("includes the null version id for unversioned objects", () => {
+    expect(
+      selectExpiredExportArtifactVersions(
+        [
+          {
+            key: "exports/ws/pre-versioning.zip",
+            versionId: "null",
+            lastModified: old,
+          },
+        ],
+        now
+      )
+    ).toEqual([{ key: "exports/ws/pre-versioning.zip", versionId: "null" }]);
   });
 });

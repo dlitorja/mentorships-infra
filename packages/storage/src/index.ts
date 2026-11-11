@@ -76,8 +76,10 @@ export {
   EXPORT_ARTIFACT_TTL_HOURS,
   EXPORT_ARTIFACT_TTL_MS,
   isExportArtifactKey,
+  selectExpiredExportArtifactVersions,
   selectExpiredExportArtifacts,
   type ExportArtifactObject,
+  type ExportArtifactVersion,
 } from "./export-artifacts";
 
 export {

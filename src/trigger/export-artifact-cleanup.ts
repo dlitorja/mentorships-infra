@@ -1,12 +1,13 @@
 import { logger, schedules } from "@trigger.dev/sdk";
 import {
   DeleteObjectsCommand,
-  ListObjectsV2Command,
+  ListObjectVersionsCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
   EXPORT_ARTIFACT_TTL_MS,
-  selectExpiredExportArtifacts,
+  selectExpiredExportArtifactVersions,
+  type ExportArtifactVersion,
 } from "@mentorships/storage";
 
 /**
@@ -24,13 +25,17 @@ import {
  * Uploaded artwork itself (`onboarding/<id>/<fileId>/<name>`) shares the
  * `onboarding/` prefix and is intentionally NOT touched.
  *
+ * Versioning matters: the workspace bucket has B2 versioning enabled,
+ * so a plain `DeleteObject` only adds a delete marker and the bytes keep
+ * billing. The sweep lists *versions* (including delete markers) and
+ * deletes every version of each expired key.
+ *
  * The matching Convex rows are pruned by the `cleanup-expired-export-records`
  * cron (`convex/exportMaintenance.ts`), so this task only needs object
  * storage. Both use the same 72-hour window as the signed download URL.
  *
- * Idempotent: a missing object is simply absent from the listing. Delete
- * errors are reported and rethrown so the schedule retries; already
- * deleted keys are skipped by the next run.
+ * Idempotent: a missing version is simply absent from the listing, and
+ * delete errors are rethrown so the schedule retries.
  */
 const LIST_PREFIXES = ["exports/", "onboarding/"] as const;
 const DELETE_BATCH_SIZE = 1000;
@@ -66,6 +71,45 @@ function getB2Client(): S3Client {
   });
 }
 
+/** Lists every version (and delete marker) under a prefix. */
+async function listVersions(
+  client: S3Client,
+  bucket: string,
+  prefix: string
+): Promise<ExportArtifactVersion[]> {
+  const versions: ExportArtifactVersion[] = [];
+  let keyMarker: string | undefined;
+  let versionIdMarker: string | undefined;
+
+  do {
+    const page = await client.send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        Prefix: prefix,
+        KeyMarker: keyMarker,
+        VersionIdMarker: versionIdMarker,
+        MaxKeys: DELETE_BATCH_SIZE,
+      })
+    );
+
+    for (const entry of [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]) {
+      if (!entry.Key) continue;
+      versions.push({
+        key: entry.Key,
+        // Objects written before versioning was enabled surface as "null".
+        versionId: entry.VersionId ?? "null",
+        // Delete markers count: they are part of the key's history.
+        lastModified: entry.LastModified?.getTime() ?? 0,
+      });
+    }
+
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+    versionIdMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+  } while (keyMarker);
+
+  return versions;
+}
+
 export const cleanupExportArtifacts = schedules.task({
   id: "cleanup-export-artifacts",
   // Hourly; artifacts are eligible strictly after 72h, so the sweep can
@@ -77,53 +121,36 @@ export const cleanupExportArtifacts = schedules.task({
     const bucket = getWorkspaceBucket();
     const now = Date.now();
 
-    let scanned = 0;
-    const candidates: string[] = [];
-
+    const versions: ExportArtifactVersion[] = [];
     for (const prefix of LIST_PREFIXES) {
-      let continuationToken: string | undefined;
-      do {
-        const page = await client.send(
-          new ListObjectsV2Command({
-            Bucket: bucket,
-            Prefix: prefix,
-            ContinuationToken: continuationToken,
-            MaxKeys: DELETE_BATCH_SIZE,
-          })
-        );
-
-        const contents = (page.Contents ?? [])
-          .map((object) => ({
-            key: object.Key ?? "",
-            lastModified: object.LastModified?.getTime() ?? 0,
-          }))
-          .filter((object) => object.key.length > 0);
-        scanned += contents.length;
-        candidates.push(
-          ...selectExpiredExportArtifacts(contents, now, EXPORT_ARTIFACT_TTL_MS)
-        );
-
-        continuationToken = page.IsTruncated
-          ? page.NextContinuationToken
-          : undefined;
-      } while (continuationToken);
+      versions.push(...(await listVersions(client, bucket, prefix)));
     }
 
-    const keys = [...new Set(candidates)];
-    if (keys.length === 0) {
-      logger.info("Export artifact sweep: nothing to delete", { scanned });
-      return { scanned, expired: 0, deleted: 0 };
+    const targets = selectExpiredExportArtifactVersions(
+      versions,
+      now,
+      EXPORT_ARTIFACT_TTL_MS
+    );
+
+    if (targets.length === 0) {
+      logger.info("Export artifact sweep: nothing to delete", {
+        scannedVersions: versions.length,
+      });
+      return { scannedVersions: versions.length, expiredVersions: 0, deleted: 0 };
     }
 
     let deleted = 0;
     const errors: string[] = [];
-    for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
-      const batch = keys.slice(index, index + DELETE_BATCH_SIZE);
+    for (let index = 0; index < targets.length; index += DELETE_BATCH_SIZE) {
+      const batch = targets.slice(index, index + DELETE_BATCH_SIZE);
       const response = await client.send(
         new DeleteObjectsCommand({
           Bucket: bucket,
           Delete: {
-            Objects: batch.map((Key) => ({ Key })),
+            Objects: batch.map(({ key, versionId }) =>
+              // The `null` version is the unversioned object; omit the id.
+              versionId === "null" ? { Key: key } : { Key: key, VersionId: versionId }
+            ),
             Quiet: true,
           },
         })
@@ -136,8 +163,8 @@ export const cleanupExportArtifacts = schedules.task({
     }
 
     logger.info("Export artifact sweep complete", {
-      scanned,
-      expired: keys.length,
+      scannedVersions: versions.length,
+      expiredVersions: targets.length,
       deleted,
       failed: errors.length,
     });
@@ -145,13 +172,17 @@ export const cleanupExportArtifacts = schedules.task({
     if (errors.length > 0) {
       // Let the schedule retry; the delete is idempotent.
       throw new Error(
-        `Failed to delete ${errors.length} export artifact(s): ${errors
+        `Failed to delete ${errors.length} export artifact version(s): ${errors
           .slice(0, 5)
           .join("; ")}`
       );
     }
 
-    return { scanned, expired: keys.length, deleted };
+    return {
+      scannedVersions: versions.length,
+      expiredVersions: targets.length,
+      deleted,
+    };
   },
 });
 

@@ -39,6 +39,21 @@ export interface ExportArtifactObject {
 }
 
 /**
+ * One stored version of an export artifact.
+ *
+ * Backblaze B2 buckets default to versioning, so `DeleteObject` without
+ * a `VersionId` only adds a delete marker — the bytes stay billed. The
+ * sweep lists versions and deletes every one of an expired key.
+ */
+export interface ExportArtifactVersion {
+  key: string;
+  /** B2/S3 version id; `"null"` for an object written while versioning was off. */
+  versionId: string;
+  /** Last-modified time in epoch milliseconds. */
+  lastModified: number;
+}
+
+/**
  * Keys that are export artifacts older than `ttlMs`.
  *
  * Pure so the sweep can be unit-tested without B2. `now` is injected
@@ -56,4 +71,38 @@ export function selectExpiredExportArtifacts(
         isExportArtifactKey(object.key) && object.lastModified < cutoff
     )
     .map((object) => object.key);
+}
+
+/**
+ * Every version to delete for export artifacts whose newest version is
+ * older than `ttlMs`.
+ *
+ * A key is expired only when *all* of its versions are old (the newest
+ * one is the current bytes). Once expired, every version of that key is
+ * returned so the delete reclaims storage instead of leaving hidden
+ * versions behind.
+ */
+export function selectExpiredExportArtifactVersions(
+  versions: readonly ExportArtifactVersion[],
+  now: number,
+  ttlMs: number = EXPORT_ARTIFACT_TTL_MS
+): Array<{ key: string; versionId: string }> {
+  const cutoff = now - ttlMs;
+  const latestByKey = new Map<string, number>();
+
+  for (const version of versions) {
+    if (!isExportArtifactKey(version.key)) continue;
+    const latest = latestByKey.get(version.key);
+    if (latest === undefined || version.lastModified > latest) {
+      latestByKey.set(version.key, version.lastModified);
+    }
+  }
+
+  return versions
+    .filter((version) => {
+      if (!isExportArtifactKey(version.key)) return false;
+      const latest = latestByKey.get(version.key);
+      return latest !== undefined && latest < cutoff;
+    })
+    .map((version) => ({ key: version.key, versionId: version.versionId }));
 }
