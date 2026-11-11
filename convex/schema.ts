@@ -1865,9 +1865,14 @@ export default defineSchema({
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_onboardingId_active", ["onboardingId", "status"])
-    // Retention sweep: finds the oldest live rows without scanning
-    // already-deleted ones.
-    .index("by_status_uploadedAt", ["status", "uploadedAt"])
+    // Retention sweep: lists rows that have not had their B2 object
+    // removed yet (`artifactDeletedAt` absent) without rescanning the
+    // stamped history.
+    .index("by_status_artifactDeletedAt_uploadedAt", [
+      "status",
+      "artifactDeletedAt",
+      "uploadedAt",
+    ])
     // Greptile round-13 P1 #4: a caller can re-use the same
     // (fileId, fileName) and receive multiple reservations for
     // the same b2Key, which lets a single uploaded object count

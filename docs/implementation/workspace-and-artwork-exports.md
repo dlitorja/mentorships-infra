@@ -190,7 +190,14 @@ B2 object is removed.
   soft-deleted** rows without an `artifactDeletedAt` stamp: cancellation
   only hides a row, so its object is still in B2 and would otherwise
   linger. `markWorkExamplesExpired` writes the stamp (and hides the row
-  if it was still visible); the index query excludes stamped rows.
+  if it was still visible). The stamp is part of the
+  `by_status_artifactDeletedAt_uploadedAt` index, so cleaned rows never
+  re-enter the scan.
+- Upload keys use a **server-generated** `fileId`
+  (`convex/onboardingWorkExamplesActions.ts`) so two uploads can never
+  share a `b2Key`. For legacy rows that still collide, the query skips
+  a key while any newer live row points at it, so the sweep cannot
+  delete a fresh upload along with an expired one.
 - Object deletion is idempotent; a failed batch leaves its rows
   unstamped and the next daily run retries.
 - Disclaimer copy (small muted text) is rendered to both audiences:

@@ -145,3 +145,37 @@ test("markWorkExamplesExpired marks rows deleted and is idempotent", async () =>
   );
   expect(remaining).toEqual([]);
 });
+
+test("skips an expired row whose object is shared with a newer live upload", async () => {
+  const t = convexTest(schema, modules);
+  const onboardingId = await seedOnboarding(t);
+
+  // Legacy collision: same fileName/fileId produced the same b2Key.
+  await insertWorkExample(t, {
+    onboardingId,
+    status: "active",
+    uploadedAt: OLD,
+    fileName: "shared.png",
+  });
+  const newer = await insertWorkExample(t, {
+    onboardingId,
+    status: "active",
+    uploadedAt: RECENT,
+    fileName: "shared.png",
+  });
+
+  const rows = await t.query(internal.onboardingWorkExamples.listExpiredWorkExamples, {
+    now: NOW,
+    limit: 10,
+  });
+  expect(rows).toEqual([]);
+
+  // Once the newer row also ages past the window, the shared object is
+  // eligible and both rows are returned.
+  const later = await t.query(
+    internal.onboardingWorkExamples.listExpiredWorkExamples,
+    { now: NOW + ONBOARDING_WORK_EXAMPLE_RETENTION_MS, limit: 10 }
+  );
+  expect(later.length).toBe(2);
+  expect(later.some((row) => row._id === newer)).toBe(true);
+});

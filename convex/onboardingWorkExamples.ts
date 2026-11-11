@@ -592,17 +592,39 @@ export const listExpiredWorkExamples = internalQuery({
 
     // Include `deleted` rows: cancellation only hides the row, so the
     // object can still be in B2. The `artifactDeletedAt` stamp removes
-    // them once the bytes are gone.
+    // them once the bytes are gone; because the stamp is part of the
+    // index, cleaned rows never enter the scan.
     for (const status of ["active", "pending", "deleted"] as const) {
       const rows = await ctx.db
         .query("onboardingWorkExamples")
-        .withIndex("by_status_uploadedAt", (q) =>
-          q.eq("status", status).lt("uploadedAt", cutoff)
+        .withIndex("by_status_artifactDeletedAt_uploadedAt", (q) =>
+          q
+            .eq("status", status)
+            .eq("artifactDeletedAt", undefined)
+            .lt("uploadedAt", cutoff)
         )
-        .filter((q) => q.eq(q.field("artifactDeletedAt"), undefined))
         .order("asc")
         .take(limit);
       for (const row of rows) {
+        // Legacy safety: a client-supplied fileId could make two rows
+        // share a b2Key. Never delete an object that a newer live row
+        // still points at; the shared key is cleaned when that row
+        // expires too. New uploads use server-generated ids, so this
+        // only applies to pre-existing rows.
+        const siblings = await ctx.db
+          .query("onboardingWorkExamples")
+          .withIndex("by_onboardingId_b2Key", (q) =>
+            q.eq("onboardingId", row.onboardingId).eq("b2Key", row.b2Key)
+          )
+          .collect();
+        const sharedWithNewerLive = siblings.some(
+          (sibling) =>
+            sibling._id !== row._id &&
+            sibling.status !== "deleted" &&
+            sibling.uploadedAt >= cutoff
+        );
+        if (sharedWithNewerLive) continue;
+
         expired.push({
           _id: row._id,
           onboardingId: row.onboardingId,
