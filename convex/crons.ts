@@ -73,6 +73,12 @@ import { internal } from "./_generated/api";
  *   Same live-reference check as the retention cron. See
  *   `convex/cleanup/workspaceB2OrphanSweep.ts`. PR
  *   workspace-storage-3c.
+ * - cleanup-expired-export-records: Runs hourly, deletes terminal
+ *   `workspaceExports` / `onboardingArtworkExports` rows older than
+ *   `EXPORT_ARTIFACT_TTL_MS` (72h) and marks abandoned in-flight rows
+ *   failed. The matching B2 objects are deleted by the Trigger.dev
+ *   `cleanup-export-artifacts` schedule. See
+ *   `convex/exportMaintenance.ts`.
  * - backfill-video-editor-storage-counter: Runs hourly, re-aggregates
  *   `instructorUploads` rows into the denormalized
  *   `videoEditorStorageStats` counter. The first run after the
@@ -185,6 +191,17 @@ crons.cron(
   "cleanup-orphan-b2-objects",
   "0 4 * * 0",
   internal.cleanup.workspaceB2OrphanSweep.cleanupOrphanB2Objects,
+  {}
+);
+
+// Generated export artifacts (workspace ZIP/CSV, artwork ZIP) expire
+// after 72 hours. The B2 objects are deleted by the Trigger.dev
+// `cleanup-export-artifacts` schedule; this cron keeps the rows in step
+// (delete terminal rows, fail abandoned in-flight rows).
+crons.interval(
+  "cleanup-expired-export-records",
+  { hours: 1 },
+  internal.exportMaintenance.pruneExpiredExportRecords,
   {}
 );
 

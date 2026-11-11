@@ -40,10 +40,10 @@ Reviewer flow:
    `archiver` ZIP, uploads it to
    `onboarding/<onboardingId>/exports/<timestamp>-artwork.zip`, and
    reports back through `POST /onboarding/artwork-export/update-status`
-   with a 7-day signed URL.
+   with a 72-hour signed URL.
 5. The gallery subscribes to `onboardingArtworkExports` (live Convex
    query), so the button flips to "Download all" as soon as the row is
-   `completed` — no polling. Signed URLs last 7 days; once
+   `completed` — no polling. Signed URLs last 72 hours; once
    `expiresAt` passes the gallery hides the stale link and offers
    "Download all (ZIP)" to rebuild.
 
@@ -128,7 +128,7 @@ returned a signed URL and no filename.
   ids and email addresses are never written to the CSV — a student can
   request the export, so the instructor's email must not leak.
 - The CSV is written to `exports/<workspaceId>/<timestamp>-<name>-links.csv`
-  and served through a 7-day signed URL.
+  and served through a 72-hour signed URL.
 
 CSV (not ZIP) because the payload is tabular and small — a reviewer
 opens it in Sheets/Excel directly.
@@ -136,6 +136,31 @@ opens it in Sheets/Excel directly.
 Like the artwork mutation, `createWorkspaceExport` schedules
 `exportActions.triggerWorkspaceExportTask` instead of calling
 Trigger.dev inline.
+
+## Artifact lifetime and cleanup
+
+Generated exports are disposable, so they are deleted automatically
+after **72 hours**:
+
+- **B2 objects** — the Trigger.dev schedule `cleanup-export-artifacts`
+  (`src/trigger/export-artifact-cleanup.ts`) runs hourly. It lists
+  `exports/` (workspace ZIP/CSV) and `onboarding/` (filtered to
+  `*/exports/*`, so uploaded artwork is never touched) and deletes
+  anything older than 72 hours in batches of 1,000. Delete errors are
+  retried on the next tick; the operation is idempotent.
+- **Convex rows** — the hourly cron `cleanup-expired-export-records`
+  (`convex/exportMaintenance.ts`) deletes terminal
+  (`completed`/`failed`) rows older than the same window and marks any
+  abandoned `pending`/`processing` row failed ("Export timed out…"), so
+  a lost run does not leave a spinner forever. The next tick deletes
+  the now-terminal row.
+- **Signed URLs** use the same 72-hour window, so the UI stops offering
+  a download as the object becomes eligible for deletion. `expiresAt`
+  drives the "Previous ZIP/CSV expired" hint and the rebuild action.
+
+The window lives in two mirrored constants
+(`packages/storage/src/export-artifacts.ts` for the Trigger sweep,
+`convex/workspaceConstants.ts` for the Convex cron). Keep them in sync.
 
 ## Export rows and scopes
 
