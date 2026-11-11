@@ -84,8 +84,11 @@ describe("WorkExampleGallery", () => {
     expect(dialog).toBeInTheDocument();
     expect(dialog.textContent).toContain("sketch-one.png");
     // Radix marks the rest of the app aria-hidden, so the lightbox
-    // image is the only accessible one.
-    expect(within(dialog).getAllByRole("img")).toHaveLength(1);
+    // image is the only accessible one. It must scale to the viewport
+    // (fill + object-contain), not render at intrinsic size.
+    const images = within(dialog).getAllByRole("img");
+    expect(images).toHaveLength(1);
+    expect(images[0].className).toContain("object-contain");
   });
 
   it("mints an attachment URL before saving a single image", async () => {
