@@ -493,3 +493,45 @@ test("a retry clears the stale artwork export errorMessage", async () => {
   expect(row?.status).toBe("processing");
   expect(row?.errorMessage).toBeUndefined();
 });
+
+test("createOnboardingArtworkExport refuses a cancelled onboarding", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { onboardingId, instructorUserId } = await seedOnboarding(t);
+
+  await t.run(async (ctx) =>
+    ctx.db.patch(onboardingId as any, { status: "cancelled" })
+  );
+
+  const instructor = t.withIdentity({ subject: instructorUserId });
+  await expect(
+    instructor.mutation(
+      api.onboardingArtworkExports.createOnboardingArtworkExport,
+      { onboardingId: onboardingId as any }
+    )
+  ).rejects.toThrow(/cancelled/i);
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db.query("onboardingArtworkExports").collect()
+  );
+  expect(rows).toEqual([]);
+});
+
+test("HTTP artwork export data refuses a cancelled onboarding", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { onboardingId } = await seedOnboarding(t);
+
+  await t.run(async (ctx) =>
+    ctx.db.patch(onboardingId as any, { status: "cancelled" })
+  );
+
+  const r = await t.fetch("/onboarding/artwork-export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ onboardingId }),
+  });
+  expect(r.status).toBe(500);
+  const body = await r.json();
+  expect(body.error).toMatch(/cancelled/i);
+});

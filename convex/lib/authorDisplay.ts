@@ -12,10 +12,18 @@ export type AuthorRole = "instructor" | "student" | "admin";
  * be a human name. Rendering it verbatim would leak the instructor's
  * email into student-visible surfaces (chat author labels, the links
  * CSV).
+ *
+ * Implemented with index scanning rather than a regex: names are
+ * user-controlled strings, and a backtracking regex here would be a
+ * cheap way to burn CPU in a query that runs once per export.
  */
 function looksLikeEmail(value: string | undefined): boolean {
   if (!value) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  const trimmed = value.trim();
+  const at = trimmed.indexOf("@");
+  if (at <= 0 || at === trimmed.length - 1) return false;
+  const dot = trimmed.indexOf(".", at + 1);
+  return dot > at + 1 && dot < trimmed.length - 1;
 }
 
 /**
