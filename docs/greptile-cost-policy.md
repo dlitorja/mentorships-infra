@@ -187,27 +187,31 @@ Greptile dashboard at
    developer could push a fix after a Greptile review without
    re-triggering, and the merge would go through on a stale review
    of stale code.
-   *Completed 2026-10-20: branch protection on `main` now needs
-   `Greptile Review` (registered against Greptile's GitHub App,
-   `app_id=867647`) with both `strict: true` and
-   `enforce_admins: true`. `strict: true` is the critical piece —
-   it forces the latest commit on the PR branch to have the check
-   passing, which means a stale Green-state from an older commit
-   cannot satisfy the gate. `enforce_admins: true` removes the
-   "I'll just merge my own PR" escape hatch that would defeat the
-   gate for solo dev. Override path if Greptile is genuinely
-   unavailable: Settings → Branches → main → temporarily clear the
-   required check on `Greptile Review`, do the merge, restore it.*
+   *Completed 2026-10-20; revised 2026-11-11. Branch protection on `main`
+   now requires **`Review Gate`** (`.github/workflows/review-gate.yml`),
+   which asserts a green `Greptile Review` on the head commit for code
+   PRs and passes automatically for documentation-only PRs and for PRs
+   carrying `no-greptile` / `skip-greptile`. Both `strict: true` and
+   `enforce_admins: true` remain on — `strict: true` is the critical
+   piece, because it forces the latest commit on the PR branch to have
+   the check passing, so a stale Green-state from an older commit cannot
+   satisfy the gate. `enforce_admins: true` removes the "I'll just merge
+   my own PR" escape hatch that would defeat the gate for solo dev.
+   Override path if Greptile is genuinely unavailable: temporarily clear
+   the required check, do the merge, restore it.*
 
-> **Known gap: docs-only PRs cannot satisfy this gate.** The
-> `ignorePatterns` that keep markdown out of the reviewed corpus also
-> stop Greptile from posting the `Greptile Review` status at all, so a
-> markdown-only PR sits in `BLOCKED` forever. The `no-greptile` label
-> records the intent but does not produce a passing check. Observed on
-> PR #1043. Every docs-only PR therefore needs the override path above,
-> which is friction that pushes toward merging docs with code changes
-> or temporarily relaxing the requirement for `docs/**`. Worth deciding
-> deliberately rather than discovering each time.
+> **Why the gate is indirect rather than requiring `Greptile Review`
+> directly.** The `ignorePatterns` that keep markdown out of the reviewed
+> corpus also stop Greptile from posting the `Greptile Review` status at
+> all, so requiring that check on its own put every markdown-only PR in
+> `BLOCKED` permanently — observed on PR #1043, 2026-11-11. Branch
+> protection cannot express "required unless the diff is docs", so
+> `review-gate.yml` expresses it instead: pass when every changed path is
+> `docs/**` or `*.md`, pass when an opt-out label is applied, otherwise
+> require a green `Greptile Review` on the head commit. The gate also
+> fails fast with the `@greptileai review` instruction when a commit has
+> no review at all, which is the normal state after pushing fixes under
+> `autoReview: ["open"]`.
 
 ## Usage-page sanity check
 
