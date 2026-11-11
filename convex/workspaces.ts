@@ -3745,12 +3745,29 @@ export const createWorkspaceFileMessage = mutation({
   },
 });
 
-/** Creates a workspace export record and triggers a Trigger.dev task for zip format. Requires auth. */
+/** Creates a workspace export record and triggers a Trigger.dev task. Requires auth.
+ *
+ * Scopes map to the workspace tabs:
+ *   - `images` (or absent) → ZIP of the image bytes (+ notes), built by
+ *     `process-workspace-export`.
+ *   - `links` → CSV of the shared links, built by
+ *     `process-workspace-links-export`.
+ *
+ * `workspace` is accepted for the legacy full-export shape; the UI
+ * does not currently ask for it.
+ */
 export const createWorkspaceExport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.string(),
-    format: v.literal("zip"),
+    format: v.union(v.literal("zip"), v.literal("csv")),
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
   },
   returns: v.object({
@@ -3794,16 +3811,21 @@ export const createWorkspaceExport = mutation({
       workspaceId: args.workspaceId,
       userId: user.subject,
       format: args.format,
+      scope: args.scope,
       status: "pending",
     });
 
     const triggerSecretKey = process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
 
     const taskMap: Record<string, string> = {
-      zip: "process-workspace-export",
+      "zip:images": "process-workspace-export",
+      "zip:workspace": "process-workspace-export",
+      // Absent scope is the legacy full export (notes + images).
+      "zip:": "process-workspace-export",
+      "csv:links": "process-workspace-links-export",
     };
 
-    const taskName = taskMap[args.format];
+    const taskName = taskMap[`${args.format}:${args.scope ?? ""}`];
 
     const errorMessageMissingKey =
       "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.";
@@ -3820,41 +3842,25 @@ export const createWorkspaceExport = mutation({
       return { exportId, errorMessage: errorMessageMissingKey };
     }
 
-    if (taskName) {
-      try {
-        const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${triggerSecretKey}`,
-          },
-          body: JSON.stringify({
-            payload: {
-              workspaceId: args.workspaceId,
-              exportId: String(exportId),
-              imageIds: args.imageIds,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          const errorMessage = `Trigger.dev request failed: ${response.status}`;
-          await ctx.db.patch(exportId, {
-            status: "failed",
-            errorMessage,
-          });
-          return { exportId, errorMessage };
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        await ctx.db.patch(exportId, {
-          status: "failed",
-          errorMessage,
-        });
-        console.error("Failed to trigger export task:", error);
-        return { exportId, errorMessage };
-      }
+    if (!taskName) {
+      // An unsupported (format, scope) pair used to leave the row
+      // pending forever, because the trigger block was skipped. Fail
+      // loudly instead so the UI shows a real error.
+      const errorMessage = `Unsupported export (${args.format}/${args.scope ?? "workspace"}).`;
+      await ctx.db.patch(exportId, { status: "failed", errorMessage });
+      return { exportId, errorMessage };
     }
+
+    // The Trigger.dev call is network I/O, which a Convex mutation
+    // cannot perform. Schedule the action; it writes a failure back
+    // onto the row (with an errorMessage) if the request is rejected.
+    await ctx.scheduler.runAfter(0, internal.exportActions.triggerWorkspaceExportTask, {
+      exportId,
+      workspaceId: args.workspaceId,
+      taskName,
+      scope: args.scope,
+      imageIds: args.imageIds,
+    });
 
     return { exportId };
   },
@@ -3896,16 +3902,34 @@ export const cancelWorkspaceExport = mutation({
         throw new Error("Not authorized to cancel this export");
       }
     }
-    await ctx.db.patch(args.id, { status: "failed" });
+    // `cancelledAt` is the explicit cancel marker. It stays separate
+    // from `errorMessage` so a retried task that had already recorded
+    // an error (and thus carries a message) still sees the cancel.
+    await ctx.db.patch(args.id, { status: "failed", cancelledAt: Date.now() });
   },
 });
 
 /**
  * Returns the 10 most recent exports for a workspace.
  * Returns an empty array for callers who are not active participants.
+ *
+ * Pass `scope` to get that tab's most recent rows. Without it the list
+ * is capped at 10 rows across every scope, so ten newer Links exports
+ * could push a still-valid Images ZIP out of view (and vice versa).
+ * Legacy rows created before `scope` existed are returned for the
+ * `images` scope, since they are the old full-workspace ZIP.
  */
 export const getWorkspaceExports = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -3924,11 +3948,36 @@ export const getWorkspaceExports = query({
       return [];
     }
 
-    return await ctx.db
-      .query("workspaceExports")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(10);
+    const LIMIT = 10;
+
+    if (!args.scope) {
+      return await ctx.db
+        .query("workspaceExports")
+        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .take(LIMIT);
+    }
+
+    // The Images tab also owns pre-scope rows (the old full-workspace
+    // ZIP), so query both `images` and the absent value.
+    const scopes: Array<"workspace" | "images" | "links" | undefined> =
+      args.scope === "images"
+        ? ["images", "workspace", undefined]
+        : [args.scope];
+
+    const rows: Doc<"workspaceExports">[] = [];
+    for (const scope of scopes) {
+      const page = await ctx.db
+        .query("workspaceExports")
+        .withIndex("by_workspaceId_scope", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("scope", scope)
+        )
+        .order("desc")
+        .take(LIMIT);
+      rows.push(...page);
+    }
+
+    return rows.sort((a, b) => b._creationTime - a._creationTime).slice(0, LIMIT);
   },
 });
 

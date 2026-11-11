@@ -46,6 +46,41 @@ async function lookupStaffRole(
 }
 
 /**
+ * Shared viewer gate for every staff/student read on an onboarding.
+ *
+ * Mirrors `getOnboardingView` (PR 3): the assigned student, any of the
+ * assigned instructors, or an admin/support user may read. Returns the
+ * onboarding row when the caller is authorised, or `null` when the row
+ * is missing or the caller has no access — callers translate `null`
+ * into their surface's "not found / empty" response so existence is
+ * never leaked.
+ *
+ * Extracted so `listWorkExamples`, `getWorkExampleByIdForViewer`,
+ * `resolveDownloadAccess`, and the artwork-export module all share one
+ * definition. The previous inline copies had to be kept in sync by
+ * hand, which is exactly how an auth gate drifts.
+ */
+export async function getAuthorizedOnboardingRow(
+  ctx: QueryCtx,
+  onboardingId: Id<"adminOnboardings">,
+  subject: string
+): Promise<Doc<"adminOnboardings"> | null> {
+  const row = await ctx.db.get(onboardingId);
+  if (!row) return null;
+
+  if (row.assignedStudentClerkId === subject) return row;
+
+  for (const p of row.perInstructor) {
+    const instructor = await ctx.db.get("instructors", p.instructorId);
+    if (instructor?.userId === subject) return row;
+  }
+
+  if (await lookupStaffRole(ctx, subject)) return row;
+
+  return null;
+}
+
+/**
  * PR 12 PR 4 — onboarding work-example image uploads.
  *
  * Lifecycle:
@@ -542,27 +577,8 @@ export const listWorkExamples = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return [];
-    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    const row = await getAuthorizedOnboardingRow(ctx, args.onboardingId, identity.subject);
     if (!row) return [];
-
-    // Same auth-gate shape as `getOnboardingView` (PR 3).
-    let authorized = row.assignedStudentClerkId === identity.subject;
-    if (!authorized) {
-      for (const p of row.perInstructor) {
-        const instructor = await ctx.db.get("instructors", p.instructorId);
-        if (instructor?.userId === identity.subject) {
-          authorized = true;
-          break;
-        }
-      }
-    }
-    if (!authorized) {
-      const staffRole = await lookupStaffRole(ctx, identity.subject);
-      if (staffRole) {
-        authorized = true;
-      }
-    }
-    if (!authorized) return [];
 
     // Greptile P1 #9: return every field the form needs (status +
     // fileName) so a saved-but-not-yet-active row survives a reload.
@@ -611,28 +627,11 @@ export const getWorkExampleByIdForViewer = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    const row = await getAuthorizedOnboardingRow(ctx, args.onboardingId, identity.subject);
     if (!row) return null;
     const work = await ctx.db.get("onboardingWorkExamples", args.workExampleId);
     if (!work || work.onboardingId !== args.onboardingId) return null;
 
-    let authorized = row.assignedStudentClerkId === identity.subject;
-    if (!authorized) {
-      for (const p of row.perInstructor) {
-        const instructor = await ctx.db.get("instructors", p.instructorId);
-        if (instructor?.userId === identity.subject) {
-          authorized = true;
-          break;
-        }
-      }
-    }
-    if (!authorized) {
-      const staffRole = await lookupStaffRole(ctx, identity.subject);
-      if (staffRole) {
-        authorized = true;
-      }
-    }
-    if (!authorized) return null;
     return { _id: work._id, b2Key: work.b2Key };
   },
 });
@@ -655,30 +654,15 @@ export const resolveDownloadAccess = query({
     onboardingId: v.id("adminOnboardings"),
     b2Key: v.string(),
   },
-  returns: v.union(v.null(), v.object({ authorized: v.boolean() })),
+  returns: v.union(
+    v.null(),
+    v.object({ authorized: v.boolean(), fileName: v.optional(v.string()) })
+  ),
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    const row = await ctx.db.get("adminOnboardings", args.onboardingId);
+    const row = await getAuthorizedOnboardingRow(ctx, args.onboardingId, identity.subject);
     if (!row) return null;
-
-    let authorized = row.assignedStudentClerkId === identity.subject;
-    if (!authorized) {
-      for (const p of row.perInstructor) {
-        const instructor = await ctx.db.get("instructors", p.instructorId);
-        if (instructor?.userId === identity.subject) {
-          authorized = true;
-          break;
-        }
-      }
-    }
-    if (!authorized) {
-      const staffRole = await lookupStaffRole(ctx, identity.subject);
-      if (staffRole) {
-        authorized = true;
-      }
-    }
-    if (!authorized) return null;
 
     // Second check: the supplied b2Key must belong to an
     // active row in this onboarding. This stops cross-account
@@ -704,7 +688,11 @@ export const resolveDownloadAccess = query({
     );
     if (!matching) return null;
 
-    return { authorized: true };
+    // Return the stored filename so the caller can bake a safe
+    // Content-Disposition into the signed GET URL. Taking it from the
+    // row (not the request) means a crafted filename can never reach
+    // the header from the client.
+    return { authorized: true, fileName: matching.fileName };
   },
 });
 

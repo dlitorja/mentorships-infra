@@ -738,17 +738,25 @@ export function useUnarchiveWorkspace() {
 }
 
 /**
- * Represents a workspace export job (ZIP, PDF, or Markdown).
+ * Represents a workspace export job (ZIP, PDF, Markdown, or CSV).
  */
 export interface WorkspaceExport {
   _id: Id<"workspaceExports">;
   workspaceId: Id<"workspaces">;
   userId: string;
   format: string;
+  /**
+   * Which tab produced the export: `images` builds the ZIP, `links`
+   * builds the CSV. Absent on rows created before scopes existed —
+   * treat those as the legacy full-workspace ZIP.
+   */
+  scope?: "workspace" | "images" | "links";
   status: 'pending' | 'processing' | 'completed' | 'failed';
   downloadUrl?: string;
   expiresAt?: number;
-  createdAt: number;
+  errorMessage?: string;
+  /** Convex document creation timestamp. */
+  _creationTime: number;
 }
 
 /**
@@ -759,11 +767,16 @@ export interface WorkspaceExport {
  * any polling. The previous `refetchInterval: 2000` was removed
  * because reactive queries already push changes as they happen.
  *
- * Returns the 10 most recent exports in descending order by creation time.
+ * Pass the tab's `scope` so each tab gets its own most-recent rows
+ * instead of sharing one 10-row cap across scopes. Returns at most 10
+ * exports in descending order by creation time.
  */
-export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
+export function useWorkspaceExports(
+  workspaceId: Id<"workspaces">,
+  scope?: "workspace" | "images" | "links"
+) {
   return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
+    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId, scope }),
     enabled: !!workspaceId,
   });
 }

@@ -904,6 +904,7 @@ export function TabContent({
       <WorkspaceLinks
         workspaceId={workspaceId}
         activeSessionId={activeSessionId}
+        currentUserId={clerkUserId}
       />
     );
   }

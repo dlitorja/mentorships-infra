@@ -290,7 +290,7 @@ test("HTTP /workspace/export/data returns notes and images for the workspace", a
   const imageId = await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId,
-      imageUrl: "https://example.com/a.png",
+      imageUrl: "https://export-test.convex.cloud/api/storage/abc",
       createdBy: "user_export_student",
       deletedAt: undefined,
     })
@@ -316,7 +316,7 @@ test("HTTP /workspace/export/data returns notes and images for the workspace", a
   expect(body.workspaceName).toBe("Export Test");
   expect(body.notes.map((n: { title: string }) => n.title)).toEqual(["HTTP export note"]);
   expect(body.images.length).toBe(1);
-  expect(body.images[0].imageUrl).toBe("https://example.com/a.png");
+  expect(body.images[0].imageUrl).toBe("https://export-test.convex.cloud/api/storage/abc");
   expect(noteId).toBeTruthy();
   expect(imageId).toBeTruthy();
 });
@@ -329,7 +329,7 @@ test("HTTP /workspace/export/data filters images by imageIds", async () => {
   const keepId = await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId,
-      imageUrl: "https://example.com/keep.png",
+      imageUrl: "https://export-test.convex.cloud/api/storage/keep",
       createdBy: "user_export_student",
     })
   );
@@ -349,7 +349,7 @@ test("HTTP /workspace/export/data filters images by imageIds", async () => {
   expect(r.status).toBe(200);
   const body = await r.json();
   expect(body.images.length).toBe(1);
-  expect(body.images[0].imageUrl).toBe("https://example.com/keep.png");
+  expect(body.images[0].imageUrl).toBe("https://export-test.convex.cloud/api/storage/keep");
 });
 
 test("HTTP /workspace/export/data returns 404 for a missing workspace", async () => {
@@ -523,4 +523,353 @@ test("HTTP /workspace/export/get returns 404 for a missing export", async () => 
     body: JSON.stringify({ exportId }),
   });
   expect(r.status).toBe(404);
+});
+
+// ---------------------------------------------------------------------------
+// Scope-aware exports (Images ZIP vs Links CSV)
+// ---------------------------------------------------------------------------
+
+test("createWorkspaceExport stores the scope for a links CSV export", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.createWorkspaceExport, {
+    workspaceId,
+    userId: studentUserId,
+    format: "csv",
+    scope: "links",
+  });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceExports").collect());
+  expect(rows.length).toBe(1);
+  expect(rows[0].format).toBe("csv");
+  expect(rows[0].scope).toBe("links");
+});
+
+test("createWorkspaceExport stores the scope for an images ZIP export", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.createWorkspaceExport, {
+    workspaceId,
+    userId: studentUserId,
+    format: "zip",
+    scope: "images",
+  });
+
+  const rows = await t.run(async (ctx) => ctx.db.query("workspaceExports").collect());
+  expect(rows[0].scope).toBe("images");
+  expect(rows[0].format).toBe("zip");
+});
+
+test("createWorkspaceExport fails loudly for an unsupported format/scope pair", async () => {
+  const t = convexTest(schema, modules);
+  // Keep a placeholder key so the credential guard passes and the
+  // unsupported-pair branch runs. That branch returns before any
+  // network call, so nothing is sent to Trigger.dev.
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const student = t.withIdentity({ subject: studentUserId });
+    const result = await student.mutation(api.workspaces.createWorkspaceExport, {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "images",
+    });
+    expect(result.errorMessage).toMatch(/Unsupported export/i);
+
+    const row = await t.run(async (ctx) => ctx.db.get(result.exportId));
+    expect(row?.status).toBe("failed");
+  } finally {
+    clearTriggerCredentials();
+  }
+});
+
+test("HTTP /workspace/export/data with scope=links returns links and no notes/images", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/older",
+      title: "Older link",
+      createdBy: "user_export_student",
+    });
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/newer",
+      title: "Newer link",
+      createdBy: "user_export_student",
+    });
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/deleted",
+      title: "Deleted link",
+      createdBy: "user_export_student",
+      deletedAt: Date.now(),
+    });
+    await ctx.db.insert("workspaceNotes", {
+      workspaceId: workspaceId as any,
+      title: "Should not be exported",
+      content: "note body",
+      createdBy: "user_export_student",
+      updatedAt: Date.now(),
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "links" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  expect(body.notes).toBeUndefined();
+  expect(body.images).toBeUndefined();
+  expect(body.links.map((l: { title: string }) => l.title)).toEqual([
+    "Newer link",
+    "Older link",
+  ]);
+  // Deleted links never reach the CSV.
+  expect(
+    body.links.some((l: { title: string }) => l.title === "Deleted link")
+  ).toBe(false);
+});
+
+test("HTTP /workspace/export/data returns the b2Key for B2-backed images", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  expect(body.images.length).toBe(1);
+  // The trigger reads the object directly; no signed URL is minted.
+  expect(body.images[0].b2Key).toBe("2026-01-01/workspaces/ws/file-1/sketch.png");
+  expect(body.images[0].imageUrl).toBe("");
+  expect(body.images[0].fileName).toBe("sketch.png");
+});
+
+// ---------------------------------------------------------------------------
+// Trigger hand-off: network I/O must happen in an action, not a mutation
+// ---------------------------------------------------------------------------
+
+test("createWorkspaceExport schedules the trigger action instead of fetching in the mutation", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const student = t.withIdentity({ subject: studentUserId });
+
+    const { exportId } = await student.mutation(api.workspaces.createWorkspaceExport, {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "links",
+    });
+
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect()
+    );
+    const entries = scheduled.filter((entry) =>
+      /triggerWorkspaceExportTask/i.test(entry.name)
+    );
+    expect(entries.length).toBe(1);
+    expect(JSON.stringify(entries[0].args)).toContain("process-workspace-links-export");
+    expect(JSON.stringify(entries[0].args)).toContain(exportId);
+  } finally {
+    clearTriggerCredentials();
+  }
+});
+
+test("triggerWorkspaceExportTask marks the row failed when Trigger.dev rejects the request", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response("nope", { status: 503 })) as typeof fetch;
+
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const exportId = await t.run(async (ctx) =>
+      ctx.db.insert("workspaceExports", {
+        workspaceId: workspaceId as any,
+        userId: studentUserId,
+        format: "zip",
+        scope: "images",
+        status: "pending",
+      })
+    );
+
+    await t.action(internal.exportActions.triggerWorkspaceExportTask, {
+      exportId,
+      workspaceId: workspaceId as any,
+      taskName: "process-workspace-export",
+      scope: "images",
+    });
+
+    const row = await t.run(async (ctx) => ctx.db.get(exportId));
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage).toMatch(/Trigger\.dev request failed: 503/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearTriggerCredentials();
+  }
+});
+
+test("getWorkspaceExports filters by scope so each tab keeps its own latest rows", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    // Eleven newer Links exports: without server-side scoping these
+    // would push the Images ZIP out of the shared 10-row window.
+    for (let i = 0; i < 11; i++) {
+      await ctx.db.insert("workspaceExports", {
+        workspaceId: workspaceId as any,
+        userId: studentUserId,
+        format: "csv",
+        scope: "links",
+        status: "completed",
+      });
+    }
+    await ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "completed",
+      downloadUrl: "https://b2.example.com/images.zip",
+    });
+    // Legacy row (no scope) — should count as the Images tab's history.
+    await ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      status: "completed",
+    });
+  });
+
+  const student = t.withIdentity({ subject: studentUserId });
+  const images = await student.query(api.workspaces.getWorkspaceExports, {
+    workspaceId,
+    scope: "images",
+  });
+  expect(images.map((row) => row.scope ?? "legacy")).toEqual(["legacy", "images"]);
+
+  const links = await student.query(api.workspaces.getWorkspaceExports, {
+    workspaceId,
+    scope: "links",
+  });
+  expect(links.length).toBe(10);
+  expect(links.every((row) => row.scope === "links")).toBe(true);
+});
+
+test("HTTP /workspace/export/data drops untrusted legacy imageUrl values (no SSRF)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  const trustedDataUri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+  await t.run(async (ctx) => {
+    // A legacy row (no storageId / b2Key) whose URL points at an
+    // internal address. The export worker must never fetch it.
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      createdBy: "user_export_student",
+    });
+    // A legitimate inline payload survives.
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: trustedDataUri,
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  const untrusted = body.images.find(
+    (img: { imageUrl: string }) => img.imageUrl === ""
+  );
+  const trusted = body.images.find(
+    (img: { imageUrl: string }) => img.imageUrl === trustedDataUri
+  );
+  expect(untrusted).toBeTruthy();
+  expect(trusted).toBeTruthy();
+  expect(
+    body.images.some((img: { imageUrl: string }) =>
+      img.imageUrl.includes("169.254.169.254")
+    )
+  ).toBe(false);
+});
+
+test("a cancel is terminal even when the row still carries an earlier task error", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  // Simulates a retried task: the first attempt recorded an error, so
+  // `errorMessage` is populated, and the row is failed.
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "failed",
+      errorMessage: "transient B2 error",
+    })
+  );
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.cancelWorkspaceExport, { id: exportId });
+
+  const cancelled = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(cancelled?.cancelledAt).toBeTypeOf("number");
+  expect(cancelled?.status).toBe("failed");
+  // The earlier message is preserved for diagnostics.
+  expect(cancelled?.errorMessage).toBe("transient B2 error");
+
+  // The retry's completion update must be refused.
+  const r = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "completed" }),
+  });
+  expect(r.status).toBe(500);
+  const body = await r.json();
+  expect(body.error).toMatch(/cancelled/i);
+
+  const after = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(after?.status).toBe("failed");
 });

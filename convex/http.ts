@@ -119,12 +119,13 @@ export const httpGetUserEmail = httpAction(async (ctx, request) => {
 export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { workspaceId, imageIds } = await request.json();
+  const { workspaceId, imageIds, scope } = await request.json();
 
   try {
-    const result = await ctx.runQuery(api.queries.http.getWorkspaceExportData, {
+    const result = await ctx.runQuery(internal.queries.http.getWorkspaceExportData, {
       workspaceId: workspaceId as any,
       imageIds: imageIds as any,
+      scope: scope as any,
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
@@ -132,6 +133,66 @@ export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   } catch (error) {
     const message = (error as Error).message;
     const status = message.includes("not found") ? 404 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+/**
+ * Task-facing data for an onboarding artwork ZIP: the active work
+ * examples plus the student email (used for the archive name). Gated by
+ * CONVEX_HTTP_KEY like the workspace export routes.
+ */
+export const httpGetOnboardingArtworkExportData = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { onboardingId } = await request.json();
+
+  try {
+    const result = await ctx.runQuery(
+      internal.onboardingArtworkExports.getOnboardingArtworkExportData,
+      { onboardingId: onboardingId as any }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    const status = message.toLowerCase().includes("not found") ? 404 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+/** Updates an onboarding artwork export row's status + download URL. */
+export const httpUpdateOnboardingArtworkExportStatus = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { exportId, status, downloadUrl, expiresAt, errorMessage, fileCount } =
+    await request.json();
+
+  try {
+    const result = await ctx.runMutation(
+      internal.onboardingArtworkExports.updateOnboardingArtworkExportStatus,
+      {
+        exportId: exportId as any,
+        status,
+        downloadUrl,
+        expiresAt,
+        errorMessage,
+        fileCount,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    const status = message.toLowerCase().includes("not found") ? 404 : 500;
     return new Response(JSON.stringify({ error: message }), {
       status,
       headers: { "Content-Type": "application/json" },
@@ -178,7 +239,7 @@ export const httpGetWorkspaceExport = httpAction(async (ctx, request) => {
   const { exportId } = await request.json();
 
   try {
-    const exportDoc = await ctx.runQuery(api.queries.http.getWorkspaceExport, {
+    const exportDoc = await ctx.runQuery(internal.queries.http.getWorkspaceExport, {
       exportId: exportId as any,
     });
     if (!exportDoc) {
@@ -885,6 +946,18 @@ http.route({
   path: "/workspace/export/get",
   method: "POST",
   handler: httpGetWorkspaceExport,
+});
+
+http.route({
+  path: "/onboarding/artwork-export/data",
+  method: "POST",
+  handler: httpGetOnboardingArtworkExportData,
+});
+
+http.route({
+  path: "/onboarding/artwork-export/update-status",
+  method: "POST",
+  handler: httpUpdateOnboardingArtworkExportStatus,
 });
 
 http.route({

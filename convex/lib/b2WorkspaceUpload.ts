@@ -91,16 +91,41 @@ export async function signedWorkspaceUploadUrl(
  */
 export async function signedWorkspaceDownloadUrl(
   key: string,
-  expiresInSeconds: number
+  expiresInSeconds: number,
+  options?: { fileName?: string }
 ): Promise<string> {
-  return getSignedUrl(
-    getWorkspaceClient(),
-    new GetObjectCommand({
-      Bucket: WORKSPACE_BUCKET,
-      Key: key,
-    }),
-    { expiresIn: expiresInSeconds }
-  );
+  const command = new GetObjectCommand({
+    Bucket: WORKSPACE_BUCKET,
+    Key: key,
+    // Force an attachment download with the original filename when
+    // the caller asks for one. The `download` attribute on an <a>
+    // is ignored for cross-origin URLs (B2 is a different host), so
+    // the disposition has to be baked into the signed request.
+    ...(options?.fileName
+      ? {
+          ResponseContentDisposition: `attachment; filename="${sanitizeDispositionFileName(options.fileName)}"`,
+        }
+      : {}),
+  });
+  return getSignedUrl(getWorkspaceClient(), command, {
+    expiresIn: expiresInSeconds,
+  });
+}
+
+/**
+ * Header-safe filename for `Content-Disposition`. Strips quotes,
+ * backslashes, path separators, and control characters so a crafted
+ * upload filename cannot break out of the quoted parameter, and
+ * collapses everything else to `_`. Falls back to `download` when the
+ * sanitized value is empty.
+ */
+function sanitizeDispositionFileName(fileName: string): string {
+  const cleaned = fileName
+    .replace(/[^a-zA-Z0-9._ -]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return cleaned.length > 0 ? cleaned : "download";
 }
 
 /**

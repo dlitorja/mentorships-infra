@@ -7,7 +7,8 @@ import { writeAuditLog } from "./auditLog";
  *
  * Tables cleared: orders, payments, sessionPacks, seatReservations, workspaces,
  *                 workspaceNotes, workspaceLinks, workspaceImages, workspaceMessages,
- *                 workspaceExports, workspaceRetentionNotifications, workspaceAuditLogs,
+ *                 workspaceExports, onboardingArtworkExports,
+ *                 workspaceRetentionNotifications, workspaceAuditLogs,
  *                 discordActionQueue, studentOnboardingSubmissions, marketingWaitlist
  *
  * Tables preserved: users, instructors, products, sessions (core demo infrastructure)
@@ -70,6 +71,7 @@ export const wipePaymentData = mutation({
       "workspaceImages",
       "workspaceMessages",
       "workspaceExports",
+      "onboardingArtworkExports",
       "workspaceRetentionNotifications",
       "workspaceAuditLogs",
       "discordActionQueue",
@@ -153,6 +155,14 @@ export const wipePaymentData = mutation({
       await ctx.db.delete(doc._id);
     }
     results.workspaceExports = workspaceExports.length;
+
+    const onboardingArtworkExports = await ctx.db
+      .query("onboardingArtworkExports")
+      .collect();
+    for (const doc of onboardingArtworkExports) {
+      await ctx.db.delete(doc._id);
+    }
+    results.onboardingArtworkExports = onboardingArtworkExports.length;
 
     const workspaceRetentionNotifications = await ctx.db.query("workspaceRetentionNotifications").collect();
     for (const doc of workspaceRetentionNotifications) {

@@ -184,4 +184,27 @@ describe("GET /api/onboarding/[id]/work-examples/[exampleId]/download-url", () =
     expect(await response.json()).toEqual({ error: "Failed to mint download URL" });
     expect(mockReportError).toHaveBeenCalledTimes(1);
   });
+
+  it("passes download: true when ?download=1 asks for a file save", async () => {
+    convexClient.query.mockResolvedValueOnce({
+      _id: workExampleId,
+      b2Key: "onboarding/uploads/abcdef/photo.jpg",
+    });
+    convexClient.action.mockResolvedValueOnce({
+      url: "https://b2.example.com/dl?token=abc&download=1",
+    });
+
+    const request = makeRequest({
+      method: "GET",
+      url: `https://platform.test/api/onboarding/${onboardingId}/work-examples/${workExampleId}/download-url?download=1`,
+    });
+    const params = Promise.resolve({ id: onboardingId, exampleId: workExampleId });
+
+    const response = await GET(request, { params });
+
+    expect(response.status).toBe(200);
+    const [, actionArgs] = convexClient.action.mock.calls[0] as [any, any];
+    expect(actionArgs.download).toBe(true);
+    expect(actionArgs.b2Key).toBe("onboarding/uploads/abcdef/photo.jpg");
+  });
 });

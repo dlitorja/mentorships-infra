@@ -27,13 +27,23 @@ vi.mock("@/components/admin/resend-invitation-button", () => ({
   ),
 }));
 
-// WorkExampleThumb hits the signed-URL API route on mount via
-// apiFetch — fine in a browser, but in jsdom it would loop on the
-// `(image)` fallback forever. Stub it so each tile renders text
-// the test can assert on.
-vi.mock("@/components/onboarding/work-example-thumb", () => ({
-  WorkExampleThumb: ({ fileName }: { fileName: string }) => (
-    <div data-testid="work-example-thumb">{fileName}</div>
+// WorkExampleGallery mints signed URLs on mount and subscribes to the
+// artwork-export query — both need a Convex provider, which this unit
+// test doesn't mount. Stub it so each tile renders text the test can
+// assert on.
+vi.mock("@/components/onboarding/work-example-gallery", () => ({
+  WorkExampleGallery: ({
+    examples,
+  }: {
+    examples: Array<{ _id: string; fileName: string }>;
+  }) => (
+    <>
+      {examples.map((example) => (
+        <div key={example._id} data-testid="work-example-thumb">
+          {example.fileName}
+        </div>
+      ))}
+    </>
   ),
 }));
 

@@ -66,6 +66,13 @@ export {
 } from "./archive";
 
 export {
+  csvCell,
+  generateLinksCsv,
+  uniqueArchiveName,
+  type LinkCsvRow,
+} from "./export-csv";
+
+export {
   BULK_DOWNLOAD_JOB_EXPIRY_HOURS,
   MAX_BYTES_PER_CHUNK,
   MAX_FILES_PER_CHUNK,
