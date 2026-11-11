@@ -1,8 +1,7 @@
 import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { Upload } from "@aws-sdk/lib-storage";
 import { uniqueArchiveName } from "@mentorships/storage";
 
 /**
@@ -163,18 +162,18 @@ export const processOnboardingArtworkExport = task({
       const safeEmail = sanitizeFilename(exportData.studentEmail.split("@")[0] ?? "student");
       const zipFilename = `${safeEmail}-artwork.zip`;
 
+      // Buffer the archive and PUT it with PutObjectCommand, matching the
+      // workspace export. `@aws-sdk/lib-storage` rejects archiver's
+      // stream ("Body Data is unsupported format"): archiver builds on
+      // `readable-stream`, whose Transform is not `instanceof` the core
+      // `stream.Readable` the SDK checks. Artwork is capped at six 8 MB
+      // files, so buffering is safe here.
       const archive = archiver("zip", { store: true });
-      const upload = new Upload({
-        client,
-        params: {
-          Bucket: getWorkspaceBucket(),
-          Key: zipKey,
-          Body: archive,
-          ContentType: "application/zip",
-          ContentDisposition: `attachment; filename="${zipFilename}"`,
-        },
-        partSize: 5 * 1024 * 1024,
-        leavePartsOnError: false,
+      const chunks: Buffer[] = [];
+      const archiveDone = new Promise<void>((resolve, reject) => {
+        archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+        archive.on("error", reject);
+        archive.on("end", () => resolve());
       });
 
       const usedNames = new Set<string>();
@@ -206,15 +205,22 @@ export const processOnboardingArtworkExport = task({
         }
 
         archive.finalize();
-        await upload.done();
+        await archiveDone;
       } catch (error) {
-        try {
-          await upload.abort();
-        } catch (abortError) {
-          logger.warn("Failed to abort artwork export upload", { abortError });
-        }
+        archive.abort();
         throw error;
       }
+
+      const zipBuffer = Buffer.concat(chunks);
+      await client.send(
+        new PutObjectCommand({
+          Bucket: getWorkspaceBucket(),
+          Key: zipKey,
+          Body: zipBuffer,
+          ContentType: "application/zip",
+          ContentDisposition: `attachment; filename="${zipFilename}"`,
+        })
+      );
 
       const downloadUrl = await getSignedUrl(
         client,

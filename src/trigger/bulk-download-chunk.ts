@@ -1,5 +1,6 @@
 import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
+import { PassThrough } from "node:stream";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -71,13 +72,21 @@ export const processBulkDownloadChunk = task({
     const zipFilename = `bulk-download-${chunkIndex}.zip`;
 
     const archive = archiver("zip", { store: true });
+    // archiver builds on `readable-stream`, whose Transform is not
+    // `instanceof` Node's core `Readable`, so handing it straight to
+    // `@aws-sdk/lib-storage` throws "Body Data is unsupported format".
+    // Pipe it into a core PassThrough, which the SDK accepts, and keep
+    // the upload streamed rather than buffering multi-GB chunks.
+    const zipStream = new PassThrough();
+    archive.on("error", (error: Error) => zipStream.destroy(error));
+    archive.pipe(zipStream);
 
     const upload = new Upload({
       client,
       params: {
         Bucket: B2_BUCKET_NAME,
         Key: zipKey,
-        Body: archive,
+        Body: zipStream,
         ContentType: "application/zip",
         ContentDisposition: `attachment; filename="${zipFilename}"`,
       },
