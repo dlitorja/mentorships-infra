@@ -7,9 +7,13 @@ re-running on a quarterly basis. The companion config lives in
 
 ## Why this exists
 
-Greptile is the project's primary AI reviewer. We pay $30/seat/month
-plus $1 per overage credit beyond 50 included standard reviews per
-seat. The Sep 19 – Oct 19 invoice (one seat, $654 retail, ~$327
+Greptile is the project's primary AI reviewer. For most of the period
+covered here the plan was $30/seat/month plus $1 per overage credit
+beyond 50 included standard reviews per seat. (Greptile moved to $1
+per credit with no seat fee in late October 2026; both models are
+shown in the tables below because the invoice below predates the
+change and the two land within ~$20 of each other at this volume.)
+The Sep 19 – Oct 19 invoice (one seat, $654 retail, ~$327
 after the Startup 50% discount) breaks down as:
 
 ```
@@ -19,11 +23,18 @@ after the Startup 50% discount) breaks down as:
   Total                                       $654.00
 ```
 
-And in that same window there were **30 PRs** (per
-`gh pr list --state all --search "created:2026-09-19..2026-10-19" --json number | jq length`).
+And in that same window there were **95 PRs**, not 30. The original
+count of 30 came from `gh pr list --state all --search
+"created:2026-09-19..2026-10-19" --json number | jq length`, which
+silently caps at 30 rows unless `--limit` is passed. Re-counting with
+`--limit 500` gives 95.
 
 So:
-- **674 reviews / 30 PRs ≈ 22 reviews per PR** on average.
+- **674 reviews / 95 PRs ≈ 7.1 reviews per PR** on average.
+- Those 95 PRs carried **568 commits**. The billed unit was the push:
+  674 ≈ 568 pushes + 95 PR opens + a handful of retries. That is the
+  mechanism, and it is why `autoReview: ["open"]` is the lever that
+  matters.
 - That's a per-push re-review multiplier problem, not a tier-mix
   problem. The invoice contains no Plus/Apex line items and no
   TREX / execution-layer credits — every overage unit is a flat
@@ -55,11 +66,12 @@ them and removes the volume waste.
 ## Why these particular choices
 
 - **`autoReview: ["open"]` is the single biggest lever.** The
-  invoice data shows a ~22× reviews/PR multiplier. Reviews that
-  aren't valuable — re-reviews of intermediate pushes the developer
-  already iterated on — are the bulk of the burn. Triggering only
-  on `open` collapses that multiplier to ~1× per PR plus the
-  occasional `@greptileai` re-trigger on the final pre-merge diff.
+  invoice data shows a ~7× reviews/PR multiplier, tracking the ~6
+  commits per PR. Reviews that aren't valuable — re-reviews of
+  intermediate pushes the developer already iterated on — are the
+  bulk of the burn. Triggering only on `open` collapses that
+  multiplier to ~1× per PR plus the occasional `@greptileai`
+  re-trigger on the final pre-merge diff.
 - **Lockfile + post-merge exclusion removes the second-biggest
   class.** Dep bumps and pure-recap docs produce large diff counts
   that Greptile has to read. OpenAI token cost scales with diff
@@ -78,16 +90,24 @@ Note: this is a **forecast**, not a hard cap. The actual bill is
 
 | Cost element | Before (Sep 19 – Oct 19) | After policy (forecast) |
 |---|---|---|
-| Reviews/PR (push multiplier) | ~22 | ~1.5–2 (1× on open + ~0.5–1× `@greptileai review` re-trigger before merge) |
-| Lockfile-only-change PRs (`lockFileMaintenance`) | Same as below: ~3 lockfile-maintenance PRs × ~22 reviews/PR | **0 review credits** — Renovate `lockFileMaintenance.automerge: true` auto-merges on green CI and skips Greptile's queue entirely |
+| Reviews/PR (push multiplier) | ~7.1 | ~1.5–2 (1× on open + ~0.5–1× `@greptileai review` re-trigger before merge) |
+| Lockfile-only-change PRs (`lockFileMaintenance`) | Same as below: ~3 lockfile-maintenance PRs × ~7 reviews/PR | **0 review credits** — Renovate `lockFileMaintenance.automerge: true` auto-merges on green CI and skips Greptile's queue entirely |
 | Version-bump PRs that change `package.json` + lockfile (e.g. grouped minor/patch Renovate runs) | 23k-line lockfile PRs counted | **Still 1 review each** — `ignorePatterns` excludes `pnpm-lock.yaml` but the diff still contains `package.json` and code changes Greptile needs to read. These count toward the 50/month allotment. |
 | Manual dep bumps (e.g. `next`/`react` major) | Heavy PR with both code changes and lockfile churn | **1 review on open + re-trigger before merge** — same as any code PR |
 | Style-comment noise | Every PR | Filtered by `commentTypes` + lint-staged locally (cosmetic, no credit change) |
-| Reviews/month (30 PRs, all forms) | ~674 | ~45–60 (1.5–2 × 30) |
-| Overage credits (50 included) | 624 | **0–10** (depending on re-trigger frequency) |
-| Monthly retail (forecast central estimate) | ~$654 ($30 seat + 624 × $1) | **~$30–$40** (seat + 0–10 overage × $1) |
-| Monthly with 50% Startup discount (year 1) | ~$330 | ~$15–$20 |
-| Monthly after discount lapses | ~$654 | ~$30–$40 |
+| PRs/month | 92 (95 PRs in 31 days) | ~95–125 (measured cadence, see below) |
+| Reviews/month (all forms) | ~674 | ~140–250 (1.5–2 × 95–125) |
+| Overage credits (50 included) | 624 | ~90–200 |
+| Monthly retail, old $30-seat + $1/credit model | ~$654 | **~$120–$230** |
+| Monthly retail, current $1/credit with no seat fee | ~$674 | **~$140–$250** |
+| Monthly with 50% Startup discount (year 1) | ~$330 | **~$70–$125** (confirm how the discount applies to credit purchases) |
+| Monthly after discount lapses | ~$654 | **~$140–$250** |
+
+The earlier draft of this table forecast **$30–$40/month**. That was
+wrong because it multiplied the 1.5–2× per-PR floor by the same
+miscounted 30 PRs. The real cadence is 92–125 PRs/month, so each
+review still costs real money — the policy removes the per-push
+multiplier, not the per-PR floor.
 
 **What the policy does NOT do:**
 
@@ -106,6 +126,41 @@ Note: this is a **forecast**, not a hard cap. The actual bill is
 - Auto-merged `lockFileMaintenance` PRs do NOT count toward
   Greptile reviews at all. They are the only class of PR that
   is fully outside the queue.
+
+## Measured result, first policy month (Oct 20 – Nov 11, 2026)
+
+The policy landed 2026-10-20. Twenty-three days later, the GitHub
+API shows:
+
+| Measure | Sep 19 – Oct 19 (pre-policy) | Oct 20 – Nov 11 (post-policy) |
+|---|---|---|
+| PRs created | 95 | 95 |
+| Commits (pushes) | 568 (6.0/PR) | 199 (2.1/PR) |
+| Greptile re-triggers (`@greptileai review`) | 6 | 86, across 58 PRs |
+| Billable reviews | 674 (from the invoice) | ~181 (95 opens + 86 re-triggers) |
+| Reviews per 30 days | ~652 | ~236 |
+
+At $1/credit that is **~$236/month**, down from **$654** — a ~$415
+monthly saving (~$5.0k/year), or ~63% volume reduction. Two things
+kept it from matching the forecast:
+
+1. **PR cadence rose.** 124 PRs/30d post-policy versus 92/30d
+   before. The per-PR floor is now the whole bill, so more PRs
+   means more credits even at 1× per PR.
+2. **Re-trigger discipline hasn't held.** 58 of 95 PRs asked for a
+   re-review (86 total). The policy's own guidance is "re-baseline
+   once, just before merge, on risky PRs" — on routine PRs the
+   open review is already the pre-merge diff.
+
+**The remaining lever is re-trigger count, not review depth.** Holding
+cadence constant, reserving `@greptileai review` for ~20 PRs/month
+takes the bill to roughly **$115/month** (~$535/month saved).
+
+Reproduce with `gh pr list --state all --limit 500` for the PR count,
+`commits.totalCount` per PR for pushes, and the author's comments
+containing `@greptileai` for re-triggers. The post-policy column is
+modelled from billable events — reconcile it against the Oct 20
+invoice when it lands and correct this table if it disagrees.
 
 ## Dashboard-side checks worth re-running quarterly
 
