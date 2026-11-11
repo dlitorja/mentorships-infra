@@ -24,6 +24,13 @@ name: Review Gate
 # skipped runs and re-enter indefinitely, so the gate instead watches while a
 # review is in flight and is re-run by `pull_request_review` when the finished
 # review is actually posted.
+#
+# Known limitation: this is a discipline gate, not an authorization boundary. A
+# PR that edits this file is evaluated by the edited version, so an author can
+# widen the exemption — as they already can by applying `no-greptile`. Closing
+# that needs CODEOWNERS or a gate that runs from the default branch, which is
+# more machinery than a single-maintainer repo warrants. The audit trail is the
+# PR diff itself.
 
 on:
   pull_request:
@@ -63,7 +70,10 @@ jobs:
           set -euo pipefail
           head_sha=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
           labels=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '[.labels[].name] | join(" ")')
-          files=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')
+          # filename<TAB>previous_filename, so a rename cannot hide reviewed
+          # code behind an ignored path.
+          files=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate \
+            --jq '.[] | "\(.filename)\t\(.previous_filename // "")"')
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
           if printf '%s\n' $labels | grep -qxE 'no-greptile|skip-greptile'; then
@@ -80,32 +90,47 @@ jobs:
           fi
 
           # Mirror `.greptile/config.json` ignorePatterns. Greptile never reads
-          # these paths, so requiring its check would deadlock the PR.
-          ignorable=true
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            case "$file" in
-              *.md|*.MD) ;;
-              pnpm-lock.yaml|*/pnpm-lock.yaml) ;;
-              package-lock.json|*/package-lock.json) ;;
-              yarn.lock|*/yarn.lock) ;;
-              *.lock) ;;
-              *.generated.*) ;;
-              docs/post-merge/*) ;;
-              node_modules/*|*/node_modules/*) ;;
-              .next/*|*/.next/*) ;;
-              .turbo/*|*/.turbo/*) ;;
-              dist/*|*/dist/*) ;;
-              build/*|*/build/*) ;;
-              coverage/*|*/coverage/*) ;;
-              .vercel/*|*/.vercel/*) ;;
-              test-results/*|*/test-results/*) ;;
-              playwright-report/*|*/playwright-report/*) ;;
-              *)
-                ignorable=false
-                break
-                ;;
+          # these paths, so requiring its check would deadlock the PR. Anything
+          # not listed here still needs a review.
+          is_ignorable() {
+            case "$1" in
+              *.md|*.MD) return 0 ;;
+              pnpm-lock.yaml|*/pnpm-lock.yaml) return 0 ;;
+              package-lock.json|*/package-lock.json) return 0 ;;
+              yarn.lock|*/yarn.lock) return 0 ;;
+              *.lock) return 0 ;;
+              # Deliberately narrower than the config's `**/*.generated.*`: a
+              # wildcard suffix would let an executable file opt out of review
+              # by name. Convex codegen is the only generated tree we track.
+              convex/_generated/*) return 0 ;;
+              docs/post-merge/*) return 0 ;;
+              node_modules/*|*/node_modules/*) return 0 ;;
+              .next/*|*/.next/*) return 0 ;;
+              .turbo/*|*/.turbo/*) return 0 ;;
+              dist/*|*/dist/*) return 0 ;;
+              build/*|*/build/*) return 0 ;;
+              coverage/*|*/coverage/*) return 0 ;;
+              .vercel/*|*/.vercel/*) return 0 ;;
+              test-results/*|*/test-results/*) return 0 ;;
+              playwright-report/*|*/playwright-report/*) return 0 ;;
+              *) return 1 ;;
             esac
+          }
+
+          ignorable=true
+          while IFS=$'\t' read -r file previous; do
+            [ -z "$file" ] && continue
+            if ! is_ignorable "$file"; then
+              ignorable=false
+              break
+            fi
+            # Renaming `convex/x.ts` to `docs/x.md` leaves only the ignored path
+            # in the file list, so judge the source path too.
+            if [ -n "$previous" ] && ! is_ignorable "$previous"; then
+              echo "Rename out of a reviewed path: $previous -> $file"
+              ignorable=false
+              break
+            fi
           done <<< "$files"
 
           if [ "$ignorable" = true ]; then
