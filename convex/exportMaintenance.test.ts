@@ -111,6 +111,7 @@ test("pruneExpiredExportRecords deletes terminal rows and fails abandoned in-fli
       requestedBy: "user_instructor",
       status: "completed",
       downloadUrl: "https://b2.example.com/art.zip",
+      expiresAt: Date.now() + 1_000,
     });
     const artworkStuck = await ctx.db.insert("onboardingArtworkExports", {
       onboardingId,

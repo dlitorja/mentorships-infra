@@ -9,39 +9,24 @@ import { EXPORT_ARTIFACT_TTL_MS } from "./workspaceConstants";
  * sweep `cleanup-export-artifacts` using the same 72-hour window. This
  * mutation keeps the Convex rows in step:
  *
- *   - a row past its artifact's expiry is deleted once terminal
- *     (`completed` / `failed`), so the tabs stop listing exports whose
- *     artifact is gone;
- *   - a row still `pending` / `processing` after the TTL is marked
+ *   - completed rows whose `expiresAt` (completion + 72h, written by the
+ *     worker) has passed are deleted — the artifact's signed URL is dead
+ *     and the object has been swept;
+ *   - failed rows older than the window are deleted;
+ *   - a row still `pending` / `processing` after the window is marked
  *     failed. Trigger tasks finish in minutes; anything older is
- *     abandoned (lost run, cancelled deployment). It is deleted on the
- *     next tick once terminal.
+ *     abandoned (lost run, cancelled deployment). The next tick deletes
+ *     the now-terminal row.
  *
- * Expiry is measured from *completion* (`expiresAt`, set by the worker
- * when the artifact is written), not from row creation: a queued or
- * slow export keeps its full 72-hour window. Rows without `expiresAt`
- * (failed / abandoned) fall back to `_creationTime + TTL`.
+ * Each case uses an index (`by_expiresAt` / `by_status`) instead of one
+ * oldest-first scan: rows that completed late but still have a valid
+ * download must not push newer, already-expired rows out of the batch.
  *
- * `now` is an injection point for tests (the cron passes nothing). Rows
- * are scanned oldest-first in bounded batches, so a backlog drains over
- * successive hourly ticks instead of one long transaction.
+ * `now` is an injection point for tests (the cron passes nothing).
  */
 const BATCH_LIMIT = 200;
 const TIMEOUT_MESSAGE =
   "Export timed out before completion; export artifacts expire after 72 hours.";
-
-/** When this row's artifact becomes eligible for deletion. */
-function artifactExpiresAt(row: {
-  expiresAt?: number;
-  _creationTime: number;
-}): number {
-  return row.expiresAt ?? row._creationTime + EXPORT_ARTIFACT_TTL_MS;
-}
-
-/** Creation-based floor: a row this new cannot have an expired artifact. */
-function cannotBeExpiredYet(_creationTime: number, now: number): boolean {
-  return _creationTime + EXPORT_ARTIFACT_TTL_MS > now;
-}
 
 export const pruneExpiredExportRecords = internalMutation({
   args: {
@@ -56,49 +41,116 @@ export const pruneExpiredExportRecords = internalMutation({
   }),
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
+    // Failed/abandoned rows have no artifact expiry; fall back to
+    // creation + TTL.
+    const creationFloor = now - EXPORT_ARTIFACT_TTL_MS;
 
     let workspaceExportsDeleted = 0;
     let workspaceExportsTimedOut = 0;
-    const workspaceRows = await ctx.db
+    let artworkExportsDeleted = 0;
+    let artworkExportsTimedOut = 0;
+
+    // 1) Completed artifacts past their signed-URL expiry. The index
+    // range starts at 0 so rows without `expiresAt` (undefined sorts
+    // before numbers) are not swept before their artifact exists.
+    const expiredWorkspace = await ctx.db
       .query("workspaceExports")
-      .order("asc")
+      .withIndex("by_expiresAt", (q) => q.gte("expiresAt", 0).lt("expiresAt", now))
       .take(BATCH_LIMIT);
-    for (const row of workspaceRows) {
-      if (cannotBeExpiredYet(row._creationTime, now)) break;
-      if (row.status === "pending" || row.status === "processing") {
+    for (const row of expiredWorkspace) {
+      await ctx.db.delete(row._id);
+      workspaceExportsDeleted++;
+    }
+
+    const expiredArtwork = await ctx.db
+      .query("onboardingArtworkExports")
+      .withIndex("by_expiresAt", (q) => q.gte("expiresAt", 0).lt("expiresAt", now))
+      .take(BATCH_LIMIT);
+    for (const row of expiredArtwork) {
+      await ctx.db.delete(row._id);
+      artworkExportsDeleted++;
+    }
+
+    // 1b) Legacy completed rows that never got an `expiresAt` (all rows
+    // written by the current workers do) are pruned by age instead.
+    const legacyWorkspace = await ctx.db
+      .query("workspaceExports")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .filter((q) =>
+        q.and(
+          q.lt(q.field("_creationTime"), creationFloor),
+          q.eq(q.field("expiresAt"), undefined)
+        )
+      )
+      .take(BATCH_LIMIT);
+    for (const row of legacyWorkspace) {
+      await ctx.db.delete(row._id);
+      workspaceExportsDeleted++;
+    }
+
+    const legacyArtwork = await ctx.db
+      .query("onboardingArtworkExports")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .filter((q) =>
+        q.and(
+          q.lt(q.field("_creationTime"), creationFloor),
+          q.eq(q.field("expiresAt"), undefined)
+        )
+      )
+      .take(BATCH_LIMIT);
+    for (const row of legacyArtwork) {
+      await ctx.db.delete(row._id);
+      artworkExportsDeleted++;
+    }
+
+    // 2) Old failed rows (no artifact left to wait for).
+    const failedWorkspace = await ctx.db
+      .query("workspaceExports")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .filter((q) => q.lt(q.field("_creationTime"), creationFloor))
+      .take(BATCH_LIMIT);
+    for (const row of failedWorkspace) {
+      await ctx.db.delete(row._id);
+      workspaceExportsDeleted++;
+    }
+
+    const failedArtwork = await ctx.db
+      .query("onboardingArtworkExports")
+      .withIndex("by_status", (q) => q.eq("status", "failed"))
+      .filter((q) => q.lt(q.field("_creationTime"), creationFloor))
+      .take(BATCH_LIMIT);
+    for (const row of failedArtwork) {
+      await ctx.db.delete(row._id);
+      artworkExportsDeleted++;
+    }
+
+    // 3) Abandoned in-flight rows.
+    for (const status of ["pending", "processing"] as const) {
+      const stuckWorkspace = await ctx.db
+        .query("workspaceExports")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .filter((q) => q.lt(q.field("_creationTime"), creationFloor))
+        .take(BATCH_LIMIT);
+      for (const row of stuckWorkspace) {
         await ctx.db.patch(row._id, {
           status: "failed",
           errorMessage: TIMEOUT_MESSAGE,
         });
         workspaceExportsTimedOut++;
-        continue;
       }
-      // A slow task can finish after its row was created; keep the row
-      // until the artifact's own expiry has passed.
-      if (artifactExpiresAt(row) > now) continue;
-      await ctx.db.delete(row._id);
-      workspaceExportsDeleted++;
-    }
 
-    let artworkExportsDeleted = 0;
-    let artworkExportsTimedOut = 0;
-    const artworkRows = await ctx.db
-      .query("onboardingArtworkExports")
-      .order("asc")
-      .take(BATCH_LIMIT);
-    for (const row of artworkRows) {
-      if (cannotBeExpiredYet(row._creationTime, now)) break;
-      if (row.status === "pending" || row.status === "processing") {
+      const stuckArtwork = await ctx.db
+        .query("onboardingArtworkExports")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .filter((q) => q.lt(q.field("_creationTime"), creationFloor))
+        .take(BATCH_LIMIT);
+      for (const row of stuckArtwork) {
         await ctx.db.patch(row._id, {
           status: "failed",
           errorMessage: TIMEOUT_MESSAGE,
         });
         artworkExportsTimedOut++;
-        continue;
       }
-      if (artifactExpiresAt(row) > now) continue;
-      await ctx.db.delete(row._id);
-      artworkExportsDeleted++;
     }
 
     return {
