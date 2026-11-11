@@ -15,6 +15,7 @@
 - If Greptile is unavailable for any reason, wait for it to catch up; only fall back to CodeRabbit alone if Greptile's bot has not responded after a reasonable wait AND the user has been informed.
 - Do not rely on local-only verification; at least one bot review must be visible in GitHub.
 - If neither bot has responded AND the user explicitly asks to skip or override these checks, confirm the instruction before proceeding.
+- **Enforcement is `Review Gate`** (`.github/workflows/review-gate.yml`), not the raw `Greptile Review` status. The gate passes when every changed path is in Greptile's own `ignorePatterns` (markdown, lockfiles, build output), when `no-greptile` / `skip-greptile` is applied, and otherwise requires a green `Greptile Review` from Greptile's GitHub App on the head commit. This exists because those ignored paths never get a Greptile status, so requiring its check directly blocked every documentation PR. See `docs/greptile-cost-policy.md`.
 
 <!-- NAMING CONVENTIONS - CRITICAL -->
 # Naming Conventions: NEVER use mentor/mentee

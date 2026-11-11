@@ -19,7 +19,11 @@
 <!-- Greptile review policy (PR #946). Both bots still run by default.
      Opt out of Greptile on PRs that don't need a deep semantic review
      (CI-only, secret rotation, reverting an experiment, etc.) by
-     applying either `no-greptile` or `skip-greptile`. -->
+     applying either `no-greptile` or `skip-greptile`.
+     Documentation-only PRs and other paths in Greptile's
+     `ignorePatterns` (lockfiles, build output) pass `Review Gate`
+     automatically — Greptile never reviews them, so no label is
+     needed. See `.github/workflows/review-gate.yml`. -->
 
 - [ ] This PR has semantic code changes worth a Greptile review
 - [ ] OR I applied `no-greptile` / `skip-greptile` to opt out
