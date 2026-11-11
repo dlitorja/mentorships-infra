@@ -5,11 +5,25 @@ import type { Doc } from "../_generated/dataModel";
 export type AuthorRole = "instructor" | "student" | "admin";
 
 /**
+ * True when a stored display name is actually an email address.
+ *
+ * Invitation acceptance creates instructor profiles with
+ * `name: invitation.email`, so `instructors.name` is not guaranteed to
+ * be a human name. Rendering it verbatim would leak the instructor's
+ * email into student-visible surfaces (chat author labels, the links
+ * CSV).
+ */
+function looksLikeEmail(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/**
  * Resolve Clerk subjects to human display names for workspace content.
  *
- * Policy (shared by chat, notes, and now exports):
+ * Policy (shared by chat, notes, and exports):
  * - instructor authors render as the instructor profile's `name`
- *   (never their email),
+ *   (never their email — a name stored as an email is rejected),
  * - everyone else renders as their user first + last name,
  * - fall back to a role label ("Student" / "Instructor" / "Admin")
  *   rather than an email or a Clerk id.
@@ -43,9 +57,18 @@ export async function resolveAuthorDisplayNames(
           : instructor && instructor._id === workspace.instructorId
             ? "instructor"
             : "student");
-      const userName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
+      const rawInstructorName = instructor?.name?.trim();
+      const instructorName =
+        rawInstructorName && !looksLikeEmail(rawInstructorName)
+          ? rawInstructorName
+          : undefined;
+      const rawUserName = [user?.firstName, user?.lastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const userName = rawUserName && !looksLikeEmail(rawUserName) ? rawUserName : undefined;
       const displayName =
-        (role === "instructor" ? instructor?.name?.trim() : undefined) ||
+        (role === "instructor" ? instructorName : undefined) ||
         userName ||
         (role === "admin" ? "Admin" : role === "instructor" ? "Instructor" : "Student");
       return [author.userId, displayName] as const;
