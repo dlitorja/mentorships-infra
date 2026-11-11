@@ -125,6 +125,14 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
   const latestExport = exports?.[0];
   const isExportProcessing = latestExport?.status === 'processing';
   const isExportPending = latestExport?.status === 'pending';
+  const linksExportExpired =
+    latestExport?.status === 'completed' &&
+    typeof latestExport.expiresAt === 'number' &&
+    latestExport.expiresAt <= Date.now();
+  const linksDownloadUrl =
+    latestExport?.status === 'completed' && latestExport.downloadUrl && !linksExportExpired
+      ? latestExport.downloadUrl
+      : null;
 
   const activeLinks = useMemo<Link[]>(() => (links as Link[] | undefined) ?? [], [links]);
 
@@ -392,10 +400,22 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
                 )}
               </Button>
             </>
-          ) : latestExport?.status === 'completed' && latestExport.downloadUrl ? (
+          ) : linksDownloadUrl ? (
             <>
               <Button size="sm" variant="default" asChild>
-                <a href={latestExport.downloadUrl} download>
+                <a
+                  href={linksDownloadUrl}
+                  download
+                  onClick={(event) => {
+                    if (
+                      latestExport?.expiresAt &&
+                      latestExport.expiresAt <= Date.now()
+                    ) {
+                      event.preventDefault();
+                      toast.error('That CSV link expired. Export again to rebuild it.');
+                    }
+                  }}
+                >
                   <Download className="h-4 w-4 mr-1" />
                   Download CSV
                 </a>

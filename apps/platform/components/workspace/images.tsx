@@ -116,10 +116,26 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   // A completed ZIP stays downloadable across reloads/tab switches —
   // not just in the session that created it. Signed URLs expire after
   // 7 days, after which the button falls back to "Export ZIP".
+  //
+  // `nowMs` exists so an idle tab re-renders when the signature lapses;
+  // computing `Date.now()` in render alone would keep showing an
+  // expired link until some other state changed.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const latestExportExpiresAt =
+    latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
+
+  useEffect(() => {
+    if (typeof latestExportExpiresAt !== 'number') return;
+    const remaining = latestExportExpiresAt - Date.now();
+    if (remaining <= 0) return;
+    const timer = setTimeout(() => setNowMs(Date.now()), remaining + 1_000);
+    return () => clearTimeout(timer);
+  }, [latestExport?._id, latestExport?.status, latestExportExpiresAt]);
+
   const exportExpired =
     latestExport?.status === 'completed' &&
-    typeof latestExport.expiresAt === 'number' &&
-    latestExport.expiresAt <= Date.now();
+    typeof latestExportExpiresAt === 'number' &&
+    latestExportExpiresAt <= nowMs;
   const downloadUrl =
     latestExport?.status === 'completed' && latestExport.downloadUrl && !exportExpired
       ? latestExport.downloadUrl
@@ -602,12 +618,44 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         </p>
         <div className="flex items-center gap-2">
           {downloadUrl ? (
-            <Button variant="default" asChild>
-              <a href={downloadUrl} download>
-                <Download className="h-4 w-4 mr-2" />
-                Download ZIP
-              </a>
-            </Button>
+            <>
+              <Button variant="default" asChild>
+                <a
+                  href={downloadUrl}
+                  download
+                  onClick={(event) => {
+                    // A tab left open past `expiresAt` would otherwise
+                    // follow a signature B2 rejects. The timer below
+                    // normally flips the UI first; this is the backstop.
+                    if (
+                      latestExport?.expiresAt &&
+                      latestExport.expiresAt <= Date.now()
+                    ) {
+                      event.preventDefault();
+                      setNowMs(Date.now());
+                      toast.error('That download link expired. Build a new ZIP.');
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download ZIP
+                </a>
+              </Button>
+              {/* Keep a fresh-archive path: the old ZIP never reflects
+                  images uploaded after it was built. */}
+              <Button
+                variant="outline"
+                onClick={() => handleExport()}
+                disabled={createExport.isPending || isPending || isProcessing}
+              >
+                {createExport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                New ZIP
+              </Button>
+            </>
           ) : isProcessing ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
