@@ -7,6 +7,10 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 import { getWorkspaceImageSetUpdatedAt as getWorkspaceImageSetUpdatedAtFor } from "./lib/workspaceImageSet";
 import { getWorkspaceLinkSetUpdatedAt as getWorkspaceLinkSetUpdatedAtFor } from "./lib/workspaceLinkSet";
+import {
+  resolveAuthorDisplayNames,
+  type AuthorRole,
+} from "./lib/authorDisplay";
 import { writeAuditLog } from "./auditLog";
 
 import {
@@ -21,7 +25,6 @@ import {
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
-type AuthorRole = Exclude<WorkspaceRole, null>;
 type WorkspaceCtx = QueryCtx | MutationCtx;
 
 async function isAdmin(ctx: WorkspaceCtx, userId: string): Promise<boolean> {
@@ -126,42 +129,6 @@ async function getCallerWorkspaceRole(
   const role = await getWorkspaceRole(ctx, workspace, identity.subject);
   if (!role) return null;
   return { role, workspace };
-}
-
-async function resolveAuthorDisplayNames(
-  ctx: QueryCtx,
-  workspace: Pick<Doc<"workspaces">, "instructorId">,
-  authors: Array<{ userId: string; role?: AuthorRole }>
-): Promise<Map<string, string>> {
-  const uniqueAuthors = new Map(authors.map((author) => [author.userId, author]));
-  const resolved = await Promise.all(
-    [...uniqueAuthors.values()].map(async (author) => {
-      const [user, instructor] = await Promise.all([
-        ctx.db
-          .query("users")
-          .withIndex("by_userId", (q) => q.eq("userId", author.userId))
-          .first(),
-        ctx.db
-          .query("instructors")
-          .withIndex("by_userId", (q) => q.eq("userId", author.userId))
-          .first(),
-      ]);
-      const role: AuthorRole =
-        author.role ??
-        (user?.role === "admin"
-          ? "admin"
-          : instructor && instructor._id === workspace.instructorId
-            ? "instructor"
-            : "student");
-      const userName = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
-      const displayName =
-        (role === "instructor" ? instructor?.name?.trim() : undefined) ||
-        userName ||
-        (role === "admin" ? "Admin" : role === "instructor" ? "Instructor" : "Student");
-      return [author.userId, displayName] as const;
-    })
-  );
-  return new Map(resolved);
 }
 
 /**

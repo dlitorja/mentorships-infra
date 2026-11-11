@@ -55,6 +55,15 @@ export const createOnboardingArtworkExport = mutation({
       throw new Error("Not authorized to export this onboarding");
     }
 
+    // A cancelled onboarding is a terminal, revoked state. New archives
+    // must not be created from it even for a viewer who can still see
+    // submitted rows.
+    if (onboarding.status === "cancelled") {
+      throw new Error(
+        "This onboarding was cancelled; its artwork is no longer available for export."
+      );
+    }
+
     const activeCount = (
       await ctx.db
         .query("onboardingWorkExamples")
@@ -185,6 +194,11 @@ export const getOnboardingArtworkExportData = internalQuery({
     const onboarding = await ctx.db.get(args.onboardingId);
     if (!onboarding) {
       throw new Error("Onboarding not found");
+    }
+    // Defence in depth: a row could have been cancelled after the
+    // export was requested. Refuse to build an archive from it.
+    if (onboarding.status === "cancelled") {
+      throw new Error("Onboarding was cancelled; refusing to export artwork");
     }
 
     const rows = await ctx.db
