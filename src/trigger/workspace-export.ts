@@ -476,7 +476,7 @@ export const processWorkspaceExport = task({
         archive.on("error", reject);
         archive.on("end", () => resolve());
 
-        if (notes.length > 0) {
+        if (scope !== "images" && notes.length > 0) {
           const markdown = generateMarkdown(notes);
           archive.append(markdown, { name: "notes.md" });
         }
@@ -486,7 +486,10 @@ export const processWorkspaceExport = task({
         }
 
         if (notes.length === 0 && imageEntries.length === 0) {
-          archive.append("# No content to export", { name: "README.txt" });
+          archive.append(
+            scope === "images" ? "# No images to export" : "# No content to export",
+            { name: "README.txt" }
+          );
         }
 
         archive.finalize();

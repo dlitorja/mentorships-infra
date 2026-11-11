@@ -916,3 +916,38 @@ test("a retry clears the stale errorMessage from the previous attempt", async ()
   expect(afterCompleted?.status).toBe("completed");
   expect(afterCompleted?.errorMessage).toBeUndefined();
 });
+
+test("HTTP /workspace/export/data with scope=images excludes notes", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceNotes", {
+      workspaceId: workspaceId as any,
+      title: "Should not be in the images ZIP",
+      content: "note body",
+      createdBy: "user_export_student",
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  // The Images tab export is images only; notes belong to the legacy
+  // full-workspace ZIP.
+  expect(body.notes).toEqual([]);
+  expect(body.images.length).toBe(1);
+});

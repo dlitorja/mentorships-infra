@@ -176,12 +176,19 @@ export const getWorkspaceExportData = internalQuery({
       };
     }
 
-    const notes = await ctx.db
-      .query("workspaceNotes")
-      .withIndex("by_workspaceId_and_deletedAt", (q) =>
-        q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
-      )
-      .collect();
+    // The Images tab export is exactly that: images. Notes only belong
+    // in the legacy full-workspace ZIP (`scope` absent/workspace), so
+    // skip the query entirely for `images` — it saves reads and keeps
+    // the archive from carrying an unexpected `notes.md`.
+    const notes =
+      scope === "images"
+        ? []
+        : await ctx.db
+            .query("workspaceNotes")
+            .withIndex("by_workspaceId_and_deletedAt", (q) =>
+              q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+            )
+            .collect();
 
     const allImages = await ctx.db
       .query("workspaceImages")

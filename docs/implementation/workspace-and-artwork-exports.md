@@ -59,7 +59,9 @@ the client.
 with `format: "zip"`, `scope: "images"` → Trigger task
 `process-workspace-export`.
 
-`GET /workspace/export/data` returns the notes plus, for each image:
+`GET /workspace/export/data` with `scope: "images"` returns **images
+only** — no notes. `scope` absent (the legacy full-workspace ZIP) still
+includes notes. Each image carries:
 
 - `b2Key` (+ `fileName` derived from the key's last path segment) for
   B2-backed rows — the task reads the object directly with the S3 SDK;
@@ -71,8 +73,9 @@ Both export data queries (`queries/http.getWorkspaceExportData` and
 no per-workspace membership check of their own, so keeping them off the
 public API surface matters.
 
-The task wraps them into `notes.md` + `images/*` and writes the archive
-to `exports/<workspaceId>/...` in the workspace bucket.
+The task writes `images/*` for the Images tab (`notes.md` is only added
+for the legacy full-workspace scope) to `exports/<workspaceId>/...` in
+the workspace bucket.
 
 Filenames are sanitized, de-duplicated (`sketch.png`, `sketch-2.png`),
 and their extension comes from the stored content type — previously B2
