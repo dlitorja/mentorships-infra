@@ -873,3 +873,81 @@ test("a cancel is terminal even when the row still carries an earlier task error
   const after = await t.run(async (ctx) => ctx.db.get(exportId));
   expect(after?.status).toBe("failed");
 });
+
+test("a retry clears the stale errorMessage from the previous attempt", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "failed",
+      errorMessage: "Trigger.dev request failed: 503",
+    })
+  );
+
+  const processing = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "processing" }),
+  });
+  expect(processing.status).toBe(200);
+
+  const afterProcessing = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(afterProcessing?.status).toBe("processing");
+  expect(afterProcessing?.errorMessage).toBeUndefined();
+
+  const completed = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({
+      exportId,
+      status: "completed",
+      downloadUrl: "https://b2.example.com/export.zip",
+    }),
+  });
+  expect(completed.status).toBe(200);
+
+  const afterCompleted = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(afterCompleted?.status).toBe("completed");
+  expect(afterCompleted?.errorMessage).toBeUndefined();
+});
+
+test("HTTP /workspace/export/data with scope=images excludes notes", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceNotes", {
+      workspaceId: workspaceId as any,
+      title: "Should not be in the images ZIP",
+      content: "note body",
+      createdBy: "user_export_student",
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  // The Images tab export is images only; notes belong to the legacy
+  // full-workspace ZIP.
+  expect(body.notes).toEqual([]);
+  expect(body.images.length).toBe(1);
+});

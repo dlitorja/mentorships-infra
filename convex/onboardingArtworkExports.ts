@@ -256,6 +256,15 @@ export const updateOnboardingArtworkExportStatus = internalMutation({
     if (args.expiresAt !== undefined) updates.expiresAt = args.expiresAt;
     if (args.errorMessage !== undefined) updates.errorMessage = args.errorMessage;
     if (args.fileCount !== undefined) updates.fileCount = args.fileCount;
+    // Clear a stale failure message once the task is retrying or has
+    // succeeded. Cancellation is tracked by `cancelledAt`, so this is
+    // safe.
+    if (
+      (args.status === "processing" || args.status === "completed") &&
+      args.errorMessage === undefined
+    ) {
+      updates.errorMessage = undefined;
+    }
 
     await ctx.db.patch(args.exportId, updates);
     return null;

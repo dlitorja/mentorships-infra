@@ -204,9 +204,10 @@ async function handleEvent(
         timestamp,
         signature,
         rawBody,
-        // The Convex action attaches state only; this route triggers the
-        // task because Vercel has TRIGGER_SECRET_KEY and Convex prod
-        // intentionally does not.
+        // The Convex action attaches state only. This route triggers the
+        // task so the transfer starts only after the verified payload has
+        // been attached, and so the idempotency key stays scoped to the
+        // Daily delivery.
         triggerTransfer: false,
       }
     );
