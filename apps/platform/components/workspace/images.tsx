@@ -137,14 +137,30 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const { data: imageSetUpdatedAt } = useWorkspaceImageSetUpdatedAt(workspaceId);
   const latestExportExpiresAt =
     latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
+  const latestSelectionExpiresAt =
+    latestSelectionExport?.status === 'completed'
+      ? latestSelectionExport.expiresAt
+      : undefined;
 
   useEffect(() => {
-    if (typeof latestExportExpiresAt !== 'number') return;
-    const remaining = latestExportExpiresAt - Date.now();
-    if (remaining <= 0) return;
-    const timer = setTimeout(() => setNowMs(Date.now()), remaining + 1_000);
+    // Re-render when the earliest live signature lapses, whichever
+    // export (full or selection) it belongs to.
+    const upcoming = [latestExportExpiresAt, latestSelectionExpiresAt].filter(
+      (value): value is number =>
+        typeof value === 'number' && value > Date.now()
+    );
+    if (upcoming.length === 0) return;
+    const next = Math.min(...upcoming);
+    const timer = setTimeout(() => setNowMs(Date.now()), next - Date.now() + 1_000);
     return () => clearTimeout(timer);
-  }, [latestExport?._id, latestExport?.status, latestExportExpiresAt]);
+  }, [
+    latestExport?._id,
+    latestExport?.status,
+    latestExportExpiresAt,
+    latestSelectionExport?._id,
+    latestSelectionExport?.status,
+    latestSelectionExpiresAt,
+  ]);
 
   const exportExpired =
     latestExport?.status === 'completed' &&
