@@ -149,6 +149,13 @@ export const updateWorkspaceExportStatus = internalMutation({
     if (downloadUrl !== undefined) updates.downloadUrl = downloadUrl;
     if (expiresAt !== undefined) updates.expiresAt = expiresAt;
     if (errorMessage !== undefined) updates.errorMessage = errorMessage;
+    // A retry (processing) or a successful retry (completed) makes any
+    // earlier failure message stale. Clearing it keeps the row honest —
+    // the cancel marker is `cancelledAt`, so removing `errorMessage`
+    // cannot turn a cancelled row into a retryable one.
+    if ((status === "processing" || status === "completed") && errorMessage === undefined) {
+      updates.errorMessage = undefined;
+    }
 
     await ctx.db.patch(exportId, updates);
 

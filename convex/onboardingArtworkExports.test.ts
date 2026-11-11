@@ -467,3 +467,29 @@ test("a cancelled artwork export cannot be completed by a retry", async () => {
   const after = await t.run(async (ctx) => ctx.db.get(exportId));
   expect(after?.status).toBe("failed");
 });
+
+test("a retry clears the stale artwork export errorMessage", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { onboardingId, instructorUserId } = await seedOnboarding(t);
+
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("onboardingArtworkExports", {
+      onboardingId: onboardingId as any,
+      requestedBy: instructorUserId,
+      status: "failed",
+      errorMessage: "Trigger.dev request failed: 503",
+    })
+  );
+
+  const r = await t.fetch("/onboarding/artwork-export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "processing" }),
+  });
+  expect(r.status).toBe(200);
+
+  const row = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(row?.status).toBe("processing");
+  expect(row?.errorMessage).toBeUndefined();
+});

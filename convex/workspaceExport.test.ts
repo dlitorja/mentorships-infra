@@ -873,3 +873,46 @@ test("a cancel is terminal even when the row still carries an earlier task error
   const after = await t.run(async (ctx) => ctx.db.get(exportId));
   expect(after?.status).toBe("failed");
 });
+
+test("a retry clears the stale errorMessage from the previous attempt", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "failed",
+      errorMessage: "Trigger.dev request failed: 503",
+    })
+  );
+
+  const processing = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "processing" }),
+  });
+  expect(processing.status).toBe(200);
+
+  const afterProcessing = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(afterProcessing?.status).toBe("processing");
+  expect(afterProcessing?.errorMessage).toBeUndefined();
+
+  const completed = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({
+      exportId,
+      status: "completed",
+      downloadUrl: "https://b2.example.com/export.zip",
+    }),
+  });
+  expect(completed.status).toBe(200);
+
+  const afterCompleted = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(afterCompleted?.status).toBe("completed");
+  expect(afterCompleted?.errorMessage).toBeUndefined();
+});

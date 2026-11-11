@@ -70,7 +70,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [failedUploads, setFailedUploads] = useState<FailedUpload[]>([]);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
   const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
@@ -114,20 +113,33 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
 
+  // A completed ZIP stays downloadable across reloads/tab switches —
+  // not just in the session that created it. Signed URLs expire after
+  // 7 days, after which the button falls back to "Export ZIP".
+  const exportExpired =
+    latestExport?.status === 'completed' &&
+    typeof latestExport.expiresAt === 'number' &&
+    latestExport.expiresAt <= Date.now();
+  const downloadUrl =
+    latestExport?.status === 'completed' && latestExport.downloadUrl && !exportExpired
+      ? latestExport.downloadUrl
+      : null;
+
   useEffect(() => {
-    if (latestExport?._id === lastExportAttemptId && latestExport.status === 'completed' && latestExport.downloadUrl) {
-      setDownloadUrl(latestExport.downloadUrl);
-      if (!hasShownExportCompleteToast) {
-        toast.success('Your export is ready! Click to download.');
-        setHasShownExportCompleteToast(true);
-      }
+    if (
+      latestExport?._id === lastExportAttemptId &&
+      latestExport.status === 'completed' &&
+      latestExport.downloadUrl &&
+      !hasShownExportCompleteToast
+    ) {
+      toast.success('Your export is ready! Click to download.');
+      setHasShownExportCompleteToast(true);
     }
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
   const handleExport = async (imageIds?: Id<'workspaceImages'>[]): Promise<void> => {
     if (createExport.isPending || isPending || isProcessing) return;
     setLastExportAttemptId(null);
-    setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
     const toastId = toast.loading('Creating export...');
 
