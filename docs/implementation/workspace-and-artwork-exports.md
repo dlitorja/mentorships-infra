@@ -79,9 +79,14 @@ the workspace bucket.
 
 The tab exposes a single ZIP control: it reads **Export ZIP** until an
 up-to-date archive exists, then **Download ZIP**. It goes back to
-**Export ZIP** when the link expires or when an image newer than the
-archive is uploaded (`getLatestWorkspaceImageTime`), so a saved ZIP is
-never offered as if it covered content it predates.
+**Export ZIP** when the link expires or when the visible image set
+changed after the archive was built (`getWorkspaceImageSetUpdatedAt`
+covers uploads and soft deletions), so a saved ZIP is never offered as
+if it covered content it predates or omits.
+
+"Export selected" is a separate context: those rows carry
+`selection: true`, are excluded from the header control, and surface
+their own **Download selected ZIP** action in the selection bar.
 
 Filenames are sanitized, de-duplicated (`sketch.png`, `sketch-2.png`),
 and their extension comes from the stored content type — previously B2

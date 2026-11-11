@@ -782,15 +782,14 @@ export function useWorkspaceExports(
 }
 
 /**
- * Creation time of the newest non-deleted image in a workspace, or
- * `null` when there are none. Used by the Images tab to tell whether
- * the last completed ZIP predates an upload (in which case the archive
- * is stale and the tab offers Export ZIP again rather than a download
- * that silently omits the new image).
+ * The most recent change to a workspace's visible image set (newest
+ * upload or newest soft-deletion), or `null` when it has no images.
+ * Used by the Images tab to tell whether its last completed ZIP is
+ * stale; a stale archive is not offered for download.
  */
-export function useLatestWorkspaceImageTime(workspaceId: Id<"workspaces">) {
+export function useWorkspaceImageSetUpdatedAt(workspaceId: Id<"workspaces">) {
   return useQuery({
-    ...convexQuery(api.workspaces.getLatestWorkspaceImageTime, { workspaceId }),
+    ...convexQuery(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId }),
     enabled: !!workspaceId,
   });
 }

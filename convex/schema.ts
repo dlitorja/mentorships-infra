@@ -938,6 +938,11 @@ export default defineSchema({
         v.literal("links")
       )
     ),
+    // True when the export covers only the images the user selected
+    // (`imageIds` was non-empty). The Images tab keeps selection
+    // exports out of its single header control, so a partial archive
+    // cannot replace the "export everything" action.
+    selection: v.optional(v.boolean()),
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed")),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),

@@ -3812,6 +3812,10 @@ export const createWorkspaceExport = mutation({
       userId: user.subject,
       format: args.format,
       scope: args.scope,
+      // Non-empty `imageIds` means "export selected" — the Images tab
+      // must not let that partial archive stand in for its full export.
+      selection:
+        args.imageIds && args.imageIds.length > 0 ? true : undefined,
       status: "pending",
     });
 
@@ -3910,28 +3914,46 @@ export const cancelWorkspaceExport = mutation({
 });
 
 /**
- * Creation time of the newest non-deleted image in a workspace (null
- * when there are none). The Images tab uses this to decide whether its
- * last completed ZIP is stale: an archive built before the newest
- * upload would silently omit that image, so the UI offers `Export ZIP`
- * again instead of a download that is missing content.
+ * The most recent change to a workspace's visible image set, as a
+ * timestamp (null when the workspace has no images and none deleted).
+ *
+ * The Images tab uses this to decide whether its last ZIP is stale. It
+ * must consider deletions as well as uploads: removing an image after
+ * an archive was built makes the archive out of date too, and a
+ * creation-time-only check would keep offering a ZIP that still
+ * contains the deleted image.
+ *
+ * Two indexed single-row reads: newest live image by creation, newest
+ * soft-deleted image by `deletedAt`.
  */
-export const getLatestWorkspaceImageTime = query({
+export const getWorkspaceImageSetUpdatedAt = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(v.null(), v.number()),
   handler: async (ctx, args) => {
     const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
     if (!access) return null;
 
-    const latest = await ctx.db
-      .query("workspaceImages")
-      .withIndex("by_workspaceId_and_deletedAt", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
-      )
-      .order("desc")
-      .first();
+    const [latestActive, latestDeleted] = await Promise.all([
+      ctx.db
+        .query("workspaceImages")
+        .withIndex("by_workspaceId_and_deletedAt", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("workspaceImages")
+        .withIndex("by_workspaceId_and_deletedAt", (q) =>
+          q.eq("workspaceId", args.workspaceId).gt("deletedAt", 0)
+        )
+        .order("desc")
+        .first(),
+    ]);
 
-    return latest?._creationTime ?? null;
+    const times = [latestActive?._creationTime, latestDeleted?.deletedAt].filter(
+      (value): value is number => typeof value === "number"
+    );
+    return times.length > 0 ? Math.max(...times) : null;
   },
 });
 

@@ -13,7 +13,7 @@ import {
   useCreateWorkspaceExport,
   useCancelWorkspaceExport,
   useWorkspaceExports,
-  useLatestWorkspaceImageTime,
+  useWorkspaceImageSetUpdatedAt,
   useGenerateWorkspaceUploadUrl,
   useRecordB2FileUpload,
   useBatchWorkspaceImageUrls,
@@ -110,7 +110,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
   // Scoped server-side: this list only contains the Images tab's own
   // ZIP rows (including pre-scope legacy rows).
-  const latestExport = exports?.[0];
+  //
+  // Split selection exports out. "Export selected" produces a partial
+  // archive; it must not replace the header's single full-workspace
+  // control (that was the "two ZIPs" confusion, in reverse).
+  const fullExports = (exports ?? []).filter((item) => !item.selection);
+  const latestSelectionExport = (exports ?? []).find((item) => item.selection);
+  const latestExport = fullExports[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
 
@@ -124,7 +130,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   // computing `Date.now()` in render alone would keep showing an
   // expired link until some other state changed.
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const { data: latestImageAt } = useLatestWorkspaceImageTime(workspaceId);
+  const { data: imageSetUpdatedAt } = useWorkspaceImageSetUpdatedAt(workspaceId);
   const latestExportExpiresAt =
     latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
 
@@ -140,16 +146,31 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     latestExport?.status === 'completed' &&
     typeof latestExportExpiresAt === 'number' &&
     latestExportExpiresAt <= nowMs;
+  // Uploads AND deletions bump `imageSetUpdatedAt`; either makes an
+  // existing archive out of date.
   const exportStale =
     latestExport?.status === 'completed' &&
-    typeof latestImageAt === 'number' &&
-    latestExport._creationTime < latestImageAt;
+    typeof imageSetUpdatedAt === 'number' &&
+    latestExport._creationTime < imageSetUpdatedAt;
   const downloadUrl =
     latestExport?.status === 'completed' &&
     latestExport.downloadUrl &&
     !exportExpired &&
     !exportStale
       ? latestExport.downloadUrl
+      : null;
+
+  // Selection exports get their own download affordance in the
+  // selection bar instead of the header.
+  const selectionExportExpired =
+    latestSelectionExport?.status === 'completed' &&
+    typeof latestSelectionExport.expiresAt === 'number' &&
+    latestSelectionExport.expiresAt <= nowMs;
+  const selectionDownloadUrl =
+    latestSelectionExport?.status === 'completed' &&
+    latestSelectionExport.downloadUrl &&
+    !selectionExportExpired
+      ? latestSelectionExport.downloadUrl
       : null;
 
   useEffect(() => {
@@ -1017,6 +1038,23 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               >
                 Clear
               </Button>
+              {latestSelectionExport?.status === 'failed' &&
+                latestSelectionExport.errorMessage && (
+                  <span
+                    className="max-w-[14rem] truncate text-xs text-destructive"
+                    title={latestSelectionExport.errorMessage}
+                  >
+                    Selected export failed
+                  </span>
+                )}
+              {selectionDownloadUrl && (
+                <Button variant="default" size="sm" asChild>
+                  <a href={selectionDownloadUrl} download>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download selected ZIP
+                  </a>
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="sm"

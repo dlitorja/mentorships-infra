@@ -952,11 +952,17 @@ test("HTTP /workspace/export/data with scope=images excludes notes", async () =>
   expect(body.images.length).toBe(1);
 });
 
-test("getLatestWorkspaceImageTime returns the newest image time for participants only", async () => {
+test("getWorkspaceImageSetUpdatedAt reflects uploads and deletions, participants only", async () => {
   const t = convexTest(schema, modules);
   const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
 
-  const older = await t.run(async (ctx) =>
+  // No images yet.
+  const student = t.withIdentity({ subject: studentUserId });
+  expect(
+    await student.query(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId })
+  ).toBeNull();
+
+  const activeId = await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId: workspaceId as any,
       imageUrl: "",
@@ -964,28 +970,70 @@ test("getLatestWorkspaceImageTime returns the newest image time for participants
       createdBy: studentUserId,
     })
   );
-  // Deleting the newest row must not count toward staleness.
+  const activeRow = await t.run(async (ctx) => ctx.db.get(activeId));
+  expect(
+    await student.query(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId })
+  ).toBe(activeRow?._creationTime);
+
+  // A soft deletion is also a change to the visible set: an archive
+  // built before it still contains the deleted image.
+  const deletedAt = Date.now() + 1_000;
   await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId: workspaceId as any,
       imageUrl: "",
-      b2Key: "2026-01-02/workspaces/ws/file-new/new.png",
+      b2Key: "2026-01-02/workspaces/ws/file-gone/gone.png",
       createdBy: studentUserId,
-      deletedAt: Date.now(),
+      deletedAt,
+    })
+  );
+  expect(
+    await student.query(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId })
+  ).toBe(deletedAt);
+
+  const stranger = t.withIdentity({ subject: "user_stranger_image_time" });
+  expect(
+    await stranger.query(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId })
+  ).toBeNull();
+});
+
+test("createWorkspaceExport marks a selected-images export as a selection", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const imageId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: studentUserId,
     })
   );
 
   const student = t.withIdentity({ subject: studentUserId });
-  const latest = await student.query(api.workspaces.getLatestWorkspaceImageTime, {
-    workspaceId,
-  });
-  expect(latest).toBeTypeOf("number");
+  const { exportId: selectionExportId } = await student.mutation(
+    api.workspaces.createWorkspaceExport,
+    {
+      workspaceId,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      imageIds: [imageId],
+    }
+  );
+  const { exportId: fullExportId } = await student.mutation(
+    api.workspaces.createWorkspaceExport,
+    {
+      workspaceId,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+    }
+  );
 
-  const olderRow = await t.run(async (ctx) => ctx.db.get(older));
-  expect(latest).toBe(olderRow?._creationTime);
-
-  const stranger = t.withIdentity({ subject: "user_stranger_image_time" });
-  expect(
-    await stranger.query(api.workspaces.getLatestWorkspaceImageTime, { workspaceId })
-  ).toBeNull();
+  const selection = await t.run(async (ctx) => ctx.db.get(selectionExportId));
+  const full = await t.run(async (ctx) => ctx.db.get(fullExportId));
+  expect(selection?.selection).toBe(true);
+  expect(full?.selection).toBeUndefined();
 });
