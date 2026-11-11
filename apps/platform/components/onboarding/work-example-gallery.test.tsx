@@ -83,9 +83,25 @@ describe("WorkExampleGallery", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(dialog.textContent).toContain("sketch-one.png");
+
     // Radix marks the rest of the app aria-hidden, so the lightbox
-    // image is the only accessible one.
-    expect(within(dialog).getAllByRole("img")).toHaveLength(1);
+    // image is the only accessible one. The layout contract that keeps
+    // it inside the viewport: the content is an overflow-hidden flex
+    // column, the viewer row can shrink (`min-h-0 flex-1`), and the
+    // image uses `fill` inside a `relative` wrapper with
+    // `object-contain`. jsdom has no layout, so assert the structure
+    // rather than a computed size — the previous broken version passed
+    // an object-contain check while still rendering at intrinsic size.
+    const images = within(dialog).getAllByRole("img");
+    expect(images).toHaveLength(1);
+    expect(images[0].className).toContain("object-contain");
+    expect(images[0].parentElement?.className).toContain("relative");
+
+    const viewer = dialog.querySelector(".min-h-0.flex-1");
+    expect(viewer).not.toBeNull();
+    expect(viewer?.className).toContain("overflow-hidden");
+    expect(viewer?.contains(images[0])).toBe(true);
+    expect(dialog.className).toContain("overflow-hidden");
   });
 
   it("mints an attachment URL before saving a single image", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import {
   ChevronLeft,
   ChevronRight,
@@ -168,9 +169,6 @@ export function WorkExampleGallery({
         setFailedIds((prev) => new Set([...prev, ...nextFailed]));
       }
     })();
-    // `ids` is derived from `pendingKey`; listing it directly would
-    // re-run on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingKey, onboardingId]);
 
   const active = activeIndex !== null ? examples[activeIndex] : null;
@@ -413,7 +411,7 @@ export function WorkExampleGallery({
           if (!open) closeLightbox();
         }}
       >
-        <DialogContent className="h-screen w-screen max-h-screen max-w-[100vw] gap-0 rounded-none border-none bg-black/95 p-0 [&>button]:hidden">
+        <DialogContent className="flex h-[100dvh] w-screen max-h-[100dvh] max-w-[100vw] flex-col gap-0 overflow-hidden rounded-none border-none bg-black/95 p-0 [&>button]:hidden">
           <DialogTitle className="sr-only">
             {active ? `${active.fileName} preview` : "Artwork preview"}
           </DialogTitle>
@@ -422,8 +420,8 @@ export function WorkExampleGallery({
             between images.
           </DialogDescription>
           {active && (
-            <div className="flex h-full w-full flex-col p-4">
-              <div className="flex items-center justify-between gap-3 pb-3 text-white">
+            <div className="flex h-full min-h-0 w-full flex-col p-4">
+              <div className="flex shrink-0 items-center justify-between gap-3 pb-3 text-white">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{active.fileName}</p>
                   {formatBytes(active.size) && (
@@ -458,7 +456,16 @@ export function WorkExampleGallery({
                 </div>
               </div>
 
-              <div className="relative flex flex-1 items-center justify-center">
+              {/*
+                `min-h-0` on the flex child is required: flex items
+                default to `min-height: auto`, which lets a tall image
+                push this row past the viewport instead of shrinking.
+                The image itself uses `fill` + `object-contain` so it
+                is always scaled to the remaining space (the previous
+                `max-h-full` resolved against an auto-sized grid row
+                and did nothing).
+              */}
+              <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
                 {examples.length > 1 && (
                   <Button
                     type="button"
@@ -473,12 +480,16 @@ export function WorkExampleGallery({
                   </Button>
                 )}
                 {activeUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={activeUrl}
-                    alt={active.fileName}
-                    className="max-h-full max-w-full object-contain"
-                  />
+                  <div className="relative h-full w-full">
+                    <Image
+                      src={activeUrl}
+                      alt={active.fileName}
+                      fill
+                      unoptimized
+                      sizes="100vw"
+                      className="object-contain"
+                    />
+                  </div>
                 ) : (
                   <Loader2 className="h-8 w-8 animate-spin text-white/70" />
                 )}
