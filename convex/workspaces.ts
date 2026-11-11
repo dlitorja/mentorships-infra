@@ -6,6 +6,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 import { getWorkspaceImageSetUpdatedAt as getWorkspaceImageSetUpdatedAtFor } from "./lib/workspaceImageSet";
+import { getWorkspaceLinkSetUpdatedAt as getWorkspaceLinkSetUpdatedAtFor } from "./lib/workspaceLinkSet";
 import { writeAuditLog } from "./auditLog";
 
 import {
@@ -3770,6 +3771,10 @@ export const createWorkspaceExport = mutation({
       )
     ),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
+    // Links-tab equivalent of `imageIds`: export only the selected
+    // links. Also marks the row `selection: true` so the tab's header
+    // control stays "export everything".
+    linkIds: v.optional(v.array(v.id("workspaceLinks"))),
   },
   returns: v.object({
     exportId: v.id("workspaceExports"),
@@ -3813,10 +3818,20 @@ export const createWorkspaceExport = mutation({
       userId: user.subject,
       format: args.format,
       scope: args.scope,
-      // Non-empty `imageIds` means "export selected" — the Images tab
-      // must not let that partial archive stand in for its full export.
+      // Non-empty `imageIds`/`linkIds` means "export selected" — the
+      // tab must not let that partial archive stand in for its full
+      // export.
       selection:
-        args.imageIds && args.imageIds.length > 0 ? true : undefined,
+        (args.imageIds && args.imageIds.length > 0) ||
+        (args.linkIds && args.linkIds.length > 0)
+          ? true
+          : undefined,
+      selectionIds:
+        args.imageIds && args.imageIds.length > 0
+          ? args.imageIds.map(String)
+          : args.linkIds && args.linkIds.length > 0
+            ? args.linkIds.map(String)
+            : undefined,
       status: "pending",
     });
 
@@ -3865,6 +3880,7 @@ export const createWorkspaceExport = mutation({
       taskName,
       scope: args.scope,
       imageIds: args.imageIds,
+      linkIds: args.linkIds,
     });
 
     return { exportId };
@@ -3938,6 +3954,22 @@ export const getWorkspaceImageSetUpdatedAt = query({
 });
 
 /**
+ * Most recent change to a workspace's visible link set (uploads or
+ * soft deletions). The Links tab uses it the same way the Images tab
+ * uses `getWorkspaceImageSetUpdatedAt`: the single CSV control only
+ * offers a download while the archive is current.
+ */
+export const getWorkspaceLinkSetUpdatedAt = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.number()),
+  handler: async (ctx, args) => {
+    const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!access) return null;
+    return await getWorkspaceLinkSetUpdatedAtFor(ctx, args.workspaceId);
+  },
+});
+
+/**
  * Returns the 10 most recent exports for a workspace.
  * Returns an empty array for callers who are not active participants.
  *
@@ -3946,6 +3978,12 @@ export const getWorkspaceImageSetUpdatedAt = query({
  * could push a still-valid Images ZIP out of view (and vice versa).
  * Legacy rows created before `scope` existed are returned for the
  * `images` scope, since they are the old full-workspace ZIP.
+ *
+ * Pass `selection` to keep full and selected exports in separate
+ * windows: `false` returns full exports (rows without the flag, for
+ * backwards compatibility), `true` returns selection exports. Without
+ * it a burst of selection exports could hide a still-valid full
+ * archive.
  */
 export const getWorkspaceExports = query({
   args: {
@@ -3957,6 +3995,7 @@ export const getWorkspaceExports = query({
         v.literal("links")
       )
     ),
+    selection: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -3993,15 +4032,32 @@ export const getWorkspaceExports = query({
         ? ["images", "workspace", undefined]
         : [args.scope];
 
+    // `selection: false` means "full exports", which are stored as
+    // `selection: undefined` (the flag is only set for selections).
+    const selectionFilter =
+      args.selection === undefined ? null : args.selection === true ? true : undefined;
+
     const rows: Doc<"workspaceExports">[] = [];
     for (const scope of scopes) {
-      const page = await ctx.db
-        .query("workspaceExports")
-        .withIndex("by_workspaceId_scope", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("scope", scope)
-        )
-        .order("desc")
-        .take(LIMIT);
+      const page =
+        selectionFilter === null
+          ? await ctx.db
+              .query("workspaceExports")
+              .withIndex("by_workspaceId_scope", (q) =>
+                q.eq("workspaceId", args.workspaceId).eq("scope", scope)
+              )
+              .order("desc")
+              .take(LIMIT)
+          : await ctx.db
+              .query("workspaceExports")
+              .withIndex("by_workspaceId_scope_selection", (q) =>
+                q
+                  .eq("workspaceId", args.workspaceId)
+                  .eq("scope", scope)
+                  .eq("selection", selectionFilter)
+              )
+              .order("desc")
+              .take(LIMIT);
       rows.push(...page);
     }
 

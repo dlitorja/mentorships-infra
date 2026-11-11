@@ -96,6 +96,14 @@ never offered before the check has run.
 `selection: true`, are excluded from the header control, and surface
 their own **Download selected ZIP** action in the selection bar.
 
+The Links tab mirrors this exactly: the header's single CSV control
+reads **Export CSV** until a current archive exists, then **Download
+CSV**, and reverts to **Export CSV** when the link set changes
+(`getWorkspaceLinkSetUpdatedAt`, uploads and soft deletions) or the
+signature expires. `linkIds` on the mutation produces a
+`selection: true` row, excluded from the header, with **Export
+selected** / **Download selected CSV** in the selection bar.
+
 Filenames are sanitized, de-duplicated (`sketch.png`, `sketch-2.png`),
 and their extension comes from the stored content type — previously B2
 rows landed in the archive as `image-1.bin` because the query only

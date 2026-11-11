@@ -757,6 +757,8 @@ export interface WorkspaceExport {
   errorMessage?: string;
   /** True when the ZIP covers only the selected images. */
   selection?: boolean;
+  /** Ids the selected archive was built from (images or links). */
+  selectionIds?: string[];
   /**
    * Image-set change timestamp the archive was built from (images
    * scope). The worker writes it after reading the images, so it is
@@ -782,10 +784,15 @@ export interface WorkspaceExport {
  */
 export function useWorkspaceExports(
   workspaceId: Id<"workspaces">,
-  scope?: "workspace" | "images" | "links"
+  scope?: "workspace" | "images" | "links",
+  selection?: boolean
 ) {
   return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId, scope }),
+    ...convexQuery(api.workspaces.getWorkspaceExports, {
+      workspaceId,
+      scope,
+      selection,
+    }),
     enabled: !!workspaceId,
   });
 }
@@ -799,6 +806,18 @@ export function useWorkspaceExports(
 export function useWorkspaceImageSetUpdatedAt(workspaceId: Id<"workspaces">) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId }),
+    enabled: !!workspaceId,
+  });
+}
+
+/**
+ * The most recent change to a workspace's visible link set (newest
+ * link or newest soft-deletion), or `null` when it has none. Used by
+ * the Links tab to tell whether its last completed CSV is stale.
+ */
+export function useWorkspaceLinkSetUpdatedAt(workspaceId: Id<"workspaces">) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId }),
     enabled: !!workspaceId,
   });
 }

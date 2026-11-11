@@ -68,6 +68,7 @@ export const triggerWorkspaceExportTask = internalAction({
       )
     ),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
+    linkIds: v.optional(v.array(v.id("workspaceLinks"))),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -76,6 +77,7 @@ export const triggerWorkspaceExportTask = internalAction({
         workspaceId: args.workspaceId,
         exportId: String(args.exportId),
         imageIds: args.imageIds,
+        linkIds: args.linkIds,
         scope: args.scope,
       });
     } catch (error) {
