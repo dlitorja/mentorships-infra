@@ -967,6 +967,9 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_status", ["status"])
+    // Export housekeeping: lets the prune find completed artifacts whose
+    // signed URL (and object) have expired without scanning every row.
+    .index("by_expiresAt", ["expiresAt"])
     // Lets each workspace tab load its own most-recent export without
     // competing with the other tab's history for the 10-row cap.
     .index("by_workspaceId_scope", ["workspaceId", "scope"])
@@ -1899,5 +1902,6 @@ export default defineSchema({
     fileCount: v.optional(v.number()),
   })
     .index("by_onboardingId", ["onboardingId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_expiresAt", ["expiresAt"]),
 });

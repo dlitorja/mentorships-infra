@@ -2,7 +2,7 @@ import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { uniqueArchiveName } from "@mentorships/storage";
+import { EXPORT_ARTIFACT_TTL_MS, uniqueArchiveName } from "@mentorships/storage";
 
 /**
  * Onboarding artwork ZIP export.
@@ -44,7 +44,9 @@ const B2_ENDPOINT =
   process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
   `https://s3.${B2_REGION}.backblazeb2.com`;
 
-const EXPORT_URL_EXPIRY_DAYS = 7;
+// Signed URLs expire with the artifact itself — the Trigger schedule
+// `cleanup-export-artifacts` deletes the object after the same window.
+const EXPORT_URL_EXPIRY_SECONDS = Math.floor(EXPORT_ARTIFACT_TTL_MS / 1000);
 
 function getWorkspaceBucket(): string {
   if (!WORKSPACE_BUCKET) {
@@ -109,7 +111,7 @@ async function updateExportStatus(
 ) {
   const expiresAt =
     status === "completed"
-      ? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+      ? Date.now() + EXPORT_ARTIFACT_TTL_MS
       : undefined;
 
   return callConvexHttp("/onboarding/artwork-export/update-status", {
@@ -158,7 +160,10 @@ export const processOnboardingArtworkExport = task({
       }
 
       const client = getB2Client();
-      const zipKey = `onboarding/${onboardingId}/exports/${Date.now()}-artwork.zip`;
+      // Dedicated top-level namespace: upload keys embed a student-supplied
+      // fileId under `onboarding/`, so generated archives must not live there
+      // (a student could name a source file "exports" and be swept).
+      const zipKey = `onboarding-exports/${onboardingId}/${Date.now()}-artwork.zip`;
       const safeEmail = sanitizeFilename(exportData.studentEmail.split("@")[0] ?? "student");
       const zipFilename = `${safeEmail}-artwork.zip`;
 
@@ -229,7 +234,7 @@ export const processOnboardingArtworkExport = task({
           Key: zipKey,
           ResponseContentDisposition: `attachment; filename="${zipFilename}"`,
         }),
-        { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+        { expiresIn: EXPORT_URL_EXPIRY_SECONDS }
       );
 
       await updateExportStatus(exportId, "completed", {

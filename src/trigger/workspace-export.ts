@@ -1,5 +1,9 @@
 import { task, logger } from "@trigger.dev/sdk";
-import { generateLinksCsv, uniqueArchiveName } from "@mentorships/storage";
+import {
+  EXPORT_ARTIFACT_TTL_MS,
+  generateLinksCsv,
+  uniqueArchiveName,
+} from "@mentorships/storage";
 import archiver from "archiver";
 import PDFDocument from "pdfkit";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -42,7 +46,9 @@ const B2_ENDPOINT =
   process.env.WORKSPACE_STORAGE_BUCKET_ENDPOINT ||
   `https://s3.${B2_REGION}.backblazeb2.com`;
 
-const EXPORT_URL_EXPIRY_DAYS = 7;
+// Signed URLs expire with the artifact itself — the Trigger schedule
+// `cleanup-export-artifacts` deletes the object after the same window.
+const EXPORT_URL_EXPIRY_SECONDS = Math.floor(EXPORT_ARTIFACT_TTL_MS / 1000);
 
 function getWorkspaceBucket(): string {
   if (!WORKSPACE_BUCKET) {
@@ -159,7 +165,7 @@ async function updateExportStatus(
   sourceUpdatedAt?: number
 ) {
   const expiresAt = status === "completed"
-    ? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+    ? Date.now() + EXPORT_ARTIFACT_TTL_MS
     : undefined;
 
   return callConvexHttp("/workspace/export/update-status", {
@@ -203,7 +209,7 @@ async function uploadZipToB2(
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
-    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+    { expiresIn: EXPORT_URL_EXPIRY_SECONDS }
   );
 }
 
@@ -393,7 +399,7 @@ async function notifyExportReady(
   const built = buildWorkspaceExportReadyEmail({
     workspaceName: owner.workspaceName,
     downloadUrl,
-    expiresAt: expiresAt ?? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+    expiresAt: expiresAt ?? Date.now() + EXPORT_ARTIFACT_TTL_MS,
   });
 
   const result = await sendEmail({
@@ -515,7 +521,7 @@ export const processWorkspaceExport = task({
         exportData.workspaceName,
         `${safeName}-export.zip`
       );
-      const expiresAt = Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+      const expiresAt = Date.now() + EXPORT_ARTIFACT_TTL_MS;
       await updateExportStatus(
         exportId,
         "completed",
@@ -578,7 +584,7 @@ async function uploadPdfToB2(
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
-    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+    { expiresIn: EXPORT_URL_EXPIRY_SECONDS }
   );
 }
 
@@ -610,7 +616,7 @@ async function uploadMarkdownToB2(
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
-    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+    { expiresIn: EXPORT_URL_EXPIRY_SECONDS }
   );
 }
 
@@ -759,7 +765,7 @@ async function uploadCsvToB2(
       Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`,
     }),
-    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+    { expiresIn: EXPORT_URL_EXPIRY_SECONDS }
   );
 }
 

@@ -143,6 +143,20 @@ export const WORKSPACE_B2_URL_TTL_SECONDS = 60 * 60;
 // validation matches server-side rejection (Greptile finding on
 // previous mismatched caps).
 
+/**
+ * How long generated export artifacts (workspace ZIP/CSV, onboarding
+ * artwork ZIP) stay in B2. Mirrors
+ * `packages/storage/src/export-artifacts.ts:EXPORT_ARTIFACT_TTL_MS`
+ * (the Trigger sweep). The signed download URL uses the same window, so
+ * the UI stops offering a link as the object becomes eligible for
+ * deletion.
+ *
+ * DB rows are pruned on the same window: terminal rows older than this
+ * are deleted; a row still `pending`/`processing` after this long is
+ * marked failed (Trigger tasks finish in minutes, so it is abandoned).
+ */
+export const EXPORT_ARTIFACT_TTL_MS = 72 * 60 * 60 * 1000;
+
 /** Max bytes for a single work-example image upload. Matches
  *  MAX_IMAGE_BYTES (8 MB); reuses the existing B2 PUT pipeline. */
 export const MAX_WORK_EXAMPLE_BYTES = 8 * 1024 * 1024;

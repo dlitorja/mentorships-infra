@@ -73,6 +73,16 @@ export {
 } from "./export-csv";
 
 export {
+  EXPORT_ARTIFACT_TTL_HOURS,
+  EXPORT_ARTIFACT_TTL_MS,
+  isExportArtifactKey,
+  selectExpiredExportArtifactVersions,
+  selectExpiredExportArtifacts,
+  type ExportArtifactObject,
+  type ExportArtifactVersion,
+} from "./export-artifacts";
+
+export {
   BULK_DOWNLOAD_JOB_EXPIRY_HOURS,
   MAX_BYTES_PER_CHUNK,
   MAX_FILES_PER_CHUNK,
