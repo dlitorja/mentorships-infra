@@ -119,6 +119,10 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   const latestExport = fullExports[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
+  const isSelectionExportProcessing = latestSelectionExport?.status === 'processing';
+  const isSelectionExportPending = latestSelectionExport?.status === 'pending';
+  const isSelectionExportInFlight =
+    isSelectionExportPending || isSelectionExportProcessing;
 
   // A completed ZIP stays downloadable across reloads/tab switches —
   // not just in the session that created it. It is only offered while
@@ -186,7 +190,15 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
   const handleExport = async (imageIds?: Id<'workspaceImages'>[]): Promise<void> => {
-    if (createExport.isPending || isPending || isProcessing) return;
+    // One export at a time: a second request while any archive is being
+    // built just queues redundant work (and, for selections, duplicates
+    // the progress/cancel affordances in two places).
+    if (
+      createExport.isPending ||
+      isPending ||
+      isProcessing ||
+      isSelectionExportInFlight
+    ) return;
     setLastExportAttemptId(null);
     setHasShownExportCompleteToast(false);
     const toastId = toast.loading('Creating export...');
@@ -722,14 +734,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                   </p>
                 )}
               </div>
-              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending || isSelectionExportInFlight}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Retry image export
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending || isSelectionExportInFlight}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Export ZIP
               </Button>
@@ -1038,34 +1050,61 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               >
                 Clear
               </Button>
-              {latestSelectionExport?.status === 'failed' &&
-                latestSelectionExport.errorMessage && (
-                  <span
-                    className="max-w-[14rem] truncate text-xs text-destructive"
-                    title={latestSelectionExport.errorMessage}
-                  >
-                    Selected export failed
+              {isSelectionExportInFlight ? (
+                <>
+                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    Building selected ZIP…
                   </span>
-                )}
-              {selectionDownloadUrl && (
-                <Button variant="default" size="sm" asChild>
-                  <a href={selectionDownloadUrl} download>
-                    <Download className="h-4 w-4 mr-2" />
-                    Download selected ZIP
-                  </a>
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      latestSelectionExport &&
+                      cancelExport.mutateAsync({ id: latestSelectionExport._id })
+                    }
+                    disabled={cancelExport.isPending}
+                    aria-label="Cancel selected export"
+                  >
+                    {cancelExport.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4" />
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {latestSelectionExport?.status === 'failed' &&
+                    latestSelectionExport.errorMessage && (
+                      <span
+                        className="max-w-[14rem] truncate text-xs text-destructive"
+                        title={latestSelectionExport.errorMessage}
+                      >
+                        Selected export failed
+                      </span>
+                    )}
+                  {selectionDownloadUrl && (
+                    <Button variant="default" size="sm" asChild>
+                      <a href={selectionDownloadUrl} download>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download selected ZIP
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleExport([...selectedImageIds])}
+                    disabled={createExport.isPending || isPending || isProcessing}
+                  >
+                    {createExport.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Export selected
+                  </Button>
+                </>
               )}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleExport([...selectedImageIds])}
-                disabled={createExport.isPending || isPending || isProcessing}
-              >
-                {createExport.isPending && (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                )}
-                Export selected
-              </Button>
               <Button
                 variant="destructive"
                 size="sm"
