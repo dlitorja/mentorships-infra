@@ -122,6 +122,11 @@ returned a signed URL and no filename.
   `title,url,added_by,added_at,shared_in_call` with a UTF-8 BOM (Excel),
   RFC 4180 quoting, and formula-injection protection (cells starting
   with `=`, `+`, `-`, `@`, tab, or CR are prefixed with `'`).
+- `added_by` is a human name resolved by `lib/authorDisplay`: the
+  instructor profile's name for instructor authors, first + last name
+  otherwise, falling back to `Student` / `Instructor` / `Admin`. Clerk
+  ids and email addresses are never written to the CSV — a student can
+  request the export, so the instructor's email must not leak.
 - The CSV is written to `exports/<workspaceId>/<timestamp>-<name>-links.csv`
   and served through a 7-day signed URL.
 

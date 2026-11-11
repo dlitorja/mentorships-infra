@@ -33,7 +33,12 @@ export function csvCell(value: unknown): string {
 export interface LinkCsvRow {
   url: string;
   title?: string;
-  createdBy: string;
+  /**
+   * Human display name of the person who added the link (instructor
+   * profile name for instructors, first + last name otherwise). Clerk
+   * ids and email addresses are deliberately not accepted here.
+   */
+  addedByName: string;
   sessionId?: string;
   createdAt: number;
 }
@@ -49,7 +54,7 @@ export function generateLinksCsv(links: LinkCsvRow[]): string {
   const rows = links.map((link) => [
     csvCell(link.title ?? ""),
     csvCell(link.url),
-    csvCell(link.createdBy),
+    csvCell(link.addedByName),
     csvCell(new Date(link.createdAt).toISOString()),
     csvCell(link.sessionId ? "yes" : "no"),
   ]);

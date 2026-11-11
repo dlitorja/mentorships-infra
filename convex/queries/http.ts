@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { getWorkspaceImageSetUpdatedAt } from "../lib/workspaceImageSet";
 import { getWorkspaceLinkSetUpdatedAt } from "../lib/workspaceLinkSet";
+import { resolveAuthorDisplayNames } from "../lib/authorDisplay";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -177,12 +178,23 @@ export const getWorkspaceExportData = internalQuery({
           : allLinks;
       // Newest first — matches the Links tab ordering.
       links.sort((a, b) => b._creationTime - a._creationTime);
+
+      // Resolve authors to human names (instructor profile name, or the
+      // user's first + last name). Never emit a Clerk id or an email:
+      // the CSV can be produced for a student requester, who must not
+      // see the instructor's email address.
+      const authorNames = await resolveAuthorDisplayNames(
+        ctx,
+        workspace,
+        links.map((link) => ({ userId: link.createdBy }))
+      );
+
       return {
         workspaceName: workspace.name || "Workspace",
         links: links.map((link) => ({
           url: link.url,
           title: link.title,
-          createdBy: link.createdBy,
+          addedByName: authorNames.get(link.createdBy) ?? "Unknown",
           sessionId: link.sessionId,
           createdAt: link._creationTime,
         })),

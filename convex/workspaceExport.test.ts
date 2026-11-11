@@ -1294,3 +1294,59 @@ test("selection exports store their ids and are queried separately from full exp
   expect(selections.length).toBe(10);
   expect(selections.every((row) => row.selection === true)).toBe(true);
 });
+
+test("links export resolves authors to display names, never emails or Clerk ids", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId, instructorUserId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    const student = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", studentUserId))
+      .first();
+    if (student) {
+      await ctx.db.patch(student._id, { firstName: "Sam", lastName: "Student" });
+    }
+  });
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/by-student",
+      title: "Student link",
+      createdBy: studentUserId,
+    });
+    await ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/by-instructor",
+      title: "Instructor link",
+      createdBy: instructorUserId,
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "links" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  const byTitle = new Map(
+    body.links.map((l: { title: string; addedByName: string }) => [
+      l.title,
+      l.addedByName,
+    ])
+  );
+  // Instructor profile name, not their email.
+  expect(byTitle.get("Instructor link")).toBe("Export Instructor");
+  // User first + last name.
+  expect(byTitle.get("Student link")).toBe("Sam Student");
+
+  const serialized = JSON.stringify(body);
+  expect(serialized).not.toContain("instructor-export@example.com");
+  expect(serialized).not.toContain("student-export@example.com");
+  expect(serialized).not.toContain(instructorUserId);
+  expect(serialized).not.toContain(studentUserId);
+});

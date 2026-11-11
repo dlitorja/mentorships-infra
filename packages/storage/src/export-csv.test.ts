@@ -30,12 +30,12 @@ describe("generateLinksCsv", () => {
       {
         url: "https://example.com/a",
         title: "Portfolio",
-        createdBy: "user_123",
+        addedByName: "Dustin Litorja",
         createdAt: Date.UTC(2026, 0, 2),
       },
       {
         url: "https://example.com/b",
-        createdBy: "user_456",
+        addedByName: "Peter Mohrbacher",
         sessionId: "session_1",
         createdAt: Date.UTC(2026, 0, 3),
       },
@@ -45,10 +45,10 @@ describe("generateLinksCsv", () => {
     const lines = csv.slice(1).trimEnd().split("\r\n");
     expect(lines[0]).toBe("title,url,added_by,added_at,shared_in_call");
     expect(lines[1]).toBe(
-      "Portfolio,https://example.com/a,user_123,2026-01-02T00:00:00.000Z,no"
+      "Portfolio,https://example.com/a,Dustin Litorja,2026-01-02T00:00:00.000Z,no"
     );
     expect(lines[2]).toBe(
-      ",https://example.com/b,user_456,2026-01-03T00:00:00.000Z,yes"
+      ",https://example.com/b,Peter Mohrbacher,2026-01-03T00:00:00.000Z,yes"
     );
   });
 

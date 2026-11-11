@@ -121,7 +121,8 @@ async function getExportData(
     links?: Array<{
       url: string;
       title?: string;
-      createdBy: string;
+      /** Display name resolved by Convex (never a Clerk id or email). */
+      addedByName: string;
       sessionId?: string;
       createdAt: number;
     }>;
