@@ -13,14 +13,16 @@ describe("isExportArtifactKey", () => {
   });
 
   it("accepts onboarding export artifacts", () => {
-    expect(isExportArtifactKey("onboarding/ob123/exports/1700000000-artwork.zip")).toBe(
-      true
-    );
+    expect(
+      isExportArtifactKey("onboarding-exports/ob123/1700000000-artwork.zip")
+    ).toBe(true);
   });
 
   it("rejects uploaded artwork and unrelated objects", () => {
-    // Uploads live beside the exports directory and must never be swept.
+    // Uploads embed a student-supplied fileId, so they must never be
+    // swept — even when the id is literally "exports".
     expect(isExportArtifactKey("onboarding/ob123/file-1/sketch.png")).toBe(false);
+    expect(isExportArtifactKey("onboarding/ob123/exports/sketch.png")).toBe(false);
     expect(
       isExportArtifactKey("2026-01-01/workspaces/ws123/file-1/sketch.png")
     ).toBe(false);
@@ -41,8 +43,8 @@ describe("selectExpiredExportArtifacts", () => {
       [
         { key: "exports/ws/old.zip", lastModified: stale },
         { key: "exports/ws/new.zip", lastModified: fresh },
-        { key: "onboarding/ob/exports/old.zip", lastModified: stale },
-        { key: "onboarding/ob/exports/new.zip", lastModified: fresh },
+        { key: "onboarding-exports/ob/old.zip", lastModified: stale },
+        { key: "onboarding-exports/ob/new.zip", lastModified: fresh },
         { key: "onboarding/ob/file/upload.png", lastModified: stale },
       ],
       now
@@ -50,7 +52,7 @@ describe("selectExpiredExportArtifacts", () => {
 
     expect(keys).toEqual([
       "exports/ws/old.zip",
-      "onboarding/ob/exports/old.zip",
+      "onboarding-exports/ob/old.zip",
     ]);
   });
 
@@ -115,6 +117,7 @@ describe("selectExpiredExportArtifactVersions", () => {
       selectExpiredExportArtifactVersions(
         [
           { key: "onboarding/ob/file/u.png", versionId: "v1", lastModified: old },
+          { key: "onboarding/ob/exports/legacy.zip", versionId: "v1", lastModified: old },
           { key: "bulk-downloads/x.zip", versionId: "v1", lastModified: old },
         ],
         now

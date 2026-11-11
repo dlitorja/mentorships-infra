@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
+import { EXPORT_ARTIFACT_TTL_MS } from "./workspaceConstants";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -66,7 +67,7 @@ test("pruneExpiredExportRecords keeps rows newer than the threshold", async () =
   // live rows when its threshold is in the past.
   const result = await t.mutation(
     internal.exportMaintenance.pruneExpiredExportRecords,
-    { olderThan: 0 }
+    { now: 0 }
   );
   expect(result).toEqual({
     workspaceExportsDeleted: 0,
@@ -122,7 +123,7 @@ test("pruneExpiredExportRecords deletes terminal rows and fails abandoned in-fli
   // Treat everything as expired.
   const result = await t.mutation(
     internal.exportMaintenance.pruneExpiredExportRecords,
-    { olderThan: Date.now() + 1_000 }
+    { now: Date.now() + EXPORT_ARTIFACT_TTL_MS + 60_000 }
   );
 
   expect(result).toEqual({
@@ -166,14 +167,14 @@ test("a second pass removes the rows failed by the first pass", async () => {
   );
 
   await t.mutation(internal.exportMaintenance.pruneExpiredExportRecords, {
-    olderThan: Date.now() + 1_000,
+    now: Date.now() + EXPORT_ARTIFACT_TTL_MS + 60_000,
   });
   const afterFirst = await t.run(async (ctx) => ctx.db.get(exportId));
   expect(afterFirst?.status).toBe("failed");
 
   const second = await t.mutation(
     internal.exportMaintenance.pruneExpiredExportRecords,
-    { olderThan: Date.now() + 1_000 }
+    { now: Date.now() + EXPORT_ARTIFACT_TTL_MS + 60_000 }
   );
   expect(second.workspaceExportsDeleted).toBe(1);
 

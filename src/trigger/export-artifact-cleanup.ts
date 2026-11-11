@@ -19,11 +19,14 @@ import {
  *
  * What counts as an export artifact (see
  * `packages/storage/src/export-artifacts.ts`):
- *   - `exports/<workspaceId>/…`      — workspace ZIP / links CSV
- *   - `onboarding/<id>/exports/…`    — artwork ZIP
+ *   - `exports/<workspaceId>/…`         — workspace ZIP / links CSV
+ *   - `onboarding-exports/<id>/…`       — artwork ZIP
  *
- * Uploaded artwork itself (`onboarding/<id>/<fileId>/<name>`) shares the
- * `onboarding/` prefix and is intentionally NOT touched.
+ * Uploaded artwork lives under `onboarding/<id>/<fileId>/<name>`, where
+ * `<fileId>` is student-supplied. Because of that, generated archives
+ * use their own top-level prefix and the sweeper never lists
+ * `onboarding/` at all — a student cannot get their source file swept
+ * by naming its file id "exports".
  *
  * Versioning matters: the workspace bucket has B2 versioning enabled,
  * so a plain `DeleteObject` only adds a delete marker and the bytes keep
@@ -37,7 +40,7 @@ import {
  * Idempotent: a missing version is simply absent from the listing, and
  * delete errors are rethrown so the schedule retries.
  */
-const LIST_PREFIXES = ["exports/", "onboarding/"] as const;
+const LIST_PREFIXES = ["exports/", "onboarding-exports/"] as const;
 const DELETE_BATCH_SIZE = 1000;
 
 const WORKSPACE_BUCKET = process.env.WORKSPACE_STORAGE_BUCKET_NAME;

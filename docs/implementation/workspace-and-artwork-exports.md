@@ -38,7 +38,7 @@ Reviewer flow:
    `POST /onboarding/artwork-export/data` (gated by `CONVEX_HTTP_KEY`),
    streams each object from `WORKSPACE_STORAGE_BUCKET_NAME` into an
    `archiver` ZIP, uploads it to
-   `onboarding/<onboardingId>/exports/<timestamp>-artwork.zip`, and
+   `onboarding-exports/<onboardingId>/<timestamp>-artwork.zip`, and
    reports back through `POST /onboarding/artwork-export/update-status`
    with a 72-hour signed URL.
 5. The gallery subscribes to `onboardingArtworkExports` (live Convex
@@ -143,21 +143,25 @@ Generated exports are disposable, so they are deleted automatically
 after **72 hours**:
 
 - **B2 objects** — the Trigger.dev schedule `cleanup-export-artifacts`
-  (`src/trigger/export-artifact-cleanup.ts`) runs hourly. It lists
-  `exports/` (workspace ZIP/CSV) and `onboarding/` (filtered to
-  `*/exports/*`, so uploaded artwork is never touched) and deletes
-  anything older than 72 hours in batches of 1,000. Delete errors are
-  retried on the next tick; the operation is idempotent.
+  (`src/trigger/export-artifact-cleanup.ts`) runs hourly. It lists two
+  dedicated namespaces — `exports/` (workspace ZIP/CSV) and
+  `onboarding-exports/` (artwork ZIP) — and deletes anything older than
+  72 hours in batches of 1,000. Uploaded artwork (`onboarding/<id>/…`)
+  is never listed: its key embeds a student-supplied `fileId`, so it
+  must stay outside the sweep's reach. Delete errors are retried on the
+  next tick; the operation is idempotent.
   **The bucket has B2 versioning enabled**, so the sweep lists object
   *versions* (and delete markers) and deletes every version of an
   expired key — a plain `DeleteObject` would only add a delete marker
   and leave the bytes billed.
 - **Convex rows** — the hourly cron `cleanup-expired-export-records`
   (`convex/exportMaintenance.ts`) deletes terminal
-  (`completed`/`failed`) rows older than the same window and marks any
-  abandoned `pending`/`processing` row failed ("Export timed out…"), so
-  a lost run does not leave a spinner forever. The next tick deletes
-  the now-terminal row.
+  (`completed`/`failed`) rows once their artifact has expired and marks
+  any abandoned `pending`/`processing` row failed ("Export timed out…"),
+  so a lost run does not leave a spinner forever. The next tick deletes
+  the now-terminal row. Expiry is measured from `expiresAt` (completion +
+  72h, written by the worker), not row creation, so a queued or slow
+  export keeps its full window.
 - **Signed URLs** use the same 72-hour window, so the UI stops offering
   a download as the object becomes eligible for deletion. `expiresAt`
   drives the "Previous ZIP/CSV expired" hint and the rebuild action.

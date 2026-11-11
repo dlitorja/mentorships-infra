@@ -16,20 +16,29 @@ export const EXPORT_ARTIFACT_TTL_MS = EXPORT_ARTIFACT_TTL_HOURS * 60 * 60 * 1000
 /** `exports/<workspaceId>/…` (workspace ZIP/CSV). */
 const WORKSPACE_EXPORT_PREFIX = "exports/";
 
-/** `onboarding/<onboardingId>/exports/…` (artwork ZIP). */
-const ONBOARDING_EXPORT_SEGMENT = "/exports/";
+/**
+ * `onboarding-exports/<onboardingId>/…` (artwork ZIP).
+ *
+ * Deliberately a top-level prefix rather than `onboarding/<id>/exports/`:
+ * upload keys embed a student-supplied `fileId`
+ * (`onboarding/<id>/<fileId>/<name>`), so a student could name a source
+ * artwork file `exports/...` and have the sweep delete their uploads.
+ * Keeping generated archives in their own namespace makes the sweeper
+ * structurally unable to touch uploaded artwork.
+ */
+const ONBOARDING_EXPORT_PREFIX = "onboarding-exports/";
 
 /**
  * True when a B2 key belongs to a generated export artifact.
  *
- * Workspace exports live under a dedicated `exports/` prefix. Onboarding
- * exports share the `onboarding/` prefix with the uploaded artwork
- * itself, so they are identified by the `/exports/` segment — the
- * uploads sit at `onboarding/<id>/<fileId>/<name>`.
+ * Only the two dedicated namespaces match. Nothing under `onboarding/`
+ * (uploaded artwork) is ever an export artifact.
  */
 export function isExportArtifactKey(key: string): boolean {
-  if (key.startsWith(WORKSPACE_EXPORT_PREFIX)) return true;
-  return key.startsWith("onboarding/") && key.includes(ONBOARDING_EXPORT_SEGMENT);
+  return (
+    key.startsWith(WORKSPACE_EXPORT_PREFIX) ||
+    key.startsWith(ONBOARDING_EXPORT_PREFIX)
+  );
 }
 
 export interface ExportArtifactObject {

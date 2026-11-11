@@ -160,7 +160,10 @@ export const processOnboardingArtworkExport = task({
       }
 
       const client = getB2Client();
-      const zipKey = `onboarding/${onboardingId}/exports/${Date.now()}-artwork.zip`;
+      // Dedicated top-level namespace: upload keys embed a student-supplied
+      // fileId under `onboarding/`, so generated archives must not live there
+      // (a student could name a source file "exports" and be swept).
+      const zipKey = `onboarding-exports/${onboardingId}/${Date.now()}-artwork.zip`;
       const safeEmail = sanitizeFilename(exportData.studentEmail.split("@")[0] ?? "student");
       const zipFilename = `${safeEmail}-artwork.zip`;
 
