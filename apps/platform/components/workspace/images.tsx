@@ -27,6 +27,7 @@ import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, 
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateB2Files, createB2ImagePreviews, uploadFileToB2, type B2UploadError } from '@/lib/b2-workspace-upload';
+import { sameIdSet } from '@/lib/workspace-export-selection';
 import { WORKSPACE_IMAGE_CAPS, PER_UPLOAD_CAP } from '@/lib/workspace-constants';
 
 
@@ -89,7 +90,15 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     imagesStatus === 'CanLoadMore' || imagesStatus === 'LoadingMore';
   const isLoadingMoreImages = imagesStatus === 'LoadingMore';
   const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspace(workspaceId);
-  const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId, "images");
+  const {
+    data: exports,
+    refetch: refetchExports,
+  } = useWorkspaceExports(workspaceId, "images", false);
+  const { data: selectionExports } = useWorkspaceExports(
+    workspaceId,
+    "images",
+    true
+  );
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
@@ -108,15 +117,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     : (role === 'student' ? WORKSPACE_IMAGE_CAPS.student : WORKSPACE_IMAGE_CAPS.instructor);
   const remainingSlots = maxImages - currentCount;
 
-  // Scoped server-side: this list only contains the Images tab's own
-  // ZIP rows (including pre-scope legacy rows).
-  //
-  // Split selection exports out. "Export selected" produces a partial
-  // archive; it must not replace the header's single full-workspace
-  // control (that was the "two ZIPs" confusion, in reverse).
-  const fullExports = (exports ?? []).filter((item) => !item.selection);
-  const latestSelectionExport = (exports ?? []).find((item) => item.selection);
-  const latestExport = fullExports[0];
+  // The header list is full exports only, and the selection bar list is
+  // selection exports only — separate windows so neither can crowd out
+  // the other's most recent row.
+  const latestSelectionExport = selectionExports?.[0];
+  const latestExport = exports?.[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
   const isSelectionExportProcessing = latestSelectionExport?.status === 'processing';
@@ -201,10 +206,16 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     latestSelectionExport?.status === 'completed' &&
     typeof latestSelectionExport.expiresAt === 'number' &&
     latestSelectionExport.expiresAt <= nowMs;
+  // Only offer the selected archive while the checkboxes still describe
+  // the same set it was built from.
+  const selectionMatchesCurrent =
+    latestSelectionExport !== undefined &&
+    sameIdSet(latestSelectionExport.selectionIds, selectedImageIds);
   const selectionDownloadUrl =
     latestSelectionExport?.status === 'completed' &&
     latestSelectionExport.downloadUrl &&
-    !selectionExportExpired
+    !selectionExportExpired &&
+    selectionMatchesCurrent
       ? latestSelectionExport.downloadUrl
       : null;
 
@@ -1117,7 +1128,22 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                     )}
                   {selectionDownloadUrl && (
                     <Button variant="default" size="sm" asChild>
-                      <a href={selectionDownloadUrl} download>
+                      <a
+                        href={selectionDownloadUrl}
+                        download
+                        onClick={(event) => {
+                          if (
+                            latestSelectionExport?.expiresAt &&
+                            latestSelectionExport.expiresAt <= Date.now()
+                          ) {
+                            event.preventDefault();
+                            setNowMs(Date.now());
+                            toast.error(
+                              'That selected ZIP expired. Export the selection again.'
+                            );
+                          }
+                        }}
+                      >
                         <Download className="h-4 w-4 mr-2" />
                         Download selected ZIP
                       </a>

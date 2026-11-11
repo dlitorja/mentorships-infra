@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
+import { sameIdSet } from '@/lib/workspace-export-selection';
 import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText, Download, X } from 'lucide-react';
 
 interface Link {
@@ -122,15 +123,15 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
   // (never Convex storage). Mirrors the Images tab: one header control
   // for "all links", plus a selection-scoped control in the selection
   // bar.
-  const { data: exports } = useWorkspaceExports(workspaceId, "links");
+  const { data: exports } = useWorkspaceExports(workspaceId, "links", false);
+  const { data: selectionExports } = useWorkspaceExports(workspaceId, "links", true);
   const createExport = useCreateWorkspaceExport();
   const cancelExport = useCancelWorkspaceExport();
   const { data: linkSetUpdatedAt, isSuccess: linkSetKnown } =
     useWorkspaceLinkSetUpdatedAt(workspaceId);
 
-  const fullExports = (exports ?? []).filter((item) => !item.selection);
-  const latestSelectionExport = (exports ?? []).find((item) => item.selection);
-  const latestExport = fullExports[0];
+  const latestSelectionExport = selectionExports?.[0];
+  const latestExport = exports?.[0];
   const isExportProcessing = latestExport?.status === 'processing';
   const isExportPending = latestExport?.status === 'pending';
   const isSelectionProcessing = latestSelectionExport?.status === 'processing';
@@ -191,10 +192,16 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
     latestSelectionExport?.status === 'completed' &&
     typeof latestSelectionExpiresAt === 'number' &&
     latestSelectionExpiresAt <= nowMs;
+  // Only offer the selected CSV while the checkboxes still describe
+  // the same set it was built from.
+  const selectionMatchesCurrent =
+    latestSelectionExport !== undefined &&
+    sameIdSet(latestSelectionExport.selectionIds, selectedLinkIds);
   const selectionDownloadUrl =
     latestSelectionExport?.status === 'completed' &&
     latestSelectionExport.downloadUrl &&
-    !selectionExportExpired
+    !selectionExportExpired &&
+    selectionMatchesCurrent
       ? latestSelectionExport.downloadUrl
       : null;
 
@@ -906,7 +913,22 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
                         )}
                       {selectionDownloadUrl && (
                         <Button variant="default" size="sm" asChild>
-                          <a href={selectionDownloadUrl} download>
+                          <a
+                            href={selectionDownloadUrl}
+                            download
+                            onClick={(event) => {
+                              if (
+                                latestSelectionExport?.expiresAt &&
+                                latestSelectionExport.expiresAt <= Date.now()
+                              ) {
+                                event.preventDefault();
+                                setNowMs(Date.now());
+                                toast.error(
+                                  'That selected CSV expired. Export the selection again.'
+                                );
+                              }
+                            }}
+                          >
                             <Download className="h-4 w-4 mr-2" />
                             Download selected CSV
                           </a>

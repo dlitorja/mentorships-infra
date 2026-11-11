@@ -938,11 +938,15 @@ export default defineSchema({
         v.literal("links")
       )
     ),
-    // True when the export covers only the images the user selected
-    // (`imageIds` was non-empty). The Images tab keeps selection
-    // exports out of its single header control, so a partial archive
-    // cannot replace the "export everything" action.
+    // True when the export covers only the images/links the user
+    // selected. The tab keeps selection exports out of its single
+    // header control, so a partial archive cannot replace the "export
+    // everything" action.
     selection: v.optional(v.boolean()),
+    // The selected ids the archive was built from (images or links,
+    // depending on `scope`). The selection bar only offers the
+    // download while the current selection still matches this set.
+    selectionIds: v.optional(v.array(v.string())),
     // Source-set change timestamp the archive was actually built from
     // (the Images tab's image set or the Links tab's link set). Written
     // by the worker, not the mutation, because an upload/link can land
@@ -965,7 +969,15 @@ export default defineSchema({
     .index("by_status", ["status"])
     // Lets each workspace tab load its own most-recent export without
     // competing with the other tab's history for the 10-row cap.
-    .index("by_workspaceId_scope", ["workspaceId", "scope"]),
+    .index("by_workspaceId_scope", ["workspaceId", "scope"])
+    // Full vs selected archives are queried separately so ten newer
+    // selection exports cannot hide a still-valid full export (and
+    // vice versa).
+    .index("by_workspaceId_scope_selection", [
+      "workspaceId",
+      "scope",
+      "selection",
+    ]),
 
   workspaceRetentionNotifications: defineTable({
     workspaceId: v.id("workspaces"),

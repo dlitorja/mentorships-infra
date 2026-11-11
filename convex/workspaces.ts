@@ -3826,6 +3826,12 @@ export const createWorkspaceExport = mutation({
         (args.linkIds && args.linkIds.length > 0)
           ? true
           : undefined,
+      selectionIds:
+        args.imageIds && args.imageIds.length > 0
+          ? args.imageIds.map(String)
+          : args.linkIds && args.linkIds.length > 0
+            ? args.linkIds.map(String)
+            : undefined,
       status: "pending",
     });
 
@@ -3972,6 +3978,12 @@ export const getWorkspaceLinkSetUpdatedAt = query({
  * could push a still-valid Images ZIP out of view (and vice versa).
  * Legacy rows created before `scope` existed are returned for the
  * `images` scope, since they are the old full-workspace ZIP.
+ *
+ * Pass `selection` to keep full and selected exports in separate
+ * windows: `false` returns full exports (rows without the flag, for
+ * backwards compatibility), `true` returns selection exports. Without
+ * it a burst of selection exports could hide a still-valid full
+ * archive.
  */
 export const getWorkspaceExports = query({
   args: {
@@ -3983,6 +3995,7 @@ export const getWorkspaceExports = query({
         v.literal("links")
       )
     ),
+    selection: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -4019,15 +4032,32 @@ export const getWorkspaceExports = query({
         ? ["images", "workspace", undefined]
         : [args.scope];
 
+    // `selection: false` means "full exports", which are stored as
+    // `selection: undefined` (the flag is only set for selections).
+    const selectionFilter =
+      args.selection === undefined ? null : args.selection === true ? true : undefined;
+
     const rows: Doc<"workspaceExports">[] = [];
     for (const scope of scopes) {
-      const page = await ctx.db
-        .query("workspaceExports")
-        .withIndex("by_workspaceId_scope", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("scope", scope)
-        )
-        .order("desc")
-        .take(LIMIT);
+      const page =
+        selectionFilter === null
+          ? await ctx.db
+              .query("workspaceExports")
+              .withIndex("by_workspaceId_scope", (q) =>
+                q.eq("workspaceId", args.workspaceId).eq("scope", scope)
+              )
+              .order("desc")
+              .take(LIMIT)
+          : await ctx.db
+              .query("workspaceExports")
+              .withIndex("by_workspaceId_scope_selection", (q) =>
+                q
+                  .eq("workspaceId", args.workspaceId)
+                  .eq("scope", scope)
+                  .eq("selection", selectionFilter)
+              )
+              .order("desc")
+              .take(LIMIT);
       rows.push(...page);
     }
 
