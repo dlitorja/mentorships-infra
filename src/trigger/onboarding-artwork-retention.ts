@@ -51,6 +51,8 @@ interface ExpiredWorkExample {
   onboardingId: string;
   b2Key: string;
   uploadedAt: number;
+  /** Another newer live row points at the same key (legacy collision). */
+  sharedWithNewerLive: boolean;
 }
 
 function getWorkspaceBucket(): string {
@@ -185,6 +187,12 @@ export const cleanupExpiredOnboardingArtwork = schedules.task({
 
       const deletedIds: string[] = [];
       for (const row of rows) {
+        // Legacy shared key: retire the row but keep the object for the
+        // newer upload that still points at it.
+        if (row.sharedWithNewerLive) {
+          deletedIds.push(row._id);
+          continue;
+        }
         try {
           deletedVersions += await deleteObjectVersions(client, bucket, row.b2Key);
           deletedIds.push(row._id);

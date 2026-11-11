@@ -168,14 +168,18 @@ test("skips an expired row whose object is shared with a newer live upload", asy
     now: NOW,
     limit: 10,
   });
-  expect(rows).toEqual([]);
+  // The expired row is returned so it can be retired, but flagged so the
+  // worker keeps the object for the newer upload.
+  expect(rows.length).toBe(1);
+  expect(rows[0].sharedWithNewerLive).toBe(true);
 
   // Once the newer row also ages past the window, the shared object is
-  // eligible and both rows are returned.
+  // eligible for deletion and neither row is flagged.
   const later = await t.query(
     internal.onboardingWorkExamples.listExpiredWorkExamples,
     { now: NOW + ONBOARDING_WORK_EXAMPLE_RETENTION_MS, limit: 10 }
   );
   expect(later.length).toBe(2);
   expect(later.some((row) => row._id === newer)).toBe(true);
+  expect(later.every((row) => row.sharedWithNewerLive === false)).toBe(true);
 });

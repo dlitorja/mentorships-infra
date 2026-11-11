@@ -578,6 +578,10 @@ export const listExpiredWorkExamples = internalQuery({
       onboardingId: v.id("adminOnboardings"),
       b2Key: v.string(),
       uploadedAt: v.number(),
+      // True when a newer live row points at the same key (legacy
+      // client-supplied fileId collision). The row is still retired,
+      // but its object must be kept for the newer upload.
+      sharedWithNewerLive: v.boolean(),
     })
   ),
   handler: async (ctx, args) => {
@@ -588,6 +592,7 @@ export const listExpiredWorkExamples = internalQuery({
       onboardingId: Id<"adminOnboardings">;
       b2Key: string;
       uploadedAt: number;
+      sharedWithNewerLive: boolean;
     }> = [];
 
     // Include `deleted` rows: cancellation only hides the row, so the
@@ -607,10 +612,10 @@ export const listExpiredWorkExamples = internalQuery({
         .take(limit);
       for (const row of rows) {
         // Legacy safety: a client-supplied fileId could make two rows
-        // share a b2Key. Never delete an object that a newer live row
-        // still points at; the shared key is cleaned when that row
-        // expires too. New uploads use server-generated ids, so this
-        // only applies to pre-existing rows.
+        // share a b2Key. Return the row so it is still retired, but flag
+        // it so the worker keeps the shared object for the newer upload.
+        // Flagging (instead of skipping) prevents a run of shared keys
+        // from hiding unrelated expired rows behind them.
         const siblings = await ctx.db
           .query("onboardingWorkExamples")
           .withIndex("by_onboardingId_b2Key", (q) =>
@@ -623,13 +628,13 @@ export const listExpiredWorkExamples = internalQuery({
             sibling.status !== "deleted" &&
             sibling.uploadedAt >= cutoff
         );
-        if (sharedWithNewerLive) continue;
 
         expired.push({
           _id: row._id,
           onboardingId: row.onboardingId,
           b2Key: row.b2Key,
           uploadedAt: row.uploadedAt,
+          sharedWithNewerLive,
         });
       }
     }

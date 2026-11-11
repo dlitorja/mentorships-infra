@@ -195,9 +195,11 @@ B2 object is removed.
   re-enter the scan.
 - Upload keys use a **server-generated** `fileId`
   (`convex/onboardingWorkExamplesActions.ts`) so two uploads can never
-  share a `b2Key`. For legacy rows that still collide, the query skips
-  a key while any newer live row points at it, so the sweep cannot
-  delete a fresh upload along with an expired one.
+  share a `b2Key`. For legacy rows that still collide, the expired row
+  is returned with `sharedWithNewerLive: true`: the row is retired but
+  the worker keeps the object for the newer upload that points at it.
+  Flagging instead of skipping also means a run of shared keys cannot
+  hide unrelated expired rows behind them.
 - Object deletion is idempotent; a failed batch leaves its rows
   unstamped and the next daily run retries.
 - Disclaimer copy (small muted text) is rendered to both audiences:
