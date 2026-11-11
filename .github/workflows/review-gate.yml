@@ -104,18 +104,23 @@ jobs:
           read_state() {
             # Greptile may report as a check run (GitHub App) or as a legacy
             # commit status. Return "<kind>:<state>" for the newest record.
+            # `empty` on no match keeps the fallback and the absent branch
+            # reachable — `last` alone yields null, which formats into a
+            # bogus "check:null:" string.
             local check status
             check=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" \
               --jq '[.check_runs[] | select(.name == "Greptile Review")]
                     | sort_by(.started_at) | last
-                    | "check:\(.status):\(.conclusion // "")"' 2>/dev/null || true)
+                    | if . == null then empty
+                      else "check:\(.status):\(.conclusion // "")" end' 2>/dev/null || true)
             if [ -n "$check" ]; then
               echo "$check"
               return
             fi
             status=$(gh api "repos/$REPO/commits/$sha/status" \
               --jq '[.statuses[] | select(.context == "Greptile Review")]
-                    | last | "status:\(.state)"' 2>/dev/null || true)
+                    | last
+                    | if . == null then empty else "status:\(.state)" end' 2>/dev/null || true)
             echo "$status"
           }
 
