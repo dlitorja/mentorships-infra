@@ -199,6 +199,16 @@ Greptile dashboard at
    unavailable: Settings → Branches → main → temporarily clear the
    required check on `Greptile Review`, do the merge, restore it.*
 
+> **Known gap: docs-only PRs cannot satisfy this gate.** The
+> `ignorePatterns` that keep markdown out of the reviewed corpus also
+> stop Greptile from posting the `Greptile Review` status at all, so a
+> markdown-only PR sits in `BLOCKED` forever. The `no-greptile` label
+> records the intent but does not produce a passing check. Observed on
+> PR #1043. Every docs-only PR therefore needs the override path above,
+> which is friction that pushes toward merging docs with code changes
+> or temporarily relaxing the requirement for `docs/**`. Worth deciding
+> deliberately rather than discovering each time.
+
 ## Usage-page sanity check
 
 Open the Greptile usage/billing page monthly and look at:
