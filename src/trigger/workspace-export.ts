@@ -94,11 +94,13 @@ async function callConvexHttp(path: string, body: Record<string, unknown>): Prom
 async function getExportData(
   workspaceId: string,
   imageIds?: string[],
-  scope?: "workspace" | "images" | "links"
+  scope?: "workspace" | "images" | "links",
+  linkIds?: string[]
 ) {
   return callConvexHttp("/workspace/export/data", {
     workspaceId,
     imageIds,
+    linkIds,
     scope,
   }) as Promise<{
     workspaceName: string;
@@ -123,10 +125,11 @@ async function getExportData(
       sessionId?: string;
       createdAt: number;
     }>;
-    // Images scope only: the image-set change timestamp the worker saw
-    // when it read the data. Stored on the row so an upload that
+    // Scope-specific: the source-set change timestamp the worker saw
+    // when it read the data. Stored on the row so an upload/link that
     // landed mid-build does not make the finished archive look stale.
     imageSetUpdatedAt?: number | null;
+    linkSetUpdatedAt?: number | null;
   }>;
 }
 
@@ -773,14 +776,14 @@ export const processWorkspaceLinksExport = task({
   retry: {
     maxAttempts: 3,
   },
-  run: async (payload: { workspaceId: string; exportId: string }) => {
-    const { workspaceId, exportId } = payload;
-    logger.info("Starting links workspace export", { workspaceId, exportId });
+  run: async (payload: { workspaceId: string; exportId: string; linkIds?: string[] }) => {
+    const { workspaceId, exportId, linkIds } = payload;
+    logger.info("Starting links workspace export", { workspaceId, exportId, linkCount: linkIds?.length });
 
     try {
       await updateExportStatus(exportId, "processing");
 
-      const exportData = await getExportData(workspaceId, undefined, "links");
+      const exportData = await getExportData(workspaceId, undefined, "links", linkIds);
       const links = exportData.links ?? [];
 
       const csv = generateLinksCsv(links);
@@ -793,7 +796,13 @@ export const processWorkspaceLinksExport = task({
         exportData.workspaceName,
         `${safeName}-links.csv`
       );
-      await updateExportStatus(exportId, "completed", downloadUrl);
+      await updateExportStatus(
+        exportId,
+        "completed",
+        downloadUrl,
+        undefined,
+        exportData.linkSetUpdatedAt ?? undefined
+      );
 
       logger.info("Links export completed", {
         exportId,

@@ -11,6 +11,7 @@ import {
   useCreateWorkspaceExport,
   useCancelWorkspaceExport,
   useWorkspaceExports,
+  useWorkspaceLinkSetUpdatedAt,
   type InstructorResource,
 } from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
@@ -116,22 +117,85 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
   } = useSharedResourcesForActiveSession(workspaceId, activeSessionId);
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
-  // Links-tab export: a CSV of every shared link, built by the
-  // Trigger.dev task `process-workspace-links-export` and stored in
-  // B2 (never Convex storage).
+  // Links-tab export: a CSV of the shared links, built by the
+  // Trigger.dev task `process-workspace-links-export` and stored in B2
+  // (never Convex storage). Mirrors the Images tab: one header control
+  // for "all links", plus a selection-scoped control in the selection
+  // bar.
   const { data: exports } = useWorkspaceExports(workspaceId, "links");
   const createExport = useCreateWorkspaceExport();
   const cancelExport = useCancelWorkspaceExport();
-  const latestExport = exports?.[0];
+  const { data: linkSetUpdatedAt, isSuccess: linkSetKnown } =
+    useWorkspaceLinkSetUpdatedAt(workspaceId);
+
+  const fullExports = (exports ?? []).filter((item) => !item.selection);
+  const latestSelectionExport = (exports ?? []).find((item) => item.selection);
+  const latestExport = fullExports[0];
   const isExportProcessing = latestExport?.status === 'processing';
   const isExportPending = latestExport?.status === 'pending';
+  const isSelectionProcessing = latestSelectionExport?.status === 'processing';
+  const isSelectionPending = latestSelectionExport?.status === 'pending';
+  const isSelectionInFlight = isSelectionPending || isSelectionProcessing;
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const latestExportExpiresAt =
+    latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
+  const latestSelectionExpiresAt =
+    latestSelectionExport?.status === 'completed'
+      ? latestSelectionExport.expiresAt
+      : undefined;
+
+  useEffect(() => {
+    const upcoming = [latestExportExpiresAt, latestSelectionExpiresAt].filter(
+      (value): value is number =>
+        typeof value === 'number' && value > Date.now()
+    );
+    if (upcoming.length === 0) return;
+    const next = Math.min(...upcoming);
+    const timer = setTimeout(() => setNowMs(Date.now()), next - Date.now() + 1_000);
+    return () => clearTimeout(timer);
+  }, [
+    latestExport?._id,
+    latestExport?.status,
+    latestExportExpiresAt,
+    latestSelectionExport?._id,
+    latestSelectionExport?.status,
+    latestSelectionExpiresAt,
+    nowMs,
+  ]);
+
   const linksExportExpired =
     latestExport?.status === 'completed' &&
-    typeof latestExport.expiresAt === 'number' &&
-    latestExport.expiresAt <= Date.now();
+    typeof latestExportExpiresAt === 'number' &&
+    latestExportExpiresAt <= nowMs;
+  // The worker records the link set it built from. Until the freshness
+  // query succeeds, don't offer a download that might be stale.
+  const linksExportAsOf = latestExport
+    ? latestExport.sourceUpdatedAt ?? latestExport._creationTime
+    : undefined;
+  const linksExportStale =
+    latestExport?.status === 'completed' &&
+    (!linkSetKnown ||
+      (typeof linkSetUpdatedAt === 'number' &&
+        typeof linksExportAsOf === 'number' &&
+        linksExportAsOf < linkSetUpdatedAt));
   const linksDownloadUrl =
-    latestExport?.status === 'completed' && latestExport.downloadUrl && !linksExportExpired
+    latestExport?.status === 'completed' &&
+    latestExport.downloadUrl &&
+    !linksExportExpired &&
+    !linksExportStale
       ? latestExport.downloadUrl
+      : null;
+
+  const selectionExportExpired =
+    latestSelectionExport?.status === 'completed' &&
+    typeof latestSelectionExpiresAt === 'number' &&
+    latestSelectionExpiresAt <= nowMs;
+  const selectionDownloadUrl =
+    latestSelectionExport?.status === 'completed' &&
+    latestSelectionExport.downloadUrl &&
+    !selectionExportExpired
+      ? latestSelectionExport.downloadUrl
       : null;
 
   const activeLinks = useMemo<Link[]>(() => (links as Link[] | undefined) ?? [], [links]);
@@ -310,19 +374,30 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
     }
   };
 
-  const handleExportCsv = async (): Promise<void> => {
-    if (createExport.isPending || isExportPending || isExportProcessing) return;
+  const handleExportCsv = async (linkIds?: Id<'workspaceLinks'>[]): Promise<void> => {
+    // One export at a time (full or selection).
+    if (
+      createExport.isPending ||
+      isExportPending ||
+      isExportProcessing ||
+      isSelectionInFlight
+    ) return;
     try {
       const result = await createExport.mutateAsync({
         workspaceId,
         userId: currentUserId,
         format: 'csv',
         scope: 'links',
+        ...(linkIds && linkIds.length > 0 ? { linkIds } : {}),
       });
       if (result.errorMessage) {
         toast.error(result.errorMessage);
       } else {
-        toast.success('Building links CSV — this usually takes a few seconds.');
+        toast.success(
+          linkIds && linkIds.length > 0
+            ? 'Building selected links CSV — this usually takes a few seconds.'
+            : 'Building links CSV — this usually takes a few seconds.'
+        );
       }
     } catch (error) {
       toast.error(
@@ -401,39 +476,25 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
               </Button>
             </>
           ) : linksDownloadUrl ? (
-            <>
-              <Button size="sm" variant="default" asChild>
-                <a
-                  href={linksDownloadUrl}
-                  download
-                  onClick={(event) => {
-                    if (
-                      latestExport?.expiresAt &&
-                      latestExport.expiresAt <= Date.now()
-                    ) {
-                      event.preventDefault();
-                      toast.error('That CSV link expired. Export again to rebuild it.');
-                    }
-                  }}
-                >
-                  <Download className="h-4 w-4 mr-1" />
-                  Download CSV
-                </a>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleExportCsv}
-                disabled={createExport.isPending}
+            <Button size="sm" variant="default" asChild>
+              <a
+                href={linksDownloadUrl}
+                download
+                onClick={(event) => {
+                  if (
+                    latestExport?.expiresAt &&
+                    latestExport.expiresAt <= Date.now()
+                  ) {
+                    event.preventDefault();
+                    setNowMs(Date.now());
+                    toast.error('That CSV link expired. Export again to rebuild it.');
+                  }
+                }}
               >
-                {createExport.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-1" />
-                )}
-                Export again
-              </Button>
-            </>
+                <Download className="h-4 w-4 mr-1" />
+                Download CSV
+              </a>
+            </Button>
           ) : latestExport?.status === 'failed' && latestExport.errorMessage ? (
             <>
               <span
@@ -445,8 +506,8 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
               <Button
                 size="sm"
                 variant="outline"
-                onClick={handleExportCsv}
-                disabled={createExport.isPending || activeLinks.length === 0}
+                onClick={() => handleExportCsv()}
+                disabled={createExport.isPending || isSelectionInFlight || activeLinks.length === 0}
               >
                 {createExport.isPending ? (
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
@@ -457,24 +518,36 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
               </Button>
             </>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleExportCsv}
-              disabled={createExport.isPending || activeLinks.length === 0}
-              title={
-                activeLinks.length === 0
-                  ? 'Add a link first'
-                  : 'Download every shared link as a CSV'
-              }
-            >
-              {createExport.isPending ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-1" />
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleExportCsv()}
+                disabled={createExport.isPending || isSelectionInFlight || activeLinks.length === 0}
+                title={
+                  activeLinks.length === 0
+                    ? 'Add a link first'
+                    : 'Download every shared link as a CSV'
+                }
+              >
+                {createExport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                Export CSV
+              </Button>
+              {linksExportStale && (
+                <span className="text-xs text-muted-foreground">
+                  New links since your last CSV
+                </span>
               )}
-              Export CSV
-            </Button>
+              {!linksExportStale && linksExportExpired && (
+                <span className="text-xs text-muted-foreground">
+                  Previous CSV expired
+                </span>
+              )}
+            </>
           )}
           <Button
             size="sm"
@@ -797,6 +870,65 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
                   >
                     Clear
                   </Button>
+                  {isSelectionInFlight ? (
+                    <>
+                      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        Building selected CSV…
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          latestSelectionExport &&
+                          cancelExport.mutateAsync({ id: latestSelectionExport._id })
+                        }
+                        disabled={cancelExport.isPending}
+                        aria-label="Cancel selected links export"
+                      >
+                        {cancelExport.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {latestSelectionExport?.status === 'failed' &&
+                        latestSelectionExport.errorMessage && (
+                          <span
+                            className="max-w-[14rem] truncate text-xs text-destructive"
+                            title={latestSelectionExport.errorMessage}
+                          >
+                            Selected export failed
+                          </span>
+                        )}
+                      {selectionDownloadUrl && (
+                        <Button variant="default" size="sm" asChild>
+                          <a href={selectionDownloadUrl} download>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download selected CSV
+                          </a>
+                        </Button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleExportCsv([...selectedLinkIds])}
+                        disabled={
+                          createExport.isPending ||
+                          isExportPending ||
+                          isExportProcessing
+                        }
+                      >
+                        {createExport.isPending && (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        )}
+                        Export selected
+                      </Button>
+                    </>
+                  )}
                   <Button
                     variant="destructive"
                     size="sm"

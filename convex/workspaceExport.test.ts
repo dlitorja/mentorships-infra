@@ -1099,3 +1099,122 @@ test("HTTP data records imageSetUpdatedAt and the worker can persist sourceUpdat
   const row = await t.run(async (ctx) => ctx.db.get(exportId));
   expect(row?.sourceUpdatedAt).toBe(deletedAt);
 });
+
+// ---------------------------------------------------------------------------
+// Links selection exports (parity with the Images tab)
+// ---------------------------------------------------------------------------
+
+test("createWorkspaceExport marks a selected-links export as a selection", async () => {
+  const t = convexTest(schema, modules);
+  clearTriggerCredentials();
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const linkId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/one",
+      title: "One",
+      createdBy: studentUserId,
+    })
+  );
+
+  const student = t.withIdentity({ subject: studentUserId });
+  const { exportId: selectedId } = await student.mutation(
+    api.workspaces.createWorkspaceExport,
+    {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "links",
+      linkIds: [linkId],
+    }
+  );
+  const { exportId: fullId } = await student.mutation(
+    api.workspaces.createWorkspaceExport,
+    {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "links",
+    }
+  );
+
+  const selected = await t.run(async (ctx) => ctx.db.get(selectedId));
+  const full = await t.run(async (ctx) => ctx.db.get(fullId));
+  expect(selected?.selection).toBe(true);
+  expect(full?.selection).toBeUndefined();
+});
+
+test("HTTP /workspace/export/data with linkIds exports only the selected links", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const keepId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/keep",
+      title: "Keep",
+      createdBy: studentUserId,
+    })
+  );
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/drop",
+      title: "Drop",
+      createdBy: studentUserId,
+    })
+  );
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "links", linkIds: [keepId] }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  expect(body.links.map((l: { title: string }) => l.title)).toEqual(["Keep"]);
+  expect(body.linkSetUpdatedAt).toBeTypeOf("number");
+});
+
+test("getWorkspaceLinkSetUpdatedAt reflects link changes, participants only", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const student = t.withIdentity({ subject: studentUserId });
+  expect(
+    await student.query(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId })
+  ).toBeNull();
+
+  const linkId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/a",
+      createdBy: studentUserId,
+    })
+  );
+  const linkRow = await t.run(async (ctx) => ctx.db.get(linkId));
+  expect(
+    await student.query(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId })
+  ).toBe(linkRow?._creationTime);
+
+  const deletedAt = Date.now() + 2_000;
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceLinks", {
+      workspaceId: workspaceId as any,
+      url: "https://example.com/gone",
+      createdBy: studentUserId,
+      deletedAt,
+    })
+  );
+  expect(
+    await student.query(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId })
+  ).toBe(deletedAt);
+
+  const stranger = t.withIdentity({ subject: "user_stranger_link_time" });
+  expect(
+    await stranger.query(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId })
+  ).toBeNull();
+});

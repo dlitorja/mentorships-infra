@@ -804,6 +804,18 @@ export function useWorkspaceImageSetUpdatedAt(workspaceId: Id<"workspaces">) {
 }
 
 /**
+ * The most recent change to a workspace's visible link set (newest
+ * link or newest soft-deletion), or `null` when it has none. Used by
+ * the Links tab to tell whether its last completed CSV is stale.
+ */
+export function useWorkspaceLinkSetUpdatedAt(workspaceId: Id<"workspaces">) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getWorkspaceLinkSetUpdatedAt, { workspaceId }),
+    enabled: !!workspaceId,
+  });
+}
+
+/**
  * Mutation hook for creating a workspace export job (ZIP, PDF, or Markdown).
  * Triggers a background task to prepare the export file.
  */

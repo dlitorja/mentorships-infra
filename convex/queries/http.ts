@@ -2,6 +2,7 @@ import { internalQuery, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 import { getWorkspaceImageSetUpdatedAt } from "../lib/workspaceImageSet";
+import { getWorkspaceLinkSetUpdatedAt } from "../lib/workspaceLinkSet";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -140,6 +141,7 @@ export const getWorkspaceExportData = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
+    linkIds: v.optional(v.array(v.id("workspaceLinks"))),
     scope: v.optional(
       v.union(
         v.literal("workspace"),
@@ -149,7 +151,7 @@ export const getWorkspaceExportData = internalQuery({
     ),
   },
   handler: async (ctx, args) => {
-    const { workspaceId, imageIds, scope } = args;
+    const { workspaceId, imageIds, linkIds, scope } = args;
 
     const workspace = await ctx.db.get(workspaceId);
     if (!workspace) {
@@ -157,12 +159,22 @@ export const getWorkspaceExportData = internalQuery({
     }
 
     if (scope === "links") {
-      const links = await ctx.db
+      // Snapshot before reading rows — see the image-set note below.
+      const linkSetUpdatedAt = await getWorkspaceLinkSetUpdatedAt(
+        ctx,
+        workspaceId
+      );
+
+      const allLinks = await ctx.db
         .query("workspaceLinks")
         .withIndex("by_workspaceId_and_deletedAt", (q) =>
           q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
         )
         .collect();
+      const links =
+        linkIds && linkIds.length > 0
+          ? allLinks.filter((link) => linkIds.includes(link._id))
+          : allLinks;
       // Newest first — matches the Links tab ordering.
       links.sort((a, b) => b._creationTime - a._creationTime);
       return {
@@ -174,6 +186,7 @@ export const getWorkspaceExportData = internalQuery({
           sessionId: link.sessionId,
           createdAt: link._creationTime,
         })),
+        linkSetUpdatedAt,
       };
     }
 

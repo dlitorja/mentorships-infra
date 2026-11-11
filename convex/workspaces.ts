@@ -6,6 +6,7 @@ import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
 import { getWorkspaceImageSetUpdatedAt as getWorkspaceImageSetUpdatedAtFor } from "./lib/workspaceImageSet";
+import { getWorkspaceLinkSetUpdatedAt as getWorkspaceLinkSetUpdatedAtFor } from "./lib/workspaceLinkSet";
 import { writeAuditLog } from "./auditLog";
 
 import {
@@ -3770,6 +3771,10 @@ export const createWorkspaceExport = mutation({
       )
     ),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
+    // Links-tab equivalent of `imageIds`: export only the selected
+    // links. Also marks the row `selection: true` so the tab's header
+    // control stays "export everything".
+    linkIds: v.optional(v.array(v.id("workspaceLinks"))),
   },
   returns: v.object({
     exportId: v.id("workspaceExports"),
@@ -3813,10 +3818,14 @@ export const createWorkspaceExport = mutation({
       userId: user.subject,
       format: args.format,
       scope: args.scope,
-      // Non-empty `imageIds` means "export selected" — the Images tab
-      // must not let that partial archive stand in for its full export.
+      // Non-empty `imageIds`/`linkIds` means "export selected" — the
+      // tab must not let that partial archive stand in for its full
+      // export.
       selection:
-        args.imageIds && args.imageIds.length > 0 ? true : undefined,
+        (args.imageIds && args.imageIds.length > 0) ||
+        (args.linkIds && args.linkIds.length > 0)
+          ? true
+          : undefined,
       status: "pending",
     });
 
@@ -3865,6 +3874,7 @@ export const createWorkspaceExport = mutation({
       taskName,
       scope: args.scope,
       imageIds: args.imageIds,
+      linkIds: args.linkIds,
     });
 
     return { exportId };
@@ -3934,6 +3944,22 @@ export const getWorkspaceImageSetUpdatedAt = query({
     const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
     if (!access) return null;
     return await getWorkspaceImageSetUpdatedAtFor(ctx, args.workspaceId);
+  },
+});
+
+/**
+ * Most recent change to a workspace's visible link set (uploads or
+ * soft deletions). The Links tab uses it the same way the Images tab
+ * uses `getWorkspaceImageSetUpdatedAt`: the single CSV control only
+ * offers a download while the archive is current.
+ */
+export const getWorkspaceLinkSetUpdatedAt = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.number()),
+  handler: async (ctx, args) => {
+    const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!access) return null;
+    return await getWorkspaceLinkSetUpdatedAtFor(ctx, args.workspaceId);
   },
 });
 
