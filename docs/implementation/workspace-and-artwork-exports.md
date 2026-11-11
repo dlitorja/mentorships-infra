@@ -77,6 +77,12 @@ The task writes `images/*` for the Images tab (`notes.md` is only added
 for the legacy full-workspace scope) to `exports/<workspaceId>/...` in
 the workspace bucket.
 
+The tab exposes a single ZIP control: it reads **Export ZIP** until an
+up-to-date archive exists, then **Download ZIP**. It goes back to
+**Export ZIP** when the link expires or when an image newer than the
+archive is uploaded (`getLatestWorkspaceImageTime`), so a saved ZIP is
+never offered as if it covered content it predates.
+
 Filenames are sanitized, de-duplicated (`sketch.png`, `sketch-2.png`),
 and their extension comes from the stored content type — previously B2
 rows landed in the archive as `image-1.bin` because the query only

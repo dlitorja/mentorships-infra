@@ -951,3 +951,41 @@ test("HTTP /workspace/export/data with scope=images excludes notes", async () =>
   expect(body.notes).toEqual([]);
   expect(body.images.length).toBe(1);
 });
+
+test("getLatestWorkspaceImageTime returns the newest image time for participants only", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const older = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-old/old.png",
+      createdBy: studentUserId,
+    })
+  );
+  // Deleting the newest row must not count toward staleness.
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-02/workspaces/ws/file-new/new.png",
+      createdBy: studentUserId,
+      deletedAt: Date.now(),
+    })
+  );
+
+  const student = t.withIdentity({ subject: studentUserId });
+  const latest = await student.query(api.workspaces.getLatestWorkspaceImageTime, {
+    workspaceId,
+  });
+  expect(latest).toBeTypeOf("number");
+
+  const olderRow = await t.run(async (ctx) => ctx.db.get(older));
+  expect(latest).toBe(olderRow?._creationTime);
+
+  const stranger = t.withIdentity({ subject: "user_stranger_image_time" });
+  expect(
+    await stranger.query(api.workspaces.getLatestWorkspaceImageTime, { workspaceId })
+  ).toBeNull();
+});

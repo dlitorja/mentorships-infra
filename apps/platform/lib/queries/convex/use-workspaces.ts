@@ -782,6 +782,20 @@ export function useWorkspaceExports(
 }
 
 /**
+ * Creation time of the newest non-deleted image in a workspace, or
+ * `null` when there are none. Used by the Images tab to tell whether
+ * the last completed ZIP predates an upload (in which case the archive
+ * is stale and the tab offers Export ZIP again rather than a download
+ * that silently omits the new image).
+ */
+export function useLatestWorkspaceImageTime(workspaceId: Id<"workspaces">) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getLatestWorkspaceImageTime, { workspaceId }),
+    enabled: !!workspaceId,
+  });
+}
+
+/**
  * Mutation hook for creating a workspace export job (ZIP, PDF, or Markdown).
  * Triggers a background task to prepare the export file.
  */
