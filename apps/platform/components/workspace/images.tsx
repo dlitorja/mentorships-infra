@@ -13,6 +13,7 @@ import {
   useCreateWorkspaceExport,
   useCancelWorkspaceExport,
   useWorkspaceExports,
+  useWorkspaceImageSetUpdatedAt,
   useGenerateWorkspaceUploadUrl,
   useRecordB2FileUpload,
   useBatchWorkspaceImageUrls,
@@ -109,36 +110,102 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
   // Scoped server-side: this list only contains the Images tab's own
   // ZIP rows (including pre-scope legacy rows).
-  const latestExport = exports?.[0];
+  //
+  // Split selection exports out. "Export selected" produces a partial
+  // archive; it must not replace the header's single full-workspace
+  // control (that was the "two ZIPs" confusion, in reverse).
+  const fullExports = (exports ?? []).filter((item) => !item.selection);
+  const latestSelectionExport = (exports ?? []).find((item) => item.selection);
+  const latestExport = fullExports[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
+  const isSelectionExportProcessing = latestSelectionExport?.status === 'processing';
+  const isSelectionExportPending = latestSelectionExport?.status === 'pending';
+  const isSelectionExportInFlight =
+    isSelectionExportPending || isSelectionExportProcessing;
 
   // A completed ZIP stays downloadable across reloads/tab switches —
-  // not just in the session that created it. Signed URLs expire after
-  // 7 days, after which the button falls back to "Export ZIP".
+  // not just in the session that created it. It is only offered while
+  // it still matches the workspace: once a newer image exists, the
+  // archive would silently omit it, so the tab goes back to "Export
+  // ZIP" (one zip control, always current).
   //
   // `nowMs` exists so an idle tab re-renders when the signature lapses;
   // computing `Date.now()` in render alone would keep showing an
   // expired link until some other state changed.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const {
+    data: imageSetUpdatedAt,
+    isSuccess: imageSetKnown,
+  } = useWorkspaceImageSetUpdatedAt(workspaceId);
   const latestExportExpiresAt =
     latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
+  const latestSelectionExpiresAt =
+    latestSelectionExport?.status === 'completed'
+      ? latestSelectionExport.expiresAt
+      : undefined;
 
   useEffect(() => {
-    if (typeof latestExportExpiresAt !== 'number') return;
-    const remaining = latestExportExpiresAt - Date.now();
-    if (remaining <= 0) return;
-    const timer = setTimeout(() => setNowMs(Date.now()), remaining + 1_000);
+    // Re-render when the earliest live signature lapses, whichever
+    // export (full or selection) it belongs to. `nowMs` is a
+    // dependency so the effect re-arms for the next expiry after one
+    // fires.
+    const upcoming = [latestExportExpiresAt, latestSelectionExpiresAt].filter(
+      (value): value is number =>
+        typeof value === 'number' && value > Date.now()
+    );
+    if (upcoming.length === 0) return;
+    const next = Math.min(...upcoming);
+    const timer = setTimeout(() => setNowMs(Date.now()), next - Date.now() + 1_000);
     return () => clearTimeout(timer);
-  }, [latestExport?._id, latestExport?.status, latestExportExpiresAt]);
+  }, [
+    latestExport?._id,
+    latestExport?.status,
+    latestExportExpiresAt,
+    latestSelectionExport?._id,
+    latestSelectionExport?.status,
+    latestSelectionExpiresAt,
+    nowMs,
+  ]);
 
   const exportExpired =
     latestExport?.status === 'completed' &&
     typeof latestExportExpiresAt === 'number' &&
     latestExportExpiresAt <= nowMs;
+  // The archive is exactly as fresh as the image set it was built
+  // from. The worker records that value (`sourceUpdatedAt`) after it
+  // reads the images, so an upload landing mid-build does not make the
+  // finished archive look stale.
+  const exportAsOf = latestExport
+    ? latestExport.sourceUpdatedAt ?? latestExport._creationTime
+    : undefined;
+  // Until the freshness query succeeds we cannot claim the archive is
+  // current — don't offer a download that might be missing images.
+  const exportStale =
+    latestExport?.status === 'completed' &&
+    (!imageSetKnown ||
+      (typeof imageSetUpdatedAt === 'number' &&
+        typeof exportAsOf === 'number' &&
+        exportAsOf < imageSetUpdatedAt));
   const downloadUrl =
-    latestExport?.status === 'completed' && latestExport.downloadUrl && !exportExpired
+    latestExport?.status === 'completed' &&
+    latestExport.downloadUrl &&
+    !exportExpired &&
+    !exportStale
       ? latestExport.downloadUrl
+      : null;
+
+  // Selection exports get their own download affordance in the
+  // selection bar instead of the header.
+  const selectionExportExpired =
+    latestSelectionExport?.status === 'completed' &&
+    typeof latestSelectionExport.expiresAt === 'number' &&
+    latestSelectionExport.expiresAt <= nowMs;
+  const selectionDownloadUrl =
+    latestSelectionExport?.status === 'completed' &&
+    latestSelectionExport.downloadUrl &&
+    !selectionExportExpired
+      ? latestSelectionExport.downloadUrl
       : null;
 
   useEffect(() => {
@@ -154,7 +221,15 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
   const handleExport = async (imageIds?: Id<'workspaceImages'>[]): Promise<void> => {
-    if (createExport.isPending || isPending || isProcessing) return;
+    // One export at a time: a second request while any archive is being
+    // built just queues redundant work (and, for selections, duplicates
+    // the progress/cancel affordances in two places).
+    if (
+      createExport.isPending ||
+      isPending ||
+      isProcessing ||
+      isSelectionExportInFlight
+    ) return;
     setLastExportAttemptId(null);
     setHasShownExportCompleteToast(false);
     const toastId = toast.loading('Creating export...');
@@ -618,44 +693,28 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
         </p>
         <div className="flex items-center gap-2">
           {downloadUrl ? (
-            <>
-              <Button variant="default" asChild>
-                <a
-                  href={downloadUrl}
-                  download
-                  onClick={(event) => {
-                    // A tab left open past `expiresAt` would otherwise
-                    // follow a signature B2 rejects. The timer below
-                    // normally flips the UI first; this is the backstop.
-                    if (
-                      latestExport?.expiresAt &&
-                      latestExport.expiresAt <= Date.now()
-                    ) {
-                      event.preventDefault();
-                      setNowMs(Date.now());
-                      toast.error('That download link expired. Build a new ZIP.');
-                    }
-                  }}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Download ZIP
-                </a>
-              </Button>
-              {/* Keep a fresh-archive path: the old ZIP never reflects
-                  images uploaded after it was built. */}
-              <Button
-                variant="outline"
-                onClick={() => handleExport()}
-                disabled={createExport.isPending || isPending || isProcessing}
+            <Button variant="default" asChild>
+              <a
+                href={downloadUrl}
+                download
+                onClick={(event) => {
+                  // A tab left open past `expiresAt` would otherwise
+                  // follow a signature B2 rejects. The timer below
+                  // normally flips the UI first; this is the backstop.
+                  if (
+                    latestExport?.expiresAt &&
+                    latestExport.expiresAt <= Date.now()
+                  ) {
+                    event.preventDefault();
+                    setNowMs(Date.now());
+                    toast.error('That download link expired. Build a new ZIP.');
+                  }
+                }}
               >
-                {createExport.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                New ZIP
-              </Button>
-            </>
+                <Download className="h-4 w-4 mr-2" />
+                Download ZIP
+              </a>
+            </Button>
           ) : isProcessing ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
@@ -706,17 +765,27 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
                   </p>
                 )}
               </div>
-              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending || isSelectionExportInFlight}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Retry image export
               </Button>
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending}>
+              <Button variant="outline" onClick={() => handleExport()} disabled={createExport.isPending || isSelectionExportInFlight}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Export ZIP
               </Button>
+              {exportStale && (
+                <span className="text-xs text-muted-foreground">
+                  New images since your last ZIP
+                </span>
+              )}
+              {!exportStale && exportExpired && (
+                <span className="text-xs text-muted-foreground">
+                  Previous ZIP expired
+                </span>
+              )}
             </>
           )}
            </div>
@@ -1012,17 +1081,61 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
               >
                 Clear
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleExport([...selectedImageIds])}
-                disabled={createExport.isPending || isPending || isProcessing}
-              >
-                {createExport.isPending && (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                )}
-                Export selected
-              </Button>
+              {isSelectionExportInFlight ? (
+                <>
+                  <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    Building selected ZIP…
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      latestSelectionExport &&
+                      cancelExport.mutateAsync({ id: latestSelectionExport._id })
+                    }
+                    disabled={cancelExport.isPending}
+                    aria-label="Cancel selected export"
+                  >
+                    {cancelExport.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4" />
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {latestSelectionExport?.status === 'failed' &&
+                    latestSelectionExport.errorMessage && (
+                      <span
+                        className="max-w-[14rem] truncate text-xs text-destructive"
+                        title={latestSelectionExport.errorMessage}
+                      >
+                        Selected export failed
+                      </span>
+                    )}
+                  {selectionDownloadUrl && (
+                    <Button variant="default" size="sm" asChild>
+                      <a href={selectionDownloadUrl} download>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download selected ZIP
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleExport([...selectedImageIds])}
+                    disabled={createExport.isPending || isPending || isProcessing}
+                  >
+                    {createExport.isPending && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    Export selected
+                  </Button>
+                </>
+              )}
               <Button
                 variant="destructive"
                 size="sm"

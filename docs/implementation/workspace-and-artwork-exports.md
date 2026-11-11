@@ -77,6 +77,25 @@ The task writes `images/*` for the Images tab (`notes.md` is only added
 for the legacy full-workspace scope) to `exports/<workspaceId>/...` in
 the workspace bucket.
 
+The tab exposes a single ZIP control: it reads **Export ZIP** until an
+up-to-date archive exists, then **Download ZIP**. It goes back to
+**Export ZIP** when the link expires or when the visible image set
+changed after the archive was built (`getWorkspaceImageSetUpdatedAt`
+covers uploads and soft deletions), so a saved ZIP is never offered as
+if it covered content it predates or omits.
+
+Freshness uses the timestamp the worker recorded when it read the
+images (`workspaceExports.sourceUpdatedAt`), not the row's
+`_creationTime` — an upload that lands between "row created" and "data
+read" is included in the archive, and the older row timestamp would
+otherwise hide a perfectly current download. The download is also
+withheld until the freshness query succeeds, so a cached old archive is
+never offered before the check has run.
+
+"Export selected" is a separate context: those rows carry
+`selection: true`, are excluded from the header control, and surface
+their own **Download selected ZIP** action in the selection bar.
+
 Filenames are sanitized, de-duplicated (`sketch.png`, `sketch-2.png`),
 and their extension comes from the stored content type — previously B2
 rows landed in the archive as `image-1.bin` because the query only

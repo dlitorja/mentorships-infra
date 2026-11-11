@@ -123,6 +123,10 @@ async function getExportData(
       sessionId?: string;
       createdAt: number;
     }>;
+    // Images scope only: the image-set change timestamp the worker saw
+    // when it read the data. Stored on the row so an upload that
+    // landed mid-build does not make the finished archive look stale.
+    imageSetUpdatedAt?: number | null;
   }>;
 }
 
@@ -147,7 +151,8 @@ async function updateExportStatus(
   exportId: string,
   status: "processing" | "completed" | "failed",
   downloadUrl?: string,
-  errorMessage?: string
+  errorMessage?: string,
+  sourceUpdatedAt?: number
 ) {
   const expiresAt = status === "completed"
     ? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000
@@ -159,6 +164,7 @@ async function updateExportStatus(
     downloadUrl,
     expiresAt,
     errorMessage,
+    sourceUpdatedAt,
   });
 }
 
@@ -506,7 +512,13 @@ export const processWorkspaceExport = task({
         `${safeName}-export.zip`
       );
       const expiresAt = Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
-      await updateExportStatus(exportId, "completed", downloadUrl);
+      await updateExportStatus(
+        exportId,
+        "completed",
+        downloadUrl,
+        undefined,
+        exportData.imageSetUpdatedAt ?? undefined
+      );
 
       // PR #4b-fix: notify the requesting user. Best-effort — a
       // Resend failure must NOT roll back the completed export.

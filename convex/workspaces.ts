@@ -5,6 +5,7 @@ import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
+import { getWorkspaceImageSetUpdatedAt as getWorkspaceImageSetUpdatedAtFor } from "./lib/workspaceImageSet";
 import { writeAuditLog } from "./auditLog";
 
 import {
@@ -3812,6 +3813,10 @@ export const createWorkspaceExport = mutation({
       userId: user.subject,
       format: args.format,
       scope: args.scope,
+      // Non-empty `imageIds` means "export selected" — the Images tab
+      // must not let that partial archive stand in for its full export.
+      selection:
+        args.imageIds && args.imageIds.length > 0 ? true : undefined,
       status: "pending",
     });
 
@@ -3906,6 +3911,29 @@ export const cancelWorkspaceExport = mutation({
     // from `errorMessage` so a retried task that had already recorded
     // an error (and thus carries a message) still sees the cancel.
     await ctx.db.patch(args.id, { status: "failed", cancelledAt: Date.now() });
+  },
+});
+
+/**
+ * The most recent change to a workspace's visible image set, as a
+ * timestamp (null when the workspace has no images and none deleted).
+ *
+ * The Images tab uses this to decide whether its last ZIP is stale. It
+ * must consider deletions as well as uploads: removing an image after
+ * an archive was built makes the archive out of date too, and a
+ * creation-time-only check would keep offering a ZIP that still
+ * contains the deleted image.
+ *
+ * Two indexed single-row reads: newest live image by creation, newest
+ * soft-deleted image by `deletedAt`.
+ */
+export const getWorkspaceImageSetUpdatedAt = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), v.number()),
+  handler: async (ctx, args) => {
+    const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!access) return null;
+    return await getWorkspaceImageSetUpdatedAtFor(ctx, args.workspaceId);
   },
 });
 

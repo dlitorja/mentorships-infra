@@ -204,7 +204,8 @@ export const httpUpdateOnboardingArtworkExportStatus = httpAction(async (ctx, re
 export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { exportId, status, downloadUrl, expiresAt, errorMessage } = await request.json();
+  const { exportId, status, downloadUrl, expiresAt, errorMessage, sourceUpdatedAt } =
+    await request.json();
 
   try {
     const result = await ctx.runMutation(internal.mutations.http.updateWorkspaceExportStatus, {
@@ -213,6 +214,7 @@ export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) =
       downloadUrl,
       expiresAt,
       errorMessage,
+      sourceUpdatedAt,
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },

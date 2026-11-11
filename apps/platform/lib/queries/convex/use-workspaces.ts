@@ -755,6 +755,15 @@ export interface WorkspaceExport {
   downloadUrl?: string;
   expiresAt?: number;
   errorMessage?: string;
+  /** True when the ZIP covers only the selected images. */
+  selection?: boolean;
+  /**
+   * Image-set change timestamp the archive was built from (images
+   * scope). The worker writes it after reading the images, so it is
+   * the accurate "as of" value for freshness — `_creationTime` can be
+   * older than an upload the archive already includes.
+   */
+  sourceUpdatedAt?: number;
   /** Convex document creation timestamp. */
   _creationTime: number;
 }
@@ -777,6 +786,19 @@ export function useWorkspaceExports(
 ) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId, scope }),
+    enabled: !!workspaceId,
+  });
+}
+
+/**
+ * The most recent change to a workspace's visible image set (newest
+ * upload or newest soft-deletion), or `null` when it has no images.
+ * Used by the Images tab to tell whether its last completed ZIP is
+ * stale; a stale archive is not offered for download.
+ */
+export function useWorkspaceImageSetUpdatedAt(workspaceId: Id<"workspaces">) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getWorkspaceImageSetUpdatedAt, { workspaceId }),
     enabled: !!workspaceId,
   });
 }

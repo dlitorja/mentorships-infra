@@ -116,9 +116,12 @@ export const updateWorkspaceExportStatus = internalMutation({
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
+    // Image-set change timestamp the archive was built from (images
+    // scope only). Written by the worker on completion.
+    sourceUpdatedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { exportId, status, downloadUrl, expiresAt, errorMessage } = args;
+    const { exportId, status, downloadUrl, expiresAt, errorMessage, sourceUpdatedAt } = args;
 
     const exportRecord = await ctx.db.get(exportId);
     if (!exportRecord) {
@@ -149,6 +152,7 @@ export const updateWorkspaceExportStatus = internalMutation({
     if (downloadUrl !== undefined) updates.downloadUrl = downloadUrl;
     if (expiresAt !== undefined) updates.expiresAt = expiresAt;
     if (errorMessage !== undefined) updates.errorMessage = errorMessage;
+    if (sourceUpdatedAt !== undefined) updates.sourceUpdatedAt = sourceUpdatedAt;
     // A retry (processing) or a successful retry (completed) makes any
     // earlier failure message stale. Clearing it keeps the row honest —
     // the cancel marker is `cancelledAt`, so removing `errorMessage`
