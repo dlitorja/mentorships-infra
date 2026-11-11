@@ -111,9 +111,12 @@ own 10 most recent rows — ten newer Links exports cannot push a valid
 Images ZIP out of view. Rows created before `scope` existed are treated
 as the full-workspace ZIP and appear on the Images tab.
 
-`exportActions` failures are recorded with an `errorMessage`, which is
-what distinguishes them from a user cancel (`failed` with no
-`errorMessage`) in `updateWorkspaceExportStatus`.
+`exportActions` failures are recorded with an `errorMessage`. A user
+cancel writes `cancelledAt` instead, and the status writers treat that
+marker as terminal. Cancellation deliberately does not rely on
+"`failed` with no `errorMessage`": a retried task keeps the message
+from its earlier attempt, and the old heuristic would let that retry
+complete a cancelled export.
 
 `(format, scope)` pairs are looked up in a task map in
 `convex/workspaces.ts`; an unsupported pair marks the row `failed` with

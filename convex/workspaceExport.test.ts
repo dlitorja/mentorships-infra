@@ -832,3 +832,44 @@ test("HTTP /workspace/export/data drops untrusted legacy imageUrl values (no SSR
     )
   ).toBe(false);
 });
+
+test("a cancel is terminal even when the row still carries an earlier task error", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  // Simulates a retried task: the first attempt recorded an error, so
+  // `errorMessage` is populated, and the row is failed.
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "failed",
+      errorMessage: "transient B2 error",
+    })
+  );
+
+  const student = t.withIdentity({ subject: studentUserId });
+  await student.mutation(api.workspaces.cancelWorkspaceExport, { id: exportId });
+
+  const cancelled = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(cancelled?.cancelledAt).toBeTypeOf("number");
+  expect(cancelled?.status).toBe("failed");
+  // The earlier message is preserved for diagnostics.
+  expect(cancelled?.errorMessage).toBe("transient B2 error");
+
+  // The retry's completion update must be refused.
+  const r = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "completed" }),
+  });
+  expect(r.status).toBe(500);
+  const body = await r.json();
+  expect(body.error).toMatch(/cancelled/i);
+
+  const after = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(after?.status).toBe("failed");
+});

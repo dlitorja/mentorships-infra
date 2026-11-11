@@ -156,11 +156,9 @@ export const cancelOnboardingArtworkExport = mutation({
       }
     }
 
-    // No errorMessage on purpose — that is the marker
-    // `updateOnboardingArtworkExportStatus` uses to distinguish a
-    // user cancel from a task failure (same convention as
-    // `cancelWorkspaceExport`).
-    await ctx.db.patch(args.id, { status: "failed" });
+    // `cancelledAt` is the explicit cancel marker (kept separate from
+    // `errorMessage` so a retried task cannot revive a cancel).
+    await ctx.db.patch(args.id, { status: "failed", cancelledAt: Date.now() });
     return null;
   },
 });
@@ -215,7 +213,11 @@ export const getOnboardingArtworkExportData = internalQuery({
 /**
  * Task-facing status update. Mirrors `updateWorkspaceExportStatus`:
  * a completed row can never be downgraded, and a user-cancelled row
- * (`failed` with no `errorMessage`) cannot be revived by a retry.
+ * cannot be revived by a retry.
+ *
+ * Cancellation is detected via the explicit `cancelledAt` marker.
+ * The legacy `failed` + no-`errorMessage` heuristic is kept for rows
+ * cancelled before that field existed.
  */
 export const updateOnboardingArtworkExportStatus = internalMutation({
   args: {
@@ -243,7 +245,8 @@ export const updateOnboardingArtworkExportStatus = internalMutation({
     }
 
     const isUserCancel =
-      exportRecord.status === "failed" && exportRecord.errorMessage === undefined;
+      exportRecord.cancelledAt !== undefined ||
+      (exportRecord.status === "failed" && exportRecord.errorMessage === undefined);
     if (isUserCancel) {
       throw new Error("Export was cancelled; refusing to update");
     }

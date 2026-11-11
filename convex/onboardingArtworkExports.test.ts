@@ -434,3 +434,36 @@ test("triggerOnboardingArtworkExportTask marks the row failed when Trigger.dev r
     clearTriggerCredentials();
   }
 });
+
+test("a cancelled artwork export cannot be completed by a retry", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { onboardingId, instructorUserId } = await seedOnboarding(t);
+
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("onboardingArtworkExports", {
+      onboardingId: onboardingId as any,
+      requestedBy: instructorUserId,
+      status: "failed",
+      errorMessage: "transient B2 error",
+    })
+  );
+
+  const instructor = t.withIdentity({ subject: instructorUserId });
+  await instructor.mutation(
+    api.onboardingArtworkExports.cancelOnboardingArtworkExport,
+    { id: exportId }
+  );
+
+  const r = await t.fetch("/onboarding/artwork-export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ exportId, status: "completed" }),
+  });
+  expect(r.status).toBe(500);
+  const body = await r.json();
+  expect(body.error).toMatch(/cancelled/i);
+
+  const after = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(after?.status).toBe("failed");
+});

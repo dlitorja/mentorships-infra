@@ -942,6 +942,12 @@ export default defineSchema({
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
+    // Explicit user-cancel marker. Task failures write `errorMessage`;
+    // a cancel writes this timestamp instead. Keeping the two separate
+    // means a retried task cannot mistake a cancelled row (which may
+    // still carry a message from its earlier failed attempt) for a
+    // retryable failure and resurrect it.
+    cancelledAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_status", ["status"])
@@ -1860,6 +1866,10 @@ export default defineSchema({
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
     errorMessage: v.optional(v.string()),
+    // Explicit user-cancel marker — see the matching field on
+    // `workspaceExports`. Kept separate from `errorMessage` so a
+    // retried task cannot revive a cancelled export.
+    cancelledAt: v.optional(v.number()),
     // Number of images included. Written by the task on completion so
     // the reviewer can tell a partial archive from a complete one.
     fileCount: v.optional(v.number()),

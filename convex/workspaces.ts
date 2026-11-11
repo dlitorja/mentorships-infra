@@ -3902,7 +3902,10 @@ export const cancelWorkspaceExport = mutation({
         throw new Error("Not authorized to cancel this export");
       }
     }
-    await ctx.db.patch(args.id, { status: "failed" });
+    // `cancelledAt` is the explicit cancel marker. It stays separate
+    // from `errorMessage` so a retried task that had already recorded
+    // an error (and thus carries a message) still sees the cancel.
+    await ctx.db.patch(args.id, { status: "failed", cancelledAt: Date.now() });
   },
 });
 

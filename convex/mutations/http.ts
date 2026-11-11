@@ -131,14 +131,16 @@ export const updateWorkspaceExportStatus = internalMutation({
     if (exportRecord.status === "completed" && status !== "completed") {
       throw new Error("Export already completed");
     }
-    // Greptile P1 (PR #4b-fix): a row with status "failed" AND no
-    // errorMessage is a user-initiated cancel (`cancelWorkspaceExport`
-    // writes only `{ status: "failed" }`). Trigger-side errors always
-    // include `errorMessage`. Treat user-cancel as terminal so a
-    // Trigger.dev retry cannot take the two-step path
-    // `failed → processing → completed` and silently un-cancel.
+    // A cancel is terminal: `cancelWorkspaceExport` writes
+    // `cancelledAt`, and the legacy shape (failed with no
+    // `errorMessage`) is still honoured for rows cancelled before that
+    // field existed. Checking the marker instead of `errorMessage`
+    // matters because a retried task keeps the message from its
+    // earlier failed attempt — the old heuristic would let that retry
+    // finish a cancelled export.
     const isUserCancel =
-      exportRecord.status === "failed" && exportRecord.errorMessage === undefined;
+      exportRecord.cancelledAt !== undefined ||
+      (exportRecord.status === "failed" && exportRecord.errorMessage === undefined);
     if (isUserCancel) {
       throw new Error("Export was cancelled; refusing to update");
     }
