@@ -61,6 +61,12 @@ with `format: "zip"`, `scope: "images"` → Trigger task
   B2-backed rows — the task reads the object directly with the S3 SDK;
 - `imageUrl` for legacy `data:` / Convex-storage rows.
 
+Both export data queries (`queries/http.getWorkspaceExportData` and
+`getWorkspaceExport`) are `internalQuery`, so only the HTTP routes in
+`convex/http.ts` (gated by `CONVEX_HTTP_KEY`) can read them. They carry
+no per-workspace membership check of their own, so keeping them off the
+public API surface matters.
+
 The task wraps them into `notes.md` + `images/*` and writes the archive
 to `exports/<workspaceId>/...` in the workspace bucket.
 

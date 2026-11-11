@@ -122,7 +122,7 @@ export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   const { workspaceId, imageIds, scope } = await request.json();
 
   try {
-    const result = await ctx.runQuery(api.queries.http.getWorkspaceExportData, {
+    const result = await ctx.runQuery(internal.queries.http.getWorkspaceExportData, {
       workspaceId: workspaceId as any,
       imageIds: imageIds as any,
       scope: scope as any,
@@ -239,7 +239,7 @@ export const httpGetWorkspaceExport = httpAction(async (ctx, request) => {
   const { exportId } = await request.json();
 
   try {
-    const exportDoc = await ctx.runQuery(api.queries.http.getWorkspaceExport, {
+    const exportDoc = await ctx.runQuery(internal.queries.http.getWorkspaceExport, {
       exportId: exportId as any,
     });
     if (!exportDoc) {

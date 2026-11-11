@@ -1,4 +1,4 @@
-import { query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
 
@@ -107,8 +107,14 @@ export const getUserIdByEmail = query({
  * `scope: "links"` returns only `workspaceName` + `links` so the Links
  * tab export never pays for loading note bodies and image rows it does
  * not need.
+ *
+ * Internal: workspace membership is not checked here because this is
+ * only reachable from `convex/http.ts` behind `CONVEX_HTTP_KEY` (the
+ * export Trigger tasks). It used to be public, which let any signed-in
+ * client read another workspace's notes, images, and — after the Links
+ * export landed — private shared links by guessing a workspace id.
  */
-export const getWorkspaceExportData = query({
+export const getWorkspaceExportData = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     imageIds: v.optional(v.array(v.id("workspaceImages"))),
@@ -240,7 +246,7 @@ export const getWorkspaceExportData = query({
  * single-row lookup with no PII filtering needed because only
  * server-side callers (the trigger task) can reach it.
  */
-export const getWorkspaceExport = query({
+export const getWorkspaceExport = internalQuery({
   args: { exportId: v.id("workspaceExports") },
   handler: async (ctx, args) => {
     const exportDoc = await ctx.db.get(args.exportId);
