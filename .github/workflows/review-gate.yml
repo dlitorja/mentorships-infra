@@ -3,35 +3,41 @@ name: Review Gate
 # The required check on `main`, replacing a bare `Greptile Review` requirement.
 #
 # Why this exists: `main` required the `Greptile Review` status check, but
-# `.greptile/config.json` lists markdown in `ignorePatterns` (that exclusion is
-# the credit saving — see docs/greptile-cost-policy.md). A docs-only PR therefore
-# never receives that check and sits in BLOCKED forever, which is what happened
-# on PR #1043. GitHub branch protection cannot express "required unless the diff
-# is docs", so this workflow expresses it instead.
+# `.greptile/config.json` lists markdown and lockfiles in `ignorePatterns` (those
+# exclusions are the credit saving — see docs/greptile-cost-policy.md). A
+# docs-only or lockfile-only PR therefore never receives that check and sits in
+# BLOCKED forever, which is what happened on PR #1043. GitHub branch protection
+# cannot express "required unless the diff is ignorable", so this workflow does.
 #
 # The gate passes when any of these hold:
-#   1. every changed file is documentation (`docs/**` or `*.md`); or
+#   1. every changed path matches Greptile's own `ignorePatterns` — markdown,
+#      lockfiles, build output, generated files, docs/post-merge recaps; or
 #   2. the PR carries `no-greptile` / `skip-greptile` (the documented opt-out
 #      for CI-only, secret rotation, and experiment-revert PRs); or
-#   3. the head commit has a green `Greptile Review`.
+#   3. the head commit has a green `Greptile Review` from Greptile's own GitHub
+#      App. A same-named check from any other publisher does not count.
 #
 # It fails otherwise, printing the re-trigger instruction. Reviewing code is
 # unchanged: a code PR still cannot merge without Greptile's sign-off.
 #
-# Polling instead of a `check_run` trigger is deliberate. A `check_run` trigger
-# fires on this workflow's own skipped runs and re-enters indefinitely; polling
-# for the review it is waiting on has no such loop and no extra moving parts.
+# Polling is deliberate. A `check_run` trigger would fire on this workflow's own
+# skipped runs and re-enter indefinitely, so the gate instead watches while a
+# review is in flight and is re-run by `pull_request_review` when the finished
+# review is actually posted.
 
 on:
   pull_request:
     # `labeled`/`unlabeled` so applying or removing an opt-out label re-evaluates
     # the gate instead of leaving a stale failure behind.
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  # Re-evaluate when a review lands. This is what clears a gate that timed out
+  # while waiting, and what lets `@greptileai review` re-baseline a failed gate.
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   contents: read
   checks: read
-  statuses: read
   pull-requests: read
 
 concurrency:
@@ -47,6 +53,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      # Greptile's GitHub App id. Checks with the same name from any other
+      # publisher are ignored.
+      GREPTILE_APP_ID: "867647"
     steps:
       - name: Decide whether a Greptile review is required
         id: policy
@@ -58,8 +67,9 @@ jobs:
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
           if printf '%s\n' $labels | grep -qxE 'no-greptile|skip-greptile'; then
+            echo "Opt-out label present: $labels"
             echo "required=false" >> "$GITHUB_OUTPUT"
-            echo "reason=opt-out label present ($labels)" >> "$GITHUB_OUTPUT"
+            echo "reason=opt-out label present" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -69,21 +79,38 @@ jobs:
             exit 0
           fi
 
-          # Documentation-only: docs/** or a Markdown file anywhere. Greptile
-          # cannot review these (markdown is in ignorePatterns), so requiring
-          # its check would deadlock the PR.
-          docs_only=true
+          # Mirror `.greptile/config.json` ignorePatterns. Greptile never reads
+          # these paths, so requiring its check would deadlock the PR.
+          ignorable=true
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|*.md|*.MD) ;;
-              *) docs_only=false; break ;;
+              *.md|*.MD) ;;
+              pnpm-lock.yaml|*/pnpm-lock.yaml) ;;
+              package-lock.json|*/package-lock.json) ;;
+              yarn.lock|*/yarn.lock) ;;
+              *.lock) ;;
+              *.generated.*) ;;
+              docs/post-merge/*) ;;
+              node_modules/*|*/node_modules/*) ;;
+              .next/*|*/.next/*) ;;
+              .turbo/*|*/.turbo/*) ;;
+              dist/*|*/dist/*) ;;
+              build/*|*/build/*) ;;
+              coverage/*|*/coverage/*) ;;
+              .vercel/*|*/.vercel/*) ;;
+              test-results/*|*/test-results/*) ;;
+              playwright-report/*|*/playwright-report/*) ;;
+              *)
+                ignorable=false
+                break
+                ;;
             esac
           done <<< "$files"
 
-          if [ "$docs_only" = true ]; then
+          if [ "$ignorable" = true ]; then
             echo "required=false" >> "$GITHUB_OUTPUT"
-            echo "reason=documentation-only diff" >> "$GITHUB_OUTPUT"
+            echo "reason=every changed path is in Greptile's ignorePatterns" >> "$GITHUB_OUTPUT"
           else
             echo "required=true" >> "$GITHUB_OUTPUT"
             echo "reason=code changes need a Greptile review" >> "$GITHUB_OUTPUT"
@@ -91,9 +118,11 @@ jobs:
 
       - name: Require a green Greptile Review on the head commit
         if: steps.policy.outputs.required == 'true'
+        env:
+          HEAD_SHA: ${{ steps.policy.outputs.head_sha }}
         run: |
           set -euo pipefail
-          sha="${{ steps.policy.outputs.head_sha }}"
+          sha="$HEAD_SHA"
           now=$(date +%s)
           # Greptile takes ~2-3 minutes to post after a PR event, so a missing
           # check is only fatal after a grace period. Once a review is running,
@@ -102,26 +131,18 @@ jobs:
           hard_deadline=$(( now + 1800 ))
 
           read_state() {
-            # Greptile may report as a check run (GitHub App) or as a legacy
-            # commit status. Return "<kind>:<state>" for the newest record.
-            # `empty` on no match keeps the fallback and the absent branch
-            # reachable — `last` alone yields null, which formats into a
-            # bogus "check:null:" string.
-            local check status
-            check=$(gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" \
-              --jq '[.check_runs[] | select(.name == "Greptile Review")]
+            # Only Greptile's own App counts. Trusting the check name alone would
+            # let any integration that can write commit statuses approve code.
+            # A legacy commit-status fallback used to exist here; Greptile posts
+            # check runs (verified on PR #1042), so it is gone rather than left
+            # as an unauthenticated bypass.
+            gh api "repos/$REPO/commits/$sha/check-runs?per_page=100" \
+              --jq '[.check_runs[]
+                     | select(.name == "Greptile Review")
+                     | select(.app.id == 867647)]
                     | sort_by(.started_at) | last
                     | if . == null then empty
-                      else "check:\(.status):\(.conclusion // "")" end' 2>/dev/null || true)
-            if [ -n "$check" ]; then
-              echo "$check"
-              return
-            fi
-            status=$(gh api "repos/$REPO/commits/$sha/status" \
-              --jq '[.statuses[] | select(.context == "Greptile Review")]
-                    | last
-                    | if . == null then empty else "status:\(.state)" end' 2>/dev/null || true)
-            echo "$status"
+                      else "\(.status):\(.conclusion // "")" end' 2>/dev/null || true
           }
 
           while :; do
@@ -129,25 +150,25 @@ jobs:
             now=$(date +%s)
 
             case "$state" in
-              check:completed:success|status:success)
+              completed:success)
                 echo "Greptile Review is green on $sha."
                 exit 0
                 ;;
               # Greptile uses neutral for reviews that carry suggestions, and
               # skipped when the diff has nothing for it to read. Neither is a
               # failure, and blocking on them would recreate the deadlock.
-              check:completed:neutral|check:completed:skipped)
+              completed:neutral|completed:skipped)
                 echo "Greptile Review concluded '${state##*:}' on $sha — not blocking."
                 exit 0
                 ;;
-              check:in_progress:*|check:queued:*|check:waiting:*|check:pending:*|status:pending)
+              in_progress:*|queued:*|waiting:*|pending:*)
                 if [ "$now" -ge "$hard_deadline" ]; then
                   echo "::error::Greptile Review is still running on $sha after 30 minutes."
                   exit 1
                 fi
                 ;;
-              check:completed:*|status:failure|status:error)
-                echo "::error::Greptile Review did not pass on $sha (${state})."
+              completed:*)
+                echo "::error::Greptile Review did not pass on $sha ($state)."
                 echo "Address the findings, then comment '@greptileai review' to re-baseline."
                 exit 1
                 ;;
@@ -161,7 +182,7 @@ jobs:
                 fi
                 ;;
               *)
-                echo "::error::Unrecognised Greptile state '${state}' on $sha."
+                echo "::error::Unrecognised Greptile state '$state' on $sha."
                 exit 1
                 ;;
             esac
@@ -170,11 +191,14 @@ jobs:
           done
 
       - name: Summarise
+        env:
+          REQUIRED: ${{ steps.policy.outputs.required }}
+          REASON: ${{ steps.policy.outputs.reason }}
         run: |
           {
             echo "### Review Gate"
             echo ""
             echo "- PR: #$PR_NUMBER"
-            echo "- Greptile required: **${{ steps.policy.outputs.required }}**"
-            echo "- Reason: ${{ steps.policy.outputs.reason }}"
+            echo "- Greptile required: **$REQUIRED**"
+            echo "- Reason: $REASON"
           } >> "$GITHUB_STEP_SUMMARY"

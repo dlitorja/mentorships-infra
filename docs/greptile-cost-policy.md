@@ -153,8 +153,9 @@ kept it from matching the forecast:
    open review is already the pre-merge diff.
 
 **The remaining lever is re-trigger count, not review depth.** Holding
-cadence constant, reserving `@greptileai review` for ~20 PRs/month
-takes the bill to roughly **$115/month** (~$535/month saved).
+the measured cadence (124 PRs/30d) constant, reserving `@greptileai review`
+for ~20 PRs/month takes the bill to roughly **$144/month** (124 opens +
+20 re-triggers), about $510/month less than the $654 baseline.
 
 Reproduce with `gh pr list --state all --limit 500` for the PR count,
 `commits.totalCount` per PR for pushes, and the author's comments
@@ -201,17 +202,19 @@ Greptile dashboard at
    the required check, do the merge, restore it.*
 
 > **Why the gate is indirect rather than requiring `Greptile Review`
-> directly.** The `ignorePatterns` that keep markdown out of the reviewed
-> corpus also stop Greptile from posting the `Greptile Review` status at
-> all, so requiring that check on its own put every markdown-only PR in
+> directly.** The `ignorePatterns` that keep markdown and lockfiles out of
+> the reviewed corpus also stop Greptile from posting the `Greptile Review`
+> status at all, so requiring that check on its own put every such PR in
 > `BLOCKED` permanently — observed on PR #1043, 2026-11-11. Branch
-> protection cannot express "required unless the diff is docs", so
+> protection cannot express "required unless the diff is ignorable", so
 > `review-gate.yml` expresses it instead: pass when every changed path is
-> `docs/**` or `*.md`, pass when an opt-out label is applied, otherwise
-> require a green `Greptile Review` on the head commit. The gate also
-> fails fast with the `@greptileai review` instruction when a commit has
-> no review at all, which is the normal state after pushing fixes under
-> `autoReview: ["open"]`.
+> in Greptile's `ignorePatterns`, pass when an opt-out label is applied,
+> otherwise require a green `Greptile Review` from Greptile's own GitHub
+> App on the head commit. The gate also fails fast with the
+> `@greptileai review` instruction when a commit has no review at all,
+> which is the normal state after pushing fixes under
+> `autoReview: ["open"]`, and re-evaluates itself when a review is
+> submitted so a late review can clear the gate.
 
 ## Usage-page sanity check
 
