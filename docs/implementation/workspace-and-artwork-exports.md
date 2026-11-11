@@ -84,6 +84,14 @@ changed after the archive was built (`getWorkspaceImageSetUpdatedAt`
 covers uploads and soft deletions), so a saved ZIP is never offered as
 if it covered content it predates or omits.
 
+Freshness uses the timestamp the worker recorded when it read the
+images (`workspaceExports.sourceUpdatedAt`), not the row's
+`_creationTime` — an upload that lands between "row created" and "data
+read" is included in the archive, and the older row timestamp would
+otherwise hide a perfectly current download. The download is also
+withheld until the freshness query succeeds, so a cached old archive is
+never offered before the check has run.
+
 "Export selected" is a separate context: those rows carry
 `selection: true`, are excluded from the header control, and surface
 their own **Download selected ZIP** action in the selection bar.

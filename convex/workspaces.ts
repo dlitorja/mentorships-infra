@@ -5,6 +5,7 @@ import { paginationOptsValidator } from "convex/server";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveSessionWorkspace } from "./lib/sessionWorkspace";
+import { getWorkspaceImageSetUpdatedAt as getWorkspaceImageSetUpdatedAtFor } from "./lib/workspaceImageSet";
 import { writeAuditLog } from "./auditLog";
 
 import {
@@ -3932,28 +3933,7 @@ export const getWorkspaceImageSetUpdatedAt = query({
   handler: async (ctx, args) => {
     const access = await getCallerWorkspaceRole(ctx, args.workspaceId);
     if (!access) return null;
-
-    const [latestActive, latestDeleted] = await Promise.all([
-      ctx.db
-        .query("workspaceImages")
-        .withIndex("by_workspaceId_and_deletedAt", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
-        )
-        .order("desc")
-        .first(),
-      ctx.db
-        .query("workspaceImages")
-        .withIndex("by_workspaceId_and_deletedAt", (q) =>
-          q.eq("workspaceId", args.workspaceId).gt("deletedAt", 0)
-        )
-        .order("desc")
-        .first(),
-    ]);
-
-    const times = [latestActive?._creationTime, latestDeleted?.deletedAt].filter(
-      (value): value is number => typeof value === "number"
-    );
-    return times.length > 0 ? Math.max(...times) : null;
+    return await getWorkspaceImageSetUpdatedAtFor(ctx, args.workspaceId);
   },
 });
 

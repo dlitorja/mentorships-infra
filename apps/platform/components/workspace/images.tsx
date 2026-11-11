@@ -134,7 +134,10 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
   // computing `Date.now()` in render alone would keep showing an
   // expired link until some other state changed.
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const { data: imageSetUpdatedAt } = useWorkspaceImageSetUpdatedAt(workspaceId);
+  const {
+    data: imageSetUpdatedAt,
+    isSuccess: imageSetKnown,
+  } = useWorkspaceImageSetUpdatedAt(workspaceId);
   const latestExportExpiresAt =
     latestExport?.status === 'completed' ? latestExport.expiresAt : undefined;
   const latestSelectionExpiresAt =
@@ -144,7 +147,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
   useEffect(() => {
     // Re-render when the earliest live signature lapses, whichever
-    // export (full or selection) it belongs to.
+    // export (full or selection) it belongs to. `nowMs` is a
+    // dependency so the effect re-arms for the next expiry after one
+    // fires.
     const upcoming = [latestExportExpiresAt, latestSelectionExpiresAt].filter(
       (value): value is number =>
         typeof value === 'number' && value > Date.now()
@@ -160,18 +165,28 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     latestSelectionExport?._id,
     latestSelectionExport?.status,
     latestSelectionExpiresAt,
+    nowMs,
   ]);
 
   const exportExpired =
     latestExport?.status === 'completed' &&
     typeof latestExportExpiresAt === 'number' &&
     latestExportExpiresAt <= nowMs;
-  // Uploads AND deletions bump `imageSetUpdatedAt`; either makes an
-  // existing archive out of date.
+  // The archive is exactly as fresh as the image set it was built
+  // from. The worker records that value (`sourceUpdatedAt`) after it
+  // reads the images, so an upload landing mid-build does not make the
+  // finished archive look stale.
+  const exportAsOf = latestExport
+    ? latestExport.sourceUpdatedAt ?? latestExport._creationTime
+    : undefined;
+  // Until the freshness query succeeds we cannot claim the archive is
+  // current — don't offer a download that might be missing images.
   const exportStale =
     latestExport?.status === 'completed' &&
-    typeof imageSetUpdatedAt === 'number' &&
-    latestExport._creationTime < imageSetUpdatedAt;
+    (!imageSetKnown ||
+      (typeof imageSetUpdatedAt === 'number' &&
+        typeof exportAsOf === 'number' &&
+        exportAsOf < imageSetUpdatedAt));
   const downloadUrl =
     latestExport?.status === 'completed' &&
     latestExport.downloadUrl &&

@@ -1037,3 +1037,65 @@ test("createWorkspaceExport marks a selected-images export as a selection", asyn
   expect(selection?.selection).toBe(true);
   expect(full?.selection).toBeUndefined();
 });
+
+test("HTTP data records imageSetUpdatedAt and the worker can persist sourceUpdatedAt", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  const imageId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-01/workspaces/ws/file-1/sketch.png",
+      createdBy: studentUserId,
+    })
+  );
+  const imageRow = await t.run(async (ctx) => ctx.db.get(imageId));
+  // A deletion also bumps the set timestamp.
+  const deletedAt = Date.now() + 5_000;
+  await t.run(async (ctx) =>
+    ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "",
+      b2Key: "2026-01-02/workspaces/ws/file-2/gone.png",
+      createdBy: studentUserId,
+      deletedAt,
+    })
+  );
+
+  const dataResponse = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(dataResponse.status).toBe(200);
+  const data = await dataResponse.json();
+  expect(data.imageSetUpdatedAt).toBe(deletedAt);
+  expect(imageRow?._creationTime).toBeTypeOf("number");
+
+  const exportId = await t.run(async (ctx) =>
+    ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "processing",
+    })
+  );
+
+  const statusResponse = await t.fetch("/workspace/export/update-status", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({
+      exportId,
+      status: "completed",
+      downloadUrl: "https://b2.example.com/export.zip",
+      sourceUpdatedAt: data.imageSetUpdatedAt,
+    }),
+  });
+  expect(statusResponse.status).toBe(200);
+
+  const row = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(row?.sourceUpdatedAt).toBe(deletedAt);
+});

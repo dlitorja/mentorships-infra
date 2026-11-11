@@ -1,6 +1,7 @@
 import { internalQuery, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { getWorkspaceImageSetUpdatedAt } from "../lib/workspaceImageSet";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -190,6 +191,16 @@ export const getWorkspaceExportData = internalQuery({
             )
             .collect();
 
+    // Snapshot the image-set state BEFORE reading the rows: the
+    // recorded "as of" value must not be newer than the data actually
+    // included. An upload landing after this point makes the finished
+    // archive look stale (safe: the user can re-export) rather than
+    // claiming it is current when the image was captured later.
+    const imageSetUpdatedAt =
+      scope === "images"
+        ? await getWorkspaceImageSetUpdatedAt(ctx, workspaceId)
+        : null;
+
     const allImages = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
@@ -269,6 +280,7 @@ export const getWorkspaceExportData = internalQuery({
         updatedAt: n.updatedAt,
       })),
       images: imagesWithUrls,
+      imageSetUpdatedAt,
     };
   },
 });

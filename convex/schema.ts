@@ -943,6 +943,12 @@ export default defineSchema({
     // exports out of its single header control, so a partial archive
     // cannot replace the "export everything" action.
     selection: v.optional(v.boolean()),
+    // Image-set change timestamp the archive was actually built from.
+    // Written by the worker, not the mutation, because an upload can
+    // land between row creation and the data read — the archive
+    // includes it, so the row's `_creationTime` would wrongly look
+    // stale and hide a fresh download.
+    sourceUpdatedAt: v.optional(v.number()),
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed")),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),

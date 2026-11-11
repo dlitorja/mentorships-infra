@@ -755,6 +755,15 @@ export interface WorkspaceExport {
   downloadUrl?: string;
   expiresAt?: number;
   errorMessage?: string;
+  /** True when the ZIP covers only the selected images. */
+  selection?: boolean;
+  /**
+   * Image-set change timestamp the archive was built from (images
+   * scope). The worker writes it after reading the images, so it is
+   * the accurate "as of" value for freshness — `_creationTime` can be
+   * older than an upload the archive already includes.
+   */
+  sourceUpdatedAt?: number;
   /** Convex document creation timestamp. */
   _creationTime: number;
 }
