@@ -212,6 +212,25 @@ async function uploadZipToB2(
  * network error). The caller logs and continues so one bad image does
  * not fail the entire export.
  */
+/**
+ * Defence in depth for the legacy `imageUrl` path: the Convex query
+ * already drops untrusted values, but the worker re-checks before
+ * fetching so a future query change cannot turn this task into an SSRF
+ * proxy. Only inline image data and Convex storage URLs are allowed.
+ */
+function isTrustedLegacyImageUrl(url: string): boolean {
+  if (url.startsWith("data:image/")) return true;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      /(^|\.)convex\.cloud$/.test(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function fetchImageBytes(img: {
   imageUrl: string;
   b2Key?: string;
@@ -254,6 +273,15 @@ async function fetchImageBytes(img: {
   }
 
   try {
+    // Only fetch URLs the query marked as trustworthy. `fetch` would
+    // follow a client-supplied URL (including internal hosts) and the
+    // response would land in the user's ZIP.
+    if (!isTrustedLegacyImageUrl(img.imageUrl)) {
+      logger.warn("Skipping untrusted legacy image URL in export", {
+        storageId: img.storageId,
+      });
+      return null;
+    }
     const response = await fetch(img.imageUrl);
     if (!response.ok) return null;
     const arrayBuffer = await response.arrayBuffer();

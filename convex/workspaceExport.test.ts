@@ -290,7 +290,7 @@ test("HTTP /workspace/export/data returns notes and images for the workspace", a
   const imageId = await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId,
-      imageUrl: "https://example.com/a.png",
+      imageUrl: "https://export-test.convex.cloud/api/storage/abc",
       createdBy: "user_export_student",
       deletedAt: undefined,
     })
@@ -316,7 +316,7 @@ test("HTTP /workspace/export/data returns notes and images for the workspace", a
   expect(body.workspaceName).toBe("Export Test");
   expect(body.notes.map((n: { title: string }) => n.title)).toEqual(["HTTP export note"]);
   expect(body.images.length).toBe(1);
-  expect(body.images[0].imageUrl).toBe("https://example.com/a.png");
+  expect(body.images[0].imageUrl).toBe("https://export-test.convex.cloud/api/storage/abc");
   expect(noteId).toBeTruthy();
   expect(imageId).toBeTruthy();
 });
@@ -329,7 +329,7 @@ test("HTTP /workspace/export/data filters images by imageIds", async () => {
   const keepId = await t.run(async (ctx) =>
     ctx.db.insert("workspaceImages", {
       workspaceId,
-      imageUrl: "https://example.com/keep.png",
+      imageUrl: "https://export-test.convex.cloud/api/storage/keep",
       createdBy: "user_export_student",
     })
   );
@@ -349,7 +349,7 @@ test("HTTP /workspace/export/data filters images by imageIds", async () => {
   expect(r.status).toBe(200);
   const body = await r.json();
   expect(body.images.length).toBe(1);
-  expect(body.images[0].imageUrl).toBe("https://example.com/keep.png");
+  expect(body.images[0].imageUrl).toBe("https://export-test.convex.cloud/api/storage/keep");
 });
 
 test("HTTP /workspace/export/data returns 404 for a missing workspace", async () => {
@@ -786,4 +786,49 @@ test("getWorkspaceExports filters by scope so each tab keeps its own latest rows
   });
   expect(links.length).toBe(10);
   expect(links.every((row) => row.scope === "links")).toBe(true);
+});
+
+test("HTTP /workspace/export/data drops untrusted legacy imageUrl values (no SSRF)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = HTTP_KEY;
+  const { workspaceId } = await seedWorkspaceAndUsers(t);
+
+  const trustedDataUri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+  await t.run(async (ctx) => {
+    // A legacy row (no storageId / b2Key) whose URL points at an
+    // internal address. The export worker must never fetch it.
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      createdBy: "user_export_student",
+    });
+    // A legitimate inline payload survives.
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: workspaceId as any,
+      imageUrl: trustedDataUri,
+      createdBy: "user_export_student",
+    });
+  });
+
+  const r = await t.fetch("/workspace/export/data", {
+    method: "POST",
+    headers: bearerHeaders(HTTP_KEY),
+    body: JSON.stringify({ workspaceId, scope: "images" }),
+  });
+  expect(r.status).toBe(200);
+
+  const body = await r.json();
+  const untrusted = body.images.find(
+    (img: { imageUrl: string }) => img.imageUrl === ""
+  );
+  const trusted = body.images.find(
+    (img: { imageUrl: string }) => img.imageUrl === trustedDataUri
+  );
+  expect(untrusted).toBeTruthy();
+  expect(trusted).toBeTruthy();
+  expect(
+    body.images.some((img: { imageUrl: string }) =>
+      img.imageUrl.includes("169.254.169.254")
+    )
+  ).toBe(false);
 });

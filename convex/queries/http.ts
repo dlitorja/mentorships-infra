@@ -99,6 +99,27 @@ export const getUserIdByEmail = query({
   },
 });
 
+/**
+ * Legacy `imageUrl` values are client-supplied columns. Only two
+ * shapes are legitimate: an inline `data:image/...` payload, or a
+ * Convex storage URL minted by `ctx.storage.getUrl` (which lives on
+ * `*.convex.cloud`). Anything else is rejected before it can reach the
+ * server-side `fetch` in the export task — otherwise a row could turn
+ * the export worker into an SSRF proxy against internal addresses.
+ */
+function isTrustedLegacyImageUrl(url: string): boolean {
+  if (url.startsWith("data:image/")) return true;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      /(^|\.)convex\.cloud$/.test(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Fetches a workspace's non-deleted notes and images for data export,
  * or its shared links when `scope === "links"`.
  * When `imageIds` is provided, only those images are included; otherwise
@@ -216,6 +237,12 @@ export const getWorkspaceExportData = internalQuery({
           // `image-${index}.${ext}` when no filename is available,
           // which is the same naming used before this PR.
           contentType = metadata?.contentType ?? undefined;
+        } else if (!isTrustedLegacyImageUrl(imageUrl)) {
+          // No storage id and no B2 key: the only trustworthy value is
+          // an inline data URI or a Convex storage URL. Drop anything
+          // else so the export worker never fetches a client-supplied
+          // arbitrary URL.
+          imageUrl = "";
         }
         return {
           imageUrl,
