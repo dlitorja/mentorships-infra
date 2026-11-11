@@ -1097,9 +1097,14 @@ test("recordB2FileUpload binds a freshly minted key after B2 HEAD succeeds", asy
   );
   expect(ledger?.completedAt).toBeTypeOf("number");
   expect(ledger?.cancelledAt).toBeUndefined();
-  // Exactly one HEAD fetch (the confirm path); the mint action
-  // does not fetch.
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  // Exactly one HEAD fetch (the confirm path); the mint action does not
+  // fetch. Scope to this object so a scheduled cleanup from another
+  // test firing on the same tick cannot make the count flaky.
+  const headCalls = fetchSpy.mock.calls.filter(([url]) =>
+    String(url).includes(b2Key)
+  );
+  expect(headCalls).toHaveLength(1);
+  expect((headCalls[0][1] as RequestInit).method).toBe("HEAD");
 });
 
 test("recordB2FileUpload rejects when B2 HEAD reports a missing object", async () => {
@@ -2145,8 +2150,15 @@ test("deleteFromB2WorkspaceAction issues a SigV4 DELETE to the workspace bucket"
     b2Key: "2026-01-01/file_del/del.png",
   });
 
-  expect(fetchSpy).toHaveBeenCalledTimes(1);
-  const [calledUrl, calledInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
+  // Scope the assertion to this object's DELETE. `fetch` is global and a
+  // scheduled cleanup from an earlier test in this file can fire on the
+  // same tick, which is what made the old `toHaveBeenCalledTimes(1)`
+  // flake in CI.
+  const deleteCalls = fetchSpy.mock.calls.filter(
+    ([url]) => String(url) === `${expectedB2BaseUrl()}/2026-01-01/file_del/del.png`
+  );
+  expect(deleteCalls).toHaveLength(1);
+  const [calledUrl, calledInit] = deleteCalls[0] as [string, RequestInit];
   expect(calledUrl).toBe(
     `${expectedB2BaseUrl()}/2026-01-01/file_del/del.png`
   );
