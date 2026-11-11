@@ -69,6 +69,8 @@ describe("WorkExampleGallery", () => {
     for (const call of apiFetchMock.mock.calls) {
       expect(String(call[0])).not.toContain("download=1");
     }
+    // Retention disclaimer for reviewers (instructors + admins).
+    expect(screen.getByText(/automatically deleted/i)).toBeInTheDocument();
   });
 
   it("opens a full-size preview when a thumbnail is clicked", async () => {

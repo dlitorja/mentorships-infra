@@ -48,6 +48,14 @@ export const MIN_INSPIRATIONS = 3;
 export const MAX_INSPIRATIONS = 4;
 export const ONBOARDING_WORK_EXAMPLES_B2_PREFIX = "onboarding";
 
+/**
+ * Uploaded artwork is deleted this many months after upload. Mirrors
+ * `ONBOARDING_WORK_EXAMPLE_RETENTION_MS` in
+ * `convex/workspaceConstants.ts`; used for the disclaimer shown to
+ * students and reviewers.
+ */
+export const ONBOARDING_WORK_EXAMPLE_RETENTION_MONTHS = 6;
+
 export const ONBOARDING_AUTOSAVE_DEBOUNCE_MS = 500;
 // PR onboarding-reminder-cadence — per-reminder offsets measured
 // from the student's last activity timestamp. Length must equal

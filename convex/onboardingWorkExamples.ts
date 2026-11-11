@@ -14,6 +14,7 @@ import { internal } from "./_generated/api";
 import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
   ONBOARDING_WORK_EXAMPLES_B2_PREFIX,
+  ONBOARDING_WORK_EXAMPLE_RETENTION_MS,
 } from "./workspaceConstants";
 
 /**
@@ -516,12 +517,10 @@ export const deleteWorkExample = mutation({
       deletedAt: Date.now(),
     });
 
-    // PR 4 follow-up (Greptile P2 #8): the actual B2 object
-    // deletion belongs in an action so failures can retry.
-    // For this PR we mark the DB row deleted and rely on the
-    // `onboarding/<id>/` B2 lifecycle rule to GC objects on
-    // terminal onboarding status. A second PR will add the
-    // retryable action.
+    // The row is hidden immediately; the B2 object is removed by the
+    // 6-month retention sweep (`cleanup-expired-onboarding-artwork`),
+    // which also covers soft-deleted rows. Deleting here would race a
+    // download from a reviewer mid-request.
     return null;
   },
 });
@@ -529,8 +528,10 @@ export const deleteWorkExample = mutation({
 /**
  * Internal mutation: purge all rows for an onboarding when the
  * admin onboarding hits a terminal status (`completed`,
- * `cancelled`, `failed`). Soft-deletes DB rows; actual B2
- * object cleanup is the action's job (P2 follow-up).
+ * `cancelled`, `failed`). Soft-deletes the DB rows (they stop resolving
+ * immediately); the B2 objects are removed by the 6-month retention
+ * sweep, which includes `deleted` rows that have not been stamped with
+ * `artifactDeletedAt` yet.
  */
 export const purgeWorkExamplesForOnboarding = internalMutation({
   args: { onboardingId: v.id("adminOnboardings") },
@@ -550,6 +551,104 @@ export const purgeWorkExamplesForOnboarding = internalMutation({
       purged++;
     }
     return { purged };
+  },
+});
+
+/**
+ * Retention sweep data: the oldest live work-example rows older than
+ * the 6-month upload window.
+ *
+ * Internal and task-facing (`POST /onboarding/work-examples/expired`,
+ * gated by `CONVEX_HTTP_KEY`). The Trigger job deletes each B2 object
+ * (all versions) and then calls `markWorkExamplesExpired`.
+ *
+ * Uses `by_status_uploadedAt` so the sweep scans only live rows and
+ * stops at the retention cutoff; rows already marked deleted never enter
+ * the batch. Results are oldest-first so a backlog drains predictably.
+ */
+export const listExpiredWorkExamples = internalQuery({
+  args: {
+    // Evaluation time in epoch ms (injectable for tests).
+    now: v.number(),
+    limit: v.number(),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("onboardingWorkExamples"),
+      onboardingId: v.id("adminOnboardings"),
+      b2Key: v.string(),
+      uploadedAt: v.number(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const cutoff = args.now - ONBOARDING_WORK_EXAMPLE_RETENTION_MS;
+    const limit = Math.max(1, Math.min(args.limit, 200));
+    const expired: Array<{
+      _id: Id<"onboardingWorkExamples">;
+      onboardingId: Id<"adminOnboardings">;
+      b2Key: string;
+      uploadedAt: number;
+    }> = [];
+
+    // Include `deleted` rows: cancellation only hides the row, so the
+    // object can still be in B2. The `artifactDeletedAt` stamp removes
+    // them once the bytes are gone.
+    for (const status of ["active", "pending", "deleted"] as const) {
+      const rows = await ctx.db
+        .query("onboardingWorkExamples")
+        .withIndex("by_status_uploadedAt", (q) =>
+          q.eq("status", status).lt("uploadedAt", cutoff)
+        )
+        .filter((q) => q.eq(q.field("artifactDeletedAt"), undefined))
+        .order("asc")
+        .take(limit);
+      for (const row of rows) {
+        expired.push({
+          _id: row._id,
+          onboardingId: row.onboardingId,
+          b2Key: row.b2Key,
+          uploadedAt: row.uploadedAt,
+        });
+      }
+    }
+
+    return expired
+      .sort((a, b) => a.uploadedAt - b.uploadedAt)
+      .slice(0, limit);
+  },
+});
+
+/**
+ * Marks work examples deleted after their B2 objects were removed by the
+ * retention sweep. Idempotent: already-deleted rows are skipped, so a
+ * retried batch is safe.
+ */
+export const markWorkExamplesExpired = internalMutation({
+  args: {
+    workExampleIds: v.array(v.id("onboardingWorkExamples")),
+    // Injectable for tests.
+    now: v.optional(v.number()),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const deletedAt = args.now ?? Date.now();
+    let marked = 0;
+    for (const id of args.workExampleIds) {
+      const row = await ctx.db.get("onboardingWorkExamples", id);
+      // Idempotent: a retried batch skips rows whose object was already
+      // removed and stamped.
+      if (!row || row.artifactDeletedAt !== undefined) continue;
+      await ctx.db.patch(id, {
+        // Cancellation / purge may already have hidden the row; keep
+        // its original `deletedAt` in that case.
+        ...(row.status === "deleted"
+          ? {}
+          : { status: "deleted" as const, deletedAt }),
+        artifactDeletedAt: deletedAt,
+      });
+      marked++;
+    }
+    return marked;
   },
 });
 

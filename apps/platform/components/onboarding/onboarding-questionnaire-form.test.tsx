@@ -82,5 +82,8 @@ describe("OnboardingQuestionnaireForm", () => {
     expect(screen.getByText("Submitted")).toBeInTheDocument();
     // The student's answers remain visible read-only after submission.
     expect(screen.getByDisplayValue("Draw better characters")).toBeDisabled();
+    // Retention disclaimer stays visible (it applies to uploads already
+    // made, not just new ones).
+    expect(screen.getByText(/automatically deleted/i)).toBeInTheDocument();
   });
 });

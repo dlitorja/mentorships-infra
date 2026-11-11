@@ -1852,6 +1852,12 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("active"), v.literal("deleted")),
     uploadedAt: v.number(),
     deletedAt: v.optional(v.number()),
+    // Set by the 6-month retention sweep after the B2 object (all
+    // versions) was removed. A row can be `deleted` (hidden) while its
+    // object still exists — cancellation only soft-deletes — so this is
+    // the stamp that keeps the sweep from re-listing the same key every
+    // day.
+    artifactDeletedAt: v.optional(v.number()),
     // Client-supplied id used to correlate the B2 PUT callback with
     // the row. Stable across retries so a re-upload of the same file
     // is idempotent on `recordWorkExampleUpload`.
@@ -1859,6 +1865,9 @@ export default defineSchema({
   })
     .index("by_onboardingId", ["onboardingId"])
     .index("by_onboardingId_active", ["onboardingId", "status"])
+    // Retention sweep: finds the oldest live rows without scanning
+    // already-deleted ones.
+    .index("by_status_uploadedAt", ["status", "uploadedAt"])
     // Greptile round-13 P1 #4: a caller can re-use the same
     // (fileId, fileName) and receive multiple reservations for
     // the same b2Key, which lets a single uploaded object count

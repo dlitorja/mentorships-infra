@@ -22,6 +22,7 @@ import {
   MIN_INSPIRATIONS,
   MAX_INSPIRATIONS,
   ONBOARDING_REQUIRED_QUESTION_IDS,
+  ONBOARDING_WORK_EXAMPLE_RETENTION_MONTHS,
   WORK_EXAMPLE_ALLOWED_MIME,
 } from "@/lib/workspace-constants";
 import {
@@ -951,6 +952,10 @@ export default function OnboardingQuestionnaireForm({
             {workExamples.filter((w) => w.status === "active").length} of {MIN_WORK_EXAMPLES_PER_SUBMISSION}–{MAX_WORK_EXAMPLES_PER_ONBOARDING}{" "}
             uploaded. Max {Math.round(MAX_WORK_EXAMPLE_BYTES / (1024 * 1024))} MB
             per file. {WORK_EXAMPLE_ALLOWED_MIME_LIST.join(", ")}.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Uploaded artwork is stored privately and automatically deleted{" "}
+            {ONBOARDING_WORK_EXAMPLE_RETENTION_MONTHS} months after upload.
           </p>
         </CardContent>
       </Card>

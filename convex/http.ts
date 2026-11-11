@@ -903,6 +903,68 @@ const httpGetInstructorGoogleCredentials = httpAction(async (ctx, request) => {
 
 const http = httpRouter();
 
+/**
+ * Task-facing retention data: work-example rows older than the 6-month
+ * upload window. Gated by CONVEX_HTTP_KEY.
+ */
+export const httpListExpiredWorkExamples = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { now, limit } = await request.json();
+
+  try {
+    const result = await ctx.runQuery(
+      internal.onboardingWorkExamples.listExpiredWorkExamples,
+      {
+        now: typeof now === "number" ? now : Date.now(),
+        limit: typeof limit === "number" ? limit : 100,
+      }
+    );
+    return new Response(JSON.stringify({ workExamples: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+/**
+ * Marks work examples deleted after the retention task removed their B2
+ * objects. Idempotent. Gated by CONVEX_HTTP_KEY.
+ */
+export const httpMarkExpiredWorkExamples = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { workExampleIds } = await request.json();
+  if (!Array.isArray(workExampleIds)) {
+    return new Response(JSON.stringify({ error: "workExampleIds must be an array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const marked = await ctx.runMutation(
+      internal.onboardingWorkExamples.markWorkExamplesExpired,
+      { workExampleIds }
+    );
+    return new Response(JSON.stringify({ marked }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+
 http.route({
   path: "/workspace/retention/delete",
   method: "POST",
@@ -961,6 +1023,18 @@ http.route({
   path: "/onboarding/artwork-export/update-status",
   method: "POST",
   handler: httpUpdateOnboardingArtworkExportStatus,
+});
+
+http.route({
+  path: "/onboarding/work-examples/expired",
+  method: "POST",
+  handler: httpListExpiredWorkExamples,
+});
+
+http.route({
+  path: "/onboarding/work-examples/mark-expired",
+  method: "POST",
+  handler: httpMarkExpiredWorkExamples,
 });
 
 http.route({

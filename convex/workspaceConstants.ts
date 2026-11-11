@@ -274,3 +274,18 @@ export const ONBOARDING_QUESTIONNAIRE_VERSION = 1;
 /** Hard minimum on work examples for a valid submission. Plan §5.4
  *  accepts 4–6; the cron / form use the floor of 4 as the gate. */
 export const MIN_WORK_EXAMPLES_PER_SUBMISSION = 4;
+
+/**
+ * Onboarding artwork retention: uploaded work examples are deleted six
+ * months after upload. This is a privacy commitment shown to students on
+ * the questionnaire and to reviewers in the artwork gallery, so the
+ * sweep (`src/trigger/onboarding-artwork-retention.ts`) must actually
+ * remove the B2 objects — not just hide the rows.
+ *
+ * Uses 30-day months for consistency with the 18-month workspace
+ * retention math (`WORKSPACE_RETENTION_MS`).
+ *
+ * Mirrored in `apps/platform/lib/workspace-constants.ts` for the UI copy.
+ */
+export const ONBOARDING_WORK_EXAMPLE_RETENTION_MS =
+  6 * 30 * 24 * 60 * 60 * 1000;
