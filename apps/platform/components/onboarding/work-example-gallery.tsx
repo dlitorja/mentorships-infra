@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ApiRoutes } from "@/lib/routes";
+import { ONBOARDING_WORK_EXAMPLE_RETENTION_MONTHS } from "@/lib/workspace-constants";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import {
   useCancelOnboardingArtworkExport,
@@ -404,6 +405,12 @@ export function WorkExampleGallery({
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{grid}</div>
+
+      <p className="mt-2 text-xs text-muted-foreground">
+        Artwork is automatically deleted{" "}
+        {ONBOARDING_WORK_EXAMPLE_RETENTION_MONTHS} months after the student
+        uploads it.
+      </p>
 
       <Dialog
         open={active !== null}

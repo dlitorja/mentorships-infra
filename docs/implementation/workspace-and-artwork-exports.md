@@ -170,6 +170,42 @@ The window lives in two mirrored constants
 (`packages/storage/src/export-artifacts.ts` for the Trigger sweep,
 `convex/workspaceConstants.ts` for the Convex cron). Keep them in sync.
 
+## Onboarding artwork retention (6 months)
+
+Uploaded questionnaire artwork (work examples) is deleted **six months
+after upload**. This is a privacy commitment, not just a hidden row: the
+B2 object is removed.
+
+- `convex/workspaceConstants.ts:ONBOARDING_WORK_EXAMPLE_RETENTION_MS`
+  (6 × 30 days) is the window; `apps/platform/lib/workspace-constants.ts`
+  mirrors it for the UI copy.
+- The Trigger schedule `cleanup-expired-onboarding-artwork`
+  (`src/trigger/onboarding-artwork-retention.ts`) runs daily at 03:45
+  UTC. It asks Convex (`POST /onboarding/work-examples/expired`, gated by
+  `CONVEX_HTTP_KEY`) for the oldest live rows older than the window,
+  deletes **every B2 version** of each key (the workspace bucket has
+  versioning enabled), then calls
+  `POST /onboarding/work-examples/mark-expired`.
+- `listExpiredWorkExamples` includes `pending`, `active`, **and
+  soft-deleted** rows without an `artifactDeletedAt` stamp: cancellation
+  only hides a row, so its object is still in B2 and would otherwise
+  linger. `markWorkExamplesExpired` writes the stamp (and hides the row
+  if it was still visible). The stamp is part of the
+  `by_status_artifactDeletedAt_uploadedAt` index, so cleaned rows never
+  re-enter the scan.
+- Upload keys use a **server-generated** `fileId`
+  (`convex/onboardingWorkExamplesActions.ts`) so two uploads can never
+  share a `b2Key`. For legacy rows that still collide, the expired row
+  is returned with `sharedWithNewerLive: true`: the row is retired but
+  the worker keeps the object for the newer upload that points at it.
+  Flagging instead of skipping also means a run of shared keys cannot
+  hide unrelated expired rows behind them.
+- Object deletion is idempotent; a failed batch leaves its rows
+  unstamped and the next daily run retries.
+- Disclaimer copy (small muted text) is rendered to both audiences:
+  students under the questionnaire's artwork grid, and reviewers
+  (instructors and admins) under the artwork gallery.
+
 ## Export rows and scopes
 
 `workspaceExports` rows carry an optional `scope` (`workspace` |

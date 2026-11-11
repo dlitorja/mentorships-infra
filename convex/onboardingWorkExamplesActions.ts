@@ -1,5 +1,6 @@
 "use node";
 
+import { randomUUID } from "node:crypto";
 import { action, internalAction } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -104,11 +105,18 @@ export const generateWorkExampleUploadUrl = action({
     // the check and then both insert. This mirrors the
     // `reserveB2FileUploadLedger` pattern from
     // `workspaceStorage.ts`.
+    //
+    // The key's `fileId` segment is generated SERVER-side. A
+    // client-supplied id let two uploads share one `b2Key`, which made
+    // the 6-month retention sweep delete a newer upload along with the
+    // expired one. The arg stays for backwards compatibility but is
+    // deliberately ignored.
+    const fileId = randomUUID();
     const reservation = await ctx.runMutation(
       (internal as any).onboardingWorkExamples.reserveWorkExampleUpload,
       {
         onboardingId: args.onboardingId,
-        fileId: args.fileId,
+        fileId,
         fileName: args.fileName,
         contentType: args.contentType,
         size: args.size,
@@ -121,7 +129,7 @@ export const generateWorkExampleUploadUrl = action({
     }
 
     const safeName = safePathSegment(args.fileName);
-    const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${args.fileId}/${safeName}`;
+    const b2Key = `${ONBOARDING_WORK_EXAMPLES_B2_PREFIX}/${args.onboardingId}/${fileId}/${safeName}`;
 
     const uploadUrl = await signedWorkspaceUploadUrl(b2Key, {
       contentType: args.contentType,
