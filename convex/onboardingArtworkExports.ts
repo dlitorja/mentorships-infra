@@ -5,6 +5,7 @@ import {
   query,
 } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { getAuthorizedOnboardingRow } from "./onboardingWorkExamples";
 
 /**
@@ -28,7 +29,8 @@ import { getAuthorizedOnboardingRow } from "./onboardingWorkExamples";
  *   derived from auth, never from the client.
  */
 
-const ARTWORK_EXPORT_TASK = "process-onboarding-artwork-export";
+const MISSING_TRIGGER_KEY_MESSAGE =
+  "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.";
 
 /** Creates a pending export row and asks Trigger.dev to build the ZIP. */
 export const createOnboardingArtworkExport = mutation({
@@ -74,47 +76,26 @@ export const createOnboardingArtworkExport = mutation({
 
     const triggerSecretKey =
       process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
-    const missingKeyMessage =
-      "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not set in the Convex environment variables.";
 
     if (!triggerSecretKey) {
       await ctx.db.patch(exportId, {
         status: "failed",
-        errorMessage: missingKeyMessage,
+        errorMessage: MISSING_TRIGGER_KEY_MESSAGE,
       });
-      return { exportId, errorMessage: missingKeyMessage };
+      return { exportId, errorMessage: MISSING_TRIGGER_KEY_MESSAGE };
     }
 
-    try {
-      const response = await fetch(
-        `https://api.trigger.dev/api/v1/tasks/${ARTWORK_EXPORT_TASK}/trigger`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${triggerSecretKey}`,
-          },
-          body: JSON.stringify({
-            payload: {
-              onboardingId: args.onboardingId,
-              exportId: String(exportId),
-            },
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorMessage = `Trigger.dev request failed: ${response.status}`;
-        await ctx.db.patch(exportId, { status: "failed", errorMessage });
-        return { exportId, errorMessage };
+    // Convex mutations cannot make network requests, so the Trigger.dev
+    // call lives in an internal action. The action writes a failure back
+    // onto this row if the request is rejected.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.exportActions.triggerOnboardingArtworkExportTask,
+      {
+        exportId,
+        onboardingId: args.onboardingId,
       }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      await ctx.db.patch(exportId, { status: "failed", errorMessage });
-      console.error("Failed to trigger artwork export task:", error);
-      return { exportId, errorMessage };
-    }
+    );
 
     return { exportId };
   },

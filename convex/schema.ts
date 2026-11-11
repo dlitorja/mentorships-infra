@@ -944,7 +944,10 @@ export default defineSchema({
     errorMessage: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // Lets each workspace tab load its own most-recent export without
+    // competing with the other tab's history for the 10-row cap.
+    .index("by_workspaceId_scope", ["workspaceId", "scope"]),
 
   workspaceRetentionNotifications: defineTable({
     workspaceId: v.id("workspaces"),

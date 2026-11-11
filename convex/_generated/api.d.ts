@@ -37,6 +37,7 @@ import type * as dailyRecordingActions from "../dailyRecordingActions.js";
 import type * as digest from "../digest.js";
 import type * as digestActions from "../digestActions.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
+import type * as exportActions from "../exportActions.js";
 import type * as hdInvitations from "../hdInvitations.js";
 import type * as hdShareLinks from "../hdShareLinks.js";
 import type * as http from "../http.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   digest: typeof digest;
   digestActions: typeof digestActions;
   discordActionQueue: typeof discordActionQueue;
+  exportActions: typeof exportActions;
   hdInvitations: typeof hdInvitations;
   hdShareLinks: typeof hdShareLinks;
   http: typeof http;

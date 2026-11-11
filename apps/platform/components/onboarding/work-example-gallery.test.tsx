@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkExampleGallery } from "./work-example-gallery";
 
@@ -83,7 +83,9 @@ describe("WorkExampleGallery", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(dialog.textContent).toContain("sketch-one.png");
-    expect(screen.getAllByRole("img")).toHaveLength(3);
+    // Radix marks the rest of the app aria-hidden, so the lightbox
+    // image is the only accessible one.
+    expect(within(dialog).getAllByRole("img")).toHaveLength(1);
   });
 
   it("mints an attachment URL before saving a single image", async () => {
@@ -156,6 +158,30 @@ describe("WorkExampleGallery", () => {
     expect(await screen.findByText(/building zip/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /cancel export/i })
+    ).toBeInTheDocument();
+  });
+
+  it("hides an expired ZIP link and offers a rebuild instead", async () => {
+    exportRows = [
+      {
+        _id: "export_expired",
+        status: "completed",
+        downloadUrl: "https://b2.example.com/expired.zip",
+        expiresAt: Date.now() - 60_000,
+        fileCount: 2,
+      },
+    ];
+
+    render(
+      <WorkExampleGallery onboardingId="onboarding_1" examples={EXAMPLES as any} />
+    );
+
+    expect(await screen.findByText(/previous zip expired/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /download all/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /download all \(zip\)/i })
     ).toBeInTheDocument();
   });
 

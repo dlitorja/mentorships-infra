@@ -672,3 +672,118 @@ test("HTTP /workspace/export/data returns the b2Key for B2-backed images", async
   expect(body.images[0].imageUrl).toBe("");
   expect(body.images[0].fileName).toBe("sketch.png");
 });
+
+// ---------------------------------------------------------------------------
+// Trigger hand-off: network I/O must happen in an action, not a mutation
+// ---------------------------------------------------------------------------
+
+test("createWorkspaceExport schedules the trigger action instead of fetching in the mutation", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const student = t.withIdentity({ subject: studentUserId });
+
+    const { exportId } = await student.mutation(api.workspaces.createWorkspaceExport, {
+      workspaceId,
+      userId: studentUserId,
+      format: "csv",
+      scope: "links",
+    });
+
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect()
+    );
+    const entries = scheduled.filter((entry) =>
+      /triggerWorkspaceExportTask/i.test(entry.name)
+    );
+    expect(entries.length).toBe(1);
+    expect(JSON.stringify(entries[0].args)).toContain("process-workspace-links-export");
+    expect(JSON.stringify(entries[0].args)).toContain(exportId);
+  } finally {
+    clearTriggerCredentials();
+  }
+});
+
+test("triggerWorkspaceExportTask marks the row failed when Trigger.dev rejects the request", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response("nope", { status: 503 })) as typeof fetch;
+
+  try {
+    const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+    const exportId = await t.run(async (ctx) =>
+      ctx.db.insert("workspaceExports", {
+        workspaceId: workspaceId as any,
+        userId: studentUserId,
+        format: "zip",
+        scope: "images",
+        status: "pending",
+      })
+    );
+
+    await t.action(internal.exportActions.triggerWorkspaceExportTask, {
+      exportId,
+      workspaceId: workspaceId as any,
+      taskName: "process-workspace-export",
+      scope: "images",
+    });
+
+    const row = await t.run(async (ctx) => ctx.db.get(exportId));
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage).toMatch(/Trigger\.dev request failed: 503/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearTriggerCredentials();
+  }
+});
+
+test("getWorkspaceExports filters by scope so each tab keeps its own latest rows", async () => {
+  const t = convexTest(schema, modules);
+  const { workspaceId, studentUserId } = await seedWorkspaceAndUsers(t);
+
+  await t.run(async (ctx) => {
+    // Eleven newer Links exports: without server-side scoping these
+    // would push the Images ZIP out of the shared 10-row window.
+    for (let i = 0; i < 11; i++) {
+      await ctx.db.insert("workspaceExports", {
+        workspaceId: workspaceId as any,
+        userId: studentUserId,
+        format: "csv",
+        scope: "links",
+        status: "completed",
+      });
+    }
+    await ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      scope: "images",
+      status: "completed",
+      downloadUrl: "https://b2.example.com/images.zip",
+    });
+    // Legacy row (no scope) — should count as the Images tab's history.
+    await ctx.db.insert("workspaceExports", {
+      workspaceId: workspaceId as any,
+      userId: studentUserId,
+      format: "zip",
+      status: "completed",
+    });
+  });
+
+  const student = t.withIdentity({ subject: studentUserId });
+  const images = await student.query(api.workspaces.getWorkspaceExports, {
+    workspaceId,
+    scope: "images",
+  });
+  expect(images.map((row) => row.scope ?? "legacy")).toEqual(["legacy", "images"]);
+
+  const links = await student.query(api.workspaces.getWorkspaceExports, {
+    workspaceId,
+    scope: "links",
+  });
+  expect(links.length).toBe(10);
+  expect(links.every((row) => row.scope === "links")).toBe(true);
+});

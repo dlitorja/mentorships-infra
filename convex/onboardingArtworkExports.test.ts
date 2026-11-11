@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -377,4 +377,60 @@ test("HTTP /onboarding/artwork-export/update-status refuses to downgrade a compl
   expect(r.status).toBe(500);
   const body = await r.json();
   expect(body.error).toMatch(/already completed/i);
+});
+
+test("createOnboardingArtworkExport schedules the trigger action (mutations cannot fetch)", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  try {
+    const { onboardingId, instructorUserId } = await seedOnboarding(t);
+    const instructor = t.withIdentity({ subject: instructorUserId });
+
+    const { exportId } = await instructor.mutation(
+      api.onboardingArtworkExports.createOnboardingArtworkExport,
+      { onboardingId: onboardingId as any }
+    );
+
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect()
+    );
+    const entries = scheduled.filter((entry) =>
+      /triggerOnboardingArtworkExportTask/i.test(entry.name)
+    );
+    expect(entries.length).toBe(1);
+    expect(JSON.stringify(entries[0].args)).toContain(exportId);
+  } finally {
+    clearTriggerCredentials();
+  }
+});
+
+test("triggerOnboardingArtworkExportTask marks the row failed when Trigger.dev rejects the request", async () => {
+  const t = convexTest(schema, modules);
+  process.env.TRIGGER_SECRET_KEY = "trig_placeholder";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response("nope", { status: 500 })) as typeof fetch;
+
+  try {
+    const { onboardingId, instructorUserId } = await seedOnboarding(t);
+    const exportId = await t.run(async (ctx) =>
+      ctx.db.insert("onboardingArtworkExports", {
+        onboardingId: onboardingId as any,
+        requestedBy: instructorUserId,
+        status: "pending",
+      })
+    );
+
+    await t.action(internal.exportActions.triggerOnboardingArtworkExportTask, {
+      exportId,
+      onboardingId: onboardingId as any,
+    });
+
+    const row = await t.run(async (ctx) => ctx.db.get(exportId));
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage).toMatch(/Trigger\.dev request failed: 500/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearTriggerCredentials();
+  }
 });

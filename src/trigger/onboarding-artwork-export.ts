@@ -28,8 +28,14 @@ import { uniqueArchiveName } from "@mentorships/storage";
  * the same class of bug that broke workspace exports.
  */
 
-const CONVEX_DEPLOYMENT_URL =
-  process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_SITE_URL = (
+  process.env.CONVEX_SITE_URL ||
+  process.env.NEXT_PUBLIC_CONVEX_URL ||
+  process.env.CONVEX_DEPLOYMENT_URL ||
+  ""
+)
+  .replace(/\/+$/, "")
+  .replace(/\.convex\.cloud$/, ".convex.site");
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
 const WORKSPACE_BUCKET = process.env.WORKSPACE_STORAGE_BUCKET_NAME;
@@ -66,10 +72,10 @@ function getB2Client(): S3Client {
 }
 
 async function callConvexHttp(path: string, body: Record<string, unknown>): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
-    throw new Error("Convex deployment URL or HTTP key not configured");
+  if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
+    throw new Error("Convex site URL or HTTP key not configured");
   }
-  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}${path}`, {
+  const response = await fetch(`${CONVEX_SITE_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -239,7 +245,10 @@ export const processOnboardingArtworkExport = task({
 
       await updateExportStatus(exportId, "failed", { errorMessage });
 
-      return { success: false, error: errorMessage };
+      // Rethrow so Trigger.dev's retry policy (maxAttempts: 3) can
+      // recover from transient B2 / Convex failures. Returning
+      // `{ success: false }` marks the run complete and skips retries.
+      throw error;
     }
   },
 });

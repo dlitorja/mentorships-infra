@@ -7,7 +7,20 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { sendEmail } from "../../packages/emails/src/send";
 import { buildWorkspaceExportReadyEmail } from "../../packages/emails/src/workspace-export";
 
-const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+// Convex HTTP actions live on the `.convex.site` host, not the
+// `.convex.cloud` host that `NEXT_PUBLIC_CONVEX_URL` points at.
+// Posting to the cloud host returns a function API response (or a
+// 404), so every status update here would fail silently and the export
+// row would sit in `processing` forever. Prefer an explicit site URL
+// when one is configured and normalize otherwise.
+const CONVEX_SITE_URL = (
+  process.env.CONVEX_SITE_URL ||
+  process.env.NEXT_PUBLIC_CONVEX_URL ||
+  process.env.CONVEX_DEPLOYMENT_URL ||
+  ""
+)
+  .replace(/\/+$/, "")
+  .replace(/\.convex\.cloud$/, ".convex.site");
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const B2_KEY_ID = process.env.B2_KEY_ID;
 const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
@@ -58,11 +71,11 @@ function getB2Client(): S3Client {
 }
 
 async function callConvexHttp(path: string, body: Record<string, unknown>): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
-    throw new Error("Convex deployment URL or HTTP key not configured");
+  if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
+    throw new Error("Convex site URL or HTTP key not configured");
   }
 
-  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}${path}`, {
+  const response = await fetch(`${CONVEX_SITE_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -281,9 +294,28 @@ function extensionForContentType(contentType: string): string {
     "image/webp": "webp",
     "image/svg+xml": "svg",
     "image/heic": "heic",
+    "image/heif": "heif",
     "image/avif": "avif",
+    "image/tiff": "tif",
+    "image/bmp": "bmp",
   };
   return map[mediaType] || "bin";
+}
+
+/**
+ * Returns the sanitized extension from a filename, or null when the
+ * name has none / it is not safe to use.
+ *
+ * Preferring the stored filename over the MIME lookup keeps `.jpeg`
+ * as `.jpeg` and preserves formats the MIME map doesn't know (TIFF,
+ * BMP, HEIC, …). The name came from a sanitized B2 key, so it cannot
+ * contain path separators, but it is still re-checked here.
+ */
+function extensionFromFileName(fileName: string): string | null {
+  const match = /\.([a-zA-Z0-9]{1,8})$/.exec(fileName);
+  if (!match) return null;
+  const ext = match[1].toLowerCase();
+  return /^[a-z0-9]+$/.test(ext) ? ext : null;
 }
 
 function generateMarkdown(notes: Array<{ title: string; content: string; updatedAt: number }>): string {
@@ -394,7 +426,11 @@ export const processWorkspaceExport = task({
           .replace(/\.[^./\\]+$/, "")
           .replace(/[^a-zA-Z0-9._-]/g, "_")
           .slice(0, 80);
-        const name = uniqueName(`${safeStem}.${fetched.extension}`, usedNames);
+        // Prefer the stored filename's extension (keeps `.jpeg`,
+        // `.tif`, …); fall back to the MIME lookup only when the name
+        // has no usable one.
+        const extension = extensionFromFileName(baseName) ?? fetched.extension;
+        const name = uniqueName(`${safeStem}.${extension}`, usedNames);
         imageEntries.push({
           name: `images/${name}`,
           bytes: fetched.bytes,
@@ -459,7 +495,10 @@ export const processWorkspaceExport = task({
 
       await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
-      return { success: false, error: errorMessage };
+      // Rethrow so Trigger.dev's retry policy (maxAttempts: 3) can
+      // recover from transient B2 / Convex failures. Returning
+      // `{ success: false }` marks the run complete and skips retries.
+      throw error;
     }
   },
 });
@@ -599,7 +638,8 @@ export const processWorkspacePdfExport = task({
 
       await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
-      return { success: false, error: errorMessage };
+      // Rethrow so a transient B2 / Convex failure is retried.
+      throw error;
     }
   },
 });
@@ -725,7 +765,9 @@ export const processWorkspaceLinksExport = task({
 
       await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
-      return { success: false, error: errorMessage };
+      // Let Trigger.dev retry transient failures instead of ending the
+      // run on the first error.
+      throw error;
     }
   },
 });

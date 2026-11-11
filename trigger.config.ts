@@ -53,6 +53,10 @@ export default defineConfig({
           }
         };
         pushIfPresent("NEXT_PUBLIC_CONVEX_URL", process.env.NEXT_PUBLIC_CONVEX_URL);
+        // Convex HTTP actions live on the `.convex.site` host; the
+        // export tasks normalize `NEXT_PUBLIC_CONVEX_URL` themselves,
+        // but an explicit value avoids relying on that rewrite.
+        pushIfPresent("CONVEX_SITE_URL", process.env.CONVEX_SITE_URL);
         pushIfPresent("CONVEX_HTTP_KEY", process.env.CONVEX_HTTP_KEY);
         pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
         pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);

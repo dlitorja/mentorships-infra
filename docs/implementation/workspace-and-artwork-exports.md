@@ -30,8 +30,10 @@ Reviewer flow:
    - "Download all (ZIP)" calls the Convex mutation
      `onboardingArtworkExports.createOnboardingArtworkExport`.
 3. That mutation inserts a `pending` row in `onboardingArtworkExports`
-   and triggers the Trigger.dev task
-   `process-onboarding-artwork-export`.
+   and schedules `exportActions.triggerOnboardingArtworkExportTask`.
+   Convex mutations cannot perform network I/O, so the HTTP call to
+   Trigger.dev lives in an internal action; it writes a failure back
+   onto the row (with `errorMessage`) if Trigger rejects the request.
 4. The task reads the active work-example keys from
    `POST /onboarding/artwork-export/data` (gated by `CONVEX_HTTP_KEY`),
    streams each object from `WORKSPACE_STORAGE_BUCKET_NAME` into an
@@ -41,7 +43,9 @@ Reviewer flow:
    with a 7-day signed URL.
 5. The gallery subscribes to `onboardingArtworkExports` (live Convex
    query), so the button flips to "Download all" as soon as the row is
-   `completed` — no polling.
+   `completed` — no polling. Signed URLs last 7 days; once
+   `expiresAt` passes the gallery hides the stale link and offers
+   "Download all (ZIP)" to rebuild.
 
 Auth: the same gate as every other onboarding read — assigned student,
 an assigned instructor, or admin/support
@@ -94,14 +98,22 @@ returned a signed URL and no filename.
 CSV (not ZIP) because the payload is tabular and small — a reviewer
 opens it in Sheets/Excel directly.
 
+Like the artwork mutation, `createWorkspaceExport` schedules
+`exportActions.triggerWorkspaceExportTask` instead of calling
+Trigger.dev inline.
+
 ## Export rows and scopes
 
 `workspaceExports` rows carry an optional `scope` (`workspace` |
-`images` | `links`). Each tab filters to its own scope via
-`latestExportForScope`, so a Links CSV never shows up as the Images
-tab's "Download ZIP" (and vice versa). Rows created before `scope`
-existed are treated as the full-workspace ZIP and appear on the Images
-tab.
+`images` | `links`) and the table has a `by_workspaceId_scope` index.
+Each tab passes its scope to `getWorkspaceExports`, so it receives its
+own 10 most recent rows — ten newer Links exports cannot push a valid
+Images ZIP out of view. Rows created before `scope` existed are treated
+as the full-workspace ZIP and appear on the Images tab.
+
+`exportActions` failures are recorded with an `errorMessage`, which is
+what distinguishes them from a user cancel (`failed` with no
+`errorMessage`) in `updateWorkspaceExportStatus`.
 
 `(format, scope)` pairs are looked up in a task map in
 `convex/workspaces.ts`; an unsupported pair marks the row `failed` with
@@ -115,6 +127,12 @@ Trigger.dev project env (see `trigger.config.ts`):
 - `B2_KEY_ID`, `B2_APPLICATION_KEY`
 - `WORKSPACE_STORAGE_BUCKET_NAME` (required — exports never fall back to
   `B2_BUCKET_NAME`, which points at a different bucket)
+- `CONVEX_SITE_URL` (optional; recommended). Convex **HTTP actions**
+  live on `*.convex.site`, while `NEXT_PUBLIC_CONVEX_URL` points at
+  `*.convex.cloud`. The export tasks prefer `CONVEX_SITE_URL` and
+  otherwise rewrite `.convex.cloud` → `.convex.site` on the
+  `NEXT_PUBLIC_CONVEX_URL` value. Without this rewrite every status
+  update 404s and the row never leaves `processing`.
 
 Convex env:
 

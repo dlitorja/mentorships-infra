@@ -11,7 +11,6 @@ import {
   useCreateWorkspaceExport,
   useCancelWorkspaceExport,
   useWorkspaceExports,
-  latestExportForScope,
   type InstructorResource,
 } from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
@@ -120,10 +119,10 @@ export default function WorkspaceLinks({ workspaceId, activeSessionId, currentUs
   // Links-tab export: a CSV of every shared link, built by the
   // Trigger.dev task `process-workspace-links-export` and stored in
   // B2 (never Convex storage).
-  const { data: exports } = useWorkspaceExports(workspaceId);
+  const { data: exports } = useWorkspaceExports(workspaceId, "links");
   const createExport = useCreateWorkspaceExport();
   const cancelExport = useCancelWorkspaceExport();
-  const latestExport = latestExportForScope(exports, 'links');
+  const latestExport = exports?.[0];
   const isExportProcessing = latestExport?.status === 'processing';
   const isExportPending = latestExport?.status === 'pending';
 

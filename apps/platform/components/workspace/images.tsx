@@ -13,7 +13,6 @@ import {
   useCreateWorkspaceExport,
   useCancelWorkspaceExport,
   useWorkspaceExports,
-  latestExportForScope,
   useGenerateWorkspaceUploadUrl,
   useRecordB2FileUpload,
   useBatchWorkspaceImageUrls,
@@ -90,7 +89,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     imagesStatus === 'CanLoadMore' || imagesStatus === 'LoadingMore';
   const isLoadingMoreImages = imagesStatus === 'LoadingMore';
   const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspace(workspaceId);
-  const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
+  const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId, "images");
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
@@ -109,9 +108,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
     : (role === 'student' ? WORKSPACE_IMAGE_CAPS.student : WORKSPACE_IMAGE_CAPS.instructor);
   const remainingSlots = maxImages - currentCount;
 
-  // The exports list is workspace-wide; the Images tab only cares
-  // about its own ZIP rows (legacy rows without a scope count too).
-  const latestExport = latestExportForScope(exports, "images");
+  // Scoped server-side: this list only contains the Images tab's own
+  // ZIP rows (including pre-scope legacy rows).
+  const latestExport = exports?.[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
 

@@ -767,35 +767,18 @@ export interface WorkspaceExport {
  * any polling. The previous `refetchInterval: 2000` was removed
  * because reactive queries already push changes as they happen.
  *
- * Returns the 10 most recent exports in descending order by creation time.
+ * Pass the tab's `scope` so each tab gets its own most-recent rows
+ * instead of sharing one 10-row cap across scopes. Returns at most 10
+ * exports in descending order by creation time.
  */
-export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
+export function useWorkspaceExports(
+  workspaceId: Id<"workspaces">,
+  scope?: "workspace" | "images" | "links"
+) {
   return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
+    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId, scope }),
     enabled: !!workspaceId,
   });
-}
-
-/**
- * Picks the most recent export that belongs to a workspace tab.
- *
- * Exports are workspace-scoped rows shared by every tab, so each tab
- * has to filter to its own `scope` — otherwise the Links tab would
- * render the Images ZIP as its own result (and offer to "download" a
- * zip from a CSV button). Legacy rows with no `scope` are treated as
- * the full-workspace ZIP, which is what the Images tab used before the
- * `scope` column existed.
- */
-export function latestExportForScope(
-  exports: WorkspaceExport[] | undefined,
-  scope: "images" | "links"
-): WorkspaceExport | undefined {
-  if (!exports || exports.length === 0) return undefined;
-  return exports.find((item) =>
-    scope === "images"
-      ? item.scope === "images" || item.scope === undefined || item.scope === "workspace"
-      : item.scope === "links"
-  );
 }
 
 /**

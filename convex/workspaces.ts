@@ -3851,40 +3851,16 @@ export const createWorkspaceExport = mutation({
       return { exportId, errorMessage };
     }
 
-    try {
-      const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${triggerSecretKey}`,
-        },
-        body: JSON.stringify({
-          payload: {
-            workspaceId: args.workspaceId,
-            exportId: String(exportId),
-            imageIds: args.imageIds,
-            scope: args.scope,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorMessage = `Trigger.dev request failed: ${response.status}`;
-        await ctx.db.patch(exportId, {
-          status: "failed",
-          errorMessage,
-        });
-        return { exportId, errorMessage };
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await ctx.db.patch(exportId, {
-        status: "failed",
-        errorMessage,
-      });
-      console.error("Failed to trigger export task:", error);
-      return { exportId, errorMessage };
-    }
+    // The Trigger.dev call is network I/O, which a Convex mutation
+    // cannot perform. Schedule the action; it writes a failure back
+    // onto the row (with an errorMessage) if the request is rejected.
+    await ctx.scheduler.runAfter(0, internal.exportActions.triggerWorkspaceExportTask, {
+      exportId,
+      workspaceId: args.workspaceId,
+      taskName,
+      scope: args.scope,
+      imageIds: args.imageIds,
+    });
 
     return { exportId };
   },
@@ -3933,9 +3909,24 @@ export const cancelWorkspaceExport = mutation({
 /**
  * Returns the 10 most recent exports for a workspace.
  * Returns an empty array for callers who are not active participants.
+ *
+ * Pass `scope` to get that tab's most recent rows. Without it the list
+ * is capped at 10 rows across every scope, so ten newer Links exports
+ * could push a still-valid Images ZIP out of view (and vice versa).
+ * Legacy rows created before `scope` existed are returned for the
+ * `images` scope, since they are the old full-workspace ZIP.
  */
 export const getWorkspaceExports = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    scope: v.optional(
+      v.union(
+        v.literal("workspace"),
+        v.literal("images"),
+        v.literal("links")
+      )
+    ),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -3954,11 +3945,36 @@ export const getWorkspaceExports = query({
       return [];
     }
 
-    return await ctx.db
-      .query("workspaceExports")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .order("desc")
-      .take(10);
+    const LIMIT = 10;
+
+    if (!args.scope) {
+      return await ctx.db
+        .query("workspaceExports")
+        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+        .order("desc")
+        .take(LIMIT);
+    }
+
+    // The Images tab also owns pre-scope rows (the old full-workspace
+    // ZIP), so query both `images` and the absent value.
+    const scopes: Array<"workspace" | "images" | "links" | undefined> =
+      args.scope === "images"
+        ? ["images", "workspace", undefined]
+        : [args.scope];
+
+    const rows: Doc<"workspaceExports">[] = [];
+    for (const scope of scopes) {
+      const page = await ctx.db
+        .query("workspaceExports")
+        .withIndex("by_workspaceId_scope", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("scope", scope)
+        )
+        .order("desc")
+        .take(LIMIT);
+      rows.push(...page);
+    }
+
+    return rows.sort((a, b) => b._creationTime - a._creationTime).slice(0, LIMIT);
   },
 });
 

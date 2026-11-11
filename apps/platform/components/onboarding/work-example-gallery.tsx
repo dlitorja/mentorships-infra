@@ -1,10 +1,23 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Image as ImageIcon, Loader2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Image as ImageIcon,
+  Loader2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ApiRoutes } from "@/lib/routes";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -59,6 +72,12 @@ async function fetchSignedUrl(
   return res.url;
 }
 
+function isExpired(expiresAt: number | undefined): boolean {
+  // No `expiresAt` means a row written before the field existed; treat
+  // it as live rather than hiding a working link.
+  return typeof expiresAt === "number" && expiresAt <= Date.now();
+}
+
 export function WorkExampleGallery({
   onboardingId,
   examples,
@@ -75,10 +94,13 @@ export function WorkExampleGallery({
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  // Ids already requested. A ref (not state) so re-renders with a new
-  // `examples` array identity don't re-mint URLs for images we already
-  // resolved.
-  const requestedRef = useRef<Set<string>>(new Set());
+
+  // Ids with a request in flight. Only used to avoid duplicate GETs —
+  // correctness (never stranding an id) is handled by applying results
+  // as long as the component is mounted, not by the `cancelled` flag
+  // that used to discard them.
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const mountedRef = useRef(true);
 
   const { data: exports, isLoading: exportsLoading } =
     useOnboardingArtworkExports(onboardingId as Id<"adminOnboardings">);
@@ -87,32 +109,51 @@ export function WorkExampleGallery({
 
   const latestExport = exports?.[0];
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const pendingIds = useMemo(
+    () =>
+      examples
+        .map((example) => example._id as string)
+        .filter((id) => !urls[id] && !failedIds.has(id)),
+    [examples, urls, failedIds]
+  );
+  // `pendingIds` is a fresh array each render; the joined string keeps
+  // the effect from re-running when nothing actually changed.
+  const pendingKey = pendingIds.join(",");
+
   // Prefetch every thumbnail's signed URL in parallel. Each request is
   // auth-checked server-side, so this is safe to do eagerly for the
   // current viewer.
   useEffect(() => {
-    let cancelled = false;
+    const ids = pendingKey
+      ? pendingKey.split(",").filter((id) => !inFlightRef.current.has(id))
+      : [];
+    if (ids.length === 0) return;
 
-    const missing = examples.filter((example) => {
-      const id = example._id as string;
-      if (requestedRef.current.has(id)) return false;
-      requestedRef.current.add(id);
-      return true;
-    });
-    if (missing.length === 0) return;
+    for (const id of ids) inFlightRef.current.add(id);
 
     (async () => {
       const results = await Promise.allSettled(
-        missing.map((example) =>
-          fetchSignedUrl(onboardingId, example._id as string, false)
-        )
+        ids.map((id) => fetchSignedUrl(onboardingId, id, false))
       );
-      if (cancelled) return;
+      for (const id of ids) inFlightRef.current.delete(id);
+
+      // Apply results even if the effect was re-run for a newer
+      // `examples` array — discarding them would leave those ids
+      // permanently missing from `urls`, and the effect would not
+      // re-run for an unchanged `pendingKey`.
+      if (!mountedRef.current) return;
 
       const nextUrls: Record<string, string> = {};
       const nextFailed = new Set<string>();
       results.forEach((result, index) => {
-        const id = missing[index]._id as string;
+        const id = ids[index];
         if (result.status === "fulfilled") {
           nextUrls[id] = result.value;
         } else {
@@ -127,11 +168,10 @@ export function WorkExampleGallery({
         setFailedIds((prev) => new Set([...prev, ...nextFailed]));
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [onboardingId, examples]);
+    // `ids` is derived from `pendingKey`; listing it directly would
+    // re-run on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey, onboardingId]);
 
   const active = activeIndex !== null ? examples[activeIndex] : null;
   const activeUrl = active ? urls[active._id] : undefined;
@@ -141,7 +181,6 @@ export function WorkExampleGallery({
   useEffect(() => {
     if (activeIndex === null) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeLightbox();
       if (event.key === "ArrowRight") {
         setActiveIndex((current) =>
           current === null ? current : Math.min(current + 1, examples.length - 1)
@@ -155,7 +194,7 @@ export function WorkExampleGallery({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeIndex, closeLightbox, examples.length]);
+  }, [activeIndex, examples.length]);
 
   const handleDownload = useCallback(
     async (example: WorkExampleGalleryItem) => {
@@ -204,6 +243,8 @@ export function WorkExampleGallery({
 
   const exportStatus = latestExport?.status;
   const isExporting = exportStatus === "pending" || exportStatus === "processing";
+  const exportExpired =
+    exportStatus === "completed" && isExpired(latestExport?.expiresAt);
 
   const grid = useMemo(
     () =>
@@ -299,16 +340,18 @@ export function WorkExampleGallery({
                     cancelExport.mutate({ id: latestExport._id })
                   }
                   disabled={cancelExport.isPending}
+                  aria-label="Cancel export"
                 >
                   {cancelExport.isPending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <X className="h-3.5 w-3.5" />
                   )}
-                  <span className="sr-only">Cancel export</span>
                 </Button>
               </>
-            ) : exportStatus === "completed" && latestExport?.downloadUrl ? (
+            ) : exportStatus === "completed" &&
+              latestExport?.downloadUrl &&
+              !exportExpired ? (
               <>
                 <Button type="button" size="sm" variant="default" asChild>
                   <a href={latestExport.downloadUrl} download>
@@ -343,6 +386,11 @@ export function WorkExampleGallery({
                   )}
                   Download all (ZIP)
                 </Button>
+                {exportExpired && (
+                  <span className="text-xs text-muted-foreground">
+                    Previous ZIP expired
+                  </span>
+                )}
                 {exportStatus === "failed" && latestExport?.errorMessage && (
                   <span
                     className="max-w-[18rem] truncate text-xs text-destructive"
@@ -359,100 +407,101 @@ export function WorkExampleGallery({
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{grid}</div>
 
-      {active && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${active.fileName} preview`}
-          className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4"
-          onClick={closeLightbox}
-        >
-          <div className="flex items-center justify-between gap-3 pb-3 text-white">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{active.fileName}</p>
-              {formatBytes(active.size) && (
-                <p className="text-xs text-white/60">{formatBytes(active.size)}</p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleDownload(active);
-                }}
-                disabled={downloadingId === active._id}
-              >
-                {downloadingId === active._id ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="mr-1 h-3.5 w-3.5" />
-                )}
-                Download
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="text-white hover:bg-white/20"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  closeLightbox();
-                }}
-                aria-label="Close preview"
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-          </div>
+      <Dialog
+        open={active !== null}
+        onOpenChange={(open) => {
+          if (!open) closeLightbox();
+        }}
+      >
+        <DialogContent className="h-screen w-screen max-h-screen max-w-[100vw] gap-0 rounded-none border-none bg-black/95 p-0 [&>button]:hidden">
+          <DialogTitle className="sr-only">
+            {active ? `${active.fileName} preview` : "Artwork preview"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Full-size preview of the uploaded artwork. Use the arrow keys to move
+            between images.
+          </DialogDescription>
+          {active && (
+            <div className="flex h-full w-full flex-col p-4">
+              <div className="flex items-center justify-between gap-3 pb-3 text-white">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{active.fileName}</p>
+                  {formatBytes(active.size) && (
+                    <p className="text-xs text-white/60">{formatBytes(active.size)}</p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleDownload(active)}
+                    disabled={downloadingId === active._id}
+                  >
+                    {downloadingId === active._id ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    Download
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="text-white hover:bg-white/20"
+                    onClick={closeLightbox}
+                    aria-label="Close preview"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
 
-          <div
-            className="relative flex flex-1 items-center justify-center"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {examples.length > 1 && (
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="absolute left-0 z-10 text-white hover:bg-white/20"
-                onClick={() => setActiveIndex(Math.max((activeIndex ?? 0) - 1, 0))}
-                disabled={(activeIndex ?? 0) === 0}
-                aria-label="Previous image"
-              >
-                <ChevronLeft className="h-6 w-6" />
-              </Button>
-            )}
-            {activeUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={activeUrl}
-                alt={active.fileName}
-                className="max-h-full max-w-full object-contain"
-              />
-            ) : (
-              <Loader2 className="h-8 w-8 animate-spin text-white/70" />
-            )}
-            {examples.length > 1 && (
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="absolute right-0 z-10 text-white hover:bg-white/20"
-                onClick={() =>
-                  setActiveIndex(Math.min((activeIndex ?? 0) + 1, examples.length - 1))
-                }
-                disabled={(activeIndex ?? 0) === examples.length - 1}
-                aria-label="Next image"
-              >
-                <ChevronRight className="h-6 w-6" />
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+              <div className="relative flex flex-1 items-center justify-center">
+                {examples.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute left-0 z-10 text-white hover:bg-white/20"
+                    onClick={() => setActiveIndex(Math.max((activeIndex ?? 0) - 1, 0))}
+                    disabled={(activeIndex ?? 0) === 0}
+                    aria-label="Previous image"
+                  >
+                    <ChevronLeft className="h-6 w-6" />
+                  </Button>
+                )}
+                {activeUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={activeUrl}
+                    alt={active.fileName}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <Loader2 className="h-8 w-8 animate-spin text-white/70" />
+                )}
+                {examples.length > 1 && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute right-0 z-10 text-white hover:bg-white/20"
+                    onClick={() =>
+                      setActiveIndex(Math.min((activeIndex ?? 0) + 1, examples.length - 1))
+                    }
+                    disabled={(activeIndex ?? 0) === examples.length - 1}
+                    aria-label="Next image"
+                  >
+                    <ChevronRight className="h-6 w-6" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
