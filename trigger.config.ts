@@ -1,5 +1,6 @@
 import { defineConfig } from "@trigger.dev/sdk";
 import { additionalFiles, syncEnvVars } from "@trigger.dev/build/extensions/core";
+import { normalizeBaseUrl } from "./packages/emails/src/base-url";
 
 export default defineConfig({
   project: "proj_fvyorgaijayllujsxzgb",
@@ -75,7 +76,35 @@ export default defineConfig({
         pushIfPresent("EMAIL_FROM_MARKETING", process.env.EMAIL_FROM_MARKETING);
         pushIfPresent("EMAIL_FROM_STAGING", process.env.EMAIL_FROM_STAGING);
         pushIfPresent("EMAIL_REPLY_TO", process.env.EMAIL_REPLY_TO);
-        pushIfPresent("NEXT_PUBLIC_URL", process.env.NEXT_PUBLIC_URL);
+        // NEXT_PUBLIC_URL is the base for EVERY link in every email a
+        // task sends, so it gets a stricter guard than the `pushIfPresent`
+        // "is it non-empty?" check. `syncEnvVars` runs with
+        // `override: true` and the Trigger.dev CLI loads `.env` /
+        // `.env.local` into `process.env` before deploying, so a deploy
+        // from a checkout whose `.env.local` is the redacted template
+        // copied `NEXT_PUBLIC_URL="[SENSITIVE]"` into production. Every
+        // email then shipped `[SENSITIVE]/auth-redirect?redirect_url=…`,
+        // which no mail client can render as a clickable link.
+        //
+        // A malformed value is therefore SKIPPED (dashboard value kept,
+        // warning printed) rather than pushed. Combined with
+        // `getBaseUrl()`'s validation, a bad value can no longer reach
+        // production silently: the sync refuses it, and if one is set by
+        // hand the sending task fails loudly instead of emailing a dead
+        // link.
+        const rawEmailBaseUrl = process.env.NEXT_PUBLIC_URL?.trim();
+        if (rawEmailBaseUrl) {
+          const normalizedEmailBaseUrl = normalizeBaseUrl(rawEmailBaseUrl);
+          if (normalizedEmailBaseUrl) {
+            emitted.push({ name: "NEXT_PUBLIC_URL", value: normalizedEmailBaseUrl });
+          } else {
+            console.warn(
+              `[trigger.config] Skipping NEXT_PUBLIC_URL sync: "${rawEmailBaseUrl}" ` +
+                "is not an absolute http(s) URL. The Trigger.dev dashboard value " +
+                "is left untouched. A redacted .env.local puts `[SENSITIVE]` here.",
+            );
+          }
+        }
         pushIfPresent("DAILY_API_KEY", process.env.DAILY_API_KEY);
         pushIfPresent(
           "CONVEX_TRIGGER_CALLBACK_SECRET",

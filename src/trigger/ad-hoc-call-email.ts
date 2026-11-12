@@ -51,21 +51,22 @@ export const sendAdHocCallInviteEmail = task({
     randomize: true,
   },
   run: async (payload: Payload) => {
-    const greetingName = payload.recipientFirstName?.trim() || "there";
-
     const built = buildAdHocCallInviteEmail({
       callerName: payload.callerName,
       callerRole: payload.callerRole,
       workspaceName: payload.workspaceName,
       workspaceId: payload.workspaceId,
       sessionId: payload.sessionId,
+      recipientFirstName: payload.recipientFirstName,
     });
 
-    const personalizedSubject = `[${greetingName}] ${built.subject}`;
-
+    // Greeting/subject personalization lives in the builder so it is
+    // unit-tested. The task previously prefixed the recipient's name in
+    // brackets ("[Jane] Sarah Lee started…", or "[there] …" when the
+    // name lookup was empty), which read like a broken template.
     const result = await sendEmail({
       to: payload.recipientEmail,
-      subject: personalizedSubject,
+      subject: built.subject,
       text: built.text,
       html: built.html,
       headers: built.headers,
