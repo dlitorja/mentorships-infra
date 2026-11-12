@@ -285,3 +285,6 @@ differently because their review cost is different.
   before; no changes here. (CodeRabbit skips due to the
   fewer-than-10-stars threshold; that's documented in AGENTS.md
   and we rely on Greptile alone for review coverage.)
+- [`opencode-zen-cost-policy.md`](./opencode-zen-cost-policy.md) — the
+  other half of the AI bill: the coding agent sits at ~$60/month after the
+  DeepSeek 4.1 Flash switch, so review volume is now the larger line item.
