@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { requireBaseUrl } from "./base-url";
 import { EmailKind, resolveFrom } from "./envelope";
 
 export type SendEmailArgs = {
@@ -17,9 +18,27 @@ export type SendEmailResult =
   | { ok: false; skipped: true; reason: string }
   | { ok: false; error: string };
 
+/**
+ * Resolves the public app origin used to build every link in outgoing email.
+ *
+ * The value is validated, not passed through: a redacted placeholder
+ * (`[SENSITIVE]`, copied into the Trigger.dev project by a local deploy of
+ * this repo's `.env.local` template) previously reached production and
+ * produced `[SENSITIVE]/auth-redirect?redirect_url=…` links that no mail
+ * client could render as clickable. A malformed value now throws so the
+ * sending task fails loudly instead of delivering an unusable email.
+ *
+ * @returns Normalized absolute origin, e.g. `https://dev.mentorships.huckleberry.art`
+ * @throws Error when the configured value is missing in production or malformed
+ */
 export function getBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  const configured = process.env.NEXT_PUBLIC_URL;
+  if (configured && configured.trim().length > 0) {
+    return requireBaseUrl(configured, "NEXT_PUBLIC_URL");
+  }
+  if (process.env.VERCEL_URL) {
+    return requireBaseUrl(`https://${process.env.VERCEL_URL}`, "VERCEL_URL");
+  }
   if (process.env.NODE_ENV === "production") {
     throw new Error("Base URL not configured. Set NEXT_PUBLIC_URL (or VERCEL_URL) for emails.");
   }

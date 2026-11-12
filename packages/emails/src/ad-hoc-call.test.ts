@@ -133,4 +133,93 @@ describe("buildAdHocCallInviteEmail", () => {
     expect(result.text).toMatch(/\/auth-redirect\?redirect_url=/);
     expect(result.html).toMatch(/href="https:\/\/app\.huckleberry-art\.dev\/auth-redirect\?redirect_url=/);
   });
+
+  // Regression: the fallback ("if the button does not work") was a
+  // plain-text `<div>` inside a `<p>` — invalid nesting, and text the
+  // recipient could not click. It must be a real anchor carrying the
+  // same absolute URL as the button.
+  it("renders the fallback link as a clickable absolute anchor", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.html).toMatch(
+      /If the button does not work, use this link:<br\/>\s*<a href="https:\/\/app\.huckleberry-art\.dev\/auth-redirect\?redirect_url=[^"]+"[^>]*>https:\/\/app\.huckleberry-art\.dev\/auth-redirect\?redirect_url=[^<]+<\/a>/,
+    );
+    // The old shape wrapped the URL in a <div> nested inside a <p>.
+    expect(result.html).not.toMatch(/copy\/paste this link:<br\/>\s*<div>/);
+    // Both anchors point at the same absolute URL.
+    const hrefs = [...result.html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    expect(hrefs).toHaveLength(2);
+    expect(hrefs[0]).toBe(hrefs[1]);
+    expect(hrefs[0].startsWith("https://")).toBe(true);
+  });
+
+  it("greets the recipient by first name when one is provided", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+      recipientFirstName: "  Jane ",
+    });
+
+    expect(result.subject).toBe("Sarah Lee started a mentorship call");
+    expect(result.text.startsWith("Hi Jane,")).toBe(true);
+    expect(result.html).toContain("Hi Jane,");
+    // No bracketed subject prefix — that lived in the Trigger task and
+    // produced "[there] …" when the name lookup came back empty.
+    expect(result.subject).not.toMatch(/^\[/);
+  });
+
+  it("omits the greeting entirely when the recipient name is unknown", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+      recipientFirstName: null,
+    });
+
+    expect(result.text).not.toContain("Hi there");
+    expect(result.html).not.toContain("Hi there");
+    expect(result.html).not.toContain("Hi ,");
+  });
+
+  it("tells the recipient the link asks them to sign in and degrades if the call ended", () => {
+    const result = buildAdHocCallInviteEmail({
+      callerName: "Sarah Lee",
+      callerRole: "instructor",
+      workspaceName: "Acrylic Painting Mentorship",
+      workspaceId: "ws_abc123",
+      sessionId: "se_xyz789",
+    });
+
+    expect(result.text).toContain("You will be asked to sign in");
+    expect(result.text).toContain("If the call has already ended");
+    expect(result.html).toContain("You will be asked to sign in");
+    expect(result.html).toContain("If the call has already ended");
+  });
+
+  // Fail-loudly: a malformed base URL must break the build of the email
+  // instead of producing an unclickable link that still looks like an
+  // invite.
+  it("throws when NEXT_PUBLIC_URL is the redacted placeholder", () => {
+    process.env.NEXT_PUBLIC_URL = "[SENSITIVE]";
+    expect(() =>
+      buildAdHocCallInviteEmail({
+        callerName: "Sarah Lee",
+        callerRole: "instructor",
+        workspaceName: "Acrylic Painting Mentorship",
+        workspaceId: "ws_abc123",
+        sessionId: "se_xyz789",
+      }),
+    ).toThrowError(/Invalid email base URL for NEXT_PUBLIC_URL/);
+  });
 });

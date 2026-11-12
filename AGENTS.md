@@ -87,6 +87,7 @@ We prefer automating ops via CLI tools instead of asking humans to run them manu
 When deploying:
 - CI deploys must have all required secrets (`CONVEX_HTTP_KEY`, `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_ENDPOINT`, `DAILY_API_KEY`, `RESEND_API_KEY`, `CONVEX_TRIGGER_CALLBACK_SECRET`, etc.) in the deploy environment.
 - Local deploys from a developer machine will only push the secrets that are present in their `.env.local`. Production secrets are not overwritten by missing local values.
+- **`NEXT_PUBLIC_URL` is validated, not passed through.** It is the base for every link in every email a task sends, and the CLI loads `.env.local` into `process.env` before deploying — so a deploy from a checkout whose `.env.local` is the redacted template pushed `NEXT_PUBLIC_URL="[SENSITIVE]"` into production and every email shipped `[SENSITIVE]/auth-redirect?…` (unclickable in every mail client). `syncEnvVars` now skips any value that is not an absolute http(s) URL (warning + dashboard value kept), and `getBaseUrl()` in `packages/emails/src/send.ts` throws rather than returning an unusable base, so a bad value fails the sending task loudly instead of emailing a dead link. Validation lives in `packages/emails/src/base-url.ts`.
 - To validate a deploy without actually deploying: `npx trigger.dev@4.5.15 deploy --dry-run` (must match the installed `@trigger.dev/sdk` version).
 
 Required env vars for the recording pipeline tasks (`transfer-daily-recording-to-b2`, `send-recording-retention-warning-page`):
