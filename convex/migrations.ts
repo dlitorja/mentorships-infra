@@ -307,3 +307,45 @@ export const backfillNotificationPreferences = migrations.define({
 export const runBackfillNotificationPreferences = migrations.runner(
   internal.migrations.backfillNotificationPreferences
 );
+
+/**
+ * Repair session packs whose `remainingSessions` exceeds `totalSessions`.
+ *
+ * `admin.incrementRemainingSessions` (the marketing admin "Sessions +"
+ * control) used to raise the balance without growing the pack, so a full
+ * 4/4 pack became 4/5. The platform workspace dialog enforces
+ * `remainingSessions <= totalSessions` on write — it caps the "Edit
+ * remaining sessions" input at the pack size and its Reset path is
+ * rejected for the same reason — so those rows could not be saved or
+ * reset from the workspace at all.
+ *
+ * The writer is fixed in the same PR (it now grows `totalSessions` the way
+ * `sessionPacks.addSessionsToPack` does); this backfill repairs rows
+ * already written. Raising `totalSessions` to the recorded balance keeps
+ * the sessions the student was actually granted and restores the
+ * invariant, and it makes the pack's refund ratio
+ * (`remainingSessions / totalSessions`) truthful — before the repair,
+ * 4/5 reports a full refund while one of five credits was already used.
+ *
+ * Idempotent: rows that already satisfy the invariant are skipped, so
+ * re-running after a partial pass is safe.
+ *
+ * Usage (after this deploys):
+ *   npx convex run --prod migrations:run '{"fn":"migrations:repairSessionPackOverCapacity"}'
+ */
+export const repairSessionPackOverCapacity = migrations.define({
+  table: "sessionPacks",
+  migrateOne: async (
+    _ctx,
+    pack: { totalSessions: number; remainingSessions: number },
+  ): Promise<Partial<typeof pack> | undefined> => {
+    if (pack.remainingSessions <= pack.totalSessions) {
+      return undefined;
+    }
+    return { totalSessions: pack.remainingSessions };
+  },
+});
+
+export const runRepairSessionPackOverCapacity = migrations.runner(
+  internal.migrations.repairSessionPackOverCapacity
+);

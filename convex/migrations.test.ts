@@ -132,3 +132,48 @@ test("backfillSessionWorkspaceLinks is idempotent — second run is a no-op", as
   expect(afterSecond?.hasRecordingArtifact).toBe(true);
   expect(afterSecond?.workspaceId).toBe(workspaceId);
 });
+
+test("repairSessionPackOverCapacity raises totalSessions to the recorded balance and is idempotent", async () => {
+  const t = convexTest(schema, modules);
+  migrationsTest.register(t);
+  const { instructorId } = await seedWorkspacePair(t);
+  const overCapacityId = await t.run(async (ctx) => {
+    return await ctx.db.insert("sessionPacks", {
+      userId: "user_student_migrations",
+      instructorId,
+      // The shape `admin.incrementRemainingSessions` used to produce for a
+      // full pack: one credit granted without growing the pack.
+      totalSessions: 4,
+      remainingSessions: 5,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+  });
+  const healthyId = await t.run(async (ctx) => {
+    return await ctx.db.insert("sessionPacks", {
+      userId: "user_student_migrations_healthy",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 3,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+  });
+
+  await t.mutation(internal.migrations.runRepairSessionPackOverCapacity, {});
+
+  const repaired = await t.run(async (ctx) => await ctx.db.get(overCapacityId));
+  expect(repaired?.remainingSessions).toBe(5);
+  expect(repaired?.totalSessions).toBe(5);
+
+  // In-invariant rows are untouched.
+  const untouched = await t.run(async (ctx) => await ctx.db.get(healthyId));
+  expect(untouched?.remainingSessions).toBe(3);
+  expect(untouched?.totalSessions).toBe(4);
+
+  // Re-run is a no-op.
+  await t.mutation(internal.migrations.runRepairSessionPackOverCapacity, {});
+  const afterSecond = await t.run(async (ctx) => await ctx.db.get(overCapacityId));
+  expect(afterSecond?.remainingSessions).toBe(5);
+  expect(afterSecond?.totalSessions).toBe(5);
+});
