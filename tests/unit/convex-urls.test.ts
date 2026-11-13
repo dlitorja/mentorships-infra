@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getConvexCloudUrl,
   getConvexSiteUrl,
@@ -15,6 +15,10 @@ function clearEnv() {
   for (const key of ENV_KEYS) delete process.env[key];
 }
 
+// Clear before *and* after: a developer shell or `.env` loader can leave a
+// real CONVEX_* value in process.env, which would make these assertions pass
+// or fail depending on the machine rather than on the code.
+beforeEach(clearEnv);
 afterEach(clearEnv);
 
 describe("getConvexSiteUrl", () => {
