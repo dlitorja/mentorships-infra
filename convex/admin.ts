@@ -834,15 +834,28 @@ export const incrementRemainingSessions = mutation({
     if (!pack) throw new Error("Session pack not found");
 
     const newRemaining = pack.remainingSessions + 1;
+    // Keep `remainingSessions <= totalSessions`. A grant that pushes the
+    // balance past the current pack size also grows the pack, exactly like
+    // the other grant paths (`sessionPacks.addSessionsToPack` — the
+    // instructor "+1" control — pack creation, and admin onboarding).
+    //
+    // Without this, incrementing a full pack (4/4) produced 4/5: a state
+    // the platform workspace dialog cannot repair, because it caps the
+    // input at `totalSessions` ("Remaining cannot exceed the original pack
+    // size") and its Reset path is rejected for the same reason. The
+    // pack's refund math (`remainingSessions / totalSessions`) also
+    // assumes the invariant.
+    const newTotal = Math.max(pack.totalSessions, newRemaining);
     // Atomic flip from "depleted" → "active" when recharging a depleted
     // pack back to a positive balance. Mirrors the Drizzle
     // `incrementRemainingSessions` behavior.
     const newStatus = pack.status === "depleted" && newRemaining > 0 ? "active" : pack.status;
     await ctx.db.patch(pack._id, {
       remainingSessions: newRemaining,
+      totalSessions: newTotal,
       status: newStatus,
     });
-    return { remainingSessions: newRemaining, status: newStatus };
+    return { remainingSessions: newRemaining, totalSessions: newTotal, status: newStatus };
   },
 });
 
