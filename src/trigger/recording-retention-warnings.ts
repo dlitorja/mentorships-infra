@@ -1,10 +1,10 @@
 import { logger, schedules, task, tasks } from "@trigger.dev/sdk";
 import { Resend } from "resend";
 import { resolveFrom } from "../../packages/emails/src/envelope";
+import { getConvexSiteUrl } from "./lib/convex-urls";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
-const CONVEX_DEPLOYMENT_URL =
-  process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_SITE_URL = getConvexSiteUrl();
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
 type NotificationRecipient = {
@@ -38,10 +38,10 @@ async function callConvex(
   path: string,
   init: RequestInit = {}
 ): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+  if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
     throw new Error("Convex deployment URL or HTTP key not configured");
   }
-  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}${path}`, {
+  const response = await fetch(`${CONVEX_SITE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",

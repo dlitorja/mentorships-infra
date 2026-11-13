@@ -6,9 +6,9 @@ import {
   decideRecordingReadyEmailOutcome,
   type RecordingReadyEmailDecision,
 } from "../../packages/emails/src/recording-ready-decision";
+import { getConvexSiteUrl } from "./lib/convex-urls";
 
-const CONVEX_DEPLOYMENT_URL =
-  process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_SITE_URL = getConvexSiteUrl();
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const CALLBACK_SECRET = process.env.CONVEX_TRIGGER_CALLBACK_SECRET;
 
@@ -291,14 +291,14 @@ async function convexQueryVisibility(payload: Payload): Promise<{
   workspaceId?: string;
   reason: string;
 }> {
-  if (!CONVEX_DEPLOYMENT_URL) {
-    throw new Error("CONVEX_DEPLOYMENT_URL / NEXT_PUBLIC_CONVEX_URL not set");
+  if (!CONVEX_SITE_URL) {
+    throw new Error("CONVEX_SITE_URL / NEXT_PUBLIC_CONVEX_URL not set");
   }
   if (!CONVEX_HTTP_KEY) {
     throw new Error("CONVEX_HTTP_KEY not set");
   }
   const response = await fetch(
-    `${CONVEX_DEPLOYMENT_URL}/recording-ready/visibility`,
+    `${CONVEX_SITE_URL}/recording-ready/visibility`,
     {
       method: "POST",
       headers: {
@@ -344,8 +344,8 @@ async function convexCallback(
     | { sessionId: string; recipientUserId: string }
     | { notificationId: string }
 ): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL) {
-    throw new Error("CONVEX_DEPLOYMENT_URL / NEXT_PUBLIC_CONVEX_URL not set");
+  if (!CONVEX_SITE_URL) {
+    throw new Error("CONVEX_SITE_URL / NEXT_PUBLIC_CONVEX_URL not set");
   }
   if (!CONVEX_HTTP_KEY) {
     throw new Error("CONVEX_HTTP_KEY not set");
@@ -356,7 +356,7 @@ async function convexCallback(
     );
   }
   const response = await fetch(
-    `${CONVEX_DEPLOYMENT_URL}/recording-ready/${pathSuffix}`,
+    `${CONVEX_SITE_URL}/recording-ready/${pathSuffix}`,
     {
       method: "POST",
       headers: {

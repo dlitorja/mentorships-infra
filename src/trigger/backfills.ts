@@ -3,16 +3,17 @@ import { db } from "../../packages/db/src/lib/drizzle";
 import {
   sql,
 } from "../../packages/db/src/schema";
+import { getConvexSiteUrl } from "./lib/convex-urls";
 
-const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_SITE_URL = getConvexSiteUrl();
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
 async function callConvexAction(actionPath: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+  if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
     throw new Error("Convex deployment URL or HTTP key not configured");
   }
 
-  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}/api/${actionPath}`, {
+  const response = await fetch(`${CONVEX_SITE_URL}/api/${actionPath}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -30,11 +31,11 @@ async function callConvexAction(actionPath: string, args: Record<string, unknown
 }
 
 async function callConvexQuery(queryPath: string, args: Record<string, unknown>): Promise<unknown> {
-  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+  if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
     throw new Error("Convex deployment URL or HTTP key not configured");
   }
 
-  const url = new URL(`${CONVEX_DEPLOYMENT_URL}/api/${queryPath}`);
+  const url = new URL(`${CONVEX_SITE_URL}/api/${queryPath}`);
   Object.entries(args).forEach(([k, v]) => url.searchParams.set(k, String(v)));
 
   const response = await fetch(url.toString(), {
@@ -129,12 +130,12 @@ export const migrateWorkspaceImagesToStorage = task({
   run: async () => {
     logger.info("Starting workspace images migration to Convex storage");
 
-    if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+    if (!CONVEX_SITE_URL || !CONVEX_HTTP_KEY) {
       throw new Error("Convex not configured");
     }
 
     const queryResponse = await fetch(
-      `${CONVEX_DEPLOYMENT_URL}/api/workspaces/getImagesNeedingMigration`,
+      `${CONVEX_SITE_URL}/api/workspaces/getImagesNeedingMigration`,
       {
         method: "GET",
         headers: {
@@ -169,7 +170,7 @@ export const migrateWorkspaceImagesToStorage = task({
     for (const img of imagesResult) {
       try {
         const actionResponse = await fetch(
-          `${CONVEX_DEPLOYMENT_URL}/api/workspaces/migrateWorkspaceImage`,
+          `${CONVEX_SITE_URL}/api/workspaces/migrateWorkspaceImage`,
           {
             method: "POST",
             headers: {
