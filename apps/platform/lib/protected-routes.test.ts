@@ -31,7 +31,12 @@ const APP_DIR = [
 if (!APP_DIR) {
   throw new Error("Could not locate apps/platform/app from the current working directory");
 }
-const GUARDED_PAGE = /require(?:Role|Auth)\s*\(/;
+/**
+ * Guards that throw `UnauthorizedError` when the request has no session:
+ * `requireAuth()` / `requireRole()` (`lib/auth-helpers.ts`) and
+ * `requireAuth()` / `requireDbUser()` (`lib/auth.ts`).
+ */
+const GUARDED_PAGE = /require(?:Role|Auth|DbUser)\s*\(/;
 
 const isProtectedRoute = createRouteMatcher([...PROTECTED_ROUTE_PATTERNS]);
 
@@ -75,7 +80,8 @@ describe("PROTECTED_ROUTE_PATTERNS", () => {
   it("finds the guarded pages it is supposed to check", () => {
     // Guards against the discovery helper silently returning nothing and
     // letting the coverage assertion below pass vacuously.
-    expect(guardedPages).toContain("/instructor/dashboard");
+    expect(guardedPages).toContain("/instructor/dashboard"); // requireRole()
+    expect(guardedPages).toContain("/settings"); // requireDbUser()
     expect(guardedPages.length).toBeGreaterThanOrEqual(10);
   });
 
