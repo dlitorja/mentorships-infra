@@ -2,7 +2,11 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { reportError } from "@/lib/observability";
-import { UnauthorizedError, ForbiddenError } from "@/lib/errors";
+import {
+  UnauthorizedError,
+  ForbiddenError,
+  SessionTokenError,
+} from "@/lib/errors";
 
 export type UserRole = "admin" | "instructor" | "student" | "support";
 
@@ -115,8 +119,32 @@ async function checkConvexAdminRole(userId: string): Promise<boolean> {
 }
 
 export async function getConvexAuthToken(): Promise<string | null> {
-  const clerkAuth = await auth();
-  return clerkAuth.getToken({ template: "convex" });
+  try {
+    const clerkAuth = await auth();
+    return await clerkAuth.getToken({ template: "convex" });
+  } catch (err) {
+    // Clerk mints the `convex` JWT through its backend API on every server
+    // render. A transient 5xx from that API used to bubble out of here as an
+    // unhandled server error, which Next rendered as the generic 500
+    // "Application error" page — indistinguishable from a broken login, and
+    // with no way back in (Nov 2026: an instructor was hit 9s after signing
+    // in, and production logs ~4 of these a week across users).
+    //
+    // Keep it loud (callers still fail, we do not silently degrade to an
+    // anonymous Convex read that would render "profile not found" to a
+    // signed-in user) but typed as a retryable 503 so the route error
+    // boundary can offer a retry.
+    await reportError({
+      source: "auth-helpers.getConvexAuthToken",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Clerk did not mint a Convex token for the current session",
+    });
+    throw new SessionTokenError(
+      "Could not authenticate your session with the backend. Please try again.",
+      { cause: err },
+    );
+  }
 }
 
 export async function getClerkUserEmail(userId: string): Promise<string | null> {
