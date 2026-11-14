@@ -12,19 +12,36 @@ import { Button } from "@/components/ui/button";
  * a transient Clerk failure hit `/instructor/dashboard` seconds after she
  * signed in (Nov 2026), and it reads as "login is broken".
  *
- * `reset()` re-renders the segment, which re-runs the server component and
- * re-attempts the Clerk token mint — the correct remedy for the transient
- * backend failures this boundary exists for. Deliberately does not show
- * `error.message`: server messages can carry internal detail, and the
- * digest is enough for support to correlate with logs.
+ * Recovery uses Next's `retry` prop (stable since 16.3), which re-fetches
+ * and re-renders the segment — the only thing that actually re-runs the
+ * failed server component and therefore re-attempts the Clerk token mint.
+ * `reset` only clears the boundary state without refetching, so it is used
+ * purely as a fallback when `retry` is unavailable.
+ *
+ * Deliberately does not render `error.message`: server errors are
+ * redacted in production anyway, and client-thrown values may not be an
+ * `Error`. The digest is shown instead so support can correlate with logs.
  */
+function digestOf(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("digest" in error)) {
+    return undefined;
+  }
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" ? digest : undefined;
+}
+
 export default function InstructorError({
   error,
+  retry,
   reset,
 }: {
-  error: Error & { digest?: string };
-  reset: () => void;
+  error: unknown;
+  retry?: () => void;
+  reset?: () => void;
 }) {
+  const attemptRecovery = retry ?? reset;
+  const digest = digestOf(error);
+
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4 rounded-lg border bg-card p-6 text-center">
@@ -32,10 +49,10 @@ export default function InstructorError({
         <p className="text-muted-foreground">
           This is usually temporary. Try again — you are still signed in.
         </p>
-        <Button onClick={reset}>Try again</Button>
+        <Button onClick={() => attemptRecovery?.()}>Try again</Button>
         <p className="text-xs text-muted-foreground">
           If it keeps happening, contact support
-          {error.digest ? ` and mention reference ${error.digest}` : ""}.
+          {digest ? ` and mention reference ${digest}` : ""}.
         </p>
       </div>
     </div>
