@@ -122,9 +122,13 @@ export default function AuditLogsPage() {
                     <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <p className="text-sm text-destructive">
-                        Couldn&apos;t load the next page of audit logs
-                        {error instanceof Error ? `: ${error.message}` : "."} The entries below are
-                        already loaded and still valid.
+                        {isFetchNextPageError
+                          ? `Couldn't load the next page of audit logs${
+                              error instanceof Error ? `: ${error.message}` : "."
+                            } The entries below are already loaded and still valid.`
+                          : `Couldn't refresh audit logs${
+                              error instanceof Error ? `: ${error.message}` : "."
+                            } The entries below were loaded earlier and may be out of date.`}
                       </p>
                     </div>
                     <Button
