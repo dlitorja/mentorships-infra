@@ -31,7 +31,10 @@ export function ProductForm({
   instructors,
   isLoadingInstructors,
 }: ProductFormProps) {
-  const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
+  // Both modes render the same "create-new" tab content (its label switches to
+  // "Edit Product" in edit mode). An `edit` value here matched no `TabsContent`,
+  // so edit mode opened on a blank form until the admin clicked a tab.
+  const [activeTab, setActiveTab] = useState("create-new");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
 
   const {

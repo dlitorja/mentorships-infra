@@ -12,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ExternalLink, Plus } from "lucide-react";
+import { Loader2, ExternalLink, Plus, AlertTriangle } from "lucide-react";
 import { getAdminWorkspaces } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
@@ -49,6 +49,9 @@ export default function WorkspacesPage() {
   const {
     data,
     isLoading,
+    isError,
+    error,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -132,6 +135,24 @@ export default function WorkspacesPage() {
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : isError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">
+                    Couldn&apos;t load workspaces
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    {error instanceof Error ? error.message : "The request failed."} This is a load
+                    failure, not an empty list.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="overflow-x-auto">

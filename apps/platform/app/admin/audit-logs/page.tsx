@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ExternalLink } from "lucide-react";
+import { Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { getAdminAuditLogs } from "@/lib/queries/api-client";
 import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
@@ -38,6 +38,9 @@ export default function AuditLogsPage() {
   const {
     data,
     isLoading,
+    isError,
+    error,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -83,13 +86,31 @@ export default function AuditLogsPage() {
         <CardHeader>
           <CardTitle>All Activity</CardTitle>
           <CardDescription>
-            {allLogs.length} log entries
+            Showing {allLogs.length} loaded {allLogs.length === 1 ? "entry" : "entries"}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : isError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">
+                    Couldn&apos;t load audit logs
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    {error instanceof Error ? error.message : "The request failed."} Do not read this
+                    as &quot;nothing happened&quot; — the log is unavailable, not empty.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="overflow-x-auto">

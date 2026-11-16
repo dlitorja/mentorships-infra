@@ -53,7 +53,7 @@ export default function InstructorsPage() {
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
 
-  const { data: allInstructors, isLoading, refetch } = useAllInstructors();
+  const { data: allInstructors, isLoading, isError, error, refetch } = useAllInstructors();
 
   const hardDeleteInstructorMutation = useMutation({
     mutationFn: async (id: Id<"instructors">) => {
@@ -186,6 +186,24 @@ export default function InstructorsPage() {
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : isError ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">
+                    Couldn&apos;t load instructors
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    {error instanceof Error ? error.message : "The request failed."} The roster below is
+                    not an empty roster — treat instructor state as unknown until this reloads.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
             </div>
           ) : instructors.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
