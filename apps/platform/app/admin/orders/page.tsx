@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ApiFetchError, createAdminRefund, getAdminOrders } from "@/lib/queries/api-client";
 import { 
   Search,
@@ -237,7 +237,22 @@ export default function AdminOrdersPage() {
   const pageSize = 20;
   const totalPages = Math.ceil(total / pageSize);
 
+  // Reset the page during render when the effective filters change, so the
+  // first request after a search is already page 1. An effect-based reset
+  // fetched the old page first, and a slow response could land last and paint
+  // the wrong rows (Greptile P1).
+  const filtersKey = JSON.stringify([debouncedSearch, statusFilter]);
+  const lastFiltersKeyRef = useRef(filtersKey);
+  if (lastFiltersKeyRef.current !== filtersKey) {
+    lastFiltersKeyRef.current = filtersKey;
+    if (page !== 1) setPage(1);
+  }
+
+  // Guards against out-of-order responses overwriting newer results.
+  const requestIdRef = useRef(0);
+
   const fetchOrders = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -247,27 +262,24 @@ export default function AdminOrdersPage() {
         page,
         pageSize,
       });
+      if (requestId !== requestIdRef.current) return;
 
       setOrders(data.items);
       setTotal(data.total);
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       // Failure is not "no orders" — say so, and offer a retry.
       setError(err instanceof Error ? err.message : "Failed to load orders");
       setOrders([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [page, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
-
-  // Any filter change invalidates the current page number.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, statusFilter]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

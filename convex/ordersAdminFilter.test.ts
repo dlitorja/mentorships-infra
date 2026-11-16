@@ -55,12 +55,12 @@ describe("orders.getOrdersForAdmin", () => {
   test("status is applied before pagination and total reflects matches", async () => {
     const t = await seedOrders();
 
+    // limit 1: filtering after slicing would return the newest order overall
+    // (a failed one) and a total of 4.
     const result = await t
       .withIdentity({ subject: "user_admin" })
-      .query(api.orders.getOrdersForAdmin, { status: "refunded", limit: 20, offset: 0 });
+      .query(api.orders.getOrdersForAdmin, { status: "refunded", limit: 1, offset: 0 });
 
-    // Unfiltered, four orders exist. Only one is refunded — and the total must
-    // say so, or the footer's "X of Z" lies.
     expect(result.total).toBe(1);
     expect(result.items).toHaveLength(1);
     expect(result.items[0].status).toBe("refunded");
@@ -69,12 +69,23 @@ describe("orders.getOrdersForAdmin", () => {
   test("search by customer email finds orders outside the first page", async () => {
     const t = await seedOrders();
 
-    const result = await t
+    // Two pages of one: the newest unfiltered order is a different customer's,
+    // so a filter-after-slice implementation returns the wrong row and total.
+    const firstPage = await t
       .withIdentity({ subject: "user_admin" })
-      .query(api.orders.getOrdersForAdmin, { search: "alice", limit: 20, offset: 0 });
+      .query(api.orders.getOrdersForAdmin, { search: "alice", limit: 1, offset: 0 });
+    const secondPage = await t
+      .withIdentity({ subject: "user_admin" })
+      .query(api.orders.getOrdersForAdmin, { search: "alice", limit: 1, offset: 1 });
 
-    expect(result.total).toBe(2);
-    expect(result.items.every((order) => order.userEmail === "alice@example.com")).toBe(true);
+    expect(firstPage.total).toBe(2);
+    expect(secondPage.total).toBe(2);
+    expect(firstPage.items[0].userEmail).toBe("alice@example.com");
+    expect(secondPage.items[0].userEmail).toBe("alice@example.com");
+    // The two pages are distinct orders, and the second is not reachable from
+    // the unfiltered first page.
+    expect(secondPage.items[0].id).not.toBe(firstPage.items[0].id);
+    expect(secondPage.hasMore).toBe(false);
   });
 
   test("search by order id returns that order", async () => {
@@ -103,7 +114,7 @@ describe("orders.getOrdersForAdmin", () => {
       .query(api.orders.getOrdersForAdmin, {
         status: "paid",
         search: "bob",
-        limit: 20,
+        limit: 1,
         offset: 0,
       });
 

@@ -124,17 +124,8 @@ export const getOrdersForAdmin = query({
     const offset = args.offset ?? 0;
     const search = args.search?.trim().toLowerCase() ?? "";
 
-    // Emails live on `users`; orders only carry the id.
-    let searchUserIds: Set<string> | null = null;
-    if (search) {
-      const users = await ctx.db.query("users").collect();
-      searchUserIds = new Set(
-        users
-          .filter((user) => user.email?.toLowerCase().includes(search))
-          .map((user) => user.userId)
-      );
-    }
-
+    // Status is applied first: it is index-scoped, so everything below works on
+    // the smallest set we can get without reading the whole table.
     const scoped = args.status
       ? await ctx.db
           .query("orders")
@@ -142,13 +133,31 @@ export const getOrdersForAdmin = query({
           .collect()
       : await ctx.db.query("orders").collect();
 
+    // Emails live on `users`; orders only carry the id. Resolve just the
+    // customers that appear in the scoped orders rather than scanning every
+    // registered user on each debounced keystroke.
+    let matchedUserIds: Set<string> | null = null;
+    if (search) {
+      const candidateUserIds = Array.from(new Set(scoped.map((order) => order.userId)));
+      const candidates = await Promise.all(
+        candidateUserIds.map((userId) =>
+          ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", userId)).first()
+        )
+      );
+      matchedUserIds = new Set(
+        candidates
+          .filter((user) => user?.email?.toLowerCase().includes(search))
+          .map((user) => user!.userId)
+      );
+    }
+
     const newestFirst = scoped.sort((a, b) => b._creationTime - a._creationTime);
 
     const matched = search
       ? newestFirst.filter(
           (order) =>
             order._id.toLowerCase().includes(search) ||
-            (searchUserIds?.has(order.userId) ?? false)
+            (matchedUserIds?.has(order.userId) ?? false)
         )
       : newestFirst;
 
