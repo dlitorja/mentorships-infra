@@ -244,6 +244,78 @@ function getStartOfYear(date: Date): number {
   return new Date(date.getFullYear(), 0, 1).getTime();
 }
 
+export type RevenueSummary = {
+  revenueThisMonth: number;
+  revenueLastMonth: number;
+  revenueThisYear: number;
+  revenueChange: number;
+  hasRevenueData: boolean;
+  hasHistoricalRevenue: boolean;
+};
+
+/**
+ * Aggregates completed payments into the dashboard's revenue figures.
+ *
+ * Extracted from `getStats` so the month/year windows can be tested without a
+ * clock dependency. Two rules matter here:
+ *
+ * - `amount` is already in dollars (the Stripe worker divides `amount_total` by
+ *   100 before persisting, and PayPal stores `order.totalAmount`), so no
+ *   conversion happens at read time.
+ * - `revenueLastMonth` is a calendar-month window, not a year-to-date one, so
+ *   January still reports December.
+ *
+ * Callers must fetch payments from `min(startOfYear, startOfLastMonth)`.
+ */
+export function summariseRevenue(
+  payments: ReadonlyArray<{ amount: string; _creationTime: number }>,
+  now: Date
+): RevenueSummary {
+  const startOfMonth = getStartOfMonth(now);
+  const startOfLastMonth = getStartOfLastMonth(now);
+  const startOfYear = getStartOfYear(now);
+
+  let revenueThisMonth = 0;
+  let revenueLastMonth = 0;
+  let revenueThisYear = 0;
+  let hasRevenueData = false;
+
+  for (const payment of payments) {
+    const amount = parseFloat(payment.amount) || 0;
+    const createdAt = payment._creationTime;
+
+    if (amount > 0) {
+      hasRevenueData = true;
+    }
+
+    if (createdAt >= startOfYear) {
+      revenueThisYear += amount;
+    }
+
+    if (createdAt >= startOfMonth) {
+      revenueThisMonth += amount;
+    } else if (createdAt >= startOfLastMonth && createdAt < startOfMonth) {
+      revenueLastMonth += amount;
+    }
+  }
+
+  let revenueChange = 0;
+  if (revenueLastMonth > 0) {
+    revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
+  } else if (revenueThisMonth > 0) {
+    revenueChange = 100;
+  }
+
+  return {
+    revenueThisMonth,
+    revenueLastMonth,
+    revenueThisYear,
+    revenueChange: Math.round(revenueChange * 10) / 10,
+    hasRevenueData,
+    hasHistoricalRevenue: revenueLastMonth > 0,
+  };
+}
+
 /**
  * Fetches admin dashboard statistics including active students, revenue metrics.
  * Returns current month, last month, and year-to-date revenue with change percentage.
@@ -258,7 +330,6 @@ export const getStats = query({
     if (!isAdmin) throw new Error("Forbidden");
 
     const now = new Date();
-    const startOfMonth = getStartOfMonth(now);
     const startOfLastMonth = getStartOfLastMonth(now);
     const startOfYear = getStartOfYear(now);
 
@@ -275,52 +346,23 @@ export const getStats = query({
       activeSeatReservations.map((seat) => seat.userId)
     ).size;
 
+    // Read from `startOfLastMonth`, not `startOfYear`: in January, December's
+    // payments sit *before* `startOfYear`, so a YTD floor silently zeroed
+    // `revenueLastMonth` and `hasHistoricalRevenue` exactly when the
+    // month-over-month comparison matters.
+    const windowStart = Math.min(startOfYear, startOfLastMonth);
     const allPayments = await ctx.db
       .query("payments")
       .withIndex("by_status", (q) => q.eq("status", "completed"))
-      .filter((q) => q.gte(q.field("_creationTime"), startOfYear))
+      .filter((q) => q.gte(q.field("_creationTime"), windowStart))
       .collect();
 
-    let revenueThisMonth = 0;
-    let revenueLastMonth = 0;
-    let revenueThisYear = 0;
-    let hasRevenueData = false;
-
-    for (const payment of allPayments) {
-      const amount = parseFloat(payment.amount) || 0;
-      const createdAt = payment._creationTime;
-
-      if (amount > 0) {
-        hasRevenueData = true;
-      }
-
-      if (createdAt >= startOfYear) {
-        revenueThisYear += amount;
-      }
-
-      if (createdAt >= startOfMonth) {
-        revenueThisMonth += amount;
-      } else if (createdAt >= startOfLastMonth && createdAt < startOfMonth) {
-        revenueLastMonth += amount;
-      }
-    }
-
-    let revenueChange = 0;
-    if (revenueLastMonth > 0) {
-      revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
-    } else if (revenueThisMonth > 0) {
-      revenueChange = 100;
-    }
+    const summary = summariseRevenue(allPayments, now);
 
     return {
       totalActiveStudents,
-      revenueThisMonth: revenueThisMonth / 100,
-      revenueLastMonth: revenueLastMonth / 100,
-      revenueChange: Math.round(revenueChange * 10) / 10,
-      revenueThisYear: revenueThisYear / 100,
-      hasRevenueData,
+      ...summary,
       hasStudentData: totalActiveStudents > 0,
-      hasHistoricalRevenue: revenueLastMonth > 0,
     };
   },
 });
