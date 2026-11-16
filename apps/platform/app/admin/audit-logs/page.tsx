@@ -39,6 +39,7 @@ export default function AuditLogsPage() {
     data,
     isLoading,
     isError,
+    isFetchNextPageError,
     error,
     refetch,
     fetchNextPage,
@@ -94,7 +95,7 @@ export default function AuditLogsPage() {
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : isError ? (
+          ) : isError && allLogs.length === 0 ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
@@ -113,7 +114,32 @@ export default function AuditLogsPage() {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* A failed Load More must not erase pages that already loaded. */}
+              {isError && (
+                <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm text-destructive">
+                        Couldn&apos;t load the next page of audit logs
+                        {error instanceof Error ? `: ${error.message}` : "."} The entries below are
+                        already loaded and still valid.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        isFetchNextPageError ? void fetchNextPage() : void refetch()
+                      }
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
@@ -163,7 +189,8 @@ export default function AuditLogsPage() {
                   )}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
           {hasNextPage && (
             <div className="flex justify-center py-4">

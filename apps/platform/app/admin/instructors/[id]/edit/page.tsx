@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { apiFetch, getAdminInstructors } from "@/lib/queries/api-client";
+import { apiFetch, ApiFetchError, getAdminInstructors } from "@/lib/queries/api-client";
 import { ApiRoutes } from "@/lib/routes";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 import { useUpdateInstructor } from "./hooks/use-update-instructor";
@@ -217,7 +217,9 @@ export default function EditInstructorPage() {
     );
   }
 
-  if (loadError) {
+  const isNotFound = loadError instanceof ApiFetchError && loadError.status === 404;
+
+  if (loadError && !isNotFound) {
     return (
       <div className="container mx-auto py-8">
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
@@ -246,7 +248,7 @@ export default function EditInstructorPage() {
     );
   }
 
-  if (!data) {
+  if (isNotFound || !data) {
     return (
       <div className="container mx-auto py-8">
         <p>Instructor not found.</p>
