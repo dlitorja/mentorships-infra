@@ -262,25 +262,18 @@ export const getStats = query({
     const startOfLastMonth = getStartOfLastMonth(now);
     const startOfYear = getStartOfYear(now);
 
+    // Canonical `totalActiveStudents` (audit §1.4): distinct students holding
+    // at least one active seat. The previous implementation counted active
+    // *packs* and dereferenced each one (an N+1) — a student with two packs
+    // counted twice, disagreeing with every other admin surface.
     const activeSeatReservations = await ctx.db
       .query("seatReservations")
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
 
-    const sessionPackIds = new Set<string>();
-    for (const seat of activeSeatReservations) {
-      if (seat.sessionPackId) {
-        sessionPackIds.add(seat.sessionPackId);
-      }
-    }
-
-    let totalActiveStudents = 0;
-    for (const packId of sessionPackIds) {
-      const pack = await ctx.db.get(packId as Id<"sessionPacks">);
-      if (pack && pack.status === "active") {
-        totalActiveStudents++;
-      }
-    }
+    const totalActiveStudents = new Set(
+      activeSeatReservations.map((seat) => seat.userId)
+    ).size;
 
     const allPayments = await ctx.db
       .query("payments")

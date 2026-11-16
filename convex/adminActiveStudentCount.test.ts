@@ -121,3 +121,17 @@ test("onboarding capacity: a second pack does not put the instructor at capacity
   expect(options[0].activeStudentCount).toBe(1);
   expect(options[0].maxActiveStudents).toBe(2);
 });
+
+test("admin.getStats: the dashboard total counts the student once", async () => {
+  const { t } = await seedInstructorWithTwoPacksForOneStudent();
+
+  const stats = await t
+    .withIdentity({ subject: "user_admin" })
+    .query(api.admin.getStats, {});
+
+  expect(stats.totalActiveStudents).toBe(1);
+  expect(stats.hasStudentData).toBe(true);
+  // No payments were seeded, so revenue is honestly empty rather than invented.
+  expect(stats.hasRevenueData).toBe(false);
+  expect(stats.revenueThisMonth).toBe(0);
+});
