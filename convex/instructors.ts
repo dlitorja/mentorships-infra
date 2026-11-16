@@ -1659,9 +1659,13 @@ export const getInstructorsForAdmin = query({
 
     return Promise.all(
       instructors.map(async (inst) => {
-        const activeStudentCount = seatReservations.filter(
-          (sr) => sr.instructorId === inst._id && sr.status === "active"
-        ).length;
+        // Canonical count: distinct students with an active seat. A student
+        // holding two packs is one student, not two.
+        const activeStudentCount = new Set(
+          seatReservations
+            .filter((sr) => sr.instructorId === inst._id && sr.status === "active")
+            .map((sr) => sr.userId)
+        ).size;
         return toInstructorListItem(ctx, inst, { activeStudentCount });
       })
     );
