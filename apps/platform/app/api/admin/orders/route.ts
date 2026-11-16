@@ -8,6 +8,12 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 const listOrdersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  // Previously absent: Zod silently stripped `status`, so the UI's filter was
+  // a no-op that returned the unfiltered list paginated as if filtered.
+  status: z
+    .enum(["pending", "paid", "refunded", "failed", "canceled"])
+    .optional(),
+  search: z.string().trim().max(200).optional(),
 });
 
 /**
@@ -17,6 +23,8 @@ const listOrdersQuerySchema = z.object({
  * Query params:
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
+ * - status: Filter by order status (applied before pagination)
+ * - search: Customer email substring or order id (applied before pagination)
  *
  * Uses Convex as source of truth. Orders are written to Convex during checkout.
  */
@@ -35,13 +43,15 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { page, pageSize } = parsedQuery.data;
+    const { page, pageSize, status, search } = parsedQuery.data;
     const offset = (page - 1) * pageSize;
 
     const convex = await getAuthenticatedConvexClient();
     const result = await convex.query(api.orders.getOrdersForAdmin, {
       limit: pageSize,
       offset,
+      status,
+      search,
     });
 
     return NextResponse.json({
