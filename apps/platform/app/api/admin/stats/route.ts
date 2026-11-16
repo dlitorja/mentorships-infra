@@ -1,27 +1,28 @@
 import { NextResponse } from "next/server";
-import { requireRoleForApi } from "@/lib/auth-helpers";
+import { api } from "@/convex/_generated/api";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
 /**
  * GET /api/admin/stats
- * Returns admin dashboard statistics placeholder.
- * Requires admin role. Currently returns zero values - revenue/student
- * data sourced from SQL/Drizzle (not yet migrated to Convex-only app).
+ *
+ * Admin dashboard statistics: active students plus month/last-month/YTD revenue.
+ *
+ * This route used to return hard-coded zeros under a placeholder comment, while
+ * the client expected `totalActiveStudents` / `hasStudentData` (it received
+ * `totalActiveMentees` / `hasMenteeData`), so the dashboard permanently read
+ * "No students yet" and $0.00 regardless of business state. `admin.getStats`
+ * already returns exactly the shape `AdminStats` in `api-client.ts` expects.
  */
 export async function GET(): Promise<NextResponse> {
   try {
+    const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    return NextResponse.json({
-      totalActiveMentees: 0,
-      revenueThisMonth: 0,
-      revenueLastMonth: 0,
-      revenueChange: 0,
-      revenueThisYear: 0,
-      hasRevenueData: false,
-      hasMenteeData: false,
-      hasHistoricalRevenue: false,
-    });
+    const convex = await getAuthenticatedConvexClient();
+    const stats = await convex.query(api.admin.getStats, {});
+
+    return NextResponse.json(stats);
   } catch (error) {
     console.error("Error fetching admin stats:", error);
     if (isUnauthorizedError(error)) {
