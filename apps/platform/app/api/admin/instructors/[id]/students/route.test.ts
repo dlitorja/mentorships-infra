@@ -84,6 +84,34 @@ describe("GET /api/admin/instructors/[id]/students", () => {
     });
   });
 
+  it("accepts the nullable fields real data actually contains", async () => {
+    // Observed on the dev deployment: a student with no email on the user row
+    // and no completed session. Both must parse, or the route 500s for real
+    // instructors while the fixture-only tests stay green.
+    query.mockResolvedValue({
+      ...instructorPayload,
+      activeStudentCount: 1,
+      students: [
+        {
+          ...enrolmentRow,
+          email: null,
+          lastSessionCompletedAt: null,
+          completedSessionCount: 0,
+        },
+      ],
+    });
+
+    const res = await makeGet();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.students[0]).toMatchObject({
+      email: null,
+      lastSessionCompletedAt: null,
+      completedSessionCount: 0,
+    });
+  });
+
   it("404s when the instructor does not exist or is soft-deleted", async () => {
     query.mockResolvedValue(null);
 

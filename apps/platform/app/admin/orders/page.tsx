@@ -1,19 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ApiFetchError, createAdminRefund, getAdminOrders } from "@/lib/queries/api-client";
 import { 
   Search,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Copy
+  Copy,
+  AlertTriangle
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type Order = {
   id: string;
@@ -226,29 +228,54 @@ export default function AdminOrdersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filtering is server-side: the search must match the whole dataset, not the
+  // rows that happen to be on the current page.
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const pageSize = 20;
   const totalPages = Math.ceil(total / pageSize);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("page", page.toString());
-      params.set("pageSize", pageSize.toString());
-      if (statusFilter) params.set("status", statusFilter);
+  // Reset the page during render when the effective filters change, so the
+  // first request after a search is already page 1. An effect-based reset
+  // fetched the old page first, and a slow response could land last and paint
+  // the wrong rows (Greptile P1).
+  const filtersKey = JSON.stringify([debouncedSearch, statusFilter]);
+  const lastFiltersKeyRef = useRef(filtersKey);
+  if (lastFiltersKeyRef.current !== filtersKey) {
+    lastFiltersKeyRef.current = filtersKey;
+    if (page !== 1) setPage(1);
+  }
 
-      const data = await getAdminOrders({ status: statusFilter || undefined, page, pageSize });
+  // Guards against out-of-order responses overwriting newer results.
+  const requestIdRef = useRef(0);
+
+  const fetchOrders = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getAdminOrders({
+        status: statusFilter || undefined,
+        search: debouncedSearch || undefined,
+        page,
+        pageSize,
+      });
+      if (requestId !== requestIdRef.current) return;
 
       setOrders(data.items);
       setTotal(data.total);
-    } catch {
+    } catch (err) {
+      if (requestId !== requestIdRef.current) return;
+      // Failure is not "no orders" — say so, and offer a retry.
+      setError(err instanceof Error ? err.message : "Failed to load orders");
       setOrders([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchOrders();
@@ -256,16 +283,7 @@ export default function AdminOrdersPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
   };
-
-  const filteredOrders = search
-    ? orders.filter(
-        (o) =>
-          o.userEmail?.toLowerCase().includes(search.toLowerCase()) ||
-          o.id.toLowerCase().includes(search.toLowerCase())
-      )
-    : orders;
 
   const handleRefundSuccess = () => {
     setSelectedOrder(null);
@@ -329,16 +347,57 @@ export default function AdminOrdersPage() {
       {/* Orders Table */}
       <Card>
         <CardContent className="p-0">
-          {loading ? (
+          {error ? (
+            <div className="m-4 rounded-md border border-destructive/40 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">
+                    Couldn&apos;t load orders
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">{error}</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => fetchOrders()}>
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
-          ) : filteredOrders.length === 0 ? (
+          ) : orders.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-muted-foreground mb-2">No orders yet</p>
-              <p className="text-sm text-muted-foreground">
-                Orders will appear when customers make purchases
-              </p>
+              {search || statusFilter ? (
+                <>
+                  <p className="text-muted-foreground mb-2">
+                    No orders match these filters
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {search ? `Search: “${search}”` : null}
+                    {search && statusFilter ? " · " : null}
+                    {statusFilter ? `Status: ${statusFilter}` : null}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSearch("");
+                      setStatusFilter("");
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted-foreground mb-2">No orders yet</p>
+                  <p className="text-sm text-muted-foreground">
+                    Orders will appear when customers make purchases
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -355,7 +414,7 @@ export default function AdminOrdersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((order) => {
+                  {orders.map((order) => {
                       const payment = order.payments[0];
                       return (
                         <tr key={order.id} className="border-b hover:bg-muted/30">

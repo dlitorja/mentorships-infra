@@ -1346,11 +1346,17 @@ export type AdminOrder = {
 /**
  * List orders for admin
  */
-export async function getAdminOrders(params?: { status?: string; page?: number; pageSize?: number }) {
+export async function getAdminOrders(params?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", params.page.toString());
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
   const query = searchParams.toString();
   return apiFetch<{ items: AdminOrder[]; total: number; page: number; pageSize: number }>(
     `${ApiRoutes.adminOrders}${query ? `?${query}` : ""}`
