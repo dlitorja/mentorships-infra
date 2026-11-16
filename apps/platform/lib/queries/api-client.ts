@@ -1092,7 +1092,18 @@ export async function createAdminInstructor(data: {
   kajabiCheckoutUrlOneOnOne?: string;
   kajabiCheckoutUrlGroup?: string;
 }) {
-  return apiFetch<{ success: boolean; message: string; instructor: { id: string } }>(ApiRoutes.adminInstructors, {
+  return apiFetch<{
+    success: boolean;
+    message: string;
+    instructor: { id: string; name?: string; slug?: string; email?: string | null };
+    /**
+     * Whether the Clerk invitation was actually delivered. `false` with an
+     * `invitationError` means the instructor record exists but nobody was
+     * invited — the create flow must surface this, not discard it.
+     */
+    invitationSent?: boolean;
+    invitationError?: string;
+  }>(ApiRoutes.adminInstructors, {
     method: "POST",
     body: JSON.stringify(data),
   });

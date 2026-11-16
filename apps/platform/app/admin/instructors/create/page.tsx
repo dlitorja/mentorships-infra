@@ -60,7 +60,8 @@ export default function CreateInstructorPage() {
   /**
    * Submit handler that creates the instructor via the platform API and, if provided,
    * uploads the profile image using the admin upload endpoint. On success, navigates
-   * back to the instructors list.
+   * to the new instructor's edit page carrying the invitation and image outcomes so
+   * the admin sees whether either failed.
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +96,14 @@ export default function CreateInstructorPage() {
         throw new Error("Instructor created but no id returned");
       }
 
-      // 2) If a profile image is provided, upload it via admin upload API
+      const invitationSent = createRes.invitationSent === true;
+      const invitationError = createRes.invitationError;
+      const instructorEmail = createRes.instructor.email ?? (formData.email || undefined);
+
+      // 2) If a profile image is provided, upload it via admin upload API.
+      // Kept non-fatal: the instructor exists either way — but a failure must
+      // be reported, not silently dropped, or the admin believes the image is set.
+      let imageError: string | null = null;
       if (profileImage) {
         const form = new FormData();
         form.append("file", profileImage);
@@ -104,12 +112,23 @@ export default function CreateInstructorPage() {
 
         try {
           await uploadInstructorImage(form);
-        } catch {
-          // Non-fatal: instructor exists; let user proceed and fix image later
+        } catch (err) {
+          imageError = err instanceof Error ? err.message : "Upload failed";
         }
       }
 
-      router.push("/admin/instructors");
+      // 3) Land on the new instructor's edit page with the outcome, instead of
+      // dropping both results and returning to the list.
+      const params = new URLSearchParams({ created: "1" });
+      if (instructorEmail) params.set("email", instructorEmail);
+      params.set(
+        "invitation",
+        invitationSent ? "sent" : invitationError ? "failed" : "not-requested"
+      );
+      if (invitationError) params.set("invitationError", invitationError);
+      if (imageError) params.set("imageError", imageError);
+
+      router.push(`/admin/instructors/${instructorId}/edit?${params.toString()}`);
     } catch (err) {
       if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
         setError(err.data.error);

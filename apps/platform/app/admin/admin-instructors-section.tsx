@@ -52,10 +52,31 @@ type AdminStudent = {
   createdAt: number;
 };
 
+/** Per-instructor load state for the expanded student list. */
+type StudentLoadState =
+  | { status: "loading" }
+  | { status: "loaded"; students: AdminStudent[] }
+  | { status: "error"; message: string };
+
+function describeError(error: unknown): string {
+  if (
+    error instanceof ApiFetchError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "error" in error.data &&
+    typeof error.data.error === "string"
+  ) {
+    return error.data.error;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 type InstructorWithStats = {
   instructorId: string;
   userId: string;
   email: string;
+  name?: string;
+  displayName?: string;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
@@ -82,7 +103,7 @@ function StudentsTable({ students }: { students: AdminStudent[] }) {
             <th className="text-left py-2 px-3 font-medium">Email</th>
             <th className="text-left py-2 px-3 font-medium">Sessions</th>
             <th className="text-left py-2 px-3 font-medium">Status</th>
-            <th className="text-left py-2 px-3 font-medium">Last Session</th>
+            <th className="text-left py-2 px-3 font-medium">Purchased</th>
             <th className="text-left py-2 px-3 font-medium">Expiration</th>
           </tr>
         </thead>
@@ -114,13 +135,15 @@ function InstructorRow({
   instructor,
   isExpanded,
   onToggle,
-  students,
+  studentState,
+  onRetryStudents,
   onInventoryUpdated,
 }: {
   instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
-  students: AdminStudent[] | null;
+  studentState: StudentLoadState | undefined;
+  onRetryStudents: () => void;
   onInventoryUpdated: (
     id: string,
     updates: Partial<Pick<InstructorWithStats, "oneOnOneInventory" | "groupInventory" | "maxActiveStudents">>
@@ -182,7 +205,12 @@ function InstructorRow({
             ) : (
               <ChevronRight className="h-4 w-4" />
             )}
-            <span className="font-medium">{instructor.email}</span>
+            <span className="flex flex-col">
+              <span className="font-medium">{instructor.name || instructor.displayName || instructor.email}</span>
+              {(instructor.name || instructor.displayName) && (
+                <span className="text-xs text-muted-foreground">{instructor.email}</span>
+              )}
+            </span>
           </div>
         </td>
         <td className="py-3 px-4">
@@ -258,9 +286,31 @@ function InstructorRow({
         <tr className="bg-muted/30">
           <td colSpan={5} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">Students ({students?.length || 0})</h4>
-              {students ? (
-                <StudentsTable students={students} />
+              <h4 className="font-medium mb-3">
+                {studentState?.status === "loaded"
+                  ? `Students (${studentState.students.length})`
+                  : "Students"}
+              </h4>
+              {studentState?.status === "error" ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                  <p className="text-sm text-destructive">
+                    Couldn&apos;t load students —{" "}
+                    <span className="font-mono text-xs">{studentState.message}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetryStudents();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : studentState?.status === "loaded" ? (
+                <StudentsTable students={studentState.students} />
               ) : (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -286,12 +336,41 @@ export function AdminInstructorsSection() {
   );
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
-  const [expandedStudents, setExpandedStudents] = useState<{ [key: string]: AdminStudent[] }>({});
-  const [_loadingStudents, setLoadingStudents] = useState<string | null>(null);
+  const [studentStates, setStudentStates] = useState<Record<string, StudentLoadState>>({});
+  /** Rows individually collapsed while "Expand All" is active. */
+  const [collapsedInAll, setCollapsedInAll] = useState<Set<string>>(new Set());
 
-  const handleToggleExpand = async (instructorId: string) => {
+  const loadStudents = async (instructorId: string, force = false) => {
+    if (!force) {
+      const existing = studentStates[instructorId];
+      if (existing && existing.status !== "error") return;
+    }
+    setStudentStates((prev) => ({ ...prev, [instructorId]: { status: "loading" } }));
+    try {
+      const json = await getAdminInstructorStudents(instructorId);
+      setStudentStates((prev) => ({
+        ...prev,
+        [instructorId]: { status: "loaded", students: json.students ?? [] },
+      }));
+    } catch (error) {
+      setStudentStates((prev) => ({
+        ...prev,
+        [instructorId]: { status: "error", message: describeError(error) },
+      }));
+    }
+  };
+
+  const handleToggleExpand = (instructorId: string) => {
     if (isAllExpanded) {
-      setExpandedInstructorId(expandedInstructorId === instructorId ? null : instructorId);
+      setCollapsedInAll((prev) => {
+        const next = new Set(prev);
+        if (next.has(instructorId)) {
+          next.delete(instructorId);
+        } else {
+          next.add(instructorId);
+        }
+        return next;
+      });
       return;
     }
 
@@ -301,39 +380,19 @@ export function AdminInstructorsSection() {
     }
 
     setExpandedInstructorId(instructorId);
-
-    if (!expandedStudents[instructorId]) {
-      setLoadingStudents(instructorId);
-      try {
-        const json = await getAdminInstructorStudents(instructorId);
-        const students = json.students || [];
-        setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
-      } catch {
-        setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
-      } finally {
-        setLoadingStudents(null);
-      }
-    }
+    void loadStudents(instructorId);
   };
 
   const expandAll = async () => {
     setIsAllExpanded(true);
-    for (const instructor of instructors) {
-      if (!expandedStudents[instructor.instructorId]) {
-        try {
-          const json = await getAdminInstructorStudents(instructor.instructorId);
-          const students = json.students || [];
-          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
-        } catch {
-          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
-        }
-      }
-    }
+    setCollapsedInAll(new Set());
+    await Promise.all(instructors.map((instructor) => loadStudents(instructor.instructorId)));
   };
 
   const collapseAll = () => {
     setIsAllExpanded(false);
     setExpandedInstructorId(null);
+    setCollapsedInAll(new Set());
   };
 
   return (
@@ -379,9 +438,14 @@ export function AdminInstructorsSection() {
                   <InstructorRow
                     key={instructor.instructorId}
                     instructor={instructor}
-                    isExpanded={isAllExpanded || expandedInstructorId === instructor.instructorId}
+                    isExpanded={
+                      isAllExpanded
+                        ? !collapsedInAll.has(instructor.instructorId)
+                        : expandedInstructorId === instructor.instructorId
+                    }
                     onToggle={() => handleToggleExpand(instructor.instructorId)}
-                    students={expandedStudents[instructor.instructorId] || null}
+                    studentState={studentStates[instructor.instructorId]}
+                    onRetryStudents={() => void loadStudents(instructor.instructorId, true)}
                     onInventoryUpdated={(id, updates) => {
                       setInstructors((prev) =>
                         prev.map((i) => (i.instructorId === id ? { ...i, ...updates } : i))
