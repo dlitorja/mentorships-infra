@@ -332,21 +332,6 @@ export const getStats = query({
   },
 });
 
-type StudentWithSessionInfo = {
-  id: string;
-  userId: string;
-  email: string | null;
-  instructorId: Id<"instructors">;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
-};
-
 // Removed legacy mentee-named endpoint to enforce naming consistency
 
 /**
@@ -628,7 +613,10 @@ export const getInstructorsWithStatsForAdmin = query({
             q.eq("instructorId", i._id).eq("status", "active")
           )
           .collect();
-        seatsByInstructor.set(i._id, new Set(seats.map((s) => s.sessionPackId)).size);
+        // Canonical `activeStudentCount`: distinct students holding at least
+        // one active seat. Counting seats/packs overstates the number when a
+        // student holds two packs — and capacity decisions are made on this.
+        seatsByInstructor.set(i._id, new Set(seats.map((s) => s.userId)).size);
       })
     );
 
@@ -748,7 +736,9 @@ export const getInstructorWithStudents = query({
       oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
       groupInventory: (instructor as any).groupInventory ?? 0,
       maxActiveStudents: (instructor as any).maxActiveStudents ?? 0,
-      activeStudentCount: seats.filter((sr) => sr.status === "active").length,
+      activeStudentCount: new Set(
+        seats.filter((sr) => sr.status === "active").map((sr) => sr.userId)
+      ).size,
       createdAt: instructor._creationTime,
       students: students.sort((a, b) => b.sessionPackId.localeCompare(a.sessionPackId)),
     };
