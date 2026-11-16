@@ -12,10 +12,11 @@ import {
   updateAdminInstructor,
   ApiFetchError,
 } from "@/lib/queries/api-client";
+import type { AdminInstructorStudent } from "@/lib/queries/api-client";
 
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
+function formatDate(value: number | string | null): string {
+  if (value === null) return "N/A";
+  const date = new Date(value);
   return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -37,25 +38,12 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
-type AdminStudent = {
-  id: string;
-  userId: string;
-  email: string | null;
-  instructorId: string;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
-};
+type AdminStudent = AdminInstructorStudent;
 
 /** Per-instructor load state for the expanded student list. */
 type StudentLoadState =
   | { status: "loading" }
-  | { status: "loaded"; students: AdminStudent[] }
+  | { status: "loaded"; students: AdminStudent[]; activeStudentCount: number }
   | { status: "error"; message: string };
 
 function describeError(error: unknown): string {
@@ -100,29 +88,44 @@ function StudentsTable({ students }: { students: AdminStudent[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b">
-            <th className="text-left py-2 px-3 font-medium">Email</th>
-            <th className="text-left py-2 px-3 font-medium">Sessions</th>
+            <th className="text-left py-2 px-3 font-medium">Student</th>
+            <th className="text-left py-2 px-3 font-medium">Sessions left</th>
             <th className="text-left py-2 px-3 font-medium">Status</th>
-            <th className="text-left py-2 px-3 font-medium">Purchased</th>
-            <th className="text-left py-2 px-3 font-medium">Expiration</th>
+            <th className="text-left py-2 px-3 font-medium">Last session</th>
+            <th className="text-left py-2 px-3 font-medium">Expires</th>
           </tr>
         </thead>
         <tbody>
           {students.map((student) => (
-            <tr key={student.id} className="border-b">
-              <td className="py-2 px-3">{student.email ?? "(unknown)"}</td>
+            <tr key={student.sessionPackId} className="border-b">
+              <td className="py-2 px-3">{student.email ?? "(no email on file)"}</td>
               <td className="py-2 px-3">
                 {student.remainingSessions} / {student.totalSessions}
               </td>
               <td className="py-2 px-3">
-                <Badge variant={getStatusBadgeVariant(student.status)}>{student.status}</Badge>
+                <span className="flex flex-wrap items-center gap-1">
+                  <Badge variant={getStatusBadgeVariant(student.status)}>{student.status}</Badge>
+                  {student.seatStatus !== "active" && (
+                    <Badge variant="outline" title={`Seat status: ${student.seatStatus}`}>
+                      seat {student.seatStatus}
+                    </Badge>
+                  )}
+                </span>
               </td>
               <td className="py-2 px-3">
-                {formatDate(new Date(student.purchasedAt).toISOString())}
+                {student.lastSessionCompletedAt === null ? (
+                  <span className="text-muted-foreground">None yet</span>
+                ) : (
+                  <>
+                    {formatDate(student.lastSessionCompletedAt)}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {student.completedSessionCount} held
+                    </span>
+                  </>
+                )}
               </td>
-              <td className="py-2 px-3">
-                {student.expiresAt ? formatDate(new Date(student.expiresAt).toISOString()) : "No expiration"}
-              </td>
+              <td className="py-2 px-3">{formatDate(student.expiresAt)}</td>
             </tr>
           ))}
         </tbody>
@@ -286,11 +289,17 @@ function InstructorRow({
         <tr className="bg-muted/30">
           <td colSpan={5} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">
-                {studentState?.status === "loaded"
-                  ? `Students (${studentState.students.length})`
-                  : "Students"}
-              </h4>
+              <h4 className="font-medium">Students</h4>
+              {studentState?.status === "loaded" && (
+                <p className="text-xs text-muted-foreground mb-3">
+                  {studentState.activeStudentCount} active student
+                  {studentState.activeStudentCount === 1 ? "" : "s"} ·{" "}
+                  {studentState.students.length} enrollment
+                  {studentState.students.length === 1 ? "" : "s"} (a student with two packs
+                  appears twice)
+                </p>
+              )}
+              {studentState?.status !== "loaded" && <div className="mb-3" />}
               {studentState?.status === "error" ? (
                 <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
                   <p className="text-sm text-destructive">
@@ -350,7 +359,11 @@ export function AdminInstructorsSection() {
       const json = await getAdminInstructorStudents(instructorId);
       setStudentStates((prev) => ({
         ...prev,
-        [instructorId]: { status: "loaded", students: json.students ?? [] },
+        [instructorId]: {
+          status: "loaded",
+          students: json.students ?? [],
+          activeStudentCount: json.activeStudentCount ?? 0,
+        },
       }));
     } catch (error) {
       setStudentStates((prev) => ({

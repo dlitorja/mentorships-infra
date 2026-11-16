@@ -1062,7 +1062,9 @@ export async function deleteAdminInstructor(id: string, hard: boolean = false) {
  * Get students for an instructor as admin
  */
 export async function getAdminInstructorStudents(id: string) {
-  return apiFetch<{ students: AdminStudent[] }>(ApiRoutes.adminInstructorStudents(id));
+  return apiFetch<{ students: AdminInstructorStudent[]; activeStudentCount: number }>(
+    ApiRoutes.adminInstructorStudents(id)
+  );
 }
 
 /**
@@ -1199,19 +1201,24 @@ export type AdminStudentSessionPack = {
   status: "active" | "depleted" | "expired" | "refunded";
 };
 
-export type AdminStudent = {
-  id: string;
+/**
+ * One enrollment (session pack holding a seat) for an instructor, as returned
+ * by `GET /api/admin/instructors/[id]/students`. Backed by
+ * `admin.getInstructorWithStudents`: packs without a seat reservation are
+ * deliberately excluded, and session/seat state is per pack.
+ */
+export type AdminInstructorStudent = {
   userId: string;
   email: string | null;
-  instructorId: string;
-  instructorName: string | null;
-  instructorSlug: string | null;
+  sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
   status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
+  expiresAt: number | null;
+  lastSessionCompletedAt: number | null;
+  completedSessionCount: number;
+  seatStatus: "active" | "grace" | "released";
+  seatExpiresAt: number | null;
 };
 
 export type AdminStudentListItem = {

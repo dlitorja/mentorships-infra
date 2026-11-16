@@ -78,7 +78,7 @@ describe("AdminInstructorsSection student expansion", () => {
   });
 
   it("still renders the empty state for a successful empty result", async () => {
-    mocks.getAdminInstructorStudents.mockResolvedValue({ students: [] });
+    mocks.getAdminInstructorStudents.mockResolvedValue({ students: [], activeStudentCount: 0 });
 
     renderWidget();
 
@@ -88,22 +88,23 @@ describe("AdminInstructorsSection student expansion", () => {
     expect(screen.queryByText(/Couldn't load students/)).not.toBeInTheDocument();
   });
 
-  it("labels the purchase-date column honestly", async () => {
+  it("renders real last-session data and distinguishes active students from enrollments", async () => {
     mocks.getAdminInstructorStudents.mockResolvedValue({
+      activeStudentCount: 1,
       students: [
         {
-          id: "pack_1",
           userId: "user_2",
           email: "student@example.com",
-          instructorId: "inst_1",
-          instructorName: "Ada Instructor",
-          instructorSlug: "ada",
+          sessionPackId: "pack_1",
           totalSessions: 4,
           remainingSessions: 2,
-          purchasedAt: Date.UTC(2026, 0, 2),
-          expiresAt: null,
           status: "active",
-          createdAt: Date.UTC(2026, 0, 2),
+          expiresAt: Date.UTC(2026, 5, 1),
+          // Midday UTC so the rendered local date is stable in any timezone.
+          lastSessionCompletedAt: Date.UTC(2026, 0, 9, 12),
+          completedSessionCount: 2,
+          seatStatus: "active",
+          seatExpiresAt: null,
         },
       ],
     });
@@ -112,7 +113,11 @@ describe("AdminInstructorsSection student expansion", () => {
 
     fireEvent.click(await screen.findByText("instructor@example.com"));
 
-    expect(await screen.findByText("Purchased")).toBeInTheDocument();
-    expect(screen.queryByText("Last Session")).not.toBeInTheDocument();
+    // Column exists and carries the real last-session date, not the purchase date.
+    expect(await screen.findByText("Last session")).toBeInTheDocument();
+    expect(screen.getByText(/Jan 9, 2026/)).toBeInTheDocument();
+    // Canonical count vs row count are labelled separately.
+    expect(screen.getByText(/1 active student/)).toBeInTheDocument();
+    expect(screen.getByText(/1 enrollment/)).toBeInTheDocument();
   });
 });

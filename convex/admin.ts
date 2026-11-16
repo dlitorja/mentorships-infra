@@ -332,21 +332,6 @@ export const getStats = query({
   },
 });
 
-type StudentWithSessionInfo = {
-  id: string;
-  userId: string;
-  email: string | null;
-  instructorId: Id<"instructors">;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
-};
-
 // Removed legacy mentee-named endpoint to enforce naming consistency
 
 /**
