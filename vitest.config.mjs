@@ -152,6 +152,7 @@ export default defineConfig({
     alias: {
       // Workspace package aliases
       "@mentorships/marketing": path.resolve(__dirname, "./apps/marketing"),
+      "@mentorships/emails": path.resolve(__dirname, "./packages/emails/src"),
       "@mentorships/db": path.resolve(__dirname, "./packages/db/src"),
       "@mentorships/payments": path.resolve(__dirname, "./packages/payments/src"),
       "@mentorships/security": path.resolve(__dirname, "./packages/security/src"),

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import {
   getAdminInstructors,
   getAdminInstructorStudents,
@@ -333,15 +333,48 @@ function InstructorRow({
   );
 }
 
+/** Loading state rendered inline; see the `useQuery` note below. */
+export function AdminInstructorsSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminInstructorsSection() {
-  const { data: instructorsData } = useSuspenseQuery({
+  // `useSuspenseQuery` fetches during render, including on the server, where the
+  // widget's relative `apiFetch("/api/admin/instructors")` has no base URL and
+  // threw `TypeError: Failed to parse URL` on every dashboard visit. `useQuery`
+  // fetches in an effect (browser only) and lets the failure render inline
+  // instead of blanking the page.
+  const {
+    data: instructorsData,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminInstructors"],
     queryFn: () => getAdminInstructors(),
     staleTime: 1000 * 60,
   });
 
-  const [instructors, setInstructors] = useState<InstructorWithStats[]>(
-    instructorsData.instructors
+  /** Inventory edits applied on top of the fetched rows. */
+  const [inventoryOverrides, setInventoryOverrides] = useState<
+    Record<string, Partial<InstructorWithStats>>
+  >({});
+  const instructors = useMemo(
+    () =>
+      (instructorsData?.instructors ?? []).map((instructor) => ({
+        ...instructor,
+        ...(inventoryOverrides[instructor.instructorId] ?? {}),
+      })),
+    [instructorsData, inventoryOverrides]
   );
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
@@ -349,11 +382,9 @@ export function AdminInstructorsSection() {
   /** Rows individually collapsed while "Expand All" is active. */
   const [collapsedInAll, setCollapsedInAll] = useState<Set<string>>(new Set());
 
-  const loadStudents = async (instructorId: string, force = false) => {
-    if (!force) {
-      const existing = studentStates[instructorId];
-      if (existing && existing.status !== "error") return;
-    }
+  // Always fetches; callers decide whether a request is needed, so this can
+  // have an empty dependency list and be used from effects safely.
+  const loadStudents = useCallback(async (instructorId: string) => {
     setStudentStates((prev) => ({ ...prev, [instructorId]: { status: "loading" } }));
     try {
       const json = await getAdminInstructorStudents(instructorId);
@@ -371,7 +402,23 @@ export function AdminInstructorsSection() {
         [instructorId]: { status: "error", message: describeError(error) },
       }));
     }
-  };
+  }, []);
+
+  /**
+   * "Expand All" has to survive the list query still being in flight: the
+   * pre-`useQuery` code read rows synchronously, so clicking before the data
+   * arrived set the flag with no rows to fetch and every row then rendered a
+   * spinner that never resolved. Load for whoever is present, and again when
+   * the rows land.
+   */
+  useEffect(() => {
+    if (!isAllExpanded || isPending) return;
+    for (const instructor of instructors) {
+      if (!studentStates[instructor.instructorId]) {
+        void loadStudents(instructor.instructorId);
+      }
+    }
+  }, [isAllExpanded, isPending, instructors, studentStates, loadStudents]);
 
   const handleToggleExpand = (instructorId: string) => {
     if (isAllExpanded) {
@@ -393,13 +440,12 @@ export function AdminInstructorsSection() {
     }
 
     setExpandedInstructorId(instructorId);
-    void loadStudents(instructorId);
+    if (!studentStates[instructorId]) void loadStudents(instructorId);
   };
 
-  const expandAll = async () => {
+  const expandAll = () => {
     setIsAllExpanded(true);
     setCollapsedInAll(new Set());
-    await Promise.all(instructors.map((instructor) => loadStudents(instructor.instructorId)));
   };
 
   const collapseAll = () => {
@@ -427,7 +473,28 @@ export function AdminInstructorsSection() {
         </div>
       </CardHeader>
       <CardContent>
-        {instructors.length === 0 ? (
+        {isPending ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : isError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-destructive">
+                  Couldn&apos;t load instructors
+                </p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  {error instanceof Error ? error.message : "The request failed."}
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : instructors.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-muted-foreground mb-2">No instructors yet</p>
             <p className="text-sm text-muted-foreground">
@@ -458,11 +525,9 @@ export function AdminInstructorsSection() {
                     }
                     onToggle={() => handleToggleExpand(instructor.instructorId)}
                     studentState={studentStates[instructor.instructorId]}
-                    onRetryStudents={() => void loadStudents(instructor.instructorId, true)}
+                    onRetryStudents={() => void loadStudents(instructor.instructorId)}
                     onInventoryUpdated={(id, updates) => {
-                      setInstructors((prev) =>
-                        prev.map((i) => (i.instructorId === id ? { ...i, ...updates } : i))
-                      );
+                      setInventoryOverrides((prev) => ({ ...prev, [id]: updates }));
                     }}
                   />
                 ))}

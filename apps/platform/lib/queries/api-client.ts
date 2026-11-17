@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { normalizeBaseUrl } from "@mentorships/emails/base-url";
 import { ApiRoutes } from "../routes";
 
 /**
@@ -54,6 +55,46 @@ function throwApiFetchError(response: Response, data: unknown): never {
 }
 
 /**
+ * Absolute base for API calls that run outside the browser.
+ *
+ * Relative URLs only resolve in a document context, so a server-side call such
+ * as `fetch("/api/admin/stats")` throws `TypeError: Failed to parse URL`. That
+ * happened on every `/admin` render while the dashboard sections used
+ * `useSuspenseQuery` (which fetches during render, including on the server).
+ * Those components now use `useQuery`; this guard keeps any future server-side
+ * call honest instead of failing with an unhelpful parser error.
+ *
+ * `normalizeBaseUrl` rejects the redacted placeholders this repo's `.env.local`
+ * template uses, so a poisoned value falls through to the next candidate.
+ */
+function getServerApiBaseUrl(): string | null {
+  return (
+    normalizeBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ??
+    normalizeBaseUrl(process.env.NEXT_PUBLIC_URL) ??
+    normalizeBaseUrl(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+  );
+}
+
+/**
+ * Resolve a request URL: unchanged in the browser (relative paths are correct
+ * there) and for absolute URLs anywhere; absolute in any other runtime.
+ */
+export function resolveApiRequestUrl(url: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+  if (typeof window !== "undefined") return url;
+
+  const base = getServerApiBaseUrl();
+  if (!base) {
+    throw new Error(
+      `apiFetch("${url}") ran outside the browser but no absolute base URL is ` +
+        `configured. Set NEXT_PUBLIC_APP_URL to an http(s) origin (VERCEL_URL is ` +
+        `used automatically on Vercel deployments).`,
+    );
+  }
+  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/**
  * Type-safe fetch wrapper that handles errors and JSON parsing.
  *
  * Does not set Content-Type for FormData bodies so multipart uploads work.
@@ -64,7 +105,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const isFormData =
     typeof FormData !== "undefined" && options?.body instanceof FormData;
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiRequestUrl(url), {
     ...options,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
