@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceKey } from "./lib/serviceAuth";
+import { isAdminUser } from "./admin";
 
 /**
  * Internal lookup for a single order by ID. Same shape as the public
@@ -80,36 +81,102 @@ export const getOrdersByStatus = query({
   },
 });
 
-/** Fetches orders for admin with user and payment info. */
+/**
+ * Fetches orders for the admin orders list, with server-side filtering.
+ *
+ * Both filters must be applied *before* pagination: the orders page previously
+ * sent `status` to a route that dropped it (the response was the unfiltered
+ * list) and searched only the rows already on screen, so "Refunded" and any
+ * customer search lied about the dataset.
+ *
+ * - `status` is index-scoped via `by_status`, so a filtered view does not read
+ *   the whole table.
+ * - `search` matches a customer email substring or an order id; emails resolve
+ *   to `userId`s first because orders store the id, not the address.
+ *
+ * `total` is the count of matching orders, not of the loaded page, so the
+ * footer's "X of Z" is truthful.
+ */
 export const getOrdersForAdmin = query({
   args: {
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("paid"),
+        v.literal("refunded"),
+        v.literal("failed"),
+        v.literal("canceled")
+      )
+    ),
+    search: v.optional(v.string()),
     limit: v.optional(v.number()),
     offset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
+    // This query returns every customer's orders and emails. It used to check
+    // only that *some* identity was present, so any signed-in student could
+    // call it directly and read the whole order book.
+    if (!(await isAdminUser(ctx, identity.subject))) throw new Error("Forbidden");
 
     const limit = args.limit ?? 20;
     const offset = args.offset ?? 0;
+    const search = args.search?.trim().toLowerCase() ?? "";
 
-    const orders = await ctx.db.query("orders").collect();
+    // Status is applied first: it is index-scoped, so everything below works on
+    // the smallest set we can get without reading the whole table.
+    const scoped = args.status
+      ? await ctx.db
+          .query("orders")
+          .withIndex("by_status", (q) => q.eq("status", args.status!))
+          .collect()
+      : await ctx.db.query("orders").collect();
 
-    const sortedOrders = orders.sort((a, b) => {
-      const aTime = a._creationTime;
-      const bTime = b._creationTime;
-      return bTime - aTime;
-    });
+    // Emails live on `users`; orders only carry the id. Resolve just the
+    // customers that appear in the scoped orders rather than scanning every
+    // registered user on each debounced keystroke.
+    let matchedUserIds: Set<string> | null = null;
+    if (search) {
+      const candidateUserIds = Array.from(new Set(scoped.map((order) => order.userId)));
+      const candidates = await Promise.all(
+        candidateUserIds.map((userId) =>
+          ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", userId)).first()
+        )
+      );
+      matchedUserIds = new Set(
+        candidates
+          .filter((user) => user?.email?.toLowerCase().includes(search))
+          .map((user) => user!.userId)
+      );
+    }
 
-    const paginatedOrders = sortedOrders.slice(offset, offset + limit);
+    const newestFirst = scoped.sort((a, b) => b._creationTime - a._creationTime);
+
+    const matched = search
+      ? newestFirst.filter(
+          (order) =>
+            order._id.toLowerCase().includes(search) ||
+            (matchedUserIds?.has(order.userId) ?? false)
+        )
+      : newestFirst;
+
+    const pageOrders = matched.slice(offset, offset + limit);
+
+    // Batch the shared lookups for the page instead of one query per order.
+    const pageUserIds = Array.from(new Set(pageOrders.map((order) => order.userId)));
+    const pageUsers = await Promise.all(
+      pageUserIds.map((userId) =>
+        ctx.db.query("users").withIndex("by_userId", (q) => q.eq("userId", userId)).first()
+      )
+    );
+    const emailByUserId = new Map<string, string>();
+    for (const user of pageUsers) {
+      if (user?.email) emailByUserId.set(user.userId, user.email);
+    }
 
     const ordersWithDetails = await Promise.all(
-      paginatedOrders.map(async (order) => {
-        const user = await ctx.db
-          .query("users")
-          .withIndex("by_userId", (q) => q.eq("userId", order.userId))
-          .first();
-
+      pageOrders.map(async (order) => {
         const payments = await ctx.db
           .query("payments")
           .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
@@ -118,7 +185,7 @@ export const getOrdersForAdmin = query({
         return {
           id: order._id,
           userId: order.userId,
-          userEmail: user?.email ?? null,
+          userEmail: emailByUserId.get(order.userId) ?? null,
           status: order.status,
           provider: order.provider,
           totalAmount: order.totalAmount,
@@ -139,8 +206,8 @@ export const getOrdersForAdmin = query({
 
     return {
       items: ordersWithDetails,
-      total: orders.length,
-      hasMore: offset + limit < orders.length,
+      total: matched.length,
+      hasMore: offset + limit < matched.length,
     };
   },
 });

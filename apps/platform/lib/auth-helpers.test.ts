@@ -50,7 +50,7 @@ import {
   requireRoleForApi,
   requireAdminOrSupportForApi,
 } from "./auth-helpers";
-import { ForbiddenError, UnauthorizedError } from "./errors";
+import { ForbiddenError, SessionTokenError, UnauthorizedError } from "./errors";
 
 type AuthOverrides = {
   userId: string | null;
@@ -115,6 +115,50 @@ describe("getConvexAuthToken", () => {
   it("returns null when Clerk returns no token", async () => {
     setAuth({ userId: "user_a", getToken: null });
     expect(await getConvexAuthToken()).toBeNull();
+  });
+
+  it("throws a retryable SessionTokenError when Clerk's API fails", async () => {
+    // Nov 2026: a transient Clerk 5xx while minting the Convex token
+    // escaped as an unhandled server error and rendered the generic 500
+    // page for a signed-in instructor. It must surface as a typed 503 so
+    // the route error boundary offers a retry.
+    mockAuth.mockRejectedValueOnce(
+      Object.assign(new Error("Your request couldn't be completed. Try again later."), {
+        code: "InternalServerError",
+      }),
+    );
+
+    const error = await getConvexAuthToken().catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(SessionTokenError);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect((error as SessionTokenError).statusCode).toBe(503);
+    expect((error as SessionTokenError).cause).toBeDefined();
+    expect(mockReportError).toHaveBeenCalledTimes(1);
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "auth-helpers.getConvexAuthToken",
+        level: "warn",
+      }),
+    );
+  });
+
+  it("reports and wraps a token-mint rejection the same way", async () => {
+    setAuth({ userId: "user_a" });
+    mockAuth.mockResolvedValueOnce({
+      userId: "user_a",
+      sessionClaims: undefined,
+      getToken: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Your request couldn't be completed. Try again later."), {
+          code: "InternalServerError",
+        }),
+      ),
+    });
+
+    const error = await getConvexAuthToken().catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(SessionTokenError);
+    expect(mockReportError).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -127,9 +127,12 @@ async function detectRenewal(
 }
 
 /**
- * Count of currently active `seatReservations` for the given instructor —
- * used both to compute `atCapacity` and to surface the
+ * Count of distinct students with a currently active `seatReservations` row for
+ * the given instructor — used both to compute `atCapacity` and to surface the
  * `activeStudentCount` field on the preview/row.
+ *
+ * Distinct `userId`, not seat count: a student holding two active packs is one
+ * student, and counting seats would block onboarding at capacity prematurely.
  */
 async function getActiveStudentCount(
   ctx: QueryCtx,
@@ -141,7 +144,7 @@ async function getActiveStudentCount(
       q.eq("instructorId", instructorId).eq("status", "active")
     )
     .collect();
-  return seats.length;
+  return new Set(seats.map((seat) => seat.userId)).size;
 }
 
 /**

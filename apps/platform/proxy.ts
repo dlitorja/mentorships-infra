@@ -2,6 +2,7 @@ import { clerkClient, clerkMiddleware, createRouteMatcher, type ClerkMiddlewareA
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
+import { PROTECTED_ROUTE_PATTERNS } from "@/lib/protected-routes";
 
 import { reportError, reportInfo } from "@/lib/observability";
 
@@ -167,20 +168,15 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
 
 /**
  * Define protected routes that require authentication
- * Routes matching these patterns will require the user to be signed in
+ * Routes matching these patterns will require the user to be signed in.
+ *
+ * The patterns live in `lib/protected-routes.ts` so that
+ * `lib/protected-routes.test.ts` can assert every page guarded by
+ * `requireAuth()` / `requireRole()` is covered here. A guarded page that
+ * is missing from this list does not redirect signed-out visitors — it
+ * throws `UnauthorizedError` and renders a 500 instead.
  */
-const isProtectedRoute = createRouteMatcher([
-  "/dashboard(.*)",
-  "/admin(.*)",
-  "/sessions(.*)",
-  "/calendar(.*)",
-  "/settings(.*)",
-  "/workspace(.*)",
-  "/api/checkout(.*)",
-  "/api/sessions(.*)",
-  "/api/orders(.*)",
-  "/api/payments(.*)",
-]);
+const isProtectedRoute = createRouteMatcher([...PROTECTED_ROUTE_PATTERNS]);
 
 /**
  * Define admin routes that require admin role

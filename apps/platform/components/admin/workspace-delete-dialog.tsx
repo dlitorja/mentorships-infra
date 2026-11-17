@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
 import { ApiFetchError, deleteAdminWorkspace } from "@/lib/queries/api-client";
@@ -31,7 +31,10 @@ export function WorkspaceDeleteDialog({
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
+  // `/admin/workspaces/<id>` (or a nested members/settings route) vs the list.
+  const isDetailPage = !!pathname && /^\/admin\/workspaces\/[^/]+/.test(pathname);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -42,7 +45,14 @@ export function WorkspaceDeleteDialog({
 
       setOpen(false);
       queryClient.invalidateQueries({ queryKey: ["admin-workspaces"], exact: false });
-      router.refresh();
+      // On the detail page the workspace we are looking at no longer exists, so
+      // "invalidate + refresh" left the admin staring at "Not found". Return to
+      // the list instead.
+      if (isDetailPage) {
+        router.push("/admin/workspaces");
+      } else {
+        router.refresh();
+      }
     } catch (err) {
       if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
         setError(err.data.error);
@@ -67,8 +77,9 @@ export function WorkspaceDeleteDialog({
         <DialogHeader>
           <DialogTitle>Delete Workspace</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete &quot;{workspaceName}&quot;? This action
-            cannot be undone.
+            Remove &quot;{workspaceName}&quot; from the app? It disappears for the student, the
+            instructor, and every admin, and there is no admin control to restore it — an engineer
+            would have to undo the soft delete. Messages and audit history are retained.
           </DialogDescription>
         </DialogHeader>
         {error && (

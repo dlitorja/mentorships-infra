@@ -16,6 +16,10 @@ jobs:
       group: deploy-on-main
       cancel-in-progress: false
     steps:
+      # The verification step below runs a script from this repository, so the
+      # job needs a checkout (it previously only made API calls).
+      - uses: actions/checkout@v4
+
       - name: Compute context
         id: ctx
         run: |
@@ -142,3 +146,27 @@ jobs:
             echo "::error::Drive deploy hook call failed with status $code"
             exit 1
           fi
+
+      # The deploy hooks above only *start* a deployment, and the pre-checks skip
+      # the hook entirely when the Git integration already produced one. Neither
+      # path proved that the custom domain moved to the new commit: on
+      # 2026-11-16 `dev.mentorships.huckleberry.art` stayed pinned to an
+      # eight-hour-old deployment while four newer ones sat READY, so a merged
+      # fix was never live. This step resolves each production alias, promotes
+      # the commit's deployment when the alias is stale, and fails the run if it
+      # still is not serving the SHA that passed CI.
+      # Superseded runs are handled inside the script: it only promotes forward
+      # (a deployment older than what the alias already serves is left alone), so
+      # re-running CI for an old commit can never roll production back.
+      - name: Verify production aliases serve this commit
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          SHA: ${{ steps.ctx.outputs.sha }}
+        run: |
+          node .github/scripts/verify-production-alias.mjs \
+            --sha "$SHA" \
+            --team "$VERCEL_ORG_ID" \
+            --project prj_Qcxbu6iZDxeUibBLGaydhOQ916pB --alias dev.mentorships.huckleberry.art \
+            --project prj_3AXi02hFnBrl5ImGeC2X8HMxLuM2 --alias mentorships.huckleberry.art \
+            --project prj_WUv8tG5QpcdpnQheQeBdUQXnooAF --alias drive.huckleberry.art

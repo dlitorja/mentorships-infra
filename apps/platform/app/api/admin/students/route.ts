@@ -6,7 +6,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import {
-  enrichStudentEmails,
+  enrichStudentProfiles,
   type ConvexStudent,
 } from "@/lib/admin/student-enrichment";
 
@@ -85,6 +85,10 @@ export async function GET(req: NextRequest) {
       pageSize,
     };
 
+    // Set when a fallback we rely on fails: the caller cannot distinguish
+    // "no matches" from "search was incomplete", so say so.
+    let degraded = false;
+
     let result: GetStudentsForAdminResult;
     try {
       result = (await convex.query(api.admin.getStudentsForAdmin, {
@@ -97,7 +101,9 @@ export async function GET(req: NextRequest) {
         console.error("[admin/students] Convex server error, returning empty result set:", err);
         // Degraded mode: do not 500 the UI; signal partial content
         return NextResponse.json(
-          { items: [], total: 0, page, pageSize },
+          // `degraded` lets the page say "data unavailable" instead of
+          // rendering a truthful-looking "No students found".
+          { items: [], total: 0, page, pageSize, degraded: true },
           { status: 206 }
         );
       }
@@ -129,15 +135,52 @@ export async function GET(req: NextRequest) {
         // Keep the empty result rather than failing the whole page; the
         // user can retry. Log for observability.
         console.error("[admin/students] Clerk email fallback failed:", err);
+        degraded = true;
       }
     }
 
-    const items = await enrichStudentEmails(result.items, clerkClient);
+    // Same shape as the email fallback, for names: the roster displays a name
+    // resolved from Clerk, but Convex can only search what it stores. Without
+    // this, searching a name that only exists in Clerk returned nothing.
+    // Only for name-shaped terms: an email fragment ("jane@") is the email
+    // fallback's business, and every no-match search should not hit Clerk.
+    if (result.total === 0 && search.trim() && !isCompleteEmail && !search.includes("@")) {
+      try {
+        const client = await clerkClient();
+        // Read every match, not just the first page: silently dropping the tail
+        // would hide later students from the roster and its pager.
+        const clerkUserIds: string[] = [];
+        const CLERK_PAGE = 100;
+        const CLERK_MAX = 500;
+        for (let offset = 0; offset < CLERK_MAX; offset += CLERK_PAGE) {
+          const page = await client.users.getUserList({
+            query: search.trim(),
+            limit: CLERK_PAGE,
+            offset,
+          });
+          clerkUserIds.push(...page.data.map((user) => user.id));
+          if (page.data.length < CLERK_PAGE) break;
+        }
+        if (clerkUserIds.length > 0) {
+          result = (await convex.query(api.admin.getStudentsForAdmin, {
+            ...baseArgs,
+            userIds: clerkUserIds,
+          })) as GetStudentsForAdminResult;
+        }
+      } catch (err) {
+        console.error("[admin/students] Clerk name fallback failed:", err);
+        degraded = true;
+      }
+    }
+
+    const items = await enrichStudentProfiles(result.items, clerkClient);
 
     return NextResponse.json({
       items: items.map((student) => ({
         userId: student.userId,
         email: student.email,
+        firstName: student.firstName,
+        lastName: student.lastName,
         sessionPacks: student.sessionPacks.map((pack) => ({
           id: pack.id,
           instructorId: pack.instructorId,
@@ -153,6 +196,7 @@ export async function GET(req: NextRequest) {
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,
+      ...(degraded ? { degraded: true } : {}),
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {

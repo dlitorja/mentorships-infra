@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, ArrowLeft } from "lucide-react";
-import { apiFetch, getAdminInstructors } from "@/lib/queries/api-client";
+import { Loader2, ArrowLeft, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { apiFetch, ApiFetchError, getAdminInstructors } from "@/lib/queries/api-client";
 import { ApiRoutes } from "@/lib/routes";
 import { isValidDiscordUrl } from "@/lib/validation/discord";
 import { useUpdateInstructor } from "./hooks/use-update-instructor";
@@ -33,6 +33,83 @@ async function fetchInstructor(id: string): Promise<InstructorDetail> {
   return apiFetch<InstructorDetail>(ApiRoutes.adminInstructor(id));
 }
 
+/**
+ * Post-create outcome banner. The create flow used to discard both the Clerk
+ * invitation result and any profile-image failure, so an admin landed on the
+ * list believing the instructor had been invited and imaged.
+ *
+ * Reads its state from the query string the create page pushes, then clears it
+ * on dismiss so a refresh does not resurrect a stale outcome.
+ */
+function CreateOutcomeBanner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed || searchParams.get("created") !== "1") return null;
+
+  const email = searchParams.get("email");
+  const invitation = searchParams.get("invitation");
+  const invitationError = searchParams.get("invitationError");
+  const imageError = searchParams.get("imageError");
+
+  const dismiss = () => {
+    setDismissed(true);
+    router.replace(pathname);
+  };
+
+  return (
+    <div
+      role="status"
+      className="mb-6 rounded-md border border-border bg-muted/40 p-4"
+    >
+      <div className="flex items-start gap-3">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+        <div className="flex-1 space-y-1 text-sm">
+          <p className="font-medium">
+            Instructor created{email ? ` — ${email}` : ""}
+          </p>
+
+          {invitation === "sent" && (
+            <p className="text-muted-foreground">
+              Invitation sent. They need to accept it before the profile shows as connected.
+            </p>
+          )}
+
+          {invitation === "failed" && (
+            <p className="text-destructive">
+              Invitation <strong>FAILED</strong>
+              {invitationError ? `: ${invitationError}` : "."} The instructor exists but was not
+              invited. Resend from Basic Info once the email is corrected.
+            </p>
+          )}
+
+          {invitation === "not-requested" && (
+            <p className="text-muted-foreground">
+              No invitation was sent — there was no usable email address, or the person is already
+              connected. Add or correct the email in Basic Info, then send the invitation from there.
+            </p>
+          )}
+
+          {imageError && (
+            <p className="text-destructive">
+              Profile image upload <strong>FAILED</strong>: {imageError}. Re-upload it in Images.
+            </p>
+          )}
+
+          <p className="text-muted-foreground">
+            Finish the profile below — Images, Tags, and Social Links are still empty.
+          </p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={dismiss}>
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function EditInstructorPage() {
   const params = useParams();
   const instructorId = params.id as string;
@@ -52,7 +129,12 @@ export default function EditInstructorPage() {
     stripeFailed: { id: string; error: string }[];
   } | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    error: loadError,
+    refetch,
+  } = useQuery({
     queryKey: ["instructor", instructorId],
     queryFn: () => fetchInstructor(instructorId),
     enabled: !!instructorId,
@@ -135,7 +217,38 @@ export default function EditInstructorPage() {
     );
   }
 
-  if (!data) {
+  const isNotFound = loadError instanceof ApiFetchError && loadError.status === 404;
+
+  if (loadError && !isNotFound) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">
+                Couldn&apos;t load this instructor
+              </p>
+              <p className="mt-1 text-xs text-destructive/80">
+                {loadError instanceof Error ? loadError.message : "The request failed."}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                This is a load failure, not a missing record.
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        </div>
+        <Link href="/admin/instructors">
+          <Button variant="link">Back to Instructors</Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (isNotFound || !data) {
     return (
       <div className="container mx-auto py-8">
         <p>Instructor not found.</p>
@@ -180,6 +293,10 @@ export default function EditInstructorPage() {
           {error}
         </div>
       )}
+
+      <Suspense fallback={null}>
+        <CreateOutcomeBanner />
+      </Suspense>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex w-full overflow-x-auto">

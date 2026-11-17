@@ -1,21 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import {
   getAdminInstructors,
   getAdminInstructorStudents,
   updateAdminInstructor,
   ApiFetchError,
 } from "@/lib/queries/api-client";
+import type { AdminInstructorStudent } from "@/lib/queries/api-client";
 
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
+function formatDate(value: number | string | null): string {
+  if (value === null) return "N/A";
+  const date = new Date(value);
   return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -37,25 +38,33 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
-type AdminStudent = {
-  id: string;
-  userId: string;
-  email: string | null;
-  instructorId: string;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
-};
+type AdminStudent = AdminInstructorStudent;
+
+/** Per-instructor load state for the expanded student list. */
+type StudentLoadState =
+  | { status: "loading" }
+  | { status: "loaded"; students: AdminStudent[]; activeStudentCount: number }
+  | { status: "error"; message: string };
+
+function describeError(error: unknown): string {
+  if (
+    error instanceof ApiFetchError &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    "error" in error.data &&
+    typeof error.data.error === "string"
+  ) {
+    return error.data.error;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 type InstructorWithStats = {
   instructorId: string;
   userId: string;
   email: string;
+  name?: string;
+  displayName?: string;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
@@ -79,29 +88,44 @@ function StudentsTable({ students }: { students: AdminStudent[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b">
-            <th className="text-left py-2 px-3 font-medium">Email</th>
-            <th className="text-left py-2 px-3 font-medium">Sessions</th>
+            <th className="text-left py-2 px-3 font-medium">Student</th>
+            <th className="text-left py-2 px-3 font-medium">Sessions left</th>
             <th className="text-left py-2 px-3 font-medium">Status</th>
-            <th className="text-left py-2 px-3 font-medium">Last Session</th>
-            <th className="text-left py-2 px-3 font-medium">Expiration</th>
+            <th className="text-left py-2 px-3 font-medium">Last session</th>
+            <th className="text-left py-2 px-3 font-medium">Expires</th>
           </tr>
         </thead>
         <tbody>
           {students.map((student) => (
-            <tr key={student.id} className="border-b">
-              <td className="py-2 px-3">{student.email ?? "(unknown)"}</td>
+            <tr key={student.sessionPackId} className="border-b">
+              <td className="py-2 px-3">{student.email ?? "(no email on file)"}</td>
               <td className="py-2 px-3">
                 {student.remainingSessions} / {student.totalSessions}
               </td>
               <td className="py-2 px-3">
-                <Badge variant={getStatusBadgeVariant(student.status)}>{student.status}</Badge>
+                <span className="flex flex-wrap items-center gap-1">
+                  <Badge variant={getStatusBadgeVariant(student.status)}>{student.status}</Badge>
+                  {student.seatStatus !== "active" && (
+                    <Badge variant="outline" title={`Seat status: ${student.seatStatus}`}>
+                      seat {student.seatStatus}
+                    </Badge>
+                  )}
+                </span>
               </td>
               <td className="py-2 px-3">
-                {formatDate(new Date(student.purchasedAt).toISOString())}
+                {student.lastSessionCompletedAt === null ? (
+                  <span className="text-muted-foreground">None yet</span>
+                ) : (
+                  <>
+                    {formatDate(student.lastSessionCompletedAt)}
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {student.completedSessionCount} held
+                    </span>
+                  </>
+                )}
               </td>
-              <td className="py-2 px-3">
-                {student.expiresAt ? formatDate(new Date(student.expiresAt).toISOString()) : "No expiration"}
-              </td>
+              <td className="py-2 px-3">{formatDate(student.expiresAt)}</td>
             </tr>
           ))}
         </tbody>
@@ -114,13 +138,15 @@ function InstructorRow({
   instructor,
   isExpanded,
   onToggle,
-  students,
+  studentState,
+  onRetryStudents,
   onInventoryUpdated,
 }: {
   instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
-  students: AdminStudent[] | null;
+  studentState: StudentLoadState | undefined;
+  onRetryStudents: () => void;
   onInventoryUpdated: (
     id: string,
     updates: Partial<Pick<InstructorWithStats, "oneOnOneInventory" | "groupInventory" | "maxActiveStudents">>
@@ -182,7 +208,12 @@ function InstructorRow({
             ) : (
               <ChevronRight className="h-4 w-4" />
             )}
-            <span className="font-medium">{instructor.email}</span>
+            <span className="flex flex-col">
+              <span className="font-medium">{instructor.name || instructor.displayName || instructor.email}</span>
+              {(instructor.name || instructor.displayName) && (
+                <span className="text-xs text-muted-foreground">{instructor.email}</span>
+              )}
+            </span>
           </div>
         </td>
         <td className="py-3 px-4">
@@ -258,9 +289,37 @@ function InstructorRow({
         <tr className="bg-muted/30">
           <td colSpan={5} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">Students ({students?.length || 0})</h4>
-              {students ? (
-                <StudentsTable students={students} />
+              <h4 className="font-medium">Students</h4>
+              {studentState?.status === "loaded" && (
+                <p className="text-xs text-muted-foreground mb-3">
+                  {studentState.activeStudentCount} active student
+                  {studentState.activeStudentCount === 1 ? "" : "s"} ·{" "}
+                  {studentState.students.length} enrollment
+                  {studentState.students.length === 1 ? "" : "s"} (a student with two packs
+                  appears twice)
+                </p>
+              )}
+              {studentState?.status !== "loaded" && <div className="mb-3" />}
+              {studentState?.status === "error" ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                  <p className="text-sm text-destructive">
+                    Couldn&apos;t load students —{" "}
+                    <span className="font-mono text-xs">{studentState.message}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetryStudents();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : studentState?.status === "loaded" ? (
+                <StudentsTable students={studentState.students} />
               ) : (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -274,24 +333,104 @@ function InstructorRow({
   );
 }
 
+/** Loading state rendered inline; see the `useQuery` note below. */
+export function AdminInstructorsSkeleton() {
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminInstructorsSection() {
-  const { data: instructorsData } = useSuspenseQuery({
+  // `useSuspenseQuery` fetches during render, including on the server, where the
+  // widget's relative `apiFetch("/api/admin/instructors")` has no base URL and
+  // threw `TypeError: Failed to parse URL` on every dashboard visit. `useQuery`
+  // fetches in an effect (browser only) and lets the failure render inline
+  // instead of blanking the page.
+  const {
+    data: instructorsData,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminInstructors"],
     queryFn: () => getAdminInstructors(),
     staleTime: 1000 * 60,
   });
 
-  const [instructors, setInstructors] = useState<InstructorWithStats[]>(
-    instructorsData.instructors
+  /** Inventory edits applied on top of the fetched rows. */
+  const [inventoryOverrides, setInventoryOverrides] = useState<
+    Record<string, Partial<InstructorWithStats>>
+  >({});
+  const instructors = useMemo(
+    () =>
+      (instructorsData?.instructors ?? []).map((instructor) => ({
+        ...instructor,
+        ...(inventoryOverrides[instructor.instructorId] ?? {}),
+      })),
+    [instructorsData, inventoryOverrides]
   );
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
-  const [expandedStudents, setExpandedStudents] = useState<{ [key: string]: AdminStudent[] }>({});
-  const [_loadingStudents, setLoadingStudents] = useState<string | null>(null);
+  const [studentStates, setStudentStates] = useState<Record<string, StudentLoadState>>({});
+  /** Rows individually collapsed while "Expand All" is active. */
+  const [collapsedInAll, setCollapsedInAll] = useState<Set<string>>(new Set());
 
-  const handleToggleExpand = async (instructorId: string) => {
+  // Always fetches; callers decide whether a request is needed, so this can
+  // have an empty dependency list and be used from effects safely.
+  const loadStudents = useCallback(async (instructorId: string) => {
+    setStudentStates((prev) => ({ ...prev, [instructorId]: { status: "loading" } }));
+    try {
+      const json = await getAdminInstructorStudents(instructorId);
+      setStudentStates((prev) => ({
+        ...prev,
+        [instructorId]: {
+          status: "loaded",
+          students: json.students ?? [],
+          activeStudentCount: json.activeStudentCount ?? 0,
+        },
+      }));
+    } catch (error) {
+      setStudentStates((prev) => ({
+        ...prev,
+        [instructorId]: { status: "error", message: describeError(error) },
+      }));
+    }
+  }, []);
+
+  /**
+   * "Expand All" has to survive the list query still being in flight: the
+   * pre-`useQuery` code read rows synchronously, so clicking before the data
+   * arrived set the flag with no rows to fetch and every row then rendered a
+   * spinner that never resolved. Load for whoever is present, and again when
+   * the rows land.
+   */
+  useEffect(() => {
+    if (!isAllExpanded || isPending) return;
+    for (const instructor of instructors) {
+      if (!studentStates[instructor.instructorId]) {
+        void loadStudents(instructor.instructorId);
+      }
+    }
+  }, [isAllExpanded, isPending, instructors, studentStates, loadStudents]);
+
+  const handleToggleExpand = (instructorId: string) => {
     if (isAllExpanded) {
-      setExpandedInstructorId(expandedInstructorId === instructorId ? null : instructorId);
+      setCollapsedInAll((prev) => {
+        const next = new Set(prev);
+        if (next.has(instructorId)) {
+          next.delete(instructorId);
+        } else {
+          next.add(instructorId);
+        }
+        return next;
+      });
       return;
     }
 
@@ -301,39 +440,18 @@ export function AdminInstructorsSection() {
     }
 
     setExpandedInstructorId(instructorId);
-
-    if (!expandedStudents[instructorId]) {
-      setLoadingStudents(instructorId);
-      try {
-        const json = await getAdminInstructorStudents(instructorId);
-        const students = json.students || [];
-        setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
-      } catch {
-        setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
-      } finally {
-        setLoadingStudents(null);
-      }
-    }
+    if (!studentStates[instructorId]) void loadStudents(instructorId);
   };
 
-  const expandAll = async () => {
+  const expandAll = () => {
     setIsAllExpanded(true);
-    for (const instructor of instructors) {
-      if (!expandedStudents[instructor.instructorId]) {
-        try {
-          const json = await getAdminInstructorStudents(instructor.instructorId);
-          const students = json.students || [];
-          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
-        } catch {
-          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
-        }
-      }
-    }
+    setCollapsedInAll(new Set());
   };
 
   const collapseAll = () => {
     setIsAllExpanded(false);
     setExpandedInstructorId(null);
+    setCollapsedInAll(new Set());
   };
 
   return (
@@ -355,7 +473,28 @@ export function AdminInstructorsSection() {
         </div>
       </CardHeader>
       <CardContent>
-        {instructors.length === 0 ? (
+        {isPending ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : isError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-destructive">
+                  Couldn&apos;t load instructors
+                </p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  {error instanceof Error ? error.message : "The request failed."}
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        ) : instructors.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-muted-foreground mb-2">No instructors yet</p>
             <p className="text-sm text-muted-foreground">
@@ -379,13 +518,16 @@ export function AdminInstructorsSection() {
                   <InstructorRow
                     key={instructor.instructorId}
                     instructor={instructor}
-                    isExpanded={isAllExpanded || expandedInstructorId === instructor.instructorId}
+                    isExpanded={
+                      isAllExpanded
+                        ? !collapsedInAll.has(instructor.instructorId)
+                        : expandedInstructorId === instructor.instructorId
+                    }
                     onToggle={() => handleToggleExpand(instructor.instructorId)}
-                    students={expandedStudents[instructor.instructorId] || null}
+                    studentState={studentStates[instructor.instructorId]}
+                    onRetryStudents={() => void loadStudents(instructor.instructorId)}
                     onInventoryUpdated={(id, updates) => {
-                      setInstructors((prev) =>
-                        prev.map((i) => (i.instructorId === id ? { ...i, ...updates } : i))
-                      );
+                      setInventoryOverrides((prev) => ({ ...prev, [id]: updates }));
                     }}
                   />
                 ))}

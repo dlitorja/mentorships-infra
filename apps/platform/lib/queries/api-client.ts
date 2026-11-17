@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { normalizeBaseUrl } from "@mentorships/emails/base-url";
 import { ApiRoutes } from "../routes";
 
 /**
@@ -54,6 +55,46 @@ function throwApiFetchError(response: Response, data: unknown): never {
 }
 
 /**
+ * Absolute base for API calls that run outside the browser.
+ *
+ * Relative URLs only resolve in a document context, so a server-side call such
+ * as `fetch("/api/admin/stats")` throws `TypeError: Failed to parse URL`. That
+ * happened on every `/admin` render while the dashboard sections used
+ * `useSuspenseQuery` (which fetches during render, including on the server).
+ * Those components now use `useQuery`; this guard keeps any future server-side
+ * call honest instead of failing with an unhelpful parser error.
+ *
+ * `normalizeBaseUrl` rejects the redacted placeholders this repo's `.env.local`
+ * template uses, so a poisoned value falls through to the next candidate.
+ */
+function getServerApiBaseUrl(): string | null {
+  return (
+    normalizeBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ??
+    normalizeBaseUrl(process.env.NEXT_PUBLIC_URL) ??
+    normalizeBaseUrl(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+  );
+}
+
+/**
+ * Resolve a request URL: unchanged in the browser (relative paths are correct
+ * there) and for absolute URLs anywhere; absolute in any other runtime.
+ */
+export function resolveApiRequestUrl(url: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
+  if (typeof window !== "undefined") return url;
+
+  const base = getServerApiBaseUrl();
+  if (!base) {
+    throw new Error(
+      `apiFetch("${url}") ran outside the browser but no absolute base URL is ` +
+        `configured. Set NEXT_PUBLIC_APP_URL to an http(s) origin (VERCEL_URL is ` +
+        `used automatically on Vercel deployments).`,
+    );
+  }
+  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/**
  * Type-safe fetch wrapper that handles errors and JSON parsing.
  *
  * Does not set Content-Type for FormData bodies so multipart uploads work.
@@ -64,7 +105,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const isFormData =
     typeof FormData !== "undefined" && options?.body instanceof FormData;
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiRequestUrl(url), {
     ...options,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
@@ -1062,7 +1103,9 @@ export async function deleteAdminInstructor(id: string, hard: boolean = false) {
  * Get students for an instructor as admin
  */
 export async function getAdminInstructorStudents(id: string) {
-  return apiFetch<{ students: AdminStudent[] }>(ApiRoutes.adminInstructorStudents(id));
+  return apiFetch<{ students: AdminInstructorStudent[]; activeStudentCount: number }>(
+    ApiRoutes.adminInstructorStudents(id)
+  );
 }
 
 /**
@@ -1092,7 +1135,18 @@ export async function createAdminInstructor(data: {
   kajabiCheckoutUrlOneOnOne?: string;
   kajabiCheckoutUrlGroup?: string;
 }) {
-  return apiFetch<{ success: boolean; message: string; instructor: { id: string } }>(ApiRoutes.adminInstructors, {
+  return apiFetch<{
+    success: boolean;
+    message: string;
+    instructor: { id: string; name?: string; slug?: string; email?: string | null };
+    /**
+     * Whether the Clerk invitation was actually delivered. `false` with an
+     * `invitationError` means the instructor record exists but nobody was
+     * invited — the create flow must surface this, not discard it.
+     */
+    invitationSent?: boolean;
+    invitationError?: string;
+  }>(ApiRoutes.adminInstructors, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -1188,36 +1242,57 @@ export type AdminStudentSessionPack = {
   status: "active" | "depleted" | "expired" | "refunded";
 };
 
-export type AdminStudent = {
-  id: string;
+/**
+ * One enrollment (session pack holding a seat) for an instructor, as returned
+ * by `GET /api/admin/instructors/[id]/students`. Backed by
+ * `admin.getInstructorWithStudents`: packs without a seat reservation are
+ * deliberately excluded, and session/seat state is per pack.
+ */
+export type AdminInstructorStudent = {
   userId: string;
   email: string | null;
-  instructorId: string;
-  instructorName: string | null;
-  instructorSlug: string | null;
+  sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
   status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
+  expiresAt: number | null;
+  lastSessionCompletedAt: number | null;
+  completedSessionCount: number;
+  seatStatus: "active" | "grace" | "released";
+  seatExpiresAt: number | null;
 };
 
 export type AdminStudentListItem = {
   userId: string;
   email: string | null;
+  firstName: string | null;
+  lastName: string | null;
   sessionPacks: AdminStudentSessionPack[];
 };
 
 /**
  * List students for admin
  */
-export async function getAdminStudents(params?: { search?: string; includeInactive?: boolean }) {
+export async function getAdminStudents(params?: {
+  search?: string;
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.search) searchParams.set("search", params.search);
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
+  if (params?.page) searchParams.set("page", params.page.toString());
+  if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   const query = searchParams.toString();
-  return apiFetch<{ items: AdminStudentListItem[]; total: number; page: number; pageSize: number }>(
+  return apiFetch<{
+    items: AdminStudentListItem[];
+    total: number;
+    page: number;
+    pageSize: number;
+    /** Present when the API answered 206 because Convex failed. */
+    degraded?: boolean;
+  }>(
     `${ApiRoutes.adminStudents}${query ? `?${query}` : ""}`
   );
 }
@@ -1328,11 +1403,17 @@ export type AdminOrder = {
 /**
  * List orders for admin
  */
-export async function getAdminOrders(params?: { status?: string; page?: number; pageSize?: number }) {
+export async function getAdminOrders(params?: {
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set("page", params.page.toString());
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
   const query = searchParams.toString();
   return apiFetch<{ items: AdminOrder[]; total: number; page: number; pageSize: number }>(
     `${ApiRoutes.adminOrders}${query ? `?${query}` : ""}`

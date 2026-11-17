@@ -244,6 +244,78 @@ function getStartOfYear(date: Date): number {
   return new Date(date.getFullYear(), 0, 1).getTime();
 }
 
+export type RevenueSummary = {
+  revenueThisMonth: number;
+  revenueLastMonth: number;
+  revenueThisYear: number;
+  revenueChange: number;
+  hasRevenueData: boolean;
+  hasHistoricalRevenue: boolean;
+};
+
+/**
+ * Aggregates completed payments into the dashboard's revenue figures.
+ *
+ * Extracted from `getStats` so the month/year windows can be tested without a
+ * clock dependency. Two rules matter here:
+ *
+ * - `amount` is already in dollars (the Stripe worker divides `amount_total` by
+ *   100 before persisting, and PayPal stores `order.totalAmount`), so no
+ *   conversion happens at read time.
+ * - `revenueLastMonth` is a calendar-month window, not a year-to-date one, so
+ *   January still reports December.
+ *
+ * Callers must fetch payments from `min(startOfYear, startOfLastMonth)`.
+ */
+export function summariseRevenue(
+  payments: ReadonlyArray<{ amount: string; _creationTime: number }>,
+  now: Date
+): RevenueSummary {
+  const startOfMonth = getStartOfMonth(now);
+  const startOfLastMonth = getStartOfLastMonth(now);
+  const startOfYear = getStartOfYear(now);
+
+  let revenueThisMonth = 0;
+  let revenueLastMonth = 0;
+  let revenueThisYear = 0;
+  let hasRevenueData = false;
+
+  for (const payment of payments) {
+    const amount = parseFloat(payment.amount) || 0;
+    const createdAt = payment._creationTime;
+
+    if (amount > 0) {
+      hasRevenueData = true;
+    }
+
+    if (createdAt >= startOfYear) {
+      revenueThisYear += amount;
+    }
+
+    if (createdAt >= startOfMonth) {
+      revenueThisMonth += amount;
+    } else if (createdAt >= startOfLastMonth && createdAt < startOfMonth) {
+      revenueLastMonth += amount;
+    }
+  }
+
+  let revenueChange = 0;
+  if (revenueLastMonth > 0) {
+    revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
+  } else if (revenueThisMonth > 0) {
+    revenueChange = 100;
+  }
+
+  return {
+    revenueThisMonth,
+    revenueLastMonth,
+    revenueThisYear,
+    revenueChange: Math.round(revenueChange * 10) / 10,
+    hasRevenueData,
+    hasHistoricalRevenue: revenueLastMonth > 0,
+  };
+}
+
 /**
  * Fetches admin dashboard statistics including active students, revenue metrics.
  * Returns current month, last month, and year-to-date revenue with change percentage.
@@ -258,94 +330,42 @@ export const getStats = query({
     if (!isAdmin) throw new Error("Forbidden");
 
     const now = new Date();
-    const startOfMonth = getStartOfMonth(now);
     const startOfLastMonth = getStartOfLastMonth(now);
     const startOfYear = getStartOfYear(now);
 
+    // Canonical `totalActiveStudents` (audit §1.4): distinct students holding
+    // at least one active seat. The previous implementation counted active
+    // *packs* and dereferenced each one (an N+1) — a student with two packs
+    // counted twice, disagreeing with every other admin surface.
     const activeSeatReservations = await ctx.db
       .query("seatReservations")
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
 
-    const sessionPackIds = new Set<string>();
-    for (const seat of activeSeatReservations) {
-      if (seat.sessionPackId) {
-        sessionPackIds.add(seat.sessionPackId);
-      }
-    }
+    const totalActiveStudents = new Set(
+      activeSeatReservations.map((seat) => seat.userId)
+    ).size;
 
-    let totalActiveStudents = 0;
-    for (const packId of sessionPackIds) {
-      const pack = await ctx.db.get(packId as Id<"sessionPacks">);
-      if (pack && pack.status === "active") {
-        totalActiveStudents++;
-      }
-    }
-
+    // Read from `startOfLastMonth`, not `startOfYear`: in January, December's
+    // payments sit *before* `startOfYear`, so a YTD floor silently zeroed
+    // `revenueLastMonth` and `hasHistoricalRevenue` exactly when the
+    // month-over-month comparison matters.
+    const windowStart = Math.min(startOfYear, startOfLastMonth);
     const allPayments = await ctx.db
       .query("payments")
       .withIndex("by_status", (q) => q.eq("status", "completed"))
-      .filter((q) => q.gte(q.field("_creationTime"), startOfYear))
+      .filter((q) => q.gte(q.field("_creationTime"), windowStart))
       .collect();
 
-    let revenueThisMonth = 0;
-    let revenueLastMonth = 0;
-    let revenueThisYear = 0;
-    let hasRevenueData = false;
-
-    for (const payment of allPayments) {
-      const amount = parseFloat(payment.amount) || 0;
-      const createdAt = payment._creationTime;
-
-      if (amount > 0) {
-        hasRevenueData = true;
-      }
-
-      if (createdAt >= startOfYear) {
-        revenueThisYear += amount;
-      }
-
-      if (createdAt >= startOfMonth) {
-        revenueThisMonth += amount;
-      } else if (createdAt >= startOfLastMonth && createdAt < startOfMonth) {
-        revenueLastMonth += amount;
-      }
-    }
-
-    let revenueChange = 0;
-    if (revenueLastMonth > 0) {
-      revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
-    } else if (revenueThisMonth > 0) {
-      revenueChange = 100;
-    }
+    const summary = summariseRevenue(allPayments, now);
 
     return {
       totalActiveStudents,
-      revenueThisMonth: revenueThisMonth / 100,
-      revenueLastMonth: revenueLastMonth / 100,
-      revenueChange: Math.round(revenueChange * 10) / 10,
-      revenueThisYear: revenueThisYear / 100,
-      hasRevenueData,
+      ...summary,
       hasStudentData: totalActiveStudents > 0,
-      hasHistoricalRevenue: revenueLastMonth > 0,
     };
   },
 });
-
-type StudentWithSessionInfo = {
-  id: string;
-  userId: string;
-  email: string | null;
-  instructorId: Id<"instructors">;
-  instructorName: string | null;
-  instructorSlug: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  purchasedAt: number;
-  expiresAt: number | null;
-  status: "active" | "depleted" | "expired" | "refunded";
-  createdAt: number;
-};
 
 // Removed legacy mentee-named endpoint to enforce naming consistency
 
@@ -393,11 +413,20 @@ export const getStudentsForAdmin = query({
       const allowed = new Set(args.userIds);
       sessionPacks = sessionPacks.filter((sp) => allowed.has(sp.userId));
     } else if (args.search) {
+      // The admin UI advertises "search by name or email", so a name match has to
+      // resolve here; matching only `email` made a name search silently return
+      // nothing.
       const searchLower = args.search.toLowerCase();
       const userIds = new Set<string>();
       const users = await ctx.db.query("users").collect();
       for (const user of users) {
-        if (user.email?.toLowerCase().includes(searchLower)) {
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").toLowerCase();
+        const matches =
+          (user.email?.toLowerCase().includes(searchLower) ?? false) ||
+          (user.firstName?.toLowerCase().includes(searchLower) ?? false) ||
+          (user.lastName?.toLowerCase().includes(searchLower) ?? false) ||
+          (fullName.length > 0 && fullName.includes(searchLower));
+        if (matches) {
           userIds.add(user.userId);
         }
       }
@@ -432,6 +461,8 @@ export const getStudentsForAdmin = query({
     const studentsMap = new Map<string, {
       userId: string;
       email: string | null;
+      firstName: string | null;
+      lastName: string | null;
       sessionPacks: Array<{
         id: string;
         instructorId: string;
@@ -454,6 +485,10 @@ export const getStudentsForAdmin = query({
         studentsMap.set(pack.userId, {
           userId: pack.userId,
           email: user?.email ?? null,
+          // The admin lists headline people by name; without these the UI can
+          // only fall back to an email address or a raw Clerk id.
+          firstName: user?.firstName ?? null,
+          lastName: user?.lastName ?? null,
           sessionPacks: [],
         });
       }
@@ -628,7 +663,10 @@ export const getInstructorsWithStatsForAdmin = query({
             q.eq("instructorId", i._id).eq("status", "active")
           )
           .collect();
-        seatsByInstructor.set(i._id, new Set(seats.map((s) => s.sessionPackId)).size);
+        // Canonical `activeStudentCount`: distinct students holding at least
+        // one active seat. Counting seats/packs overstates the number when a
+        // student holds two packs — and capacity decisions are made on this.
+        seatsByInstructor.set(i._id, new Set(seats.map((s) => s.userId)).size);
       })
     );
 
@@ -748,7 +786,9 @@ export const getInstructorWithStudents = query({
       oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
       groupInventory: (instructor as any).groupInventory ?? 0,
       maxActiveStudents: (instructor as any).maxActiveStudents ?? 0,
-      activeStudentCount: seats.filter((sr) => sr.status === "active").length,
+      activeStudentCount: new Set(
+        seats.filter((sr) => sr.status === "active").map((sr) => sr.userId)
+      ).size,
       createdAt: instructor._creationTime,
       students: students.sort((a, b) => b.sessionPackId.localeCompare(a.sessionPackId)),
     };

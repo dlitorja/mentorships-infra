@@ -1,8 +1,9 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { Users, ArrowUpDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { Users, ArrowUpDown, Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAdminStats } from "@/lib/queries/api-client";
 
@@ -13,12 +14,66 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Loading / error are owned here rather than by a `<Suspense>` boundary.
+ *
+ * `useSuspenseQuery` fetches during render, which also happens on the server —
+ * where this client's relative `apiFetch("/api/admin/stats")` has no base URL
+ * and threw `TypeError: Failed to parse URL` on every dashboard visit. A plain
+ * `useQuery` fetches in an effect (browser only), and rendering the error
+ * inline also stops one failing widget from replacing the whole dashboard.
+ */
+export function AdminStatsSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Card key={i}>
+          <CardContent className="pt-6">
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export function AdminStats() {
-  const { data: stats } = useSuspenseQuery({
+  const {
+    data: stats,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["adminStats"],
     queryFn: getAdminStats,
     staleTime: 1000 * 60,
   });
+
+  if (isPending) return <AdminStatsSkeleton />;
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-destructive">Stats unavailable</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {error instanceof Error ? error.message : "The request failed."}
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

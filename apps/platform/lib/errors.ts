@@ -20,6 +20,32 @@ export class ForbiddenError extends Error {
   }
 }
 
+/**
+ * The signed-in session could not be exchanged for a Convex auth token.
+ *
+ * `getConvexAuthToken()` mints a short-lived JWT through Clerk's backend
+ * API on every server render. When Clerk answers with a 5xx (or the
+ * middleware itself fails), that used to escape as an unhandled server
+ * error — Next rendered the generic 500 "Application error" page with no
+ * way forward, which is indistinguishable from a broken login. This is a
+ * retryable infrastructure failure, not an authorization decision, so it
+ * carries 503 rather than 401: the page-level error boundary offers a
+ * retry instead of telling the user they are not allowed in.
+ */
+export class SessionTokenError extends Error {
+  readonly code = "SESSION_TOKEN_UNAVAILABLE" as const;
+  readonly statusCode = 503 as const;
+
+  constructor(
+    message: string = "Could not authenticate the session with the backend",
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "SessionTokenError";
+    Object.setPrototypeOf(this, SessionTokenError.prototype);
+  }
+}
+
 export function isUnauthorizedError(error: unknown): error is UnauthorizedError {
   if (error instanceof UnauthorizedError) return true;
   if (error instanceof Error) {
