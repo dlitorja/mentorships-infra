@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -69,6 +69,7 @@ const STATUS_OPTIONS = [
  * is real and the tail is reachable.
  */
 export default function InstructorsPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [page, setPage] = useState(1);
@@ -105,6 +106,13 @@ export default function InstructorsPage() {
   const firstOnPage = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastOnPage = (page - 1) * PAGE_SIZE + instructors.length;
 
+  // Deleting the last row on the final page leaves `page` beyond the end; the
+  // roster would render an empty state with the pager hidden. Clamp during
+  // render so the refetch asks for a page that exists.
+  if (data && page > totalPages) {
+    setPage(totalPages);
+  }
+
   const hardDeleteInstructorMutation = useMutation({
     mutationFn: async (id: Id<"instructors">) => {
       return deleteAdminInstructor(id, true);
@@ -113,7 +121,10 @@ export default function InstructorsPage() {
       setPurgeInstructor(null);
       setPurgeError(null);
       setIsPurging(false);
-      refetch();
+      // Invalidate every roster page, not just the current one: after deleting
+      // the last row on the final page the view has to fall back to a page that
+      // still exists, and that page's cache also holds the deleted row.
+      queryClient.invalidateQueries({ queryKey: ["admin-instructors"] });
     },
     onError: (error: Error) => {
       setPurgeError(error.message);

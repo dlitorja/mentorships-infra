@@ -137,6 +137,37 @@ describe("InstructorsPage", () => {
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
   });
 
+  it("falls back to a page that still exists after deleting its only row", async () => {
+    // 21 rows, so page 2 holds exactly one. Deleting it leaves 20 rows while the
+    // view still points at page 2: the roster must not strand the admin on an
+    // empty page with the pager hidden.
+    mocks.deleteAdminInstructor.mockResolvedValue({ success: true });
+    mocks.getAdminInstructors
+      .mockResolvedValueOnce(response([instructor()], 21)) // page 1
+      .mockResolvedValueOnce(
+        response([instructor({ instructorId: "inst_last", id: "inst_last", name: "Only Row Left" })], 21)
+      ) // page 2
+      .mockResolvedValueOnce(response([], 20)) // page 2 after the delete
+      .mockResolvedValueOnce(response([instructor({ name: "Back On Page One" })], 20)); // page 1
+
+    renderWithProviders(<InstructorsPage />);
+    expect(await screen.findByText("Ada Instructor")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(await screen.findByText("Only Row Left")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete instructor" }));
+    fireEvent.click(await screen.findByRole("button", { name: /permanently delete/i }));
+
+    await waitFor(() => expect(screen.getByText("Back On Page One")).toBeInTheDocument());
+    // Back on the last remaining page, with the pager hidden because there is
+    // only one page left.
+    expect(mocks.getAdminInstructors).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 1 })
+    );
+    expect(screen.queryByText(/No instructors match/)).not.toBeInTheDocument();
+  });
+
   it("renders a retryable error rather than an empty roster", async () => {
     mocks.getAdminInstructors.mockRejectedValue(new Error("Convex unavailable"));
 
