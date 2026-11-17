@@ -14,7 +14,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, ArrowLeft, Save } from "lucide-react";
+import { Loader2, ArrowLeft, Save, Globe } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getAdminWorkspace, updateAdminWorkspace } from "@/lib/queries/api-client";
 
 type WorkspaceDetail = {
@@ -43,6 +51,8 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
   const [isPublic, setIsPublic] = React.useState(false);
   const [isSaved, setIsSaved] = React.useState(false);
   const [nameError, setNameError] = React.useState<string | null>(null);
+  /** Private → public is the one setting here that widens access; confirm it. */
+  const [confirmPublic, setConfirmPublic] = React.useState(false);
 
   React.useEffect(() => {
     if (workspace) {
@@ -151,7 +161,13 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
               <Switch
                 id="isPublic"
                 checked={isPublic}
-                onCheckedChange={setIsPublic}
+                onCheckedChange={(next) => {
+                  if (next && !isPublic) {
+                    setConfirmPublic(true);
+                    return;
+                  }
+                  setIsPublic(next);
+                }}
               />
             </div>
 
@@ -188,6 +204,39 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
           </CardContent>
         </Card>
       </form>
+
+      <Dialog open={confirmPublic} onOpenChange={setConfirmPublic}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="h-5 w-5 text-amber-600" />
+              Make this workspace public?
+            </DialogTitle>
+            <DialogDescription>
+              Anyone with the link can open &quot;{workspace.name}&quot; without signing in. The
+              workspace&apos;s messages and shared files become readable to them.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            This takes effect when you press <strong>Save Changes</strong>. You can switch it back
+            to private at any time.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setConfirmPublic(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setIsPublic(true);
+                setConfirmPublic(false);
+              }}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Yes, make it public
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="max-w-2xl mt-6">
         <CardHeader>
