@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "tests/unit/test-utils";
 import { AdminInstructorsSection } from "./admin-instructors-section";
 
@@ -75,6 +75,29 @@ describe("AdminInstructorsSection student expansion", () => {
     expect(await screen.findByText(/Couldn't load students/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.queryByText("No students assigned yet")).not.toBeInTheDocument();
+  });
+
+  it("Expand All clicked before the list loads still fetches students", async () => {
+    // `useQuery` (unlike `useSuspenseQuery`) renders before the rows exist, so
+    // the button is clickable while the list is pending. The pre-fix behaviour
+    // set the flag with no rows to fetch, leaving every row spinning forever.
+    let resolveInstructors: (value: { instructors: typeof instructor[] }) => void = () => {};
+    mocks.getAdminInstructors.mockReturnValue(
+      new Promise((resolve) => {
+        resolveInstructors = resolve;
+      })
+    );
+    mocks.getAdminInstructorStudents.mockResolvedValue({ students: [], activeStudentCount: 0 });
+
+    renderWidget();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand All" }));
+    resolveInstructors({ instructors: [instructor] });
+
+    expect(await screen.findByText("instructor@example.com")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.getAdminInstructorStudents).toHaveBeenCalledWith("inst_1")
+    );
   });
 
   it("renders a list-load failure inline instead of blanking the page", async () => {
