@@ -34,5 +34,12 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           install-args: ""
+      # convex >= 1.47 asks for confirmation before creating or changing an
+      # index on a large table, because the deploy blocks until that index is
+      # backfilled. `--yes` answers deploy prompts today, so this job is fine
+      # as-is, but do not rely on it blindly: if a future PR adds an index to a
+      # large table, prefer `staged: true` on the index (it backfills in the
+      # background) or add `--skip-large-indexes-check` here deliberately.
+      # https://docs.convex.dev/database/schemas#staged-validators
       - name: Deploy Convex
         run: pnpm exec convex deploy --yes

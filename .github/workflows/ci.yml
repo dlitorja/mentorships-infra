@@ -62,6 +62,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-pnpm
+      # Security floor + alignment: convex < 1.48.0 is affected by
+      # GHSA-qw8j-4xj7-6f28 (RCE via anonymous/agent mode) and
+      # GHSA-9mw5-7p28-rvv4 (untrusted project checkout), and mixed ranges
+      # across workspaces break shared validator typings.
+      - name: Check Convex version floor
+        run: node scripts/check-convex-version.mjs
       - name: Typecheck Convex server
         run: pnpm run typecheck
 
