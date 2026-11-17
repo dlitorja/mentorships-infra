@@ -135,7 +135,7 @@ Current known version snapshots (verify before relying on these):
 | `inngest-cli` | `^1.40.0` | `1.40.0` | Latest as of last check. |
 | `@clerk/nextjs` (platform) | `^7.3.4` | `7.6.4` | Newer patch/minor available. |
 | `@clerk/nextjs` (web) | `^6.36.5` | `7.6.4` | Major version behind; upgrade separately. |
-| `convex` | `^1.45.0` | `1.45.0` | Latest as of last check; huckleberry-drive aligned with root. |
+| `convex` | `^1.50.0` | `1.50.0` | Aligned across root, `apps/platform`, `apps/marketing`, `apps/huckleberry-drive` (was 1.43 / 1.45 / 1.46 split). |
 | `@supabase/supabase-js` | `^2.81.1` | `2.111.0` | Minor update available. |
 | `@trigger.dev/sdk` | `^4.5.9` | `4.5.9` | Aligned with Node 24 bump; older `4.4.6` lacked `node-24` runtime type. |
 | `@trigger.dev/build` | `^4.5.9` | `4.5.9` | Aligned with Node 24 bump. |
