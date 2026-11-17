@@ -34,6 +34,21 @@ type RefundInput = z.infer<typeof createRefundSchema>;
  * Allows full or partial refunds for both Stripe and PayPal payments.
  * Sends refund notification email to the student.
  */
+/**
+ * Best-effort instructor name for a refund email.
+ *
+ * The pack that produced this payment is not identifiable from the order alone
+ * (no `paymentId` index on sessionPacks), so this only commits to a name when the
+ * student's packs all point at one instructor. Ambiguity must not put the wrong
+ * person's name on a refund receipt.
+ */
+export function pickInstructorName(names: Array<string | null | undefined>): string {
+  const unique = Array.from(
+    new Set(names.map((name) => name?.trim()).filter((name): name is string => !!name))
+  );
+  return unique.length === 1 ? unique[0] : "your instructor";
+}
+
 export async function POST(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
@@ -191,10 +206,27 @@ export async function POST(req: NextRequest) {
         });
 
         if (user?.email) {
-          const instructorName = "Your Instructor";
+          // The student is a person, not an inbox: greet them by name when we
+          // have one. The instructor comes from the pack this payment created —
+          // "Your Instructor" made a papered-over email look automated.
+          const studentName =
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email;
+          let instructorName = "your instructor";
+          try {
+            const packs = await convex.query(api.admin.getStudentsForAdmin, {
+              userIds: [order.userId],
+            });
+            instructorName = pickInstructorName(
+              (packs?.items ?? []).flatMap((student) =>
+                (student.sessionPacks ?? []).map((pack) => pack.instructorName)
+              )
+            );
+          } catch (err) {
+            console.error("[admin/refunds] Could not resolve instructor name:", err);
+          }
 
           const refundEmail = buildRefundEmail({
-            studentName: user.email,
+            studentName,
             instructorName,
             refundAmount: refundAmountStr,
             currency,

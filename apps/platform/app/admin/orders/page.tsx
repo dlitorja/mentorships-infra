@@ -2,14 +2,23 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ApiFetchError, createAdminRefund, getAdminOrders } from "@/lib/queries/api-client";
-import { 
+import {
   Search,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Copy,
-  AlertTriangle
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,38 +89,71 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
+/**
+ * Stripe dashboard link for a payment intent. The old inline expression dropped
+ * the `payments/` segment in production, producing `dashboard.stripe.com/<pi_…>`.
+ */
+function stripeDashboardUrl(paymentIntentId: string): string {
+  const isTest = process.env.NEXT_PUBLIC_VERCEL_ENV !== "production";
+  return `https://dashboard.stripe.com/${isTest ? "test/" : ""}payments/${paymentIntentId}`;
+}
+
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text);
 }
 
-function RefundModal({ 
-  order, 
-  onClose, 
-  onSuccess 
-}: { 
+/** Amount still refundable on a single payment. */
+function refundableAmount(payment: { amount: string; refundedAmount: string | null }): number {
+  const amount = parseFloat(payment.amount) || 0;
+  const refunded = parseFloat(payment.refundedAmount || "0") || 0;
+  // Money maths in cents avoids 0.1 + 0.2 drift in the cap check.
+  return Math.max(0, Math.round((amount - refunded) * 100) / 100);
+}
+
+function RefundModal({
+  order,
+  onClose,
+  onRefunded,
+}: {
   order: Order;
   onClose: () => void;
-  onSuccess: () => void;
+  onRefunded: () => void;
 }) {
+  const refundablePayments = order.payments.filter((p) => refundableAmount(p) > 0);
+  const [paymentId, setPaymentId] = useState(refundablePayments[0]?.id ?? "");
+  const payment = order.payments.find((p) => p.id === paymentId) ?? refundablePayments[0];
   const [refundType, setRefundType] = useState<"full" | "partial">("full");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("Requested by customer");
   const [customReason, setCustomReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [receipt, setReceipt] = useState<{
+    amount: string;
+    provider: string;
+    providerRefundId: string | null;
+  } | null>(null);
 
-  const payment = order.payments[0];
-  const maxRefund = payment 
-    ? parseFloat(payment.amount) - parseFloat(payment.refundedAmount || "0")
-    : 0;
+  const maxRefund = payment ? refundableAmount(payment) : 0;
+  const totalPaid = order.payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+  const totalRefunded = order.payments.reduce(
+    (sum, p) => sum + (parseFloat(p.refundedAmount || "0") || 0),
+    0
+  );
+  const partialValue = Number(amount);
+  const partialValid =
+    refundType === "full" ||
+    (Number.isFinite(partialValue) && partialValue > 0 && partialValue <= maxRefund);
+  const canSubmit = !!payment && maxRefund > 0 && partialValid && !loading;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!payment || !canSubmit) return;
     setLoading(true);
     setError("");
 
     try {
-      await createAdminRefund({
+      const result = await createAdminRefund({
         paymentId: payment.id,
         refundType,
         amount: refundType === "partial" ? amount : undefined,
@@ -119,7 +161,12 @@ function RefundModal({
         customReason: reason === "Other" ? customReason : undefined,
       });
 
-      onSuccess();
+      setReceipt({
+        amount: result.refund?.amount ?? (refundType === "full" ? maxRefund.toFixed(2) : amount),
+        provider: result.refund?.provider ?? payment.provider,
+        providerRefundId: result.refund?.providerRefundId ?? null,
+      });
+      onRefunded();
     } catch (err) {
       if (err instanceof ApiFetchError && typeof err.data === "object" && err.data !== null && "error" in err.data && typeof err.data.error === "string") {
         setError(err.data.error);
@@ -132,119 +179,213 @@ function RefundModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background rounded-lg p-6 max-w-md w-full mx-4 space-y-4">
-        <h2 className="text-xl font-bold">Process Refund</h2>
-        <p className="text-muted-foreground text-sm">
-          Order ID: {order.id.slice(0, 8)}... | Amount: {formatCurrency(order.totalAmount, order.currency)}
-        </p>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Process refund</DialogTitle>
+          <DialogDescription>
+            {order.userEmail ?? "Unknown customer"} · order {order.id.slice(0, 8)}…
+          </DialogDescription>
+        </DialogHeader>
 
-        {order.packs && order.packs.length > 0 && (
-          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-            <p className="font-medium">What this order provided</p>
-            <ul className="mt-1 space-y-1 text-muted-foreground">
-              {order.packs.map((pack) => (
-                <li key={pack.id}>
-                  {pack.instructorName ?? "Instructor"} — {pack.totalSessions} sessions in pack,{" "}
-                  {pack.remainingSessions} remaining
-                  {pack.status !== "active" ? ` (pack ${pack.status})` : ""}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Refunding does not cancel these sessions or revoke workspace access — handle those
-              from the student and workspace screens.
-            </p>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">Refund Type</label>
-            <div className="flex gap-4 mt-2">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="refundType"
-                  value="full"
-                  checked={refundType === "full"}
-                  onChange={() => setRefundType("full")}
-                />
-                Full Refund
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="refundType"
-                  value="partial"
-                  checked={refundType === "partial"}
-                  onChange={() => setRefundType("partial")}
-                />
-                Partial Refund
-              </label>
-            </div>
-          </div>
-
-          {refundType === "partial" && (
-            <div>
-              <label className="text-sm font-medium">Amount</label>
-              <Input
-                type="number"
-                step="0.01"
-                max={maxRefund}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder={`Max: ${maxRefund.toFixed(2)}`}
-                className="mt-1"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Maximum refundable: {formatCurrency(maxRefund.toString(), order.currency)}
+        {receipt ? (
+          <div className="space-y-4">
+            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+              <p className="font-medium">
+                Refunded {formatCurrency(receipt.amount, order.currency)} via {receipt.provider}
+              </p>
+              <p className="mt-1 font-mono text-xs text-muted-foreground break-all">
+                {receipt.providerRefundId
+                  ? `refund id: ${receipt.providerRefundId}`
+                  : "no provider refund id returned"}
               </p>
             </div>
-          )}
-
-          <div>
-            <label className="text-sm font-medium">Reason</label>
-            <Select value={reason} onValueChange={setReason}>
-              <SelectTrigger className="w-full mt-1">
-                <SelectValue placeholder="Select reason" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Duplicate">Duplicate</SelectItem>
-                <SelectItem value="Fraudulent">Fraudulent</SelectItem>
-                <SelectItem value="Requested by customer">Requested by customer</SelectItem>
-                <SelectItem value="Other">Other</SelectItem>
-              </SelectContent>
-            </Select>
+            <p className="text-xs text-muted-foreground">
+              Keep this id for reconciliation with {receipt.provider}. Sessions and workspace access
+              were not changed.
+            </p>
+            <DialogFooter>
+              <Button onClick={onClose}>Done</Button>
+            </DialogFooter>
           </div>
-
-          {reason === "Other" && (
-            <div>
-              <label className="text-sm font-medium">Custom Reason</label>
-              <Input
-                value={customReason}
-                onChange={(e) => setCustomReason(e.target.value)}
-                placeholder="Enter reason..."
-                className="mt-1"
-              />
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <dt className="text-muted-foreground">Paid</dt>
+                <dd className="text-right font-medium">
+                  {formatCurrency(totalPaid.toFixed(2), order.currency)}
+                </dd>
+                <dt className="text-muted-foreground">Already refunded</dt>
+                <dd className="text-right">
+                  {formatCurrency(totalRefunded.toFixed(2), order.currency)}
+                </dd>
+                <dt className="text-muted-foreground">Refundable now</dt>
+                <dd className="text-right font-medium">
+                  {formatCurrency(
+                    order.payments.reduce((sum, p) => sum + refundableAmount(p), 0).toFixed(2),
+                    order.currency
+                  )}
+                </dd>
+              </dl>
             </div>
-          )}
 
-          {error && (
-            <div className="text-red-500 text-sm">{error}</div>
-          )}
+            {order.packs && order.packs.length > 0 && (
+              <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">What this order provided</p>
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {order.packs.map((pack) => (
+                    <li key={pack.id}>
+                      {pack.instructorName ?? "Instructor"} — {pack.totalSessions} sessions in pack,{" "}
+                      {pack.remainingSessions} remaining
+                      {pack.status !== "active" ? ` (pack ${pack.status})` : ""}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Refunding does not cancel these sessions or revoke workspace access — handle those
+                  from the student and workspace screens.
+                </p>
+              </div>
+            )}
 
-          <div className="flex gap-4 justify-end">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Processing..." : "Process Refund"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+            {order.payments.length > 1 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="refund-payment">
+                  Payment
+                </label>
+                <Select
+                  value={paymentId}
+                  onValueChange={(value) => {
+                    setPaymentId(value);
+                    setAmount("");
+                    setRefundType("full");
+                  }}
+                >
+                  <SelectTrigger id="refund-payment" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {order.payments.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.provider} · {formatCurrency(p.amount, p.currency)} ·{" "}
+                        {refundableAmount(p) > 0
+                          ? `${formatCurrency(refundableAmount(p).toFixed(2), p.currency)} refundable`
+                          : "fully refunded"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div>
+              <span className="text-sm font-medium">Refund type</span>
+              <div className="mt-2 flex gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="refundType"
+                    value="full"
+                    checked={refundType === "full"}
+                    onChange={() => setRefundType("full")}
+                  />
+                  Full ({formatCurrency(maxRefund.toFixed(2), order.currency)})
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="refundType"
+                    value="partial"
+                    checked={refundType === "partial"}
+                    onChange={() => setRefundType("partial")}
+                  />
+                  Partial
+                </label>
+              </div>
+            </div>
+
+            {refundType === "partial" && (
+              <div>
+                <label className="text-sm font-medium" htmlFor="refund-amount">
+                  Amount
+                </label>
+                <Input
+                  id="refund-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={maxRefund}
+                  required
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder={`Up to ${maxRefund.toFixed(2)}`}
+                  className="mt-1"
+                />
+                {!partialValid && (
+                  <p className="mt-1 text-xs text-destructive">
+                    Enter an amount between 0.01 and {formatCurrency(maxRefund.toFixed(2), order.currency)}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-medium" htmlFor="refund-reason">
+                Reason
+              </label>
+              <Select value={reason} onValueChange={setReason}>
+                <SelectTrigger id="refund-reason" className="w-full mt-1">
+                  <SelectValue placeholder="Select reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Duplicate">Duplicate</SelectItem>
+                  <SelectItem value="Fraudulent">Fraudulent</SelectItem>
+                  <SelectItem value="Requested by customer">Requested by customer</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {reason === "Other" && (
+              <div>
+                <label className="text-sm font-medium" htmlFor="refund-custom-reason">
+                  Custom reason
+                </label>
+                <Input
+                  id="refund-custom-reason"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  placeholder="Enter reason..."
+                  className="mt-1"
+                />
+              </div>
+            )}
+
+            {error && <div className="text-sm text-destructive">{error}</div>}
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!canSubmit}>
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  `Refund ${formatCurrency(
+                    (refundType === "full" ? maxRefund : partialValue || 0).toFixed(2),
+                    order.currency
+                  )}`
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -314,8 +455,9 @@ export default function AdminOrdersPage() {
     e.preventDefault();
   };
 
-  const handleRefundSuccess = () => {
-    setSelectedOrder(null);
+  const handleRefunded = () => {
+    // Keep the modal open so the admin sees the receipt; it refreshes the list
+    // behind it and closes on Done.
     fetchOrders();
   };
 
@@ -495,7 +637,7 @@ export default function AdminOrdersPage() {
                               {payment && payment.providerPaymentId && (
                                 order.provider === "stripe" ? (
                                   <a
-                                    href={`https://dashboard.stripe.com/${process.env.NEXT_PUBLIC_VERCEL_ENV === "production" ? "" : "test/payments/"}${payment.providerPaymentId}`}
+                                    href={stripeDashboardUrl(payment.providerPaymentId)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-blue-600 hover:text-blue-800"
@@ -521,15 +663,16 @@ export default function AdminOrdersPage() {
                             {formatDate(order.createdAt)}
                           </td>
                           <td className="py-3 px-4">
-                            {order.status === "paid" && payment && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedOrder(order)}
-                              >
-                                Refund
-                              </Button>
-                            )}
+                            {order.status !== "canceled" &&
+                              order.payments.some((p) => refundableAmount(p) > 0) && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setSelectedOrder(order)}
+                                >
+                                  Refund
+                                </Button>
+                              )}
                           </td>
                         </tr>
                       );
@@ -575,7 +718,7 @@ export default function AdminOrdersPage() {
         <RefundModal
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}
-          onSuccess={handleRefundSuccess}
+          onRefunded={handleRefunded}
         />
       )}
     </div>
