@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiRoutes } from "@/lib/routes";
 import type { InstructorFormData, UpdateInstructorResponse, ActiveProduct } from "../types";
 import { ApiError, updateInstructorResponseSchema } from "../types";
@@ -27,6 +27,8 @@ export function useUpdateInstructor({
   setShowProductDeactivationDialog: (show: boolean) => void;
   refetch: () => Promise<unknown>;
 }) {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ data, deactivateProducts }: { data: Partial<InstructorFormData>; deactivateProducts: boolean }) =>
       updateInstructor(instructorId, data, deactivateProducts),
@@ -45,6 +47,9 @@ export function useUpdateInstructor({
         setDeactivationResults(null);
         setShowSuccessDialog(true);
       }
+      // The admin roster is a separate query; without this, a saved edit (name,
+      // status, capacity) kept showing the old row until a hard reload.
+      queryClient.invalidateQueries({ queryKey: ["admin-instructors"] });
       refetch();
     },
     onError: (error: Error) => {

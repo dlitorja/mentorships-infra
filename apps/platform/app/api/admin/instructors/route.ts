@@ -26,6 +26,9 @@ const MAX_INSTRUCTOR_LIST_PAGE_SIZE = 500;
  *   - `pageSize=<n>` forwarded as the Convex `limit`. Optional; falls back
  *     to `DEFAULT_INSTRUCTOR_LIST_LIMIT` (100) when omitted. Clamped to
  *     `[1, MAX_INSTRUCTOR_LIST_PAGE_SIZE]` to protect against runaway reads.
+ *   - `page=<n>` / `status=active|inactive|deleted|all` / `search=<term>` page
+ *     the roster server-side. Search covers name, email, slug, and specialties,
+ *     so it is no longer limited to the rows already loaded.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -35,6 +38,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const url = new URL(req.url);
     const connected = url.searchParams.get("connected") === "true";
+    const pageRaw = Number(url.searchParams.get("page") ?? "1");
+    const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+    const statusRaw = url.searchParams.get("status");
+    const status =
+      statusRaw === "active" ||
+      statusRaw === "inactive" ||
+      statusRaw === "deleted" ||
+      statusRaw === "all"
+        ? statusRaw
+        : undefined;
+    const search = url.searchParams.get("search")?.trim() || undefined;
     const pageSizeRaw = url.searchParams.get("pageSize");
     const parsed = pageSizeRaw ? Number(pageSizeRaw) : undefined;
     const clamped =
@@ -42,9 +56,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         ? Math.min(Math.floor(parsed as number), MAX_INSTRUCTOR_LIST_PAGE_SIZE)
         : undefined;
     const limitArg = clamped !== undefined ? { limit: clamped } : {};
+    const limit = clamped ?? undefined;
+    const offset = (page - 1) * (limit ?? 100);
+
     const instructors = connected
       ? await convex.query(api.instructors.getConnectedInstructorsForAdmin, limitArg)
-      : await convex.query(api.instructors.getInstructorsForAdmin, limitArg);
+      : await convex.query(api.instructors.getInstructorsForAdmin, {
+          ...limitArg,
+          offset,
+          status,
+          search,
+        });
+
+    // The roster needs a real total so the pager can say "X–Y of Z" instead of
+    // implying the loaded page is everything.
+    const { total } = connected
+      ? { total: instructors.length }
+      : await convex.query(api.instructors.countInstructorsForAdmin, { status, search });
 
     // Compute product-active flags in a single query to avoid N+1 lookups
     const instructorIds = instructors.map((inst) => inst._id);
@@ -76,6 +104,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         groupInventory: instructor.groupInventory || 0,
         maxActiveStudents: instructor.maxActiveStudents || 0,
         activeStudentCount: instructor.activeStudentCount || 0,
+        // The admin roster renders these; the endpoint previously dropped them
+        // and the page fell back to a different, poorer data source.
+        specialties: instructor.specialties ?? [],
+        isActive: instructor.isActive !== false,
+        isListed: instructor.isListed !== false,
+        deletedAt: instructor.deletedAt ?? null,
         productActiveOneOnOne: flags.oneOnOne,
         productActiveGroup: flags.group,
         createdAt: instructor.createdAt
@@ -84,7 +118,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       };
     });
 
-    return NextResponse.json({ instructors: instructorsWithStats });
+    return NextResponse.json({
+      instructors: instructorsWithStats,
+      total,
+      page,
+      ...(limit ? { pageSize: limit } : {}),
+    });
   } catch (error) {
     console.error("Error fetching instructors:", error);
     if (isUnauthorizedError(error)) {

@@ -969,14 +969,24 @@ export async function getVideoRecordingStreamUrl(sessionId: string) {
  */
 
 export type AdminInstructorListItem = {
+  id?: string;
   instructorId: string;
   userId: string;
+  name?: string;
   email: string;
   displayName: string;
+  slug?: string;
+  specialties?: string[];
+  isActive?: boolean;
+  isListed?: boolean;
+  /** Set for soft-deleted instructors. */
+  deletedAt?: number | null;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
   activeStudentCount: number;
+  productActiveOneOnOne?: boolean;
+  productActiveGroup?: boolean;
   createdAt: string;
 };
 
@@ -985,17 +995,27 @@ export type AdminInstructorListItem = {
  */
 export async function getAdminInstructors(params?: {
   pageSize?: number;
+  page?: number;
   includeInactive?: boolean;
   connected?: boolean;
+  /** active | inactive | deleted | all */
+  status?: string;
+  search?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
+  if (params?.page) searchParams.set("page", params.page.toString());
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
   if (params?.connected) searchParams.set("connected", "true");
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
   const query = searchParams.toString();
-  return apiFetch<{ instructors: AdminInstructorListItem[] }>(
-    `${ApiRoutes.adminInstructors}${query ? `?${query}` : ""}`
-  );
+  return apiFetch<{
+    instructors: AdminInstructorListItem[];
+    total?: number;
+    page?: number;
+    pageSize?: number;
+  }>(`${ApiRoutes.adminInstructors}${query ? `?${query}` : ""}`);
 }
 
 /**

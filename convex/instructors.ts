@@ -1638,8 +1638,67 @@ export const listPublicInstructorSlugsForBackfill = internalQuery({
 });
 
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
+const instructorListStatusValidator = v.union(
+  v.literal("active"),
+  v.literal("inactive"),
+  v.literal("deleted"),
+  v.literal("all")
+);
+
+type InstructorListStatus = "active" | "inactive" | "deleted" | "all";
+
+/**
+ * Shared selection for the admin instructor roster, used by both the list and
+ * its count so the two can never disagree about what a page contains.
+ *
+ * With no `status`, deleted instructors are excluded — the historical behaviour
+ * of this query, which other callers (the edit form's dropdown) rely on.
+ *
+ * The roster is small by nature (one document per instructor), so this filters
+ * in memory. The previous implementation silently truncated at 100 rows, which
+ * made the tail unreachable; paging now happens here, over the whole set.
+ */
+function selectAdminInstructors(
+  instructors: Doc<"instructors">[],
+  args: { status?: InstructorListStatus; search?: string }
+): Doc<"instructors">[] {
+  const status = args.status;
+  const filtered = instructors.filter((inst) => {
+    switch (status) {
+      case "active":
+        return inst.deletedAt == null && inst.isActive !== false;
+      case "inactive":
+        return inst.deletedAt == null && inst.isActive === false;
+      case "deleted":
+        return inst.deletedAt != null;
+      case "all":
+        return true;
+      default:
+        return inst.deletedAt == null;
+    }
+  });
+
+  const search = args.search?.trim().toLowerCase();
+  if (!search) return filtered.sort((a, b) => a._creationTime - b._creationTime);
+
+  return filtered
+    .filter(
+      (inst) =>
+        (inst.name?.toLowerCase().includes(search) ?? false) ||
+        (inst.email?.toLowerCase().includes(search) ?? false) ||
+        (inst.slug?.toLowerCase().includes(search) ?? false) ||
+        (inst.specialties?.some((s) => s.toLowerCase().includes(search)) ?? false)
+    )
+    .sort((a, b) => a._creationTime - b._creationTime);
+}
+
 export const getInstructorsForAdmin = query({
-  args: { limit: v.optional(v.number()) },
+  args: {
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+    status: v.optional(instructorListStatusValidator),
+    search: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -1650,15 +1709,15 @@ export const getInstructorsForAdmin = query({
       throw new Error("Forbidden");
     }
     const limit = args.limit ?? DEFAULT_INSTRUCTOR_LIST_LIMIT;
-    const instructors = await ctx.db
-      .query("instructors")
-      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
-      .take(limit);
+    const offset = Math.max(0, Math.floor(args.offset ?? 0));
+
+    const all = await ctx.db.query("instructors").collect();
+    const page = selectAdminInstructors(all, args).slice(offset, offset + limit);
 
     const seatReservations = await ctx.db.query("seatReservations").collect();
 
     return Promise.all(
-      instructors.map(async (inst) => {
+      page.map(async (inst) => {
         // Canonical count: distinct students with an active seat. A student
         // holding two packs is one student, not two.
         const activeStudentCount = new Set(
@@ -1669,6 +1728,26 @@ export const getInstructorsForAdmin = query({
         return toInstructorListItem(ctx, inst, { activeStudentCount });
       })
     );
+  },
+});
+
+/** Total rows matching the same filters as `getInstructorsForAdmin`. */
+export const countInstructorsForAdmin = query({
+  args: {
+    status: v.optional(instructorListStatusValidator),
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ total: number }> => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
+      throw new Error("Forbidden");
+    }
+    const all = await ctx.db.query("instructors").collect();
+    return { total: selectAdminInstructors(all, args).length };
   },
 });
 
