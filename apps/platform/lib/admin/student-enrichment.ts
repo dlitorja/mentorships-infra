@@ -22,12 +22,16 @@ export type ConvexSessionPack = {
 export type ConvexStudent = {
   userId: string;
   email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
   sessionPacks: ConvexSessionPack[];
 };
 
 export type EnrichedStudent = {
   userId: string;
   email: string | null;
+  firstName: string | null;
+  lastName: string | null;
   sessionPacks: ConvexSessionPack[];
 };
 
@@ -44,15 +48,19 @@ export function pickPrimaryEmail(
 }
 
 /**
- * Resolves a student's email when the Convex users table has none. Uses
- * Clerk's batch getUserList to avoid one HTTP request per missing email and
- * to stay under Clerk's rate limit (100 req / 10 s on dev, 1000 on prod).
- * Returns items in the same order/shape as the input.
+ * Fills in a student's email and name from Clerk when the Convex `users` row
+ * has neither. Uses Clerk's batch getUserList to avoid one HTTP request per
+ * missing field and to stay under Clerk's rate limit (100 req / 10 s on dev,
+ * 1000 on prod). Returns items in the same order as the input.
+ *
+ * Names matter for the admin lists: with no name, the UI can only fall back to
+ * an email address or a raw Clerk id, and the repo forbids the latter as a
+ * primary identifier.
  *
  * Accepts a Clerk client factory so tests can inject a mock without touching
  * module-level state. Pass `() => clerkClient()` in production.
  */
-export async function enrichStudentEmails(
+export async function enrichStudentProfiles(
   students: ConvexStudent[],
   clerkClientFactory: () => Promise<Awaited<ReturnType<typeof ClerkClientType>>>
 ): Promise<EnrichedStudent[]> {
@@ -62,13 +70,15 @@ export async function enrichStudentEmails(
     new Set(
       students
         // Treat both null and empty string as "missing" so a blank Convex
-        // email triggers the same Clerk fallback path.
-        .filter((s) => !s.email && CLERK_USER_ID_PREFIX.test(s.userId))
+        // email triggers the same Clerk fallback path. A student with an email
+        // but no name is also worth one lookup.
+        .filter((s) => (!s.email || (!s.firstName && !s.lastName)) && CLERK_USER_ID_PREFIX.test(s.userId))
         .map((s) => s.userId)
     )
   );
 
-  let clerkEmailByUserId = new Map<string, string>();
+  const clerkEmailByUserId = new Map<string, string>();
+  const clerkNameByUserId = new Map<string, { firstName: string | null; lastName: string | null }>();
   if (lookupIds.length > 0) {
     try {
       const clerk = await clerkClientFactory();
@@ -76,6 +86,12 @@ export async function enrichStudentEmails(
       for (const u of data) {
         const email = pickPrimaryEmail(u.primaryEmailAddressId, u.emailAddresses);
         if (email) clerkEmailByUserId.set(u.id, email);
+        if (u.firstName || u.lastName) {
+          clerkNameByUserId.set(u.id, {
+            firstName: u.firstName ?? null,
+            lastName: u.lastName ?? null,
+          });
+        }
       }
     } catch (clerkErr) {
       console.warn(
@@ -90,9 +106,12 @@ export async function enrichStudentEmails(
     // also treated as "missing" and replaced by the Clerk-resolved value,
     // matching the lookup filter above.
     const email = student.email || clerkEmailByUserId.get(student.userId) || null;
+    const clerkName = clerkNameByUserId.get(student.userId);
     return {
       userId: student.userId,
       email,
+      firstName: student.firstName || clerkName?.firstName || null,
+      lastName: student.lastName || clerkName?.lastName || null,
       sessionPacks: student.sessionPacks ?? [],
     };
   });

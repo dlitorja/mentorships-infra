@@ -27,7 +27,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 }));
 
 vi.mock("@/lib/admin/student-enrichment", () => ({
-  enrichStudentEmails: vi.fn(async (items: unknown[]) => items),
+  enrichStudentProfiles: vi.fn(async (items: unknown[]) => items),
 }));
 
 const convexQuery = vi.fn();

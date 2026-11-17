@@ -6,7 +6,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import {
-  enrichStudentEmails,
+  enrichStudentProfiles,
   type ConvexStudent,
 } from "@/lib/admin/student-enrichment";
 
@@ -97,7 +97,9 @@ export async function GET(req: NextRequest) {
         console.error("[admin/students] Convex server error, returning empty result set:", err);
         // Degraded mode: do not 500 the UI; signal partial content
         return NextResponse.json(
-          { items: [], total: 0, page, pageSize },
+          // `degraded` lets the page say "data unavailable" instead of
+          // rendering a truthful-looking "No students found".
+          { items: [], total: 0, page, pageSize, degraded: true },
           { status: 206 }
         );
       }
@@ -132,12 +134,14 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const items = await enrichStudentEmails(result.items, clerkClient);
+    const items = await enrichStudentProfiles(result.items, clerkClient);
 
     return NextResponse.json({
       items: items.map((student) => ({
         userId: student.userId,
         email: student.email,
+        firstName: student.firstName,
+        lastName: student.lastName,
         sessionPacks: student.sessionPacks.map((pack) => ({
           id: pack.id,
           instructorId: pack.instructorId,
