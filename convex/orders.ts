@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceKey } from "./lib/serviceAuth";
+import type { Doc, Id } from "./_generated/dataModel";
 import { isAdminUser } from "./admin";
 
 /**
@@ -175,12 +176,101 @@ export const getOrdersForAdmin = query({
       if (user?.email) emailByUserId.set(user.userId, user.email);
     }
 
-    const ordersWithDetails = await Promise.all(
+    // Session packs are what a refund actually affects. Read them per customer
+    // for the orders on this page (bounded by the page size) and filter to the
+    // order's own payments. Stripe's guest fallback is the exception: it stores
+    // the order under `"guest"` while fulfillment writes the pack under an
+    // email-based userId, so those pages fall back to reading the pack table.
+    // A `by_paymentId` index (staged) would remove that fallback.
+    const packLookupUserIds = Array.from(new Set(pageOrders.map((order) => order.userId)));
+    const packsByUserId = new Map<string, Doc<"sessionPacks">[]>();
+    await Promise.all(
+      packLookupUserIds.map(async (userId) => {
+        const packs = await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .collect();
+        packsByUserId.set(userId, packs);
+      })
+    );
+
+    const hasGuestOrder = pageOrders.some((order) => order.userId === "guest");
+    const guestPacks = hasGuestOrder
+      ? await ctx.db.query("sessionPacks").collect()
+      : [];
+
+    const packsForOrder = (order: Doc<"orders">, paymentIds: Set<string>) => {
+      // The table-wide read only exists for the guest order itself: its userId
+      // does not match the pack's. Merging it into every order would show other
+      // customers' packs twice, so it is scoped and de-duplicated by pack id.
+      const candidates =
+        order.userId === "guest"
+          ? [...(packsByUserId.get(order.userId) ?? []), ...guestPacks]
+          : (packsByUserId.get(order.userId) ?? []);
+
+      const seen = new Set<string>();
+      const packs: Doc<"sessionPacks">[] = [];
+      for (const pack of candidates) {
+        if (!pack.paymentId || !paymentIds.has(pack.paymentId as string)) continue;
+        const id = pack._id as string;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        packs.push(pack);
+      }
+      return packs;
+    };
+
+    // Read each order's payments once; both the instructor set and the joined
+    // packs below reuse them.
+    const paymentsByOrderId = new Map<string, Doc<"payments">[]>();
+    await Promise.all(
       pageOrders.map(async (order) => {
         const payments = await ctx.db
           .query("payments")
           .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
           .collect();
+        paymentsByOrderId.set(order._id as string, payments);
+      })
+    );
+
+    const pagePackInstructorIds = new Set<string>();
+    for (const order of pageOrders) {
+      const paymentIds = new Set(
+        (paymentsByOrderId.get(order._id as string) ?? []).map((payment) => payment._id as string)
+      );
+      for (const pack of packsForOrder(order, paymentIds)) {
+        pagePackInstructorIds.add(pack.instructorId as string);
+      }
+    }
+
+    const packInstructors = await Promise.all(
+      Array.from(pagePackInstructorIds).map((instructorId) =>
+        ctx.db.get(instructorId as Id<"instructors">)
+      )
+    );
+    const instructorById = new Map<string, Doc<"instructors">>();
+    for (const doc of packInstructors) {
+      if (doc) instructorById.set(doc._id as string, doc);
+    }
+
+    const ordersWithDetails = await Promise.all(
+      pageOrders.map(async (order) => {
+        const payments = paymentsByOrderId.get(order._id as string) ?? [];
+        const paymentIds = new Set(payments.map((payment) => payment._id as string));
+
+        const packs = packsForOrder(order, paymentIds).map((pack) => {
+          const instructor = instructorById.get(pack.instructorId as string);
+          return {
+            id: pack._id,
+            instructorId: pack.instructorId,
+            instructorName: instructor?.name ?? null,
+            instructorSlug: instructor?.slug ?? null,
+            totalSessions: pack.totalSessions,
+            remainingSessions: pack.remainingSessions,
+            status: pack.status,
+            expiresAt: pack.expiresAt ?? null,
+          };
+        });
 
         return {
           id: order._id,
@@ -200,6 +290,7 @@ export const getOrdersForAdmin = query({
             status: p.status,
             refundedAmount: p.refundedAmount,
           })),
+          packs,
         };
       })
     );

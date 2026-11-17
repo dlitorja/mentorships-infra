@@ -35,6 +35,16 @@ type Order = {
     status: string;
     refundedAmount: string | null;
   }[];
+  packs?: {
+    id: string;
+    instructorId: string;
+    instructorName: string | null;
+    instructorSlug: string | null;
+    totalSessions: number;
+    remainingSessions: number;
+    status: string;
+    expiresAt: number | null;
+  }[];
 };
 
 function formatCurrency(amount: string, currency: string = "usd"): string {
@@ -128,6 +138,25 @@ function RefundModal({
         <p className="text-muted-foreground text-sm">
           Order ID: {order.id.slice(0, 8)}... | Amount: {formatCurrency(order.totalAmount, order.currency)}
         </p>
+
+        {order.packs && order.packs.length > 0 && (
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">What this order provided</p>
+            <ul className="mt-1 space-y-1 text-muted-foreground">
+              {order.packs.map((pack) => (
+                <li key={pack.id}>
+                  {pack.instructorName ?? "Instructor"} — {pack.totalSessions} sessions in pack,{" "}
+                  {pack.remainingSessions} remaining
+                  {pack.status !== "active" ? ` (pack ${pack.status})` : ""}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Refunding does not cancel these sessions or revoke workspace access — handle those
+              from the student and workspace screens.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -435,7 +464,22 @@ export default function AdminOrdersPage() {
                             </div>
                           </td>
                           <td className="py-3 px-4">
-                            {order.userEmail || "Unknown"}
+                            <div>{order.userEmail || "Unknown"}</div>
+                            {/* What was bought: instructor and sessions left. A
+                                refund decision needs to know how much was
+                                delivered. */}
+                            {order.packs && order.packs.length > 0 && (
+                              <div className="mt-0.5 text-xs text-muted-foreground">
+                                {order.packs
+                                  .map(
+                                    (pack) =>
+                                      `${pack.instructorName ?? "Instructor"}: ${pack.remainingSessions}/${pack.totalSessions} left${
+                                        pack.status !== "active" ? ` (${pack.status})` : ""
+                                      }`
+                                  )
+                                  .join(" · ")}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             {formatCurrency(order.totalAmount, order.currency)}
