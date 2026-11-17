@@ -17,11 +17,15 @@
  *     so a copy-pasted app `package.json` is a realistic regression path.
  *
  * Checks performed:
- *  1. Every workspace that declares `convex` must declare a range whose minimum
- *     version is >= MIN_VERSION.
- *  2. All workspaces must declare the same range, so pnpm resolves one copy.
- *  3. The installed `node_modules/convex` (when present) must be >= MIN_VERSION,
- *     which catches a stale lockfile even when the ranges look correct.
+ *  1. Every workspace that declares `convex` must declare a single-clause range
+ *     whose floor is >= MIN_VERSION. Ranges this script cannot verify (unions,
+ *     `<`, `*`, `x`, hyphen ranges, `workspace:*`) fail rather than pass, since a
+ *     floor guessed from the first number in a union can allow older versions.
+ *  2. All workspaces must declare the same range, and must actually resolve the
+ *     same installed version — equal range strings alone do not guarantee one
+ *     copy after a filtered `pnpm update`.
+ *  3. The version each workspace resolves must be >= MIN_VERSION, which catches
+ *     a stale lockfile even when the declared ranges look correct.
  *
  * Usage:
  *   node scripts/check-convex-version.mjs
@@ -31,6 +35,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -58,15 +63,33 @@ function parseArgs(argv) {
 }
 
 /**
- * Extract the lowest version a range can resolve to. Handles the forms used in
- * this repo (`^1.50.0`, `~1.50.0`, `>=1.48.0`, `1.50.0`). Returns null for
- * ranges this script cannot reason about (e.g. `workspace:*`, git URLs) so the
- * call site can report them instead of silently passing.
+ * Extract the lowest version the range can resolve to.
+ *
+ * Only single-clause ranges are accepted (`^1.50.0`, `~1.50.0`, `>=1.50.0`,
+ * `=1.50.0`, `1.50.0`). Anything else — `||` unions, `<`, `*`, `1.x`, hyphen
+ * ranges, `workspace:*`, git URLs — is rejected rather than guessed at, because
+ * a floor read from the first number in a union (`^1.50.0 || ^1.43.0`) would
+ * wrongly pass. Callers report `null` as a failure, not a warning.
  */
 function rangeFloor(range) {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(range);
+  const match = /^\s*(\^|~|>=|=)?\s*(\d+)\.(\d+)\.(\d+)\s*$/.exec(range);
   if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return [Number(match[2]), Number(match[3]), Number(match[4])];
+}
+
+/**
+ * Resolve the installed `convex` version visible from a workspace directory, the
+ * same way Node would resolve it at runtime (pnpm links the workspace's own
+ * copy). Returns null when dependencies are not installed.
+ */
+function installedVersionFor(root, workspaceDir) {
+  try {
+    const require = createRequire(join(root, workspaceDir, "package.json"));
+    const manifest = require.resolve("convex/package.json");
+    return JSON.parse(readFileSync(manifest, "utf8")).version;
+  } catch {
+    return null;
+  }
 }
 
 function compare(a, b) {
@@ -124,14 +147,15 @@ function main() {
   }
 
   const distinctRanges = new Set();
+  const installedByWorkspace = new Map();
 
   for (const declaration of declarations) {
     const floor = rangeFloor(declaration.range);
     distinctRanges.add(declaration.range);
 
     if (floor === null) {
-      warnings.push(
-        `${declaration.workspace} declares "${declaration.range}" which this script cannot parse; verify it resolves >= ${MIN_VERSION}`
+      errors.push(
+        `${declaration.workspace} declares convex "${declaration.range}", which this check cannot verify. Declare a single caret range (e.g. "^${MIN_VERSION}"); unions, "<", "*", "x" and hyphen ranges are rejected because they can allow versions below the floor.`
       );
       continue;
     }
@@ -141,24 +165,42 @@ function main() {
         `${declaration.workspace} (${declaration.field}) declares convex "${declaration.range}", whose floor ${floor.join(".")} is below ${MIN_VERSION} (security fixes GHSA-qw8j-4xj7-6f28 / GHSA-9mw5-7p28-rvv4)`
       );
     }
+
+    const installed = installedVersionFor(args.root, declaration.workspace);
+    if (installed !== null) {
+      installedByWorkspace.set(declaration.workspace, installed);
+    }
   }
 
   if (distinctRanges.size > 1) {
     errors.push(
-      `Exactly one convex range must be declared workspace-wide; found ${[...distinctRanges].sort().join(", ")} (mixed versions break shared validator typings and duplicate the installed copy)`
+      `Exactly one convex range must be declared workspace-wide; found ${[...distinctRanges].sort().join(", ")} (mixed versions break shared validator typings and install duplicate copies)`
     );
   }
 
-  const installedManifest = join(args.root, "node_modules", "convex", "package.json");
-  if (existsSync(installedManifest)) {
-    const { version } = JSON.parse(readFileSync(installedManifest, "utf8"));
-    const installed = rangeFloor(version);
-    if (installed === null) {
-      warnings.push(`Could not parse installed convex version "${version}"`);
-    } else if (compare(installed, MIN) < 0) {
+  // Equal range strings do not guarantee equal installed versions — a filtered
+  // `pnpm update convex --filter <app>` can leave one workspace on a newer copy.
+  // Compare what each declaring workspace actually resolves.
+  if (installedByWorkspace.size > 0) {
+    const distinctInstalled = new Set(installedByWorkspace.values());
+    if (distinctInstalled.size > 1) {
+      const detail = [...installedByWorkspace.entries()]
+        .map(([workspace, version]) => `${workspace} -> ${version}`)
+        .join(", ");
       errors.push(
-        `Installed convex is ${version}, below ${MIN_VERSION}. Run \`pnpm install\` — or rebase onto main first if this checkout's lockfile still pins an older version.`
+        `Workspaces resolve different convex versions (${detail}). Run \`pnpm install\` from the repo root so pnpm dedupes to one copy.`
       );
+    }
+
+    for (const [workspace, version] of installedByWorkspace) {
+      const installed = rangeFloor(version);
+      if (installed === null) {
+        warnings.push(`Could not parse installed convex version "${version}" in ${workspace}`);
+      } else if (compare(installed, MIN) < 0) {
+        errors.push(
+          `${workspace} resolves convex ${version}, below ${MIN_VERSION}. Run \`pnpm install\` — or rebase onto main first if this checkout's lockfile still pins an older version.`
+        );
+      }
     }
   } else {
     warnings.push(
