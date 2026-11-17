@@ -1400,6 +1400,17 @@ export async function deleteAdminProduct(id: string) {
  * Admin orders
  */
 
+export type AdminOrderPack = {
+  id: string;
+  instructorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  status: string;
+  expiresAt: number | null;
+};
+
 export type AdminOrder = {
   id: string;
   userId: string;
@@ -1418,6 +1429,8 @@ export type AdminOrder = {
     status: string;
     refundedAmount: string | null;
   }[];
+  /** Session packs created by this order's payments (what a refund affects). */
+  packs?: AdminOrderPack[];
 };
 
 /**

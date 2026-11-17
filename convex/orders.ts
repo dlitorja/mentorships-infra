@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { assertServiceKey } from "./lib/serviceAuth";
+import type { Doc, Id } from "./_generated/dataModel";
 import { isAdminUser } from "./admin";
 
 /**
@@ -175,12 +176,81 @@ export const getOrdersForAdmin = query({
       if (user?.email) emailByUserId.set(user.userId, user.email);
     }
 
+    // Session packs are what a refund actually affects (sessions delivered vs
+    // remaining), so join them through `payments.id -> sessionPacks.paymentId`
+    // for the orders on this page. Packs are read per customer, which is bounded
+    // by the page size.
+    const packsByUserId = new Map<
+      string,
+      Array<{
+        id: string;
+        instructorId: string;
+        totalSessions: number;
+        remainingSessions: number;
+        status: string;
+        expiresAt: number | null;
+        paymentId: string | null;
+      }>
+    >();
+    await Promise.all(
+      pageUserIds.map(async (userId) => {
+        const packs = await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .collect();
+        packsByUserId.set(
+          userId,
+          packs.map((pack) => ({
+            id: pack._id,
+            instructorId: pack.instructorId,
+            totalSessions: pack.totalSessions,
+            remainingSessions: pack.remainingSessions,
+            status: pack.status,
+            expiresAt: pack.expiresAt ?? null,
+            paymentId: pack.paymentId ?? null,
+          }))
+        );
+      })
+    );
+
+    const instructorIds = Array.from(
+      new Set(
+        Array.from(packsByUserId.values())
+          .flat()
+          .map((pack) => pack.instructorId)
+      )
+    );
+    const instructors = await Promise.all(
+      instructorIds.map((instructorId) => ctx.db.get(instructorId as Id<"instructors">))
+    );
+    const instructorById = new Map<string, Doc<"instructors">>();
+    for (const doc of instructors) {
+      if (doc) instructorById.set(doc._id as string, doc);
+    }
+
     const ordersWithDetails = await Promise.all(
       pageOrders.map(async (order) => {
         const payments = await ctx.db
           .query("payments")
           .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
           .collect();
+
+        const paymentIds = new Set(payments.map((payment) => payment._id as string));
+        const packs = (packsByUserId.get(order.userId) ?? [])
+          .filter((pack) => pack.paymentId && paymentIds.has(pack.paymentId))
+          .map((pack) => {
+            const instructor = instructorById.get(pack.instructorId);
+            return {
+              id: pack.id,
+              instructorId: pack.instructorId,
+              instructorName: instructor?.name ?? null,
+              instructorSlug: instructor?.slug ?? null,
+              totalSessions: pack.totalSessions,
+              remainingSessions: pack.remainingSessions,
+              status: pack.status,
+              expiresAt: pack.expiresAt,
+            };
+          });
 
         return {
           id: order._id,
@@ -200,6 +270,7 @@ export const getOrdersForAdmin = query({
             status: p.status,
             refundedAmount: p.refundedAmount,
           })),
+          packs,
         };
       })
     );

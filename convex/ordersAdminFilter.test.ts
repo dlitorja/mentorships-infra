@@ -135,6 +135,62 @@ describe("orders.getOrdersForAdmin", () => {
     expect(result.hasMore).toBe(false);
   });
 
+  test("joins each order to the session packs its payment created", async () => {
+    const t = await seedOrders();
+    const asAdmin = t.withIdentity({ subject: "user_admin" });
+
+    const orders = await asAdmin.query(api.orders.getOrdersForAdmin, { limit: 20, offset: 0 });
+    const target = orders.items.find((order) => order.status === "paid");
+    expect(target).toBeDefined();
+
+    await t.run(async (ctx) => {
+      // The seeded orders have no payments yet; create one and a pack that should
+      // join through `paymentId`.
+      const orderDoc = await ctx.db.get(target!.id as never);
+      const paymentId = await ctx.db.insert("payments", {
+        orderId: orderDoc!._id,
+        provider: "stripe",
+        providerPaymentId: "pi_join",
+        amount: "100",
+        currency: "usd",
+        status: "completed",
+      });
+      const instructorId = await ctx.db.insert("instructors", {
+        name: "Ada Instructor",
+        slug: "ada",
+      });
+      await ctx.db.insert("sessionPacks", {
+        userId: orderDoc!.userId,
+        instructorId,
+        totalSessions: 4,
+        remainingSessions: 1,
+        purchasedAt: Date.now(),
+        status: "active",
+        paymentId,
+      });
+      // A pack from a different payment must not be joined.
+      await ctx.db.insert("sessionPacks", {
+        userId: orderDoc!.userId,
+        instructorId,
+        totalSessions: 2,
+        remainingSessions: 2,
+        purchasedAt: Date.now(),
+        status: "active",
+      });
+    });
+
+    const refreshed = await asAdmin.query(api.orders.getOrdersForAdmin, { limit: 20, offset: 0 });
+    const joined = refreshed.items.find((order) => order.id === target!.id);
+
+    expect(joined?.packs).toHaveLength(1);
+    expect(joined?.packs[0]).toMatchObject({
+      instructorName: "Ada Instructor",
+      totalSessions: 4,
+      remainingSessions: 1,
+      status: "active",
+    });
+  });
+
   test("rejects a signed-in non-admin: this query returns everyone's orders", async () => {
     const t = await seedOrders();
 
