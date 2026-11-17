@@ -264,6 +264,80 @@ describe("orders.getOrdersForAdmin", () => {
     });
   });
 
+  test("a guest order on the page does not duplicate another customer's packs", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        userId: "user_admin",
+        clerkId: "user_admin",
+        email: "admin@example.com",
+        role: "admin",
+      });
+      const instructorId = await ctx.db.insert("instructors", { name: "Ada", slug: "ada" });
+
+      // Regular customer with one pack.
+      const regularOrder = await ctx.db.insert("orders", {
+        userId: "user_regular",
+        status: "paid",
+        provider: "stripe",
+        totalAmount: "100",
+        currency: "usd",
+      });
+      const regularPayment = await ctx.db.insert("payments", {
+        orderId: regularOrder,
+        provider: "stripe",
+        providerPaymentId: "pi_regular",
+        amount: "100",
+        currency: "usd",
+        status: "completed",
+      });
+      await ctx.db.insert("sessionPacks", {
+        userId: "user_regular",
+        instructorId,
+        totalSessions: 4,
+        remainingSessions: 3,
+        purchasedAt: Date.now(),
+        status: "active",
+        paymentId: regularPayment,
+      });
+
+      // Guest customer, pack stored under an email-based userId.
+      const guestOrder = await ctx.db.insert("orders", {
+        userId: "guest",
+        status: "paid",
+        provider: "stripe",
+        totalAmount: "80",
+        currency: "usd",
+      });
+      const guestPayment = await ctx.db.insert("payments", {
+        orderId: guestOrder,
+        provider: "stripe",
+        providerPaymentId: "pi_guest_dup",
+        amount: "80",
+        currency: "usd",
+        status: "completed",
+      });
+      await ctx.db.insert("sessionPacks", {
+        userId: "guest@example.com",
+        instructorId,
+        totalSessions: 2,
+        remainingSessions: 2,
+        purchasedAt: Date.now(),
+        status: "active",
+        paymentId: guestPayment,
+      });
+    });
+
+    const result = await t
+      .withIdentity({ subject: "user_admin" })
+      .query(api.orders.getOrdersForAdmin, { limit: 20, offset: 0 });
+
+    const regular = result.items.find((item) => item.userId === "user_regular");
+    const guest = result.items.find((item) => item.userId === "guest");
+    expect(regular?.packs).toHaveLength(1);
+    expect(guest?.packs).toHaveLength(1);
+  });
+
   test("rejects a signed-in non-admin: this query returns everyone's orders", async () => {
     const t = await seedOrders();
 

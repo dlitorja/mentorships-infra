@@ -200,12 +200,24 @@ export const getOrdersForAdmin = query({
       : [];
 
     const packsForOrder = (order: Doc<"orders">, paymentIds: Set<string>) => {
-      const candidates = hasGuestOrder
-        ? [...(packsByUserId.get(order.userId) ?? []), ...guestPacks]
-        : (packsByUserId.get(order.userId) ?? []);
-      return candidates.filter(
-        (pack) => pack.paymentId && paymentIds.has(pack.paymentId as string)
-      );
+      // The table-wide read only exists for the guest order itself: its userId
+      // does not match the pack's. Merging it into every order would show other
+      // customers' packs twice, so it is scoped and de-duplicated by pack id.
+      const candidates =
+        order.userId === "guest"
+          ? [...(packsByUserId.get(order.userId) ?? []), ...guestPacks]
+          : (packsByUserId.get(order.userId) ?? []);
+
+      const seen = new Set<string>();
+      const packs: Doc<"sessionPacks">[] = [];
+      for (const pack of candidates) {
+        if (!pack.paymentId || !paymentIds.has(pack.paymentId as string)) continue;
+        const id = pack._id as string;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        packs.push(pack);
+      }
+      return packs;
     };
 
     // Read each order's payments once; both the instructor set and the joined
