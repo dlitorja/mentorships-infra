@@ -83,6 +83,9 @@ describe("WorkspaceMembersPage ownership transfer", () => {
     expect(dialog).toHaveTextContent(/Transfer workspace ownership/i);
     expect(dialog).toHaveTextContent(/new@example\.com|New/);
     expect(dialog).toHaveTextContent(/session packs/i);
+    // The workspace keeps its seat link, so the new owner may see the previous
+    // student's balance; the copy must not promise an empty entitlement.
+    expect(dialog).toHaveTextContent(/previous student/i);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Transfer ownership" }));
 

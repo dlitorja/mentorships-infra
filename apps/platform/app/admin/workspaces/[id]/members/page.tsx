@@ -364,9 +364,10 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            Session packs, seat reservations and payments are <strong>not</strong> transferred. If
-            the new owner has no sessions with this instructor, they will see the workspace without
-            an entitlement — grant one from the student record after transferring.
+            Session packs, seat reservations and payments are <strong>not</strong> transferred, and
+            the workspace keeps its link to the previous student&apos;s seat — so the new owner can
+            see that seat&apos;s remaining session count. If they should have their own sessions,
+            reassign or create the seat from the student record after transferring.
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setPendingOwner(null)}>
