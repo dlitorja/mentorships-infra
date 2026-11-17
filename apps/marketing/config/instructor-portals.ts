@@ -1,3 +1,5 @@
+import { NEIL_GRAY_OFFERS, type SalePricing } from "./holiday-sale";
+
 export interface Course {
   title: string;
   description: string;
@@ -5,6 +7,8 @@ export interface Course {
   imageUrl?: string;
   promoText?: string;
   buttonText?: string;
+  /** Holiday Season Sale pricing. Only rendered while the sale is active. */
+  sale?: SalePricing;
 }
 
 export type Bundle = Course;
@@ -30,25 +34,28 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
-        url: "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
+        url: NEIL_GRAY_OFFERS.drapery,
         imageUrl: "/instructors/neil-gray/course-2.jpg",
         buttonText: "BUY NOW",
+        sale: { salePrice: 85, regularPrice: 175, percentOff: 51 },
       },
       {
         title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
-        url: "https://home.huckleberry.art/character-design-with-neil-gray",
+        url: NEIL_GRAY_OFFERS.characterDesign,
         imageUrl: "/instructors/neil-gray/course-1.jpg",
         buttonText: "BUY NOW",
+        sale: { salePrice: 95, regularPrice: 195, percentOff: 51 },
       },
     ],
     bundles: [
       {
         title: "Complete Character Art Bundle",
         description: "Get both courses together and save on your character art education.",
-        url: "https://home.huckleberry.art/neil-gray-course-bundle",
+        url: NEIL_GRAY_OFFERS.bundle,
         imageUrl: "/instructors/neil-gray/bundle.jpg",
-        promoText: "Save 20% on both courses combined!",
+        buttonText: "Get the Bundle",
+        sale: { salePrice: 130, regularPrice: 375, percentOff: 65 },
       },
     ],
   },

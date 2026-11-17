@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,7 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/components/ui/carousel";
-
-const SALE_ENDS_AT = "2026-05-05T23:59:59.000Z";
+import { SALE, SALE_COURSES, saleBadge } from "./sale-data";
 
 type Slide = {
   id: string;
@@ -22,84 +21,13 @@ type Slide = {
   bgImage: string;
 };
 
-const SLIDES: Slide[] = [
-  {
-    id: "bundle",
-    title:
-      "Neil Gray's Course Bundle — Character Design & Drawing Drapery & Clothing",
-    badge: "67% OFF",
-    ctaHref: "https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g",
-    bgImage: "/images/preview/carousel-1.jpg",
-  },
-  {
-    id: "drapery",
-    title: "Drawing Drapery and Clothing with Neil Gray",
-    badge: "54% OFF",
-    ctaHref:
-      "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
-    bgImage: "/images/preview/carousel-2.jpg",
-  },
-  {
-    id: "character-design",
-    title: "Character Design with Neil Gray",
-    badge: "58% OFF",
-    ctaHref:
-      "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
-    bgImage: "/images/preview/carousel-3.jpg",
-  },
-];
-
-function useCountdown(targetDate: string | null) {
-  const calculate = useCallback(() => {
-    if (!targetDate) return null;
-    const target = new Date(targetDate).getTime();
-    const now = Date.now();
-    const diff = target - now;
-    if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
-    return {
-      days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-      hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-      minutes: Math.floor((diff / (1000 * 60)) % 60),
-      seconds: Math.floor((diff / 1000) % 60),
-    };
-  }, [targetDate]);
-
-  const [timeLeft, setTimeLeft] = useState(calculate);
-  useEffect(() => {
-    const result = calculate();
-    setTimeLeft(result);
-    if (!result) return;
-    const interval = setInterval(() => setTimeLeft(calculate()), 1000);
-    return () => clearInterval(interval);
-  }, [calculate]);
-  return timeLeft;
-}
-
-function CountdownTimer({ endsAt }: { endsAt: string | null }) {
-  const timeLeft = useCountdown(endsAt);
-  if (!timeLeft) return null;
-  return (
-    <div className="mx-auto w-full sm:w-[70%]">
-      <div className="grid grid-cols-4 gap-2 sm:gap-4 text-center">
-        {[
-          { value: timeLeft.days, label: "Days" },
-          { value: timeLeft.hours, label: "Hrs" },
-          { value: timeLeft.minutes, label: "Min" },
-          { value: timeLeft.seconds, label: "Sec" },
-        ].map((unit) => (
-          <div key={unit.label} className="rounded bg-red-600 px-2 py-3 sm:px-4 sm:py-4 shadow">
-            <div className="text-2xl sm:text-4xl font-bold text-white tabular-nums">
-              {String(unit.value).padStart(2, "0")}
-            </div>
-            <div className="text-[10px] sm:text-xs uppercase tracking-wider text-white/80">
-              {unit.label}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+const SLIDES: Slide[] = SALE_COURSES.map((course) => ({
+  id: course.id,
+  title: course.title,
+  badge: saleBadge(course.percentOff),
+  ctaHref: course.checkoutUrl,
+  bgImage: course.carouselImage,
+}));
 
 export function PreviewHero() {
   const [api, setApi] = useState<CarouselApi>();
@@ -118,18 +46,15 @@ export function PreviewHero() {
       <div className="w-full max-w-6xl px-6 pt-8">
         <div className="text-center mb-6">
           <a
-            href="https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g"
+            href={SALE_COURSES[0].checkoutUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-base sm:text-lg font-semibold uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 px-6 py-3 shadow-md"
           >
-            Neil Gray Courses Sale · Up to 67% Off
+            {SALE.name}
           </a>
           <div className="mt-3 text-white/80 text-xs uppercase tracking-widest">
-            Sale Ends In
-          </div>
-          <div className="mt-2">
-            <CountdownTimer endsAt={SALE_ENDS_AT} />
+            {SALE.subheader}
           </div>
         </div>
       </div>

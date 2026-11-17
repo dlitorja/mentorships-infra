@@ -7,9 +7,22 @@ interface CourseCardProps {
   imageUrl?: string;
   promoText?: string;
   buttonText?: string;
+  saleBadge?: string;
+  price?: number;
+  regularPrice?: number;
 }
 
-export function CourseCard({ title, description, url, imageUrl, promoText, buttonText }: CourseCardProps) {
+export function CourseCard({
+  title,
+  description,
+  url,
+  imageUrl,
+  promoText,
+  buttonText,
+  saleBadge,
+  price,
+  regularPrice,
+}: CourseCardProps) {
   return (
     <BaseCard
       title={title}
@@ -18,6 +31,9 @@ export function CourseCard({ title, description, url, imageUrl, promoText, butto
       imageUrl={imageUrl}
       buttonText={buttonText || "View Course"}
       promoText={promoText}
+      saleBadge={saleBadge}
+      price={price}
+      regularPrice={regularPrice}
     />
   );
 }
