@@ -151,6 +151,43 @@ describe("GET /api/admin/students name fallback", () => {
     expect(convexQuery.mock.calls[1][1]).toMatchObject({ userIds: ["user_clerk_name"] });
   });
 
+  it("reads every Clerk page of name matches, not just the first 20", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, i) => ({ id: `user_page1_${i}` }));
+    const secondPage = Array.from({ length: 3 }, (_, i) => ({ id: `user_page2_${i}` }));
+    const getUserList = vi.fn(async ({ offset }: { offset: number }) => ({
+      data: offset === 0 ? firstPage : secondPage,
+    }));
+    mockClerkClient.mockResolvedValue({ users: { getUserList } } as never);
+
+    convexQuery
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 20 })
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    await GET(requestWithSearch("ada"));
+
+    expect(getUserList).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
+    expect(getUserList).toHaveBeenCalledWith(expect.objectContaining({ offset: 100 }));
+    const forwarded = convexQuery.mock.calls[1][1] as { userIds: string[] };
+    expect(forwarded.userIds).toHaveLength(103);
+  });
+
+  it("reports degraded when the name fallback fails instead of claiming no matches", async () => {
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUserList: vi.fn(async () => {
+          throw new Error("Clerk unavailable");
+        }),
+      },
+    } as never);
+    convexQuery.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+
+    const res = await GET(requestWithSearch("ada"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.degraded).toBe(true);
+  }, 15000);
+
   it("does not consult Clerk for an email-shaped search", async () => {
     convexQuery.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
     const getUserList = vi.fn(async () => ({ data: [] }));

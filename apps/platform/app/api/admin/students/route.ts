@@ -85,6 +85,10 @@ export async function GET(req: NextRequest) {
       pageSize,
     };
 
+    // Set when a fallback we rely on fails: the caller cannot distinguish
+    // "no matches" from "search was incomplete", so say so.
+    let degraded = false;
+
     let result: GetStudentsForAdminResult;
     try {
       result = (await convex.query(api.admin.getStudentsForAdmin, {
@@ -131,6 +135,7 @@ export async function GET(req: NextRequest) {
         // Keep the empty result rather than failing the whole page; the
         // user can retry. Log for observability.
         console.error("[admin/students] Clerk email fallback failed:", err);
+        degraded = true;
       }
     }
 
@@ -142,11 +147,20 @@ export async function GET(req: NextRequest) {
     if (result.total === 0 && search.trim() && !isCompleteEmail && !search.includes("@")) {
       try {
         const client = await clerkClient();
-        const clerkUsers = await client.users.getUserList({
-          query: search.trim(),
-          limit: 20,
-        });
-        const clerkUserIds = clerkUsers.data.map((user) => user.id);
+        // Read every match, not just the first page: silently dropping the tail
+        // would hide later students from the roster and its pager.
+        const clerkUserIds: string[] = [];
+        const CLERK_PAGE = 100;
+        const CLERK_MAX = 500;
+        for (let offset = 0; offset < CLERK_MAX; offset += CLERK_PAGE) {
+          const page = await client.users.getUserList({
+            query: search.trim(),
+            limit: CLERK_PAGE,
+            offset,
+          });
+          clerkUserIds.push(...page.data.map((user) => user.id));
+          if (page.data.length < CLERK_PAGE) break;
+        }
         if (clerkUserIds.length > 0) {
           result = (await convex.query(api.admin.getStudentsForAdmin, {
             ...baseArgs,
@@ -155,6 +169,7 @@ export async function GET(req: NextRequest) {
         }
       } catch (err) {
         console.error("[admin/students] Clerk name fallback failed:", err);
+        degraded = true;
       }
     }
 
@@ -181,6 +196,7 @@ export async function GET(req: NextRequest) {
       total: result.total,
       page: result.page,
       pageSize: result.pageSize,
+      ...(degraded ? { degraded: true } : {}),
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
