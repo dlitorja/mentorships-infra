@@ -94,6 +94,24 @@ describe("StudentsPage", () => {
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
   });
 
+  it("does not present a degraded response as an empty roster", async () => {
+    // The API answers 206 with an empty list when Convex fails; the page must
+    // not invite the admin to "invite a student" in that state.
+    mocks.getAdminStudents.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      degraded: true,
+    });
+
+    renderWithProviders(<StudentsPage />);
+
+    expect(await screen.findByText(/Partial data/)).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("No students yet")).not.toBeInTheDocument();
+  });
+
   it("shows a retryable error instead of an empty roster", async () => {
     mocks.getAdminStudents.mockRejectedValue(new Error("Convex unavailable"));
 

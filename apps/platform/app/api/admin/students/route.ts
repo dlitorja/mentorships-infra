@@ -134,6 +134,30 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Same shape as the email fallback, for names: the roster displays a name
+    // resolved from Clerk, but Convex can only search what it stores. Without
+    // this, searching a name that only exists in Clerk returned nothing.
+    // Only for name-shaped terms: an email fragment ("jane@") is the email
+    // fallback's business, and every no-match search should not hit Clerk.
+    if (result.total === 0 && search.trim() && !isCompleteEmail && !search.includes("@")) {
+      try {
+        const client = await clerkClient();
+        const clerkUsers = await client.users.getUserList({
+          query: search.trim(),
+          limit: 20,
+        });
+        const clerkUserIds = clerkUsers.data.map((user) => user.id);
+        if (clerkUserIds.length > 0) {
+          result = (await convex.query(api.admin.getStudentsForAdmin, {
+            ...baseArgs,
+            userIds: clerkUserIds,
+          })) as GetStudentsForAdminResult;
+        }
+      } catch (err) {
+        console.error("[admin/students] Clerk name fallback failed:", err);
+      }
+    }
+
     const items = await enrichStudentProfiles(result.items, clerkClient);
 
     return NextResponse.json({

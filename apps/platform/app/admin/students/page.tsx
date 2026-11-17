@@ -226,9 +226,11 @@ export default function StudentsPage(): React.JSX.Element {
           <div>
             <CardTitle>All Students</CardTitle>
             <CardDescription>
-              {total === 0
-                ? "No results"
-                : `Showing ${firstOnPage}–${lastOnPage} of ${total}`}
+              {data?.degraded
+                ? "Unavailable"
+                : total === 0
+                  ? "No results"
+                  : `Showing ${firstOnPage}–${lastOnPage} of ${total}`}
             </CardDescription>
           </div>
           <div className="w-full max-w-sm">
@@ -271,7 +273,7 @@ export default function StudentsPage(): React.JSX.Element {
                 </Button>
               </div>
             </div>
-          ) : students.length === 0 ? (
+          ) : students.length === 0 && !data?.degraded ? (
             <div className="text-center py-12">
               {debouncedSearch ? (
                 <>

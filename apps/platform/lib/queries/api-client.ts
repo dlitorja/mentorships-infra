@@ -1285,7 +1285,14 @@ export async function getAdminStudents(params?: {
   if (params?.page) searchParams.set("page", params.page.toString());
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   const query = searchParams.toString();
-  return apiFetch<{ items: AdminStudentListItem[]; total: number; page: number; pageSize: number }>(
+  return apiFetch<{
+    items: AdminStudentListItem[];
+    total: number;
+    page: number;
+    pageSize: number;
+    /** Present when the API answered 206 because Convex failed. */
+    degraded?: boolean;
+  }>(
     `${ApiRoutes.adminStudents}${query ? `?${query}` : ""}`
   );
 }

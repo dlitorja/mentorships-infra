@@ -124,3 +124,46 @@ describe("GET /api/admin/students email fallback", () => {
     expect(convexQuery).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("GET /api/admin/students name fallback", () => {
+  it("resolves a name that exists only in Clerk and re-runs with userIds", async () => {
+    mockClerkClient.mockResolvedValue({
+      users: {
+        getUserList: vi.fn(async () => ({ data: [{ id: "user_clerk_name" }] })),
+      },
+    } as never);
+
+    convexQuery
+      .mockResolvedValueOnce({ items: [], total: 0, page: 1, pageSize: 20 })
+      .mockResolvedValueOnce({
+        items: [{ userId: "user_clerk_name", email: null, firstName: "Ada", lastName: "Lovelace", sessionPacks: [] }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+      });
+
+    const res = await GET(requestWithSearch("ada lovelace"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.items.map((s: { userId: string }) => s.userId)).toEqual(["user_clerk_name"]);
+    expect(convexQuery).toHaveBeenCalledTimes(2);
+    expect(convexQuery.mock.calls[1][1]).toMatchObject({ userIds: ["user_clerk_name"] });
+  });
+
+  it("does not consult Clerk for an email-shaped search", async () => {
+    convexQuery.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
+    const getUserList = vi.fn(async () => ({ data: [] }));
+    mockClerkClient.mockResolvedValue({ users: { getUserList } } as never);
+
+    await GET(requestWithSearch("ada@example.com"));
+
+    // The email fallback runs; the name fallback must not add a second shape.
+    expect(getUserList).toHaveBeenCalledWith(
+      expect.objectContaining({ emailAddress: ["ada@example.com"] })
+    );
+    expect(getUserList).not.toHaveBeenCalledWith(
+      expect.objectContaining({ query: "ada@example.com" })
+    );
+  });
+});
