@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pickInstructorName } from "./route";
+import { pickInstructorName } from "./refund-instructor-name";
 
 /**
  * A refund receipt that names the wrong instructor is worse than one that says
- * "your instructor". The pack behind a payment is not resolvable from the order,
- * so only unambiguous cases may commit to a name.
+ * "your instructor". Only unambiguous cases may commit to a name.
  */
 describe("pickInstructorName", () => {
   it("uses the single instructor across the student's packs", () => {

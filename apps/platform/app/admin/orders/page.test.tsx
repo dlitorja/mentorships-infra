@@ -132,3 +132,32 @@ describe("Orders refund dialog", () => {
     expect(mocks.getAdminOrders).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("Orders refund eligibility", () => {
+  it("does not offer a refund for a failed payment", async () => {
+    mocks.getAdminOrders.mockResolvedValue({
+      items: [
+        {
+          ...order,
+          payments: [
+            {
+              ...order.payments[0],
+              id: "pay_failed",
+              status: "failed",
+              refundedAmount: null,
+            },
+          ],
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+
+    renderWithProviders(<AdminOrdersPage />);
+
+    // The row renders, but there is nothing to give back.
+    expect(await screen.findByText("student@example.com")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^refund$/i })).not.toBeInTheDocument();
+  });
+});

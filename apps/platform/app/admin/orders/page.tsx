@@ -103,6 +103,14 @@ function copyToClipboard(text: string) {
 }
 
 /** Amount still refundable on a single payment. */
+/**
+ * A payment is refundable only once the money actually moved. A `failed` or
+ * `pending` payment has a balance on paper but nothing to give back.
+ */
+function isRefundable(payment: { status: string; amount: string; refundedAmount: string | null }) {
+  return payment.status === "completed" && refundableAmount(payment) > 0;
+}
+
 function refundableAmount(payment: { amount: string; refundedAmount: string | null }): number {
   const amount = parseFloat(payment.amount) || 0;
   const refunded = parseFloat(payment.refundedAmount || "0") || 0;
@@ -119,7 +127,7 @@ function RefundModal({
   onClose: () => void;
   onRefunded: () => void;
 }) {
-  const refundablePayments = order.payments.filter((p) => refundableAmount(p) > 0);
+  const refundablePayments = order.payments.filter(isRefundable);
   const [paymentId, setPaymentId] = useState(refundablePayments[0]?.id ?? "");
   const payment = order.payments.find((p) => p.id === paymentId) ?? refundablePayments[0];
   const [refundType, setRefundType] = useState<"full" | "partial">("full");
@@ -135,7 +143,11 @@ function RefundModal({
   } | null>(null);
 
   const maxRefund = payment ? refundableAmount(payment) : 0;
-  const totalPaid = order.payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+  // "Paid" means money that actually moved: failed and pending payments are not
+  // part of what can be refunded.
+  const totalPaid = order.payments
+    .filter((p) => p.status === "completed" || p.status === "refunded")
+    .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
   const totalRefunded = order.payments.reduce(
     (sum, p) => sum + (parseFloat(p.refundedAmount || "0") || 0),
     0
@@ -180,7 +192,7 @@ function RefundModal({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Process refund</DialogTitle>
           <DialogDescription>
@@ -223,7 +235,10 @@ function RefundModal({
                 <dt className="text-muted-foreground">Refundable now</dt>
                 <dd className="text-right font-medium">
                   {formatCurrency(
-                    order.payments.reduce((sum, p) => sum + refundableAmount(p), 0).toFixed(2),
+                    order.payments
+                      .filter(isRefundable)
+                      .reduce((sum, p) => sum + refundableAmount(p), 0)
+                      .toFixed(2),
                     order.currency
                   )}
                 </dd>
@@ -267,11 +282,13 @@ function RefundModal({
                   </SelectTrigger>
                   <SelectContent>
                     {order.payments.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
+                      <SelectItem key={p.id} value={p.id} disabled={!isRefundable(p)}>
                         {p.provider} · {formatCurrency(p.amount, p.currency)} ·{" "}
-                        {refundableAmount(p) > 0
+                        {isRefundable(p)
                           ? `${formatCurrency(refundableAmount(p).toFixed(2), p.currency)} refundable`
-                          : "fully refunded"}
+                          : p.status === "completed"
+                            ? "fully refunded"
+                            : p.status}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -664,7 +681,7 @@ export default function AdminOrdersPage() {
                           </td>
                           <td className="py-3 px-4">
                             {order.status !== "canceled" &&
-                              order.payments.some((p) => refundableAmount(p) > 0) && (
+                              order.payments.some(isRefundable) && (
                                 <Button
                                   variant="outline"
                                   size="sm"

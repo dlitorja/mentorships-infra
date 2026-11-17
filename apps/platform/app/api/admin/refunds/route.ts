@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pickInstructorName } from "@/lib/admin/refund-instructor-name";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
@@ -34,21 +35,6 @@ type RefundInput = z.infer<typeof createRefundSchema>;
  * Allows full or partial refunds for both Stripe and PayPal payments.
  * Sends refund notification email to the student.
  */
-/**
- * Best-effort instructor name for a refund email.
- *
- * The pack that produced this payment is not identifiable from the order alone
- * (no `paymentId` index on sessionPacks), so this only commits to a name when the
- * student's packs all point at one instructor. Ambiguity must not put the wrong
- * person's name on a refund receipt.
- */
-export function pickInstructorName(names: Array<string | null | undefined>): string {
-  const unique = Array.from(
-    new Set(names.map((name) => name?.trim()).filter((name): name is string => !!name))
-  );
-  return unique.length === 1 ? unique[0] : "your instructor";
-}
-
 export async function POST(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
