@@ -1,12 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -23,37 +21,89 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle, ChevronDown, ChevronUp, CheckCircle2, XCircle } from "lucide-react";
-import { deleteAdminInstructor } from "@/lib/queries/api-client";
-import { useAllInstructors } from "@/lib/queries/convex/use-instructors";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Loader2,
+  Plus,
+  Pencil,
+  Search,
+  ExternalLink,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
+import {
+  deleteAdminInstructor,
+  getAdminInstructors,
+  type AdminInstructorListItem,
+} from "@/lib/queries/api-client";
 import { Id } from "@/convex/_generated/dataModel";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { BackfillImagesPanel } from "./_components/backfill-images-panel";
 
-type Instructor = {
-  _id: Id<"instructors">;
-  name?: string;
-  slug?: string;
-  email?: string;
-  tagline?: string;
-  specialties?: string[];
-  isActive?: boolean;
-  deletedAt?: number;
-  _creationTime?: number;
-};
+type Instructor = AdminInstructorListItem;
 
+const PAGE_SIZE = 20;
+
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "deleted", label: "Deleted" },
+  { value: "all", label: "All" },
+] as const;
+
+/**
+ * `useAllInstructors` returned at most 100 rows with no way to reach the rest,
+ * and the table showed no capacity data even though the REST endpoint returns
+ * it. The list now asks the API for a page, a filter and a search, so the count
+ * is real and the tail is reachable.
+ */
 export default function InstructorsPage() {
   const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [page, setPage] = useState(1);
   const debouncedSearch = useDebouncedValue(search, 300);
-  const showInactiveId = React.useId();
+
+  // Reset the page during render when filters change, so the first request for a
+  // new filter is already page 1.
+  const filtersKey = JSON.stringify([debouncedSearch, statusFilter]);
+  const lastFiltersRef = React.useRef(filtersKey);
+  if (lastFiltersRef.current !== filtersKey) {
+    lastFiltersRef.current = filtersKey;
+    if (page !== 1) setPage(1);
+  }
 
   const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeError, setPurgeError] = useState<string | null>(null);
   const [showBackfill, setShowBackfill] = useState(false);
 
-  const { data: allInstructors, isLoading, isError, error, refetch } = useAllInstructors();
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ["admin-instructors", statusFilter, debouncedSearch, page],
+    queryFn: () =>
+      getAdminInstructors({
+        page,
+        pageSize: PAGE_SIZE,
+        status: statusFilter,
+        search: debouncedSearch || undefined,
+      }),
+  });
+
+  const instructors = data?.instructors ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstOnPage = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = (page - 1) * PAGE_SIZE + instructors.length;
 
   const hardDeleteInstructorMutation = useMutation({
     mutationFn: async (id: Id<"instructors">) => {
@@ -72,48 +122,25 @@ export default function InstructorsPage() {
   });
 
   async function handlePurge(instructor: Instructor) {
-    if (!instructor._id) return;
+    if (!instructor.instructorId) return;
     setIsPurging(true);
     setPurgeError(null);
     try {
-      await hardDeleteInstructorMutation.mutateAsync(instructor._id);
+      await hardDeleteInstructorMutation.mutateAsync(instructor.instructorId as Id<"instructors">);
     } catch {
       // Error is handled in onError
     }
   }
 
-  const instructors = useMemo(() => {
-    if (!allInstructors) return [];
-
-    const hasNameOrSlug = (i: Instructor): boolean => !!(i.name || i.slug);
-
-    let filtered = showInactive
-      ? allInstructors
-      // Treat undefined isActive as active for backward compatibility
-      // Also filter out instructors without name or slug (defensive measure to hide incomplete records)
-      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt && hasNameOrSlug(i));
-
-    if (debouncedSearch) {
-      const searchLower = debouncedSearch.toLowerCase();
-      filtered = filtered.filter((i: Instructor) =>
-        i.name?.toLowerCase().includes(searchLower) ||
-        i.email?.toLowerCase().includes(searchLower) ||
-        i.slug?.toLowerCase().includes(searchLower) ||
-        i.specialties?.some(s => s.toLowerCase().includes(searchLower))
-      );
-    }
-
-    return filtered;
-  }, [allInstructors, showInactive, debouncedSearch]);
+  const displayName = (instructor: Instructor) =>
+    instructor.name || instructor.email || instructor.slug || "Unnamed instructor";
 
   return (
     <div className="container mx-auto py-8">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold">Instructors</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage instructor profiles
-          </p>
+          <p className="text-muted-foreground mt-1">Manage instructor profiles</p>
         </div>
         <Link href="/admin/instructors/create">
           <Button>
@@ -161,25 +188,30 @@ export default function InstructorsPage() {
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search instructors..."
+                placeholder="Search name, email, slug or specialty..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
+                aria-label="Search instructors"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id={showInactiveId}
-                checked={showInactive}
-                onCheckedChange={(checked) => setShowInactive(checked === true)}
-              />
-              <Label htmlFor={showInactiveId} className="cursor-pointer">
-                Show inactive
-              </Label>
+            <div className="flex items-center gap-3">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger id="instructor-status" className="w-[150px]" aria-label="Filter by status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {total === 0 ? "No results" : `Showing ${firstOnPage}–${lastOnPage} of ${total}`}
+              </span>
             </div>
-            <span className="text-xs text-muted-foreground">
-              (Showing up to 100 instructors)
-            </span>
           </div>
         </CardHeader>
         <CardContent>
@@ -207,106 +239,205 @@ export default function InstructorsPage() {
             </div>
           ) : instructors.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No instructors found.{" "}
-              <Link href="/admin/instructors/create" className="text-primary hover:underline">
-                Add one
-              </Link>
+              {debouncedSearch || statusFilter !== "active" ? (
+                <>
+                  No instructors match this filter.{" "}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={() => {
+                      setSearch("");
+                      setStatusFilter("active");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </>
+              ) : (
+                <>
+                  No instructors found.{" "}
+                  <Link href="/admin/instructors/create" className="text-primary hover:underline">
+                    Add one
+                  </Link>
+                </>
+              )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 font-medium">Name</th>
-                    <th className="text-left py-3 px-4 font-medium">Slug</th>
-                    <th className="text-left py-3 px-4 font-medium">Specialties</th>
-                    <th className="text-left py-3 px-4 font-medium">Status</th>
-                    <th className="text-left py-3 px-4 font-medium">Created</th>
-                    <th className="text-right py-3 px-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {instructors.map((instructor: Instructor) => (
-                    <tr key={instructor._id} className="border-b hover:bg-muted/50">
-                      <td className="py-3 px-4">{instructor.name}</td>
-                      <td className="py-3 px-4 font-mono text-sm">{instructor.slug}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {instructor.specialties?.slice(0, 3).map((s) => (
-                            <Badge key={s} variant="secondary" className="text-xs">
-                              {s}
-                            </Badge>
-                          ))}
-                          {instructor.specialties && instructor.specialties.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{instructor.specialties.length - 3}
-                            </Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        {/* Treat undefined isActive as active for consistency with filter semantics */}
-                        <Badge variant={(instructor.isActive !== false) ? "default" : "destructive"}>
-                          {instructor.isActive !== false ? (
-                            <>
-                              <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden="true" />
-                              Active
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="h-3 w-3 mr-1" aria-hidden="true" />
-                              Inactive
-                            </>
-                          )}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">
-                        {instructor._creationTime ? new Date(instructor._creationTime).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Link href={`/admin/instructors/${instructor._id}/edit`}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Edit ${instructor.name ?? "instructor"}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          {instructor.slug && (
-                            <Link href={`/instructors/${instructor.slug}`} target="_blank">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                aria-label={`View public profile for ${instructor.name ?? "instructor"}`}
-                              >
-                                <ExternalLink className="h-4 w-4" />
-                              </Button>
-                            </Link>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setPurgeInstructor(instructor)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            aria-label="Delete instructor"
-                          >
-                            <AlertTriangle className="h-4 w-4" />
-                            <span className="ml-2 hidden sm:inline">Delete</span>
-                          </Button>
-                        </div>
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4 font-medium">Name</th>
+                      <th className="text-left py-3 px-4 font-medium">Specialties</th>
+                      <th className="text-left py-3 px-4 font-medium">Status</th>
+                      <th className="text-left py-3 px-4 font-medium">Students</th>
+                      <th className="text-left py-3 px-4 font-medium">Inventory</th>
+                      <th className="text-left py-3 px-4 font-medium">Created</th>
+                      <th className="text-right py-3 px-4 font-medium">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {instructors.map((instructor) => {
+                      const isDeleted = instructor.deletedAt != null;
+                      const isActive = instructor.isActive !== false;
+                      return (
+                        <tr key={instructor.instructorId} className="border-b hover:bg-muted/50">
+                          <td className="py-3 px-4">
+                            <div className="font-medium">{displayName(instructor)}</div>
+                            {instructor.email && (
+                              <div className="text-xs text-muted-foreground break-all">
+                                {instructor.email}
+                              </div>
+                            )}
+                            {instructor.slug && (
+                              <div className="text-xs text-muted-foreground/70 font-mono">
+                                /instructors/{instructor.slug}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap gap-1">
+                              {instructor.specialties?.slice(0, 3).map((s) => (
+                                <Badge key={s} variant="secondary" className="text-xs">
+                                  {s}
+                                </Badge>
+                              ))}
+                              {instructor.specialties && instructor.specialties.length > 3 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{instructor.specialties.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap items-center gap-1">
+                              {isDeleted ? (
+                                <Badge variant="outline" title="Soft-deleted; not visible to students">
+                                  Deleted
+                                </Badge>
+                              ) : (
+                                <Badge variant={isActive ? "default" : "destructive"}>
+                                  {isActive ? (
+                                    <>
+                                      <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden="true" />
+                                      Active
+                                    </>
+                                  ) : (
+                                    <>
+                                      <XCircle className="h-3 w-3 mr-1" aria-hidden="true" />
+                                      Inactive
+                                    </>
+                                  )}
+                                </Badge>
+                              )}
+                              {instructor.isListed === false && (
+                                <Badge variant="secondary" title="Hidden from the public instructor list">
+                                  Unlisted
+                                </Badge>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="font-medium">{instructor.activeStudentCount ?? 0}</span>
+                            <span className="text-muted-foreground">
+                              {" "}
+                              / {instructor.maxActiveStudents || "—"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-sm">
+                            <div className="flex flex-col">
+                              <span>1:1 {instructor.oneOnOneInventory ?? 0}</span>
+                              <span className="text-muted-foreground">
+                                Group {instructor.groupInventory ?? 0}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">
+                            {instructor.createdAt
+                              ? new Date(instructor.createdAt).toLocaleDateString()
+                              : "N/A"}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex justify-end gap-2">
+                              <Link href={`/admin/instructors/${instructor.instructorId}/edit`}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Edit ${displayName(instructor)}`}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              {instructor.slug && (
+                                <Link href={`/instructors/${instructor.slug}`} target="_blank">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    aria-label={`View public profile for ${displayName(instructor)}`}
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
+                                </Link>
+                              )}
+                              {!isDeleted && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setPurgeInstructor(instructor)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  aria-label="Delete instructor"
+                                >
+                                  <AlertTriangle className="h-4 w-4" />
+                                  <span className="ml-2 hidden sm:inline">Delete</span>
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {totalPages > 1 && (
+                <div className="mt-4 flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Page {page} of {totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1 || isLoading}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page >= totalPages || isLoading}
+                    >
+                      Next
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
 
-      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null), setIsPurging(false))}>
+      <Dialog
+        open={!!purgeInstructor}
+        onOpenChange={(open) =>
+          !open && (setPurgeInstructor(null), setPurgeError(null), setIsPurging(false))
+        }
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -325,7 +456,15 @@ export default function InstructorsPage() {
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); setIsPurging(false); }} disabled={isPurging}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPurgeInstructor(null);
+                setPurgeError(null);
+                setIsPurging(false);
+              }}
+              disabled={isPurging}
+            >
               Cancel
             </Button>
             <Button
@@ -342,5 +481,3 @@ export default function InstructorsPage() {
     </div>
   );
 }
-
-
