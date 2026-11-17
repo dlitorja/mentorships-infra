@@ -77,6 +77,17 @@ describe("AdminInstructorsSection student expansion", () => {
     expect(screen.queryByText("No students assigned yet")).not.toBeInTheDocument();
   });
 
+  it("renders a list-load failure inline instead of blanking the page", async () => {
+    mocks.getAdminInstructors.mockRejectedValue(new Error("Convex unavailable"));
+
+    renderWidget();
+
+    expect(await screen.findByText(/Couldn't load instructors/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    // The empty-roster copy must not appear for a failure.
+    expect(screen.queryByText(/No instructors yet/)).not.toBeInTheDocument();
+  });
+
   it("still renders the empty state for a successful empty result", async () => {
     mocks.getAdminInstructorStudents.mockResolvedValue({ students: [], activeStudentCount: 0 });
 
