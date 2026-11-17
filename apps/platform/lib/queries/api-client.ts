@@ -1463,7 +1463,20 @@ export async function createAdminRefund(data: {
   reason: string;
   customReason?: string;
 }) {
-  return apiFetch<{ success: boolean; message?: string }>(ApiRoutes.adminRefunds, {
+  return apiFetch<{
+    success: boolean;
+    message?: string;
+    refund?: {
+      paymentId: string;
+      amount: string;
+      currency: string;
+      type: "full" | "partial";
+      reason: string;
+      customReason: string | null;
+      providerRefundId: string | null;
+      provider: string;
+    };
+  }>(ApiRoutes.adminRefunds, {
     method: "POST",
     body: JSON.stringify(data),
   });
