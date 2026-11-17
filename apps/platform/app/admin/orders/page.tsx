@@ -145,9 +145,8 @@ function RefundModal({
             <ul className="mt-1 space-y-1 text-muted-foreground">
               {order.packs.map((pack) => (
                 <li key={pack.id}>
-                  {pack.instructorName ?? "Instructor"} —{" "}
-                  {pack.totalSessions - pack.remainingSessions} of {pack.totalSessions} sessions
-                  delivered, {pack.remainingSessions} remaining
+                  {pack.instructorName ?? "Instructor"} — {pack.totalSessions} sessions in pack,{" "}
+                  {pack.remainingSessions} remaining
                   {pack.status !== "active" ? ` (pack ${pack.status})` : ""}
                 </li>
               ))}

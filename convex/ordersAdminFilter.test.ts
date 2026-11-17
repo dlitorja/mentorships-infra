@@ -168,7 +168,23 @@ describe("orders.getOrdersForAdmin", () => {
         status: "active",
         paymentId,
       });
-      // A pack from a different payment must not be joined.
+      // A pack created by a *different* payment (another order) must not be
+      // joined, even though it belongs to the same customer.
+      const otherOrderId = await ctx.db.insert("orders", {
+        userId: orderDoc!.userId,
+        status: "paid",
+        provider: "stripe",
+        totalAmount: "50",
+        currency: "usd",
+      });
+      const otherPaymentId = await ctx.db.insert("payments", {
+        orderId: otherOrderId,
+        provider: "stripe",
+        providerPaymentId: "pi_other",
+        amount: "50",
+        currency: "usd",
+        status: "completed",
+      });
       await ctx.db.insert("sessionPacks", {
         userId: orderDoc!.userId,
         instructorId,
@@ -176,6 +192,7 @@ describe("orders.getOrdersForAdmin", () => {
         remainingSessions: 2,
         purchasedAt: Date.now(),
         status: "active",
+        paymentId: otherPaymentId,
       });
     });
 
@@ -188,6 +205,62 @@ describe("orders.getOrdersForAdmin", () => {
       totalSessions: 4,
       remainingSessions: 1,
       status: "active",
+    });
+  });
+
+  test("guest orders still resolve their packs (pack userId differs from the order's)", async () => {
+    // Stripe's guest fallback stores the order under `"guest"` while fulfillment
+    // writes the pack under an email-based userId. The join must follow the
+    // payment, not the customer id.
+    const t = convexTest(schema, modules);
+    const orderId = await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        userId: "user_admin",
+        clerkId: "user_admin",
+        email: "admin@example.com",
+        role: "admin",
+      });
+      const id = await ctx.db.insert("orders", {
+        userId: "guest",
+        status: "paid",
+        provider: "stripe",
+        totalAmount: "120",
+        currency: "usd",
+      });
+      const paymentId = await ctx.db.insert("payments", {
+        orderId: id,
+        provider: "stripe",
+        providerPaymentId: "pi_guest",
+        amount: "120",
+        currency: "usd",
+        status: "completed",
+      });
+      const instructorId = await ctx.db.insert("instructors", {
+        name: "Guest Instructor",
+        slug: "guest-instructor",
+      });
+      await ctx.db.insert("sessionPacks", {
+        userId: "guest@example.com",
+        instructorId,
+        totalSessions: 4,
+        remainingSessions: 4,
+        purchasedAt: Date.now(),
+        status: "active",
+        paymentId,
+      });
+      return id;
+    });
+
+    const result = await t
+      .withIdentity({ subject: "user_admin" })
+      .query(api.orders.getOrdersForAdmin, { limit: 20, offset: 0 });
+
+    const order = result.items.find((item) => item.id === orderId);
+    expect(order?.packs).toHaveLength(1);
+    expect(order?.packs[0]).toMatchObject({
+      instructorName: "Guest Instructor",
+      totalSessions: 4,
+      remainingSessions: 4,
     });
   });
 
