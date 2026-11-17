@@ -413,11 +413,20 @@ export const getStudentsForAdmin = query({
       const allowed = new Set(args.userIds);
       sessionPacks = sessionPacks.filter((sp) => allowed.has(sp.userId));
     } else if (args.search) {
+      // The admin UI advertises "search by name or email", so a name match has to
+      // resolve here; matching only `email` made a name search silently return
+      // nothing.
       const searchLower = args.search.toLowerCase();
       const userIds = new Set<string>();
       const users = await ctx.db.query("users").collect();
       for (const user of users) {
-        if (user.email?.toLowerCase().includes(searchLower)) {
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").toLowerCase();
+        const matches =
+          (user.email?.toLowerCase().includes(searchLower) ?? false) ||
+          (user.firstName?.toLowerCase().includes(searchLower) ?? false) ||
+          (user.lastName?.toLowerCase().includes(searchLower) ?? false) ||
+          (fullName.length > 0 && fullName.includes(searchLower));
+        if (matches) {
           userIds.add(user.userId);
         }
       }
@@ -452,6 +461,8 @@ export const getStudentsForAdmin = query({
     const studentsMap = new Map<string, {
       userId: string;
       email: string | null;
+      firstName: string | null;
+      lastName: string | null;
       sessionPacks: Array<{
         id: string;
         instructorId: string;
@@ -474,6 +485,10 @@ export const getStudentsForAdmin = query({
         studentsMap.set(pack.userId, {
           userId: pack.userId,
           email: user?.email ?? null,
+          // The admin lists headline people by name; without these the UI can
+          // only fall back to an email address or a raw Clerk id.
+          firstName: user?.firstName ?? null,
+          lastName: user?.lastName ?? null,
           sessionPacks: [],
         });
       }

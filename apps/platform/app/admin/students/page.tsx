@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, UserPlus } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, Plus, UserPlus } from "lucide-react";
 import { getAdminStudents, getAdminInstructors, addAdminStudentSessions } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import {
@@ -31,6 +31,8 @@ import { Label } from "@/components/ui/label";
 type StudentItem = {
   userId: string;
   email: string | null;
+  firstName: string | null;
+  lastName: string | null;
   sessionPacks: Array<{
     id: string;
     instructorId: string;
@@ -59,6 +61,8 @@ const SessionPackSchema = z.object({
 const StudentItemSchema = z.object({
   userId: z.string(),
   email: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
   sessionPacks: z.array(SessionPackSchema),
 });
 
@@ -67,12 +71,20 @@ const StudentsResponseSchema = z.object({
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),
+  /** Set when the API answered 206 because Convex failed. */
+  degraded: z.boolean().optional(),
 });
 
 type StudentsResponse = z.infer<typeof StudentsResponseSchema>;
 
-async function fetchStudents(search?: string): Promise<StudentsResponse> {
-  const data = await getAdminStudents({ search: search || undefined });
+const PAGE_SIZE = 20;
+
+async function fetchStudents(search: string | undefined, page: number): Promise<StudentsResponse> {
+  const data = await getAdminStudents({
+    search: search || undefined,
+    page,
+    pageSize: PAGE_SIZE,
+  });
   try {
     return StudentsResponseSchema.parse(data);
   } catch (e) {
@@ -101,6 +113,15 @@ export default function StudentsPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
+  const [page, setPage] = useState(1);
+  // Reset during render when the search changes, so the first request for a new
+  // search is already page 1 (an effect-based reset fetched the old page first
+  // and let a slow response overwrite the newer one).
+  const lastSearchRef = useRef(debouncedSearch);
+  if (lastSearchRef.current !== debouncedSearch) {
+    lastSearchRef.current = debouncedSearch;
+    if (page !== 1) setPage(1);
+  }
   const [addSessionsOpen, setAddSessionsOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentItem | null>(null);
   const [selectedInstructorId, setSelectedInstructorId] = useState("");
@@ -108,9 +129,9 @@ export default function StudentsPage(): React.JSX.Element {
   const [expiresAt, setExpiresAt] = useState("");
   const [addError, setAddError] = useState("");
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["admin-students", debouncedSearch],
-    queryFn: () => fetchStudents(debouncedSearch || undefined),
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["admin-students", debouncedSearch, page],
+    queryFn: () => fetchStudents(debouncedSearch || undefined, page),
   });
 
   const { data: instructorsData, isLoading: isLoadingInstructors } = useQuery({
@@ -136,10 +157,20 @@ export default function StudentsPage(): React.JSX.Element {
   });
 
   const students = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstOnPage = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = (page - 1) * PAGE_SIZE + students.length;
 
-  const primaryLabel = (s: StudentItem) => {
-    return s.email || s.userId || "Unknown email";
-  };
+  /**
+   * Name first, email second, and never a raw Clerk id as the headline — the
+   * repo's convention, and the previous `email || userId` fallback displayed
+   * `user_3K…` as the primary identifier for anyone without an email.
+   */
+  const fullName = (s: StudentItem) =>
+    [s.firstName, s.lastName].filter(Boolean).join(" ").trim() || null;
+  const primaryLabel = (s: StudentItem) =>
+    fullName(s) || s.email || "Student (no name or email on file)";
 
   const isClerkUserId = (id: string) => id.startsWith("user_");
 
@@ -181,7 +212,7 @@ export default function StudentsPage(): React.JSX.Element {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Students</h1>
-          <p className="text-sm text-muted-foreground">View and manage students. Use search to filter by name or email.</p>
+          <p className="text-sm text-muted-foreground">View and manage students. Search by name or email.</p>
         </div>
         <Button asChild>
           <Link href="/admin/students/invite">
@@ -194,7 +225,13 @@ export default function StudentsPage(): React.JSX.Element {
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
             <CardTitle>All Students</CardTitle>
-            <CardDescription>Showing {students.length} result{students.length === 1 ? "" : "s"}</CardDescription>
+            <CardDescription>
+              {data?.degraded
+                ? "Unavailable"
+                : total === 0
+                  ? "No results"
+                  : `Showing ${firstOnPage}–${lastOnPage} of ${total}`}
+            </CardDescription>
           </div>
           <div className="w-full max-w-sm">
             <label htmlFor="students-search" className="sr-only">Search students by name or email</label>
@@ -208,14 +245,55 @@ export default function StudentsPage(): React.JSX.Element {
           </div>
         </CardHeader>
         <CardContent>
+          {data?.degraded && (
+            <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              Partial data: the student service returned an error, so this list may be incomplete.
+              <Button size="sm" variant="outline" className="ml-3" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : error ? (
-            <div className="text-sm text-red-500">Failed to load students</div>
-          ) : students.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">No students found</div>
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">Couldn&apos;t load students</p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    {error instanceof Error ? error.message : "The request failed."} This is not an
+                    empty roster.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : students.length === 0 && !data?.degraded ? (
+            <div className="text-center py-12">
+              {debouncedSearch ? (
+                <>
+                  <p className="text-muted-foreground mb-2">No students match “{debouncedSearch}”</p>
+                  <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+                    Clear search
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted-foreground mb-2">No students yet</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Invite one to get started.
+                  </p>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/admin/students/invite">Invite a student</Link>
+                  </Button>
+                </>
+              )}
+            </div>
           ) : (
             <ul className="divide-y rounded-md border">
               {students.map((s, idx) => (
@@ -223,8 +301,11 @@ export default function StudentsPage(): React.JSX.Element {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{primaryLabel(s)}</div>
+                      {fullName(s) && s.email && (
+                        <div className="text-xs text-muted-foreground break-all">{s.email}</div>
+                      )}
                       <div
-                        className="text-xs text-muted-foreground font-mono break-all"
+                        className="text-xs text-muted-foreground/70 font-mono break-all"
                         title={
                           isClerkUserId(s.userId)
                             ? "Clerk user ID (for debugging)"
@@ -256,6 +337,33 @@ export default function StudentsPage(): React.JSX.Element {
                 </li>
               ))}
             </ul>
+          )}
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Page {page} of {totalPages}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1 || isLoading}
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || isLoading}
+                >
+                  Next
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -99,3 +99,26 @@ test("getStudentsForAdmin: userIds preserve the other filters", async () => {
   expect(result.items).toEqual([]);
   expect(result.total).toBe(0);
 });
+
+test("getStudentsForAdmin: search matches a student by name, not just email", async () => {
+  const t = convexTest({ schema, modules });
+  await t.run(async (ctx) => {
+    await seed(ctx);
+    // Give the Convex student a name; the UI promises name search.
+    const student = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q: any) => q.eq("userId", CONVEX_STUDENT_ID))
+      .first();
+    await ctx.db.patch(student!._id, { firstName: "Ada", lastName: "Lovelace" });
+  });
+
+  const byName = await t
+    .withIdentity({ subject: ADMIN_ID })
+    .query(api.admin.getStudentsForAdmin, { search: "lovelace" });
+  expect(byName.items.map((s: any) => s.userId)).toEqual([CONVEX_STUDENT_ID]);
+
+  const byFullName = await t
+    .withIdentity({ subject: ADMIN_ID })
+    .query(api.admin.getStudentsForAdmin, { search: "ada lovelace" });
+  expect(byFullName.items.map((s: any) => s.userId)).toEqual([CONVEX_STUDENT_ID]);
+});

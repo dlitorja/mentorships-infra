@@ -1265,18 +1265,34 @@ export type AdminInstructorStudent = {
 export type AdminStudentListItem = {
   userId: string;
   email: string | null;
+  firstName: string | null;
+  lastName: string | null;
   sessionPacks: AdminStudentSessionPack[];
 };
 
 /**
  * List students for admin
  */
-export async function getAdminStudents(params?: { search?: string; includeInactive?: boolean }) {
+export async function getAdminStudents(params?: {
+  search?: string;
+  includeInactive?: boolean;
+  page?: number;
+  pageSize?: number;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.search) searchParams.set("search", params.search);
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
+  if (params?.page) searchParams.set("page", params.page.toString());
+  if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
   const query = searchParams.toString();
-  return apiFetch<{ items: AdminStudentListItem[]; total: number; page: number; pageSize: number }>(
+  return apiFetch<{
+    items: AdminStudentListItem[];
+    total: number;
+    page: number;
+    pageSize: number;
+    /** Present when the API answered 206 because Convex failed. */
+    degraded?: boolean;
+  }>(
     `${ApiRoutes.adminStudents}${query ? `?${query}` : ""}`
   );
 }

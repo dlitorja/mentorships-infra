@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Mail, ArrowLeft, Sparkles, RefreshCw, X } from "lucide-react";
+import { Loader2, Mail, ArrowLeft, Sparkles, RefreshCw, X, CheckCircle2, AlertTriangle } from "lucide-react";
 import {
   getAdminStudentInvitations,
   createStudentInvitation,
@@ -139,16 +139,28 @@ function InvitationOnlyCard() {
   const [email, setEmail] = useState("");
   const [instructorId, setInstructorId] = useState("");
   const [error, setError] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
-  const { data: instructorsData, isLoading: isLoadingInstructors } = useQuery({
+  const {
+    data: instructorsData,
+    isLoading: isLoadingInstructors,
+    isError: isInstructorsError,
+    refetch: refetchInstructors,
+  } = useQuery({
     queryKey: ["instructors"],
     queryFn: fetchInstructors,
   });
 
   const createMutation = useMutation({
     mutationFn: createInvitation,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["student-invitations"] });
+      // Silent success left admins with no evidence the invite went out (and
+      // invited a double-send); name the recipient until dismissed.
+      const instructorName =
+        instructorsData?.instructors.find((i) => i.id === variables.instructorId)?.name ??
+        "the selected instructor";
+      setSentTo(`${variables.email} — linked to ${instructorName}`);
       setEmail("");
       setInstructorId("");
       setError("");
@@ -198,6 +210,14 @@ function InvitationOnlyCard() {
 
           <div className="space-y-2">
             <Label htmlFor="instructor">Instructor</Label>
+            {isInstructorsError && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                <span>Couldn&apos;t load instructors, so invitations can&apos;t be sent.</span>
+                <Button size="sm" variant="outline" type="button" onClick={() => refetchInstructors()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <Select
               value={instructorId || "__none__"}
               onValueChange={(v) => setInstructorId(v === "__none__" ? "" : v)}
@@ -219,6 +239,22 @@ function InvitationOnlyCard() {
 
           {error && (
             <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">{error}</div>
+          )}
+
+          {sentTo && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm"
+            >
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              <div className="flex-1">
+                <p className="font-medium">Invitation sent</p>
+                <p className="text-muted-foreground">{sentTo}</p>
+              </div>
+              <Button size="sm" variant="ghost" type="button" onClick={() => setSentTo(null)}>
+                Dismiss
+              </Button>
+            </div>
           )}
 
           <Button type="submit" disabled={createMutation.isPending || !email || !instructorId} className="w-full">
@@ -270,7 +306,13 @@ function PendingInvitationsCard() {
   const [actionError, setActionError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: invitations, isLoading: isLoadingInvitations } = useQuery({
+  const {
+    data: invitations,
+    isLoading: isLoadingInvitations,
+    isError: isInvitationsError,
+    error: invitationsError,
+    refetch: refetchInvitations,
+  } = useQuery({
     queryKey: ["student-invitations", statusFilter],
     queryFn: () => fetchInvitations(statusFilter),
   });
@@ -345,6 +387,26 @@ function PendingInvitationsCard() {
         {isLoadingInvitations ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        ) : isInvitationsError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-destructive">
+                  Couldn&apos;t load invitations
+                </p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  {invitationsError instanceof Error
+                    ? invitationsError.message
+                    : "The request failed."}{" "}
+                  This is not an empty list.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => refetchInvitations()}>
+                Retry
+              </Button>
+            </div>
           </div>
         ) : invitations?.items.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">No invitations found</div>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  enrichStudentEmails,
+  enrichStudentProfiles,
   pickPrimaryEmail,
   type ConvexStudent,
 } from "./student-enrichment";
@@ -19,6 +19,8 @@ type ClerkHandler = (params: { userId: string[]; limit: number }) => Promise<{
     id: string;
     primaryEmailAddressId: string | null;
     emailAddresses: Array<{ id: string; emailAddress: string }>;
+    firstName?: string | null;
+    lastName?: string | null;
   }>;
 }>;
 
@@ -67,7 +69,7 @@ describe("pickPrimaryEmail", () => {
   });
 });
 
-describe("enrichStudentEmails", () => {
+describe("enrichStudentProfiles", () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -76,7 +78,7 @@ describe("enrichStudentEmails", () => {
 
   it("returns an empty array when no students are provided", async () => {
     const { factory } = makeClerkFactory(async () => ({ data: [] }));
-    const result = await enrichStudentEmails([], factory as any);
+    const result = await enrichStudentProfiles([], factory as any);
     expect(result).toEqual([]);
     expect(factory).not.toHaveBeenCalled();
     expect(warnSpy).not.toHaveBeenCalled();
@@ -85,10 +87,10 @@ describe("enrichStudentEmails", () => {
   it("keeps existing Convex emails untouched and does not call Clerk", async () => {
     const { factory, getUserList } = makeClerkFactory(async () => ({ data: [] }));
     const students = [
-      makeStudent({ userId: "user_a", email: "a@example.com" }),
-      makeStudent({ userId: "user_b", email: "b@example.com" }),
+      makeStudent({ userId: "user_a", email: "a@example.com", firstName: "Ada" }),
+      makeStudent({ userId: "user_b", email: "b@example.com", firstName: "Bob" }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result.map((s) => s.email)).toEqual(["a@example.com", "b@example.com"]);
     expect(getUserList).not.toHaveBeenCalled();
   });
@@ -104,7 +106,7 @@ describe("enrichStudentEmails", () => {
       makeStudent({ userId: "user_x", email: null }),
       makeStudent({ userId: "user_y", email: null }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result.map((s) => s.email)).toEqual(["x@example.com", "y@example.com"]);
     expect(getUserList).toHaveBeenCalledTimes(1);
     const call = getUserList.mock.calls[0][0];
@@ -122,7 +124,7 @@ describe("enrichStudentEmails", () => {
       makeStudent({ userId: "user_dup", email: null }),
       makeStudent({ userId: "user_dup", email: null }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result.map((s) => s.email)).toEqual(["dup@example.com", "dup@example.com"]);
     const call = getUserList.mock.calls[0][0];
     expect(call.userId).toEqual(["user_dup"]);
@@ -134,7 +136,7 @@ describe("enrichStudentEmails", () => {
       makeStudent({ userId: "alice@example.com", email: null }),
       makeStudent({ userId: "legacy-12345", email: null }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result.map((s) => s.email)).toEqual([null, null]);
     expect(getUserList).not.toHaveBeenCalled();
   });
@@ -148,7 +150,7 @@ describe("enrichStudentEmails", () => {
     const students = [
       makeStudent({ userId: "user_blank", email: "" }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result[0].email).toBe("recovered@example.com");
     expect(getUserList).toHaveBeenCalledTimes(1);
   });
@@ -158,7 +160,7 @@ describe("enrichStudentEmails", () => {
     const students = [
       makeStudent({ userId: "user_orphan", email: null }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result[0].email).toBeNull();
   });
 
@@ -182,7 +184,7 @@ describe("enrichStudentEmails", () => {
       },
     ];
     const students = [makeStudent({ userId: "user_p", email: null, sessionPacks: packs })];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result[0].sessionPacks).toEqual(packs);
     expect(result[0].email).toBe("p@example.com");
   });
@@ -197,7 +199,7 @@ describe("enrichStudentEmails", () => {
     const students = [
       makeStudent({ userId: "user_x", email: null }),
     ];
-    const result = await enrichStudentEmails(students, factory as any);
+    const result = await enrichStudentProfiles(students, factory as any);
     expect(result[0].email).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
       "[admin/students] Failed to enrich emails from Clerk:",
@@ -205,13 +207,58 @@ describe("enrichStudentEmails", () => {
     );
   });
 
+  it("fills a missing name from Clerk even when Convex already has the email", async () => {
+    const { factory, getUserList } = makeClerkFactory(async () => ({
+      data: [
+        {
+          id: "user_named",
+          primaryEmailAddressId: "e1",
+          emailAddresses: [{ id: "e1", emailAddress: "named@example.com" }],
+          firstName: "Ada",
+          lastName: "Lovelace",
+        },
+      ],
+    }));
+    const students = [makeStudent({ userId: "user_named", email: "named@example.com" })];
+
+    const result = await enrichStudentProfiles(students, factory as any);
+
+    expect(result[0]).toMatchObject({
+      email: "named@example.com",
+      firstName: "Ada",
+      lastName: "Lovelace",
+    });
+    expect(getUserList).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers the Convex name over Clerk's when both exist", async () => {
+    const { factory } = makeClerkFactory(async () => ({
+      data: [
+        {
+          id: "user_keep",
+          primaryEmailAddressId: null,
+          emailAddresses: [],
+          firstName: "Clerk",
+          lastName: "Name",
+        },
+      ],
+    }));
+    const students = [
+      makeStudent({ userId: "user_keep", email: null, firstName: "Convex", lastName: "Name" }),
+    ];
+
+    const result = await enrichStudentProfiles(students, factory as any);
+
+    expect(result[0]).toMatchObject({ firstName: "Convex", lastName: "Name" });
+  });
+
   it("does not call Clerk when all students already have emails", async () => {
     const { factory, getUserList } = makeClerkFactory(async () => ({ data: [] }));
     const students = [
-      makeStudent({ userId: "user_a", email: "a@example.com" }),
-      makeStudent({ userId: "user_b", email: "b@example.com" }),
+      makeStudent({ userId: "user_a", email: "a@example.com", firstName: "Ada" }),
+      makeStudent({ userId: "user_b", email: "b@example.com", firstName: "Bob" }),
     ];
-    await enrichStudentEmails(students, factory as any);
+    await enrichStudentProfiles(students, factory as any);
     expect(getUserList).not.toHaveBeenCalled();
   });
 });
