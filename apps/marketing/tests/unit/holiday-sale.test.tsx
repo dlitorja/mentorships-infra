@@ -14,23 +14,29 @@ import { getSaleDisplay } from "../../config/holiday-sale";
 describe("Neil Gray holiday sale", () => {
   const portal = getPortalBySlug("neil-gray");
 
-  it("links every course and bundle to its own Kajabi checkout", () => {
+  it("links every course and bundle to its own Kajabi landing page, never a checkout", () => {
     const drapery = portal?.courses.find((course) => course.title.includes("Drapery"));
     const characterDesign = portal?.courses.find((course) => course.title.includes("Character Design"));
     const bundle = portal?.bundles.find((item) => item.title.includes("Bundle"));
 
     expect(drapery?.title).toBe("Drawing Drapery and Clothing with Neil Gray");
-    expect(drapery?.url).toBe("https://huckleberryart.mykajabi.com/offers/qNGTHsfR/checkout");
+    expect(drapery?.url).toBe(
+      "https://huckleberryart.mykajabi.com/drawing-drapery-and-clothing-with-neil-gray"
+    );
 
     expect(characterDesign?.title).toBe("Character Design with Neil Gray");
-    expect(characterDesign?.url).toBe("https://huckleberryart.mykajabi.com/offers/rfxtcuvg/checkout");
+    expect(characterDesign?.url).toBe(
+      "https://huckleberryart.mykajabi.com/character-design-with-neil-gray"
+    );
 
     expect(bundle?.title).toBe("Complete Character Art Bundle");
-    expect(bundle?.url).toBe("https://huckleberryart.mykajabi.com/offers/zoLU2aSF/checkout");
+    expect(bundle?.url).toBe("https://huckleberryart.mykajabi.com/neil-gray-course-bundle");
 
-    // Swapping two offers would still satisfy a loose containment check, so
-    // assert the three checkouts are distinct as well.
-    expect(new Set([drapery?.url, characterDesign?.url, bundle?.url]).size).toBe(3);
+    // Swapping two destinations would still satisfy a loose containment check,
+    // so assert distinctness too, and fail on any deep checkout link.
+    const urls = [drapery?.url, characterDesign?.url, bundle?.url];
+    expect(new Set(urls).size).toBe(3);
+    urls.forEach((url) => expect(url).not.toContain("/offers/"));
   });
 
   it("keeps sale prices and percentages in step with Kajabi", () => {
@@ -56,7 +62,7 @@ describe("Neil Gray holiday sale", () => {
       <CourseCard
         title="Drawing Drapery and Clothing with Neil Gray"
         description="Master the art of drawing fabric, folds, and clothing on figures."
-        url="https://huckleberryart.mykajabi.com/offers/qNGTHsfR/checkout"
+        url="https://huckleberryart.mykajabi.com/drawing-drapery-and-clothing-with-neil-gray"
         saleBadge={sale?.badge}
         price={sale?.salePrice}
         regularPrice={sale?.regularPrice}
@@ -73,7 +79,7 @@ describe("Neil Gray holiday sale", () => {
 
     const cta = screen.getByRole("link", { name: /BUY NOW|View Course/i });
     expect(cta.getAttribute("href")).toBe(
-      "https://huckleberryart.mykajabi.com/offers/qNGTHsfR/checkout"
+      "https://huckleberryart.mykajabi.com/drawing-drapery-and-clothing-with-neil-gray"
     );
   });
 });

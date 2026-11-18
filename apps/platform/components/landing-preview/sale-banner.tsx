@@ -23,7 +23,7 @@ export function SaleBanner() {
           {SALE_COURSES.map((course) => (
             <a
               key={course.id}
-              href={course.checkoutUrl}
+              href={course.landingPageUrl}
               target='_blank'
               rel='noopener noreferrer'
               className='group block overflow-hidden bg-card border border-border hover:border-primary/50 transition-colors'
