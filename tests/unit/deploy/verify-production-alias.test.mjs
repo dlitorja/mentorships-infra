@@ -20,8 +20,19 @@ function fakeClock() {
 /**
  * Builds a fake fetch that answers by path. `aliasSequence` is consumed one
  * entry per alias lookup, so a test can model "still stale, then promoted".
+ *
+ * List records mirror `/v6/deployments`, which timestamps deployments with
+ * `created`; only the `/v13/deployments/:id` detail response exposes
+ * `createdAt` (that is what `deploymentCreatedAt` keys).
  */
-function makeFetch({ readyDeployments, aliasSequence, deploymentShaById = {}, deploymentCreatedAt = {} }) {
+function makeFetch({
+  readyDeployments,
+  commitDeployments,
+  aliasSequence,
+  deploymentShaById = {},
+  deploymentCreatedAt = {},
+  deploymentErrorLink = {},
+}) {
   const calls = [];
   let aliasIndex = 0;
 
@@ -30,7 +41,7 @@ function makeFetch({ readyDeployments, aliasSequence, deploymentShaById = {}, de
     calls.push({ path, method: init.method ?? "GET" });
 
     if (path.startsWith("/v6/deployments")) {
-      return json(200, { deployments: readyDeployments });
+      return json(200, { deployments: commitDeployments ?? readyDeployments });
     }
     if (path.startsWith("/v4/aliases/")) {
       const current = aliasSequence[Math.min(aliasIndex, aliasSequence.length - 1)];
@@ -43,6 +54,7 @@ function makeFetch({ readyDeployments, aliasSequence, deploymentShaById = {}, de
       return json(200, {
         id,
         createdAt: deploymentCreatedAt[id] ?? 1_000,
+        errorLink: deploymentErrorLink[id],
         meta: { githubCommitSha: deploymentShaById[id] ?? OLD_SHA },
       });
     }
@@ -119,7 +131,7 @@ describe("verifyTarget", () => {
 
   test("passes when the alias already serves this commit", async () => {
     const { fetchImpl, calls } = makeFetch({
-      readyDeployments: [{ uid: "dpl_new", readyState: "READY", createdAt: 2_000 }],
+      readyDeployments: [{ uid: "dpl_new", readyState: "READY", created: 2_000 }],
       aliasSequence: ["dpl_new"],
       deploymentShaById: { dpl_new: SHA },
     });
@@ -132,7 +144,7 @@ describe("verifyTarget", () => {
 
   test("promotes when the domain is stale, then passes", async () => {
     const { fetchImpl, calls } = makeFetch({
-      readyDeployments: [{ uid: "dpl_new", readyState: "READY", createdAt: 2_000 }],
+      readyDeployments: [{ uid: "dpl_new", readyState: "READY", created: 2_000 }],
       // Stale on first look, correct once the promotion lands.
       aliasSequence: ["dpl_old", "dpl_new"],
       deploymentShaById: { dpl_old: OLD_SHA, dpl_new: SHA },
@@ -153,9 +165,93 @@ describe("verifyTarget", () => {
     expect(result.reason).toMatch(/no READY production deployment/);
   });
 
+  test("passes when Vercel skipped the build because the commit does not touch the project", async () => {
+    // drive.huckleberry.art on a marketing-only commit: Vercel cancels the
+    // deployment with errorLink → monorepos#skipping-unaffected-projects.
+    // There is nothing to verify, and failing here broke every unrelated merge.
+    const { fetchImpl, calls } = makeFetch({
+      readyDeployments: [],
+      commitDeployments: [
+        { uid: "dpl_skip", state: "CANCELED", readyState: "CANCELED", created: 2_000 },
+      ],
+      aliasSequence: ["dpl_old"],
+      deploymentShaById: { dpl_skip: SHA, dpl_old: OLD_SHA },
+      deploymentCreatedAt: { dpl_skip: 2_000, dpl_old: 1_000 },
+      deploymentErrorLink: {
+        dpl_skip: "https://vercel.com/docs/monorepos#skipping-unaffected-projects",
+      },
+    });
+
+    const result = await verifyTarget({ ...base, fetchImpl, ...fakeClock() });
+
+    expect(result).toMatchObject({ ok: true, skipped: true, promoted: false });
+    expect(result.reason).toMatch(/does not affect this project/);
+    expect(calls.some((c) => c.path.includes("/promote/"))).toBe(false);
+  });
+
+  test("fails fast when the commit's deployment was canceled for another reason", async () => {
+    // A cancel without the monorepo-skip marker (user cancel, budget, …) is a
+    // real failure; polling for ten minutes would only hide it.
+    const { fetchImpl, calls } = makeFetch({
+      readyDeployments: [],
+      commitDeployments: [
+        { uid: "dpl_canceled", state: "CANCELED", readyState: "CANCELED", created: 2_000 },
+      ],
+      aliasSequence: ["dpl_old"],
+      deploymentShaById: { dpl_canceled: SHA, dpl_old: OLD_SHA },
+      deploymentCreatedAt: { dpl_canceled: 2_000, dpl_old: 1_000 },
+    });
+
+    const result = await verifyTarget({ ...base, fetchImpl, ...fakeClock() });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/canceled, not READY/);
+    expect(calls.some((c) => c.path.includes("/promote/"))).toBe(false);
+  });
+
+  test("a newer failed retry is not masked by an older skip record", async () => {
+    // Same SHA deployed twice: an earlier monorepo skip, then a retry that
+    // failed. The list arrives out of order on purpose; the newest record wins.
+    const { fetchImpl } = makeFetch({
+      readyDeployments: [],
+      commitDeployments: [
+        { uid: "dpl_skip_old", state: "CANCELED", readyState: "CANCELED", created: 2_000 },
+        { uid: "dpl_retry_error", state: "ERROR", readyState: "ERROR", created: 3_000 },
+      ],
+      aliasSequence: ["dpl_old"],
+      deploymentShaById: { dpl_skip_old: SHA, dpl_retry_error: SHA, dpl_old: OLD_SHA },
+      deploymentCreatedAt: { dpl_skip_old: 2_000, dpl_retry_error: 3_000, dpl_old: 1_000 },
+      deploymentErrorLink: {
+        dpl_skip_old: "https://vercel.com/docs/monorepos#skipping-unaffected-projects",
+      },
+    });
+
+    const result = await verifyTarget({ ...base, fetchImpl, ...fakeClock() });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/error, not READY/);
+  });
+
+  test("does not fail a run whose commit was superseded by a newer deployment", async () => {
+    const { fetchImpl } = makeFetch({
+      readyDeployments: [],
+      commitDeployments: [
+        { uid: "dpl_canceled", state: "CANCELED", readyState: "CANCELED", created: 1_000 },
+      ],
+      aliasSequence: ["dpl_newer"],
+      deploymentShaById: { dpl_canceled: SHA, dpl_newer: "abc1234" },
+      deploymentCreatedAt: { dpl_canceled: 1_000, dpl_newer: 2_000 },
+    });
+
+    const result = await verifyTarget({ ...base, fetchImpl, ...fakeClock() });
+
+    expect(result).toMatchObject({ ok: true, skipped: true, promoted: false });
+    expect(result.reason).toMatch(/newer deployment/);
+  });
+
   test("fails when the alias never moves after promotion", async () => {
     const { fetchImpl } = makeFetch({
-      readyDeployments: [{ uid: "dpl_new", readyState: "READY", createdAt: 2_000 }],
+      readyDeployments: [{ uid: "dpl_new", readyState: "READY", created: 2_000 }],
       aliasSequence: ["dpl_old"],
       deploymentShaById: { dpl_old: OLD_SHA, dpl_new: SHA },
     });
@@ -168,7 +264,7 @@ describe("verifyTarget", () => {
 
   test("--dry-run reports staleness without promoting", async () => {
     const { fetchImpl, calls } = makeFetch({
-      readyDeployments: [{ uid: "dpl_new", readyState: "READY", createdAt: 2_000 }],
+      readyDeployments: [{ uid: "dpl_new", readyState: "READY", created: 2_000 }],
       aliasSequence: ["dpl_old"],
       deploymentShaById: { dpl_old: OLD_SHA, dpl_new: SHA },
     });
@@ -183,7 +279,7 @@ describe("verifyTarget", () => {
   test("refuses to roll production back to an older deployment", async () => {
     // A re-run of CI for an older commit must not move the domain backwards.
     const { fetchImpl, calls } = makeFetch({
-      readyDeployments: [{ uid: "dpl_old", readyState: "READY", createdAt: 1_000 }],
+      readyDeployments: [{ uid: "dpl_old", readyState: "READY", created: 1_000 }],
       aliasSequence: ["dpl_new"],
       deploymentShaById: { dpl_old: OLD_SHA, dpl_new: SHA },
       deploymentCreatedAt: { dpl_old: 1_000, dpl_new: 2_000 },
@@ -198,7 +294,7 @@ describe("verifyTarget", () => {
 
   test("treats a missing alias record as stale rather than crashing", async () => {
     const { fetchImpl } = makeFetch({
-      readyDeployments: [{ uid: "dpl_new", readyState: "READY", createdAt: 2_000 }],
+      readyDeployments: [{ uid: "dpl_new", readyState: "READY", created: 2_000 }],
       aliasSequence: [null, "dpl_new"],
       deploymentShaById: { dpl_new: SHA },
     });
