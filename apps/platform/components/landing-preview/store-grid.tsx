@@ -16,7 +16,7 @@ const STORE_ITEMS: StoreItem[] = [
     id: course.id,
     title: course.title,
     image: course.cardImage,
-    link: course.checkoutUrl,
+    link: course.landingPageUrl,
   })),
   {
     id: "drawing-course",

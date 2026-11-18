@@ -1,26 +1,30 @@
 /**
- * Holiday Season Sale — the single source of truth for sale copy, offer URLs
- * and sale prices on the artwithneil.com (Neil Gray) course page.
+ * Holiday Season Sale — the single source of truth for sale copy, landing-page
+ * URLs and sale prices on the artwithneil.com (Neil Gray) course page.
  *
- * Kajabi is the source of truth for pricing. The offer URLs and percentages
- * below were verified against the live Kajabi landing pages on 2026-11-17:
+ * Course buttons link to Kajabi **landing pages**, never straight to a
+ * checkout. Each landing page's own "Buy Now" button routes to the correct
+ * offer, so deep-linking a checkout here would only bypass the course details.
  *
- * | Offer              | Checkout                                  | Sale | Regular | Off |
- * | ------------------ | ----------------------------------------- | ---- | ------- | --- |
- * | Bundle             | offers/zoLU2aSF/checkout                  | $130 | $375    | 65% |
- * | Character Design   | offers/rfxtcuvg/checkout                  | $95  | $195    | 51% |
- * | Drapery & Clothing | offers/qNGTHsfR/checkout                  | $85  | $175    | 51% |
+ * Kajabi is the source of truth for pricing. The pages and percentages below
+ * were verified against the live Kajabi pages on 2026-11-17:
  *
- * Percentages must match Kajabi exactly — do not round them, and do not point
- * these links at a launch-promo offer. Similarly-named promo offers exist in
- * the same Kajabi account; the three slugs above are the only correct ones.
+ * | Course             | Landing page                          | Checkout (behind Buy Now) | Sale | Regular | Off |
+ * | ------------------ | ------------------------------------- | ------------------------- | ---- | ------- | --- |
+ * | Bundle             | /neil-gray-course-bundle              | offers/zoLU2aSF/checkout  | $130 | $375    | 65% |
+ * | Character Design   | /character-design-with-neil-gray      | offers/rfxtcuvg/checkout  | $95  | $195    | 51% |
+ * | Drapery & Clothing | /drawing-drapery-and-clothing-with-neil-gray | offers/qNGTHsfR/checkout | $85 | $175 | 51% |
+ *
+ * Percentages must match Kajabi exactly — do not round them. Similarly-named
+ * launch-promo offers and landing pages exist in the same Kajabi account; the
+ * three destinations above are the only correct ones.
  *
  * To end the sale:
  *   1. Revert the prices in Kajabi (Bundle offer → $270, Character Design →
- *      $195, Drapery → $175). The offer URLs do not change.
+ *      $195, Drapery → $175). The offers and landing pages do not change.
  *   2. Set `isActive` to `false`. The page then hides the sale banner, the
  *      % OFF badges and the crossed-out regular prices, and keeps linking to
- *      the same checkouts.
+ *      the same landing pages.
  */
 export const HOLIDAY_SALE = {
   isActive: true,
@@ -32,11 +36,11 @@ export const HOLIDAY_SALE = {
   badgeSuffix: "LIMITED TIME ONLY!",
 } as const;
 
-/** Kajabi checkout URLs for Neil Gray's courses. */
-export const NEIL_GRAY_OFFERS = {
-  bundle: "https://huckleberryart.mykajabi.com/offers/zoLU2aSF/checkout",
-  characterDesign: "https://huckleberryart.mykajabi.com/offers/rfxtcuvg/checkout",
-  drapery: "https://huckleberryart.mykajabi.com/offers/qNGTHsfR/checkout",
+/** Kajabi landing pages for Neil Gray's courses. */
+export const NEIL_GRAY_LANDING_PAGES = {
+  bundle: "https://huckleberryart.mykajabi.com/neil-gray-course-bundle",
+  characterDesign: "https://huckleberryart.mykajabi.com/character-design-with-neil-gray",
+  drapery: "https://huckleberryart.mykajabi.com/drawing-drapery-and-clothing-with-neil-gray",
 } as const;
 
 export interface SalePricing {

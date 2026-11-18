@@ -25,7 +25,7 @@ const SLIDES: Slide[] = SALE_COURSES.map((course) => ({
   id: course.id,
   title: course.title,
   badge: saleBadge(course.percentOff),
-  ctaHref: course.checkoutUrl,
+  ctaHref: course.landingPageUrl,
   bgImage: course.carouselImage,
 }));
 
@@ -46,7 +46,7 @@ export function PreviewHero() {
       <div className="w-full max-w-6xl px-6 pt-8">
         <div className="text-center mb-6">
           <a
-            href={SALE_COURSES[0].checkoutUrl}
+            href={SALE_COURSES[0].landingPageUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-base sm:text-lg font-semibold uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 px-6 py-3 shadow-md"

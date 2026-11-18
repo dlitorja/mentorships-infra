@@ -1,4 +1,4 @@
-import { NEIL_GRAY_OFFERS, type SalePricing } from "./holiday-sale";
+import { NEIL_GRAY_LANDING_PAGES, type SalePricing } from "./holiday-sale";
 
 export interface Course {
   title: string;
@@ -34,7 +34,7 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
-        url: NEIL_GRAY_OFFERS.drapery,
+        url: NEIL_GRAY_LANDING_PAGES.drapery,
         imageUrl: "/instructors/neil-gray/course-2.jpg",
         buttonText: "BUY NOW",
         sale: { salePrice: 85, regularPrice: 175, percentOff: 51 },
@@ -42,7 +42,7 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
-        url: NEIL_GRAY_OFFERS.characterDesign,
+        url: NEIL_GRAY_LANDING_PAGES.characterDesign,
         imageUrl: "/instructors/neil-gray/course-1.jpg",
         buttonText: "BUY NOW",
         sale: { salePrice: 95, regularPrice: 195, percentOff: 51 },
@@ -52,7 +52,7 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Complete Character Art Bundle",
         description: "Get both courses together and save on your character art education.",
-        url: NEIL_GRAY_OFFERS.bundle,
+        url: NEIL_GRAY_LANDING_PAGES.bundle,
         imageUrl: "/instructors/neil-gray/bundle.jpg",
         buttonText: "Get the Bundle",
         sale: { salePrice: 130, regularPrice: 375, percentOff: 65 },
