@@ -15,7 +15,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -124,7 +124,7 @@ async function download(key, outDir) {
 
 async function sha256(path) {
   const hash = createHash("sha256");
-  hash.update(await readFile(path));
+  await pipeline(createReadStream(path), hash);
   return hash.digest("hex");
 }
 
