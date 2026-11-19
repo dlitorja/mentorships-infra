@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 
 import { useRouter } from "next/navigation";
 import {
@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Inbox } from "lucide-react";
 import {
   useKajabiPurchases,
-  type KajabiPurchaseListItem,
   type KajabiPurchaseStatus,
 } from "@/lib/queries/convex/use-kajabi-purchases";
 
@@ -38,27 +37,11 @@ function typeLabel(type: "one-on-one" | "group" | "unknown"): string {
 export default function AdminKajabiPurchasesPage(): React.JSX.Element {
   const [status, setStatus] = useState<KajabiPurchaseStatus>("pending");
   const [cursor, setCursor] = useState<number | undefined>(undefined);
-  const [items, setItems] = useState<KajabiPurchaseListItem[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const { data, isLoading, error, refetch } = useKajabiPurchases(status, cursor);
+  const items = data?.items ?? [];
   const router = useRouter();
-
-  useEffect(() => {
-    setCursor(undefined);
-    setItems([]);
-  }, [status]);
-
-  useEffect(() => {
-    if (!data) return;
-    setItems((previous) => {
-      const merged = cursor ? [...previous, ...data.items] : data.items;
-      const seen = new Set<string>();
-      return merged.filter((row) =>
-        seen.has(row._id) ? false : (seen.add(row._id), true)
-      );
-    });
-  }, [data, cursor]);
 
   async function handleSync(): Promise<void> {
     setSyncing(true);
@@ -111,7 +94,10 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
             key={tab.value}
             size="sm"
             variant={status === tab.value ? "default" : "outline"}
-            onClick={() => setStatus(tab.value)}
+            onClick={() => {
+              setStatus(tab.value);
+              setCursor(undefined);
+            }}
           >
             {tab.label}
           </Button>
@@ -204,15 +190,26 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
                   ))}
                 </tbody>
               </table>
-              {data?.nextCursor ? (
-                <div className="mt-3 flex justify-center">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setCursor(data.nextCursor)}
-                  >
-                    Load more
-                  </Button>
+              {cursor || data?.nextCursor ? (
+                <div className="mt-3 flex justify-center gap-2">
+                  {cursor ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCursor(undefined)}
+                    >
+                      ← Newest
+                    </Button>
+                  ) : null}
+                  {data?.nextCursor ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCursor(data.nextCursor)}
+                    >
+                      Older →
+                    </Button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
