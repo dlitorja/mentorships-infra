@@ -3119,10 +3119,108 @@ const httpKajabiPurchaseOnboarding = httpAction(async (ctx, request) => {
   }
 });
 
+/**
+ * Upsert a parsed Kajabi purchase confirmation from the Resend inbox poll.
+ * Bearer-auth (`CONVEX_HTTP_KEY`) because the poll runs in the platform
+ * Inngest worker. The mutation dedupes on the Resend email id and the Kajabi
+ * purchase id, so re-polling is safe.
+ */
+const httpUpsertKajabiPurchaseInbox = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const required = [
+    "resendEmailId",
+    "fromAddress",
+    "subject",
+    "offerTitle",
+    "rawText",
+  ] as const;
+  for (const key of required) {
+    if (typeof body[key] !== "string" || (body[key] as string).length === 0) {
+      return new Response(
+        JSON.stringify({ error: `${key} is required` }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  const purchaseType =
+    body.purchaseType === "one-on-one" ||
+    body.purchaseType === "group" ||
+    body.purchaseType === "unknown"
+      ? body.purchaseType
+      : "unknown";
+
+  try {
+    const result = await ctx.runMutation(
+      internal.kajabiPurchaseInbox.upsertFromEmail,
+      {
+        resendEmailId: body.resendEmailId as string,
+        resendThreadId:
+          typeof body.resendThreadId === "string"
+            ? body.resendThreadId
+            : undefined,
+        fromAddress: body.fromAddress as string,
+        subject: body.subject as string,
+        receivedAt:
+          typeof body.receivedAt === "number" ? body.receivedAt : Date.now(),
+        offerTitle: body.offerTitle as string,
+        purchaseType,
+        instructorName:
+          typeof body.instructorName === "string"
+            ? body.instructorName
+            : undefined,
+        studentName:
+          typeof body.studentName === "string" ? body.studentName : undefined,
+        studentEmail:
+          typeof body.studentEmail === "string"
+            ? body.studentEmail
+            : undefined,
+        kajabiPurchaseId:
+          typeof body.kajabiPurchaseId === "string"
+            ? body.kajabiPurchaseId
+            : undefined,
+        kajabiContactId:
+          typeof body.kajabiContactId === "string"
+            ? body.kajabiContactId
+            : undefined,
+        rawText: body.rawText as string,
+      }
+    );
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
 http.route({
   path: "/admin-onboarding/get",
   method: "POST",
   handler: httpGetAdminOnboarding,
+});
+
+http.route({
+  path: "/kajabi-purchase-inbox/upsert",
+  method: "POST",
+  handler: httpUpsertKajabiPurchaseInbox,
 });
 
 http.route({
