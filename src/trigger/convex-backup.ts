@@ -190,6 +190,9 @@ export const convexDatabaseBackup = schedules.task({
   id: "convex-database-backup",
   cron: "0 2 * * *",
   maxDuration: 3600,
+  // Export + ZIP + upload is I/O heavy; the default 0.5 GB machine is
+  // tight once the database grows.
+  machine: "small-2x",
   retry: { maxAttempts: 2 },
   run: async (payload, { ctx }) => {
     // Schedule payloads arrive as Date; a manual test trigger may
