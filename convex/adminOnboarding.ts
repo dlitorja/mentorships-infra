@@ -776,6 +776,97 @@ export const onboardKajabiPurchase = internalMutation({
 });
 
 /**
+ * Atomically approve a pending Kajabi purchase confirmation and commit the
+ * onboarding. Called by `/api/admin/kajabi-purchases/[id]/approve` with the
+ * admin's Clerk identity, so the commit is attributed to the approving admin.
+ *
+ * The commit and the purchase status change happen in one transaction, which
+ * makes a UI retry safe: an already-approved row returns its existing
+ * onboarding id instead of creating a duplicate.
+ */
+export const approveKajabiPurchase = mutation({
+  args: {
+    purchaseId: v.id("kajabiPurchaseInbox"),
+    instructorId: v.id("instructors"),
+    sessionsPerInstructor: v.number(),
+    expiresAt: v.number(),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const gate = await isAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) throw new Error("Forbidden: admin or support role required");
+
+    const purchase = await ctx.db.get(args.purchaseId);
+    if (!purchase) throw new Error("Purchase not found");
+    if (purchase.status === "dismissed") {
+      throw new Error("This purchase was dismissed");
+    }
+    if (purchase.status === "approved" && purchase.onboardingId) {
+      return {
+        onboardingId: purchase.onboardingId,
+        alreadyApproved: true as const,
+      };
+    }
+    if (!purchase.studentEmail) {
+      throw new Error("The confirmation does not contain a student email");
+    }
+    if (!Number.isInteger(args.sessionsPerInstructor) || args.sessionsPerInstructor < 1) {
+      throw new Error("sessionsPerInstructor must be a positive integer");
+    }
+    if (args.expiresAt <= Date.now()) {
+      throw new Error("expiresAt must be in the future");
+    }
+
+    const normalizedEmail = purchase.studentEmail.trim().toLowerCase();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+    const resolvedStudentUserId =
+      existingUser && !existingUser.userId.startsWith("email:")
+        ? existingUser.userId
+        : undefined;
+
+    const result = await performCommit(ctx, {
+      email: purchase.studentEmail,
+      instructors: [
+        {
+          instructorId: args.instructorId,
+          sessionsPerInstructor: args.sessionsPerInstructor,
+          expiresAt: args.expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      notes:
+        args.notes ??
+        `Approved from Kajabi purchase ${purchase.kajabiPurchaseId ?? purchase._id}`,
+      capacityOverrideReason: undefined,
+      submittedByUserId: identity.subject,
+      source: "kajabi",
+      studentUserId: resolvedStudentUserId,
+      clerkInvitationIds: undefined,
+    });
+
+    const now = Date.now();
+    await ctx.db.patch(args.purchaseId, {
+      status: "approved",
+      approvedByUserId: identity.subject,
+      approvedAt: now,
+      onboardingId: result.onboardingId,
+      updatedAt: now,
+    });
+
+    return {
+      onboardingId: result.onboardingId,
+      alreadyApproved: false as const,
+      perInstructor: result.perInstructor,
+    };
+  },
+});
+
+/**
  * Transition a `failed` (or `queued`) onboarding back to `processing` and
  * bump `attemptCount`. Caller (the dashboard) does NOT need to know which
  * step failed — PR 3's Inngest workflow reads the attempt count and re-

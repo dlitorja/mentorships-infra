@@ -46,6 +46,7 @@ import type * as inCallNotifications from "../inCallNotifications.js";
 import type * as instructorResources from "../instructorResources.js";
 import type * as instructorUploads from "../instructorUploads.js";
 import type * as instructors from "../instructors.js";
+import type * as kajabiPurchaseInbox from "../kajabiPurchaseInbox.js";
 import type * as legacyMappings from "../legacyMappings.js";
 import type * as lib_authorDisplay from "../lib/authorDisplay.js";
 import type * as lib_b2WorkspaceUpload from "../lib/b2WorkspaceUpload.js";
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   instructorResources: typeof instructorResources;
   instructorUploads: typeof instructorUploads;
   instructors: typeof instructors;
+  kajabiPurchaseInbox: typeof kajabiPurchaseInbox;
   legacyMappings: typeof legacyMappings;
   "lib/authorDisplay": typeof lib_authorDisplay;
   "lib/b2WorkspaceUpload": typeof lib_b2WorkspaceUpload;

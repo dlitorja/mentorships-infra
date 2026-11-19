@@ -1673,6 +1673,58 @@ export default defineSchema({
       "createdAt",
     ]),
 
+  // Email-intake queue for Kajabi purchase confirmations. The Kajabi plan
+  // does not expose webhooks, so support@ is added to each offer; Resend
+  // receives the confirmation, an Inngest poll parses it, and an admin
+  // approves the onboarding from `/admin/kajabi-purchases`.
+  kajabiPurchaseInbox: defineTable({
+    // Resend received-email id. Primary idempotency key for the poll.
+    resendEmailId: v.string(),
+    resendThreadId: v.optional(v.string()),
+    fromAddress: v.string(),
+    subject: v.string(),
+    receivedAt: v.number(),
+
+    // Parsed from the confirmation. `offerTitle` is the raw Kajabi product
+    // name; `purchaseType` is derived from it.
+    offerTitle: v.string(),
+    purchaseType: v.union(
+      v.literal("one-on-one"),
+      v.literal("group"),
+      v.literal("unknown")
+    ),
+    instructorName: v.optional(v.string()),
+    studentName: v.optional(v.string()),
+    studentEmail: v.optional(v.string()),
+    // Kajabi purchase id (stable) and contact id from the "View Customer"
+    // link. Either can be used for duplicate detection.
+    kajabiPurchaseId: v.optional(v.string()),
+    kajabiContactId: v.optional(v.string()),
+
+    // Full plain-text body for admin verification. Never rendered to the
+    // student or sent anywhere.
+    rawText: v.string(),
+
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("dismissed")
+    ),
+    approvedByUserId: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    onboardingId: v.optional(v.id("adminOnboardings")),
+    dismissedByUserId: v.optional(v.string()),
+    dismissedAt: v.optional(v.number()),
+    dismissReason: v.optional(v.string()),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_resendEmailId", ["resendEmailId"])
+    .index("by_kajabiPurchaseId", ["kajabiPurchaseId"])
+    .index("by_studentEmail", ["studentEmail"]),
+
   suppressionEvents: defineTable({
     kind: v.union(
       v.literal("bounce"),
