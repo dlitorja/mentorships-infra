@@ -254,6 +254,22 @@ describe("Kajabi webhook route", () => {
       expect(body.quantity).toBe(1);
       expect(body.newInventory).toBe(9);
       expect(body.alreadyApplied).toBe(false);
+
+      const onboardingCall = vi
+        .mocked(convexServerCall)
+        .mock.calls.find(
+          (call) => call[0] === "/admin-onboarding/kajabi-purchase"
+        );
+      expect(onboardingCall).toBeDefined();
+      expect(onboardingCall?.[1]).toMatchObject({
+        email: "buyer@example.com",
+        studentName: "Test Buyer",
+        instructorSlug: "instructor_test",
+      });
+      expect(
+        (onboardingCall?.[1] as { externalPurchaseId?: string })
+          ?.externalPurchaseId
+      ).toContain("tx_unique_xyz");
     });
 
     it("emits inventory.changed observability event with previousInventory + newInventory on a successful apply", async () => {

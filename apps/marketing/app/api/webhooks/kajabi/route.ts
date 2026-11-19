@@ -372,7 +372,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // pipeline. The inventory write above is authoritative; this call is
     // idempotent on the purchase id, so a Kajabi retry after a partial
     // failure is safe. Group purchases are not auto-onboarded.
-    const memberName = parsed.member?.name?.trim();
+    const memberName = event.member?.name?.trim();
     if (mapping.mentorshipType === "one-on-one" && memberEmail.length > 0) {
       try {
         await convexServerCall("/admin-onboarding/kajabi-purchase", {
