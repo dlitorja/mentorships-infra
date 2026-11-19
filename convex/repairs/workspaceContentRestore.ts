@@ -58,6 +58,21 @@ export const recomputeWorkspaceImageCounts = internalMutation({
       // student and instructor caps only.
     }
 
+    // `instructorImageCount` also covers private instructor
+    // resources of type "image": `uploadInstructorResource`
+    // increments it, `deleteInstructorResource` decrements it, and
+    // `shareResourceToChat` increments it again for the gallery
+    // copy. Rebuilding from `workspaceImages` alone would hand the
+    // instructor back an equal number of upload slots.
+    const resourceImages = await ctx.db
+      .query("instructorResources")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const liveResourceImageCount = resourceImages.filter(
+      (resource) => resource.type === "image" && resource.deletedAt === undefined
+    ).length;
+    instructorImageCount += liveResourceImageCount;
+
     if (!args.dryRun) {
       await ctx.db.patch(args.workspaceId, {
         studentImageCount,
@@ -69,7 +84,8 @@ export const recomputeWorkspaceImageCounts = internalMutation({
       workspaceId: args.workspaceId,
       studentImageCount,
       instructorImageCount,
-      totalVisibleImages: images.length,
+      galleryImages: images.length,
+      resourceImages: liveResourceImageCount,
       dryRun: args.dryRun ?? false,
     };
   },

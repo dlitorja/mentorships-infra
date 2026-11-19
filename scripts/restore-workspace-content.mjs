@@ -22,6 +22,16 @@
  * them; use a Convex backup or contact Convex support about the
  * deployment's document log.
  *
+ * Safety: private instructor resources use the same upload ledger and
+ * key shape as chat/gallery uploads, and the ledger does not record
+ * whether a resource was shared. Any key still referenced by a live
+ * `instructorResources` row is skipped entirely, so the recovery
+ * cannot expose a resource the instructor never shared. The residual
+ * case is a resource that was uploaded *and hard-deleted* before the
+ * wipe: it has a completed ledger row and no surviving row to match
+ * against. Review the dry-run list before `--apply` on a workspace
+ * whose instructor deletes resources frequently.
+ *
  * Usage (dry run is the default):
  *   node scripts/restore-workspace-content.mjs --all
  *   node scripts/restore-workspace-content.mjs --workspace m97...
@@ -78,6 +88,12 @@ function convex(argsList) {
   }
 }
 
+// `npx convex data` caps a single read at 10,000 rows. Refuse to
+// apply from a truncated read: a partial `fileUploads` view would
+// miss rows, and a partial `workspaceMessages` view would fail to
+// suppress duplicates and append the same content twice.
+const READ_LIMIT = 10000;
+
 function loadTable(table) {
   const output = convex([
     "data",
@@ -85,13 +101,20 @@ function loadTable(table) {
     "--format",
     "jsonLines",
     "--limit",
-    "10000",
+    String(READ_LIMIT),
   ]);
-  return output
+  const rows = output
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+  if (rows.length >= READ_LIMIT) {
+    throw new Error(
+      `${table} returned ${rows.length} rows (limit ${READ_LIMIT}); ` +
+        "read is truncated. Refusing to apply from partial data."
+    );
+  }
+  return rows;
 }
 
 function b2KeyFromMessage(message) {
@@ -145,12 +168,22 @@ const instructors = new Map(
 );
 const existingMessages = loadTable("workspaceMessages");
 const existingImages = loadTable("workspaceImages");
+const instructorResources = loadTable("instructorResources");
 
 const existingMessageKeys = new Set(
   existingMessages.map(b2KeyFromMessage).filter(Boolean)
 );
 const existingImageKeys = new Set(
   existingImages.map((image) => image.b2Key).filter(Boolean)
+);
+
+// Private instructor resources share the same upload ledger and B2 key
+// shape as chat/gallery uploads. A resource is only student-visible
+// after `shareResourceToChat`; the ledger does not record that step.
+// Never turn a surviving resource into a chat row or gallery image —
+// that would disclose a private file to every workspace participant.
+const resourceKeys = new Set(
+  instructorResources.map((resource) => resource.b2Key).filter(Boolean)
 );
 
 const targetWorkspaceIds = workspaceFilter
@@ -191,7 +224,14 @@ for (const upload of uploads) {
     images: 0,
     files: 0,
     skippedExisting: 0,
+    skippedResource: 0,
   };
+
+  if (resourceKeys.has(upload.b2Key)) {
+    stats.skippedResource += 1;
+    perWorkspace.set(upload.workspaceId, stats);
+    continue;
+  }
 
   if (!existingMessageKeys.has(upload.b2Key)) {
     messageRows.push({
@@ -229,7 +269,8 @@ for (const [workspaceId, stats] of perWorkspace) {
   console.log(
     `  ${workspaceId}  ${stats.name}\n` +
       `    chat: ${stats.images} image, ${stats.files} file ` +
-      `(skipped ${stats.skippedExisting} already present)`
+      `(skipped ${stats.skippedExisting} already present, ` +
+      `${stats.skippedResource} private resource(s))`
   );
 }
 console.log(
@@ -241,9 +282,15 @@ if (!apply) {
   process.exit(0);
 }
 
+// Counter repair must run even when every row is already present: a
+// previous run can import both tables and then die before the counter
+// calls, and a retry would otherwise exit as a no-op.
+const workspacesNeedingCounterRepair = [...targetWorkspaceIds].filter(
+  (workspaceId) => workspaces.has(workspaceId)
+);
+
 if (messageRows.length === 0 && imageRows.length === 0) {
-  console.log("Nothing to restore.");
-  process.exit(0);
+  console.log("No rows to import; repairing counters only.");
 }
 
 const dir = mkdtempSync(join(tmpdir(), "workspace-content-restore-"));
@@ -283,7 +330,7 @@ if (messageRows.length > 0) {
   console.log(`Imported ${messageRows.length} workspaceMessages`);
 }
 
-for (const workspaceId of perWorkspace.keys()) {
+for (const workspaceId of workspacesNeedingCounterRepair) {
   const result = convex([
     "run",
     "repairs/workspaceContentRestore:recomputeWorkspaceImageCounts",

@@ -116,6 +116,80 @@ test("deleteAllWorkspaceContent refuses a workspace still inside retention", asy
   ).rejects.toThrow(/retention window/i);
 });
 
+test("recomputeWorkspaceImageCounts includes gallery images and instructor resources", async () => {
+  const t = convexTest(schema, modules);
+  const instructorUserId = "user_instructor_counts";
+  const studentUserId = "user_student_counts";
+
+  const workspaceId = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      userId: instructorUserId,
+      name: "Counts Instructor",
+    });
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: "Counts",
+      ownerId: studentUserId,
+      instructorId,
+      isPublic: false,
+      studentImageCount: 0,
+      instructorImageCount: 0,
+    });
+
+    await ctx.db.insert("workspaceImages", {
+      workspaceId,
+      imageUrl: "",
+      b2Key: "student-gallery.png",
+      createdBy: studentUserId,
+    });
+    await ctx.db.insert("workspaceImages", {
+      workspaceId,
+      imageUrl: "",
+      b2Key: "instructor-gallery.png",
+      createdBy: instructorUserId,
+    });
+    await ctx.db.insert("instructorResources", {
+      instructorId,
+      workspaceId,
+      b2Key: "resource-image.png",
+      fileName: "resource-image.png",
+      contentType: "image/png",
+      size: 10,
+      type: "image",
+      createdBy: instructorUserId,
+      createdAt: Date.now(),
+    });
+    await ctx.db.insert("instructorResources", {
+      instructorId,
+      workspaceId,
+      b2Key: "resource-file.abr",
+      fileName: "resource-file.abr",
+      contentType: "application/octet-stream",
+      size: 10,
+      type: "file",
+      createdBy: instructorUserId,
+      createdAt: Date.now(),
+    });
+
+    return workspaceId;
+  });
+
+  const result = await t.mutation(
+    internal.repairs.workspaceContentRestore.recomputeWorkspaceImageCounts,
+    { workspaceId }
+  );
+
+  expect(result.studentImageCount).toBe(1);
+  // Gallery image + resource image, matching the increments that
+  // `createWorkspaceImage` and `uploadInstructorResource` perform.
+  expect(result.instructorImageCount).toBe(2);
+  expect(result.galleryImages).toBe(2);
+  expect(result.resourceImages).toBe(1);
+
+  const workspace = await t.run(async (ctx) => await ctx.db.get(workspaceId));
+  expect(workspace?.studentImageCount).toBe(1);
+  expect(workspace?.instructorImageCount).toBe(2);
+});
+
 test("deleteAllWorkspaceContent still deletes content past retention", async () => {
   const t = convexTest(schema, modules);
   const expiredId = await seedWorkspace(t, {
