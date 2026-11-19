@@ -182,9 +182,10 @@ export const convexDatabaseBackup = schedules.task({
   maxDuration: 3600,
   retry: { maxAttempts: 2 },
   run: async (payload, { ctx }) => {
-    logger.info("Starting Convex database backup", {
-      scheduledAt: payload.timestamp,
-    });
+    // Schedule payloads arrive as Date; a manual test trigger may
+    // deliver an ISO string, so normalize before serializing.
+    const scheduledAt = new Date(payload.timestamp).toISOString();
+    logger.info("Starting Convex database backup", { scheduledAt });
 
     let workDir: string | undefined;
     try {
@@ -215,7 +216,7 @@ export const convexDatabaseBackup = schedules.task({
         version: 1,
         deployment,
         createdAt: new Date(timestamp).toISOString(),
-        scheduledAt: payload.timestamp.toISOString(),
+        scheduledAt,
         zipKey: keys.zipKey,
         sizeBytes: fileStat.size,
         sha256,
