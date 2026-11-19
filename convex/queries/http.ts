@@ -8,14 +8,44 @@ import { resolveAuthorDisplayNames } from "../lib/authorDisplay";
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
 
-/** Finds workspaces past the 18-month retention window that haven't been marked as deleted. */
+/**
+ * Finds workspaces past the 18-month retention window that haven't
+ * been marked as deleted.
+ *
+ * CRITICAL: the bounds must exclude workspaces whose `endedAt` is
+ * `undefined`. Convex indexes a missing optional field as `null`,
+ * and `null` sorts before every number, so a bare
+ * `q.lt("endedAt", cutoff)` matches **every active workspace** as
+ * well as the expired ones. That is not a theoretical hazard: the
+ * nightly `delete-expired-workspace-content` Trigger task consumes
+ * this query and calls `/workspace/retention/delete`, which
+ * hard-deletes every note, link, image, and chat message in the
+ * workspace.
+ *
+ * On 2026-11-14 that shipped combination wiped the content of all
+ * 37 active workspaces (and again each night through 2026-11-19),
+ * because the task had just been fixed to reach `.convex.site`
+ * (PR #1047) after previously 404ing. `q.gt("endedAt", 0)` skips
+ * the null bucket; the `neq(undefined)` filter is a second belt
+ * so a future index change cannot reintroduce the same range bug.
+ */
 export const getWorkspacesNeedingDeletion = query({
   handler: async (ctx) => {
     const cutoff = Date.now() - EIGHTEEN_MONTHS_MS;
     const workspaces = await ctx.db
       .query("workspaces")
-      .withIndex("by_endedAt", (q) => q.lt("endedAt", cutoff))
-      .filter((q) => q.or(q.eq(q.field("deletedAt"), undefined), q.gt(q.field("deletedAt"), cutoff)))
+      .withIndex("by_endedAt", (q) =>
+        q.gt("endedAt", 0).lt("endedAt", cutoff)
+      )
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("endedAt"), undefined),
+          q.or(
+            q.eq(q.field("deletedAt"), undefined),
+            q.gt(q.field("deletedAt"), cutoff)
+          )
+        )
+      )
       .collect();
 
     return workspaces.map(w => ({ id: w._id, endedAt: w.endedAt, ownerId: w.ownerId, instructorId: w.instructorId }));

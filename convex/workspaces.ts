@@ -925,15 +925,37 @@ export const linkWorkspacesByEmail = internalMutation({
   },
 });
 
-/** Returns workspaces past the 18-month retention period that are pending deletion. */
+/**
+ * Returns workspaces past the 18-month retention period that are
+ * pending deletion.
+ *
+ * The lower bound is load-bearing: Convex indexes a missing
+ * `endedAt` as `null`, which sorts before every number, so
+ * `q.lt("endedAt", cutoff)` alone would return every active
+ * workspace. See the matching comment on
+ * `queries/http.ts:getWorkspacesNeedingDeletion` — the broken
+ * range there wiped active workspace content nightly between
+ * 2026-11-14 and 2026-11-19. This legacy duplicate is currently
+ * unreferenced but must not keep a loaded copy of the bug.
+ */
 export const getWorkspacesNeedingRetentionDeletion = query({
   args: {},
   handler: async (ctx, args) => {
     const cutoff = Date.now() - EIGHTEEN_MONTHS_MS;
     return await ctx.db
       .query("workspaces")
-      .withIndex("by_endedAt", (q) => q.lt("endedAt", cutoff))
-      .filter((q) => q.or(q.eq(q.field("deletedAt"), undefined), q.gt(q.field("deletedAt"), cutoff)))
+      .withIndex("by_endedAt", (q) =>
+        q.gt("endedAt", 0).lt("endedAt", cutoff)
+      )
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("endedAt"), undefined),
+          q.or(
+            q.eq(q.field("deletedAt"), undefined),
+            q.gt(q.field("deletedAt"), cutoff)
+          )
+        )
+      )
       .collect();
   },
 });
