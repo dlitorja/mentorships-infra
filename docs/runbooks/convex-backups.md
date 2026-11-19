@@ -97,8 +97,11 @@ would erase everything written after the backup.
 
    ```bash
    npx convex export --deployment <preview-deployment> --path /tmp/preview
-   # unzip, then for a single table:
-   npx convex import --table workspaceMessages --append /tmp/preview/workspaceMessages/documents.jsonl
+   # unzip, then for a single table (always name the destination
+   # explicitly; a logged-in CLI defaults to the dev deployment):
+   npx convex import --deployment production \
+     --table workspaceMessages --append \
+     /tmp/preview/workspaceMessages/documents.jsonl
    ```
 
 5. Re-run post-merge verification for anything that reads the restored
