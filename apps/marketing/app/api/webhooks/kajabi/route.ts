@@ -368,6 +368,80 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // Auto-onboard 1:1 buyers through the existing admin-onboarding
+    // pipeline. The inventory write above is authoritative; this call is
+    // idempotent on the purchase id, so a Kajabi retry after a partial
+    // failure is safe. Group purchases are not auto-onboarded.
+    //
+    // Paid access requires the shared webhook secret: the public webhook
+    // only checks a caller-supplied User-Agent and a rate limit, so a
+    // forged request must not be able to mint a session pack. The secret is
+    // supplied in the Kajabi webhook URL (`?secret=...`) or the
+    // `x-kajabi-webhook-secret` header. If it is missing or wrong, inventory
+    // still applies (the accepted threat model) but no onboarding happens.
+    const memberName = event.member?.name?.trim();
+    const onboardingSecret = process.env.KAJABI_WEBHOOK_SECRET;
+    const providedSecret =
+      new URL(request.url).searchParams.get("secret") ??
+      request.headers.get("x-kajabi-webhook-secret");
+    const onboardingAllowed =
+      typeof onboardingSecret === "string" &&
+      onboardingSecret.length >= 16 &&
+      providedSecret === onboardingSecret;
+    const purchaseIdFingerprint = createHash("sha256")
+      .update(purchaseId)
+      .digest("hex")
+      .slice(0, 12);
+
+    if (mapping.mentorshipType === "one-on-one" && memberEmail.length > 0) {
+      if (!onboardingAllowed) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: new Error(
+            "Auto-onboarding skipped: missing or invalid webhook secret",
+          ),
+          message:
+            "Auto-onboarding skipped: missing or invalid webhook secret",
+          level: "warn",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            purchaseIdFingerprint,
+          },
+        });
+      } else {
+        try {
+          await convexServerCall("/admin-onboarding/kajabi-purchase", {
+            email: memberEmail,
+            studentName:
+              memberName && memberName.length > 0 ? memberName : undefined,
+            instructorSlug: mapping.instructorSlug,
+            externalPurchaseId: purchaseId,
+          });
+        } catch (onboardingError) {
+          await reportError({
+            source: "webhooks/kajabi",
+            error: onboardingError,
+            message: "Failed to auto-onboard Kajabi purchase",
+            level: "error",
+            context: {
+              instructorSlug: mapping.instructorSlug,
+              // Do not send the buyer email (which `purchaseId` embeds) to
+              // the observability backend.
+              purchaseIdFingerprint,
+              memberEmailFingerprint: createHash("sha256")
+                .update(memberEmail.trim().toLowerCase())
+                .digest("hex")
+                .slice(0, 12),
+            },
+          });
+          return NextResponse.json(
+            { error: "Failed to auto-onboard purchase" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
     // Emit the inventory/changed Inngest event only on a successful
     // first-time apply so the waitlist handler doesn't fire on
     // replays or skipped writes. Inngest is best-effort: a failed

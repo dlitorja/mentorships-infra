@@ -339,6 +339,13 @@ async function performCommit(
     submittedByUserId: string;
     source: Doc<"adminOnboardings">["source"];
     /**
+     * Optional resolved student id. The webhook path resolves an existing
+     * `users` row by email and passes its id so packs, seats, and
+     * workspaces attach to the existing account instead of the
+     * `email:<address>` placeholder.
+     */
+    studentUserId?: string;
+    /**
      * Per-instructor Clerk invitation IDs created in the API route BEFORE
      * this mutation runs. Keyed by `instructorId` so the route doesn't need
      * to align array positions with the preview response (which may have
@@ -373,7 +380,7 @@ async function performCommit(
     throw new Error("Notes are required when creating a separate student record");
   }
 
-  const placeholder = `email:${email}`;
+  const placeholder = args.studentUserId ?? `email:${email}`;
   const now = Date.now();
 
   for (const input of args.instructors) {
@@ -614,6 +621,157 @@ export const adminOnboardStudent = mutation({
     });
 
     return result;
+  },
+});
+
+/**
+ * Service path for webhook-driven Kajabi onboarding. Called by the
+ * bearer-auth `/admin-onboarding/kajabi-purchase` HTTP endpoint from
+ * `apps/marketing/app/api/webhooks/kajabi/route.ts`.
+ *
+ * Unlike `adminOnboardStudent`, this does not require a Clerk admin
+ * identity — the caller authenticates with `CONVEX_HTTP_KEY` at the HTTP
+ * layer. The row is attributed to `kajabi-webhook` and tagged with the
+ * external purchase id so webhook retries are no-ops.
+ *
+ * No Clerk invitation is created. Clerk sign-up is public, and the
+ * `user.created` webhook (plus the onboarding page's self-heal) links the
+ * placeholder `email:<address>` rows once the student signs up with the
+ * purchase email. The student email therefore links to `/sign-up`.
+ */
+export const onboardKajabiPurchase = internalMutation({
+  args: {
+    email: v.string(),
+    studentName: v.optional(v.string()),
+    instructorSlug: v.string(),
+    sessionsPerInstructor: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    externalPurchaseId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_externalPurchaseId", (q) =>
+        q.eq("externalPurchaseId", args.externalPurchaseId)
+      )
+      .first();
+    if (existing) {
+      return {
+        onboardingId: existing._id,
+        alreadyExists: true as const,
+        status: existing.status,
+        attemptCount: existing.attemptCount,
+      };
+    }
+
+    const slug = args.instructorSlug.trim().toLowerCase();
+    const instructor = (
+      await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", slug))
+        .collect()
+    ).find((row) => !row.deletedAt && row.isActive);
+    if (!instructor) {
+      throw new Error(`Active instructor not found for slug ${slug}`);
+    }
+
+    const sessions = args.sessionsPerInstructor ?? 4;
+    if (!Number.isInteger(sessions) || sessions < 1) {
+      throw new Error("sessionsPerInstructor must be a positive integer");
+    }
+    const expiresAt =
+      args.expiresAt ?? Date.now() + 90 * 24 * 60 * 60 * 1000;
+
+    const normalizedEmail = args.email.trim().toLowerCase();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+    // Attach the purchase to an existing account when one already exists.
+    // `user.created` only fires once, so a returning buyer would otherwise
+    // get placeholder-owned artifacts that never link to their account.
+    const resolvedStudentUserId =
+      existingUser && !existingUser.userId.startsWith("email:")
+        ? existingUser.userId
+        : undefined;
+
+    const result = await performCommit(ctx, {
+      email: args.email,
+      instructors: [
+        {
+          instructorId: instructor._id,
+          sessionsPerInstructor: sessions,
+          expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      notes: undefined,
+      capacityOverrideReason: undefined,
+      submittedByUserId: "kajabi-webhook",
+      source: "kajabi",
+      studentUserId: resolvedStudentUserId,
+      clerkInvitationIds: undefined,
+    });
+
+    const pair = result.perInstructor[0];
+
+    // Distinct purchase for an existing seat: `performCommit` reuses the
+    // seat and workspace for renewals but intentionally does not create a
+    // pack, so add this purchase's sessions to the active pack and extend
+    // access. Without this, a monthly buyer pays and receives no sessions.
+    if (pair.isRenewal && pair.seatReservationId) {
+      const seat = await ctx.db.get(pair.seatReservationId);
+      if (seat) {
+        const seatExpiresAt = Math.max(seat.seatExpiresAt, expiresAt);
+        if (seat.sessionPackId) {
+          const pack = await ctx.db.get(seat.sessionPackId);
+          if (pack) {
+            await ctx.db.patch(pack._id, {
+              totalSessions: pack.totalSessions + sessions,
+              remainingSessions: pack.remainingSessions + sessions,
+              expiresAt: Math.max(pack.expiresAt ?? 0, expiresAt),
+              status: "active",
+            });
+          }
+        } else {
+          const packId = await ctx.db.insert("sessionPacks", {
+            userId: seat.userId,
+            instructorId: pair.instructorId,
+            totalSessions: sessions,
+            remainingSessions: sessions,
+            purchasedAt: Date.now(),
+            expiresAt,
+            status: "active",
+            paymentId: undefined,
+          });
+          await ctx.db.patch(seat._id, { sessionPackId: packId });
+        }
+        await ctx.db.patch(seat._id, {
+          seatExpiresAt,
+          status: "active",
+          // A renewal starts a new warning cycle. Keeping the previous
+          // cycle's marker would suppress the final warning forever.
+          finalWarningNotificationSentAt: undefined,
+          gracePeriodEndsAt: undefined,
+        });
+      }
+    }
+
+    await ctx.db.patch(result.onboardingId, {
+      externalPurchaseId: args.externalPurchaseId,
+      studentName: args.studentName,
+      ...(resolvedStudentUserId && resolvedStudentUserId.startsWith("user_")
+        ? { assignedStudentClerkId: resolvedStudentUserId }
+        : {}),
+    });
+
+    return {
+      onboardingId: result.onboardingId,
+      alreadyExists: false as const,
+      status: "processing" as const,
+      attemptCount: 1,
+      isRenewal: pair.isRenewal,
+    };
   },
 });
 

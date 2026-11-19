@@ -1,12 +1,18 @@
 # Email-first Kajabi onboarding runbook
 
-> Runbook for onboarding a student who purchased through Kajabi **without**
-> going through the admin UI form, and **without** introducing the student in
-> Discord. The admin UI and the `adminOnboardings` record remain the source of
-> truth; email is the coordination channel.
+> Runbook for onboarding a student who purchased through Kajabi. The
+> **default path is automated**: the Kajabi webhook commits the enrollment and
+> the existing admin-onboarding flow sends the emails. The manual steps below
+> are the fallback when the webhook cannot be used (e.g. a purchase that
+> predates the offer mapping, or a backfill).
 >
-> Status: **draft** — this process has not yet had its first production run
-> under this runbook. Update it after the first run with anything that differed.
+> Discord is not part of onboarding. The bot and action queue remain available
+> for the community server, but onboarding never enqueues DMs or role
+> assignments.
+>
+> Status: automated path shipped in the Kajabi auto-onboarding PR. Update this
+> runbook after the first webhook-driven production purchase with anything that
+> differed.
 
 ## Goals
 
@@ -22,9 +28,36 @@
 
 - Building a new admin form or changing the admin UI.
 - Changing Clerk configuration or instance settings.
-- Changing application code. This runbook drives existing mutations and
-  endpoints.
 - Discord DMs for onboarding. Discord remains a community channel only.
+
+## Automated path (default)
+
+1. Kajabi sends the purchase webhook to `apps/marketing`.
+2. The webhook applies the inventory change and, for a mapped one-on-one
+   offer with a member email, POSTs `/admin-onboarding/kajabi-purchase` on
+   Convex (bearer `CONVEX_HTTP_KEY`).
+3. Convex resolves the instructor by slug, commits the session pack, seat, and
+   workspace, and emits `admin/onboarding.completed`.
+4. `adminOnboardingFlow` sends the student, instructor, and admin emails and
+   marks the row completed. No Clerk invitation is created: sign-up is public,
+   and the student email links to `/sign-up`.
+
+Requirements:
+
+- A `kajabiOfferMappings` row for the offer. Without it the webhook returns
+  404 and nothing is onboarded. Seed it with
+  `npx convex run digest:internalBulkImportKajabiOfferMappings`.
+- The instructor's `instructors` row must be active.
+- `INNGEST_EVENT_KEY` must be set on the Convex deployment; the commit endpoint
+  uses it to emit the flow event.
+- `KAJABI_WEBHOOK_SECRET` must be set on the marketing deployment, and the
+  Kajabi webhook URL must include `?secret=<value>` (or send the
+  `x-kajabi-webhook-secret` header). This gate exists because the public
+  webhook only checks a User-Agent and a rate limit; without the secret,
+  inventory still applies but **no paid access is granted**.
+
+The manual steps below are the fallback for purchases that cannot go through
+the webhook.
 
 ## Recipients and responsibilities
 
@@ -383,8 +416,11 @@ separate PR.
 
 ## Moving off Discord introductions
 
-- Onboarding communication is email only: student invite, instructor
+- Onboarding communication is email only: student sign-up/invite, instructor
   notification, admin summary.
+- The onboarding flows no longer enqueue `dm_instructor_new_signup` or
+  `assign_student_role`. `discordActionQueue` and the bot remain for the
+  community server; use them only for community tasks.
 - Discord is not used for introductions, student details, or scheduling
   hand-offs. Do not post student names or emails in Discord.
 - The admin UI (`/admin/students`, `/admin/onboardings`) is the system of
