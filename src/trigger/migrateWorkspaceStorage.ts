@@ -1,4 +1,4 @@
-import { logger, schedules, task } from "@trigger.dev/sdk";
+import { logger, task } from "@trigger.dev/sdk";
 import { ConvexHttpClient } from "convex/browser";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -112,9 +112,8 @@ type SweepResult = {
  * Per-page limit is 50 (mirrors `BACKFILL_BATCH_SIZE`).
  * `maxPages` is 20 so a single tick drains up to 1k rows.
  */
-export const workspaceStorageBackfillSweep = schedules.task({
+export const workspaceStorageBackfillSweep = task({
   id: "workspace-storage-backfill-sweep",
-  cron: "0 3 * * *",
   maxDuration: 3600,
   run: async (): Promise<SweepResult> => {
     logger.info("workspaceStorageBackfillSweep start");

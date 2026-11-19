@@ -73,6 +73,20 @@ export {
 } from "./export-csv";
 
 export {
+  CONVEX_BACKUP_PREFIX,
+  CONVEX_BACKUP_RETENTION_DAYS,
+  CONVEX_BACKUP_MIN_KEEP,
+  convexBackupPrefix,
+  formatBackupTimestamp,
+  buildConvexBackupKey,
+  parseConvexBackupKey,
+  selectExpiredConvexBackupVersions,
+  type ConvexBackupKey,
+  type ParsedConvexBackupKey,
+  type ConvexBackupVersion,
+} from "./convex-backups";
+
+export {
   EXPORT_ARTIFACT_TTL_HOURS,
   EXPORT_ARTIFACT_TTL_MS,
   isExportArtifactKey,
