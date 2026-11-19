@@ -1,5 +1,9 @@
 import { defineConfig } from "@trigger.dev/sdk";
-import { additionalFiles, syncEnvVars } from "@trigger.dev/build/extensions/core";
+import {
+  additionalFiles,
+  additionalPackages,
+  syncEnvVars,
+} from "@trigger.dev/build/extensions/core";
 import { normalizeBaseUrl } from "./packages/emails/src/base-url";
 
 export default defineConfig({
@@ -29,6 +33,12 @@ export default defineConfig({
           "packages/payments/**",
         ],
       }),
+      // `convex-database-backup` shells out to `convex export`. The
+      // CLI is not imported by task code, so esbuild does not bundle
+      // it; install it in the image and pin the version the repo's
+      // Convex client uses. Bump together with `convex` in
+      // package.json (see scripts/check-convex-version.mjs).
+      additionalPackages({ packages: ["convex@1.50.0"] }),
       // PR #4b-fix: sync the env vars the workspace-export task
       // reads. Without these, `process.env.NEXT_PUBLIC_CONVEX_URL`,
       // `CONVEX_HTTP_KEY`, and the B2 credentials are undefined at
@@ -59,6 +69,18 @@ export default defineConfig({
         // but an explicit value avoids relying on that rewrite.
         pushIfPresent("CONVEX_SITE_URL", process.env.CONVEX_SITE_URL);
         pushIfPresent("CONVEX_HTTP_KEY", process.env.CONVEX_HTTP_KEY);
+        // `convex-database-backup` runs `convex export`, which needs
+        // admin access to the deployment. Convex has no read-only
+        // deploy key, so this is the deployment-level key — the same
+        // trust level CI already holds. It is a secret: never log it,
+        // and rotate it if the Trigger environment is compromised.
+        pushIfPresent("CONVEX_DEPLOY_KEY", process.env.CONVEX_DEPLOY_KEY);
+        // Optional recipient for "backup failed" alerts. Without it the
+        // task still fails loudly in the Trigger run history.
+        pushIfPresent(
+          "CONVEX_BACKUP_ALERT_EMAIL",
+          process.env.CONVEX_BACKUP_ALERT_EMAIL
+        );
         pushIfPresent("B2_KEY_ID", process.env.B2_KEY_ID);
         pushIfPresent("B2_APPLICATION_KEY", process.env.B2_APPLICATION_KEY);
         // B2_ENDPOINT is bucket configuration — emitted only in the
