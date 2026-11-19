@@ -142,6 +142,34 @@ function fileNameFromKey(key) {
   }
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "avif",
+  "heic",
+  "heif",
+  "bmp",
+  "tif",
+  "tiff",
+]);
+
+/**
+ * Legacy migrated rows can carry a `b2Key` without a `contentType`
+ * (the column was added with the B2 cutover). Classify those by
+ * extension so a migrated image is restored to the gallery and as an
+ * `image` message instead of a file download.
+ */
+function isImageUpload(upload) {
+  const contentType = (upload.contentType ?? "").toLowerCase();
+  if (contentType.startsWith("image/")) return true;
+  if (contentType.length > 0) return false;
+  const extension = (upload.b2Key?.split(".").pop() ?? "").toLowerCase();
+  return IMAGE_EXTENSIONS.has(extension);
+}
+
 function senderRoleFor(upload, workspace, instructorUserId) {
   if (upload.uploaderId === workspace.ownerId) return "student";
   if (instructorUserId !== undefined && upload.uploaderId === instructorUserId) {
@@ -217,7 +245,7 @@ for (const upload of uploads) {
     : undefined;
   const instructorUserId = instructor?.userId;
   const role = senderRoleFor(upload, workspace, instructorUserId);
-  const isImage = (upload.contentType ?? "").toLowerCase().startsWith("image/");
+  const isImage = isImageUpload(upload);
 
   const stats = perWorkspace.get(upload.workspaceId) ?? {
     name: workspace.name,
