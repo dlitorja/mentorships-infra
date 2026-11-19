@@ -36,6 +36,14 @@
  *   node scripts/restore-workspace-content.mjs --all
  *   node scripts/restore-workspace-content.mjs --workspace m97...
  *   node scripts/restore-workspace-content.mjs --workspace m97... --apply
+ *   node scripts/restore-workspace-content.mjs --all --apply \
+ *     --confirm-instructor-uploads
+ *
+ * `--confirm-instructor-uploads` is required when the run would create
+ * chat/gallery rows for instructor uploads: the ledger cannot prove
+ * that an instructor upload was shared rather than a private resource
+ * that was later deleted. Review the `verify shared:` list in the dry
+ * run first.
  *
  * Preconditions for `--apply`:
  *   - CONVEX_DEPLOY_KEY in the environment points at the target
@@ -253,6 +261,8 @@ for (const upload of uploads) {
     files: 0,
     skippedExisting: 0,
     skippedResource: 0,
+    instructorUploads: 0,
+    instructorFileNames: [],
   };
 
   if (resourceKeys.has(upload.b2Key)) {
@@ -260,6 +270,8 @@ for (const upload of uploads) {
     perWorkspace.set(upload.workspaceId, stats);
     continue;
   }
+
+  let created = false;
 
   if (!existingMessageKeys.has(upload.b2Key)) {
     messageRows.push({
@@ -275,6 +287,7 @@ for (const upload of uploads) {
     });
     if (isImage) stats.images += 1;
     else stats.files += 1;
+    created = true;
   } else {
     stats.skippedExisting += 1;
   }
@@ -287,19 +300,39 @@ for (const upload of uploads) {
       createdBy: upload.uploaderId,
       _creationTime: withOffset(upload.uploadedAt, 0),
     });
+    created = true;
+  }
+
+  // A private resource that was hard-deleted before the wipe leaves a
+  // completed ledger row and no surviving `instructorResources` row to
+  // match it against. There is no field on the ledger that records
+  // whether an instructor upload became a chat message or a gallery
+  // image, so require a human to confirm the instructor rows in the
+  // dry-run list before writing them.
+  if (created && upload.uploaderId !== workspace.ownerId) {
+    stats.instructorUploads += 1;
+    if (stats.instructorFileNames.length < 10) {
+      stats.instructorFileNames.push(fileNameFromKey(upload.b2Key));
+    }
   }
 
   perWorkspace.set(upload.workspaceId, stats);
 }
 
 console.log(`\nWorkspaces: ${perWorkspace.size}`);
+let instructorUploadsToCreate = 0;
 for (const [workspaceId, stats] of perWorkspace) {
+  instructorUploadsToCreate += stats.instructorUploads;
   console.log(
     `  ${workspaceId}  ${stats.name}\n` +
       `    chat: ${stats.images} image, ${stats.files} file ` +
       `(skipped ${stats.skippedExisting} already present, ` +
-      `${stats.skippedResource} private resource(s))`
+      `${stats.skippedResource} private resource(s), ` +
+      `${stats.instructorUploads} instructor upload(s))`
   );
+  if (stats.instructorFileNames.length > 0) {
+    console.log(`      verify shared: ${stats.instructorFileNames.join(", ")}`);
+  }
 }
 console.log(
   `\nRows to append: ${messageRows.length} workspaceMessages, ${imageRows.length} workspaceImages`
@@ -308,6 +341,17 @@ console.log(
 if (!apply) {
   console.log("\nDry run complete. Re-run with --apply to write.");
   process.exit(0);
+}
+
+if (instructorUploadsToCreate > 0 && !flag("confirm-instructor-uploads")) {
+  console.error(
+    `\nRefusing to apply: ${instructorUploadsToCreate} instructor upload(s) ` +
+      "would be recreated as chat/gallery rows. The ledger cannot prove " +
+      "an instructor upload was shared to chat (a deleted private " +
+      "resource looks identical), so confirm the files listed above, then " +
+      "re-run with --confirm-instructor-uploads."
+  );
+  process.exit(1);
 }
 
 // Counter repair must run even when every row is already present: a
