@@ -99,7 +99,7 @@ would erase everything written after the backup.
    npx convex export --deployment <preview-deployment> --path /tmp/preview
    # unzip, then for a single table (always name the destination
    # explicitly; a logged-in CLI defaults to the dev deployment):
-   npx convex import --deployment production \
+   npx convex import --deployment prod \
      --table workspaceMessages --append \
      /tmp/preview/workspaceMessages/documents.jsonl
    ```
