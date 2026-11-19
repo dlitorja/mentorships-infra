@@ -245,10 +245,16 @@ npx convex run adminOnboarding:appendTimelineEntry \
 
 A real purchase consumed one seat, but the manual path does not decrement
 inventory the way the Kajabi webhook does. Apply the same change the webhook
-would have applied:
+would have applied.
+
+Convex HTTP actions are served from the `.convex.site` host, not the
+`.convex.cloud` database host. With the usual `NEXT_PUBLIC_CONVEX_URL` value,
+derive the site host before calling the endpoint — otherwise the request hits
+the database URL and the seat stays available for sale:
 
 ```bash
-curl -sS -X POST "$NEXT_PUBLIC_CONVEX_URL/inventory/apply" \
+CONVEX_SITE_URL="${NEXT_PUBLIC_CONVEX_URL/.convex.cloud/.convex.site}"
+curl -sS -X POST "$CONVEX_SITE_URL/inventory/apply" \
   -H "Authorization: Bearer $CONVEX_HTTP_KEY" \
   -H "Content-Type: application/json" \
   -d '{"instructorSlug":"<slug>","type":"oneOnOne","quantity":1,"changeType":"kajabi_purchase","source":"kajabi","purchaseId":"kajabi:offer:<offerId>:onboarding:<onboardingId>"}'
