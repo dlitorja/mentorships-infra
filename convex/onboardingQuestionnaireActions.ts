@@ -55,22 +55,22 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /**
- * Inngest ingest URL for a single event. `inn.gs` is the
- * documented Inngest hostname for the public event API and
- * accepts a POST per first-party docs
- * (https://www.inngest.com/docs/events). The path segment
- * `{event}` is the canonical event name we register the
- * consumer against.
+ * Inngest HTTP Event API endpoint for a single event.
  *
- * This URL is intentionally hard-coded rather than read from
- * an env var: Inngest's ingest endpoint is stable and any
- * private-cloud operator runs a reverse proxy that points at
- * the same path prefix, so the literal here is fine for
- * `production|preview|staging`. If we ever introduce a
- * dedicated env var (`INNGEST_INGEST_URL`) we can flip this
- * read without breaking any caller.
+ * The event key is a path segment (`POST https://inn.gs/e/<EVENT_KEY>`)
+ * and the event name travels in the JSON body. The key selects the
+ * target Inngest environment, which is why it cannot be hard-coded.
+ * See https://www.inngest.com/docs/events ("Send events over HTTP").
+ *
+ * HUC-95 regression: an earlier version used
+ * `https://inn.gs/e/questionnaire/submitted` with the key in an
+ * `Authorization: Bearer` header. That path does not exist (`404`), and
+ * a 4xx is treated as a configuration error, so the emit was silently
+ * skipped on every submission.
  */
-const INNGEST_INGEST_URL = "https://inn.gs/e/questionnaire/submitted";
+function getInngestIngestUrl(eventKey: string): string {
+  return `https://inn.gs/e/${encodeURIComponent(eventKey)}`;
+}
 
 /**
  * Bridges a submitted questionnaire to an Inngest event so
@@ -225,18 +225,10 @@ export const notifyInstructorOnSubmission = internalAction({
       // (`/onboarding/submission-for-instructor-notification`).
     };
 
-    const fetchResponse = await fetch(INNGEST_INGEST_URL, {
+    const fetchResponse = await fetch(getInngestIngestUrl(inngestEventKey), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // Inngest's server-to-server ingest accepts the
-        // event key as a Bearer header. The Next.js SDK does
-        // this for us when we call `inngest.send` from a
-        // route handler; from a Convex action we have to wire
-        // it manually. The key is the same value the SDK uses
-        // via `process.env.INNGEST_EVENT_KEY` on the platform
-        // apps.
-        Authorization: `Bearer ${inngestEventKey}`,
       },
       body: JSON.stringify(eventPayload),
     });

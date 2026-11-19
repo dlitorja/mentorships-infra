@@ -95,11 +95,12 @@ test("HUC-95: notifyInstructorOnSubmission emits Inngest event with correct payl
   expect(result).toEqual({ emitted: true, eventName: "questionnaire/submitted" });
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const [calledUrl, calledInit] = fetchMock.mock.calls[0];
-  expect(String(calledUrl)).toBe("https://inn.gs/e/questionnaire/submitted");
+  expect(String(calledUrl)).toBe("https://inn.gs/e/test-inngest-event-key");
   expect((calledInit as RequestInit).method).toBe("POST");
   const headers = (calledInit as RequestInit).headers as Record<string, string>;
   expect(headers["Content-Type"]).toBe("application/json");
-  expect(headers["Authorization"]).toBe("Bearer test-inngest-event-key");
+  // The event key is a path segment; it must not be sent as a header.
+  expect(headers["Authorization"]).toBeUndefined();
   const payload = JSON.parse((calledInit as RequestInit).body as string);
   expect(payload).toMatchObject({
     name: "questionnaire/submitted",
