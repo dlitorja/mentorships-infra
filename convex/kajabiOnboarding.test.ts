@@ -161,6 +161,7 @@ test("onboardKajabiPurchase adds sessions to an existing seat on a repeat purcha
       sessionPackId,
       seatExpiresAt: later,
       status: "active",
+      finalWarningNotificationSentAt: now,
     });
     return { sessionPackId };
   });
@@ -180,6 +181,13 @@ test("onboardKajabiPurchase adds sessions to an existing seat on a repeat purcha
   );
   expect(pack?.totalSessions).toBe(8);
   expect(pack?.remainingSessions).toBe(8);
+
+  const seats = await t.run(
+    async (ctx) => await ctx.db.query("seatReservations").collect()
+  );
+  expect(seats).toHaveLength(1);
+  expect(seats[0].status).toBe("active");
+  expect(seats[0].finalWarningNotificationSentAt).toBeUndefined();
 
   const packs = await t.run(
     async (ctx) => await ctx.db.query("sessionPacks").collect()

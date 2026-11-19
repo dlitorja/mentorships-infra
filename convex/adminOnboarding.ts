@@ -749,6 +749,10 @@ export const onboardKajabiPurchase = internalMutation({
         await ctx.db.patch(seat._id, {
           seatExpiresAt,
           status: "active",
+          // A renewal starts a new warning cycle. Keeping the previous
+          // cycle's marker would suppress the final warning forever.
+          finalWarningNotificationSentAt: undefined,
+          gracePeriodEndsAt: undefined,
         });
       }
     }
