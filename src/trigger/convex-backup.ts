@@ -7,10 +7,11 @@ import {
 } from "@aws-sdk/client-s3";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { createReadStream } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { Resend } from "resend";
 import {
@@ -64,6 +65,27 @@ const B2_ENDPOINT =
   `https://s3.${B2_REGION}.backblazeb2.com`;
 
 const EXPORT_TIMEOUT_MS = 30 * 60 * 1000;
+
+const requireFromTask = createRequire(import.meta.url);
+
+/**
+ * Resolve the Convex CLI without relying on PATH.
+ *
+ * `additionalPackages` installs `convex` as an image dependency but
+ * the task process does not get its `.bin` directory on PATH
+ * (`spawn convex ENOENT` on the first run). Resolve the package entry
+ * and run its bin with the current Node binary. Fall back to `npx`
+ * only if the dependency layer is missing.
+ */
+function convexCommand(): { command: string; args: string[] } {
+  try {
+    const entry = requireFromTask.resolve("convex");
+    const cli = join(dirname(entry), "..", "..", "bin", "main.js");
+    return { command: process.execPath, args: [cli] };
+  } catch {
+    return { command: "npx", args: ["--yes", "convex@1.50.0"] };
+  }
+}
 
 function requireEnv(name: string, value: string | undefined): string {
   if (!value || value.trim().length === 0) {
@@ -211,7 +233,8 @@ export const convexDatabaseBackup = schedules.task({
       const zipPath = join(workDir, `${deployment}.zip`);
 
       logger.info("Exporting Convex documents", { deployment });
-      await execFileAsync("convex", ["export", "--path", zipPath], {
+      const cli = convexCommand();
+      await execFileAsync(cli.command, [...cli.args, "export", "--path", zipPath], {
         env: process.env,
         timeout: EXPORT_TIMEOUT_MS,
         maxBuffer: 16 * 1024 * 1024,
