@@ -46,7 +46,7 @@ test("getWorkspacesNeedingDeletion only returns workspaces past retention", asyn
     endedAt: now - WORKSPACE_RETENTION_MS - 2 * DAY_MS,
   });
 
-  const result = await t.query(api.queries.http.getWorkspacesNeedingDeletion);
+  const result = await t.query(internal.queries.http.getWorkspacesNeedingDeletion);
   const ids = result.map((w) => w.id);
 
   expect(ids).toContain(expiredId);

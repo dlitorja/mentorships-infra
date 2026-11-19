@@ -54,7 +54,7 @@ function verifyAuth(request: Request): boolean {
 export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const workspaces = await ctx.runQuery(api.queries.http.getWorkspacesNeedingDeletion);
+  const workspaces = await ctx.runQuery(internal.queries.http.getWorkspacesNeedingDeletion);
 
   return new Response(JSON.stringify({ workspaces }), {
     headers: { "Content-Type": "application/json" },
@@ -65,7 +65,7 @@ export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) 
 export const httpGetWorkspacesForNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const notifications = await ctx.runQuery(api.queries.http.getWorkspacesForNotification);
+  const notifications = await ctx.runQuery(internal.queries.http.getWorkspacesForNotification);
 
   return new Response(JSON.stringify({ notifications }), {
     headers: { "Content-Type": "application/json" },

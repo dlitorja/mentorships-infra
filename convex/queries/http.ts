@@ -29,7 +29,7 @@ const dayMs = 24 * 60 * 60 * 1000;
  * the null bucket; the `neq(undefined)` filter is a second belt
  * so a future index change cannot reintroduce the same range bug.
  */
-export const getWorkspacesNeedingDeletion = query({
+export const getWorkspacesNeedingDeletion = internalQuery({
   handler: async (ctx) => {
     const cutoff = Date.now() - EIGHTEEN_MONTHS_MS;
     const workspaces = await ctx.db
@@ -53,7 +53,7 @@ export const getWorkspacesNeedingDeletion = query({
 });
 
 /** Finds workspaces within 7, 30, or 90 days of deletion that require a retention notification. */
-export const getWorkspacesForNotification = query({
+export const getWorkspacesForNotification = internalQuery({
   handler: async (ctx) => {
     const now = Date.now();
     const notifications: { workspaceId: string; userId: string; daysUntilDeletion: number }[] = [];
