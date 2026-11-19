@@ -173,45 +173,5 @@ export const dismissPurchase = mutation({
   },
 });
 
-export const markApproved = mutation({
-  args: {
-    id: v.id("kajabiPurchaseInbox"),
-    onboardingId: v.id("adminOnboardings"),
-  },
-  handler: async (ctx, args) => {
-    const identity = await requireStaff(ctx);
-    const row = await ctx.db.get(args.id);
-    if (!row) throw new Error("Purchase not found");
-    if (row.status === "dismissed") {
-      throw new Error("This purchase was dismissed");
-    }
-    // Idempotent: a retry that already linked the row returns the link.
-    if (row.status === "approved" && row.onboardingId) {
-      return { ok: true as const, onboardingId: row.onboardingId };
-    }
-    await ctx.db.patch(args.id, {
-      status: "approved",
-      approvedByUserId: identity.subject,
-      approvedAt: Date.now(),
-      onboardingId: args.onboardingId,
-      updatedAt: Date.now(),
-    });
-    return { ok: true as const, onboardingId: args.onboardingId };
-  },
-});
-
-/** Convenience for the sidebar badge (pending count). */
-export const countPending = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireStaff(ctx);
-    const rows = await ctx.db
-      .query("kajabiPurchaseInbox")
-      .withIndex("by_status_createdAt", (q) => q.eq("status", "pending"))
-      .take(100);
-    return rows.length;
-  },
-});
-
 export type KajabiPurchaseInboxDoc = Doc<"kajabiPurchaseInbox">;
 export type KajabiPurchaseInboxId = Id<"kajabiPurchaseInbox">;
