@@ -78,6 +78,7 @@ import type * as queries_suppressionListQueries from "../queries/suppressionList
 import type * as recordingReadyNotifications from "../recordingReadyNotifications.js";
 import type * as recordingRetention from "../recordingRetention.js";
 import type * as recordingsReconciliation from "../recordingsReconciliation.js";
+import type * as repairs_workspaceContentRestore from "../repairs/workspaceContentRestore.js";
 import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
 import type * as sessionNotifications from "../sessionNotifications.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   recordingReadyNotifications: typeof recordingReadyNotifications;
   recordingRetention: typeof recordingRetention;
   recordingsReconciliation: typeof recordingsReconciliation;
+  "repairs/workspaceContentRestore": typeof repairs_workspaceContentRestore;
   seatReservations: typeof seatReservations;
   seed: typeof seed;
   sessionNotifications: typeof sessionNotifications;
