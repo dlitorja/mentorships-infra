@@ -368,6 +368,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
+    // Auto-onboard 1:1 buyers through the existing admin-onboarding
+    // pipeline. The inventory write above is authoritative; this call is
+    // idempotent on the purchase id, so a Kajabi retry after a partial
+    // failure is safe. Group purchases are not auto-onboarded.
+    const memberName = parsed.member?.name?.trim();
+    if (mapping.mentorshipType === "one-on-one" && memberEmail.length > 0) {
+      try {
+        await convexServerCall("/admin-onboarding/kajabi-purchase", {
+          email: memberEmail,
+          studentName:
+            memberName && memberName.length > 0 ? memberName : undefined,
+          instructorSlug: mapping.instructorSlug,
+          externalPurchaseId: purchaseId,
+        });
+      } catch (onboardingError) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: onboardingError,
+          message: "Failed to auto-onboard Kajabi purchase",
+          level: "error",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            purchaseId,
+            // Do not send the buyer email to the observability backend.
+            memberEmailFingerprint: createHash("sha256")
+              .update(memberEmail.trim().toLowerCase())
+              .digest("hex")
+              .slice(0, 12),
+          },
+        });
+        return NextResponse.json(
+          { error: "Failed to auto-onboard purchase" },
+          { status: 500 }
+        );
+      }
+    }
+
     // Emit the inventory/changed Inngest event only on a successful
     // first-time apply so the waitlist handler doesn't fire on
     // replays or skipped writes. Inngest is best-effort: a failed

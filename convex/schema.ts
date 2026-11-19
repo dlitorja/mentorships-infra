@@ -1548,6 +1548,14 @@ export default defineSchema({
     ),
     submittedByUserId: v.string(),                    // Clerk userId of the admin who submitted
 
+    // Kajabi purchase id (transaction id, or the canonical payload hash
+    // fallback) used to make webhook-driven onboarding idempotent.
+    // Optional: manually/admin-created rows have no external purchase.
+    externalPurchaseId: v.optional(v.string()),
+    // Student display name from the Kajabi member record. The email is the
+    // canonical identity; this is only used for nicer email copy.
+    studentName: v.optional(v.string()),
+
     // State machine
     status: v.union(
       v.literal("queued"),
@@ -1659,6 +1667,7 @@ export default defineSchema({
     .index("by_submittedByUserId", ["submittedByUserId"])
     .index("by_onboardingAlias", ["onboardingAlias"])
     .index("by_email_source", ["email", "source"])
+    .index("by_externalPurchaseId", ["externalPurchaseId"])
     .index("by_assignedStudentClerkId_createdAt", [
       "assignedStudentClerkId",
       "createdAt",

@@ -618,6 +618,95 @@ export const adminOnboardStudent = mutation({
 });
 
 /**
+ * Service path for webhook-driven Kajabi onboarding. Called by the
+ * bearer-auth `/admin-onboarding/kajabi-purchase` HTTP endpoint from
+ * `apps/marketing/app/api/webhooks/kajabi/route.ts`.
+ *
+ * Unlike `adminOnboardStudent`, this does not require a Clerk admin
+ * identity — the caller authenticates with `CONVEX_HTTP_KEY` at the HTTP
+ * layer. The row is attributed to `kajabi-webhook` and tagged with the
+ * external purchase id so webhook retries are no-ops.
+ *
+ * No Clerk invitation is created. Clerk sign-up is public, and the
+ * `user.created` webhook (plus the onboarding page's self-heal) links the
+ * placeholder `email:<address>` rows once the student signs up with the
+ * purchase email. The student email therefore links to `/sign-up`.
+ */
+export const onboardKajabiPurchase = internalMutation({
+  args: {
+    email: v.string(),
+    studentName: v.optional(v.string()),
+    instructorSlug: v.string(),
+    sessionsPerInstructor: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    externalPurchaseId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_externalPurchaseId", (q) =>
+        q.eq("externalPurchaseId", args.externalPurchaseId)
+      )
+      .first();
+    if (existing) {
+      return {
+        onboardingId: existing._id,
+        alreadyExists: true as const,
+        status: existing.status,
+        attemptCount: existing.attemptCount,
+      };
+    }
+
+    const slug = args.instructorSlug.trim().toLowerCase();
+    const instructor = (
+      await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", slug))
+        .collect()
+    ).find((row) => !row.deletedAt && row.isActive);
+    if (!instructor) {
+      throw new Error(`Active instructor not found for slug ${slug}`);
+    }
+
+    const sessions = args.sessionsPerInstructor ?? 4;
+    if (!Number.isInteger(sessions) || sessions < 1) {
+      throw new Error("sessionsPerInstructor must be a positive integer");
+    }
+    const expiresAt =
+      args.expiresAt ?? Date.now() + 90 * 24 * 60 * 60 * 1000;
+
+    const result = await performCommit(ctx, {
+      email: args.email,
+      instructors: [
+        {
+          instructorId: instructor._id,
+          sessionsPerInstructor: sessions,
+          expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      notes: undefined,
+      capacityOverrideReason: undefined,
+      submittedByUserId: "kajabi-webhook",
+      source: "kajabi",
+      clerkInvitationIds: undefined,
+    });
+
+    await ctx.db.patch(result.onboardingId, {
+      externalPurchaseId: args.externalPurchaseId,
+      studentName: args.studentName,
+    });
+
+    return {
+      onboardingId: result.onboardingId,
+      alreadyExists: false as const,
+      status: "processing" as const,
+      attemptCount: 1,
+    };
+  },
+});
+
+/**
  * Transition a `failed` (or `queued`) onboarding back to `processing` and
  * bump `attemptCount`. Caller (the dashboard) does NOT need to know which
  * step failed — PR 3's Inngest workflow reads the attempt count and re-

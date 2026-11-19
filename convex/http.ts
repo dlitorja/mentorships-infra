@@ -3025,10 +3025,110 @@ const httpReleasePlaceholderInventoryBatch = httpAction(async (ctx, request) => 
   }
 });
 
+/**
+ * Webhook-driven Kajabi onboarding. Authenticated with `CONVEX_HTTP_KEY`
+ * (the marketing webhook calls this after a successful inventory apply).
+ * Commits the onboarding, then emits the existing
+ * `admin/onboarding.completed` Inngest event so the email + tracking
+ * pipeline runs unchanged.
+ */
+const httpKajabiPurchaseOnboarding = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const email = typeof body.email === "string" ? body.email : "";
+  const instructorSlug =
+    typeof body.instructorSlug === "string" ? body.instructorSlug : "";
+  const externalPurchaseId =
+    typeof body.externalPurchaseId === "string" ? body.externalPurchaseId : "";
+  if (!email || !instructorSlug || !externalPurchaseId) {
+    return new Response(
+      JSON.stringify({
+        error: "email, instructorSlug, and externalPurchaseId are required",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.adminOnboarding.onboardKajabiPurchase,
+      {
+        email,
+        studentName:
+          typeof body.studentName === "string" ? body.studentName : undefined,
+        instructorSlug,
+        sessionsPerInstructor:
+          typeof body.sessionsPerInstructor === "number"
+            ? body.sessionsPerInstructor
+            : undefined,
+        expiresAt:
+          typeof body.expiresAt === "number" ? body.expiresAt : undefined,
+        externalPurchaseId,
+      }
+    );
+
+    const eventKey = process.env.INNGEST_EVENT_KEY;
+    if (!eventKey) {
+      throw new Error(
+        "INNGEST_EVENT_KEY is not configured on the Convex deployment"
+      );
+    }
+    const eventResponse = await fetch(
+      `https://inn.gs/e/${encodeURIComponent(eventKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "admin/onboarding.completed",
+          data: {
+            onboardingId: result.onboardingId,
+            attemptCount: result.attemptCount,
+          },
+        }),
+      }
+    );
+    if (!eventResponse.ok) {
+      throw new Error(
+        `Inngest event emit failed (${eventResponse.status}): ${(
+          await eventResponse.text()
+        ).slice(0, 200)}`
+      );
+    }
+
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
 http.route({
   path: "/admin-onboarding/get",
   method: "POST",
   handler: httpGetAdminOnboarding,
+});
+
+http.route({
+  path: "/admin-onboarding/kajabi-purchase",
+  method: "POST",
+  handler: httpKajabiPurchaseOnboarding,
 });
 
 http.route({
