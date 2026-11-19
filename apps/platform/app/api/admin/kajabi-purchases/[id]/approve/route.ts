@@ -3,6 +3,7 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { inngest } from "@/inngest/client";
@@ -79,13 +80,33 @@ export async function POST(
         error: sendError instanceof Error ? sendError : new Error(String(sendError)),
         level: "error",
         message:
-          "Onboarding committed but the email flow event failed; retry from the onboarding dashboard",
+          "Onboarding committed but the email flow event failed; marking the row failed for retry",
         context: { purchaseId, onboardingId: result.onboardingId },
       });
+      // The onboarding dashboard only offers Retry for `failed` rows, so
+      // flip the row out of `processing` before telling staff to retry.
+      try {
+        await convexServerCall("/admin-onboarding/append-timeline", {
+          onboardingId: result.onboardingId,
+          event: "failed",
+          details: "Email flow did not start after Kajabi purchase approval",
+          expectedStatus: "processing",
+          expectedAttemptCount: 1,
+        });
+      } catch (markError) {
+        await reportError({
+          source: "api:admin/kajabi-purchases:approve:mark-failed",
+          error:
+            markError instanceof Error ? markError : new Error(String(markError)),
+          level: "warn",
+          message: "Could not mark the onboarding failed after the event send failure",
+          context: { purchaseId, onboardingId: result.onboardingId },
+        });
+      }
       return NextResponse.json(
         {
           error:
-            "Onboarding was created but the email flow did not start. Retry it from /admin/onboardings.",
+            "Onboarding was created but the email flow did not start. The onboarding is marked failed; retry it from /admin/onboardings.",
           onboardingId: result.onboardingId,
         },
         { status: 502 }

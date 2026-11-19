@@ -624,6 +624,61 @@ export const adminOnboardStudent = mutation({
   },
 });
 
+type CommitPairResult = Awaited<
+  ReturnType<typeof performCommit>
+>["perInstructor"][number];
+
+/**
+ * A repeat purchase reuses the existing seat and workspace; `performCommit`
+ * intentionally does not create a pack for renewals. Add the purchased
+ * sessions to the active pack, extend access, and start a new expiry-warning
+ * cycle. Shared by the webhook path and the admin approval queue.
+ */
+async function creditRenewalPurchase(
+  ctx: MutationCtx,
+  pair: CommitPairResult,
+  sessions: number,
+  expiresAt: number
+): Promise<void> {
+  if (!pair.isRenewal || !pair.seatReservationId) return;
+  const seat = await ctx.db.get(pair.seatReservationId);
+  if (!seat) return;
+
+  const seatExpiresAt = Math.max(seat.seatExpiresAt, expiresAt);
+  if (seat.sessionPackId) {
+    const pack = await ctx.db.get(seat.sessionPackId);
+    if (pack) {
+      await ctx.db.patch(pack._id, {
+        totalSessions: pack.totalSessions + sessions,
+        remainingSessions: pack.remainingSessions + sessions,
+        expiresAt: Math.max(pack.expiresAt ?? 0, expiresAt),
+        status: "active",
+      });
+    }
+  } else {
+    const packId = await ctx.db.insert("sessionPacks", {
+      userId: seat.userId,
+      instructorId: pair.instructorId,
+      totalSessions: sessions,
+      remainingSessions: sessions,
+      purchasedAt: Date.now(),
+      expiresAt,
+      status: "active",
+      paymentId: undefined,
+    });
+    await ctx.db.patch(seat._id, { sessionPackId: packId });
+  }
+
+  await ctx.db.patch(seat._id, {
+    seatExpiresAt,
+    status: "active",
+    // A renewal starts a new warning cycle. Keeping the previous cycle's
+    // marker would suppress the final warning forever.
+    finalWarningNotificationSentAt: undefined,
+    gracePeriodEndsAt: undefined,
+  });
+}
+
 /**
  * Service path for webhook-driven Kajabi onboarding. Called by the
  * bearer-auth `/admin-onboarding/kajabi-purchase` HTTP endpoint from
@@ -715,47 +770,9 @@ export const onboardKajabiPurchase = internalMutation({
 
     const pair = result.perInstructor[0];
 
-    // Distinct purchase for an existing seat: `performCommit` reuses the
-    // seat and workspace for renewals but intentionally does not create a
-    // pack, so add this purchase's sessions to the active pack and extend
-    // access. Without this, a monthly buyer pays and receives no sessions.
-    if (pair.isRenewal && pair.seatReservationId) {
-      const seat = await ctx.db.get(pair.seatReservationId);
-      if (seat) {
-        const seatExpiresAt = Math.max(seat.seatExpiresAt, expiresAt);
-        if (seat.sessionPackId) {
-          const pack = await ctx.db.get(seat.sessionPackId);
-          if (pack) {
-            await ctx.db.patch(pack._id, {
-              totalSessions: pack.totalSessions + sessions,
-              remainingSessions: pack.remainingSessions + sessions,
-              expiresAt: Math.max(pack.expiresAt ?? 0, expiresAt),
-              status: "active",
-            });
-          }
-        } else {
-          const packId = await ctx.db.insert("sessionPacks", {
-            userId: seat.userId,
-            instructorId: pair.instructorId,
-            totalSessions: sessions,
-            remainingSessions: sessions,
-            purchasedAt: Date.now(),
-            expiresAt,
-            status: "active",
-            paymentId: undefined,
-          });
-          await ctx.db.patch(seat._id, { sessionPackId: packId });
-        }
-        await ctx.db.patch(seat._id, {
-          seatExpiresAt,
-          status: "active",
-          // A renewal starts a new warning cycle. Keeping the previous
-          // cycle's marker would suppress the final warning forever.
-          finalWarningNotificationSentAt: undefined,
-          gracePeriodEndsAt: undefined,
-        });
-      }
-    }
+    // Distinct purchase for an existing seat: add this purchase's sessions
+    // to the active pack and extend access.
+    await creditRenewalPurchase(ctx, pair, sessions, expiresAt);
 
     await ctx.db.patch(result.onboardingId, {
       externalPurchaseId: args.externalPurchaseId,
@@ -848,6 +865,14 @@ export const approveKajabiPurchase = mutation({
       studentUserId: resolvedStudentUserId,
       clerkInvitationIds: undefined,
     });
+
+    // A repeat purchase must still credit its sessions.
+    await creditRenewalPurchase(
+      ctx,
+      result.perInstructor[0],
+      args.sessionsPerInstructor,
+      args.expiresAt
+    );
 
     const now = Date.now();
     await ctx.db.patch(args.purchaseId, {

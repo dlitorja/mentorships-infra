@@ -69,14 +69,29 @@ export const kajabiInboxSync = inngest.createFunction(
   },
   async ({ step }) => {
     const receivingAddress = process.env.KAJABI_INBOX_RECEIVING_ADDRESS;
-    const query = receivingAddress
-      ? `?limit=20&to=${encodeURIComponent(receivingAddress)}`
-      : "?limit=20";
 
+    // Fetch the newest page, then keep paging older while the page is full.
+    // Without this, a confirmation that falls off the first 20 after an
+    // outage or a busy window would never be imported. Dedupe makes
+    // reprocessing the overlap safe.
     const listed = await step.run("list-received-emails", async () => {
-      return await resendGet<{ data?: ReceivedEmailSummary[] }>(
-        `/emails/receiving${query}`
-      );
+      const all: ReceivedEmailSummary[] = [];
+      let after: string | undefined;
+      for (let page = 0; page < 3; page++) {
+        const params = new URLSearchParams({ limit: "100" });
+        if (receivingAddress) params.set("to", receivingAddress);
+        if (after) params.set("after", after);
+        const pageResult = await resendGet<{ data?: ReceivedEmailSummary[] }>(
+          `/emails/receiving?${params.toString()}`
+        );
+        const rows = pageResult.data ?? [];
+        all.push(...rows);
+        if (rows.length < 100) break;
+        const lastId = rows[rows.length - 1]?.id;
+        if (!lastId || lastId === after) break;
+        after = lastId;
+      }
+      return { data: all };
     });
 
     const candidates = (listed.data ?? []).filter((email) =>

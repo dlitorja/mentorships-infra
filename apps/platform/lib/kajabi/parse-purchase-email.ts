@@ -85,7 +85,10 @@ export function parseKajabiPurchaseEmail(input: {
     body,
     /^\s*Purchase ID:\s*(\d{3,})/im
   );
-  const kajabiContactId = firstMatch(body, /\/contacts\/(\d+)/i);
+  // The contact link lives in the `href` of an HTML email, which
+  // `stripHtml` removes. Search the raw HTML too.
+  const contactSource = input.html ? `${body}\n${input.html}` : body;
+  const kajabiContactId = firstMatch(contactSource, /\/contacts\/(\d+)/i);
 
   return {
     offerTitle: normalizedTitle,

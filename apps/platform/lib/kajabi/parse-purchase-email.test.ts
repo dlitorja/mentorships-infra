@@ -71,6 +71,22 @@ describe("parseKajabiPurchaseEmail", () => {
     });
   });
 
+  it("extracts the contact id from HTML-only content", () => {
+    expect(
+      parseKajabiPurchaseEmail({
+        subject:
+          "Congratulations! New purchase for 'Neil Gray - (1-on-1) Mentorship'",
+        text: null,
+        html: `<p>You've got a new purchase for 'Neil Gray - (1-on-1) Mentorship'.</p><p>Name: HTML Student<br>Email: html@example.com<br>Purchase ID: 123456789</p><a href="https://app.kajabi.com/admin/contacts/555">View Customer</a>`,
+      })
+    ).toMatchObject({
+      studentEmail: "html@example.com",
+      kajabiPurchaseId: "123456789",
+      kajabiContactId: "555",
+      purchaseType: "one-on-one",
+    });
+  });
+
   it("returns null when the email is not a purchase confirmation", () => {
     expect(
       parseKajabiPurchaseEmail({

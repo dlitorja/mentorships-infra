@@ -115,30 +115,39 @@ export const listPurchases = query({
   args: {
     status: PURCHASE_STATUS,
     limit: v.optional(v.number()),
+    before: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireStaff(ctx);
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
     const rows = await ctx.db
       .query("kajabiPurchaseInbox")
-      .withIndex("by_status_createdAt", (q) => q.eq("status", args.status))
+      .withIndex("by_status_createdAt", (q) => {
+        const base = q.eq("status", args.status);
+        return args.before ? base.lt("createdAt", args.before) : base;
+      })
       .order("desc")
-      .take(limit);
+      .take(limit + 1);
 
-    return rows.map((row) => ({
-      _id: row._id,
-      subject: row.subject,
-      receivedAt: row.receivedAt,
-      offerTitle: row.offerTitle,
-      purchaseType: row.purchaseType,
-      instructorName: row.instructorName,
-      studentName: row.studentName,
-      studentEmail: row.studentEmail,
-      kajabiPurchaseId: row.kajabiPurchaseId,
-      status: row.status,
-      onboardingId: row.onboardingId,
-      createdAt: row.createdAt,
-    }));
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((row) => ({
+        _id: row._id,
+        subject: row.subject,
+        receivedAt: row.receivedAt,
+        offerTitle: row.offerTitle,
+        purchaseType: row.purchaseType,
+        instructorName: row.instructorName,
+        studentName: row.studentName,
+        studentEmail: row.studentEmail,
+        kajabiPurchaseId: row.kajabiPurchaseId,
+        status: row.status,
+        onboardingId: row.onboardingId,
+        createdAt: row.createdAt,
+      })),
+      nextCursor: hasMore ? page[page.length - 1].createdAt : undefined,
+    };
   },
 });
 

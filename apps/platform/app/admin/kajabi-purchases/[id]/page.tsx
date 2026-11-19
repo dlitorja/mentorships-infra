@@ -51,13 +51,13 @@ export default function AdminKajabiPurchaseDetailPage(): React.JSX.Element {
   const instructors = instructorQuery.data ?? [];
 
   useEffect(() => {
-    if (instructorId || instructors.length === 0) return;
-    const name = purchase?.instructorName?.trim().toLowerCase();
+    if (!purchase || instructorId || instructors.length === 0) return;
+    const name = purchase.instructorName?.trim().toLowerCase();
     const match = name
       ? instructors.find((i) => (i.name ?? "").trim().toLowerCase() === name)
       : undefined;
     setInstructorId((match ?? instructors[0]).id);
-  }, [instructorId, instructors, purchase?.instructorName]);
+  }, [instructorId, instructors, purchase]);
 
   const canApprove = useMemo(() => {
     return (

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, Inbox } from "lucide-react";
 import {
   useKajabiPurchases,
+  type KajabiPurchaseListItem,
   type KajabiPurchaseStatus,
 } from "@/lib/queries/convex/use-kajabi-purchases";
 
@@ -36,10 +37,28 @@ function typeLabel(type: "one-on-one" | "group" | "unknown"): string {
 
 export default function AdminKajabiPurchasesPage(): React.JSX.Element {
   const [status, setStatus] = useState<KajabiPurchaseStatus>("pending");
+  const [cursor, setCursor] = useState<number | undefined>(undefined);
+  const [items, setItems] = useState<KajabiPurchaseListItem[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const { data, isLoading, error, refetch } = useKajabiPurchases(status);
+  const { data, isLoading, error, refetch } = useKajabiPurchases(status, cursor);
   const router = useRouter();
+
+  useEffect(() => {
+    setCursor(undefined);
+    setItems([]);
+  }, [status]);
+
+  useEffect(() => {
+    if (!data) return;
+    setItems((previous) => {
+      const merged = cursor ? [...previous, ...data.items] : data.items;
+      const seen = new Set<string>();
+      return merged.filter((row) =>
+        seen.has(row._id) ? false : (seen.add(row._id), true)
+      );
+    });
+  }, [data, cursor]);
 
   async function handleSync(): Promise<void> {
     setSyncing(true);
@@ -116,7 +135,7 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
             </div>
           ) : error ? (
             <p className="text-sm text-destructive">{error.message}</p>
-          ) : !data || data.length === 0 ? (
+          ) : items.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No {status} confirmations.
             </p>
@@ -135,7 +154,7 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((row) => (
+                  {items.map((row) => (
                     <tr key={row._id} className="border-b last:border-0">
                       <td className="whitespace-nowrap p-2 text-muted-foreground">
                         {formatDateTime(row.receivedAt)}
@@ -185,6 +204,17 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
                   ))}
                 </tbody>
               </table>
+              {data?.nextCursor ? (
+                <div className="mt-3 flex justify-center">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCursor(data.nextCursor)}
+                  >
+                    Load more
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>

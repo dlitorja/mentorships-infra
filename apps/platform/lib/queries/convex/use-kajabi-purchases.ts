@@ -43,11 +43,20 @@ export type InstructorOption = {
   activeStudentCount: number;
 };
 
+export type KajabiPurchasePage = {
+  items: KajabiPurchaseListItem[];
+  nextCursor?: number;
+};
+
 export function useKajabiPurchases(
-  status: KajabiPurchaseStatus
-): UseQueryResult<KajabiPurchaseListItem[], Error> {
+  status: KajabiPurchaseStatus,
+  before?: number
+): UseQueryResult<KajabiPurchasePage, Error> {
   return useQuery(
-    convexQuery(api.kajabiPurchaseInbox.listPurchases, { status })
+    convexQuery(api.kajabiPurchaseInbox.listPurchases, {
+      status,
+      ...(before ? { before } : {}),
+    })
   );
 }
 
