@@ -97,3 +97,96 @@ test("onboardKajabiPurchase rejects an unknown instructor slug", async () => {
     })
   ).rejects.toThrow(/Active instructor not found/);
 });
+
+test("onboardKajabiPurchase attaches artifacts to an existing account", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", NEIL);
+    await ctx.db.insert("users", {
+      userId: "user_existing",
+      email: "buyer@example.com",
+      clerkId: "user_existing",
+      role: "student",
+    });
+  });
+
+  const result = await t.mutation(
+    internal.adminOnboarding.onboardKajabiPurchase,
+    {
+      email: "buyer@example.com",
+      studentName: "Guy Maron",
+      instructorSlug: "neil-gray",
+      externalPurchaseId: "kajabi:purchase:existing-1",
+    }
+  );
+
+  const row = await t.run(
+    async (ctx) => await ctx.db.get(result.onboardingId as never)
+  );
+  expect(row?.assignedStudentClerkId).toBe("user_existing");
+
+  const packs = await t.run(
+    async (ctx) => await ctx.db.query("sessionPacks").collect()
+  );
+  const seats = await t.run(
+    async (ctx) => await ctx.db.query("seatReservations").collect()
+  );
+  const workspaces = await t.run(
+    async (ctx) => await ctx.db.query("workspaces").collect()
+  );
+  expect(packs[0].userId).toBe("user_existing");
+  expect(seats[0].userId).toBe("user_existing");
+  expect(workspaces[0].ownerId).toBe("user_existing");
+});
+
+test("onboardKajabiPurchase adds sessions to an existing seat on a repeat purchase", async () => {
+  const t = convexTest(schema, modules);
+  const now = Date.now();
+  const later = now + 60 * 24 * 60 * 60 * 1000;
+  const seeded = await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", NEIL);
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: "email:buyer@example.com",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: now,
+      expiresAt: later,
+      status: "active",
+      paymentId: undefined,
+    });
+    await ctx.db.insert("seatReservations", {
+      instructorId,
+      userId: "email:buyer@example.com",
+      sessionPackId,
+      seatExpiresAt: later,
+      status: "active",
+    });
+    return { sessionPackId };
+  });
+
+  const result = await t.mutation(
+    internal.adminOnboarding.onboardKajabiPurchase,
+    {
+      email: "buyer@example.com",
+      instructorSlug: "neil-gray",
+      externalPurchaseId: "kajabi:purchase:renewal-1",
+    }
+  );
+  expect(result.isRenewal).toBe(true);
+
+  const pack = await t.run(
+    async (ctx) => await ctx.db.get(seeded.sessionPackId as never)
+  );
+  expect(pack?.totalSessions).toBe(8);
+  expect(pack?.remainingSessions).toBe(8);
+
+  const packs = await t.run(
+    async (ctx) => await ctx.db.query("sessionPacks").collect()
+  );
+  const workspaces = await t.run(
+    async (ctx) => await ctx.db.query("workspaces").collect()
+  );
+  expect(packs).toHaveLength(1);
+  expect(workspaces).toHaveLength(0);
+});

@@ -50,6 +50,11 @@ Requirements:
 - The instructor's `instructors` row must be active.
 - `INNGEST_EVENT_KEY` must be set on the Convex deployment; the commit endpoint
   uses it to emit the flow event.
+- `KAJABI_WEBHOOK_SECRET` must be set on the marketing deployment, and the
+  Kajabi webhook URL must include `?secret=<value>` (or send the
+  `x-kajabi-webhook-secret` header). This gate exists because the public
+  webhook only checks a User-Agent and a rate limit; without the secret,
+  inventory still applies but **no paid access is granted**.
 
 The manual steps below are the fallback for purchases that cannot go through
 the webhook.

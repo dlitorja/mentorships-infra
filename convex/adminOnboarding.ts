@@ -339,6 +339,13 @@ async function performCommit(
     submittedByUserId: string;
     source: Doc<"adminOnboardings">["source"];
     /**
+     * Optional resolved student id. The webhook path resolves an existing
+     * `users` row by email and passes its id so packs, seats, and
+     * workspaces attach to the existing account instead of the
+     * `email:<address>` placeholder.
+     */
+    studentUserId?: string;
+    /**
      * Per-instructor Clerk invitation IDs created in the API route BEFORE
      * this mutation runs. Keyed by `instructorId` so the route doesn't need
      * to align array positions with the preview response (which may have
@@ -373,7 +380,7 @@ async function performCommit(
     throw new Error("Notes are required when creating a separate student record");
   }
 
-  const placeholder = `email:${email}`;
+  const placeholder = args.studentUserId ?? `email:${email}`;
   const now = Date.now();
 
   for (const input of args.instructors) {
@@ -675,6 +682,19 @@ export const onboardKajabiPurchase = internalMutation({
     const expiresAt =
       args.expiresAt ?? Date.now() + 90 * 24 * 60 * 60 * 1000;
 
+    const normalizedEmail = args.email.trim().toLowerCase();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+    // Attach the purchase to an existing account when one already exists.
+    // `user.created` only fires once, so a returning buyer would otherwise
+    // get placeholder-owned artifacts that never link to their account.
+    const resolvedStudentUserId =
+      existingUser && !existingUser.userId.startsWith("email:")
+        ? existingUser.userId
+        : undefined;
+
     const result = await performCommit(ctx, {
       email: args.email,
       instructors: [
@@ -689,12 +709,56 @@ export const onboardKajabiPurchase = internalMutation({
       capacityOverrideReason: undefined,
       submittedByUserId: "kajabi-webhook",
       source: "kajabi",
+      studentUserId: resolvedStudentUserId,
       clerkInvitationIds: undefined,
     });
+
+    const pair = result.perInstructor[0];
+
+    // Distinct purchase for an existing seat: `performCommit` reuses the
+    // seat and workspace for renewals but intentionally does not create a
+    // pack, so add this purchase's sessions to the active pack and extend
+    // access. Without this, a monthly buyer pays and receives no sessions.
+    if (pair.isRenewal && pair.seatReservationId) {
+      const seat = await ctx.db.get(pair.seatReservationId);
+      if (seat) {
+        const seatExpiresAt = Math.max(seat.seatExpiresAt, expiresAt);
+        if (seat.sessionPackId) {
+          const pack = await ctx.db.get(seat.sessionPackId);
+          if (pack) {
+            await ctx.db.patch(pack._id, {
+              totalSessions: pack.totalSessions + sessions,
+              remainingSessions: pack.remainingSessions + sessions,
+              expiresAt: Math.max(pack.expiresAt ?? 0, expiresAt),
+              status: "active",
+            });
+          }
+        } else {
+          const packId = await ctx.db.insert("sessionPacks", {
+            userId: seat.userId,
+            instructorId: pair.instructorId,
+            totalSessions: sessions,
+            remainingSessions: sessions,
+            purchasedAt: Date.now(),
+            expiresAt,
+            status: "active",
+            paymentId: undefined,
+          });
+          await ctx.db.patch(seat._id, { sessionPackId: packId });
+        }
+        await ctx.db.patch(seat._id, {
+          seatExpiresAt,
+          status: "active",
+        });
+      }
+    }
 
     await ctx.db.patch(result.onboardingId, {
       externalPurchaseId: args.externalPurchaseId,
       studentName: args.studentName,
+      ...(resolvedStudentUserId && resolvedStudentUserId.startsWith("user_")
+        ? { assignedStudentClerkId: resolvedStudentUserId }
+        : {}),
     });
 
     return {
@@ -702,6 +766,7 @@ export const onboardKajabiPurchase = internalMutation({
       alreadyExists: false as const,
       status: "processing" as const,
       attemptCount: 1,
+      isRenewal: pair.isRenewal,
     };
   },
 });
