@@ -122,7 +122,7 @@ async function sendFailureAlert(message: string, runId: string): Promise<void> {
 
   try {
     const resend = new Resend(apiKey);
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: resolveFrom("transactional") || "noreply@mentorships.example.com",
       to,
       subject: "Convex database backup FAILED",
@@ -134,6 +134,16 @@ async function sendFailureAlert(message: string, runId: string): Promise<void> {
         <p>The previous backups in B2 are unchanged.</p>
       `,
     });
+    // Resend returns `{ error }` for rate limits, unverified senders, and
+    // other rejections instead of throwing. Ignoring it made alerts
+    // disappear while looking sent.
+    if (result.error) {
+      logger.error("Convex backup alert email was rejected", {
+        error: result.error.message ?? String(result.error),
+      });
+    } else if (!result.data?.id) {
+      logger.warn("Convex backup alert email returned no message id");
+    }
   } catch (error) {
     logger.error("Convex backup alert email failed", {
       error: error instanceof Error ? error.message : String(error),
