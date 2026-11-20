@@ -38,9 +38,9 @@ test("upsertFromEmail dedupes on the Resend email id", async () => {
   expect(rows[0].status).toBe("pending");
 });
 
-test("upsertFromEmail dedupes on the Kajabi purchase id across different emails", async () => {
+test("upsertFromEmail keeps a second email claiming the same purchase id", async () => {
   const t = convexTest(schema, modules);
-  await t.mutation(internal.kajabiPurchaseInbox.upsertFromEmail, {
+  const first = await t.mutation(internal.kajabiPurchaseInbox.upsertFromEmail, {
     ...base,
     resendEmailId: "email-2",
     kajabiPurchaseId: "purchase-2",
@@ -54,11 +54,15 @@ test("upsertFromEmail dedupes on the Kajabi purchase id across different emails"
     }
   );
 
-  expect(second.inserted).toBe(false);
+  // Both are kept: the sender and student fields are attacker-controlled, so
+  // no field-matching rule is allowed to decide which message is the real one.
+  expect(second.inserted).toBe(true);
   const rows = await t.run(
     async (ctx) => await ctx.db.query("kajabiPurchaseInbox").collect()
   );
-  expect(rows).toHaveLength(1);
+  expect(rows).toHaveLength(2);
+  const later = rows.find((row) => row.resendEmailId === "email-3");
+  expect(later?.conflictWith).toBe(first.purchaseId);
 });
 
 test("upsertFromEmail keeps a conflicting purchase-id claim instead of dropping it", async () => {

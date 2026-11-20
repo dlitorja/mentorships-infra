@@ -81,27 +81,12 @@ export const upsertFromEmail = internalMutation({
         )
         .first();
       if (byPurchase) {
-        // Same purchase id, same sender, same student is the same
-        // confirmation delivered twice — a real duplicate.
-        const sameSender =
-          byPurchase.fromAddress.trim().toLowerCase() ===
-          args.fromAddress.trim().toLowerCase();
-        const sameStudent =
-          (byPurchase.studentEmail ?? "").trim().toLowerCase() ===
-            (args.studentEmail ?? "").trim().toLowerCase() &&
-          (args.studentEmail ?? "").trim().length > 0;
-        if (sameSender && sameStudent) {
-          return {
-            purchaseId: byPurchase._id,
-            inserted: false,
-            status: byPurchase.status,
-          };
-        }
-        // Anyone can email the support inbox, and the purchase id comes out
-        // of the message body. Silently discarding this message let a forged
-        // claim suppress the buyer's genuine confirmation for good. Keep it
-        // and flag the conflict so staff can approve one and dismiss the
-        // other.
+        // Nothing in the message proves who sent it — the purchase id, the
+        // sender, and the student address all come from the email body — so a
+        // content-based "same message" test is exactly what a forged claim
+        // copies. Never drop the second claim: keep it and flag the conflict,
+        // letting staff see both. Exact replays are already collapsed by the
+        // Resend email id above, which the sender cannot choose.
         conflictWith = byPurchase._id;
       }
     }
