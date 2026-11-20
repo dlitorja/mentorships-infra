@@ -15,6 +15,7 @@ import { migrateGuestSessionPacks } from "@/inngest/functions/migrate-guest-sess
 import { onboardingQuestionnaireReminders } from "@/inngest/functions/onboarding-questionnaire-reminders";
 import { onboardingQuestionnaireSubmittedNotification } from "@/inngest/functions/onboarding-questionnaire-submitted-notification";
 import { kajabiInboxSync } from "@/inngest/functions/kajabi-inbox-sync";
+import { onboardingFollowUps } from "@/inngest/functions/onboarding-follow-ups";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -40,6 +41,9 @@ export const { GET, POST, PUT } = serve({
     // Kajabi email intake: polls Resend for purchase confirmations and
     // queues them for admin review (no Kajabi webhooks on the current plan).
     kajabiInboxSync,
+    // Onboarding follow-ups: 48h/5d student nudges, 7d admin check-in,
+    // 3d instructor review reminder.
+    onboardingFollowUps,
     // Inventory sync from Stripe products to Convex (Convex HTTP endpoint)
     syncInstructorInventoryToConvex,
     // Clerk user linking - links guest purchases to Clerk user after signup
