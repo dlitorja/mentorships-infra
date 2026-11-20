@@ -276,6 +276,70 @@ describe("Kajabi webhook route", () => {
       ).toContain("tx_unique_xyz");
     });
 
+    it("uses one transaction-scoped onboarding key for purchase.created and payment.succeeded", async () => {
+      process.env.KAJABI_WEBHOOK_SECRET = WEBHOOK_SECRET;
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+
+      const mapping = {
+        success: true,
+        mapping: {
+          offerId: "off_test_123",
+          instructorSlug: "instructor_test",
+          mentorshipType: "one-on-one",
+          kajabiOfferUrl: "https://example.com/offer",
+        },
+      };
+      const inventory = {
+        success: true,
+        alreadyApplied: false,
+        newValue: 9,
+        oldValue: 10,
+      };
+
+      // Kajabi delivers both events for one payment. Each event must reach
+      // the onboarding endpoint, but with the SAME key, so the second call
+      // is a no-op instead of a second seat + renewal top-up.
+      for (const event of [
+        makeKajabiPayload({
+          event: "purchase.created",
+          transaction: { id: "tx_shared_1", quantity: 1 },
+        }),
+        makeKajabiPayload({
+          event: "payment.succeeded",
+          transaction: { id: "tx_shared_1", quantity: 1 },
+        }),
+      ]) {
+        vi.mocked(convexServerCall)
+          .mockResolvedValueOnce(mapping)
+          .mockResolvedValueOnce(inventory);
+        const response = await POST(
+          makeRequest({
+            method: "POST",
+            url: SECRET_URL,
+            body: event,
+            headers: { "user-agent": "Kajabi-Webhook/1.0" },
+          })
+        );
+        expect(response.status).toBe(200);
+      }
+
+      const keys = vi
+        .mocked(convexServerCall)
+        .mock.calls.filter(
+          (call) => call[0] === "/admin-onboarding/kajabi-purchase"
+        )
+        .map(
+          (call) =>
+            (call[1] as { externalPurchaseId?: string }).externalPurchaseId
+        );
+
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[0]).toContain("tx_shared_1");
+      expect(keys[0]).not.toContain("purchase.created");
+      expect(keys[0]).not.toContain("payment.succeeded");
+    });
+
     it("skips auto-onboarding when the webhook secret is missing", async () => {
       const reportError = (await import("@/lib/observability")).reportError;
       vi.mocked(convexServerCall)
