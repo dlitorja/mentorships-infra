@@ -25,6 +25,11 @@ export const PROTECTED_ROUTE_PATTERNS = [
   "/dashboard(.*)",
   "/instructor/:path*",
   "/admin(.*)",
+  // `/onboarding/<id>` is the deep link in the admin-onboarding and
+  // instructor-review emails. Without it the page's `auth()` returns no user,
+  // the view query returns null, and the visitor gets a bare 404 instead of a
+  // sign-in prompt — observed on the instructor review nudge (2026-11-20).
+  "/onboarding/:path*",
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",

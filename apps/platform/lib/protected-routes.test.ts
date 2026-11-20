@@ -109,6 +109,17 @@ describe("PROTECTED_ROUTE_PATTERNS", () => {
     }
   });
 
+  it("covers the onboarding deep link used by reminder emails", () => {
+    // Without this pattern a signed-out click on `/onboarding/<id>` renders a
+    // bare 404 instead of the sign-in prompt (instructor review nudge,
+    // 2026-11-20).
+    expect(isProtectedRoute(request("/onboarding"))).toBe(true);
+    expect(isProtectedRoute(request("/onboarding/abc123"))).toBe(true);
+    expect(
+      isProtectedRoute(request("/onboarding/abc123/questionnaire"))
+    ).toBe(true);
+  });
+
   it("leaves the public instructor directory open", () => {
     // Broads `(.*)` patterns such as `/instructor(.*)` capture
     // `/instructors` too; that page is public marketing surface.
