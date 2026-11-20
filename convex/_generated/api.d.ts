@@ -50,6 +50,7 @@ import type * as kajabiPurchaseInbox from "../kajabiPurchaseInbox.js";
 import type * as legacyMappings from "../legacyMappings.js";
 import type * as lib_authorDisplay from "../lib/authorDisplay.js";
 import type * as lib_b2WorkspaceUpload from "../lib/b2WorkspaceUpload.js";
+import type * as lib_onboardingReminderEligibility from "../lib/onboardingReminderEligibility.js";
 import type * as lib_serviceAuth from "../lib/serviceAuth.js";
 import type * as lib_sessionWorkspace from "../lib/sessionWorkspace.js";
 import type * as lib_workspaceImageSet from "../lib/workspaceImageSet.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   legacyMappings: typeof legacyMappings;
   "lib/authorDisplay": typeof lib_authorDisplay;
   "lib/b2WorkspaceUpload": typeof lib_b2WorkspaceUpload;
+  "lib/onboardingReminderEligibility": typeof lib_onboardingReminderEligibility;
   "lib/serviceAuth": typeof lib_serviceAuth;
   "lib/sessionWorkspace": typeof lib_sessionWorkspace;
   "lib/workspaceImageSet": typeof lib_workspaceImageSet;

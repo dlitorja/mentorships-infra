@@ -3345,8 +3345,8 @@ const httpEnqueueOnboardingFollowUps = httpAction(async (ctx, request) => {
   }
 });
 
-/** The batch the worker may send: rows an admin approved, oldest first. */
-const httpApprovedOnboardingFollowUps = httpAction(async (ctx, request) => {
+/** Claim the batch the worker may send. Marks the rows `sending` atomically. */
+const httpClaimOnboardingFollowUps = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   let body: Record<string, unknown> = {};
@@ -3357,8 +3357,8 @@ const httpApprovedOnboardingFollowUps = httpAction(async (ctx, request) => {
   }
 
   try {
-    const items = await ctx.runQuery(
-      internal.onboardingReminderReview.approvedForSend,
+    const items = await ctx.runMutation(
+      internal.onboardingReminderReview.claim,
       { limit: typeof body.limit === "number" ? body.limit : undefined }
     );
     return new Response(JSON.stringify({ items }), {
@@ -3403,9 +3403,9 @@ http.route({
 });
 
 http.route({
-  path: "/onboarding-follow-ups/approved",
+  path: "/onboarding-follow-ups/claim",
   method: "POST",
-  handler: httpApprovedOnboardingFollowUps,
+  handler: httpClaimOnboardingFollowUps,
 });
 
 http.route({

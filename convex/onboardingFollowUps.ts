@@ -2,6 +2,11 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import {
+  anyPairWorking,
+  instructorCanOpenReview,
+  pairAlreadyWorking,
+} from "./lib/onboardingReminderEligibility";
 
 /**
  * Follow-up reminder scan for onboarding.
@@ -28,46 +33,6 @@ async function isSent(ctx: QueryCtx, dedupeKey: string): Promise<boolean> {
 }
 
 type OnboardingRow = Doc<"adminOnboardings">;
-
-/**
- * A pair is "already working together" once the student has used any session
- * from the pack that onboarding created. The student has met the instructor at
- * that point, so a "3 days, still unreviewed" nudge is noise (and a confusing
- * one — the questionnaire is no longer what's blocking the relationship).
- */
-async function pairAlreadyWorking(
-  ctx: QueryCtx,
-  row: OnboardingRow
-): Promise<boolean> {
-  for (const pair of row.perInstructor) {
-    if (!pair.sessionPackId) continue;
-    const pack = await ctx.db.get(pair.sessionPackId);
-    if (pack && pack.remainingSessions < pack.totalSessions) return true;
-  }
-  return false;
-}
-
-/**
- * The review link in the nudge opens `/onboarding/<id>`, which the auth gate
- * only admits for the Clerk user stored on the instructor row. A row that is
- * not linked to a live account — or whose account email differs from the one
- * we are about to email — sends the instructor to a 404. Skip those instead of
- * mailing a dead link.
- */
-async function instructorCanOpenReview(
-  ctx: QueryCtx,
-  instructor: Doc<"instructors"> | null,
-  email: string
-): Promise<boolean> {
-  if (!instructor?.userId || !/^user_/.test(instructor.userId)) return false;
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_userId", (q) => q.eq("userId", instructor.userId as string))
-    .first();
-  if (!user?.email) return false;
-  return user.email.trim().toLowerCase() === email.trim().toLowerCase();
-}
-
 
 async function instructorNameForRow(
   ctx: QueryCtx,
@@ -130,21 +95,21 @@ export const scan = internalQuery({
 
     for (const row of await pendingOnboardings(now - 48 * HOUR_MS)) {
       if (row.assignedStudentClerkId) continue;
-      if (await pairAlreadyWorking(ctx, row)) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_48h", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites48h.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 5 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
-      if (await pairAlreadyWorking(ctx, row)) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_5d", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites5d.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 7 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
-      if (await pairAlreadyWorking(ctx, row)) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "admin_stale_7d", now);
       if (!(await isSent(ctx, item.dedupeKey))) adminStale7d.push(item);
     }
@@ -191,9 +156,11 @@ export const scan = internalQuery({
       }
       const row = await ctx.db.get(submission.onboardingId);
       if (!row || row.status === "cancelled") continue;
-      if (await pairAlreadyWorking(ctx, row)) continue;
 
       for (const pair of row.perInstructor) {
+        // Per pair: one instructor having met the student must not silence
+        // another instructor's review nudge.
+        if (await pairAlreadyWorking(ctx, pair)) continue;
         const instructor = await ctx.db.get(pair.instructorId);
         const email = instructor?.email?.trim();
         if (!email) continue;

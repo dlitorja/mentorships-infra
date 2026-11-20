@@ -1,43 +1,19 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
+import type { FunctionReturnType } from "convex/server";
 
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 
-export type OnboardingReminderStatus =
-  | "pending_review"
-  | "approved"
-  | "sent"
-  | "suppressed";
-
-export type OnboardingReminderKind =
-  | "student_invite_48h"
-  | "student_invite_5d"
-  | "admin_stale_7d"
-  | "instructor_review_3d";
-
-export type OnboardingReminderListItem = {
-  _id: Id<"onboardingReminders">;
-  dedupeKey: string;
-  kind: OnboardingReminderKind;
-  onboardingId: Id<"adminOnboardings">;
-  recipient: string;
-  recipientName?: string;
-  recipientKind?: "student" | "instructor" | "admin";
-  subject?: string;
-  previewText?: string;
-  reason?: string;
-  status: OnboardingReminderStatus;
-  createdAt: number;
-  sentAt?: number;
-  reviewedAt?: number;
-  suppressReason?: string;
-};
-
-export type OnboardingReminderPage = {
-  items: OnboardingReminderListItem[];
-  nextCursor?: number;
-};
+/**
+ * Derived from the query so the UI cannot drift from the server shape (the
+ * generated types use `undefined` for absent optionals).
+ */
+export type OnboardingReminderPage = FunctionReturnType<
+  typeof api.onboardingReminderReview.listForReview
+>;
+export type OnboardingReminderListItem = OnboardingReminderPage["items"][number];
+export type OnboardingReminderStatus = OnboardingReminderListItem["status"];
+export type OnboardingReminderKind = OnboardingReminderListItem["kind"];
 
 export function useOnboardingReminders(
   status: OnboardingReminderStatus,
@@ -48,12 +24,14 @@ export function useOnboardingReminders(
       status,
       ...(before !== undefined ? { before } : {}),
     })
-  );
+  ) as UseQueryResult<OnboardingReminderPage, Error>;
 }
 
 export function useOnboardingReminderCounts(): UseQueryResult<
   { pending: number; suppressed: number },
   Error
 > {
-  return useQuery(convexQuery(api.onboardingReminderReview.counts, {}));
+  return useQuery(
+    convexQuery(api.onboardingReminderReview.counts, {})
+  ) as UseQueryResult<{ pending: number; suppressed: number }, Error>;
 }

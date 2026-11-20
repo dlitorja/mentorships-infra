@@ -134,3 +134,86 @@ test("scan returns a 3-day instructor review nudge and dedupes per instructor", 
   const second = await t.query(internal.onboardingFollowUps.scan, { now });
   expect(second.instructorReviews).toHaveLength(0);
 });
+
+test("one used pair does dot silence another instructor's review nudge", async () => {
+  const t = convexTest(schema, modules);
+  const now = Date.now();
+
+  await t.run(async (ctx) => {
+    const makeInstructor = async (slug: string, email: string, clerkId: string) => {
+      const id = await ctx.db.insert("instructors", {
+        userId: clerkId,
+        name: slug,
+        slug,
+        email,
+        isActive: true,
+        isNew: false,
+        oneOnOneInventory: 3,
+        groupInventory: 0,
+        maxActiveStudents: 10,
+      });
+      await ctx.db.insert("users", {
+        userId: clerkId,
+        clerkId,
+        email,
+        role: "instructor",
+      });
+      return id;
+    };
+
+    const a = await makeInstructor("coach-a", "a@example.com", "user_coach_a");
+    const b = await makeInstructor("coach-b", "b@example.com", "user_coach_b");
+
+    const usedPack = await ctx.db.insert("sessionPacks", {
+      userId: "user_student",
+      instructorId: a,
+      totalSessions: 4,
+      remainingSessions: 2,
+      purchasedAt: now,
+      status: "active",
+    });
+    const freshPack = await ctx.db.insert("sessionPacks", {
+      userId: "user_student",
+      instructorId: b,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: now,
+      status: "active",
+    });
+
+    const onboardingId = await ctx.db.insert("adminOnboardings", {
+      email: "student@example.com",
+      flowVersion: 1,
+      source: "kajabi",
+      submittedByUserId: "user_admin",
+      status: "processing",
+      attemptCount: 1,
+      assignedStudentClerkId: "user_student",
+      perInstructor: [
+        { instructorId: a, isRenewal: false, sessionsPerInstructor: 4, sessionPackId: usedPack },
+        { instructorId: b, isRenewal: false, sessionsPerInstructor: 4, sessionPackId: freshPack },
+      ],
+      isSeparateStudentRecord: false,
+      existingWorkspaceIds: [],
+      timeline: [{ at: now, event: "queued" }],
+      createdAt: now,
+    });
+
+    await ctx.db.insert("onboardingQuestionnaireSubmissions", {
+      onboardingId,
+      studentClerkId: "user_student",
+      questionnaireVersion: 1,
+      status: "submitted",
+      answers: [],
+      inspirations: [],
+      createdAt: now - 4 * DAY,
+      updatedAt: now - 4 * DAY,
+      submittedAt: now - 4 * DAY,
+      reviews: [],
+    });
+  });
+
+  const scan = await t.query(internal.onboardingFollowUps.scan, { now });
+  expect(scan.instructorReviews).toHaveLength(1);
+  expect(scan.instructorReviews[0].instructorEmail).toBe("b@example.com");
+});

@@ -227,9 +227,11 @@ export const onboardingFollowUps = inngest.createFunction(
       return { staged: items.length };
     });
 
+    // Claiming marks the rows `sending` in the same transaction that returns
+    // them, so two overlapping runs cannot both send the same row.
     const approved = await step.run("claim-approved", async () => {
       const result = await convexServerCall<{ items: ApprovedItem[] }>(
-        "/onboarding-follow-ups/approved",
+        "/onboarding-follow-ups/claim",
         { limit: 50 }
       );
       return result.items;

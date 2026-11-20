@@ -160,8 +160,8 @@ test("approve makes a staged row sendable and markSent flips it to sent", async 
   });
   expect(review.updated).toBe(1);
 
-  const approved = await t.query(
-    internal.onboardingReminderReview.approvedForSend,
+  const approved = await t.mutation(
+    internal.onboardingReminderReview.claim,
     {}
   );
   expect(approved).toHaveLength(1);
@@ -177,7 +177,7 @@ test("approve makes a staged row sendable and markSent flips it to sent", async 
     resendId: "resend-1",
   });
 
-  const after = await t.query(internal.onboardingReminderReview.approvedForSend, {});
+  const after = await t.mutation(internal.onboardingReminderReview.claim, {});
   expect(after).toHaveLength(0);
 
   const row = await t.run(async (ctx) => ctx.db.get(id));
@@ -259,4 +259,83 @@ test("only staff can list or review the outbox", async () => {
   await expect(
     student.query(api.onboardingReminderReview.listForReview, {})
   ).rejects.toThrow(/Forbidden/);
+});
+
+test("claim drops a reminder whose precondition changed after approval", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId, instructorId, packId } = await seed(t);
+  await t.mutation(internal.onboardingReminderReview.enqueue, {
+    items: [reviewItem(onboardingId, instructorId)],
+  });
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db.query("onboardingReminders").collect()
+  );
+  const id = rows[0]._id;
+  const admin = t.withIdentity({ subject: "user_staff" });
+  await admin.mutation(api.onboardingReminderReview.review, {
+    ids: [id],
+    action: "approve",
+  });
+
+  // The pair used a session while the reminder sat in the queue.
+  await t.run(async (ctx) =>
+    ctx.db.patch(packId, { remainingSessions: 3 })
+  );
+
+  const claimed = await t.mutation(internal.onboardingReminderReview.claim, {});
+  expect(claimed).toHaveLength(0);
+
+  const row = await t.run(async (ctx) => ctx.db.get(id));
+  expect(row?.status).toBe("suppressed");
+  expect(row?.suppressReason).toMatch(/session has already been used/i);
+});
+
+test("a claimed reminder cannot be suppressed by a late review", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId, instructorId } = await seed(t);
+  await t.mutation(internal.onboardingReminderReview.enqueue, {
+    items: [reviewItem(onboardingId, instructorId)],
+  });
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db.query("onboardingReminders").collect()
+  );
+  const id = rows[0]._id;
+  const admin = t.withIdentity({ subject: "user_staff" });
+  await admin.mutation(api.onboardingReminderReview.review, {
+    ids: [id],
+    action: "approve",
+  });
+
+  const claimed = await t.mutation(internal.onboardingReminderReview.claim, {});
+  expect(claimed).toHaveLength(1);
+
+  const late = await admin.mutation(api.onboardingReminderReview.review, {
+    ids: [id],
+    action: "suppress",
+    reason: "changed my mind",
+  });
+  expect(late.updated).toBe(0);
+
+  const row = await t.run(async (ctx) => ctx.db.get(id));
+  expect(row?.status).toBe("sending");
+});
+
+test("enqueue gives every row in a batch a distinct cursor value", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId, instructorId } = await seed(t);
+  const base = reviewItem(onboardingId, instructorId);
+  const items = Array.from({ length: 20 }, (_, index) => ({
+    ...base,
+    dedupeKey: `${base.dedupeKey}:batch-${index}`,
+  }));
+
+  await t.mutation(internal.onboardingReminderReview.enqueue, { items });
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db.query("onboardingReminders").collect()
+  );
+  const cursors = rows.map((row) => row.createdAt);
+  expect(new Set(cursors).size).toBe(rows.length);
 });

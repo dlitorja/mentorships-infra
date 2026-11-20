@@ -38,6 +38,31 @@ acts on it.
 - Every approve/suppress writes an `auditLogs` row
   (`approve_onboarding_reminder` / `suppress_onboarding_reminder`).
 
+### Send-time re-check
+
+The queue can sit for days, so the worker re-checks each row when it claims it
+(`onboardingReminderReview.claim`). A nudge whose reason no longer holds is
+auto-suppressed with the reason instead of being sent:
+
+- the student signed up (invite / admin digest),
+- the pair has used a session,
+- the instructor already reviewed the submission,
+- the instructor is no longer assigned, or cannot open the link,
+- the onboarding was cancelled.
+
+Claiming also marks the row `sending`, so two overlapping runs cannot both send
+it. A crashed run is re-claimed after 10 minutes. A late "not sending" on a
+claim already in flight is refused.
+
+### One-off backfill after the outbox deploy
+
+Rows written before the outbox have no `status`, so the *Sent* tab cannot list
+them. Run this once against the deployment:
+
+```bash
+npx convex run onboardingReminderReview:backfillLegacyStatus
+```
+
 ### Why a nudge is skipped before it is even staged
 
 Queuing a nudge the admin would immediately suppress wastes a review slot, so

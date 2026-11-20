@@ -1756,11 +1756,15 @@ export default defineSchema({
       v.union(
         v.literal("pending_review"),
         v.literal("approved"),
+        // Claimed by a worker run. A crashed run leaves the row here; the
+        // claim mutation re-claims rows whose claim is stale.
+        v.literal("sending"),
         v.literal("sent"),
         v.literal("suppressed")
       )
     ),
     createdAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
     recipientName: v.optional(v.string()),
     recipientKind: v.optional(
       v.union(
