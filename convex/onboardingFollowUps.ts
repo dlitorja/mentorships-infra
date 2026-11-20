@@ -64,13 +64,22 @@ export const scan = internalQuery({
     async function pendingOnboardings(cutoff: number): Promise<OnboardingRow[]> {
       const rows: OnboardingRow[] = [];
       for (const status of ["processing", "completed"] as const) {
-        const page = await ctx.db
-          .query("adminOnboardings")
-          .withIndex("by_status_createdAt", (q) =>
-            q.eq("status", status).lte("createdAt", cutoff)
-          )
-          .take(100);
-        rows.push(...page);
+        let before: number | undefined;
+        for (let page = 0; page < 10; page++) {
+          const pageRows = await ctx.db
+            .query("adminOnboardings")
+            .withIndex("by_status_createdAt", (q) => {
+              const base = q.eq("status", status);
+              return before !== undefined
+                ? base.lt("createdAt", before)
+                : base.lte("createdAt", cutoff);
+            })
+            .order("desc")
+            .take(100);
+          rows.push(...pageRows);
+          if (pageRows.length < 100) break;
+          before = pageRows[pageRows.length - 1].createdAt;
+        }
       }
       return rows;
     }
@@ -110,15 +119,27 @@ export const scan = internalQuery({
       submittedAt: number;
     }> = [];
 
-    const submissions = await ctx.db
-      .query("onboardingQuestionnaireSubmissions")
-      .withIndex("by_status_updatedAt", (q) =>
-        q.eq("status", "submitted").lte("updatedAt", now - 3 * DAY_MS)
-      )
-      .take(100);
+    const submissions: Doc<"onboardingQuestionnaireSubmissions">[] = [];
+    let beforeSubmitted: number | undefined;
+    for (let page = 0; page < 10; page++) {
+      const pageRows = await ctx.db
+        .query("onboardingQuestionnaireSubmissions")
+        .withIndex("by_status_submittedAt", (q) => {
+          const base = q.eq("status", "submitted");
+          return beforeSubmitted !== undefined
+            ? base.lt("submittedAt", beforeSubmitted)
+            : base.lte("submittedAt", now - 3 * DAY_MS);
+        })
+        .order("desc")
+        .take(100);
+      submissions.push(...pageRows);
+      if (pageRows.length < 100) break;
+      const last = pageRows[pageRows.length - 1].submittedAt;
+      if (last === undefined) break;
+      beforeSubmitted = last;
+    }
 
     for (const submission of submissions) {
-      if (submission.reviews && submission.reviews.length > 0) continue;
       if (
         !submission.submittedAt ||
         submission.submittedAt > now - 3 * DAY_MS
@@ -132,6 +153,14 @@ export const scan = internalQuery({
         const instructor = await ctx.db.get(pair.instructorId);
         const email = instructor?.email?.trim();
         if (!email) continue;
+        // Reviews are per reviewer. An admin review (or another
+        // instructor's review) must not suppress this instructor's nudge.
+        const reviewedByThisInstructor = instructor?.userId
+          ? (submission.reviews ?? []).some(
+              (review) => review.userId === instructor.userId
+            )
+          : false;
+        if (reviewedByThisInstructor) continue;
         const dedupeKey = `onboarding:${row._id}:instructor_review_3d:${pair.instructorId}`;
         if (await isSent(ctx, dedupeKey)) continue;
         instructorReviews.push({
