@@ -826,6 +826,33 @@ export const approveKajabiPurchase = mutation({
         alreadyApproved: true as const,
       };
     }
+    // A purchase id parsed out of an email is a claim, not proof: the inbox
+    // accepts mail from anyone, so one purchase can arrive as several
+    // confirmations. Commit at most one of them.
+    if (purchase.conflictWith) {
+      const conflicting = await ctx.db.get(purchase.conflictWith);
+      if (conflicting && conflicting.status !== "dismissed") {
+        throw new Error(
+          "Another confirmation claims the same purchase id. Approve or dismiss that one first."
+        );
+      }
+    }
+    if (purchase.kajabiPurchaseId) {
+      const samePurchase = await ctx.db
+        .query("kajabiPurchaseInbox")
+        .withIndex("by_kajabiPurchaseId", (q) =>
+          q.eq("kajabiPurchaseId", purchase.kajabiPurchaseId)
+        )
+        .collect();
+      const approvedElsewhere = samePurchase.find(
+        (row) => row._id !== args.purchaseId && row.status === "approved"
+      );
+      if (approvedElsewhere) {
+        throw new Error(
+          "This purchase id is already approved from another confirmation."
+        );
+      }
+    }
     if (!purchase.studentEmail) {
       throw new Error("The confirmation does not contain a student email");
     }
@@ -1112,6 +1139,26 @@ export const cancelAdminOnboarding = mutation({
       (internal as any).onboardingWorkExamples.purgeWorkExamplesForOnboarding,
       { onboardingId: args.onboardingId }
     );
+
+    // Same revocation for the artwork ZIPs. Purging the work examples
+    // stops new archives, but an already-completed export keeps a signed
+    // B2 URL that outlives the cancel. Drop the URL and mark the row so a
+    // previously issued link is no longer handed out again.
+    const artworkExports = await ctx.db
+      .query("onboardingArtworkExports")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
+      )
+      .collect();
+    for (const artworkExport of artworkExports) {
+      if (artworkExport.cancelledAt !== undefined) continue;
+      await ctx.db.patch(artworkExport._id, {
+        status: "failed",
+        cancelledAt: now,
+        downloadUrl: undefined,
+        errorMessage: "Onboarding was cancelled; artwork export revoked.",
+      });
+    }
 
     return { onboardingId: args.onboardingId, status: "cancelled" as const };
   },
