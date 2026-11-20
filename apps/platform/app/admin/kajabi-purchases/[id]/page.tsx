@@ -207,6 +207,12 @@ export default function AdminKajabiPurchaseDetailPage(): React.JSX.Element {
               <div className="font-mono text-sm">
                 {purchase.kajabiPurchaseId ?? "—"}
               </div>
+              {purchase.conflictWith ? (
+                <div className="mt-1 text-xs text-destructive">
+                  Another confirmation claims this purchase ID. Approve or
+                  dismiss that one first.
+                </div>
+              ) : null}
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Kajabi contact</div>

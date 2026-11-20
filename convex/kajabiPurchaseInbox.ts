@@ -71,6 +71,8 @@ export const upsertFromEmail = internalMutation({
       return { purchaseId: byEmail._id, inserted: false, status: byEmail.status };
     }
 
+    let conflictWith: Id<"kajabiPurchaseInbox"> | undefined;
+
     if (args.kajabiPurchaseId) {
       const byPurchase = await ctx.db
         .query("kajabiPurchaseInbox")
@@ -79,11 +81,28 @@ export const upsertFromEmail = internalMutation({
         )
         .first();
       if (byPurchase) {
-        return {
-          purchaseId: byPurchase._id,
-          inserted: false,
-          status: byPurchase.status,
-        };
+        // Same purchase id, same sender, same student is the same
+        // confirmation delivered twice — a real duplicate.
+        const sameSender =
+          byPurchase.fromAddress.trim().toLowerCase() ===
+          args.fromAddress.trim().toLowerCase();
+        const sameStudent =
+          (byPurchase.studentEmail ?? "").trim().toLowerCase() ===
+            (args.studentEmail ?? "").trim().toLowerCase() &&
+          (args.studentEmail ?? "").trim().length > 0;
+        if (sameSender && sameStudent) {
+          return {
+            purchaseId: byPurchase._id,
+            inserted: false,
+            status: byPurchase.status,
+          };
+        }
+        // Anyone can email the support inbox, and the purchase id comes out
+        // of the message body. Silently discarding this message let a forged
+        // claim suppress the buyer's genuine confirmation for good. Keep it
+        // and flag the conflict so staff can approve one and dismiss the
+        // other.
+        conflictWith = byPurchase._id;
       }
     }
 
@@ -101,6 +120,7 @@ export const upsertFromEmail = internalMutation({
       studentEmail: args.studentEmail,
       kajabiPurchaseId: args.kajabiPurchaseId,
       kajabiContactId: args.kajabiContactId,
+      conflictWith,
       rawText: args.rawText.slice(0, 20_000),
       status: "pending",
       createdAt: now,
@@ -142,6 +162,7 @@ export const listPurchases = query({
         studentName: row.studentName,
         studentEmail: row.studentEmail,
         kajabiPurchaseId: row.kajabiPurchaseId,
+        conflictWith: row.conflictWith,
         status: row.status,
         onboardingId: row.onboardingId,
         createdAt: row.createdAt,

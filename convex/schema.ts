@@ -1701,6 +1701,13 @@ export default defineSchema({
     kajabiPurchaseId: v.optional(v.string()),
     kajabiContactId: v.optional(v.string()),
 
+    // Set when this message claims a purchase id that an earlier message
+    // already claims, with a different sender or student. The inbox accepts
+    // mail from anyone, so a purchase id is not proof of authenticity; the
+    // conflicting row is kept (not silently dropped) so staff can see both
+    // claims and dismiss the forgery.
+    conflictWith: v.optional(v.id("kajabiPurchaseInbox")),
+
     // Full plain-text body for admin verification. Never rendered to the
     // student or sent anywhere.
     rawText: v.string(),
