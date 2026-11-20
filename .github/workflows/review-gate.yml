@@ -122,11 +122,13 @@ jobs:
             case "$1" in
               convex/_generated/*) return 0 ;;
             esac
-            # Paths Greptile's own ignorePatterns drop. These are checked
-            # before the source-tree rule because a path we require but Greptile
-            # never reviews deadlocks the gate: no check ever appears. That
-            # covers markdown, lockfiles (including ones inside `packages/`),
-            # dependency and build-output directories.
+            # Paths that can never be application code but that Greptile's own
+            # ignorePatterns drop. A path we require but Greptile never reviews
+            # deadlocks the gate, so these are checked before the source-tree
+            # rule. Only non-executable paths belong here: markdown, lockfiles,
+            # and dependencies. Output-directory names must stay behind the
+            # source check, because `apps/platform/app/test-results/route.ts`
+            # is still a route.
             case "$1" in
               *.md|*.MD) return 0 ;;
               pnpm-lock.yaml|*/pnpm-lock.yaml) return 0 ;;
@@ -134,15 +136,15 @@ jobs:
               yarn.lock|*/yarn.lock) return 0 ;;
               *.lock) return 0 ;;
               node_modules/*|*/node_modules/*) return 0 ;;
+            esac
+            if is_source_path "$1"; then return 1; fi
+            case "$1" in
+              docs/post-merge/*) return 0 ;;
               .next/*|*/.next/*) return 0 ;;
               .turbo/*|*/.turbo/*) return 0 ;;
               .vercel/*|*/.vercel/*) return 0 ;;
               test-results/*|*/test-results/*) return 0 ;;
               playwright-report/*|*/playwright-report/*) return 0 ;;
-            esac
-            if is_source_path "$1"; then return 1; fi
-            case "$1" in
-              docs/post-merge/*) return 0 ;;
               # Root-level build output only. A nested `*/dist/*` or `*/build/*`
               # also matches directories inside an application, so it is not
               # safe to exempt by name alone.
