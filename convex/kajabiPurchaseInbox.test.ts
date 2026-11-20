@@ -264,3 +264,53 @@ test("approveKajabiPurchase commits and marks the purchase approved", async () =
   expect(onboarding?.email).toBe("student@example.com");
   expect(onboarding?.source).toBe("kajabi");
 });
+
+test("onboardKajabiPurchase recognises the legacy event-qualified key", async () => {
+  const t = convexTest(schema, modules);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("instructors", {
+      name: "Neil Gray",
+      slug: "neil-gray",
+      email: "nrcgray@gmail.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 3,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+  });
+
+  // What the previous release stored for a payment (event-qualified).
+  const legacyKey = "kajabi:purchase.created:off_1:tx_1:student@example.com";
+  const first = await t.mutation(
+    internal.adminOnboarding.onboardKajabiPurchase,
+    {
+      email: "student@example.com",
+      instructorSlug: "neil-gray",
+      externalPurchaseId: legacyKey,
+    }
+  );
+
+  // A redelivery after the deploy carries the transaction-scoped key plus the
+  // legacy ones, and must resolve to the same onboarding.
+  const second = await t.mutation(
+    internal.adminOnboarding.onboardKajabiPurchase,
+    {
+      email: "student@example.com",
+      instructorSlug: "neil-gray",
+      externalPurchaseId: "kajabi-purchase:off_1:tx_1:student@example.com",
+      legacyExternalPurchaseIds: [
+        legacyKey,
+        "kajabi:payment.succeeded:off_1:tx_1:student@example.com",
+      ],
+    }
+  );
+
+  expect(second.alreadyExists).toBe(true);
+  expect(second.onboardingId).toBe(first.onboardingId);
+
+  const rows = await t.run(async (ctx) =>
+    ctx.db.query("adminOnboardings").collect()
+  );
+  expect(rows).toHaveLength(1);
+});

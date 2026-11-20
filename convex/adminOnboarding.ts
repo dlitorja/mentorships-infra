@@ -702,21 +702,32 @@ export const onboardKajabiPurchase = internalMutation({
     sessionsPerInstructor: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
     externalPurchaseId: v.string(),
+    // Keys a previous release used for the same payment. Onboarding used to be
+    // keyed on an event-qualified id; a redelivery of a payment onboarded just
+    // before that change would otherwise create a duplicate. Read-only
+    // compatibility: nothing writes these.
+    legacyExternalPurchaseIds: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("adminOnboardings")
-      .withIndex("by_externalPurchaseId", (q) =>
-        q.eq("externalPurchaseId", args.externalPurchaseId)
-      )
-      .first();
-    if (existing) {
-      return {
-        onboardingId: existing._id,
-        alreadyExists: true as const,
-        status: existing.status,
-        attemptCount: existing.attemptCount,
-      };
+    const candidateKeys = [
+      args.externalPurchaseId,
+      ...(args.legacyExternalPurchaseIds ?? []),
+    ];
+    for (const candidateKey of candidateKeys) {
+      const existing = await ctx.db
+        .query("adminOnboardings")
+        .withIndex("by_externalPurchaseId", (q) =>
+          q.eq("externalPurchaseId", candidateKey)
+        )
+        .first();
+      if (existing) {
+        return {
+          onboardingId: existing._id,
+          alreadyExists: true as const,
+          status: existing.status,
+          attemptCount: existing.attemptCount,
+        };
+      }
     }
 
     const slug = args.instructorSlug.trim().toLowerCase();

@@ -274,6 +274,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ? purchaseId
           : null;
 
+    // Keys the previous release wrote for this payment. Without them, a
+    // redelivery of a payment onboarded just before this deploy would not find
+    // its existing row and would create a second onboarding.
+    const legacyOnboardingPurchaseIds =
+      transactionId.length > 0 && onboardingPurchaseId !== null
+        ? ["purchase.created", "payment.succeeded"]
+            .map((name) =>
+              ["kajabi", name, offerId, transactionId, memberEmail]
+                .filter((part) => part !== "")
+                .join(":")
+            )
+            .filter((key) => key !== onboardingPurchaseId)
+        : [];
+
     let alreadyApplied = false;
     let newInventory: number | null = null;
     try {
@@ -451,6 +465,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               memberName && memberName.length > 0 ? memberName : undefined,
             instructorSlug: mapping.instructorSlug,
             externalPurchaseId: onboardingPurchaseId,
+            ...(legacyOnboardingPurchaseIds.length > 0
+              ? { legacyExternalPurchaseIds: legacyOnboardingPurchaseIds }
+              : {}),
           });
         } catch (onboardingError) {
           await reportError({
