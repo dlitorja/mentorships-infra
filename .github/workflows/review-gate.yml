@@ -27,10 +27,14 @@ name: Review Gate
 #
 # Known limitation: this is a discipline gate, not an authorization boundary. A
 # PR that edits this file is evaluated by the edited version, so an author can
-# widen the exemption — as they already can by applying `no-greptile`. Closing
-# that needs CODEOWNERS or a gate that runs from the default branch, which is
-# more machinery than a single-maintainer repo warrants. The audit trail is the
-# PR diff itself.
+# widen the exemption — as they already can by applying `no-greptile`. The
+# mitigation is CODEOWNERS (`.github/CODEOWNERS`) plus "Require review from Code
+# Owners" in branch protection: a workflow edit then needs the maintainer's
+# approval before it can be merged and take effect on `main`. Closing it fully
+# needs a gate that runs from the default branch and publishes its result from
+# an identity the PR author cannot run (a dedicated GitHub App), which is more
+# machinery than a single-maintainer repo warrants. The audit trail is the PR
+# diff itself.
 
 on:
   pull_request:
@@ -70,10 +74,15 @@ jobs:
           set -euo pipefail
           head_sha=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
           labels=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '[.labels[].name] | join(" ")')
-          # filename<TAB>previous_filename, so a rename cannot hide reviewed
-          # code behind an ignored path.
-          files=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate \
-            --jq '.[] | "\(.filename)\t\(.previous_filename // "")"')
+          # Read the changed-file list as JSON and pass each record through
+          # base64, never as a tab/newline-delimited record. Git permits tabs
+          # and newlines in filenames, and interpolating them into a TSV line
+          # split one path into two fragments that each looked exempt
+          # (`apps/platform/app/a.md<TAB>dist/route.ts`). Base64 cannot
+          # contain a space, so `read` gives us one whole record per line.
+          files_json="$RUNNER_TEMP/pr-files.json"
+          gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --slurp > "$files_json"
+          records=$(jq -r 'flatten | .[] | "\(.filename | @base64) \(.previous_filename // "" | @base64)"' "$files_json")
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
           if printf '%s\n' $labels | grep -qxE 'no-greptile|skip-greptile'; then
@@ -83,33 +92,57 @@ jobs:
             exit 0
           fi
 
-          if [ -z "$files" ]; then
+          if [ -z "$records" ]; then
             echo "required=false" >> "$GITHUB_OUTPUT"
             echo "reason=no changed files" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # Anything inside a tree that ships executable code always needs a
+          # review, whatever its directory is called. `apps/platform/app/
+          # build/route.ts` is a Next.js route; the word "build" must not
+          # exempt it. This is the general rule the artifact patterns below
+          # must not be able to widen.
+          is_source_path() {
+            case "$1" in
+              apps/*/app/*|apps/*/pages/*|apps/*/components/*) return 0 ;;
+              apps/*/lib/*|apps/*/inngest/*|apps/*/src/*|apps/*/scripts/*) return 0 ;;
+              apps/*/middleware.*|apps/*/next.config.*) return 0 ;;
+              packages/*|convex/*|src/*|scripts/*|.github/*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
           # Mirror `.greptile/config.json` ignorePatterns. Greptile never reads
           # these paths, so requiring its check would deadlock the PR. Anything
           # not listed here still needs a review.
           is_ignorable() {
+            # Convex codegen is the only generated tree we track, and it lives
+            # inside `convex/`, so it is checked before the source-tree rule.
+            case "$1" in
+              convex/_generated/*) return 0 ;;
+            esac
+            # Markdown is never executed and Greptile's own ignorePatterns drop
+            # it, so requiring a review on it would deadlock the gate forever
+            # (no check ever appears). This has to be checked before the
+            # source-tree rule or `.github/*.md` becomes unreviewable.
             case "$1" in
               *.md|*.MD) return 0 ;;
+            esac
+            if is_source_path "$1"; then return 1; fi
+            case "$1" in
               pnpm-lock.yaml|*/pnpm-lock.yaml) return 0 ;;
               package-lock.json|*/package-lock.json) return 0 ;;
               yarn.lock|*/yarn.lock) return 0 ;;
               *.lock) return 0 ;;
-              # Deliberately narrower than the config's `**/*.generated.*`: a
-              # wildcard suffix would let an executable file opt out of review
-              # by name. Convex codegen is the only generated tree we track.
-              convex/_generated/*) return 0 ;;
               docs/post-merge/*) return 0 ;;
               node_modules/*|*/node_modules/*) return 0 ;;
               .next/*|*/.next/*) return 0 ;;
               .turbo/*|*/.turbo/*) return 0 ;;
-              dist/*|*/dist/*) return 0 ;;
-              build/*|*/build/*) return 0 ;;
-              coverage/*|*/coverage/*) return 0 ;;
+              # Root-level build output only. A nested `*/dist/*` or `*/build/*`
+              # also matches directories inside an application, so it is not
+              # safe to exempt by name alone.
+              dist/*|build/*|coverage/*) return 0 ;;
               .vercel/*|*/.vercel/*) return 0 ;;
               test-results/*|*/test-results/*) return 0 ;;
               playwright-report/*|*/playwright-report/*) return 0 ;;
@@ -118,7 +151,13 @@ jobs:
           }
 
           ignorable=true
-          while IFS=$'\t' read -r file previous; do
+          while IFS=' ' read -r file_b64 previous_b64; do
+            [ -z "$file_b64" ] && continue
+            file=$(printf '%s' "$file_b64" | base64 -d)
+            previous=""
+            if [ -n "$previous_b64" ]; then
+              previous=$(printf '%s' "$previous_b64" | base64 -d)
+            fi
             [ -z "$file" ] && continue
             if ! is_ignorable "$file"; then
               ignorable=false
@@ -131,7 +170,7 @@ jobs:
               ignorable=false
               break
             fi
-          done <<< "$files"
+          done <<< "$records"
 
           if [ "$ignorable" = true ]; then
             echo "required=false" >> "$GITHUB_OUTPUT"

@@ -216,6 +216,30 @@ Greptile dashboard at
 > `autoReview: ["open"]`, and re-evaluates itself when a review is
 > submitted so a late review can clear the gate.
 
+## Who can change the gate
+
+`review-gate.yml` runs on `pull_request`, which means GitHub evaluates the
+workflow **from the pull request**. A PR that edits the gate is judged by its
+own edited copy, so the author could delete the Greptile polling while keeping
+the job name `Review Gate`.
+
+The mitigation is CODEOWNERS, not a code change:
+
+1. `.github/CODEOWNERS` lists the maintainer for `/.github/`, `/AGENTS.md` and
+   this document.
+2. Branch protection on `main` must enable **Require a review from Code Owners**
+   (`require_code_owner_reviews: true`) alongside the existing
+   `strict: true` and `enforce_admins: true`.
+
+With both in place, a workflow edit cannot merge until the owner approves it,
+and the approved version is what runs. The setting is dashboard/API-only —
+code alone does not enforce it, so verify it after any branch-protection change.
+
+Not done, and deliberately: moving the gate to `pull_request_target`. That runs
+base-branch code, but the check it publishes would still come from the Actions
+token, which the PR author can also use to publish a same-named check. Only a
+separate App identity closes that gap.
+
 ## Usage-page sanity check
 
 Open the Greptile usage/billing page monthly and look at:
