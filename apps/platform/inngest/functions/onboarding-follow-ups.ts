@@ -164,7 +164,7 @@ export const onboardingFollowUps = inngest.createFunction(
             text: content.text,
             headers: content.headers,
             kind: "transactional",
-            idempotencyKey: `admin_stale_7d:${digestKey}`,
+            idempotencyKey: `admin_stale_7d:${digestKey}:${adminEmail}`,
           });
           if (result.ok) {
             delivered += 1;
