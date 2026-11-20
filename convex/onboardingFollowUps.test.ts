@@ -7,6 +7,7 @@ import schema from "./schema";
 const modules = import.meta.glob("./**/*.ts");
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+const INSTRUCTOR_CLERK_ID = "user_instructor_neil";
 
 async function seedInstructorAndOnboarding(
   t: ReturnType<typeof convexTest>,
@@ -14,6 +15,7 @@ async function seedInstructorAndOnboarding(
 ) {
   return await t.run(async (ctx) => {
     const instructorId = await ctx.db.insert("instructors", {
+      userId: INSTRUCTOR_CLERK_ID,
       name: "Neil Gray",
       slug: "neil-gray",
       email: "nrcgray@gmail.com",
@@ -22,6 +24,14 @@ async function seedInstructorAndOnboarding(
       oneOnOneInventory: 3,
       groupInventory: 0,
       maxActiveStudents: 10,
+    });
+    // The review nudge only targets instructors whose Clerk account can open
+    // the review link, so the fixture links one.
+    await ctx.db.insert("users", {
+      userId: INSTRUCTOR_CLERK_ID,
+      clerkId: INSTRUCTOR_CLERK_ID,
+      email: "nrcgray@gmail.com",
+      role: "instructor",
     });
     const onboardingId = await ctx.db.insert("adminOnboardings", {
       email: args.email ?? "student@example.com",
@@ -61,7 +71,7 @@ test("scan returns a 48h invite reminder and markSent dedupes it", async () => {
     instructorName: "Neil Gray",
   });
 
-  const marked = await t.mutation(internal.onboardingFollowUps.markSent, {
+  const marked = await t.mutation(internal.onboardingReminderReview.markSent, {
     dedupeKey: first.studentInvites48h[0].dedupeKey,
     onboardingId,
     kind: "student_invite_48h",
@@ -70,7 +80,7 @@ test("scan returns a 48h invite reminder and markSent dedupes it", async () => {
   });
   expect(marked.inserted).toBe(true);
 
-  const duplicate = await t.mutation(internal.onboardingFollowUps.markSent, {
+  const duplicate = await t.mutation(internal.onboardingReminderReview.markSent, {
     dedupeKey: first.studentInvites48h[0].dedupeKey,
     onboardingId,
     kind: "student_invite_48h",
@@ -114,7 +124,7 @@ test("scan returns a 3-day instructor review nudge and dedupes per instructor", 
     instructorEmail: "nrcgray@gmail.com",
   });
 
-  await t.mutation(internal.onboardingFollowUps.markSent, {
+  await t.mutation(internal.onboardingReminderReview.markSent, {
     dedupeKey: first.instructorReviews[0].dedupeKey,
     onboardingId,
     kind: "instructor_review_3d",

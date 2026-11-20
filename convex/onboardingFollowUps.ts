@@ -29,6 +29,46 @@ async function isSent(ctx: QueryCtx, dedupeKey: string): Promise<boolean> {
 
 type OnboardingRow = Doc<"adminOnboardings">;
 
+/**
+ * A pair is "already working together" once the student has used any session
+ * from the pack that onboarding created. The student has met the instructor at
+ * that point, so a "3 days, still unreviewed" nudge is noise (and a confusing
+ * one — the questionnaire is no longer what's blocking the relationship).
+ */
+async function pairAlreadyWorking(
+  ctx: QueryCtx,
+  row: OnboardingRow
+): Promise<boolean> {
+  for (const pair of row.perInstructor) {
+    if (!pair.sessionPackId) continue;
+    const pack = await ctx.db.get(pair.sessionPackId);
+    if (pack && pack.remainingSessions < pack.totalSessions) return true;
+  }
+  return false;
+}
+
+/**
+ * The review link in the nudge opens `/onboarding/<id>`, which the auth gate
+ * only admits for the Clerk user stored on the instructor row. A row that is
+ * not linked to a live account — or whose account email differs from the one
+ * we are about to email — sends the instructor to a 404. Skip those instead of
+ * mailing a dead link.
+ */
+async function instructorCanOpenReview(
+  ctx: QueryCtx,
+  instructor: Doc<"instructors"> | null,
+  email: string
+): Promise<boolean> {
+  if (!instructor?.userId || !/^user_/.test(instructor.userId)) return false;
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", instructor.userId as string))
+    .first();
+  if (!user?.email) return false;
+  return user.email.trim().toLowerCase() === email.trim().toLowerCase();
+}
+
+
 async function instructorNameForRow(
   ctx: QueryCtx,
   row: OnboardingRow
@@ -90,18 +130,21 @@ export const scan = internalQuery({
 
     for (const row of await pendingOnboardings(now - 48 * HOUR_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await pairAlreadyWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_48h", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites48h.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 5 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await pairAlreadyWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_5d", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites5d.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 7 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await pairAlreadyWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "admin_stale_7d", now);
       if (!(await isSent(ctx, item.dedupeKey))) adminStale7d.push(item);
     }
@@ -148,11 +191,15 @@ export const scan = internalQuery({
       }
       const row = await ctx.db.get(submission.onboardingId);
       if (!row || row.status === "cancelled") continue;
+      if (await pairAlreadyWorking(ctx, row)) continue;
 
       for (const pair of row.perInstructor) {
         const instructor = await ctx.db.get(pair.instructorId);
         const email = instructor?.email?.trim();
         if (!email) continue;
+        // Mailing a reviewer who cannot open the link is how a nudge turns
+        // into a support ticket; skip until the account is linked.
+        if (!(await instructorCanOpenReview(ctx, instructor, email))) continue;
         // Reviews are per reviewer. An admin review (or another
         // instructor's review) must not suppress this instructor's nudge.
         const reviewedByThisInstructor = instructor?.userId
@@ -185,37 +232,5 @@ export const scan = internalQuery({
       adminStale7d,
       instructorReviews,
     };
-  },
-});
-
-export const markSent = internalMutation({
-  args: {
-    dedupeKey: v.string(),
-    onboardingId: v.id("adminOnboardings"),
-    kind: v.union(
-      v.literal("student_invite_48h"),
-      v.literal("student_invite_5d"),
-      v.literal("admin_stale_7d"),
-      v.literal("instructor_review_3d")
-    ),
-    recipient: v.string(),
-    resendId: v.optional(v.string()),
-  },
-  handler: async (ctx: MutationCtx, args) => {
-    const existing = await ctx.db
-      .query("onboardingReminders")
-      .withIndex("by_dedupeKey", (q) => q.eq("dedupeKey", args.dedupeKey))
-      .first();
-    if (existing) return { inserted: false as const };
-
-    await ctx.db.insert("onboardingReminders", {
-      dedupeKey: args.dedupeKey,
-      onboardingId: args.onboardingId,
-      kind: args.kind,
-      recipient: args.recipient,
-      sentAt: Date.now(),
-      resendId: args.resendId,
-    });
-    return { inserted: true as const };
   },
 });
