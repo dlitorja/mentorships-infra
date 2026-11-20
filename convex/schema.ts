@@ -1732,6 +1732,26 @@ export default defineSchema({
     .index("by_kajabiPurchaseId", ["kajabiPurchaseId"])
     .index("by_studentEmail", ["studentEmail"]),
 
+  // Dedupe log for onboarding follow-up reminders (48h/5d student
+  // sign-up nudges, 7-day admin check-in, 3-day instructor review nudge).
+  // One row per dedupe key, so a cron replay cannot double-send.
+  onboardingReminders: defineTable({
+    dedupeKey: v.string(),
+    onboardingId: v.id("adminOnboardings"),
+    kind: v.union(
+      v.literal("student_invite_48h"),
+      v.literal("student_invite_5d"),
+      v.literal("admin_stale_7d"),
+      v.literal("instructor_review_3d")
+    ),
+    recipient: v.string(),
+    sentAt: v.number(),
+    resendId: v.optional(v.string()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_onboardingId", ["onboardingId"])
+    .index("by_kind_sentAt", ["kind", "sentAt"]),
+
   suppressionEvents: defineTable({
     kind: v.union(
       v.literal("bounce"),
