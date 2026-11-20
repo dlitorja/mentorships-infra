@@ -3263,7 +3263,7 @@ const httpMarkOnboardingFollowUpSent = httpAction(async (ctx, request) => {
 
   try {
     const result = await ctx.runMutation(
-      internal.onboardingFollowUps.markSent,
+      internal.onboardingReminderReview.markSent,
       {
         dedupeKey: body.dedupeKey,
         onboardingId: body.onboardingId as Id<"adminOnboardings">,
@@ -3278,6 +3278,90 @@ const httpMarkOnboardingFollowUpSent = httpAction(async (ctx, request) => {
       }
     );
     return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/**
+ * Stage the nudges the worker just built. Nothing is sent from here; the rows
+ * land as `pending_review` until an admin approves them.
+ */
+const httpEnqueueOnboardingFollowUps = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!Array.isArray(body.items)) {
+    return new Response(JSON.stringify({ error: "items must be an array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.onboardingReminderReview.enqueue,
+      {
+        items: body.items as Array<{
+          dedupeKey: string;
+          onboardingId: Id<"adminOnboardings">;
+          kind:
+            | "student_invite_48h"
+            | "student_invite_5d"
+            | "admin_stale_7d"
+            | "instructor_review_3d";
+          recipient: string;
+          recipientName?: string;
+          recipientKind: "student" | "instructor" | "admin";
+          subject: string;
+          previewText: string;
+          context: string;
+          reason: string;
+        }>,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/** The batch the worker may send: rows an admin approved, oldest first. */
+const httpApprovedOnboardingFollowUps = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    body = {};
+  }
+
+  try {
+    const items = await ctx.runQuery(
+      internal.onboardingReminderReview.approvedForSend,
+      { limit: typeof body.limit === "number" ? body.limit : undefined }
+    );
+    return new Response(JSON.stringify({ items }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
@@ -3310,6 +3394,18 @@ http.route({
   path: "/onboarding-follow-ups/mark-sent",
   method: "POST",
   handler: httpMarkOnboardingFollowUpSent,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/enqueue",
+  method: "POST",
+  handler: httpEnqueueOnboardingFollowUps,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/approved",
+  method: "POST",
+  handler: httpApprovedOnboardingFollowUps,
 });
 
 http.route({

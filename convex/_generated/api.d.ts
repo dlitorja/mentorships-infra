@@ -69,6 +69,7 @@ import type * as onboardingArtworkExports from "../onboardingArtworkExports.js";
 import type * as onboardingFollowUps from "../onboardingFollowUps.js";
 import type * as onboardingQuestionnaire from "../onboardingQuestionnaire.js";
 import type * as onboardingQuestionnaireActions from "../onboardingQuestionnaireActions.js";
+import type * as onboardingReminderReview from "../onboardingReminderReview.js";
 import type * as onboardingWorkExamples from "../onboardingWorkExamples.js";
 import type * as onboardingWorkExamplesActions from "../onboardingWorkExamplesActions.js";
 import type * as orders from "../orders.js";
@@ -168,6 +169,7 @@ declare const fullApi: ApiFromModules<{
   onboardingFollowUps: typeof onboardingFollowUps;
   onboardingQuestionnaire: typeof onboardingQuestionnaire;
   onboardingQuestionnaireActions: typeof onboardingQuestionnaireActions;
+  onboardingReminderReview: typeof onboardingReminderReview;
   onboardingWorkExamples: typeof onboardingWorkExamples;
   onboardingWorkExamplesActions: typeof onboardingWorkExamplesActions;
   orders: typeof orders;
