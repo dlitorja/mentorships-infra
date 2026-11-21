@@ -1,5 +1,12 @@
 # Vercel Security Review — enablement and triage runbook
 
+> Status (2026-11-20): **disabled.** Turned on 2026-11-04, turned off on 2026-11-20 after the
+> first billing cycle measured the real cost: **Vercel Agent reached $63.84 in nine days** — 89%
+> of the $72.00 on-demand subtotal, an order of magnitude above the estimate in §7 — while the
+> 16 findings it produced were still untriaged. The findings were fixed first (see §11), then the
+> feature was switched off. Re-enabling is a dashboard action; §3 and §7 are unchanged.
+> Verification of the 2026-11-04 enablement is preserved below.
+>
 > Status (2026-11-04): **enabled.** Owner turned on *Review Deployments Automatically*,
 > selected the three live projects, and enabled Agent chat. Verified from outside the dashboard:
 > `vercel security vulnerabilities --scope dustin-litorjas-projects-95e47775` returns an empty
@@ -221,16 +228,40 @@ Rate of **$0.25 per million tokens**. Reviews run **per Git push**, so the drive
 diff size × selected projects — a three-project selection triples the per-push reviews for a
 monorepo commit that touches all three roots.
 
-Per `AGENTS.md` §"Fly Sprites" cost-disclosure posture:
+**Measured** (FOCUS billing records, cycle 2026-11-12 → 2026-12-11, read 2026-11-20):
 
-- No pre-approval needed at the expected volume (a few pushes/day across three projects stays
-  within the sub-$3/month band for most weeks).
-- If a week's Vercel Agent line crosses **$3/month cumulative**, say so in the relevant PR or
-  Linear issue before turning on anything broader (e.g. *All projects*).
-- If it crosses **$20/month cumulative**, confirm with the operator, citing the measured
-  per-push cost and the alternative (Tier 1 scan, or a monthly manual run).
-- Measure after two weeks: Vercel Agent pricing/usage in the dashboard, then replace this
-  paragraph's estimates with the observed number.
+| Day (UTC window) | Vercel Agent | Budget driver |
+|---|---|---|
+| 2026-11-12 | $15.40 | 11 PRs merged the previous day |
+| 2026-11-13 | $1.96 | 2 PRs |
+| 2026-11-14 | $0.61 | 1 PR |
+| 2026-11-15 | $1.33 | 2 PRs |
+| 2026-11-16 | $0.00 | no pushes |
+| 2026-11-17 | $11.03 | 4 PRs |
+| 2026-11-18 | $13.58 | 10 PRs |
+| 2026-11-19 | $2.11 | 2 PRs |
+| 2026-11-20 | $17.82 | 5 PRs |
+| **9-day total** | **$63.84** | ~$7.09/day, ~$1.30–1.50 per merged PR |
+
+Everything else on the team bill for the same window totalled **$8.16** (build CPU $7.90, Fluid
+$0.06, image optimisation $0.09), so Agent was 89% of on-demand spend. At that rate the cycle
+projects to roughly **$240** ($220 net of the $20 credit), not the sub-$3/month originally
+estimated here.
+
+The earlier guidance ("sub-$3/month; confirm above $20/month") was wrong by an order of
+magnitude because it assumed a few pushes a day. The real driver is merge bursts: a 10-PR day
+costs more than two quiet weeks. If the feature is ever re-enabled:
+
+- Select **one** project, not three. Every finding produced in the measured window came from
+  `mentorships-infra-platform`.
+- Leave **Agent chat** off unless *Fix with Vercel Agent* is actually used.
+- Budget by push volume, not by calendar: ~$1.40 per merged PR across three projects.
+- Disclose on the same thresholds as `AGENTS.md` §"Fly Sprites" (flag at $3/month, confirm at
+  $20/month), measured from the billing records rather than inferred.
+
+The API exposes only one aggregated `Vercel Agent` line per day, so cost cannot be split
+between Security Review, Agent Review, and chat. The per-push shape above is a correlation
+between the daily line and merge activity, not a measured per-feature attribution.
 
 ## 8. Rollback
 
@@ -275,6 +306,9 @@ runtime.
 | 2026-11-04 | **Enabled** for `platform`, `marketing`, `huckleberry-drive` (Owner dashboard action); Agent chat on so *Fix with Vercel Agent* is available. Empty-vs-error CLI comparison confirms the team-level toggle; project selection and policy text are dashboard-only and are confirmed by the first review check on a push. | Operator confirmed setup; verification recorded in the doc header. |
 | 2026-11-05 | A finding marks the `Vercel Security Review` check `failure` (observed on PR #1021: `failure` at detection `ca0a6ae7`, `success` at fix `ddd68ee6`). Trigger #2 is therefore automatic; no timer needed. First real finding (business-logic, email squatting, Medium) verified fixed in `main` by the `identity.email` guard in `createInstructor`. | First finding since enablement; answers T2 of HUC-137. |
 | 2026-11-04 | Triage is automated by `scripts/security-review-triage.mjs` (dry run by default, `--apply` to open Linear issues, dedupe on a `security-review-ref` marker). Deliberately **not** a workflow: on a public repo, findings must not reach CI logs or artifacts. | Nothing notifies the team when a Critical/High lands; the dashboard requires someone to remember to look. |
+| 2026-11-20 | **Cost review.** Nine days of FOCUS billing put Vercel Agent at $63.84 of a $72.00 on-demand subtotal (89%), ~$1.30–1.50 per merged PR, projecting to ~$240 for the cycle. The §7 estimate was off by ~10×. | Weekly usage summary; daily billing records correlated with merge activity. |
+| 2026-11-20 | **All 16 open findings triaged and fixed in code** (one High, fifteen Medium; four duplicate pairs collapsed to one root cause each). None were dismissed as `false-positive`; nothing is left open in the source. | Operator: "fix any of the findings you haven't fixed yet." |
+| 2026-11-20 | **Disabled.** Owner turned Vercel Agent off after the fixes merged. Existing findings remain in the dashboard as the audit trail; no repo change is needed (see §8). | Cost per unit of triaged value: 9 days and ~$64 produced 10 distinct issues, and the review surface had no triage pipeline behind it. |
 
 ## 12. Cross-references
 

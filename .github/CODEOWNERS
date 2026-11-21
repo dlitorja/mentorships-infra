@@ -1,0 +1,28 @@
+# Review-gate integrity.
+#
+# The `Review Gate` check is itself defined by workflow files in this
+# directory. `pull_request` runs the workflow **from the pull request**, so an
+# author who edits `review-gate.yml` is judged by their own edited version and
+# can remove the Greptile requirement. CODEOWNERS does not fix that on its own —
+# it is the enforcement half of the mitigation:
+#
+#   1. Branch protection on `main` must enable
+#      "Require a pull request before merging" →
+#      "Require review from Code Owners".
+#   2. This file must then list the maintainer for every path that can change
+#      the gate or the merge policy.
+#
+# Without (1) these entries are advisory only. See
+# docs/greptile-cost-policy.md §"Who can change the gate".
+#
+# If the team grows, replace the individual with a team handle (for example
+# `@dlitorja/ci-owners`). A single-maintainer repo cannot self-approve, so the
+# owner must review workflow changes from a second account or accept the
+# documented risk.
+
+# The gate, its helpers, and every workflow that can gate a deploy.
+/.github/ @dlitorja
+
+# Merge policy and review-cost rules the gate implements.
+/AGENTS.md @dlitorja
+/docs/greptile-cost-policy.md @dlitorja

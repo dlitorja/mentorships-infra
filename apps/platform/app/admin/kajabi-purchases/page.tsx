@@ -161,6 +161,11 @@ export default function AdminKajabiPurchasesPage(): React.JSX.Element {
                       </td>
                       <td className="p-2 font-mono text-xs">
                         {row.kajabiPurchaseId ?? "—"}
+                        {row.conflictWith ? (
+                          <Badge variant="destructive" className="ml-2">
+                            Conflict
+                          </Badge>
+                        ) : null}
                       </td>
                       <td className="p-2">
                         <Badge

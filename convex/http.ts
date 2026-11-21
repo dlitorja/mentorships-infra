@@ -3074,6 +3074,11 @@ const httpKajabiPurchaseOnboarding = httpAction(async (ctx, request) => {
         expiresAt:
           typeof body.expiresAt === "number" ? body.expiresAt : undefined,
         externalPurchaseId,
+        legacyExternalPurchaseIds: Array.isArray(body.legacyExternalPurchaseIds)
+          ? body.legacyExternalPurchaseIds.filter(
+              (value): value is string => typeof value === "string" && value.length > 0
+            )
+          : undefined,
       }
     );
 

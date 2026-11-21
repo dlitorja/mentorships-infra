@@ -15,6 +15,7 @@ export type KajabiPurchaseListItem = {
   studentName?: string;
   studentEmail?: string;
   kajabiPurchaseId?: string;
+  conflictWith?: Id<"kajabiPurchaseInbox">;
   status: KajabiPurchaseStatus;
   onboardingId?: Id<"adminOnboardings">;
   createdAt: number;

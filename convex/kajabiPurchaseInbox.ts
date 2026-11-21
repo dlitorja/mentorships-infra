@@ -71,6 +71,8 @@ export const upsertFromEmail = internalMutation({
       return { purchaseId: byEmail._id, inserted: false, status: byEmail.status };
     }
 
+    let conflictWith: Id<"kajabiPurchaseInbox"> | undefined;
+
     if (args.kajabiPurchaseId) {
       const byPurchase = await ctx.db
         .query("kajabiPurchaseInbox")
@@ -79,11 +81,13 @@ export const upsertFromEmail = internalMutation({
         )
         .first();
       if (byPurchase) {
-        return {
-          purchaseId: byPurchase._id,
-          inserted: false,
-          status: byPurchase.status,
-        };
+        // Nothing in the message proves who sent it — the purchase id, the
+        // sender, and the student address all come from the email body — so a
+        // content-based "same message" test is exactly what a forged claim
+        // copies. Never drop the second claim: keep it and flag the conflict,
+        // letting staff see both. Exact replays are already collapsed by the
+        // Resend email id above, which the sender cannot choose.
+        conflictWith = byPurchase._id;
       }
     }
 
@@ -101,6 +105,7 @@ export const upsertFromEmail = internalMutation({
       studentEmail: args.studentEmail,
       kajabiPurchaseId: args.kajabiPurchaseId,
       kajabiContactId: args.kajabiContactId,
+      conflictWith,
       rawText: args.rawText.slice(0, 20_000),
       status: "pending",
       createdAt: now,
@@ -142,6 +147,7 @@ export const listPurchases = query({
         studentName: row.studentName,
         studentEmail: row.studentEmail,
         kajabiPurchaseId: row.kajabiPurchaseId,
+        conflictWith: row.conflictWith,
         status: row.status,
         onboardingId: row.onboardingId,
         createdAt: row.createdAt,

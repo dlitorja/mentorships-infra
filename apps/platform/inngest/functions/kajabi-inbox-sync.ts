@@ -1,5 +1,8 @@
 import { inngest } from "../client";
-import { convexServerCall } from "@/lib/convex-server-call";
+import {
+  ConvexServerCallError,
+  convexServerCall,
+} from "@/lib/convex-server-call";
 import { parseKajabiPurchaseEmail } from "@/lib/kajabi/parse-purchase-email";
 import { reportError } from "@/lib/observability";
 
@@ -70,31 +73,59 @@ export const kajabiInboxSync = inngest.createFunction(
   async ({ step }) => {
     const receivingAddress = process.env.KAJABI_INBOX_RECEIVING_ADDRESS;
 
-    // Fetch the newest page, then keep paging older while the page is full.
-    // Without this, a confirmation that falls off the first 20 after an
-    // outage or a busy window would never be imported. Dedupe makes
-    // reprocessing the overlap safe.
-    const listed = await step.run("list-received-emails", async () => {
-      const all: ReceivedEmailSummary[] = [];
-      let after: string | undefined;
-      for (let page = 0; page < 3; page++) {
-        const params = new URLSearchParams({ limit: "100" });
+    // Page through the whole receiving list, not a fixed window. The inbox
+    // is a shared support address: any sender can add mail, so a burst of
+    // newer messages (or a flood of purchase-shaped ones) must not push a
+    // real confirmation off the end of the scan. Dedupe on the Resend email
+    // id makes re-reading old pages harmless.
+    //
+    // Each page is its own step so a long scan is resumable instead of
+    // re-fetching from the top on retry. The cap is a runaway guard only;
+    // hitting it is reported so an operator can drain the backlog by hand.
+    const MAX_LIST_PAGES = 40;
+    const PAGE_SIZE = 100;
+
+    const pages: ReceivedEmailSummary[][] = [];
+    let after: string | undefined;
+    let exhausted = false;
+
+    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      const rows = await step.run(`list-received-emails-${page}`, async () => {
+        const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
         if (receivingAddress) params.set("to", receivingAddress);
         if (after) params.set("after", after);
         const pageResult = await resendGet<{ data?: ReceivedEmailSummary[] }>(
           `/emails/receiving?${params.toString()}`
         );
-        const rows = pageResult.data ?? [];
-        all.push(...rows);
-        if (rows.length < 100) break;
-        const lastId = rows[rows.length - 1]?.id;
-        if (!lastId || lastId === after) break;
-        after = lastId;
-      }
-      return { data: all };
-    });
+        return pageResult.data ?? [];
+      });
 
-    const candidates = (listed.data ?? []).filter((email) =>
+      pages.push(rows);
+      if (rows.length < PAGE_SIZE) {
+        exhausted = true;
+        break;
+      }
+      const lastId = rows[rows.length - 1]?.id;
+      if (!lastId || lastId === after) {
+        exhausted = true;
+        break;
+      }
+      after = lastId;
+    }
+
+    const listed = pages.flat();
+
+    if (!exhausted) {
+      await reportError({
+        source: "inngest:kajabi-inbox-sync",
+        error: null,
+        level: "warn",
+        message: "Kajabi inbox scan hit its page cap; older mail was not examined",
+        context: { pages: pages.length, messages: listed.length, pageSize: PAGE_SIZE },
+      });
+    }
+
+    const candidates = listed.filter((email) =>
       /new purchase for/i.test(email.subject ?? "")
     );
 
@@ -115,30 +146,57 @@ export const kajabiInboxSync = inngest.createFunction(
           });
           if (!parsed) return "skipped";
 
+          // `rawText` is required by the upsert endpoint. A subject-only
+          // message (purchase-shaped subject, empty body) used to be sent as
+          // an empty string, which the endpoint rejected with a 400 and the
+          // whole sequential batch died on — leaving every older genuine
+          // confirmation unimported on every subsequent poll. Skip it here
+          // instead; the admin queue only ever needs messages with content.
+          const rawText =
+            detail.text && detail.text.trim().length > 0
+              ? detail.text
+              : (detail.html ?? "");
+          if (rawText.trim().length === 0) return "skipped";
+
           const receivedAt = detail.created_at
             ? new Date(detail.created_at).getTime()
             : Date.now();
 
-          const result = await convexServerCall<{
-            success: boolean;
-            inserted?: boolean;
-          }>("/kajabi-purchase-inbox/upsert", {
-            resendEmailId: detail.id,
-            fromAddress: detail.from ?? candidate.from ?? "unknown",
-            subject: detail.subject ?? candidate.subject ?? "",
-            receivedAt,
-            offerTitle: parsed.offerTitle,
-            purchaseType: parsed.purchaseType,
-            instructorName: parsed.instructorName,
-            studentName: parsed.studentName,
-            studentEmail: parsed.studentEmail,
-            kajabiPurchaseId: parsed.kajabiPurchaseId,
-            kajabiContactId: parsed.kajabiContactId,
-            rawText:
-              detail.text && detail.text.trim().length > 0
-                ? detail.text
-                : (detail.html ?? ""),
-          });
+          let result: { success: boolean; inserted?: boolean };
+          try {
+            result = await convexServerCall<{
+              success: boolean;
+              inserted?: boolean;
+            }>("/kajabi-purchase-inbox/upsert", {
+              resendEmailId: detail.id,
+              fromAddress: detail.from ?? candidate.from ?? "unknown",
+              subject: detail.subject ?? candidate.subject ?? "",
+              receivedAt,
+              offerTitle: parsed.offerTitle,
+              purchaseType: parsed.purchaseType,
+              instructorName: parsed.instructorName,
+              studentName: parsed.studentName,
+              studentEmail: parsed.studentEmail,
+              kajabiPurchaseId: parsed.kajabiPurchaseId,
+              kajabiContactId: parsed.kajabiContactId,
+              rawText,
+            });
+          } catch (error) {
+            // A 4xx from the upsert is deterministic: replaying the same
+            // message cannot succeed, and letting it throw would abort the
+            // rest of the batch. Skip this message and keep going. 5xx,
+            // auth, and network failures stay fatal so Inngest retries.
+            if (
+              error instanceof ConvexServerCallError &&
+              error.status >= 400 &&
+              error.status < 500 &&
+              error.status !== 401 &&
+              error.status !== 429
+            ) {
+              return "skipped";
+            }
+            throw error;
+          }
 
           return result.inserted === false ? "skipped" : "inserted";
         }
@@ -155,7 +213,7 @@ export const kajabiInboxSync = inngest.createFunction(
         level: "info",
         message: "Kajabi inbox sync completed",
         context: {
-          listed: listed.data?.length ?? 0,
+          listed: listed.length,
           candidates: candidates.length,
           inserted,
           skipped,
@@ -164,7 +222,7 @@ export const kajabiInboxSync = inngest.createFunction(
     }
 
     return {
-      listed: listed.data?.length ?? 0,
+      listed: listed.length,
       candidates: candidates.length,
       inserted,
       skipped,
