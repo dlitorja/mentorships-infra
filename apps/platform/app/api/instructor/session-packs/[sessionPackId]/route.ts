@@ -22,6 +22,14 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("increment"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("decrement"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("set"), amount: z.number().int().min(0) }),
+  // The `expected*` pair is a snapshot of the STORED counts, used only for
+  // the optimistic-concurrency check inside the mutation — it is not the
+  // state being requested, so it is deliberately not validated against the
+  // `remainingSessions <= totalSessions` invariant. A pack written by an
+  // older grant path can legitimately be stored as `4 total / 5 remaining`,
+  // and rejecting that snapshot here made the row impossible to repair from
+  // the workspace: the instructor's valid "enter 4" request was answered
+  // with a 400 before the mutation ever ran.
   z
     .object({
       action: z.literal("setBoth"),
@@ -33,10 +41,6 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
     .refine((data) => data.remainingSessions <= data.totalSessions, {
       message: "remainingSessions must be less than or equal to totalSessions",
       path: ["remainingSessions"],
-    })
-    .refine((data) => data.expectedRemainingSessions <= data.expectedTotalSessions, {
-      message: "expectedRemainingSessions must be less than or equal to expectedTotalSessions",
-      path: ["expectedRemainingSessions"],
     }),
   z
     .object({
@@ -49,10 +53,6 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
     .refine((data) => data.remainingSessions <= data.totalSessions, {
       message: "remainingSessions must be less than or equal to totalSessions",
       path: ["remainingSessions"],
-    })
-    .refine((data) => data.expectedRemainingSessions <= data.expectedTotalSessions, {
-      message: "expectedRemainingSessions must be less than or equal to expectedTotalSessions",
-      path: ["expectedRemainingSessions"],
     }),
 ]);
 

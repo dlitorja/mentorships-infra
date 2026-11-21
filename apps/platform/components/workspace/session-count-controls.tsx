@@ -167,6 +167,18 @@ export function SessionCountControls({
   const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack?.remainingSessions ?? 0;
   const totalSessions = optimisticCount?.totalSessions ?? sessionPack?.totalSessions ?? 0;
 
+  // A pack can carry more credits than its recorded pack size when a grant
+  // path raised `remainingSessions` without growing `totalSessions`. The
+  // write path enforces `remainingSessions <= totalSessions`, so opening
+  // the dialog on such a pack used to pre-fill an unsavable value and fail
+  // on Save with the generic "cannot exceed the original pack size"
+  // message. `admin.incrementRemainingSessions` now keeps the invariant
+  // (and `migrations:repairSessionPackOverCapacity` repairs old rows), but
+  // the dialog still explains the state instead of dead-ending if one
+  // slips through.
+  const packOverCapacity =
+    !!sessionPack && sessionPack.remainingSessions > sessionPack.totalSessions;
+
   useLayoutEffect(() => {
     latestCountRef.current = { remainingSessions, totalSessions };
   }, [remainingSessions, totalSessions]);
@@ -246,7 +258,11 @@ export function SessionCountControls({
       return;
     }
     if (remaining > total) {
-      setEditError("Remaining cannot exceed the original pack size.");
+      setEditError(
+        packOverCapacity && sessionPack
+          ? `This pack records ${sessionPack.remainingSessions} sessions remaining against a pack size of ${total}. Enter ${total} or fewer to bring it back in range.`
+          : "Remaining cannot exceed the original pack size."
+      );
       return;
     }
 
@@ -316,7 +332,7 @@ export function SessionCountControls({
       setPendingAction(null);
       setIsEditSubmitting(false);
     }
-  }, [editRemainingInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
+  }, [editRemainingInput, isEditSubmitting, packOverCapacity, refetch, sessionPack, sessionPackId, syncFromServer]);
 
   /**
    * Reset the pack to the { totalSessions, remainingSessions } it had
@@ -426,14 +442,22 @@ export function SessionCountControls({
 
   const isPending = pendingAction !== null;
   const snapshot = pageLoadSnapshot;
+  // Resetting to the page-load snapshot is impossible when that snapshot
+  // itself is over capacity: the API route rejects `remaining > total`
+  // before the mutation runs, so the button would only produce a generic
+  // "Failed to reset sessions" toast.
+  const snapshotOverCapacity =
+    snapshot !== null && snapshot.remainingSessions > snapshot.totalSessions;
   // Reset is a no-op when:
   //   - any action is already in flight,
   //   - the snapshot hasn't been captured yet (pack still loading),
+  //   - the snapshot is an over-capacity count that cannot be restored,
   //   - the current count already matches the page-load snapshot
   //     (e.g. the user opened the page after a previous reset).
   const resetDisabled =
     isPending ||
     snapshot === null ||
+    snapshotOverCapacity ||
     (totalSessions === snapshot.totalSessions &&
       remainingSessions === snapshot.remainingSessions);
 
@@ -470,14 +494,18 @@ export function SessionCountControls({
           className="h-8 w-8 rounded-none"
           disabled={resetDisabled}
           aria-label={
-            snapshot
-              ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}`
-              : "Reset session count (loading…)"
+            snapshotOverCapacity
+              ? "Reset session count unavailable — this pack has more sessions remaining than its pack size"
+              : snapshot
+                ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}`
+                : "Reset session count (loading…)"
           }
           title={
-            snapshot
-              ? `Reset to ${formatRemainingLabel(snapshot.remainingSessions)} (restores the count from before your changes on this page)`
-              : "Reset session count"
+            snapshotOverCapacity
+              ? "Reset unavailable: this pack has more sessions remaining than its pack size. Save a count within the pack size first."
+              : snapshot
+                ? `Reset to ${formatRemainingLabel(snapshot.remainingSessions)} (restores the count from before your changes on this page)`
+                : "Reset session count"
           }
           onClick={() => setResetConfirmOpen(true)}
         >
@@ -514,6 +542,13 @@ export function SessionCountControls({
             }}
             className="space-y-4"
           >
+            {packOverCapacity && sessionPack && (
+              <p className="text-sm text-destructive" role="status">
+                This pack records {sessionPack.remainingSessions} sessions remaining against a pack size of{" "}
+                {sessionPack.totalSessions}. Enter {sessionPack.totalSessions} or fewer to bring it back in
+                range.
+              </p>
+            )}
             <div className="space-y-2">
               <Label htmlFor="session-pack-remaining">Remaining sessions</Label>
               <Input
