@@ -228,14 +228,24 @@ export const onboardingFollowUps = inngest.createFunction(
     });
 
     // Claiming marks the rows `sending` in the same transaction that returns
-    // them, so two overlapping runs cannot both send the same row.
-    const approved = await step.run("claim-approved", async () => {
-      const result = await convexServerCall<{ items: ApprovedItem[] }>(
-        "/onboarding-follow-ups/claim",
-        { limit: 50 }
-      );
-      return result.items;
-    });
+    // them, so two overlapping runs cannot both send the same row. Claim in
+    // batches until the queue is drained — one approval request can carry up to
+    // 100 rows and fires a single event, so a single 50-row claim would leave
+    // the rest waiting for the next hourly tick.
+    const CLAIM_BATCH = 50;
+    const MAX_CLAIM_BATCHES = 4;
+    const approved: ApprovedItem[] = [];
+    for (let batch = 0; batch < MAX_CLAIM_BATCHES; batch++) {
+      const items = await step.run(`claim-approved-${batch}`, async () => {
+        const result = await convexServerCall<{ items: ApprovedItem[] }>(
+          "/onboarding-follow-ups/claim",
+          { limit: CLAIM_BATCH }
+        );
+        return result.items;
+      });
+      approved.push(...items);
+      if (items.length < CLAIM_BATCH) break;
+    }
 
     let sent = 0;
 
