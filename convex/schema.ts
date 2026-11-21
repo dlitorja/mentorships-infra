@@ -1735,6 +1735,14 @@ export default defineSchema({
   // Dedupe log for onboarding follow-up reminders (48h/5d student
   // sign-up nudges, 7-day admin check-in, 3-day instructor review nudge).
   // One row per dedupe key, so a cron replay cannot double-send.
+  /**
+   * Staged outbox for the automated onboarding follow-ups.
+   *
+   * Every nudge the hourly `onboarding-follow-ups` worker would send is first
+   * written here as `pending_review`. Nothing leaves until an admin approves
+   * it, and "do not send" is expressed by parking the row as `suppressed`
+   * with a reason — the dedupe key then keeps the scan from re-queueing it.
+   */
   onboardingReminders: defineTable({
     dedupeKey: v.string(),
     onboardingId: v.id("adminOnboardings"),
@@ -1745,12 +1753,49 @@ export default defineSchema({
       v.literal("instructor_review_3d")
     ),
     recipient: v.string(),
-    sentAt: v.number(),
+    // Absent until the provider accepts the send.
+    sentAt: v.optional(v.number()),
     resendId: v.optional(v.string()),
+
+    // Review staging. Rows written before the outbox existed have neither
+    // field and are treated as already sent.
+    status: v.optional(
+      v.union(
+        v.literal("pending_review"),
+        v.literal("approved"),
+        // Claimed by a worker run. A crashed run leaves the row here; the
+        // claim mutation re-claims rows whose claim is stale.
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("suppressed")
+      )
+    ),
+    createdAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
+    recipientName: v.optional(v.string()),
+    recipientKind: v.optional(
+      v.union(
+        v.literal("student"),
+        v.literal("instructor"),
+        v.literal("admin")
+      )
+    ),
+    subject: v.optional(v.string()),
+    // Plain-text body, shown in the review UI. The worker rebuilds the HTML
+    // from `context` at send time so the stored row stays small.
+    previewText: v.optional(v.string()),
+    // JSON of the builder inputs (student/instructor names, days pending, …).
+    context: v.optional(v.string()),
+    // Why the scan queued it, in one line, for the reviewer.
+    reason: v.optional(v.string()),
+    reviewedByUserId: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    suppressReason: v.optional(v.string()),
   })
     .index("by_dedupeKey", ["dedupeKey"])
     .index("by_onboardingId", ["onboardingId"])
-    .index("by_kind_sentAt", ["kind", "sentAt"]),
+    .index("by_kind_sentAt", ["kind", "sentAt"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   suppressionEvents: defineTable({
     kind: v.union(

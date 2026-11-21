@@ -2,6 +2,11 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import {
+  anyPairWorking,
+  instructorCanOpenReview,
+  pairAlreadyWorking,
+} from "./lib/onboardingReminderEligibility";
 
 /**
  * Follow-up reminder scan for onboarding.
@@ -90,18 +95,21 @@ export const scan = internalQuery({
 
     for (const row of await pendingOnboardings(now - 48 * HOUR_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_48h", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites48h.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 5 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "student_invite_5d", now);
       if (!(await isSent(ctx, item.dedupeKey))) studentInvites5d.push(item);
     }
 
     for (const row of await pendingOnboardings(now - 7 * DAY_MS)) {
       if (row.assignedStudentClerkId) continue;
+      if (await anyPairWorking(ctx, row)) continue;
       const item = await inviteItem(ctx, row, "admin_stale_7d", now);
       if (!(await isSent(ctx, item.dedupeKey))) adminStale7d.push(item);
     }
@@ -150,9 +158,15 @@ export const scan = internalQuery({
       if (!row || row.status === "cancelled") continue;
 
       for (const pair of row.perInstructor) {
+        // Per pair: one instructor having met the student must not silence
+        // another instructor's review nudge.
+        if (await pairAlreadyWorking(ctx, pair)) continue;
         const instructor = await ctx.db.get(pair.instructorId);
         const email = instructor?.email?.trim();
         if (!email) continue;
+        // Mailing a reviewer who cannot open the link is how a nudge turns
+        // into a support ticket; skip until the account is linked.
+        if (!(await instructorCanOpenReview(ctx, instructor, email))) continue;
         // Reviews are per reviewer. An admin review (or another
         // instructor's review) must not suppress this instructor's nudge.
         const reviewedByThisInstructor = instructor?.userId
@@ -185,37 +199,5 @@ export const scan = internalQuery({
       adminStale7d,
       instructorReviews,
     };
-  },
-});
-
-export const markSent = internalMutation({
-  args: {
-    dedupeKey: v.string(),
-    onboardingId: v.id("adminOnboardings"),
-    kind: v.union(
-      v.literal("student_invite_48h"),
-      v.literal("student_invite_5d"),
-      v.literal("admin_stale_7d"),
-      v.literal("instructor_review_3d")
-    ),
-    recipient: v.string(),
-    resendId: v.optional(v.string()),
-  },
-  handler: async (ctx: MutationCtx, args) => {
-    const existing = await ctx.db
-      .query("onboardingReminders")
-      .withIndex("by_dedupeKey", (q) => q.eq("dedupeKey", args.dedupeKey))
-      .first();
-    if (existing) return { inserted: false as const };
-
-    await ctx.db.insert("onboardingReminders", {
-      dedupeKey: args.dedupeKey,
-      onboardingId: args.onboardingId,
-      kind: args.kind,
-      recipient: args.recipient,
-      sentAt: Date.now(),
-      resendId: args.resendId,
-    });
-    return { inserted: true as const };
   },
 });
