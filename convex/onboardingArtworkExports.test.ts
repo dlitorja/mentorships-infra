@@ -535,3 +535,73 @@ test("HTTP artwork export data refuses a cancelled onboarding", async () => {
   const body = await r.json();
   expect(body.error).toMatch(/cancelled/i);
 });
+
+test("getOnboardingArtworkExports hides a completed export after cancellation", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId, instructorUserId } = await seedOnboarding(t);
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("onboardingArtworkExports", {
+      onboardingId: onboardingId as any,
+      requestedBy: instructorUserId,
+      status: "completed",
+      downloadUrl: "https://b2.example.com/artwork.zip",
+      expiresAt: Date.now() + 86_400_000,
+    });
+  });
+
+  const instructor = t.withIdentity({ subject: instructorUserId });
+  const before = await instructor.query(
+    api.onboardingArtworkExports.getOnboardingArtworkExports,
+    { onboardingId: onboardingId as any }
+  );
+  expect(before).toHaveLength(1);
+
+  // Cancellation is terminal: the previously issued ZIP must disappear from
+  // the viewer surface even though the signed URL has not expired.
+  await t.run(async (ctx) =>
+    ctx.db.patch(onboardingId as any, { status: "cancelled" })
+  );
+
+  const after = await instructor.query(
+    api.onboardingArtworkExports.getOnboardingArtworkExports,
+    { onboardingId: onboardingId as any }
+  );
+  expect(after).toEqual([]);
+});
+
+test("cancelAdminOnboarding revokes completed artwork exports", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId, instructorUserId } = await seedOnboarding(t);
+
+  const exportId = await t.run(async (ctx) => {
+    // `completed` is terminal, so move the row to a cancellable state.
+    await ctx.db.patch(onboardingId as any, { status: "failed" });
+    await ctx.db.insert("users", {
+      userId: "user_cancel_admin",
+      clerkId: "user_cancel_admin",
+      email: "cancel-admin@example.com",
+      role: "admin",
+    });
+    return ctx.db.insert("onboardingArtworkExports", {
+      onboardingId: onboardingId as any,
+      requestedBy: instructorUserId,
+      status: "completed",
+      downloadUrl: "https://b2.example.com/artwork.zip",
+      expiresAt: Date.now() + 86_400_000,
+    });
+  });
+
+  const admin = t.withIdentity({
+    subject: "user_cancel_admin",
+    email: "cancel-admin@example.com",
+  });
+  await admin.mutation(api.adminOnboarding.cancelAdminOnboarding, {
+    onboardingId: onboardingId as any,
+  });
+
+  const row = await t.run(async (ctx) => ctx.db.get(exportId));
+  expect(row?.status).toBe("failed");
+  expect(row?.downloadUrl).toBeUndefined();
+  expect(typeof row?.cancelledAt).toBe("number");
+});

@@ -254,6 +254,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       purchaseId = `kajabi:${event.event}:${offerId}:hash:${hash.digest("hex").slice(0, 32)}`;
     }
 
+    // Onboarding is NOT an inventory replay: it grants seats and session
+    // packs, and a repeat landing credits another renewal top-up. A single
+    // payment can arrive as `purchase.created` AND `payment.succeeded`
+    // (Kajabi sends both), and `purchaseId` above deliberately includes the
+    // event name, so using it here credited one payment twice. Key the
+    // onboarding on the transaction instead — the one field both callbacks
+    // share.
+    //
+    // When there is no transaction id we cannot prove the two callbacks are
+    // the same payment, so only the authoritative event grants sessions;
+    // the rest are still processed for inventory.
+    const onboardingPurchaseId: string | null =
+      transactionId.length > 0
+        ? ["kajabi-purchase", offerId, transactionId, memberEmail]
+            .filter((part) => part !== "")
+            .join(":")
+        : event.event === "purchase.created"
+          ? purchaseId
+          : null;
+
+    // Keys the previous release wrote for this payment. Without them, a
+    // redelivery of a payment onboarded just before this deploy would not find
+    // its existing row and would create a second onboarding.
+    const legacyOnboardingPurchaseIds =
+      transactionId.length > 0 && onboardingPurchaseId !== null
+        ? ["purchase.created", "payment.succeeded"]
+            .map((name) =>
+              ["kajabi", name, offerId, transactionId, memberEmail]
+                .filter((part) => part !== "")
+                .join(":")
+            )
+            .filter((key) => key !== onboardingPurchaseId)
+        : [];
+
     let alreadyApplied = false;
     let newInventory: number | null = null;
     try {
@@ -408,6 +442,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             purchaseIdFingerprint,
           },
         });
+      } else if (onboardingPurchaseId === null) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: new Error(
+            "Auto-onboarding skipped: no transaction id and a non-authoritative event",
+          ),
+          message:
+            "Auto-onboarding skipped: no stable purchase key for this event type",
+          level: "warn",
+          context: {
+            event: event.event,
+            instructorSlug: mapping.instructorSlug,
+            purchaseIdFingerprint,
+          },
+        });
       } else {
         try {
           await convexServerCall("/admin-onboarding/kajabi-purchase", {
@@ -415,7 +464,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             studentName:
               memberName && memberName.length > 0 ? memberName : undefined,
             instructorSlug: mapping.instructorSlug,
-            externalPurchaseId: purchaseId,
+            externalPurchaseId: onboardingPurchaseId,
+            ...(legacyOnboardingPurchaseIds.length > 0
+              ? { legacyExternalPurchaseIds: legacyOnboardingPurchaseIds }
+              : {}),
           });
         } catch (onboardingError) {
           await reportError({

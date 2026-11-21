@@ -128,13 +128,22 @@ export const getOnboardingArtworkExports = query({
     );
     if (!onboarding) return [];
 
-    return await ctx.db
+    // Cancellation is terminal and revokes the artwork. The work examples
+    // are purged, but a ZIP minted before the cancel holds a signed URL
+    // that stays valid for days, so the export row must not be reachable
+    // either. Gating on the onboarding (not just on `cancelledAt`) also
+    // hides rows from exports finished before this gate existed.
+    if (onboarding.status === "cancelled") return [];
+
+    const rows = await ctx.db
       .query("onboardingArtworkExports")
       .withIndex("by_onboardingId", (q) =>
         q.eq("onboardingId", args.onboardingId)
       )
       .order("desc")
       .take(5);
+
+    return rows.filter((row) => row.cancelledAt === undefined);
   },
 });
 
