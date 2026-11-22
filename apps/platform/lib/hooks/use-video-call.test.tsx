@@ -26,7 +26,7 @@
 // These tests pin those three behaviors so a future "fix" cannot
 // silently reintroduce the round-1 bug.
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +50,8 @@ const mocks = vi.hoisted(() => ({
   getVideoToken: vi.fn(),
   dailyParticipantsJoinedHandlers: [] as Array<(evt: unknown) => void>,
   dailyParticipantsLeftHandlers: [] as Array<(evt: unknown) => void>,
+  dailyScreenShareStartedHandlers: [] as Array<(evt: unknown) => void>,
+  dailyScreenShareCanceledHandlers: [] as Array<(evt: unknown) => void>,
 }));
 
 vi.mock("@daily-co/daily-react", () => ({
@@ -62,6 +64,10 @@ vi.mock("@daily-co/daily-react", () => ({
       mocks.dailyParticipantsJoinedHandlers.push(handler);
     } else if (eventName === "participant-left") {
       mocks.dailyParticipantsLeftHandlers.push(handler);
+    } else if (eventName === "local-screen-share-started") {
+      mocks.dailyScreenShareStartedHandlers.push(handler);
+    } else if (eventName === "local-screen-share-canceled") {
+      mocks.dailyScreenShareCanceledHandlers.push(handler);
     }
   },
   useMeetingState: () => mocks.useMeetingState(),
@@ -118,7 +124,12 @@ vi.mock("@/lib/queries/api-client", () => ({
 }));
 
 // Imported AFTER mocks so the hook module sees them.
+import { toast } from "sonner";
 import { useVideoCall } from "./use-video-call";
+import {
+  SCREEN_SHARE_DID_NOT_START_MESSAGE,
+  SCREEN_SHARE_UNSUPPORTED_MESSAGE,
+} from "@/lib/video/screen-share-support";
 
 const renderHook = (
   options: Partial<{
@@ -160,6 +171,8 @@ beforeEach(() => {
   mutationRegistry.callIndex = 0;
   mocks.dailyParticipantsJoinedHandlers.length = 0;
   mocks.dailyParticipantsLeftHandlers.length = 0;
+  mocks.dailyScreenShareStartedHandlers.length = 0;
+  mocks.dailyScreenShareCanceledHandlers.length = 0;
   mocks.useDaily.mockReturnValue({
     join: mocks.dailyJoin.mockResolvedValue(undefined),
     leave: mocks.dailyLeave.mockResolvedValue(undefined),
@@ -344,5 +357,239 @@ describe("useVideoCall — PR platform-call-bugs round 2 fixes", () => {
 
     expect(ref.current!.participantCount).toBe(1);
     expect(mutationRegistry.recordCallPresenceMessage.mutate).not.toHaveBeenCalled();
+  });
+});
+
+// Screen-share capability regression tests.
+//
+// A production instructor on an iPad reported the screen-share button
+// "not working". Root cause: iPadOS Safari before 27 does not expose
+// `navigator.mediaDevices.getDisplayMedia`, and Daily's
+// `startScreenShare()` is a documented no-op in that case — no start,
+// stop, cancel, or error event fires, so the old code produced zero
+// feedback. These tests pin the two feedback paths that replace the
+// silent failure:
+//   1. Tap-time capability check → explanatory toast, Daily not called.
+//   2. Watchdog when the API exists but the platform never reports an
+//      outcome → "didn't start" toast.
+describe("useVideoCall — screen share capability", () => {
+  const originalMediaDevices = Object.getOwnPropertyDescriptor(
+    navigator,
+    "mediaDevices"
+  );
+  const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(
+    navigator,
+    "maxTouchPoints"
+  );
+  const originalUserAgent = Object.getOwnPropertyDescriptor(
+    navigator,
+    "userAgent"
+  );
+
+  const setMediaDevices = (value: unknown): void => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value,
+    });
+  };
+
+  /**
+   * Simulate an iPad. iPadOS reports a desktop Macintosh user agent, so
+   * both the UA and the touch points have to match.
+   */
+  const setTouchPrimaryDevice = (): void => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 5,
+    });
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15",
+    });
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalMediaDevices) {
+      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+    } else {
+      delete (navigator as { mediaDevices?: unknown }).mediaDevices;
+    }
+    if (originalMaxTouchPoints) {
+      Object.defineProperty(
+        navigator,
+        "maxTouchPoints",
+        originalMaxTouchPoints
+      );
+    } else {
+      delete (navigator as { maxTouchPoints?: unknown }).maxTouchPoints;
+    }
+    if (originalUserAgent) {
+      Object.defineProperty(navigator, "userAgent", originalUserAgent);
+    }
+  });
+
+  it("explains the limitation and does not call Daily when getDisplayMedia is missing (iPadOS <= 26)", () => {
+    setMediaDevices({});
+    const { ref } = renderHook();
+
+    act(() => {
+      ref.current!.toggleScreenShare();
+    });
+
+    expect(mocks.startScreenShare).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "Screen sharing isn't available",
+      expect.objectContaining({
+        id: "screen-share-unsupported",
+        description: SCREEN_SHARE_UNSUPPORTED_MESSAGE,
+      })
+    );
+    expect(mocks.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "useVideoCall.toggleScreenShare.unsupported",
+        level: "warn",
+      })
+    );
+  });
+
+  it("reports the unsupported environment only once per session but re-toasts each tap", () => {
+    setMediaDevices({});
+    const { ref } = renderHook();
+
+    act(() => {
+      ref.current!.toggleScreenShare();
+    });
+    act(() => {
+      ref.current!.toggleScreenShare();
+    });
+
+    const unsupportedReports = mocks.reportError.mock.calls.filter(
+      ([arg]) =>
+        (arg as { source?: string }).source ===
+        "useVideoCall.toggleScreenShare.unsupported"
+    );
+    expect(unsupportedReports).toHaveLength(1);
+    // The user still needs feedback on every tap.
+    expect(toast.error).toHaveBeenCalledTimes(2);
+  });
+
+  it("calls Daily's startScreenShare when getDisplayMedia exists (desktop / iPadOS 27+)", async () => {
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+
+    expect(mocks.startScreenShare).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing isn't available",
+      expect.anything()
+    );
+  });
+
+  it("toasts on a touch device when the platform accepts the API but never reports a start or cancel", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    setTouchPrimaryDevice();
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.anything()
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.objectContaining({
+        id: "screen-share-did-not-start",
+        description: SCREEN_SHARE_DID_NOT_START_MESSAGE,
+      })
+    );
+    expect(mocks.reportError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "useVideoCall.toggleScreenShare.timeout",
+        level: "warn",
+      })
+    );
+  });
+
+  it("does not toast when Daily reports the share started", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    setTouchPrimaryDevice();
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    act(() => {
+      mocks.dailyScreenShareStartedHandlers.forEach((handler) => handler({}));
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.anything()
+    );
+  });
+
+  it("does not toast when the user cancels the browser picker", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    setTouchPrimaryDevice();
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    act(() => {
+      mocks.dailyScreenShareCanceledHandlers.forEach((handler) => handler({}));
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.anything()
+    );
+  });
+
+  it("does not arm the watchdog on a desktop (slow picker must not false-alarm)", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.anything()
+    );
+    expect(mocks.reportError).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "useVideoCall.toggleScreenShare.timeout",
+      })
+    );
   });
 });

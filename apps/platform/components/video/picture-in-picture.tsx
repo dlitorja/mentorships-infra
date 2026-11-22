@@ -11,6 +11,14 @@ import { cn } from "@/lib/utils";
 type Position = { x: number; y: number };
 
 /**
+ * Elements inside the floating panel that must keep their own click
+ * handling. `handlePointerDown` skips drag capture when the gesture
+ * starts on one of these — see the comment on that handler.
+ */
+const INTERACTIVE_SELECTOR =
+  "button, a, input, select, textarea, [role='button'], [role='slider'], [data-pip-no-drag]";
+
+/**
  * Floating mini-window for an in-progress video call.
  *
  * Spawns bottom-right when the user clicks the Picture-in-Picture
@@ -61,8 +69,28 @@ export function PictureInPicture({
     };
   }, []);
 
+  /**
+   * Pointer capture is what lets the panel keep receiving moves when the
+   * cursor leaves its 360×240 bounds mid-drag. But capturing on *every*
+   * pointerdown retargets the whole gesture to this container, including
+   * the compatibility `click`, so buttons rendered inside the panel
+   * (mute / camera / screen share / leave / restore) never fire their
+   * onClick. On a tablet the 600–900px layout uses PiP exclusively, which
+   * made every call control a dead tap — reported as "the screen-share
+   * button does nothing" on an iPad.
+   *
+   * Only start a drag (and capture) when the gesture begins outside an
+   * interactive control.
+   */
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        target.closest(INTERACTIVE_SELECTOR) !== null
+      ) {
+        return;
+      }
       dragStartRef.current = {
         pointerX: e.clientX,
         pointerY: e.clientY,
@@ -112,7 +140,13 @@ export function PictureInPicture({
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       dragStartRef.current = null;
-      ref.current?.releasePointerCapture(e.pointerId);
+      // Only release a capture this element actually owns. Taps that
+      // started on a control never captured (see handlePointerDown), and
+      // releasePointerCapture() on a non-captured pointer throws
+      // NotFoundError in some browsers.
+      if (ref.current?.hasPointerCapture(e.pointerId)) {
+        ref.current.releasePointerCapture(e.pointerId);
+      }
       // Flush any pending RAF position immediately so the final
       // pointerup position lands (otherwise the user can release
       // mid-RAF and see the panel snap to a stale position).

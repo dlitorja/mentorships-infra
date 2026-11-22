@@ -17,6 +17,12 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { DEFAULT_DAILY_DOMAIN } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
 import { getVideoToken } from "@/lib/queries/api-client";
+import {
+  SCREEN_SHARE_DID_NOT_START_MESSAGE,
+  SCREEN_SHARE_UNSUPPORTED_MESSAGE,
+  isScreenShareSupported,
+  isTouchPrimaryDevice,
+} from "@/lib/video/screen-share-support";
 
 export type VideoCallStatus =
   | "idle"
@@ -72,6 +78,25 @@ const tokenResponseSchema = z.object({
 });
 
 /**
+ * How long `toggleScreenShare` waits for Daily to report an outcome
+ * before telling the user the picker has not produced a share.
+ *
+ * `startScreenShare()` is non-blocking: it returns before the browser
+ * picker appears, and on platforms without `getDisplayMedia` it is a
+ * documented no-op that emits no event whatsoever. Without this
+ * watchdog an unsupported device (an iPad on iPadOS 26 or earlier, any
+ * Android tablet) sees a button that silently does nothing — the exact
+ * bug reported for the instructor tablet flow.
+ *
+ * Only armed on touch-first devices. A desktop picker can stay open
+ * while the user browses windows, and a timer firing then would be a
+ * false alarm; touch devices are also where Daily is documented as
+ * receive-only. 12s is long enough to pick a window, short enough that a
+ * swallowed request still gets feedback.
+ */
+const SCREEN_SHARE_START_WATCHDOG_MS = 12_000;
+
+/**
  * Hook that owns the Daily call lifecycle for a single workspace +
  * session. Returns immutable state + stable action handlers. Designed
  * to be called inside a `<DailyProvider>` (so `useDaily()` returns the
@@ -104,8 +129,33 @@ export function useVideoCall(
   const [status, setStatus] = useState<VideoCallStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Watchdog for the fire-and-forget `startScreenShare()` call below.
+  // Cleared by any Daily outcome event (started / stopped / canceled) or
+  // by an error, so it only fires when the platform swallowed the
+  // request without telling us anything.
+  const screenShareWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const clearScreenShareWatchdog = useCallback((): void => {
+    if (screenShareWatchdogRef.current !== null) {
+      clearTimeout(screenShareWatchdogRef.current);
+      screenShareWatchdogRef.current = null;
+    }
+  }, []);
+  // A call left mid-request must not toast after the panel unmounts.
+  useEffect(() => clearScreenShareWatchdog, [clearScreenShareWatchdog]);
+
+  // Dedupe the "unsupported device" telemetry: one report per session is
+  // enough to spot the pattern in Axiom, and repeated taps say nothing
+  // new. Reset when the session changes.
+  const unsupportedScreenShareReportedRef = useRef(false);
+  useEffect(() => {
+    unsupportedScreenShareReportedRef.current = false;
+  }, [sessionId]);
+
   const handleScreenShareError = useCallback(
     (ev: { errorMsg?: string | { message?: string } }) => {
+      clearScreenShareWatchdog();
       const message =
         typeof ev.errorMsg === "string"
           ? ev.errorMsg
@@ -122,11 +172,19 @@ export function useVideoCall(
         context: { workspaceId, sessionId },
       });
     },
-    [sessionId, workspaceId]
+    [clearScreenShareWatchdog, sessionId, workspaceId]
   );
 
   const { isSharingScreen, startScreenShare, stopScreenShare } =
     useScreenShare({ onError: handleScreenShareError });
+
+  // Mirror the active-share flag into a ref so the watchdog can check the
+  // current value instead of the value captured when the button was
+  // tapped (the start event may already have fired).
+  const isSharingScreenRef = useRef(isSharingScreen);
+  useEffect(() => {
+    isSharingScreenRef.current = isSharingScreen;
+  }, [isSharingScreen]);
 
   const queryClient = useQueryClient();
   const endCall = useMutation({
@@ -747,6 +805,7 @@ export function useVideoCall(
       });
     };
     if (isSharingScreen) {
+      clearScreenShareWatchdog();
       (async () => {
         try {
           await stopScreenShare();
@@ -754,16 +813,103 @@ export function useVideoCall(
           reportScreenShareError("useVideoCall.toggleScreenShare.stop", err);
         }
       })();
-    } else {
-      (async () => {
-        try {
-          await startScreenShare();
-        } catch (err) {
-          reportScreenShareError("useVideoCall.toggleScreenShare.start", err);
-        }
-      })();
+      return;
     }
-  }, [isSharingScreen, startScreenShare, stopScreenShare, sessionId, workspaceId]);
+
+    // Daily's `startScreenShare()` no-ops (and emits nothing) when the
+    // browser has no `getDisplayMedia`. Explain the limitation instead of
+    // leaving an instructor tapping a dead button.
+    if (!isScreenShareSupported()) {
+      toast.error("Screen sharing isn't available", {
+        id: "screen-share-unsupported",
+        description: SCREEN_SHARE_UNSUPPORTED_MESSAGE,
+        // Longer than the default 4s: this is the only feedback an iPad
+        // user gets, and it carries the workaround.
+        duration: 10_000,
+      });
+      // Report once per call — a frustrated user may tap repeatedly and
+      // each tap is the same environment fact.
+      if (!unsupportedScreenShareReportedRef.current) {
+        unsupportedScreenShareReportedRef.current = true;
+        void reportError({
+          source: "useVideoCall.toggleScreenShare.unsupported",
+          error: new Error(
+            "getDisplayMedia is not available in this browser"
+          ),
+          level: "warn",
+          message: "Screen share requested on an unsupported device",
+          context: {
+            workspaceId,
+            sessionId,
+            userAgent:
+              typeof navigator === "undefined"
+                ? null
+                : navigator.userAgent,
+          },
+        });
+      }
+      return;
+    }
+
+    // The API exists, but a touch device can still refuse silently (Daily
+    // documents mobile browsers as receive-only even where
+    // `getDisplayMedia` is exposed). Arm the watchdog there and let the
+    // start / cancel / error handlers clear it.
+    clearScreenShareWatchdog();
+    if (isTouchPrimaryDevice()) {
+      screenShareWatchdogRef.current = setTimeout(() => {
+        screenShareWatchdogRef.current = null;
+        if (isSharingScreenRef.current) return;
+        toast.error("Screen sharing hasn't started", {
+          id: "screen-share-did-not-start",
+          description: SCREEN_SHARE_DID_NOT_START_MESSAGE,
+          duration: 8_000,
+        });
+        void reportError({
+          source: "useVideoCall.toggleScreenShare.timeout",
+          error: new Error(
+            "No screen-share event within the watchdog window"
+          ),
+          level: "warn",
+          message: "Screen share did not start or cancel",
+          context: { workspaceId, sessionId },
+        });
+      }, SCREEN_SHARE_START_WATCHDOG_MS);
+    }
+
+    (async () => {
+      try {
+        await startScreenShare();
+      } catch (err) {
+        clearScreenShareWatchdog();
+        reportScreenShareError("useVideoCall.toggleScreenShare.start", err);
+      }
+    })();
+  }, [
+    clearScreenShareWatchdog,
+    isSharingScreen,
+    startScreenShare,
+    stopScreenShare,
+    sessionId,
+    workspaceId,
+  ]);
+
+  // Any recorded outcome means the user got feedback from the platform:
+  // stop the watchdog so it cannot toast over a successful share or a
+  // deliberate picker cancellation.
+  useDailyEvent(
+    "local-screen-share-started",
+    useCallback(() => {
+      clearScreenShareWatchdog();
+    }, [clearScreenShareWatchdog])
+  );
+
+  useDailyEvent(
+    "local-screen-share-canceled",
+    useCallback(() => {
+      clearScreenShareWatchdog();
+    }, [clearScreenShareWatchdog])
+  );
 
   // Track participant count + remote name. Key identity by
   // `session_id` (not `user_name`) so a mid-call `setUserName` does
