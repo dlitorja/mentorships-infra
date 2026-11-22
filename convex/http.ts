@@ -3280,6 +3280,19 @@ const httpMarkOnboardingFollowUpSent = httpAction(async (ctx, request) => {
         recipient: body.recipient,
         resendId:
           typeof body.resendId === "string" ? body.resendId : undefined,
+        recipientName:
+          typeof body.recipientName === "string" ? body.recipientName : undefined,
+        recipientKind:
+          body.recipientKind === "student" ||
+          body.recipientKind === "instructor" ||
+          body.recipientKind === "admin"
+            ? body.recipientKind
+            : undefined,
+        subject:
+          typeof body.subject === "string" ? body.subject : undefined,
+        previewText:
+          typeof body.previewText === "string" ? body.previewText : undefined,
+        reason: typeof body.reason === "string" ? body.reason : undefined,
       }
     );
     return new Response(JSON.stringify(result), {

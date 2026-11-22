@@ -339,3 +339,30 @@ test("enqueue gives every row in a batch a distinct cursor value", async () => {
   const cursors = rows.map((row) => row.createdAt);
   expect(new Set(cursors).size).toBe(rows.length);
 });
+
+test("markSent records what an automatic send delivered", async () => {
+  const t = convexTest(schema, modules);
+  const { onboardingId } = await seed(t);
+
+  await t.mutation(internal.onboardingReminderReview.markSent, {
+    dedupeKey: `onboarding:${onboardingId}:student_invite_48h`,
+    onboardingId: onboardingId as never,
+    kind: "student_invite_48h",
+    recipient: "student@example.com",
+    recipientName: "Student",
+    recipientKind: "student",
+    subject: "Reminder — finish setting up your Huckleberry mentorship",
+    previewText: "Hi Student, finish setting up…",
+    reason: "Student has no account after 2 day(s).",
+    resendId: "resend-auto",
+  });
+
+  const admin = t.withIdentity({ subject: "user_staff" });
+  const page = await admin.query(api.onboardingReminderReview.listForReview, {
+    status: "sent",
+  });
+  expect(page.items).toHaveLength(1);
+  expect(page.items[0].subject).toMatch(/finish setting up/);
+  expect(page.items[0].previewText).toContain("finish setting up");
+  expect(page.items[0].reason).toMatch(/no account/);
+});

@@ -122,3 +122,15 @@ Send `onboarding/followups.run` through Inngest, or use the Inngest dashboard's
 Test page. The function is idempotent: a run stages candidates and sends whatever
 an admin has already approved. `onboarding/followups.send` does the same and is
 fired automatically when an approval lands.
+
+### Automatic send failure isolation
+
+Each invite send is isolated: a rejected address (hard bounce, invalid domain)
+is reported and skipped, and the rest of the batch, the gated staging, and the
+approved sends still run. A failed invite is not marked sent, so the next hourly
+scan picks it up again; it will keep retrying until the address is fixed or the
+corresponding onboarding reminder is suppressed in the outbox.
+
+The digest is sent immediately after the invite loop, before staging and
+approval work, so a later failure cannot swallow the report of emails that
+already left.

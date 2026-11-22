@@ -156,3 +156,79 @@ describe("onboardingFollowUps", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 });
+
+describe("onboardingFollowUps failure isolation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    convexServerCall.mockReset();
+    vi.mocked(sendEmail).mockReset();
+    vi.mocked(sendEmail).mockResolvedValue({ ok: true, id: "resend-1" } as never);
+    process.env.NEXT_PUBLIC_URL = "https://dev.mentorships.example";
+    process.env.ADMIN_EMAILS = "admin@example.com";
+  });
+
+  it("keeps going when one invite is rejected", async () => {
+    const secondInvite = {
+      ...INVITE,
+      onboardingId: "onb_invite_2",
+      dedupeKey: "onboarding:onb_invite_2:student_invite_48h",
+      studentEmail: "second@example.com",
+      studentName: "Second Student",
+    };
+    mockBackend(
+      {
+        ...EMPTY_SCAN,
+        studentInvites48h: [INVITE, secondInvite],
+        instructorReviews: [REVIEW],
+      }
+    );
+    vi.mocked(sendEmail)
+      // First invite is rejected by the provider.
+      .mockResolvedValueOnce({ ok: false, error: "invalid recipient" } as never)
+      // Second invite goes out.
+      .mockResolvedValueOnce({ ok: true, id: "resend-2" } as never)
+      // Summary digest.
+      .mockResolvedValueOnce({ ok: true, id: "resend-3" } as never);
+
+    const result = (await (onboardingFollowUps as any)({
+      step: inlineStep(),
+    })) as { autoSent: number; failedInvites: number; staged: number };
+
+    expect(result.failedInvites).toBe(1);
+    expect(result.autoSent).toBe(1);
+    // The rejected invite did not stop the gated work.
+    expect(result.staged).toBe(1);
+
+    const digest = vi.mocked(sendEmail).mock.calls.at(-1)?.[0];
+    expect(digest?.subject).toMatch(/1 student email/);
+    expect(digest?.text).toContain("second@example.com");
+    expect(digest?.text).not.toContain("invite@example.com");
+  });
+
+  it("sends a legacy staged invite with the invite template", async () => {
+    mockBackend(EMPTY_SCAN, [
+      {
+        dedupeKey: "onboarding:onb_legacy:student_invite_48h",
+        onboardingId: "onb_legacy",
+        kind: "student_invite_48h",
+        recipient: "legacy@example.com",
+        recipientName: "Legacy Student",
+        subject: "Reminder — finish setting up your Huckleberry mentorship",
+        context: JSON.stringify({
+          studentName: "Legacy Student",
+          instructorName: "Neil Gray",
+          final: false,
+        }),
+      },
+    ]);
+
+    await (onboardingFollowUps as any)({ step: inlineStep() });
+
+    const sent = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(sent.to).toBe("legacy@example.com");
+    expect(sent.subject).toBe(
+      "Reminder — finish setting up your Huckleberry mentorship"
+    );
+    expect(sent.subject).not.toMatch(/review/i);
+  });
+});
