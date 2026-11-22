@@ -318,8 +318,28 @@ export const markSent = internalMutation({
     kind: REMINDER_KIND,
     recipient: v.string(),
     resendId: v.optional(v.string()),
+    // Optional so an automatic send can record what it delivered. Without
+    // these the Sent tab shows a blank subject and "(no preview)".
+    recipientName: v.optional(v.string()),
+    recipientKind: v.optional(RECIPIENT_KIND),
+    subject: v.optional(v.string()),
+    previewText: v.optional(v.string()),
+    reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const details: {
+      recipientName?: string;
+      recipientKind?: "student" | "instructor" | "admin";
+      subject?: string;
+      previewText?: string;
+      reason?: string;
+    } = {};
+    if (args.recipientName !== undefined) details.recipientName = args.recipientName;
+    if (args.recipientKind !== undefined) details.recipientKind = args.recipientKind;
+    if (args.subject !== undefined) details.subject = args.subject;
+    if (args.previewText !== undefined) details.previewText = args.previewText;
+    if (args.reason !== undefined) details.reason = args.reason;
+
     const existing = await ctx.db
       .query("onboardingReminders")
       .withIndex("by_dedupeKey", (q) => q.eq("dedupeKey", args.dedupeKey))
@@ -333,6 +353,7 @@ export const markSent = internalMutation({
         status: "sent",
         sentAt: Date.now(),
         resendId: args.resendId,
+        ...details,
       });
       return { inserted: true as const };
     }
@@ -346,6 +367,7 @@ export const markSent = internalMutation({
       createdAt: Date.now(),
       sentAt: Date.now(),
       resendId: args.resendId,
+      ...details,
     });
     return { inserted: true as const };
   },

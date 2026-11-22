@@ -6,6 +6,7 @@ import { reportError } from "@/lib/observability";
 import { buildInviteReminderEmail } from "@/lib/emails/invite-reminder";
 import { buildInstructorReviewReminderEmail } from "@/lib/emails/instructor-review-reminder";
 import { buildAdminStale7dDigestEmail } from "@/lib/emails/admin-stale-7d-digest";
+import { buildReminderSendSummaryEmail } from "@/lib/emails/reminder-send-summary";
 
 /**
  * Hourly follow-up nudges:
@@ -108,36 +109,13 @@ async function markSent(args: {
   kind: StagedKind;
   recipient: string;
   resendId?: string;
+  recipientName?: string;
+  recipientKind?: "student" | "instructor" | "admin";
+  subject?: string;
+  previewText?: string;
+  reason?: string;
 }): Promise<void> {
   await convexServerCall("/onboarding-follow-ups/mark-sent", args);
-}
-
-function inviteStaged(item: InviteItem, baseUrl: string): StagedItem {
-  const content = buildInviteReminderEmail({
-    studentName: item.studentName,
-    instructorName: item.instructorName,
-    signUpUrl: `${baseUrl}/sign-up`,
-    appUrl: baseUrl,
-    final: item.kind === "student_invite_5d",
-  });
-  return {
-    dedupeKey: item.dedupeKey,
-    onboardingId: item.onboardingId,
-    kind: item.kind,
-    recipient: item.studentEmail,
-    recipientName: item.studentName,
-    recipientKind: "student",
-    subject: content.subject,
-    previewText: content.text,
-    context: JSON.stringify({
-      studentName: item.studentName,
-      instructorName: item.instructorName,
-      final: item.kind === "student_invite_5d",
-    }),
-    reason: item.studentEmail
-      ? `Student has no account after ${item.daysPending} day(s).`
-      : "Student has no account.",
-  };
 }
 
 function adminDigestStaged(item: InviteItem): StagedItem {
@@ -187,15 +165,173 @@ export const onboardingFollowUps = inngest.createFunction(
   async ({ step }) => {
     const baseUrl = appBaseUrl();
 
-    const stageResult = await step.run("stage-candidates", async () => {
-      const scanned = await convexServerCall<ScanResult>(
+    const scanned = await step.run("scan", async () => {
+      return await convexServerCall<ScanResult>(
         "/onboarding-follow-ups/scan",
         {}
       );
+    });
 
+    let sent = 0;
+    let failedInvites = 0;
+
+    // Student invites are automatic: the student has no account yet, the
+    // reminder is time-sensitive, and holding it for review would cost days.
+    // Each send is reported in the summary digest below.
+    const autoSent: Array<{
+      kind: "student_invite_48h" | "student_invite_5d";
+      studentName: string;
+      studentEmail: string;
+      onboardingId: string;
+      sentAt: number;
+    }> = [];
+
+    for (const item of [
+      ...scanned.studentInvites48h.map((item) => ({
+        ...item,
+        kind: "student_invite_48h" as const,
+      })),
+      ...scanned.studentInvites5d.map((item) => ({
+        ...item,
+        kind: "student_invite_5d" as const,
+      })),
+    ]) {
+      // The step returns the summary row so an Inngest replay keeps the data
+      // instead of re-running the send.
+      // One rejected address (hard bounce, invalid domain) must not stop the
+      // rest of the batch or the gated work behind it, so each invite is
+      // isolated: the step always succeeds and reports the outcome.
+      const outcome = await step.run(
+        `send-invite:${item.dedupeKey}`,
+        async (): Promise<
+          | {
+              ok: true;
+              row: {
+                kind: "student_invite_48h" | "student_invite_5d";
+                studentName: string;
+                studentEmail: string;
+                onboardingId: string;
+                sentAt: number;
+              };
+            }
+          | { ok: false; error: string }
+        > => {
+          try {
+            const content = buildInviteReminderEmail({
+              studentName: item.studentName,
+              instructorName: item.instructorName,
+              signUpUrl: `${baseUrl}/sign-up`,
+              appUrl: baseUrl,
+              final: item.kind === "student_invite_5d",
+            });
+            const result = await sendEmail({
+              to: item.studentEmail,
+              subject: content.subject,
+              html: content.html,
+              text: content.text,
+              headers: content.headers,
+              kind: "transactional",
+              idempotencyKey: item.dedupeKey,
+            });
+            if (!result.ok) {
+              return {
+                ok: false,
+                error: "error" in result ? result.error : "unknown",
+              };
+            }
+            await markSent({
+              dedupeKey: item.dedupeKey,
+              onboardingId: item.onboardingId,
+              kind: item.kind,
+              recipient: item.studentEmail,
+              recipientName: item.studentName,
+              recipientKind: "student",
+              subject: content.subject,
+              previewText: content.text,
+              reason: `Student has no account after ${item.daysPending} day(s).`,
+              resendId: result.id ?? undefined,
+            });
+            return {
+              ok: true,
+              row: {
+                kind: item.kind,
+                studentName: item.studentName,
+                studentEmail: item.studentEmail,
+                onboardingId: item.onboardingId,
+                sentAt: Date.now(),
+              },
+            };
+          } catch (error) {
+            return {
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
+      );
+
+      if (outcome.ok) {
+        autoSent.push(outcome.row);
+        sent += 1;
+      } else {
+        failedInvites += 1;
+        await reportError({
+          source: "inngest:onboarding-follow-ups",
+          error: new Error(outcome.error),
+          message: "Invite reminder failed; will retry on the next run",
+          level: "warn",
+          context: {
+            dedupeKey: item.dedupeKey,
+            recipient: item.studentEmail,
+          },
+        });
+      }
+    }
+
+    // Report the automatic sends. This is the only notification for email that
+    // leaves without an approval, so it is best-effort-but-loud: a total failure
+    // throws (and Inngest retries the step with the same idempotency key).
+    if (autoSent.length > 0) {
+      const summaryKey = createHash("sha256")
+        .update(autoSent.map((row) => `${row.onboardingId}:${row.kind}`).join("|"))
+        .digest("hex")
+        .slice(0, 24);
+
+      await step.run("send-auto-summary", async () => {
+        const content = buildReminderSendSummaryEmail({
+          rows: autoSent.map((row) => ({
+            kind: row.kind,
+            studentName: row.studentName,
+            studentEmail: row.studentEmail,
+            onboardingUrl: `${baseUrl}/admin/onboardings/${row.onboardingId}`,
+            sentAt: row.sentAt,
+          })),
+        });
+
+        let delivered = 0;
+        for (const adminEmail of adminEmails()) {
+          const result = await sendEmail({
+            to: adminEmail,
+            subject: content.subject,
+            html: content.html,
+            text: content.text,
+            headers: content.headers,
+            kind: "transactional",
+            idempotencyKey: `onboarding_auto_summary:${summaryKey}:${adminEmail}`,
+          });
+          if (result.ok) delivered += 1;
+        }
+        if (delivered === 0) {
+          throw new Error("automatic reminder summary failed for every recipient");
+        }
+      });
+    }
+
+    // Everything else waits for an admin: the instructor nudge is the one that
+    // reached someone who had already met the student, and the 7-day digest is
+    // an admin-facing nudge that benefits from a human check.
+    const stageResult = await step.run("stage-gated-candidates", async () => {
       const items: StagedItem[] = [
-        ...scanned.studentInvites48h.map((item) => inviteStaged(item, baseUrl)),
-        ...scanned.studentInvites5d.map((item) => inviteStaged(item, baseUrl)),
         ...scanned.adminStale7d.map((item) => adminDigestStaged(item)),
         ...scanned.instructorReviews.map((item) => {
           const content = buildInstructorReviewReminderEmail({
@@ -247,8 +383,6 @@ export const onboardingFollowUps = inngest.createFunction(
       if (items.length < CLAIM_BATCH) break;
     }
 
-    let sent = 0;
-
     // The admin digest is one email per batch: collapse all approved
     // `admin_stale_7d` rows into a single message.
     const adminRows = approved.filter((item) => item.kind === "admin_stale_7d");
@@ -257,20 +391,23 @@ export const onboardingFollowUps = inngest.createFunction(
     for (const item of direct) {
       await step.run(`send:${item.dedupeKey}`, async () => {
         const context = JSON.parse(item.context) as Record<string, unknown>;
-
+        // Invites are automatic now, so these rows are leftovers staged by an
+        // earlier deploy. Send them the invite they actually are; falling
+        // through to the instructor template would mail a student a review
+        // link for someone else's onboarding.
         const content =
-          item.kind === "instructor_review_3d"
-            ? buildInstructorReviewReminderEmail({
-                instructorName: String(context.instructorName ?? ""),
-                studentName: String(context.studentName ?? ""),
-                reviewUrl: `${baseUrl}/onboarding/${item.onboardingId}`,
-              })
-            : buildInviteReminderEmail({
+          item.kind === "student_invite_48h" || item.kind === "student_invite_5d"
+            ? buildInviteReminderEmail({
                 studentName: String(context.studentName ?? ""),
                 instructorName: String(context.instructorName ?? ""),
                 signUpUrl: `${baseUrl}/sign-up`,
                 appUrl: baseUrl,
-                final: Boolean(context.final),
+                final: item.kind === "student_invite_5d" || Boolean(context.final),
+              })
+            : buildInstructorReviewReminderEmail({
+                instructorName: String(context.instructorName ?? ""),
+                studentName: String(context.studentName ?? ""),
+                reviewUrl: `${baseUrl}/onboarding/${item.onboardingId}`,
               });
 
         const result = await sendEmail({
@@ -354,12 +491,14 @@ export const onboardingFollowUps = inngest.createFunction(
     }
 
     const summary = {
+      autoSent: autoSent.length,
+      failedInvites,
       staged: stageResult.staged,
       approved: approved.length,
       sent,
     };
 
-    if (stageResult.staged > 0 || sent > 0) {
+    if (summary.autoSent > 0 || summary.staged > 0 || sent > 0) {
       await reportError({
         source: "inngest:onboarding-follow-ups",
         error: null,

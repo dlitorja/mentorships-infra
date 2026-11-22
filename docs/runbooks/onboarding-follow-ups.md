@@ -10,6 +10,13 @@ nudges. It also accepts the `onboarding/followups.run` event for a manual run.
 | Admin check-in | 7 days after onboarding | `ADMIN_EMAILS` | Still no account; one digest for the batch |
 | Instructor review nudge | 3 days after questionnaire submission | Assigned instructor | No `reviews` entry yet |
 
+**Automatic:** the two student invites. They are time-sensitive and the student
+has no account yet, so holding them for review would cost days. Every automatic
+send is reported in a summary digest to `ADMIN_EMAILS` (see below).
+
+**Gated:** the instructor review nudge and the 7-day admin check-in. Those wait
+in the outbox for approval.
+
 ## What already existed
 
 - Questionnaire reminders at 24h / 48h / 96h after the student's last
@@ -23,9 +30,8 @@ submission.
 
 ## Review before sending (outbox)
 
-Nothing leaves without an admin decision. Each run of the worker stages what it
-would send in the reminder outbox; the row is `pending_review` until someone
-acts on it.
+The gated kinds leave nothing to chance: each run stages what it would send in
+the reminder outbox, and the row is `pending_review` until someone acts on it.
 
 - **Admin surface:** `/admin/onboarding-reminders` (nav: *Reminder outbox*).
   Tabs: *Pending review*, *Approved*, *Sent*, *Not sending*.
@@ -37,6 +43,22 @@ acts on it.
   "do not send" record the next person reads.
 - Every approve/suppress writes an `auditLogs` row
   (`approve_onboarding_reminder` / `suppress_onboarding_reminder`).
+
+## Automatic send digest
+
+When a run delivers student invites, the worker builds one summary email for
+`ADMIN_EMAILS`:
+
+- Subject: `Reminders sent automatically — N student email(s)`.
+- Body: a per-kind breakdown plus a table of student, email, and onboarding
+  link.
+- Sent once per run, idempotent on a hash of the delivered
+  `(onboardingId, kind)` pairs, so an Inngest retry cannot double-send it.
+- A total delivery failure throws, which retries the step; individual admin
+  failures just reduce the recipient count.
+
+The digest is the notification for the only email that leaves without an
+approval. Automatic sends also appear in the outbox's *Sent* tab.
 
 ### Send-time re-check
 
@@ -100,3 +122,15 @@ Send `onboarding/followups.run` through Inngest, or use the Inngest dashboard's
 Test page. The function is idempotent: a run stages candidates and sends whatever
 an admin has already approved. `onboarding/followups.send` does the same and is
 fired automatically when an approval lands.
+
+### Automatic send failure isolation
+
+Each invite send is isolated: a rejected address (hard bounce, invalid domain)
+is reported and skipped, and the rest of the batch, the gated staging, and the
+approved sends still run. A failed invite is not marked sent, so the next hourly
+scan picks it up again; it will keep retrying until the address is fixed or the
+corresponding onboarding reminder is suppressed in the outbox.
+
+The digest is sent immediately after the invite loop, before staging and
+approval work, so a later failure cannot swallow the report of emails that
+already left.
