@@ -569,6 +569,35 @@ describe("useVideoCall — screen share capability", () => {
     );
   });
 
+  it("clears the watchdog when the call is left before it fires (Greptile P2)", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({ getDisplayMedia: vi.fn() });
+    setTouchPrimaryDevice();
+    const { ref, setMeetingState } = renderHook();
+    setMeetingState("joined-meeting");
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    await act(async () => {
+      await ref.current!.leave();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith(
+      "Screen sharing hasn't started",
+      expect.anything()
+    );
+    expect(mocks.reportError).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "useVideoCall.toggleScreenShare.timeout",
+      })
+    );
+  });
+
   it("does not arm the watchdog on a desktop (slow picker must not false-alarm)", async () => {
     vi.useFakeTimers();
     setMediaDevices({ getDisplayMedia: vi.fn() });

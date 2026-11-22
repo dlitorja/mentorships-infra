@@ -151,7 +151,18 @@ export function useVideoCall(
   const unsupportedScreenShareReportedRef = useRef(false);
   useEffect(() => {
     unsupportedScreenShareReportedRef.current = false;
-  }, [sessionId]);
+    // A pending share request belongs to the previous session. The hook
+    // itself stays mounted across sessions, so unmount cleanup alone
+    // would let a stale watchdog fire against the new one.
+    clearScreenShareWatchdog();
+  }, [clearScreenShareWatchdog, sessionId]);
+
+  // The hook stays mounted after the call ends (`status` flips to
+  // "leaving"/"idle"), so unmount is not the last word either. A share
+  // that was swallowed must not toast after the user left the call.
+  useEffect(() => {
+    if (status !== "joined") clearScreenShareWatchdog();
+  }, [clearScreenShareWatchdog, status]);
 
   const handleScreenShareError = useCallback(
     (ev: { errorMsg?: string | { message?: string } }) => {
