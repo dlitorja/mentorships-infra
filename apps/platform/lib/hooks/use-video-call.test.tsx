@@ -637,7 +637,9 @@ describe("useVideoCall — screen share capability", () => {
     });
 
     await act(async () => {
-      vi.advanceTimersByTime(12_000);
+      // Past both the picker (20s) and Daily (8s) windows so this test
+      // would fail if either timer survived the started event.
+      vi.advanceTimersByTime(25_000);
     });
 
     expect(toast.error).not.toHaveBeenCalledWith(
@@ -663,7 +665,7 @@ describe("useVideoCall — screen share capability", () => {
 
     expect(track.stop).toHaveBeenCalled();
     await act(async () => {
-      vi.advanceTimersByTime(12_000);
+      vi.advanceTimersByTime(25_000);
     });
     expect(toast.error).not.toHaveBeenCalledWith(
       "Screen sharing hasn't started",
@@ -698,7 +700,9 @@ describe("useVideoCall — screen share capability", () => {
     );
 
     await act(async () => {
-      vi.advanceTimersByTime(12_000);
+      // The picker watchdog is 20s; this must pass that window or the
+      // test would not catch a dismissal that stops clearing the timer.
+      vi.advanceTimersByTime(25_000);
     });
     expect(toast.error).not.toHaveBeenCalledWith(
       "Screen sharing hasn't started",
@@ -813,7 +817,7 @@ describe("useVideoCall — screen share capability", () => {
 
     expect(track.stop).toHaveBeenCalled();
     await act(async () => {
-      vi.advanceTimersByTime(12_000);
+      vi.advanceTimersByTime(25_000);
     });
     expect(toast.error).not.toHaveBeenCalledWith(
       "Screen sharing hasn't started",
@@ -836,7 +840,7 @@ describe("useVideoCall — screen share capability", () => {
     });
 
     await act(async () => {
-      vi.advanceTimersByTime(12_000);
+      vi.advanceTimersByTime(25_000);
     });
 
     expect(toast.error).not.toHaveBeenCalledWith(
