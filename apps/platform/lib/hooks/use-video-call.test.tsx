@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   useConvexMutation: vi.fn(),
   reportError: vi.fn(),
   reportInfo: vi.fn(),
+  screenShareOnError: null as ((ev: unknown) => void) | null,
   getVideoToken: vi.fn(),
   dailyParticipantsJoinedHandlers: [] as Array<(evt: unknown) => void>,
   dailyParticipantsLeftHandlers: [] as Array<(evt: unknown) => void>,
@@ -75,7 +76,7 @@ vi.mock("@daily-co/daily-react", () => ({
     }
   },
   useMeetingState: () => mocks.useMeetingState(),
-  useScreenShare: () => mocks.useScreenShare(),
+  useScreenShare: (args?: unknown) => mocks.useScreenShare(args),
 }));
 
 const mutationRegistry = vi.hoisted(() => ({
@@ -194,12 +195,18 @@ beforeEach(() => {
   // leave() to actually run flip the mock to "joined-meeting"
   // BEFORE calling leave().
   mocks.useMeetingState.mockReturnValue("new");
-  mocks.useScreenShare.mockReturnValue({
-    isSharingScreen: false,
-    screens: [],
-    startScreenShare: mocks.startScreenShare.mockResolvedValue(undefined),
-    stopScreenShare: mocks.stopScreenShare.mockResolvedValue(undefined),
-  });
+  mocks.screenShareOnError = null;
+  mocks.useScreenShare.mockImplementation(
+    (args?: { onError?: (ev: unknown) => void }) => {
+      mocks.screenShareOnError = args?.onError ?? null;
+      return {
+        isSharingScreen: false,
+        screens: [],
+        startScreenShare: mocks.startScreenShare.mockResolvedValue(undefined),
+        stopScreenShare: mocks.stopScreenShare.mockResolvedValue(undefined),
+      };
+    }
+  );
   mocks.getVideoToken.mockResolvedValue({ token: "token_test" });
   mocks.meetingState.mockReturnValue("new");
   mutationRegistry.endCall.mutateAsync.mockResolvedValue({});
@@ -742,6 +749,31 @@ describe("useVideoCall — screen share capability", () => {
 
     expect(getDisplayMedia).toHaveBeenCalledTimes(1);
     expect(mocks.startScreenShare).not.toHaveBeenCalled();
+  });
+
+  it("allows a retry after Daily reports a screen-share error (Greptile P1)", async () => {
+    const { stream } = makeScreenStream();
+    const getDisplayMedia = vi.fn().mockResolvedValue(stream);
+    setMediaDevices({ getDisplayMedia });
+    setTouchPrimaryDevice();
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    await act(async () => {});
+    act(() => {
+      mocks.screenShareOnError?.({ errorMsg: "boom" });
+    });
+
+    // The pending guard must be released, otherwise this tap is ignored
+    // for the rest of the call.
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    await act(async () => {});
+
+    expect(getDisplayMedia).toHaveBeenCalledTimes(2);
   });
 
   it("stops sharing when Safari's system 'Stop sharing' ends the track", async () => {

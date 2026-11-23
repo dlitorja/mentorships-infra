@@ -207,7 +207,11 @@ export function useVideoCall(
 
   const handleScreenShareError = useCallback(
     (ev: { errorMsg?: string | { message?: string } }) => {
-      clearScreenShareWatchdog();
+      // A Daily error ends this attempt: invalidate a pending capture,
+      // release the owned stream, and clear the pending guard so the
+      // user can retry instead of tapping a silently ignored button for
+      // the rest of the call.
+      cancelPendingScreenShare();
       const message =
         typeof ev.errorMsg === "string"
           ? ev.errorMsg
@@ -224,7 +228,7 @@ export function useVideoCall(
         context: { workspaceId, sessionId },
       });
     },
-    [clearScreenShareWatchdog, sessionId, workspaceId]
+    [cancelPendingScreenShare, sessionId, workspaceId]
   );
 
   const { isSharingScreen, startScreenShare, stopScreenShare } =
