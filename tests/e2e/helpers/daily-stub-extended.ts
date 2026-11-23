@@ -133,8 +133,9 @@ export async function installExtendedDailyStub(
         setLocalVideo: async () => {},
         setLocalAudio: async () => {},
         startScreenShare: async (options?: unknown) => {
-          if (screenShareActive) return;
-          // Record what the app handed over. Used by
+          // Record EVERY call, including rejected duplicates, so a
+          // regression that starts twice cannot hide behind the
+          // "already active" early return. Used by
           // `screenshare-ipad-fallback.spec.ts` to prove the
           // touch-device path passes a real MediaStream rather than
           // letting Daily capture on its own.
@@ -158,6 +159,7 @@ export async function installExtendedDailyStub(
             screenVideoSendSettings:
               opts?.screenVideoSendSettings ?? null,
           };
+          if (screenShareActive) return;
           screenShareActive = true;
           emit("local-screen-share-started");
           // daily-react's `useParticipantIds({ filter: "screen" })`
@@ -175,12 +177,13 @@ export async function installExtendedDailyStub(
           });
         },
         stopScreenShare: async () => {
-          if (!screenShareActive) return;
+          // Count every call, including no-op duplicates.
           const host = window as unknown as {
             __dailyStopScreenShareCalls?: number;
           };
           host.__dailyStopScreenShareCalls =
             (host.__dailyStopScreenShareCalls ?? 0) + 1;
+          if (!screenShareActive) return;
           screenShareActive = false;
           emit("local-screen-share-stopped");
           emit("participant-updated", {

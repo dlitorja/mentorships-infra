@@ -165,12 +165,14 @@ async function joinSeededCall(page: Page): Promise<void> {
   });
   await page.getByRole("button", { name: /Join Call|Open call/ }).click();
 
-  const consentContinue = page
-    .getByRole("button")
-    .filter({ hasNotText: /Cancel|Decline/ })
-    .first();
-  if (await consentContinue.isVisible().catch(() => false)) {
-    await consentContinue.click();
+  // Consent modal: the first button is "Don't join" (calls onCancel), so
+  // match the join variants explicitly instead of "first button that is
+  // not Cancel".
+  const consentJoin = page.getByRole("button", {
+    name: /^Join (without|with) recording$/,
+  });
+  if (await consentJoin.first().isVisible().catch(() => false)) {
+    await consentJoin.first().click();
   }
 
   await expect(page.getByTestId("call-overlay")).toBeVisible({
