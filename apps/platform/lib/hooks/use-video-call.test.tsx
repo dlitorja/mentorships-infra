@@ -699,6 +699,51 @@ describe("useVideoCall — screen share capability", () => {
     );
   });
 
+  it("discards a capture that resolves after the call was left (Greptile P1)", async () => {
+    let resolveCapture: ((stream: MediaStream) => void) | null = null;
+    const pending = new Promise<MediaStream>((resolve) => {
+      resolveCapture = resolve;
+    });
+    setMediaDevices({ getDisplayMedia: vi.fn(() => pending) });
+    setTouchPrimaryDevice();
+    const { ref, setMeetingState } = renderHook();
+    setMeetingState("joined-meeting");
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    // Leave while the system picker is still open.
+    await act(async () => {
+      await ref.current!.leave();
+    });
+    // The picker now resolves.
+    const lateCapture = makeScreenStream();
+    await act(async () => {
+      resolveCapture?.(lateCapture.stream);
+    });
+    await act(async () => {});
+
+    expect(mocks.startScreenShare).not.toHaveBeenCalled();
+    expect(lateCapture.track.stop).toHaveBeenCalled();
+  });
+
+  it("ignores a second tap while a capture is pending (Greptile P2)", async () => {
+    const getDisplayMedia = vi.fn(() => new Promise<MediaStream>(() => {}));
+    setMediaDevices({ getDisplayMedia });
+    setTouchPrimaryDevice();
+    const { ref } = renderHook();
+
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+    await act(async () => {
+      ref.current!.toggleScreenShare();
+    });
+
+    expect(getDisplayMedia).toHaveBeenCalledTimes(1);
+    expect(mocks.startScreenShare).not.toHaveBeenCalled();
+  });
+
   it("stops sharing when Safari's system 'Stop sharing' ends the track", async () => {
     const { stream, track, listeners } = makeScreenStream();
     setMediaDevices({ getDisplayMedia: vi.fn().mockResolvedValue(stream) });
