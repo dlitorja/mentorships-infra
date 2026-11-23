@@ -41,7 +41,7 @@ export async function installExtendedDailyStub(
       leave: () => Promise<void>;
       setLocalVideo: (enabled: boolean) => Promise<void>;
       setLocalAudio: (enabled: boolean) => Promise<void>;
-      startScreenShare: () => Promise<void>;
+      startScreenShare: (options?: unknown) => Promise<void>;
       stopScreenShare: () => Promise<void>;
       localParticipant: () => unknown;
       participants: () => unknown;
@@ -132,8 +132,32 @@ export async function installExtendedDailyStub(
         },
         setLocalVideo: async () => {},
         setLocalAudio: async () => {},
-        startScreenShare: async () => {
+        startScreenShare: async (options?: unknown) => {
           if (screenShareActive) return;
+          // Record what the app handed over. Used by
+          // `screenshare-ipad-fallback.spec.ts` to prove the
+          // touch-device path passes a real MediaStream rather than
+          // letting Daily capture on its own.
+          const opts = options as
+            | {
+                mediaStream?: MediaStream;
+                screenVideoSendSettings?: string;
+              }
+            | undefined;
+          const host = window as unknown as {
+            __dailyScreenShareCalls?: number;
+            __dailyScreenShareArgs?: unknown;
+          };
+          const tracks = opts?.mediaStream?.getVideoTracks?.() ?? [];
+          host.__dailyScreenShareCalls =
+            (host.__dailyScreenShareCalls ?? 0) + 1;
+          host.__dailyScreenShareArgs = {
+            hasMediaStream: Boolean(opts?.mediaStream),
+            videoTrackCount: tracks.length,
+            hasLiveVideoTrack: tracks.some((t) => t.readyState === "live"),
+            screenVideoSendSettings:
+              opts?.screenVideoSendSettings ?? null,
+          };
           screenShareActive = true;
           emit("local-screen-share-started");
           // daily-react's `useParticipantIds({ filter: "screen" })`
@@ -152,6 +176,11 @@ export async function installExtendedDailyStub(
         },
         stopScreenShare: async () => {
           if (!screenShareActive) return;
+          const host = window as unknown as {
+            __dailyStopScreenShareCalls?: number;
+          };
+          host.__dailyStopScreenShareCalls =
+            (host.__dailyStopScreenShareCalls ?? 0) + 1;
           screenShareActive = false;
           emit("local-screen-share-stopped");
           emit("participant-updated", {
