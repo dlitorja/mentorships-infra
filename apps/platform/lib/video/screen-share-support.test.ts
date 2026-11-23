@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isScreenSharePickerDismissal,
   isScreenShareSupported,
   isTouchPrimaryDevice,
 } from "@/lib/video/screen-share-support";
@@ -124,5 +125,34 @@ describe("isTouchPrimaryDevice", () => {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     );
     expect(isTouchPrimaryDevice()).toBe(false);
+  });
+});
+
+/**
+ * `isScreenSharePickerDismissal` decides whether a rejected
+ * `getDisplayMedia()` deserves an error toast. Safari rejects with
+ * NotAllowedError both when the user dismisses the picker and when they
+ * deny permission; neither should look like an app failure.
+ */
+describe("isScreenSharePickerDismissal", () => {
+  it("treats NotAllowedError and AbortError as dismissals", () => {
+    expect(
+      isScreenSharePickerDismissal(
+        new DOMException("denied", "NotAllowedError")
+      )
+    ).toBe(true);
+    expect(
+      isScreenSharePickerDismissal(new DOMException("aborted", "AbortError"))
+    ).toBe(true);
+  });
+
+  it("does not treat real capture failures as dismissals", () => {
+    expect(
+      isScreenSharePickerDismissal(
+        new DOMException("unsupported", "NotSupportedError")
+      )
+    ).toBe(false);
+    expect(isScreenSharePickerDismissal(new Error("boom"))).toBe(false);
+    expect(isScreenSharePickerDismissal(null)).toBe(false);
   });
 });
