@@ -15,11 +15,14 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DEFAULT_DAILY_DOMAIN } from "@/lib/daily";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 import { getVideoToken } from "@/lib/queries/api-client";
 import {
+  ENABLE_TOUCH_SCREEN_SHARE_FALLBACK,
   SCREEN_SHARE_DID_NOT_START_MESSAGE,
+  SCREEN_SHARE_PICKER_DID_NOT_OPEN_MESSAGE,
   SCREEN_SHARE_UNSUPPORTED_MESSAGE,
+  isScreenSharePickerDismissal,
   isScreenShareSupported,
   isTouchPrimaryDevice,
 } from "@/lib/video/screen-share-support";
@@ -78,23 +81,22 @@ const tokenResponseSchema = z.object({
 });
 
 /**
- * How long `toggleScreenShare` waits for Daily to report an outcome
- * before telling the user the picker has not produced a share.
- *
- * `startScreenShare()` is non-blocking: it returns before the browser
- * picker appears, and on platforms without `getDisplayMedia` it is a
- * documented no-op that emits no event whatsoever. Without this
- * watchdog an unsupported device (an iPad on iPadOS 26 or earlier, any
- * Android tablet) sees a button that silently does nothing — the exact
- * bug reported for the instructor tablet flow.
- *
- * Only armed on touch-first devices. A desktop picker can stay open
- * while the user browses windows, and a timer firing then would be a
- * false alarm; touch devices are also where Daily is documented as
- * receive-only. 12s is long enough to pick a window, short enough that a
- * swallowed request still gets feedback.
+ * How long to wait for the user to pick a screen after we call
+ * `getDisplayMedia()` ourselves on a touch device. The system picker on
+ * iPadOS 27 is a full-screen sheet outside the browser, so this has to
+ * allow for deliberation — it only exists to catch a picker that never
+ * appears at all.
  */
-const SCREEN_SHARE_START_WATCHDOG_MS = 12_000;
+const SCREEN_SHARE_PICKER_WATCHDOG_MS = 20_000;
+
+/**
+ * How long to wait for Daily to report that a handed-over stream is
+ * actually sharing. `startScreenShare()` is non-blocking and on
+ * platforms that treat mobile as receive-only it is a documented no-op
+ * that emits nothing — without this an instructor sees a dead button.
+ * Short because the stream is already captured at this point.
+ */
+const SCREEN_SHARE_START_WATCHDOG_MS = 8_000;
 
 /**
  * Hook that owns the Daily call lifecycle for a single workspace +
@@ -142,8 +144,47 @@ export function useVideoCall(
       screenShareWatchdogRef.current = null;
     }
   }, []);
-  // A call left mid-request must not toast after the panel unmounts.
-  useEffect(() => clearScreenShareWatchdog, [clearScreenShareWatchdog]);
+
+  // Touch/iPad fallback ownership: when we call `getDisplayMedia()`
+  // ourselves and hand the stream to Daily, we remain responsible for
+  // stopping its tracks. Otherwise the OS screen-capture indicator can
+  // stay lit after the share, the call, or the workspace is gone.
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const stopOwnedScreenStream = useCallback((): void => {
+    const stream = screenStreamRef.current;
+    if (!stream) return;
+    screenStreamRef.current = null;
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+  }, []);
+
+  // Generation counter for `getDisplayMedia()` requests. A system picker
+  // can stay open longer than the call; every cleanup path bumps this so
+  // a late-resolving capture is rejected and its tracks are stopped
+  // instead of starting a share after the user left.
+  const screenCaptureRequestRef = useRef(0);
+  // True from "capture requested" until Daily confirms the share (or it
+  // fails/times out). Blocks a second concurrent request from replacing
+  // the first one's timer or stream.
+  const screenSharePendingRef = useRef(false);
+
+  /**
+   * Abandon any in-flight screen share: invalidate a pending capture,
+   * clear the watchdog, clear the pending guard, and release an owned
+   * stream. Used by every path that ends the request's context (leave,
+   * session change, unmount, manual stop).
+   */
+  const cancelPendingScreenShare = useCallback((): void => {
+    screenCaptureRequestRef.current += 1;
+    screenSharePendingRef.current = false;
+    clearScreenShareWatchdog();
+    stopOwnedScreenStream();
+  }, [clearScreenShareWatchdog, stopOwnedScreenStream]);
+
+  // A call left mid-request must not toast after the panel unmounts, and
+  // a self-captured stream must not keep recording.
+  useEffect(() => cancelPendingScreenShare, [cancelPendingScreenShare]);
 
   // Dedupe the "unsupported device" telemetry: one report per session is
   // enough to spot the pattern in Axiom, and repeated taps say nothing
@@ -154,19 +195,23 @@ export function useVideoCall(
     // A pending share request belongs to the previous session. The hook
     // itself stays mounted across sessions, so unmount cleanup alone
     // would let a stale watchdog fire against the new one.
-    clearScreenShareWatchdog();
-  }, [clearScreenShareWatchdog, sessionId]);
+    cancelPendingScreenShare();
+  }, [cancelPendingScreenShare, sessionId]);
 
   // The hook stays mounted after the call ends (`status` flips to
   // "leaving"/"idle"), so unmount is not the last word either. A share
   // that was swallowed must not toast after the user left the call.
   useEffect(() => {
-    if (status !== "joined") clearScreenShareWatchdog();
-  }, [clearScreenShareWatchdog, status]);
+    if (status !== "joined") cancelPendingScreenShare();
+  }, [cancelPendingScreenShare, status]);
 
   const handleScreenShareError = useCallback(
     (ev: { errorMsg?: string | { message?: string } }) => {
-      clearScreenShareWatchdog();
+      // A Daily error ends this attempt: invalidate a pending capture,
+      // release the owned stream, and clear the pending guard so the
+      // user can retry instead of tapping a silently ignored button for
+      // the rest of the call.
+      cancelPendingScreenShare();
       const message =
         typeof ev.errorMsg === "string"
           ? ev.errorMsg
@@ -183,7 +228,7 @@ export function useVideoCall(
         context: { workspaceId, sessionId },
       });
     },
-    [clearScreenShareWatchdog, sessionId, workspaceId]
+    [cancelPendingScreenShare, sessionId, workspaceId]
   );
 
   const { isSharingScreen, startScreenShare, stopScreenShare } =
@@ -196,6 +241,28 @@ export function useVideoCall(
   useEffect(() => {
     isSharingScreenRef.current = isSharingScreen;
   }, [isSharingScreen]);
+
+  /**
+   * Safari shows a system "Stop sharing" control outside our UI. When the
+   * self-captured track ends, tell Daily so the remote side stops
+   * rendering, and release our stream so the capture indicator clears.
+   */
+  const handleOwnedScreenTrackEnded = useCallback((): void => {
+    if (screenStreamRef.current === null) return;
+    cancelPendingScreenShare();
+    try {
+      stopScreenShare();
+    } catch (err) {
+      void reportError({
+        source: "useVideoCall.toggleScreenShare.trackEnded",
+        error: err instanceof Error ? err : new Error(String(err)),
+        level: "warn",
+        message:
+          "Failed to stop the Daily screen share after the captured track ended",
+        context: { workspaceId, sessionId },
+      });
+    }
+  }, [cancelPendingScreenShare, sessionId, stopScreenShare, workspaceId]);
 
   const queryClient = useQueryClient();
   const endCall = useMutation({
@@ -816,7 +883,7 @@ export function useVideoCall(
       });
     };
     if (isSharingScreen) {
-      clearScreenShareWatchdog();
+      cancelPendingScreenShare();
       (async () => {
         try {
           await stopScreenShare();
@@ -826,6 +893,11 @@ export function useVideoCall(
       })();
       return;
     }
+
+    // A capture is already in flight (picker open or Daily confirming).
+    // Ignore duplicate taps instead of racing a second request against
+    // the first one's timer and stream.
+    if (screenSharePendingRef.current) return;
 
     // Daily's `startScreenShare()` no-ops (and emits nothing) when the
     // browser has no `getDisplayMedia`. Explain the limitation instead of
@@ -864,20 +936,30 @@ export function useVideoCall(
 
     // The API exists, but a touch device can still refuse silently (Daily
     // documents mobile browsers as receive-only even where
-    // `getDisplayMedia` is exposed). Arm the watchdog there and let the
-    // start / cancel / error handlers clear it.
+    // `getDisplayMedia` is exposed). Watch the two phases separately:
+    // the picker appearing, then Daily actually starting the share.
     clearScreenShareWatchdog();
-    if (isTouchPrimaryDevice()) {
+    const armScreenShareWatchdog = (
+      delayMs: number,
+      source: string,
+      description: string
+    ): void => {
+      clearScreenShareWatchdog();
       screenShareWatchdogRef.current = setTimeout(() => {
         screenShareWatchdogRef.current = null;
         if (isSharingScreenRef.current) return;
+        // The request is dead: invalidate a late-resolving capture and
+        // release any stream we already own.
+        screenCaptureRequestRef.current += 1;
+        screenSharePendingRef.current = false;
+        stopOwnedScreenStream();
         toast.error("Screen sharing hasn't started", {
           id: "screen-share-did-not-start",
-          description: SCREEN_SHARE_DID_NOT_START_MESSAGE,
+          description,
           duration: 8_000,
         });
         void reportError({
-          source: "useVideoCall.toggleScreenShare.timeout",
+          source,
           error: new Error(
             "No screen-share event within the watchdog window"
           ),
@@ -885,7 +967,153 @@ export function useVideoCall(
           message: "Screen share did not start or cancel",
           context: { workspaceId, sessionId },
         });
-      }, SCREEN_SHARE_START_WATCHDOG_MS);
+      }, delayMs);
+    };
+    const touchDevice = isTouchPrimaryDevice();
+    const selfCapture = ENABLE_TOUCH_SCREEN_SHARE_FALLBACK && touchDevice;
+    if (selfCapture) {
+      armScreenShareWatchdog(
+        SCREEN_SHARE_PICKER_WATCHDOG_MS,
+        "useVideoCall.toggleScreenShare.captureTimeout",
+        SCREEN_SHARE_PICKER_DID_NOT_OPEN_MESSAGE
+      );
+    } else if (touchDevice) {
+      // Kill switch is off: keep the #1076 behaviour so a tablet still
+      // gets an explanation when Daily silently ignores the request.
+      armScreenShareWatchdog(
+        SCREEN_SHARE_START_WATCHDOG_MS,
+        "useVideoCall.toggleScreenShare.timeout",
+        SCREEN_SHARE_PICKER_DID_NOT_OPEN_MESSAGE
+      );
+    }
+
+    // Daily's call machine treats mobile as receive-only even on iPadOS
+    // 27+, where Safari finally exposes getDisplayMedia. Capture the
+    // stream ourselves and use Daily's documented `mediaStream` path
+    // (`DailyStartScreenShareFromStream`). Without this, the request is a
+    // silent no-op.
+    if (selfCapture) {
+      const { mediaDevices } = navigator;
+      // Mark pending before capture so a second tap is ignored while the
+      // system picker is open.
+      screenSharePendingRef.current = true;
+      const requestId = ++screenCaptureRequestRef.current;
+      // Invoked synchronously from the tap/keypress: getDisplayMedia
+      // requires transient user activation, and an `await` before this
+      // call would lose it.
+      let capture: Promise<MediaStream>;
+      try {
+        capture = mediaDevices.getDisplayMedia({ video: true });
+      } catch (err) {
+        cancelPendingScreenShare();
+        reportScreenShareError(
+          "useVideoCall.toggleScreenShare.capture",
+          err
+        );
+        return;
+      }
+      capture
+        .then((stream) => {
+          // The request was abandoned while the picker was open (leave,
+          // session change, unmount, or the picker timeout). Do not start
+          // a share after the fact — release the capture immediately.
+          if (requestId !== screenCaptureRequestRef.current) {
+            for (const track of stream.getTracks()) track.stop();
+            return;
+          }
+          const [videoTrack] = stream.getVideoTracks();
+          if (!videoTrack) {
+            for (const track of stream.getTracks()) track.stop();
+            cancelPendingScreenShare();
+            toast.error("Screen share failed", {
+              description:
+                "This device did not return a screen video track.",
+            });
+            void reportError({
+              source:
+                "useVideoCall.toggleScreenShare.capture.noVideoTrack",
+              error: new Error("getDisplayMedia returned no video track"),
+              level: "error",
+              message: "Screen capture returned no video track",
+              context: { workspaceId, sessionId },
+            });
+            return;
+          }
+          stopOwnedScreenStream();
+          screenStreamRef.current = stream;
+          // Safari's system "Stop sharing" control ends the track.
+          videoTrack.addEventListener(
+            "ended",
+            handleOwnedScreenTrackEnded
+          );
+          try {
+            startScreenShare({
+              mediaStream: stream,
+              // Illustration software is closer to motion + detail than
+              // to static slides; Daily's balanced preset is the closest
+              // match to its desktop default.
+              screenVideoSendSettings: "motion-and-detail-balanced",
+            });
+          } catch (err) {
+            cancelPendingScreenShare();
+            reportScreenShareError(
+              "useVideoCall.toggleScreenShare.startFromStream",
+              err
+            );
+            return;
+          }
+          // Stream is handed over; now wait for Daily to confirm it is
+          // sharing. Separate from the picker window so a slow selection
+          // cannot fire this while the user is still choosing.
+          armScreenShareWatchdog(
+            SCREEN_SHARE_START_WATCHDOG_MS,
+            "useVideoCall.toggleScreenShare.timeout",
+            SCREEN_SHARE_DID_NOT_START_MESSAGE
+          );
+          // Breadcrumb for the on-device rollout: proves the fallback was
+          // reached even when the remote side never receives a frame.
+          void reportInfo({
+            source: "useVideoCall.toggleScreenShare.selfCapture",
+            message: "Handed a self-captured screen stream to Daily",
+            level: "info",
+            context: {
+              workspaceId,
+              sessionId,
+              userAgent: navigator.userAgent,
+            },
+          });
+        })
+        .catch((err: unknown) => {
+          if (requestId !== screenCaptureRequestRef.current) {
+            // Abandoned request; cleanup already ran.
+            return;
+          }
+          cancelPendingScreenShare();
+          if (isScreenSharePickerDismissal(err)) {
+            // The user tapped Cancel or denied permission. No error toast;
+            // keep a breadcrumb so "nothing happens" reports stay
+            // diagnosable without blaming the app.
+            void reportError({
+              source:
+                "useVideoCall.toggleScreenShare.capture.dismissed",
+              error: err instanceof Error ? err : new Error(String(err)),
+              level: "warn",
+              message:
+                "Screen share picker dismissed or permission denied",
+              context: { workspaceId, sessionId },
+            });
+            return;
+          }
+          toast.error("Screen share failed", {
+            description:
+              err instanceof Error ? err.message : "Unknown capture error",
+          });
+          reportScreenShareError(
+            "useVideoCall.toggleScreenShare.capture",
+            err
+          );
+        });
+      return;
     }
 
     (async () => {
@@ -898,8 +1126,11 @@ export function useVideoCall(
     })();
   }, [
     clearScreenShareWatchdog,
+    cancelPendingScreenShare,
+    handleOwnedScreenTrackEnded,
     isSharingScreen,
     startScreenShare,
+    stopOwnedScreenStream,
     stopScreenShare,
     sessionId,
     workspaceId,
@@ -911,6 +1142,7 @@ export function useVideoCall(
   useDailyEvent(
     "local-screen-share-started",
     useCallback(() => {
+      screenSharePendingRef.current = false;
       clearScreenShareWatchdog();
     }, [clearScreenShareWatchdog])
   );
@@ -918,8 +1150,17 @@ export function useVideoCall(
   useDailyEvent(
     "local-screen-share-canceled",
     useCallback(() => {
-      clearScreenShareWatchdog();
-    }, [clearScreenShareWatchdog])
+      // A cancel after a successful capture (Daily refusing the stream)
+      // must not leave the OS capture indicator on.
+      cancelPendingScreenShare();
+    }, [cancelPendingScreenShare])
+  );
+
+  useDailyEvent(
+    "local-screen-share-stopped",
+    useCallback(() => {
+      cancelPendingScreenShare();
+    }, [cancelPendingScreenShare])
   );
 
   // Track participant count + remote name. Key identity by
