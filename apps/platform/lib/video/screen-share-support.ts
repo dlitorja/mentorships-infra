@@ -58,7 +58,7 @@ export const SCREEN_SHARE_UNSUPPORTED_MESSAGE =
  * system picker.
  */
 export const SCREEN_SHARE_PICKER_DID_NOT_OPEN_MESSAGE =
-  "No screen picker appeared. On a phone or tablet, join from a laptop or desktop to share your screen.";
+  "If no screen picker appeared, this device or browser may not allow screen sharing — join from a laptop or desktop to share your screen.";
 
 /**
  * Explanation shown when we captured the screen ourselves but Daily
