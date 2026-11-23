@@ -50,13 +50,49 @@ export function isTouchPrimaryDevice(): boolean {
  * something is broken.
  */
 export const SCREEN_SHARE_UNSUPPORTED_MESSAGE =
-  "This browser can't capture your screen. On a phone or tablet, join from a laptop or desktop to share your screen.";
+  "This browser can't capture your screen. If you're on a phone or tablet, join from a laptop or desktop to share your screen.";
 
 /**
- * Explanation shown when the browser advertised `getDisplayMedia` but no
- * start/cancel event arrived after the watchdog window. Worded so it is
- * still true when a slow user simply spent longer than the window
- * choosing a window in the picker.
+ * Explanation shown when the touch-device picker never produced a
+ * stream. Covers browsers that expose `getDisplayMedia` but never show a
+ * system picker.
+ */
+export const SCREEN_SHARE_PICKER_DID_NOT_OPEN_MESSAGE =
+  "No screen picker appeared. On a phone or tablet, join from a laptop or desktop to share your screen.";
+
+/**
+ * Explanation shown when we captured the screen ourselves but Daily
+ * still never reported the share as started — the call machine refusing
+ * the handover. Worded so it does not claim the picker was missing.
  */
 export const SCREEN_SHARE_DID_NOT_START_MESSAGE =
-  "If no screen picker appeared, this device or browser may not allow screen sharing — join from a laptop or desktop to share your screen.";
+  "Your screen was captured but couldn't be shared. On a phone or tablet, join from a laptop or desktop to share your screen.";
+
+/**
+ * Kill switch for the touch-device "bring your own stream" fallback.
+ *
+ * Daily's call machine treats mobile browsers as receive-only, even on
+ * iPadOS 27+ where Safari exposes `getDisplayMedia`. For those devices we
+ * capture the screen ourselves and hand the stream to
+ * `startScreenShare({ mediaStream })`, which is the documented
+ * `DailyStartScreenShareFromStream` path for custom call-object apps.
+ *
+ * Keep this on while the fallback is being validated on a real iPadOS 27
+ * device; flip to `false` in a one-line change if it regresses desktop or
+ * produces a worse failure than the explanatory toast.
+ */
+export const ENABLE_TOUCH_SCREEN_SHARE_FALLBACK = true;
+
+/**
+ * True when a failed `getDisplayMedia()` call means the user dismissed
+ * the picker (or denied permission) rather than a real failure. Safari
+ * rejects with `NotAllowedError` both on dismissal and on denial, and
+ * `AbortError` in some paths — none of which deserves an error toast.
+ */
+export function isScreenSharePickerDismissal(error: unknown): boolean {
+  const name =
+    typeof error === "object" && error !== null && "name" in error
+      ? String((error as { name: unknown }).name)
+      : "";
+  return name === "AbortError" || name === "NotAllowedError";
+}
