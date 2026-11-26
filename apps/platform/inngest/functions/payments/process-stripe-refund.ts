@@ -1,7 +1,10 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import { inngest } from "../../client";
 import { Id } from "@/convex/_generated/dataModel";
 import { convexServerCall } from "@/lib/convex-server-call";
-import { reportInfo } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
+import { buildRefundEmail } from "@/lib/emails/refund-email";
+import { sendEmail } from "@/lib/email";
 
 /**
  * Processes a Stripe refund for a mentorship purchase.
@@ -33,10 +36,11 @@ export const processStripeRefund = inngest.createFunction(
     triggers: [{ event: "stripe/charge.refunded" }],
   },
   async ({ event, step }) => {
-    const { paymentIntentId, amountRefunded } = event.data as {
+    const { paymentIntentId, amountRefunded, chargeId } = event.data as {
       paymentIntentId: string;
       amountRefunded?: number;
       chargeAmount?: number;
+      chargeId?: string;
     };
 
     const payment = await step.run("get-payment", async () => {
@@ -107,6 +111,94 @@ export const processStripeRefund = inngest.createFunction(
       });
     });
 
+    const sessionPack = await step.run("get-session-pack", async () => {
+      return await convexServerCall<any>("/session-packs/get-by-payment-id", {
+        paymentId: payment._id,
+      });
+    });
+
+    // Provider-initiated refunds used to send no email at all: only the admin
+    // route notified the student, so a refund issued from the Stripe dashboard
+    // felt like money silently disappearing. Resolve the student from the
+    // order (Clerk id or `email:` placeholder) and send the same template the
+    // admin route uses.
+    await step.run("send-refund-email", async () => {
+      try {
+        const order = await convexServerCall<any>("/orders/get-by-id-internal", {
+          id: updatedPayment.orderId,
+        });
+        if (!order?.userId) return { skipped: true, reason: "no_order" };
+
+        let email: string | null = null;
+        let studentName: string | null = null;
+
+        if (order.userId.startsWith("email:")) {
+          email = order.userId.slice("email:".length);
+        } else if (order.userId.startsWith("user_")) {
+          const clerk = await clerkClient();
+          const user = await clerk.users.getUser(order.userId);
+          email = user.emailAddresses[0]?.emailAddress ?? null;
+          studentName =
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || null;
+        }
+
+        if (!email) return { skipped: true, reason: "no_email" };
+
+        const instructorName = sessionPack?.instructorId
+          ? await convexServerCall<string | null>("/instructors/get-name-by-id", {
+              id: sessionPack.instructorId,
+            }).catch(() => null)
+          : null;
+
+        const baseUrl =
+          process.env.NEXT_PUBLIC_URL ||
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+        const content = buildRefundEmail({
+          studentName: studentName ?? email,
+          instructorName: instructorName ?? "your instructor",
+          refundAmount: (updatedPayment.refundedAmount ?? delta.toFixed(2)).toString(),
+          currency: (updatedPayment.currency ?? "usd").toString(),
+          reason: "Other",
+          customReason: "Refunded by Stripe",
+          dashboardUrl: `${baseUrl}/dashboard`,
+          provider: "stripe",
+          providerReference: chargeId ?? null,
+        });
+
+        const result = await sendEmail({
+          to: email,
+          subject: content.subject,
+          html: content.html,
+          text: content.text,
+          headers: content.headers,
+          kind: "transactional",
+          idempotencyKey: `refund-email:${payment._id}:${updatedPayment.refundedAmount}`,
+        });
+
+        if (!result.ok) {
+          await reportError({
+            source: "inngest:process-stripe-refund",
+            error: result,
+            message: "Refund email failed",
+            level: "warn",
+            context: { paymentId: payment._id, orderId: updatedPayment.orderId },
+          });
+        }
+
+        return { sent: result.ok };
+      } catch (emailError) {
+        await reportError({
+          source: "inngest:process-stripe-refund",
+          error: emailError,
+          message: "Refund email threw; refund itself is recorded",
+          level: "warn",
+          context: { paymentId: payment._id },
+        });
+        return { sent: false };
+      }
+    });
+
     const fullyRefunded = updatedPayment.status === "refunded";
 
     if (!fullyRefunded) {
@@ -145,12 +237,6 @@ export const processStripeRefund = inngest.createFunction(
     // Fully refunded: now (and only now) close the pack, restore inventory,
     // and release the seat. Order status was already flipped to "refunded"
     // inside `applyRefundCumulative`.
-    const sessionPack = await step.run("get-session-pack", async () => {
-      return await convexServerCall<any>("/session-packs/get-by-payment-id", {
-        paymentId: payment._id,
-      });
-    });
-
     if (sessionPack) {
       const instructorProducts = await step.run("get-instructor-products", async () => {
         return await convexServerCall<any>("/products/get-by-instructor-id", {
