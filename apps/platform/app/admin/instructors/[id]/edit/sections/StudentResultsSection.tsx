@@ -1,7 +1,16 @@
 'use client';
 
+import { useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Trash2 } from "lucide-react";
 import type { StudentResult } from "../types";
@@ -21,8 +30,11 @@ export function StudentResultsSection({
   onDelete,
   deleteIsPending,
 }: StudentResultsSectionProps) {
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
+
   return (
-    <Card>
+    <>
+      <Card>
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
@@ -56,8 +68,11 @@ export function StudentResultsSection({
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => onDelete(r.id)}
+                    onClick={() =>
+                      setPendingDelete({ id: r.id, label: r.studentName || "this student result" })
+                    }
                     disabled={deleteIsPending}
+                    aria-label={`Delete student result for ${r.studentName || "this student"}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -74,5 +89,33 @@ export function StudentResultsSection({
         </div>
       </CardContent>
     </Card>
+
+      <Dialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this student result?</DialogTitle>
+            <DialogDescription>
+              The result for {pendingDelete?.label} is removed from the instructor&apos;s public
+              profile immediately. Changes here are not part of the form&apos;s Save, and there is
+              no undo.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) onDelete(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+            >
+              Delete result
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

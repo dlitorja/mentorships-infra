@@ -13,6 +13,12 @@ interface BaseCardProps {
   buttonText: string;
   icon?: React.ReactNode;
   promoText?: string;
+  /** Sale badge rendered with the title, e.g. "HOLIDAY SALE — 65% OFF · LIMITED TIME ONLY!". */
+  saleBadge?: string;
+  /** Current price in whole dollars, rendered with the regular price crossed out. */
+  price?: number;
+  /** Regular price, rendered crossed out next to the current price. */
+  regularPrice?: number;
   variant?: "default" | "bundle";
   priority?: boolean;
 }
@@ -25,9 +31,14 @@ export function BaseCard({
   buttonText,
   icon,
   promoText,
+  saleBadge,
+  price,
+  regularPrice,
   variant = "default",
   priority = false,
 }: BaseCardProps) {
+  const showPrice = price !== undefined && regularPrice !== undefined;
+
   return (
     <Card
       className={`overflow-hidden transition-all hover:shadow-lg ${
@@ -58,6 +69,11 @@ export function BaseCard({
         </a>
       )}
       <CardHeader>
+        {saleBadge && (
+          <span className="mb-2 inline-block w-fit bg-red-600 px-3 py-1 text-xs font-semibold text-white shadow">
+            {saleBadge}
+          </span>
+        )}
         {icon || variant === "bundle" ? (
           <div className="flex items-start gap-3">
             {icon && <span className="mt-1 text-primary shrink-0">{icon}</span>}
@@ -70,7 +86,15 @@ export function BaseCard({
           <CardDescription className="line-clamp-3 text-base">{description}</CardDescription>
         )}
       </CardHeader>
-      <CardContent className={promoText ? "space-y-4" : "pt-0"}>
+      <CardContent className={promoText || showPrice ? "space-y-4" : "pt-0"}>
+        {showPrice && (
+          <p className="text-base font-semibold text-foreground">
+            <span>${price}</span>{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              — Regular Price <s>${regularPrice}</s>
+            </span>
+          </p>
+        )}
         {promoText && (
           <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
             {promoText}

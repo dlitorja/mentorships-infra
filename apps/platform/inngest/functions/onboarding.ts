@@ -233,7 +233,6 @@ export const onboardingFlow = createDefer(
     // route), so the highest-intent link in the funnel used to 404. Point at
     // the real questionnaire for the row we just created.
     const onboardingUrl = `${baseUrl}/onboarding/${checkoutOnboarding.onboardingId}/questionnaire`;
-    const discordServerInviteUrl = process.env.DISCORD_SERVER_INVITE_URL || null;
 
     const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
     const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
@@ -274,8 +273,6 @@ export const onboardingFlow = createDefer(
           dashboardUrl,
           // Secondary link still provided for potential future use
           onboardingUrl,
-          discordConnected,
-          discordServerInviteUrl,
         } as const;
         return await sendTemplateEmail({
           to: studentEmail,
@@ -299,8 +296,6 @@ export const onboardingFlow = createDefer(
         instructorName: instructorName,
         dashboardUrl,
         onboardingUrl,
-        discordConnected,
-        discordServerInviteUrl,
       });
 
       return await sendEmail({
@@ -545,27 +540,6 @@ export const onboardingFlow = createDefer(
       };
     });
 
-await step.run("queue-discord-actions", async () => {
-      // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
-      // Detailed DM with onboarding submission will be queued when the student completes the form.
-      await convexServerCall("/discord-action-queue/migrate", {
-        type: "dm_instructor_new_signup",
-        subjectUserId: clerkId,
-        instructorId: instructor._id,
-        instructorUserId: instructor.userId ?? undefined,
-        payload: {
-          kind: "purchase",
-          orderId,
-          sessionPackId: pack._id,
-          dashboardUrl,
-          onboardingUrl,
-        },
-      });
-
-      // Role assignment discontinued: workspaces replace Discord roles.
-      // We intentionally do not enqueue assign_student_role actions anymore.
-    });
-
     return {
       success: true,
       orderId,
@@ -586,8 +560,11 @@ await step.run("queue-discord-actions", async () => {
 //   2. send-student-email  (idempotent — guards on emailsSent.student)
 //   3. send-instructor-emails (idempotent — guards on emailsSent.instructorIds)
 //   4. send-admin-email (idempotent — guards on emailsSent.adminSummary)
-//   5. enqueue-discord-dms (idempotent — migrateDiscordAction)
-//   6. mark-completed (status + timeline)
+//   5. mark-completed (status + timeline)
+//
+// Discord is intentionally not part of onboarding anymore. The
+// Discord bot and action queue remain for the community server, but
+// onboarding no longer enqueues DMs or role assignments.
 //
 // Catch handler: patches status="failed" + failureReason + timeline entry,
 // then sends an admin digest email with the failure details.
@@ -733,13 +710,23 @@ export const adminOnboardingFlow = inngest.createFunction(
         return contacts[p.instructorId]?.name || "your instructor";
       });
 
+      const hasClerkInvitation = row.perInstructor.some(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        return !!p.clerkInvitationId;
+      });
+
       const templateData = {
-        studentName: studentEmail.split("@")[0] ?? "",
+        studentName: row.studentName?.trim() || (studentEmail.split("@")[0] ?? ""),
         instructorName: instructorNames[0] ?? "your instructor",
         dashboardUrl,
-        onboardingUrl: baseUrl + "/dashboard/onboarding",
-        discordConnected: false,
-        discordServerInviteUrl: null as string | null,
+        // Deep link to the questionnaire. `/dashboard/onboarding` does not
+        // exist; the role-gated page lives at `/onboarding/[id]` and
+        // redirects the assigned student to the questionnaire.
+        onboardingUrl: baseUrl + "/onboarding/" + row._id,
+        // Webhook-driven Kajabi onboardings have no Clerk invitation
+        // (sign-up is public), so the student email must tell them to
+        // create an account. Manual admin onboardings keep using the
+        // Clerk invitation email and omit this step.
+        signUpUrl: hasClerkInvitation ? null : baseUrl + "/sign-up",
         isAdminOnboarded: true as boolean,
         isRenewal: allRenewal,
         instructorCount,
@@ -874,7 +861,7 @@ export const adminOnboardingFlow = inngest.createFunction(
 
         const templateData = {
           instructorName,
-          studentName: studentEmail.split("@")[0] ?? null,
+          studentName: row.studentName?.trim() || (studentEmail.split("@")[0] ?? null),
           studentEmail: studentEmail,
           sessionsPurchased: pair.sessionsPerInstructor,
           dashboardUrl,
@@ -1038,7 +1025,7 @@ export const adminOnboardingFlow = inngest.createFunction(
 
       const templateData = {
         orderId: undefined as string | undefined,
-        studentName: studentEmail.split("@")[0] ?? null,
+        studentName: row.studentName?.trim() || (studentEmail.split("@")[0] ?? null),
         studentEmail,
         instructorName: instructorNames.filter(Boolean).join(", "),
         sessionCount: row.perInstructor.reduce(function(s: number, p: Doc<"adminOnboardings">["perInstructor"][number]) { return s + p.sessionsPerInstructor; }, 0),
@@ -1222,33 +1209,7 @@ export const adminOnboardingFlow = inngest.createFunction(
       };
     }
 
-    // ---- Step 5: enqueue Discord DMs ----
-    await step.run("enqueue-discord-dms", async function() {
-      const placeholderUserId = "email:" + studentEmail;
-      for (const pair of row.perInstructor) {
-        await convexServerCall("/discord-action-queue/migrate", {
-          type: "dm_instructor_new_signup",
-          subjectUserId: placeholderUserId,
-          instructorId: pair.instructorId as string,
-          instructorUserId: undefined,
-          payload: {
-            kind: "admin_onboarding",
-            onboardingId: row._id,
-            dashboardUrl,
-          },
-        });
-      }
-      await convexServerCall("/admin-onboarding/append-timeline", {
-        onboardingId: row._id as Id<"adminOnboardings">,
-        event: "discord_queued",
-        actorUserId: row.submittedByUserId,
-        details: "Discord DM enqueued for " + row.perInstructor.length + " instructor(s)",
-        expectedStatus: "processing",
-        expectedAttemptCount: parsed.data.attemptCount,
-      });
-    });
-
-    // ---- Step 6: mark completed ----
+    // ---- Step 5: mark completed ----
     await step.run("mark-completed", async function() {
       await convexServerCall("/admin-onboarding/append-timeline", {
         onboardingId: row._id as Id<"adminOnboardings">,

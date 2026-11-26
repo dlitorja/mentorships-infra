@@ -8,8 +8,12 @@ type PurchaseOnboardingEmailArgs = {
   instructorName: string;
   dashboardUrl: string;
   onboardingUrl: string;
-  discordConnected: boolean;
-  discordServerInviteUrl: string | null;
+  /**
+   * Present when the student does not have a Clerk account yet (webhook-driven
+   * Kajabi onboarding). Manual admin onboardings create a Clerk invitation,
+   * so they omit this and rely on the invitation email instead.
+   */
+  signUpUrl?: string | null;
   /** PR 3: admin-onboarded context */
   isAdminOnboarded?: boolean;
   /** PR 3: true when every selected pair is a renewal */
@@ -36,11 +40,9 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
     : "Welcome — your session pack" + (isMultiInstructor ? "s" : "") + " with " + args.instructorName + (isMultiInstructor ? " + " + ((args.instructorCount ?? 1) - 1) + " other" + (((args.instructorCount ?? 1) - 1) === 1 ? "" : "s") : "") + " " + (isAllRenewal ? "are" : "is") + " ready";
 
   const greetingName = args.studentName?.trim() ? args.studentName.trim() : "there";
-
-  const shouldShowConnectDiscordCopy = args.discordConnected === false;
-  const discordInviteLine = args.discordServerInviteUrl
-    ? `Join the Discord server: ${args.discordServerInviteUrl}`
-    : null;
+  const signUpUrl = args.signUpUrl?.trim() ? args.signUpUrl.trim() : null;
+  const primaryUrl = signUpUrl ?? args.onboardingUrl;
+  const primaryLabel = signUpUrl ? "Create your account" : "Complete onboarding";
 
   const textLines: string[] = [
     "Hi " + greetingName + ",",
@@ -61,41 +63,16 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
   }
   textLines.push("");
   textLines.push("Next steps:");
+  if (signUpUrl) {
+    textLines.push("- Create your account: " + signUpUrl);
+    textLines.push("  Use the email address this message was sent to when you sign up.");
+  }
   textLines.push("- Open your Dashboard: " + args.dashboardUrl);
   textLines.push("- Complete onboarding (share your goals for your session pack + add 2-4 current artwork pieces): " + args.onboardingUrl);
-  textLines.push("");
-  textLines.push("Important — join Discord:");
-  if (shouldShowConnectDiscordCopy) {
-    textLines.push("Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the session pack Discord channels.");
-  }
-  textLines.push("Join the Discord server so you can access the session pack Discord channels.");
-  if (discordInviteLine) textLines.push(discordInviteLine);
   textLines.push("");
   textLines.push("If you need any assistance, reply to this email or email support@huckleberry.art");
 
   const text = textLines.join("\n");
-
-  const discordHtml = `
-    <div style="padding:12px;border:1px solid #E5E7EB;border-radius:10px;background:#FEF3C7;margin-bottom:12px">
-      <div style="font-weight:800;margin-bottom:6px">Important — join Discord</div>
-      ${
-        shouldShowConnectDiscordCopy
-           ? `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
-               Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the session pack Discord channels.
-             </div>`
-          : `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
-               Join the Discord server so you can access the session pack Discord channels.
-             </div>`
-      }
-      ${
-        args.discordServerInviteUrl
-          ? `<div style="margin-top:0px">
-               <a href="${args.discordServerInviteUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:700">Join the Discord server</a>
-             </div>`
-          : ""
-      }
-    </div>
-  `.trim();
 
   const introLine = args.isAdminOnboarded
     ? "You have been assigned to your session pack workspace" + (isMultiInstructor ? "s" : "") + " at Huckleberry."
@@ -107,6 +84,10 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
         return "<tr style=\"border-bottom:1px solid #F3F4F6\"><td style=\"padding:6px 8px;font-weight:500\">" + escapeHtml(row.instructorName) + "</td><td style=\"padding:6px 8px\"><a href=\"" + escapeHtml(row.workspaceUrl) + "\">Open workspace</a></td></tr>";
       }).join("") +
       "</tbody></table></div>"
+    : "";
+
+  const signUpStepHtml = signUpUrl
+    ? `<li><a href="${escapeHtml(signUpUrl)}">Create your account</a> — use the email address this message was sent to.</li>`
     : "";
 
   const html = `
@@ -123,18 +104,17 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
         <div style="margin:0 0 12px 0;color:#374151">
           <div style="font-weight:700;margin-bottom:6px">Next steps</div>
           <ul style="margin:0;padding-left:18px;line-height:1.7">
-            <li><a href="${args.dashboardUrl}">Open your Dashboard</a></li>
-            <li><a href="${args.onboardingUrl}">Complete onboarding</a> (share your goals for your session pack + add 2-4 current artwork pieces)</li>
+            ${signUpStepHtml}
+            <li><a href="${escapeHtml(args.dashboardUrl)}">Open your Dashboard</a></li>
+            <li><a href="${escapeHtml(args.onboardingUrl)}">Complete onboarding</a> (share your goals for your session pack + add 2-4 current artwork pieces)</li>
           </ul>
         </div>
 
-        ${discordHtml}
-
-        <a href="${args.onboardingUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Complete onboarding</a>
+        <a href="${escapeHtml(primaryUrl)}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">${primaryLabel}</a>
 
         <p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">
-          If the button doesn’t work, copy/paste this link:<br/>
-          <div>${escapeHtml(args.onboardingUrl)}</div>
+          If the button doesn't work, copy/paste this link:<br/>
+          <div>${escapeHtml(primaryUrl)}</div>
         </p>
 
         <p style="margin:12px 0 0 0;color:#6B7280;font-size:12px">
@@ -162,4 +142,3 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-

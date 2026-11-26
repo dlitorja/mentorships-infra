@@ -20,7 +20,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, ArrowLeft, User, Users, Save } from "lucide-react";
+import { Loader2, ArrowLeft, User, Users, Save, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getAdminWorkspace, getAdminInstructors, getAdminStudents, updateAdminWorkspaceMembers } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { ClerkUserIdCell } from "@/components/admin/clerk-user-id-cell";
@@ -74,6 +82,8 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   const [selectedNewInstructorId, setSelectedNewInstructorId] = useState<string | null>(null);
   const [instructorHasBeenSelected, setInstructorHasBeenSelected] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  /** Set when the admin asks to transfer ownership; nothing happens until confirmed. */
+  const [pendingOwner, setPendingOwner] = useState<{ userId: string; label: string } | null>(null);
 
   const { data: workspace, isLoading, error } = useQuery({
     queryKey: ["admin-workspace", workspaceId],
@@ -118,8 +128,18 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
 
   const handleSaveOwner = () => {
     if (selectedNewOwnerId) {
-      updateMutation.mutate({ newOwnerId: selectedNewOwnerId });
+      const student = studentsData?.items.find((s) => s.userId === selectedNewOwnerId);
+      setPendingOwner({
+        userId: selectedNewOwnerId,
+        label: student?.firstName || student?.email || selectedNewOwnerId,
+      });
     }
+  };
+
+  const confirmOwnerTransfer = () => {
+    if (!pendingOwner) return;
+    updateMutation.mutate({ newOwnerId: pendingOwner.userId });
+    setPendingOwner(null);
   };
 
   const handleSaveInstructor = () => {
@@ -145,7 +165,6 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   }
 
   const showInstructorSection = workspace.type === "mentorship" || workspace.type === "admin_instructor";
-  const canChangeOwner = true;
   const canChangeInstructor = workspace.type !== "admin_student";
 
   return (
@@ -186,7 +205,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
               </div>
             </div>
 
-            {canChangeOwner && (
+            {(
               <div className="space-y-3">
                 <Label>Transfer Ownership</Label>
                 <Input
@@ -329,6 +348,48 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
           Member updated successfully
         </div>
       )}
+
+      <Dialog open={!!pendingOwner} onOpenChange={(open) => !open && setPendingOwner(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              Transfer workspace ownership?
+            </DialogTitle>
+            <DialogDescription>
+              Ownership moves from the current owner to{" "}
+              <span className="font-medium text-foreground">{pendingOwner?.label}</span>. The
+              workspace — including its messages and files — changes hands, and the previous owner
+              loses access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            Session packs, seat reservations and payments are <strong>not</strong> transferred, and
+            the workspace keeps its link to the previous student&apos;s seat — so the new owner can
+            see that seat&apos;s remaining session count. If they should have their own sessions,
+            reassign or create the seat from the student record after transferring.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPendingOwner(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmOwnerTransfer}
+              disabled={updateMutation.isPending}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {updateMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Transferring...
+                </>
+              ) : (
+                "Transfer ownership"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

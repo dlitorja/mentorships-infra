@@ -1569,6 +1569,14 @@ export default defineSchema({
     ),
     submittedByUserId: v.string(),                    // Clerk userId of the admin who submitted
 
+    // Kajabi purchase id (transaction id, or the canonical payload hash
+    // fallback) used to make webhook-driven onboarding idempotent.
+    // Optional: manually/admin-created rows have no external purchase.
+    externalPurchaseId: v.optional(v.string()),
+    // Student display name from the Kajabi member record. The email is the
+    // canonical identity; this is only used for nicer email copy.
+    studentName: v.optional(v.string()),
+
     // State machine
     status: v.union(
       v.literal("queued"),
@@ -1680,10 +1688,135 @@ export default defineSchema({
     .index("by_submittedByUserId", ["submittedByUserId"])
     .index("by_onboardingAlias", ["onboardingAlias"])
     .index("by_email_source", ["email", "source"])
+    .index("by_externalPurchaseId", ["externalPurchaseId"])
     .index("by_assignedStudentClerkId_createdAt", [
       "assignedStudentClerkId",
       "createdAt",
     ]),
+
+  // Email-intake queue for Kajabi purchase confirmations. The Kajabi plan
+  // does not expose webhooks, so support@ is added to each offer; Resend
+  // receives the confirmation, an Inngest poll parses it, and an admin
+  // approves the onboarding from `/admin/kajabi-purchases`.
+  kajabiPurchaseInbox: defineTable({
+    // Resend received-email id. Primary idempotency key for the poll.
+    resendEmailId: v.string(),
+    resendThreadId: v.optional(v.string()),
+    fromAddress: v.string(),
+    subject: v.string(),
+    receivedAt: v.number(),
+
+    // Parsed from the confirmation. `offerTitle` is the raw Kajabi product
+    // name; `purchaseType` is derived from it.
+    offerTitle: v.string(),
+    purchaseType: v.union(
+      v.literal("one-on-one"),
+      v.literal("group"),
+      v.literal("unknown")
+    ),
+    instructorName: v.optional(v.string()),
+    studentName: v.optional(v.string()),
+    studentEmail: v.optional(v.string()),
+    // Kajabi purchase id (stable) and contact id from the "View Customer"
+    // link. Either can be used for duplicate detection.
+    kajabiPurchaseId: v.optional(v.string()),
+    kajabiContactId: v.optional(v.string()),
+
+    // Set when this message claims a purchase id that an earlier message
+    // already claims, with a different sender or student. The inbox accepts
+    // mail from anyone, so a purchase id is not proof of authenticity; the
+    // conflicting row is kept (not silently dropped) so staff can see both
+    // claims and dismiss the forgery.
+    conflictWith: v.optional(v.id("kajabiPurchaseInbox")),
+
+    // Full plain-text body for admin verification. Never rendered to the
+    // student or sent anywhere.
+    rawText: v.string(),
+
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("dismissed")
+    ),
+    approvedByUserId: v.optional(v.string()),
+    approvedAt: v.optional(v.number()),
+    onboardingId: v.optional(v.id("adminOnboardings")),
+    dismissedByUserId: v.optional(v.string()),
+    dismissedAt: v.optional(v.number()),
+    dismissReason: v.optional(v.string()),
+
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_resendEmailId", ["resendEmailId"])
+    .index("by_kajabiPurchaseId", ["kajabiPurchaseId"])
+    .index("by_studentEmail", ["studentEmail"]),
+
+  // Dedupe log for onboarding follow-up reminders (48h/5d student
+  // sign-up nudges, 7-day admin check-in, 3-day instructor review nudge).
+  // One row per dedupe key, so a cron replay cannot double-send.
+  /**
+   * Staged outbox for the automated onboarding follow-ups.
+   *
+   * Every nudge the hourly `onboarding-follow-ups` worker would send is first
+   * written here as `pending_review`. Nothing leaves until an admin approves
+   * it, and "do not send" is expressed by parking the row as `suppressed`
+   * with a reason — the dedupe key then keeps the scan from re-queueing it.
+   */
+  onboardingReminders: defineTable({
+    dedupeKey: v.string(),
+    onboardingId: v.id("adminOnboardings"),
+    kind: v.union(
+      v.literal("student_invite_48h"),
+      v.literal("student_invite_5d"),
+      v.literal("admin_stale_7d"),
+      v.literal("instructor_review_3d")
+    ),
+    recipient: v.string(),
+    // Absent until the provider accepts the send.
+    sentAt: v.optional(v.number()),
+    resendId: v.optional(v.string()),
+
+    // Review staging. Rows written before the outbox existed have neither
+    // field and are treated as already sent.
+    status: v.optional(
+      v.union(
+        v.literal("pending_review"),
+        v.literal("approved"),
+        // Claimed by a worker run. A crashed run leaves the row here; the
+        // claim mutation re-claims rows whose claim is stale.
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("suppressed")
+      )
+    ),
+    createdAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
+    recipientName: v.optional(v.string()),
+    recipientKind: v.optional(
+      v.union(
+        v.literal("student"),
+        v.literal("instructor"),
+        v.literal("admin")
+      )
+    ),
+    subject: v.optional(v.string()),
+    // Plain-text body, shown in the review UI. The worker rebuilds the HTML
+    // from `context` at send time so the stored row stays small.
+    previewText: v.optional(v.string()),
+    // JSON of the builder inputs (student/instructor names, days pending, …).
+    context: v.optional(v.string()),
+    // Why the scan queued it, in one line, for the reviewer.
+    reason: v.optional(v.string()),
+    reviewedByUserId: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    suppressReason: v.optional(v.string()),
+  })
+    .index("by_dedupeKey", ["dedupeKey"])
+    .index("by_onboardingId", ["onboardingId"])
+    .index("by_kind_sentAt", ["kind", "sentAt"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
 
   suppressionEvents: defineTable({
     kind: v.union(

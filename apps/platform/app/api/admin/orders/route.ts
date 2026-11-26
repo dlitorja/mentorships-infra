@@ -73,6 +73,7 @@ export async function GET(req: NextRequest) {
           status: p.status,
           refundedAmount: p.refundedAmount,
         })),
+        packs: order.packs,
       })),
       total: result.total,
       page,

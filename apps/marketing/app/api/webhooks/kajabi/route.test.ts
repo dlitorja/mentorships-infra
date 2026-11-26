@@ -48,6 +48,8 @@ import { protectWithRateLimit } from "@/lib/ratelimit";
 import { convexServerCall, ConvexServerCallError } from "@/lib/convex-server-call";
 
 const URL = "https://huckleberry-drive.example.com/api/webhooks/kajabi";
+const WEBHOOK_SECRET = "test-webhook-secret-1234";
+const SECRET_URL = `${URL}?secret=${WEBHOOK_SECRET}`;
 
 function makeKajabiPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -64,6 +66,7 @@ describe("Kajabi webhook route", () => {
     vi.clearAllMocks();
     vi.mocked(protectWithRateLimit).mockReset();
     vi.mocked(convexServerCall).mockReset();
+    delete process.env.KAJABI_WEBHOOK_SECRET;
   });
 
   describe("rate-limit integration", () => {
@@ -226,6 +229,119 @@ describe("Kajabi webhook route", () => {
 
   describe("happy path", () => {
     it("applies inventory via Convex and returns 200 on a valid Kajabi purchase", async () => {
+      process.env.KAJABI_WEBHOOK_SECRET = WEBHOOK_SECRET;
+      vi.mocked(convexServerCall)
+        .mockResolvedValueOnce({
+          success: true,
+          mapping: {
+            offerId: "off_test_123",
+            instructorSlug: "instructor_test",
+            mentorshipType: "one-on-one",
+            kajabiOfferUrl: "https://example.com/offer",
+          },
+        })
+        .mockResolvedValueOnce({ success: true, alreadyApplied: false, newValue: 9, oldValue: 10 });
+
+      const request = makeRequest({
+        method: "POST",
+        url: SECRET_URL,
+        body: makeKajabiPayload({ transaction: { id: "tx_unique_xyz", quantity: 1 } }),
+        headers: { "user-agent": "Kajabi-Webhook/1.0" },
+      });
+
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.received).toBe(true);
+      expect(body.instructor).toBe("instructor_test");
+      expect(body.quantity).toBe(1);
+      expect(body.newInventory).toBe(9);
+      expect(body.alreadyApplied).toBe(false);
+
+      const onboardingCall = vi
+        .mocked(convexServerCall)
+        .mock.calls.find(
+          (call) => call[0] === "/admin-onboarding/kajabi-purchase"
+        );
+      expect(onboardingCall).toBeDefined();
+      expect(onboardingCall?.[1]).toMatchObject({
+        email: "buyer@example.com",
+        studentName: "Test Buyer",
+        instructorSlug: "instructor_test",
+      });
+      expect(
+        (onboardingCall?.[1] as { externalPurchaseId?: string })
+          ?.externalPurchaseId
+      ).toContain("tx_unique_xyz");
+    });
+
+    it("uses one transaction-scoped onboarding key for purchase.created and payment.succeeded", async () => {
+      process.env.KAJABI_WEBHOOK_SECRET = WEBHOOK_SECRET;
+      const { POST } = await import("@/app/api/webhooks/kajabi/route");
+
+      const mapping = {
+        success: true,
+        mapping: {
+          offerId: "off_test_123",
+          instructorSlug: "instructor_test",
+          mentorshipType: "one-on-one",
+          kajabiOfferUrl: "https://example.com/offer",
+        },
+      };
+      const inventory = {
+        success: true,
+        alreadyApplied: false,
+        newValue: 9,
+        oldValue: 10,
+      };
+
+      // Kajabi delivers both events for one payment. Each event must reach
+      // the onboarding endpoint, but with the SAME key, so the second call
+      // is a no-op instead of a second seat + renewal top-up.
+      for (const event of [
+        makeKajabiPayload({
+          event: "purchase.created",
+          transaction: { id: "tx_shared_1", quantity: 1 },
+        }),
+        makeKajabiPayload({
+          event: "payment.succeeded",
+          transaction: { id: "tx_shared_1", quantity: 1 },
+        }),
+      ]) {
+        vi.mocked(convexServerCall)
+          .mockResolvedValueOnce(mapping)
+          .mockResolvedValueOnce(inventory);
+        const response = await POST(
+          makeRequest({
+            method: "POST",
+            url: SECRET_URL,
+            body: event,
+            headers: { "user-agent": "Kajabi-Webhook/1.0" },
+          })
+        );
+        expect(response.status).toBe(200);
+      }
+
+      const keys = vi
+        .mocked(convexServerCall)
+        .mock.calls.filter(
+          (call) => call[0] === "/admin-onboarding/kajabi-purchase"
+        )
+        .map(
+          (call) =>
+            (call[1] as { externalPurchaseId?: string }).externalPurchaseId
+        );
+
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[0]).toContain("tx_shared_1");
+      expect(keys[0]).not.toContain("purchase.created");
+      expect(keys[0]).not.toContain("payment.succeeded");
+    });
+
+    it("skips auto-onboarding when the webhook secret is missing", async () => {
+      const reportError = (await import("@/lib/observability")).reportError;
       vi.mocked(convexServerCall)
         .mockResolvedValueOnce({
           success: true,
@@ -241,22 +357,28 @@ describe("Kajabi webhook route", () => {
       const request = makeRequest({
         method: "POST",
         url: URL,
-        body: makeKajabiPayload({ transaction: { id: "tx_unique_xyz", quantity: 1 } }),
+        body: makeKajabiPayload({ transaction: { id: "tx_no_secret", quantity: 1 } }),
         headers: { "user-agent": "Kajabi-Webhook/1.0" },
       });
 
       const { POST } = await import("@/app/api/webhooks/kajabi/route");
       const response = await POST(request);
       expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.received).toBe(true);
-      expect(body.instructor).toBe("instructor_test");
-      expect(body.quantity).toBe(1);
-      expect(body.newInventory).toBe(9);
-      expect(body.alreadyApplied).toBe(false);
+      expect(
+        vi.mocked(convexServerCall).mock.calls.some(
+          (call) => call[0] === "/admin-onboarding/kajabi-purchase"
+        )
+      ).toBe(false);
+      const warnings = vi
+        .mocked(reportError)
+        .mock.calls.filter((call) =>
+          String(call[0]?.message ?? "").includes("Auto-onboarding skipped")
+        );
+      expect(warnings).toHaveLength(1);
     });
 
     it("emits inventory.changed observability event with previousInventory + newInventory on a successful apply", async () => {
+      process.env.KAJABI_WEBHOOK_SECRET = WEBHOOK_SECRET;
       // Greptile P2 'Inventory baseline is always null': the handler
       // must read the pre-change inventory from the Convex response
       // (field name `oldValue`) and surface it as
@@ -280,7 +402,7 @@ describe("Kajabi webhook route", () => {
 
       const request = makeRequest({
         method: "POST",
-        url: URL,
+        url: SECRET_URL,
         body: makeKajabiPayload({ transaction: { id: "tx_inventory_event_test", quantity: 1 } }),
         headers: { "user-agent": "Kajabi-Webhook/1.0" },
       });

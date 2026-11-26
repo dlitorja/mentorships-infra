@@ -339,6 +339,13 @@ async function performCommit(
     submittedByUserId: string;
     source: Doc<"adminOnboardings">["source"];
     /**
+     * Optional resolved student id. The webhook path resolves an existing
+     * `users` row by email and passes its id so packs, seats, and
+     * workspaces attach to the existing account instead of the
+     * `email:<address>` placeholder.
+     */
+    studentUserId?: string;
+    /**
      * Per-instructor Clerk invitation IDs created in the API route BEFORE
      * this mutation runs. Keyed by `instructorId` so the route doesn't need
      * to align array positions with the preview response (which may have
@@ -373,7 +380,7 @@ async function performCommit(
     throw new Error("Notes are required when creating a separate student record");
   }
 
-  const placeholder = `email:${email}`;
+  const placeholder = args.studentUserId ?? `email:${email}`;
   const now = Date.now();
 
   for (const input of args.instructors) {
@@ -617,6 +624,311 @@ export const adminOnboardStudent = mutation({
   },
 });
 
+type CommitPairResult = Awaited<
+  ReturnType<typeof performCommit>
+>["perInstructor"][number];
+
+/**
+ * A repeat purchase reuses the existing seat and workspace; `performCommit`
+ * intentionally does not create a pack for renewals. Add the purchased
+ * sessions to the active pack, extend access, and start a new expiry-warning
+ * cycle. Shared by the webhook path and the admin approval queue.
+ */
+async function creditRenewalPurchase(
+  ctx: MutationCtx,
+  pair: CommitPairResult,
+  sessions: number,
+  expiresAt: number
+): Promise<void> {
+  if (!pair.isRenewal || !pair.seatReservationId) return;
+  const seat = await ctx.db.get(pair.seatReservationId);
+  if (!seat) return;
+
+  const seatExpiresAt = Math.max(seat.seatExpiresAt, expiresAt);
+  if (seat.sessionPackId) {
+    const pack = await ctx.db.get(seat.sessionPackId);
+    if (pack) {
+      await ctx.db.patch(pack._id, {
+        totalSessions: pack.totalSessions + sessions,
+        remainingSessions: pack.remainingSessions + sessions,
+        expiresAt: Math.max(pack.expiresAt ?? 0, expiresAt),
+        status: "active",
+      });
+    }
+  } else {
+    const packId = await ctx.db.insert("sessionPacks", {
+      userId: seat.userId,
+      instructorId: pair.instructorId,
+      totalSessions: sessions,
+      remainingSessions: sessions,
+      purchasedAt: Date.now(),
+      expiresAt,
+      status: "active",
+      paymentId: undefined,
+    });
+    await ctx.db.patch(seat._id, { sessionPackId: packId });
+  }
+
+  await ctx.db.patch(seat._id, {
+    seatExpiresAt,
+    status: "active",
+    // A renewal starts a new warning cycle. Keeping the previous cycle's
+    // marker would suppress the final warning forever.
+    finalWarningNotificationSentAt: undefined,
+    gracePeriodEndsAt: undefined,
+  });
+}
+
+/**
+ * Service path for webhook-driven Kajabi onboarding. Called by the
+ * bearer-auth `/admin-onboarding/kajabi-purchase` HTTP endpoint from
+ * `apps/marketing/app/api/webhooks/kajabi/route.ts`.
+ *
+ * Unlike `adminOnboardStudent`, this does not require a Clerk admin
+ * identity — the caller authenticates with `CONVEX_HTTP_KEY` at the HTTP
+ * layer. The row is attributed to `kajabi-webhook` and tagged with the
+ * external purchase id so webhook retries are no-ops.
+ *
+ * No Clerk invitation is created. Clerk sign-up is public, and the
+ * `user.created` webhook (plus the onboarding page's self-heal) links the
+ * placeholder `email:<address>` rows once the student signs up with the
+ * purchase email. The student email therefore links to `/sign-up`.
+ */
+export const onboardKajabiPurchase = internalMutation({
+  args: {
+    email: v.string(),
+    studentName: v.optional(v.string()),
+    instructorSlug: v.string(),
+    sessionsPerInstructor: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    externalPurchaseId: v.string(),
+    // Keys a previous release used for the same payment. Onboarding used to be
+    // keyed on an event-qualified id; a redelivery of a payment onboarded just
+    // before that change would otherwise create a duplicate. Read-only
+    // compatibility: nothing writes these.
+    legacyExternalPurchaseIds: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    const candidateKeys = [
+      args.externalPurchaseId,
+      ...(args.legacyExternalPurchaseIds ?? []),
+    ];
+    for (const candidateKey of candidateKeys) {
+      const existing = await ctx.db
+        .query("adminOnboardings")
+        .withIndex("by_externalPurchaseId", (q) =>
+          q.eq("externalPurchaseId", candidateKey)
+        )
+        .first();
+      if (existing) {
+        return {
+          onboardingId: existing._id,
+          alreadyExists: true as const,
+          status: existing.status,
+          attemptCount: existing.attemptCount,
+        };
+      }
+    }
+
+    const slug = args.instructorSlug.trim().toLowerCase();
+    const instructor = (
+      await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", slug))
+        .collect()
+    ).find((row) => !row.deletedAt && row.isActive);
+    if (!instructor) {
+      throw new Error(`Active instructor not found for slug ${slug}`);
+    }
+
+    const sessions = args.sessionsPerInstructor ?? 4;
+    if (!Number.isInteger(sessions) || sessions < 1) {
+      throw new Error("sessionsPerInstructor must be a positive integer");
+    }
+    const expiresAt =
+      args.expiresAt ?? Date.now() + 90 * 24 * 60 * 60 * 1000;
+
+    const normalizedEmail = args.email.trim().toLowerCase();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+    // Attach the purchase to an existing account when one already exists.
+    // `user.created` only fires once, so a returning buyer would otherwise
+    // get placeholder-owned artifacts that never link to their account.
+    const resolvedStudentUserId =
+      existingUser && !existingUser.userId.startsWith("email:")
+        ? existingUser.userId
+        : undefined;
+
+    const result = await performCommit(ctx, {
+      email: args.email,
+      instructors: [
+        {
+          instructorId: instructor._id,
+          sessionsPerInstructor: sessions,
+          expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      notes: undefined,
+      capacityOverrideReason: undefined,
+      submittedByUserId: "kajabi-webhook",
+      source: "kajabi",
+      studentUserId: resolvedStudentUserId,
+      clerkInvitationIds: undefined,
+    });
+
+    const pair = result.perInstructor[0];
+
+    // Distinct purchase for an existing seat: add this purchase's sessions
+    // to the active pack and extend access.
+    await creditRenewalPurchase(ctx, pair, sessions, expiresAt);
+
+    await ctx.db.patch(result.onboardingId, {
+      externalPurchaseId: args.externalPurchaseId,
+      studentName: args.studentName,
+      ...(resolvedStudentUserId && resolvedStudentUserId.startsWith("user_")
+        ? { assignedStudentClerkId: resolvedStudentUserId }
+        : {}),
+    });
+
+    return {
+      onboardingId: result.onboardingId,
+      alreadyExists: false as const,
+      status: "processing" as const,
+      attemptCount: 1,
+      isRenewal: pair.isRenewal,
+    };
+  },
+});
+
+/**
+ * Atomically approve a pending Kajabi purchase confirmation and commit the
+ * onboarding. Called by `/api/admin/kajabi-purchases/[id]/approve` with the
+ * admin's Clerk identity, so the commit is attributed to the approving admin.
+ *
+ * The commit and the purchase status change happen in one transaction, which
+ * makes a UI retry safe: an already-approved row returns its existing
+ * onboarding id instead of creating a duplicate.
+ */
+export const approveKajabiPurchase = mutation({
+  args: {
+    purchaseId: v.id("kajabiPurchaseInbox"),
+    instructorId: v.id("instructors"),
+    sessionsPerInstructor: v.number(),
+    expiresAt: v.number(),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const gate = await isAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) throw new Error("Forbidden: admin or support role required");
+
+    const purchase = await ctx.db.get(args.purchaseId);
+    if (!purchase) throw new Error("Purchase not found");
+    if (purchase.status === "dismissed") {
+      throw new Error("This purchase was dismissed");
+    }
+    if (purchase.status === "approved" && purchase.onboardingId) {
+      return {
+        onboardingId: purchase.onboardingId,
+        alreadyApproved: true as const,
+      };
+    }
+    // A purchase id parsed out of an email is a claim, not proof: the inbox
+    // accepts mail from anyone, so one purchase can arrive as several
+    // confirmations. Commit at most one of them.
+    if (purchase.conflictWith) {
+      const conflicting = await ctx.db.get(purchase.conflictWith);
+      if (conflicting && conflicting.status !== "dismissed") {
+        throw new Error(
+          "Another confirmation claims the same purchase id. Approve or dismiss that one first."
+        );
+      }
+    }
+    if (purchase.kajabiPurchaseId) {
+      const samePurchase = await ctx.db
+        .query("kajabiPurchaseInbox")
+        .withIndex("by_kajabiPurchaseId", (q) =>
+          q.eq("kajabiPurchaseId", purchase.kajabiPurchaseId)
+        )
+        .collect();
+      const approvedElsewhere = samePurchase.find(
+        (row) => row._id !== args.purchaseId && row.status === "approved"
+      );
+      if (approvedElsewhere) {
+        throw new Error(
+          "This purchase id is already approved from another confirmation."
+        );
+      }
+    }
+    if (!purchase.studentEmail) {
+      throw new Error("The confirmation does not contain a student email");
+    }
+    if (!Number.isInteger(args.sessionsPerInstructor) || args.sessionsPerInstructor < 1) {
+      throw new Error("sessionsPerInstructor must be a positive integer");
+    }
+    if (args.expiresAt <= Date.now()) {
+      throw new Error("expiresAt must be in the future");
+    }
+
+    const normalizedEmail = purchase.studentEmail.trim().toLowerCase();
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+    const resolvedStudentUserId =
+      existingUser && !existingUser.userId.startsWith("email:")
+        ? existingUser.userId
+        : undefined;
+
+    const result = await performCommit(ctx, {
+      email: purchase.studentEmail,
+      instructors: [
+        {
+          instructorId: args.instructorId,
+          sessionsPerInstructor: args.sessionsPerInstructor,
+          expiresAt: args.expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      notes:
+        args.notes ??
+        `Approved from Kajabi purchase ${purchase.kajabiPurchaseId ?? purchase._id}`,
+      capacityOverrideReason: undefined,
+      submittedByUserId: identity.subject,
+      source: "kajabi",
+      studentUserId: resolvedStudentUserId,
+      clerkInvitationIds: undefined,
+    });
+
+    // A repeat purchase must still credit its sessions.
+    await creditRenewalPurchase(
+      ctx,
+      result.perInstructor[0],
+      args.sessionsPerInstructor,
+      args.expiresAt
+    );
+
+    const now = Date.now();
+    await ctx.db.patch(args.purchaseId, {
+      status: "approved",
+      approvedByUserId: identity.subject,
+      approvedAt: now,
+      onboardingId: result.onboardingId,
+      updatedAt: now,
+    });
+
+    return {
+      onboardingId: result.onboardingId,
+      alreadyApproved: false as const,
+      perInstructor: result.perInstructor,
+    };
+  },
+});
+
 /**
  * Transition a `failed` (or `queued`) onboarding back to `processing` and
  * bump `attemptCount`. Caller (the dashboard) does NOT need to know which
@@ -838,6 +1150,26 @@ export const cancelAdminOnboarding = mutation({
       (internal as any).onboardingWorkExamples.purgeWorkExamplesForOnboarding,
       { onboardingId: args.onboardingId }
     );
+
+    // Same revocation for the artwork ZIPs. Purging the work examples
+    // stops new archives, but an already-completed export keeps a signed
+    // B2 URL that outlives the cancel. Drop the URL and mark the row so a
+    // previously issued link is no longer handed out again.
+    const artworkExports = await ctx.db
+      .query("onboardingArtworkExports")
+      .withIndex("by_onboardingId", (q) =>
+        q.eq("onboardingId", args.onboardingId)
+      )
+      .collect();
+    for (const artworkExport of artworkExports) {
+      if (artworkExport.cancelledAt !== undefined) continue;
+      await ctx.db.patch(artworkExport._id, {
+        status: "failed",
+        cancelledAt: now,
+        downloadUrl: undefined,
+        errorMessage: "Onboarding was cancelled; artwork export revoked.",
+      });
+    }
 
     return { onboardingId: args.onboardingId, status: "cancelled" as const };
   },

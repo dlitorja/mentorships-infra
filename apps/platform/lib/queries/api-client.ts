@@ -996,14 +996,24 @@ export async function getVideoRecordingStreamUrl(sessionId: string) {
  */
 
 export type AdminInstructorListItem = {
+  id?: string;
   instructorId: string;
   userId: string;
+  name?: string;
   email: string;
   displayName: string;
+  slug?: string;
+  specialties?: string[];
+  isActive?: boolean;
+  isListed?: boolean;
+  /** Set for soft-deleted instructors. */
+  deletedAt?: number | null;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
   activeStudentCount: number;
+  productActiveOneOnOne?: boolean;
+  productActiveGroup?: boolean;
   createdAt: string;
 };
 
@@ -1012,17 +1022,27 @@ export type AdminInstructorListItem = {
  */
 export async function getAdminInstructors(params?: {
   pageSize?: number;
+  page?: number;
   includeInactive?: boolean;
   connected?: boolean;
+  /** active | inactive | deleted | all */
+  status?: string;
+  search?: string;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.pageSize) searchParams.set("pageSize", params.pageSize.toString());
+  if (params?.page) searchParams.set("page", params.page.toString());
   if (params?.includeInactive) searchParams.set("includeInactive", "true");
   if (params?.connected) searchParams.set("connected", "true");
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
   const query = searchParams.toString();
-  return apiFetch<{ instructors: AdminInstructorListItem[] }>(
-    `${ApiRoutes.adminInstructors}${query ? `?${query}` : ""}`
-  );
+  return apiFetch<{
+    instructors: AdminInstructorListItem[];
+    total?: number;
+    page?: number;
+    pageSize?: number;
+  }>(`${ApiRoutes.adminInstructors}${query ? `?${query}` : ""}`);
 }
 
 /**
@@ -1407,6 +1427,17 @@ export async function deleteAdminProduct(id: string) {
  * Admin orders
  */
 
+export type AdminOrderPack = {
+  id: string;
+  instructorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  status: string;
+  expiresAt: number | null;
+};
+
 export type AdminOrder = {
   id: string;
   userId: string;
@@ -1425,6 +1456,8 @@ export type AdminOrder = {
     status: string;
     refundedAmount: string | null;
   }[];
+  /** Session packs created by this order's payments (what a refund affects). */
+  packs?: AdminOrderPack[];
 };
 
 /**
@@ -1457,7 +1490,20 @@ export async function createAdminRefund(data: {
   reason: string;
   customReason?: string;
 }) {
-  return apiFetch<{ success: boolean; message?: string }>(ApiRoutes.adminRefunds, {
+  return apiFetch<{
+    success: boolean;
+    message?: string;
+    refund?: {
+      paymentId: string;
+      amount: string;
+      currency: string;
+      type: "full" | "partial";
+      reason: string;
+      customReason: string | null;
+      providerRefundId: string | null;
+      provider: string;
+    };
+  }>(ApiRoutes.adminRefunds, {
     method: "POST",
     body: JSON.stringify(data),
   });

@@ -254,6 +254,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       purchaseId = `kajabi:${event.event}:${offerId}:hash:${hash.digest("hex").slice(0, 32)}`;
     }
 
+    // Onboarding is NOT an inventory replay: it grants seats and session
+    // packs, and a repeat landing credits another renewal top-up. A single
+    // payment can arrive as `purchase.created` AND `payment.succeeded`
+    // (Kajabi sends both), and `purchaseId` above deliberately includes the
+    // event name, so using it here credited one payment twice. Key the
+    // onboarding on the transaction instead — the one field both callbacks
+    // share.
+    //
+    // When there is no transaction id we cannot prove the two callbacks are
+    // the same payment, so only the authoritative event grants sessions;
+    // the rest are still processed for inventory.
+    const onboardingPurchaseId: string | null =
+      transactionId.length > 0
+        ? ["kajabi-purchase", offerId, transactionId, memberEmail]
+            .filter((part) => part !== "")
+            .join(":")
+        : event.event === "purchase.created"
+          ? purchaseId
+          : null;
+
+    // Keys the previous release wrote for this payment. Without them, a
+    // redelivery of a payment onboarded just before this deploy would not find
+    // its existing row and would create a second onboarding.
+    const legacyOnboardingPurchaseIds =
+      transactionId.length > 0 && onboardingPurchaseId !== null
+        ? ["purchase.created", "payment.succeeded"]
+            .map((name) =>
+              ["kajabi", name, offerId, transactionId, memberEmail]
+                .filter((part) => part !== "")
+                .join(":")
+            )
+            .filter((key) => key !== onboardingPurchaseId)
+        : [];
+
     let alreadyApplied = false;
     let newInventory: number | null = null;
     try {
@@ -366,6 +400,98 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           purchaseId,
         },
       });
+    }
+
+    // Auto-onboard 1:1 buyers through the existing admin-onboarding
+    // pipeline. The inventory write above is authoritative; this call is
+    // idempotent on the purchase id, so a Kajabi retry after a partial
+    // failure is safe. Group purchases are not auto-onboarded.
+    //
+    // Paid access requires the shared webhook secret: the public webhook
+    // only checks a caller-supplied User-Agent and a rate limit, so a
+    // forged request must not be able to mint a session pack. The secret is
+    // supplied in the Kajabi webhook URL (`?secret=...`) or the
+    // `x-kajabi-webhook-secret` header. If it is missing or wrong, inventory
+    // still applies (the accepted threat model) but no onboarding happens.
+    const memberName = event.member?.name?.trim();
+    const onboardingSecret = process.env.KAJABI_WEBHOOK_SECRET;
+    const providedSecret =
+      new URL(request.url).searchParams.get("secret") ??
+      request.headers.get("x-kajabi-webhook-secret");
+    const onboardingAllowed =
+      typeof onboardingSecret === "string" &&
+      onboardingSecret.length >= 16 &&
+      providedSecret === onboardingSecret;
+    const purchaseIdFingerprint = createHash("sha256")
+      .update(purchaseId)
+      .digest("hex")
+      .slice(0, 12);
+
+    if (mapping.mentorshipType === "one-on-one" && memberEmail.length > 0) {
+      if (!onboardingAllowed) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: new Error(
+            "Auto-onboarding skipped: missing or invalid webhook secret",
+          ),
+          message:
+            "Auto-onboarding skipped: missing or invalid webhook secret",
+          level: "warn",
+          context: {
+            instructorSlug: mapping.instructorSlug,
+            purchaseIdFingerprint,
+          },
+        });
+      } else if (onboardingPurchaseId === null) {
+        await reportError({
+          source: "webhooks/kajabi",
+          error: new Error(
+            "Auto-onboarding skipped: no transaction id and a non-authoritative event",
+          ),
+          message:
+            "Auto-onboarding skipped: no stable purchase key for this event type",
+          level: "warn",
+          context: {
+            event: event.event,
+            instructorSlug: mapping.instructorSlug,
+            purchaseIdFingerprint,
+          },
+        });
+      } else {
+        try {
+          await convexServerCall("/admin-onboarding/kajabi-purchase", {
+            email: memberEmail,
+            studentName:
+              memberName && memberName.length > 0 ? memberName : undefined,
+            instructorSlug: mapping.instructorSlug,
+            externalPurchaseId: onboardingPurchaseId,
+            ...(legacyOnboardingPurchaseIds.length > 0
+              ? { legacyExternalPurchaseIds: legacyOnboardingPurchaseIds }
+              : {}),
+          });
+        } catch (onboardingError) {
+          await reportError({
+            source: "webhooks/kajabi",
+            error: onboardingError,
+            message: "Failed to auto-onboard Kajabi purchase",
+            level: "error",
+            context: {
+              instructorSlug: mapping.instructorSlug,
+              // Do not send the buyer email (which `purchaseId` embeds) to
+              // the observability backend.
+              purchaseIdFingerprint,
+              memberEmailFingerprint: createHash("sha256")
+                .update(memberEmail.trim().toLowerCase())
+                .digest("hex")
+                .slice(0, 12),
+            },
+          });
+          return NextResponse.json(
+            { error: "Failed to auto-onboard purchase" },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     // Emit the inventory/changed Inngest event only on a successful

@@ -1,0 +1,192 @@
+import { internalMutation, mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { v } from "convex/values";
+
+/**
+ * Email-intake queue for Kajabi purchase confirmations.
+ *
+ * The current Kajabi plan does not expose webhooks, so `support@` is a
+ * recipient on each offer. Resend receives the confirmation, an Inngest poll
+ * parses it and calls `upsertFromEmail`, and an admin approves the onboarding
+ * from `/admin/kajabi-purchases`.
+ *
+ * Approval never happens implicitly: an email only creates a `pending` row.
+ */
+
+const PURCHASE_STATUS = v.union(
+  v.literal("pending"),
+  v.literal("approved"),
+  v.literal("dismissed")
+);
+
+async function requireStaff(
+  ctx: QueryCtx | MutationCtx
+): Promise<{ subject: string }> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Unauthorized");
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+    .first();
+  if (!user || (user.role !== "admin" && user.role !== "support")) {
+    throw new Error("Forbidden: admin or support role required");
+  }
+  return identity as { subject: string };
+}
+
+/**
+ * Idempotent upsert called by the Resend inbox poll (bearer-auth HTTP).
+ * Dedupes on the Resend email id and, when present, the Kajabi purchase id,
+ * so forwarding the same confirmation twice does not create two rows.
+ */
+export const upsertFromEmail = internalMutation({
+  args: {
+    resendEmailId: v.string(),
+    resendThreadId: v.optional(v.string()),
+    fromAddress: v.string(),
+    subject: v.string(),
+    receivedAt: v.number(),
+    offerTitle: v.string(),
+    purchaseType: v.union(
+      v.literal("one-on-one"),
+      v.literal("group"),
+      v.literal("unknown")
+    ),
+    instructorName: v.optional(v.string()),
+    studentName: v.optional(v.string()),
+    studentEmail: v.optional(v.string()),
+    kajabiPurchaseId: v.optional(v.string()),
+    kajabiContactId: v.optional(v.string()),
+    rawText: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const byEmail = await ctx.db
+      .query("kajabiPurchaseInbox")
+      .withIndex("by_resendEmailId", (q) =>
+        q.eq("resendEmailId", args.resendEmailId)
+      )
+      .first();
+    if (byEmail) {
+      return { purchaseId: byEmail._id, inserted: false, status: byEmail.status };
+    }
+
+    let conflictWith: Id<"kajabiPurchaseInbox"> | undefined;
+
+    if (args.kajabiPurchaseId) {
+      const byPurchase = await ctx.db
+        .query("kajabiPurchaseInbox")
+        .withIndex("by_kajabiPurchaseId", (q) =>
+          q.eq("kajabiPurchaseId", args.kajabiPurchaseId)
+        )
+        .first();
+      if (byPurchase) {
+        // Nothing in the message proves who sent it — the purchase id, the
+        // sender, and the student address all come from the email body — so a
+        // content-based "same message" test is exactly what a forged claim
+        // copies. Never drop the second claim: keep it and flag the conflict,
+        // letting staff see both. Exact replays are already collapsed by the
+        // Resend email id above, which the sender cannot choose.
+        conflictWith = byPurchase._id;
+      }
+    }
+
+    const now = Date.now();
+    const purchaseId = await ctx.db.insert("kajabiPurchaseInbox", {
+      resendEmailId: args.resendEmailId,
+      resendThreadId: args.resendThreadId,
+      fromAddress: args.fromAddress,
+      subject: args.subject,
+      receivedAt: args.receivedAt,
+      offerTitle: args.offerTitle,
+      purchaseType: args.purchaseType,
+      instructorName: args.instructorName,
+      studentName: args.studentName,
+      studentEmail: args.studentEmail,
+      kajabiPurchaseId: args.kajabiPurchaseId,
+      kajabiContactId: args.kajabiContactId,
+      conflictWith,
+      rawText: args.rawText.slice(0, 20_000),
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { purchaseId, inserted: true, status: "pending" as const };
+  },
+});
+
+export const listPurchases = query({
+  args: {
+    status: PURCHASE_STATUS,
+    limit: v.optional(v.number()),
+    before: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx);
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+    const rows = await ctx.db
+      .query("kajabiPurchaseInbox")
+      .withIndex("by_status_createdAt", (q) => {
+        const base = q.eq("status", args.status);
+        return args.before ? base.lt("createdAt", args.before) : base;
+      })
+      .order("desc")
+      .take(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((row) => ({
+        _id: row._id,
+        subject: row.subject,
+        receivedAt: row.receivedAt,
+        offerTitle: row.offerTitle,
+        purchaseType: row.purchaseType,
+        instructorName: row.instructorName,
+        studentName: row.studentName,
+        studentEmail: row.studentEmail,
+        kajabiPurchaseId: row.kajabiPurchaseId,
+        conflictWith: row.conflictWith,
+        status: row.status,
+        onboardingId: row.onboardingId,
+        createdAt: row.createdAt,
+      })),
+      nextCursor: hasMore ? page[page.length - 1].createdAt : undefined,
+    };
+  },
+});
+
+export const getPurchase = query({
+  args: { id: v.id("kajabiPurchaseInbox") },
+  handler: async (ctx, args) => {
+    await requireStaff(ctx);
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const dismissPurchase = mutation({
+  args: {
+    id: v.id("kajabiPurchaseInbox"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await requireStaff(ctx);
+    const row = await ctx.db.get(args.id);
+    if (!row) throw new Error("Purchase not found");
+    if (row.status === "approved") {
+      throw new Error("This purchase is already approved");
+    }
+    await ctx.db.patch(args.id, {
+      status: "dismissed",
+      dismissedByUserId: identity.subject,
+      dismissedAt: Date.now(),
+      dismissReason: args.reason,
+      updatedAt: Date.now(),
+    });
+    return { ok: true as const };
+  },
+});
+
+export type KajabiPurchaseInboxDoc = Doc<"kajabiPurchaseInbox">;
+export type KajabiPurchaseInboxId = Id<"kajabiPurchaseInbox">;

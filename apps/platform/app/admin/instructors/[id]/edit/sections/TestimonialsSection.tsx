@@ -1,6 +1,15 @@
 'use client';
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Trash2 } from "lucide-react";
 import type { Testimonial } from "../types";
@@ -20,8 +29,13 @@ export function TestimonialsSection({
   onDelete,
   deleteIsPending,
 }: TestimonialsSectionProps) {
+  // Deleting here is immediate (no save step), so ask first: the previous
+  // behaviour removed public content on a single click with no undo.
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
+
   return (
-    <Card>
+    <>
+      <Card>
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
@@ -52,8 +66,11 @@ export function TestimonialsSection({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => onDelete(t.id)}
+                    onClick={() =>
+                      setPendingDelete({ id: t.id, label: t.name || "this testimonial" })
+                    }
                     disabled={deleteIsPending}
+                    aria-label={`Delete testimonial from ${t.name || "this student"}`}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -68,5 +85,33 @@ export function TestimonialsSection({
         </div>
       </CardContent>
     </Card>
+
+      <Dialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this testimonial?</DialogTitle>
+            <DialogDescription>
+              The testimonial from {pendingDelete?.label} is removed from the instructor&apos;s
+              public profile immediately. Changes here are not part of the form&apos;s Save, and
+              there is no undo.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) onDelete(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+            >
+              Delete testimonial
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

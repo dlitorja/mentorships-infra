@@ -18,6 +18,14 @@
  *   3. Otherwise promote the deployment, then poll the alias until it matches.
  *   4. Still mismatched after the poll budget → exit non-zero.
  *
+ * A commit can also produce *no* READY deployment on purpose: Vercel's monorepo
+ * setting cancels the build when the commit does not touch the project's root
+ * directory (or the workspace packages it depends on). Those deployments are
+ * CANCELED and carry an `errorLink` pointing at "skipping-unaffected-projects".
+ * There is nothing to verify in that case — requiring a deployment for an
+ * untouched app failed every merge that only changed another app (e.g.
+ * drive.huckleberry.art on a marketing-only commit). See `wasSkippedAsUnaffected`.
+ *
  * Usage:
  *   VERCEL_TOKEN=… node .github/scripts/verify-production-alias.mjs \
  *     --sha <commit> --team <team_id> \
@@ -86,8 +94,8 @@ async function vercelFetch(fetchImpl, token, path, team, init = {}) {
   }
 }
 
-/** Newest READY production deployment for the given commit, or null. */
-async function findReadyDeployment({ fetchImpl, token, team, project, sha }) {
+/** Deployment records for this commit, newest first. */
+async function listCommitDeployments({ fetchImpl, token, team, project, sha }) {
   const data = await vercelFetch(
     fetchImpl,
     token,
@@ -96,11 +104,45 @@ async function findReadyDeployment({ fetchImpl, token, team, project, sha }) {
   );
   const deployments = Array.isArray(data?.deployments) ? data.deployments : [];
   // `/v6/deployments` list items expose `uid`; other endpoints use `id`.
-  const ready = deployments
+  return deployments
     .map((d) => ({ ...d, id: d?.uid ?? d?.id }))
-    .filter((d) => (d?.readyState === "READY" || d?.state === "READY") && typeof d.id === "string")
-    .sort((a, b) => (b?.createdAt ?? 0) - (a?.createdAt ?? 0));
-  return ready[0] ?? null;
+    .filter((d) => typeof d.id === "string")
+    .sort((a, b) => (createdAtOf(b) ?? 0) - (createdAtOf(a) ?? 0));
+}
+
+/** List items expose `created`; detail responses expose `createdAt`. */
+function createdAtOf(deployment) {
+  if (typeof deployment?.createdAt === "number") return deployment.createdAt;
+  if (typeof deployment?.created === "number") return deployment.created;
+  return null;
+}
+
+function isReady(deployment) {
+  return deployment?.readyState === "READY" || deployment?.state === "READY";
+}
+
+const TERMINAL_STATES = new Set(["READY", "ERROR", "CANCELED"]);
+
+function isTerminal(deployment) {
+  return TERMINAL_STATES.has(deployment?.readyState ?? deployment?.state);
+}
+
+/**
+ * Vercel cancels the deployment of a monorepo project that the commit does not
+ * touch ("skip unaffected projects"). Those records carry an `errorLink` to the
+ * docs section below; a cancel for any other reason (user, superseded) does not.
+ */
+const SKIP_UNAFFECTED_PROJECT_LINK = "monorepos#skipping-unaffected-projects";
+
+async function wasSkippedAsUnaffected({ fetchImpl, token, team, deploymentId }) {
+  const data = await vercelFetch(
+    fetchImpl,
+    token,
+    `/v13/deployments/${encodeURIComponent(deploymentId)}`,
+    team
+  );
+  const errorLink = typeof data?.errorLink === "string" ? data.errorLink : "";
+  return errorLink.includes(SKIP_UNAFFECTED_PROJECT_LINK);
 }
 
 async function deploymentInfo({ fetchImpl, token, team, deploymentId }) {
@@ -163,8 +205,60 @@ export async function verifyTarget({
 
   let deployment = null;
   while (now() < deadline) {
-    deployment = await findReadyDeployment({ fetchImpl, token, team, project, sha });
+    const deployments = await listCommitDeployments({ fetchImpl, token, team, project, sha });
+    deployment = deployments.find(isReady) ?? null;
     if (deployment) break;
+
+    // Every record for this commit is finished and none is READY. Before
+    // failing, work out whether that was intentional: an unaffected monorepo
+    // project is skipped on purpose, and a newer commit supersedes this run.
+    // Only the newest record decides: an older skip must not mask a failed
+    // retry of the same SHA.
+    if (deployments.length > 0 && deployments.every(isTerminal)) {
+      const newest = deployments[0];
+
+      if (await wasSkippedAsUnaffected({ fetchImpl, token, team, deploymentId: newest.id })) {
+        return {
+          alias,
+          project,
+          ok: true,
+          promoted: false,
+          skipped: true,
+          reason: "commit does not affect this project; Vercel skipped the build",
+        };
+      }
+
+      const currentId = await aliasDeploymentId({ fetchImpl, token, team, alias });
+      const current = currentId
+        ? await deploymentInfo({ fetchImpl, token, team, deploymentId: currentId })
+        : { sha: "", createdAt: null };
+      const newestCreatedAt = createdAtOf(newest);
+      if (
+        current.createdAt !== null &&
+        newestCreatedAt !== null &&
+        current.createdAt > newestCreatedAt
+      ) {
+        return {
+          alias,
+          project,
+          ok: true,
+          promoted: false,
+          skipped: true,
+          reason: "alias already serves a newer deployment",
+        };
+      }
+
+      return {
+        alias,
+        project,
+        ok: false,
+        promoted: false,
+        reason: `deployment for this commit is ${String(
+          newest?.readyState ?? newest?.state ?? "unknown"
+        ).toLowerCase()}, not READY`,
+      };
+    }
+
     log(`${alias}: no READY deployment for ${sha.slice(0, 7)} yet; waiting ${pollMs}ms`);
     await sleep(pollMs);
   }
@@ -187,7 +281,7 @@ export async function verifyTarget({
   // promotion is only allowed when the candidate is at least as new as what the
   // alias already serves. This needs no external lookup, so a flaky GitHub API
   // cannot silently disable the guard.
-  const candidateCreatedAt = typeof deployment.createdAt === "number" ? deployment.createdAt : null;
+  const candidateCreatedAt = createdAtOf(deployment);
   if (
     current.createdAt !== null &&
     candidateCreatedAt !== null &&
@@ -278,12 +372,13 @@ async function main() {
   let failed = false;
   for (const result of results) {
     if (result.ok) {
-      const action = result.promoted
-        ? "promoted to"
-        : result.skipped
-          ? `left alone (serves a newer deployment); nothing to do for`
-          : "already serving";
-      console.log(`✅ ${result.alias}: ${action} ${args.sha.slice(0, 7)}`);
+      if (result.promoted) {
+        console.log(`✅ ${result.alias}: promoted to ${args.sha.slice(0, 7)}`);
+      } else if (result.skipped) {
+        console.log(`✅ ${result.alias}: nothing to verify — ${result.reason}`);
+      } else {
+        console.log(`✅ ${result.alias}: already serving ${args.sha.slice(0, 7)}`);
+      }
     } else {
       failed = true;
       console.log(

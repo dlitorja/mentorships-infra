@@ -1,11 +1,39 @@
 import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { WORKSPACE_RETENTION_MS } from "../workspaceConstants";
 
-/** Deletes all notes, links, images, messages, and per-user aliases belonging to a workspace and resets its image counts. */
+/**
+ * Deletes all notes, links, images, messages, and per-user aliases
+ * belonging to a workspace and resets its image counts.
+ *
+ * Destructive and irreversible: every row is hard-deleted and only
+ * the B2 ledger (`fileUploads`) survives. The only legitimate caller
+ * is the 18-month retention pipeline, so the handler refuses any
+ * workspace that is still active or inside its retention window.
+ * This guard is deliberately independent of the selection query —
+ * the 2026-11-14..19 incident happened because the query's optional
+ * `endedAt` range matched active workspaces, and the mutation
+ * trusted the caller's list unconditionally.
+ */
 export const deleteAllWorkspaceContent = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const { workspaceId } = args;
+
+    const workspace = await ctx.db.get(workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+    if (workspace.endedAt === undefined) {
+      throw new Error(
+        `Refusing to delete content for active workspace ${workspaceId}: it has no endedAt`
+      );
+    }
+    if (Date.now() - workspace.endedAt < WORKSPACE_RETENTION_MS) {
+      throw new Error(
+        `Refusing to delete content for workspace ${workspaceId}: it is still inside the 18-month retention window`
+      );
+    }
 
     const notes = await ctx.db
       .query("workspaceNotes")

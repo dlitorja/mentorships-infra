@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { SALE_COURSES } from "./sale-data";
 
 type StoreItem = {
   id: string;
@@ -7,27 +8,16 @@ type StoreItem = {
   link: string;
 };
 
-// Static showcase grid for recordings/courses. Prices intentionally omitted
-// because we don't have a reliable source from Kajabi here.
+// Static showcase grid for recordings/courses. Prices are omitted here on
+// purpose — the verified sale prices live in `sale-data.ts` and are rendered by
+// `SaleBanner`.
 const STORE_ITEMS: StoreItem[] = [
-  {
-    id: "bundle",
-    title: "Special Course Bundle",
-    image: "/images/preview/sale-bundle.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g",
-  },
-  {
-    id: "new-course-1",
-    title: "New Course Launch",
-    image: "/images/preview/sale-new-course-1.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151951362",
-  },
-  {
-    id: "discount-58",
-    title: "58% Off Featured Course",
-    image: "/images/preview/sale-new-course-2.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151610810",
-  },
+  ...SALE_COURSES.map((course) => ({
+    id: course.id,
+    title: course.title,
+    image: course.cardImage,
+    link: course.landingPageUrl,
+  })),
   {
     id: "drawing-course",
     title: "Drawing from Imagination",

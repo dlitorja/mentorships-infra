@@ -54,7 +54,7 @@ function verifyAuth(request: Request): boolean {
 export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const workspaces = await ctx.runQuery(api.queries.http.getWorkspacesNeedingDeletion);
+  const workspaces = await ctx.runQuery(internal.queries.http.getWorkspacesNeedingDeletion);
 
   return new Response(JSON.stringify({ workspaces }), {
     headers: { "Content-Type": "application/json" },
@@ -65,7 +65,7 @@ export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) 
 export const httpGetWorkspacesForNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const notifications = await ctx.runQuery(api.queries.http.getWorkspacesForNotification);
+  const notifications = await ctx.runQuery(internal.queries.http.getWorkspacesForNotification);
 
   return new Response(JSON.stringify({ notifications }), {
     headers: { "Content-Type": "application/json" },
@@ -3125,10 +3125,411 @@ http.route({
   handler: httpStartCheckoutOnboarding,
 });
 
+/**
+ * Webhook-driven Kajabi onboarding. Authenticated with `CONVEX_HTTP_KEY`
+ * (the marketing webhook calls this after a successful inventory apply).
+ * Commits the onboarding, then emits the existing
+ * `admin/onboarding.completed` Inngest event so the email + tracking
+ * pipeline runs unchanged.
+ */
+const httpKajabiPurchaseOnboarding = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const email = typeof body.email === "string" ? body.email : "";
+  const instructorSlug =
+    typeof body.instructorSlug === "string" ? body.instructorSlug : "";
+  const externalPurchaseId =
+    typeof body.externalPurchaseId === "string" ? body.externalPurchaseId : "";
+  if (!email || !instructorSlug || !externalPurchaseId) {
+    return new Response(
+      JSON.stringify({
+        error: "email, instructorSlug, and externalPurchaseId are required",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.adminOnboarding.onboardKajabiPurchase,
+      {
+        email,
+        studentName:
+          typeof body.studentName === "string" ? body.studentName : undefined,
+        instructorSlug,
+        sessionsPerInstructor:
+          typeof body.sessionsPerInstructor === "number"
+            ? body.sessionsPerInstructor
+            : undefined,
+        expiresAt:
+          typeof body.expiresAt === "number" ? body.expiresAt : undefined,
+        externalPurchaseId,
+        legacyExternalPurchaseIds: Array.isArray(body.legacyExternalPurchaseIds)
+          ? body.legacyExternalPurchaseIds.filter(
+              (value): value is string => typeof value === "string" && value.length > 0
+            )
+          : undefined,
+      }
+    );
+
+    const eventKey = process.env.INNGEST_EVENT_KEY;
+    if (!eventKey) {
+      throw new Error(
+        "INNGEST_EVENT_KEY is not configured on the Convex deployment"
+      );
+    }
+    const eventResponse = await fetch(
+      `https://inn.gs/e/${encodeURIComponent(eventKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "admin/onboarding.completed",
+          data: {
+            onboardingId: result.onboardingId,
+            attemptCount: result.attemptCount,
+          },
+        }),
+      }
+    );
+    if (!eventResponse.ok) {
+      throw new Error(
+        `Inngest event emit failed (${eventResponse.status}): ${(
+          await eventResponse.text()
+        ).slice(0, 200)}`
+      );
+    }
+
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/**
+ * Upsert a parsed Kajabi purchase confirmation from the Resend inbox poll.
+ * Bearer-auth (`CONVEX_HTTP_KEY`) because the poll runs in the platform
+ * Inngest worker. The mutation dedupes on the Resend email id and the Kajabi
+ * purchase id, so re-polling is safe.
+ */
+const httpUpsertKajabiPurchaseInbox = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const required = [
+    "resendEmailId",
+    "fromAddress",
+    "subject",
+    "offerTitle",
+    "rawText",
+  ] as const;
+  for (const key of required) {
+    if (typeof body[key] !== "string" || (body[key] as string).length === 0) {
+      return new Response(
+        JSON.stringify({ error: `${key} is required` }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  const purchaseType =
+    body.purchaseType === "one-on-one" ||
+    body.purchaseType === "group" ||
+    body.purchaseType === "unknown"
+      ? body.purchaseType
+      : "unknown";
+
+  try {
+    const result = await ctx.runMutation(
+      internal.kajabiPurchaseInbox.upsertFromEmail,
+      {
+        resendEmailId: body.resendEmailId as string,
+        resendThreadId:
+          typeof body.resendThreadId === "string"
+            ? body.resendThreadId
+            : undefined,
+        fromAddress: body.fromAddress as string,
+        subject: body.subject as string,
+        receivedAt:
+          typeof body.receivedAt === "number" ? body.receivedAt : Date.now(),
+        offerTitle: body.offerTitle as string,
+        purchaseType,
+        instructorName:
+          typeof body.instructorName === "string"
+            ? body.instructorName
+            : undefined,
+        studentName:
+          typeof body.studentName === "string" ? body.studentName : undefined,
+        studentEmail:
+          typeof body.studentEmail === "string"
+            ? body.studentEmail
+            : undefined,
+        kajabiPurchaseId:
+          typeof body.kajabiPurchaseId === "string"
+            ? body.kajabiPurchaseId
+            : undefined,
+        kajabiContactId:
+          typeof body.kajabiContactId === "string"
+            ? body.kajabiContactId
+            : undefined,
+        rawText: body.rawText as string,
+      }
+    );
+    return new Response(JSON.stringify({ success: true, ...result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/**
+ * Onboarding follow-up reminders: scan for due nudges and record sends.
+ * Bearer-auth (`CONVEX_HTTP_KEY`) because the hourly cron runs in the
+ * platform Inngest worker.
+ */
+const httpScanOnboardingFollowUps = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  try {
+    const result = await ctx.runQuery(
+      internal.onboardingFollowUps.scan,
+      {}
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+const httpMarkOnboardingFollowUpSent = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (
+    typeof body.dedupeKey !== "string" ||
+    typeof body.onboardingId !== "string" ||
+    typeof body.kind !== "string" ||
+    typeof body.recipient !== "string"
+  ) {
+    return new Response(
+      JSON.stringify({
+        error: "dedupeKey, onboardingId, kind, and recipient are required",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.onboardingReminderReview.markSent,
+      {
+        dedupeKey: body.dedupeKey,
+        onboardingId: body.onboardingId as Id<"adminOnboardings">,
+        kind: body.kind as
+          | "student_invite_48h"
+          | "student_invite_5d"
+          | "admin_stale_7d"
+          | "instructor_review_3d",
+        recipient: body.recipient,
+        resendId:
+          typeof body.resendId === "string" ? body.resendId : undefined,
+        recipientName:
+          typeof body.recipientName === "string" ? body.recipientName : undefined,
+        recipientKind:
+          body.recipientKind === "student" ||
+          body.recipientKind === "instructor" ||
+          body.recipientKind === "admin"
+            ? body.recipientKind
+            : undefined,
+        subject:
+          typeof body.subject === "string" ? body.subject : undefined,
+        previewText:
+          typeof body.previewText === "string" ? body.previewText : undefined,
+        reason: typeof body.reason === "string" ? body.reason : undefined,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/**
+ * Stage the nudges the worker just built. Nothing is sent from here; the rows
+ * land as `pending_review` until an admin approves them.
+ */
+const httpEnqueueOnboardingFollowUps = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!Array.isArray(body.items)) {
+    return new Response(JSON.stringify({ error: "items must be an array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.onboardingReminderReview.enqueue,
+      {
+        items: body.items as Array<{
+          dedupeKey: string;
+          onboardingId: Id<"adminOnboardings">;
+          kind:
+            | "student_invite_48h"
+            | "student_invite_5d"
+            | "admin_stale_7d"
+            | "instructor_review_3d";
+          recipient: string;
+          recipientName?: string;
+          recipientKind: "student" | "instructor" | "admin";
+          subject: string;
+          previewText: string;
+          context: string;
+          reason: string;
+        }>,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
+/** Claim the batch the worker may send. Marks the rows `sending` atomically. */
+const httpClaimOnboardingFollowUps = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    body = {};
+  }
+
+  try {
+    const items = await ctx.runMutation(
+      internal.onboardingReminderReview.claim,
+      { limit: typeof body.limit === "number" ? body.limit : undefined }
+    );
+    return new Response(JSON.stringify({ items }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
+
 http.route({
   path: "/admin-onboarding/get",
   method: "POST",
   handler: httpGetAdminOnboarding,
+});
+
+http.route({
+  path: "/kajabi-purchase-inbox/upsert",
+  method: "POST",
+  handler: httpUpsertKajabiPurchaseInbox,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/scan",
+  method: "POST",
+  handler: httpScanOnboardingFollowUps,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/mark-sent",
+  method: "POST",
+  handler: httpMarkOnboardingFollowUpSent,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/enqueue",
+  method: "POST",
+  handler: httpEnqueueOnboardingFollowUps,
+});
+
+http.route({
+  path: "/onboarding-follow-ups/claim",
+  method: "POST",
+  handler: httpClaimOnboardingFollowUps,
+});
+
+http.route({
+  path: "/admin-onboarding/kajabi-purchase",
+  method: "POST",
+  handler: httpKajabiPurchaseOnboarding,
 });
 
 http.route({

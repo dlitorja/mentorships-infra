@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { pickInstructorName } from "@/lib/admin/refund-instructor-name";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
@@ -236,10 +237,27 @@ export async function POST(req: NextRequest) {
         });
 
         if (user?.email) {
-          const instructorName = "Your Instructor";
+          // The student is a person, not an inbox: greet them by name when we
+          // have one. The instructor comes from the pack this payment created —
+          // "Your Instructor" made a papered-over email look automated.
+          const studentName =
+            [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email;
+          let instructorName = "your instructor";
+          try {
+            const packs = await convex.query(api.admin.getStudentsForAdmin, {
+              userIds: [order.userId],
+            });
+            instructorName = pickInstructorName(
+              (packs?.items ?? []).flatMap((student) =>
+                (student.sessionPacks ?? []).map((pack) => pack.instructorName)
+              )
+            );
+          } catch (err) {
+            console.error("[admin/refunds] Could not resolve instructor name:", err);
+          }
 
           const refundEmail = buildRefundEmail({
-            studentName: user.email,
+            studentName,
             instructorName,
             refundAmount: refundAmountStr,
             currency,

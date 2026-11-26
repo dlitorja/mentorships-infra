@@ -1,73 +1,12 @@
 "use client"
 
 import Image from 'next/image'
-
-interface SaleItem {
-  id: string;
-  title: string;
-  badge: string;
-  description: string;
-  endsAt: string | null;
-  image: string;
-  link: string;
-}
-
-const SALE_END_LABEL = 'May 5th';
-
-const SALE_ITEMS: SaleItem[] = [
-  {
-    id: 'bundle',
-    title: 'Special Course Bundle',
-    badge: '67% OFF',
-    description: 'Get both courses for $120 · Limited time',
-    endsAt: null,
-    image: '/images/preview/sale-bundle.jpg',
-    link: 'https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g',
-  },
-  {
-    id: 'new-course-1',
-    title: 'New Course · 54% OFF',
-    badge: 'SALE',
-    description: 'Sale ends May 5th',
-    endsAt: '2026-05-05T23:59:59.000Z',
-    image: '/images/preview/sale-new-course-1.jpg',
-    link: 'https://home.huckleberry.art/resource_redirect/landing_pages/2151951362',
-  },
-  {
-    id: 'new-course-2',
-    title: 'Featured Course · 58% OFF',
-    badge: 'SALE',
-    description: 'Sale ends May 5th',
-    endsAt: '2026-05-05T23:59:59.000Z',
-    image: '/images/preview/sale-new-course-2.jpg',
-    link: 'https://home.huckleberry.art/resource_redirect/landing_pages/2151610810',
-  },
-  {
-    id: 'instructor-kim',
-    title: 'New Instructor — Kim Myatt',
-    badge: 'MENTORSHIPS',
-    description: '1-on-1 mentorships available',
-    endsAt: null,
-    image: '/images/preview/instructor-kim-myatt.jpg',
-    link: 'https://mentorships.huckleberry.art',
-  },
-  {
-    id: 'drawing-course',
-    title: 'Drawing from Imagination',
-    badge: 'NEW',
-    description: 'Start learning today',
-    endsAt: null,
-    image: '/images/preview/sale-drawing-course.jpg',
-    link: 'https://home.huckleberry.art/resource_redirect/landing_pages/2150836416',
-  },
-];
+import { SALE, SALE_COURSES, saleBadge } from './sale-data'
 
 /**
- * Renders a promotional banner grid for current courses and instructor offerings.
+ * Renders the Holiday Season Sale grid for Neil Gray's courses.
  */
 export function SaleBanner() {
-  const liveItems = SALE_ITEMS.slice(0, 3);
-
   return (
     <section className='bg-background py-20 px-6'>
       <div className='mx-auto max-w-6xl'>
@@ -77,42 +16,45 @@ export function SaleBanner() {
           </h2>
         </div>
         <div className='mb-10 text-center text-sm uppercase tracking-widest text-muted-foreground'>
-          Sale ends {SALE_END_LABEL}
+          {SALE.name} · Limited time only
         </div>
 
         <div className='grid gap-6 sm:grid-cols-2 lg:grid-cols-3'>
-          {liveItems.map((item) => (
+          {SALE_COURSES.map((course) => (
             <a
-              key={item.id}
-              href={item.link}
+              key={course.id}
+              href={course.landingPageUrl}
               target='_blank'
               rel='noopener noreferrer'
               className='group block overflow-hidden bg-card border border-border hover:border-primary/50 transition-colors'
             >
               <div className='relative aspect-square w-full overflow-hidden bg-muted'>
                 <Image
-                  src={item.image}
-                  alt={item.title !== 'COURSE_NAME_HERE' ? item.title : 'Course offering'}
+                  src={course.cardImage}
+                  alt={course.title}
                   fill
                   className='object-contain transition-transform group-hover:scale-105'
                   sizes='(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw'
                 />
                 <div className='absolute top-3 left-3'>
                   <span className='inline-block bg-red-600 px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow'>
-                    {item.badge}
+                    {saleBadge(course.percentOff)}
                   </span>
                 </div>
               </div>
 
               <div className='p-4 space-y-3'>
                 <h3 className='text-base font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2'>
-                  {item.title}
+                  {course.title}
                 </h3>
-                {item.description && (
-                  <p className='text-sm text-muted-foreground line-clamp-2'>
-                    {item.description}
-                  </p>
-                )}
+                <p className='text-sm'>
+                  <span className='text-base font-semibold text-foreground'>
+                    ${course.salePrice}
+                  </span>
+                  <span className='text-muted-foreground'>
+                    {' '}— Regular Price <s>${course.regularPrice}</s>
+                  </span>
+                </p>
               </div>
             </a>
           ))}
@@ -130,5 +72,5 @@ export function SaleBanner() {
         </div>
       </div>
     </section>
-  );
+  )
 }

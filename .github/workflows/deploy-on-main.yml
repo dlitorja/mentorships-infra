@@ -158,6 +158,10 @@ jobs:
       # Superseded runs are handled inside the script: it only promotes forward
       # (a deployment older than what the alias already serves is left alone), so
       # re-running CI for an old commit can never roll production back.
+      # Projects Vercel skips on purpose are handled too: a monorepo commit that
+      # does not touch `apps/<project>` cancels that project's build, and there
+      # is nothing for the alias to serve. The script treats that — and only
+      # that, detected via the deployment's monorepo-skip `errorLink` — as success.
       - name: Verify production aliases serve this commit
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
