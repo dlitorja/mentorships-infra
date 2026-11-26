@@ -8,6 +8,7 @@ import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { convexServerCall } from "@/lib/convex-server-call";
+import { reportError } from "@/lib/observability";
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
@@ -64,6 +65,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: "Stripe price ID not configured for this pack" },
         { status: 400 }
+      );
+    }
+
+    // Server-side price check before any charge is created.
+    //
+    // Convex and Stripe hold the same price twice: `products.price` is used for
+    // the order total (and every dashboard/report), while `stripePriceId`
+    // decides what the buyer is actually charged. A mismatch silently records
+    // one number and charges another. Fail closed instead, and alert so the
+    // product can be fixed rather than sold at the wrong price.
+    const stripePrice = await stripe.prices.retrieve(pack.stripePriceId);
+    const convexPriceCents = Math.round(Number(pack.price) * 100);
+    if (
+      stripePrice.unit_amount === null ||
+      !Number.isFinite(convexPriceCents) ||
+      stripePrice.unit_amount !== convexPriceCents ||
+      (stripePrice.currency ?? "").toLowerCase() !== (pack.currency ?? "usd").toLowerCase()
+    ) {
+      await reportError({
+        source: "checkout/stripe",
+        error: new Error("Convex price and Stripe price disagree"),
+        message: "Refusing checkout: product price mismatch",
+        level: "error",
+        context: {
+          productId: pack._id,
+          stripePriceId: pack.stripePriceId,
+          convexPrice: pack.price,
+          convexCurrency: pack.currency,
+          stripeUnitAmount: stripePrice.unit_amount,
+          stripeCurrency: stripePrice.currency,
+        },
+      });
+      return NextResponse.json(
+        { error: "This product is temporarily unavailable. Please contact support." },
+        { status: 409 }
       );
     }
 
@@ -196,7 +232,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
+        // `checkout_order_id` is our Convex order id; `session_id` is Stripe's.
+        // The success page needs ours to poll fulfilment, and must never
+        // treat Stripe's redirect alone as proof of a completed purchase.
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&checkout_order_id=${encodeURIComponent(orderId)}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancel_url: cancelUrl,
         metadata: {
           order_id: orderId!,

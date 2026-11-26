@@ -144,6 +144,9 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
  * @param args.templateId - Resend template identifier
  * @param args.templateData - Key-value pairs for template variables
  * @param args.headers - Optional custom headers
+ * @param args.replyTo - Optional reply-to address. Falls back to `EMAIL_REPLY_TO`.
+ *   Template sends used to drop this entirely, so a reply to an onboarding email
+ *   went nowhere useful whenever `EMAIL_USE_TEMPLATES=true`.
  * @param args.kind - Sender purpose (see sendEmail). Defaults to "transactional".
  * @param args.idempotencyKey - Optional Resend provider idempotency key.
  * @returns Result object with ok flag, email ID on success, or error/skipped reason
@@ -154,12 +157,14 @@ export async function sendTemplateEmail(args: {
   templateId: string;
   templateData: Record<string, any>;
   headers?: Record<string, string>;
+  replyTo?: string;
   kind?: EmailKind;
   idempotencyKey?: string;
 }): Promise<SendEmailResult> {
   const resend = getResendClient();
   const kind: EmailKind = args.kind ?? "transactional";
   const from = resolveFrom(kind);
+  const replyTo = args.replyTo || process.env.EMAIL_REPLY_TO || undefined;
   if (!resend || !from) {
     if (process.env.NODE_ENV === "production") {
       return { ok: false, error: "Email provider not configured" };
@@ -173,6 +178,7 @@ export async function sendTemplateEmail(args: {
         from,
         to: args.to,
         subject: args.subject,
+        replyTo,
         template: { id: args.templateId, variables: args.templateData },
         headers: { ...args.headers, "X-Email-Kind": kind },
       } as any,

@@ -1,7 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { api } from "../../../../convex/_generated/api";
 import type { Doc } from "../../../../convex/_generated/dataModel";
-import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { NonRetriableError } from "inngest";
 import { createDefer } from "inngest/experimental";
@@ -17,17 +15,6 @@ import {
 import { inngest } from "../client";
 import { workspaceUrlFor } from "@/lib/admin-onboarding/workspace-url";
 import { convexServerCall } from "@/lib/convex-server-call";
-
-/**
- * Creates a server-side Convex HTTP client using the configured URL.
- */
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 type ClerkExternalAccountLike = {
   provider?: unknown;
@@ -119,17 +106,14 @@ export const onboardingFlow = createDefer(
   async ({ event, step }) => {
     const { orderId, clerkId, provider } = event.data;
 
-    // Skip onboarding for guest purchases — no real Clerk user to look up.
-    // The checkout flow already sends a generic Resend confirmation email.
-    if (!clerkId || clerkId === "guest" || clerkId.startsWith("email:")) {
-      return { success: true, skipped: true, reason: "guest user" };
-    }
-
-    const convex = getConvexClient();
-
+    // The flow runs in the background with no Clerk identity attached to the
+    // Convex client, so every read here goes through the service-key HTTP
+    // layer. The previous version used a bare ConvexHttpClient with public
+    // queries: `getOrderById` returns null without an identity, so the flow
+    // threw before it could ever create the onboarding row.
     const order = await step.run("get-order", async () => {
-      return await convex.query(api.orders.getOrderById, {
-        id: orderId as Id<"orders">,
+      return await convexServerCall<any>("/orders/get-by-id-internal", {
+        id: orderId,
       });
     });
 
@@ -138,9 +122,9 @@ export const onboardingFlow = createDefer(
     }
 
     const payment = await step.run("get-completed-payment", async () => {
-      return await convex.query(api.payments.getCompletedPaymentByOrderAndProvider, {
-        orderId: orderId as Id<"orders">,
-        provider: provider as "stripe" | "paypal",
+      return await convexServerCall<any>("/payments/get-completed-by-order", {
+        orderId,
+        provider,
       });
     });
 
@@ -149,7 +133,7 @@ export const onboardingFlow = createDefer(
     }
 
     const pack = await step.run("get-session-pack", async () => {
-      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+      return await convexServerCall<any>("/session-packs/get-by-payment-id", {
         paymentId: payment._id,
       });
     });
@@ -159,13 +143,40 @@ export const onboardingFlow = createDefer(
     }
 
     const instructor = await step.run("get-instructor", async () => {
-      return await convex.query(api.instructors.getInstructorById, {
+      return await convexServerCall<any>("/instructors/get-by-id", {
         id: pack.instructorId,
       });
     });
 
     if (!instructor) {
       throw new Error(`Instructor ${pack.instructorId} not found for session pack ${pack._id}`);
+    }
+
+    const isGuest =
+      !clerkId || clerkId === "guest" || clerkId.startsWith("email:");
+    const guestEmail =
+      typeof order.userId === "string" && order.userId.startsWith("email:")
+        ? order.userId.slice("email:".length)
+        : null;
+
+    if (isGuest) {
+      // Create the row even for a placeholder owner: the Clerk `user.created`
+      // webhook claims it by email, and the questionnaire then works on the
+      // first sign-in. Skipping this was the reason guest buyers had no
+      // onboarding to claim.
+      if (guestEmail) {
+        await step.run("start-checkout-onboarding-guest", async () => {
+          return await convexServerCall("/admin-onboarding/start-checkout", {
+            email: guestEmail,
+            userId: order.userId,
+            instructorId: pack.instructorId,
+            sessionPackId: pack._id,
+            totalSessions: pack.totalSessions,
+            expiresAt: pack.expiresAt,
+          });
+        });
+      }
+      return { success: true, skipped: true, reason: "guest user" };
     }
 
     const clerkStudent = await step.run("get-student-clerk-user", async () => {
@@ -177,6 +188,25 @@ export const onboardingFlow = createDefer(
     if (!studentEmail) {
       throw new Error(`No email found for Clerk user ${clerkId}`);
     }
+
+    // Create the onboarding record the questionnaire, its reminders, and the
+    // instructor review surface all depend on. Kajabi and admin enrollments
+    // got this from `adminOnboardStudent`; native checkout did not, which is
+    // why native buyers were pushed through the manual invite form. Idempotent
+    // on the session pack, so an Inngest retry returns the same row.
+    const checkoutOnboarding = await step.run("start-checkout-onboarding", async () => {
+      return await convexServerCall<{ onboardingId: string; created: boolean; isRenewal?: boolean }>(
+        "/admin-onboarding/start-checkout",
+        {
+          email: studentEmail,
+          userId: clerkId,
+          instructorId: pack.instructorId,
+          sessionPackId: pack._id,
+          totalSessions: pack.totalSessions,
+          expiresAt: pack.expiresAt,
+        }
+      );
+    });
 
     const studentName =
       (clerkStudent.firstName ? `${clerkStudent.firstName}` : null) ??
@@ -210,38 +240,16 @@ export const onboardingFlow = createDefer(
 
     const baseUrl = getBaseUrl();
     const dashboardUrl = `${baseUrl}/dashboard`;
-    const onboardingUrl = `${baseUrl}/dashboard/onboarding`;
+    // `/dashboard/onboarding` does not exist in apps/platform (it was a web-app
+    // route), so the highest-intent link in the funnel used to 404. Point at
+    // the real questionnaire for the row we just created.
+    const onboardingUrl = `${baseUrl}/onboarding/${checkoutOnboarding.onboardingId}/questionnaire`;
 
     const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
     const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 
     // Determine if this is a returning student for the same instructor
-    const isReturning = await step.run("check-returning-student", async () => {
-      try {
-        const prior = await convex.query(api.sessionPacks.hasPriorPackWithInstructor, {
-          userId: pack.userId,
-          instructorId: instructor._id as Id<"instructors">,
-          excludeSessionPackId: pack._id as Id<"sessionPacks">,
-        });
-        return Boolean(prior);
-      } catch (e) {
-        // Be forgiving; treat as not returning if query fails, but report for observability
-        await reportError({
-          source: "inngest:onboarding",
-          error: e instanceof Error ? e : new Error(String(e)),
-          level: "warn",
-          message: "hasPriorPackWithInstructor failed",
-          context: {
-            phase: "check-returning-student",
-            orderId,
-            clerkId,
-            sessionPackId: pack._id,
-            instructorId: instructor._id,
-          },
-        });
-        return false;
-      }
-    });
+    const isReturning = Boolean(checkoutOnboarding.isRenewal);
 
     const sendResult = await step.run("send-onboarding-email", async () => {
       if (useTemplates && templateId) {

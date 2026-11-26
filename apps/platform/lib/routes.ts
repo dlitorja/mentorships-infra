@@ -129,6 +129,7 @@ export const ApiRoutes = {
   checkoutStripe: "/api/checkout/stripe",
   checkoutPayPal: "/api/checkout/paypal",
   checkoutVerify: "/api/checkout/verify",
+  checkoutStatus: "/api/checkout/status",
   checkoutSuccess: "/api/checkout/success",
   checkoutCancel: "/api/checkout/cancel",
 

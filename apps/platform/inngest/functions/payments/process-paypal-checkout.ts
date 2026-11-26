@@ -1,3 +1,4 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import { inngest } from "../../client";
 import { Id } from "@/convex/_generated/dataModel";
 import { convexServerCall } from "@/lib/convex-server-call";
@@ -118,6 +119,10 @@ export const processPayPalCheckout = inngest.createFunction(
         remainingSessions: product.sessionsPerPack,
         expiresAt,
         paymentId: payment._id as Id<"payments">,
+        productId: packId as Id<"products">,
+        // Stored values are `oneOnOne | group`; the admin form submits
+        // `one-on-one`, and products.mentorshipType is a plain string.
+        mentorshipType: product.mentorshipType === "group" ? "group" : "oneOnOne",
       });
     });
 
@@ -174,7 +179,7 @@ export const processPayPalCheckout = inngest.createFunction(
     }
 
     // Ensure an admin-student workspace exists (post-payment) for buyer ↔ admins
-    await step.run("ensure-admin-student-workspace", async () => {
+    const adminWorkspace = await step.run("ensure-admin-student-workspace", async () => {
       const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
       const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
       if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
@@ -212,12 +217,66 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
-    const sessionsCount = product.sessionsPerPack || 0;
+    // D6: carry any unused sessions from a prior pack with the same
+    // instructor into this one, and close the prior pack/seat. Runs after the
+    // seat exists so the shared workspace is already in place.
+    const rollover = await step.run("rollover-unused-sessions", async () => {
+      return await convexServerCall<any>("/session-packs/rollover", {
+        userId: sessionPack.userId,
+        instructorId: sessionPack.instructorId,
+        newSessionPackId: sessionPack._id,
+      });
+    });
+
+    // First message in both threads: the in-app replacement for the manual
+    // "add them on Discord and introduce them" step. Idempotent server-side.
+    await step.run("post-onboarding-kickoff", async () => {
+      const mentorshipWorkspace = await convexServerCall<any>("/workspaces/by-seat", {
+        seatReservationId: seatReservation._id,
+      });
+      if (!mentorshipWorkspace?._id) return { skipped: true } as const;
+
+      const adminWorkspaceId =
+        adminWorkspace && !("skipped" in adminWorkspace)
+          ? (adminWorkspace as { id: string }).id
+          : undefined;
+
+      return await convexServerCall<any>("/workspaces/onboarding-kickoff", {
+        mentorshipWorkspaceId: mentorshipWorkspace._id,
+        adminWorkspaceId,
+        instructorName,
+        sessions: rollover?.totalSessions ?? product.sessionsPerPack ?? 0,
+      });
+    });
+
+    const sessionsCount = rollover?.totalSessions ?? product.sessionsPerPack ?? 0;
     const pricePaid = order.totalAmount || null;
     const currency = (order.currency ?? "USD").toUpperCase();
 
     await step.run("send-purchase-confirmation-email", async () => {
-      const email = ((event.data as any)?.studentEmail as string | undefined)?.trim().toLowerCase() || "";
+      // The capture route forwards the payer email, but the webhook path does
+      // not carry one. Whichever delivery wins the Inngest dedupe race, the
+      // buyer must still get a confirmation, so fall back to the order owner.
+      const email = await (async () => {
+        const fromEvent = ((event.data as any)?.studentEmail as string | undefined)
+          ?.trim()
+          .toLowerCase();
+        if (fromEvent) return fromEvent;
+
+        const ownerId = typeof order.userId === "string" ? order.userId : "";
+        if (ownerId.startsWith("email:")) return ownerId.slice("email:".length);
+        if (ownerId.startsWith("user_")) {
+          try {
+            const clerk = await clerkClient();
+            const user = await clerk.users.getUser(ownerId);
+            return user.emailAddresses[0]?.emailAddress?.toLowerCase() ?? "";
+          } catch {
+            return "";
+          }
+        }
+        return "";
+      })();
+
       if (!email) return { skipped: true } as const;
 
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");

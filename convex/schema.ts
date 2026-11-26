@@ -272,6 +272,30 @@ export default defineSchema({
     paymentId: v.optional(v.id("payments")),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
+    // --- D6 unused-session rollover / admin attention queue (PR 5) ---
+    // Last completed or scheduled session. Dormancy is computed from this
+    // instead of scanning `sessions` for every pack in the admin queue.
+    lastSessionAt: v.optional(v.number()),
+    // Set by the admin "contact student" action in the queue.
+    lastContactedAt: v.optional(v.number()),
+    lastContactedBy: v.optional(v.string()),
+    // Set on the OLD pack when its unused sessions were merged into a
+    // renewal. Also the idempotency key for the merge.
+    rolledIntoPackId: v.optional(v.id("sessionPacks")),
+    // Credit provenance for refunds. `carriedSessions` on the new pack is how
+    // many of its sessions came from a prior pack; on the old pack it is how
+    // many were moved out. Without this, refunding the new payment would close
+    // credits the student bought earlier (and vice versa).
+    carriedSessions: v.optional(v.number()),
+    carriedFromPackId: v.optional(v.id("sessionPacks")),
+    // Stamped by the shared refund close-out. `status` alone is not enough:
+    // a pack that keeps carried credits stays `active`, and a retry of the
+    // refund step must not restore inventory a second time.
+    refundClosedAt: v.optional(v.number()),
+    // Purchased product, so refund cleanup restores the right inventory pool
+    // instead of guessing from the (possibly merged) session count.
+    productId: v.optional(v.id("products")),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
@@ -665,7 +689,13 @@ export default defineSchema({
     // optional so existing rows are unaffected; the Chat tab only
     // reads it for `type === "system"`.
     systemEventKind: v.optional(
-      v.union(v.literal("joined"), v.literal("left"))
+      v.union(
+        v.literal("joined"),
+        v.literal("left"),
+        // Posted once at purchase: the first message in the thread, so the
+        // student and instructor have a place to start without a manual intro.
+        v.literal("onboarding_kickoff")
+      )
     ),
     senderRole: v.optional(v.union(v.literal("instructor"), v.literal("student"), v.literal("admin"))),
     // Set when a chat message is posted while a video call is active
@@ -699,6 +729,9 @@ export default defineSchema({
     // `CHAT_FILE_RETENTION_DAYS` (30 days).
     deletedAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"])
+    // Durable kickoff lookup: searching a fixed message window missed the
+    // kickoff in an old, busy thread and re-posted it on the next purchase.
+    .index("by_workspaceId_systemEventKind", ["workspaceId", "systemEventKind"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
@@ -1544,7 +1577,12 @@ export default defineSchema({
       v.literal("kajabi"),
       v.literal("manual"),
       v.literal("import"),
-      v.literal("api")
+      v.literal("api"),
+      // Self-serve Stripe/PayPal purchase. Before this, a native purchase
+      // created a pack, seat, and workspace but no onboarding row, so the
+      // questionnaire, its reminders, and the instructor review surface never
+      // applied to the buyers who did not come through Kajabi or an admin.
+      v.literal("checkout")
     ),
     submittedByUserId: v.string(),                    // Clerk userId of the admin who submitted
 

@@ -48,6 +48,47 @@ function getPayPalApiBaseUrl(): string {
     : "https://api.sandbox.paypal.com";
 }
 
+const CERT_FETCH_TIMEOUT_MS = 5_000;
+const MAX_CERT_BYTES = 64 * 1024;
+
+/**
+ * Rejects certificate URLs that are not PayPal's.
+ *
+ * `PAYPAL-CERT-URL` is attacker-controlled: it comes from the request, and
+ * before this check the handler fetched it unconditionally. That made the
+ * endpoint an SSRF primitive (internal hosts, cloud metadata, arbitrary
+ * schemes) and let an attacker cache a certificate of their choosing under a
+ * URL they control.
+ *
+ * Accept only HTTPS on `paypal.com` or a `*.paypal.com` subdomain. PayPal
+ * serves webhook certificates from `api.paypal.com` (live) and
+ * `api.sandbox.paypal.com` (sandbox), but the host list is deliberately
+ * expressed as a suffix so a new PayPal subdomain does not break verification.
+ */
+function assertPayPalCertificateUrl(certUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(certUrl);
+  } catch {
+    throw new Error("PAYPAL-CERT-URL is not a valid URL");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isPayPalHost = hostname === "paypal.com" || hostname.endsWith(".paypal.com");
+
+  if (parsed.protocol !== "https:" || !isPayPalHost) {
+    throw new Error("PAYPAL-CERT-URL must be an https://*.paypal.com URL");
+  }
+
+  // Credentials in the URL would be forwarded to PayPal; reject rather than
+  // silently sending them.
+  if (parsed.username || parsed.password) {
+    throw new Error("PAYPAL-CERT-URL must not contain credentials");
+  }
+
+  return parsed;
+}
+
 /**
  * Fetch and cache PayPal certificate
  * Caches certificate for 5 hours to avoid repeated fetches
@@ -55,27 +96,42 @@ function getPayPalApiBaseUrl(): string {
  * @returns Cached or fetched certificate as PEM string
  */
 async function getCertificate(certUrl: string): Promise<string> {
-  const cached = certCache.get(certUrl);
+  const parsed = assertPayPalCertificateUrl(certUrl);
+  const cacheKey = parsed.toString();
+
+  const cached = certCache.get(cacheKey);
   const now = Date.now();
-  
+
   if (cached && cached.expiresAt > now) {
     return cached.cert;
   }
-  
-  // Fetch new certificate
-  const response = await fetch(certUrl);
+
+  // Fetch new certificate. `redirect: "error"` prevents a PayPal URL from
+  // redirecting the request somewhere else, and the timeout keeps a slow or
+  // hanging host from holding the webhook open.
+  const response = await fetch(cacheKey, {
+    redirect: "error",
+    signal: AbortSignal.timeout(CERT_FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch PayPal certificate: ${response.status}`);
   }
-  
+
   const cert = await response.text();
-  
+
+  if (cert.length > MAX_CERT_BYTES) {
+    throw new Error("PayPal certificate response is unexpectedly large");
+  }
+  if (!cert.includes("BEGIN CERTIFICATE")) {
+    throw new Error("PayPal certificate response is not a PEM certificate");
+  }
+
   // Cache with TTL
-  certCache.set(certUrl, {
+  certCache.set(cacheKey, {
     cert,
     expiresAt: now + CERT_CACHE_TTL_MS,
   });
-  
+
   return cert;
 }
 
@@ -159,6 +215,19 @@ export async function verifyWebhookSignature(
   }
   if (!transmissionTimeStr?.trim()) {
     throw new Error("PAYPAL-TRANSMISSION-TIME header is empty");
+  }
+
+  // Replay window. Without this, a captured signed delivery could be replayed
+  // indefinitely; PayPal's own documentation recommends rejecting timestamps
+  // outside a few minutes. Signature verification alone does not make the
+  // request fresh.
+  const transmissionTimeMs = Date.parse(transmissionTimeStr);
+  if (!Number.isFinite(transmissionTimeMs)) {
+    throw new Error("PAYPAL-TRANSMISSION-TIME header is not a valid timestamp");
+  }
+  const clockSkewMs = Date.now() - transmissionTimeMs;
+  if (clockSkewMs > 5 * 60 * 1000 || clockSkewMs < -5 * 60 * 1000) {
+    throw new Error("PAYPAL-TRANSMISSION-TIME is outside the 5 minute replay window");
   }
 
   try {

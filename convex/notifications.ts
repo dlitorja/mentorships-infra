@@ -25,8 +25,10 @@ function getBaseUrl(): string {
   return "http://localhost:3000";
 }
 
-function getCtaUrl(): string {
-  return `${getBaseUrl()}/instructors`;
+function getCtaUrl(renewalPath?: string): string {
+  // Callers that know which mentorship is being renewed pass a checkout path.
+  // Fall back to the instructor list for legacy/grace notices.
+  return `${getBaseUrl()}${renewalPath ?? "/instructors"}`;
 }
 
 function buildNotificationEmail(data: {
@@ -35,8 +37,9 @@ function buildNotificationEmail(data: {
   sessionNumber?: number;
   gracePeriodEndsAt?: Date;
   sessionPackId?: string;
+  renewalPath?: string;
 }): { subject: string; html: string; text: string; headers: Record<string, string> } {
-  const ctaUrl = getCtaUrl();
+  const ctaUrl = getCtaUrl(data.renewalPath);
   let subject: string;
   let title: string;
 
@@ -46,7 +49,7 @@ function buildNotificationEmail(data: {
       title = "Renewal reminder";
       break;
     case "final_renewal_reminder":
-      subject = "Your pack is complete — renew within 72 hours to keep your seat";
+      subject = "Your pack is complete — renew within 7 days to keep your seat";
       title = "Final renewal reminder";
       break;
     case "grace_period_final_warning":
@@ -300,6 +303,8 @@ export const handleNotificationSend = internalAction({
       message: v.string(),
       sessionNumber: v.optional(v.number()),
       gracePeriodEndsAt: v.optional(v.number()),
+      /** Checkout path for this mentorship, when known (e.g. /checkout?instructor=x&renew=1). */
+      renewalPath: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args): Promise<NotificationSendResult> => {
@@ -321,6 +326,8 @@ export const handleNotificationSend = internalAction({
       message: payload.message,
       sessionNumber: payload.sessionNumber,
       gracePeriodEndsAt: payload.gracePeriodEndsAt ? new Date(payload.gracePeriodEndsAt) : undefined,
+      sessionPackId: payload.sessionPackId,
+      renewalPath: payload.renewalPath,
     });
 
     const emailResult = emailAddress

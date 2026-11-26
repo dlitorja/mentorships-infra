@@ -5,24 +5,39 @@ import { stripe } from "@/lib/stripe";
 import { reportError, reportInfo } from "@/lib/observability";
 
 /**
+ * Returns true only for a non-production deployment.
+ *
+ * The Stripe test bypass must never be reachable from production: a leaked
+ * shared key would let a caller forge `checkout.session.completed` (creating a
+ * paid order, pack, seat, inventory decrement, and onboarding emails) or
+ * `charge.refunded` without a valid Stripe signature. The previous
+ * implementation deliberately skipped this check and relied on a plan-doc
+ * assertion that the flag was unset in production; nothing enforced it.
+ */
+function isNonProductionDeployment(): boolean {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.VERCEL_ENV !== "production"
+  );
+}
+
+/**
  * POST /api/webhooks/stripe
  * Handles Stripe webhook events for payment processing.
  * Processes checkout.session.completed (creates session pack) and
  * charge.refunded (triggers refund flow) events. Verifies webhook
  * signature before processing. Events are dispatched to Inngest
- * for async processing. Includes test bypass for any deployment
- * (TEST_WEBHOOK_BYPASS=true + TEST_WEBHOOK_BYPASS_KEY header required;
- * bypass does NOT check NODE_ENV to support ephemeral/prod testing).
+ * for async processing. The test bypass is available only on
+ * non-production deployments and requires both the flag and the
+ * shared key.
  */
 export async function POST(req: NextRequest) {
-  // Test bypass for CI and integration tests
-  // Requires env TEST_WEBHOOK_BYPASS=true and BOTH headers:
-  //   - x-test-bypass: 1
-  //   - x-test-bypass-key: <TEST_WEBHOOK_BYPASS_KEY>
-  // Bypass is disabled if TEST_WEBHOOK_BYPASS_KEY is not configured.
-  // Intentionally does NOT check NODE_ENV to allow testing on ephemeral/prod deployments
-  // with explicit env/headers. Guarded by an explicit shared key to avoid exposure.
+  // Test bypass for CI and integration tests.
+  // Requires TEST_WEBHOOK_BYPASS=true, a configured TEST_WEBHOOK_BYPASS_KEY,
+  // BOTH headers (x-test-bypass: 1, x-test-bypass-key), and a non-production
+  // deployment. Any of those missing falls through to signature verification.
   if (
+    isNonProductionDeployment() &&
     process.env.TEST_WEBHOOK_BYPASS === "true" &&
     typeof process.env.TEST_WEBHOOK_BYPASS_KEY === "string" &&
     process.env.TEST_WEBHOOK_BYPASS_KEY.length > 0 &&
@@ -67,7 +82,21 @@ export async function POST(req: NextRequest) {
         }
         await inngest.send({
           name: "stripe/charge.refunded",
-          data: { chargeId, paymentIntentId },
+          data: {
+            chargeId,
+            paymentIntentId,
+            // Cumulative refunded amount in cents when the caller supplies it;
+            // downstream treats `undefined` as "full refund" for backward
+            // compatibility with older test payloads.
+            amountRefunded:
+              typeof payload?.data?.object?.amount_refunded === "number"
+                ? payload.data.object.amount_refunded
+                : undefined,
+            chargeAmount:
+              typeof payload?.data?.object?.amount === "number"
+                ? payload.data.object.amount
+                : undefined,
+          },
         });
         return NextResponse.json({ received: true, bypass: true });
       }
@@ -213,6 +242,11 @@ export async function POST(req: NextRequest) {
           data: {
             chargeId: charge.id,
             paymentIntentId,
+            // `amount_refunded` on the charge is CUMULATIVE (all refunds to
+            // date), not the delta for this event. Downstream diffs it against
+            // the amount already recorded on the payment.
+            amountRefunded: charge.amount_refunded,
+            chargeAmount: charge.amount,
           },
         });
 
@@ -220,6 +254,53 @@ export async function POST(req: NextRequest) {
           source: "webhooks/stripe",
           message: `Sent charge.refunded event to Inngest for charge ${charge.id}`,
           context: { chargeId: charge.id, paymentIntentId },
+        });
+        return NextResponse.json({ received: true, eventId: event.id });
+      }
+
+      case "charge.refund.updated": {
+        // A refund's status can change after creation (pending → succeeded,
+        // or → failed/canceled). We do not act on the Refund object itself:
+        // we re-read the parent charge so the cumulative `amount_refunded`
+        // stays the single source of truth, and re-emit the same event the
+        // `charge.refunded` handler uses. The downstream handler is
+        // idempotent on the cumulative amount, so re-delivery is safe.
+        const refund = event.data.object as Stripe.Refund;
+        if (refund.status !== "succeeded") {
+          return NextResponse.json({ received: true, ignored: refund.status });
+        }
+
+        const chargeId =
+          typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+        if (!chargeId) {
+          return NextResponse.json({ received: true, skipped: "missing_charge" });
+        }
+
+        const charge = await stripe.charges.retrieve(chargeId);
+        const rawPaymentIntent = charge.payment_intent;
+        const paymentIntentId =
+          typeof rawPaymentIntent === "string"
+            ? rawPaymentIntent
+            : rawPaymentIntent?.id ?? null;
+
+        if (!paymentIntentId) {
+          return NextResponse.json({ received: true, skipped: "missing_payment_intent" });
+        }
+
+        await inngest.send({
+          name: "stripe/charge.refunded",
+          data: {
+            chargeId: charge.id,
+            paymentIntentId,
+            amountRefunded: charge.amount_refunded,
+            chargeAmount: charge.amount,
+          },
+        });
+
+        await reportInfo({
+          source: "webhooks/stripe",
+          message: `Re-emitted cumulative refund for charge ${charge.id}`,
+          context: { chargeId: charge.id, paymentIntentId, refundId: refund.id },
         });
         return NextResponse.json({ received: true, eventId: event.id });
       }

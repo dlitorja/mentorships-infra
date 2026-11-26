@@ -2802,3 +2802,109 @@ async function canViewOnboarding(
 
   return null;
 }
+
+/**
+ * Creates the onboarding record for a self-serve Stripe/PayPal purchase.
+ *
+ * Why this exists: `adminOnboardStudent` (Kajabi + admin flows) is the only
+ * writer of `adminOnboardings`, and the questionnaire, its 24/48/96h
+ * reminders, the instructor "student questionnaire" card, and the
+ * questionnaire-submitted notification all key off that row. Native checkout
+ * created the pack, seat, and workspace but skipped this step, so native
+ * buyers got less onboarding than Kajabi buyers and staff kept using the
+ * manual invite form.
+ *
+ * The pack/seat/workspace already exist by the time this runs, so the row is
+ * inserted as `completed` rather than `queued` — there is nothing for a worker
+ * to process. It is idempotent on the session pack: a retry of the Inngest
+ * onboarding flow returns the existing row.
+ *
+ * `assignedStudentClerkId` is only set for a real Clerk id. A guest purchase
+ * owned by `email:<address>` leaves it unset; the Clerk `user.created` webhook
+ * claims the row by email later (`claimOnboardingByEmail`), which is the same
+ * path admin invitations use.
+ */
+export const startCheckoutOnboarding = internalMutation({
+  args: {
+    email: v.string(),
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    sessionPackId: v.id("sessionPacks"),
+    totalSessions: v.number(),
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const email = args.email.trim().toLowerCase();
+
+    const existing = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+
+    const alreadyLinked = existing.find((row) =>
+      row.perInstructor.some((pair) => pair.sessionPackId === args.sessionPackId)
+    );
+    if (alreadyLinked) {
+      const pair = alreadyLinked.perInstructor.find(
+        (entry) => entry.sessionPackId === args.sessionPackId
+      );
+      return {
+        onboardingId: alreadyLinked._id,
+        created: false,
+        isRenewal: pair?.isRenewal ?? false,
+      };
+    }
+
+    // The pack and seat were just created, so a prior pack for the same pair
+    // means this purchase is a renewal, not a first enrollment.
+    const priorPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId_instructorId_status", (q) =>
+        q.eq("userId", args.userId).eq("instructorId", args.instructorId)
+      )
+      .collect();
+    const isRenewal = priorPacks.some((pack) => pack._id !== args.sessionPackId);
+
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+
+    const workspace = seat
+      ? await ctx.db
+          .query("workspaces")
+          .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+          .first()
+      : null;
+
+    const now = Date.now();
+    const onboardingId = await ctx.db.insert("adminOnboardings", {
+      email,
+      flowVersion: 1,
+      source: "checkout",
+      submittedByUserId: args.userId,
+      status: "completed",
+      attemptCount: 1,
+      lastAttemptAt: now,
+      completedAt: now,
+      perInstructor: [
+        {
+          instructorId: args.instructorId,
+          workspaceId: workspace?._id,
+          seatReservationId: seat?._id,
+          sessionPackId: args.sessionPackId,
+          isRenewal,
+          sessionsPerInstructor: args.totalSessions,
+          expiresAt: args.expiresAt,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      existingWorkspaceIds: workspace?._id ? [workspace._id] : [],
+      assignedStudentClerkId: args.userId.startsWith("user_") ? args.userId : undefined,
+      timeline: [newTimelineEntry("completed", args.userId, "Self-serve checkout")],
+      createdAt: now,
+    });
+
+    return { onboardingId, created: true, isRenewal };
+  },
+});

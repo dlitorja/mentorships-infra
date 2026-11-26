@@ -223,10 +223,11 @@ async function requireAdminActor(ctx: MutationCtx): Promise<string> {
  * subject. Rejects non-positive or non-numeric amounts, and amounts
  * that would push the total refunded past the original payment.
  */
-async function applyAdminRefund(
+async function applyRefundCumulative(
   ctx: MutationCtx,
   actorId: string,
   args: { paymentId: Id<"payments">; refundAmount: string },
+  actorRole: "admin" | "system" = "admin",
 ) {
   const payment = await ctx.db.get(args.paymentId);
   if (!payment) throw new Error("Payment not found");
@@ -270,8 +271,8 @@ async function applyAdminRefund(
 
   await writeAuditLog(ctx, {
     actorId,
-    actorRole: "admin",
-    action: "admin_refund_completed",
+    actorRole,
+    action: actorRole === "system" ? "provider_refund_completed" : "admin_refund_completed",
     targetType: "payment",
     targetId: args.paymentId,
     details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
@@ -299,7 +300,7 @@ export const adminProcessRefundInternal = internalMutation({
   },
   handler: async (ctx, args) => {
     const actorId = await requireAdminActor(ctx);
-    return await applyAdminRefund(ctx, actorId, args);
+    return await applyRefundCumulative(ctx, actorId, args);
   },
 });
 
@@ -310,7 +311,7 @@ export const adminProcessRefundInternal = internalMutation({
  * Historically this mutation checked only that the caller was signed
  * in, so any authenticated user could mark a payment refunded, and it
  * skipped the over-refund cap that `adminProcessRefundInternal`
- * enforced. Both mutations now share `applyAdminRefund`.
+ * enforced. Both mutations now share `applyRefundCumulative`.
  */
 export const adminProcessRefund = mutation({
   args: {
@@ -319,7 +320,30 @@ export const adminProcessRefund = mutation({
   },
   handler: async (ctx, args) => {
     const actorId = await requireAdminActor(ctx);
-    return await applyAdminRefund(ctx, actorId, args);
+    return await applyRefundCumulative(ctx, actorId, args);
+  },
+});
+
+/**
+ * Records a provider-initiated refund (Stripe webhook) using the same
+ * cumulative-amount rules as the admin path.
+ *
+ * No `ctx.auth` identity exists for a webhook, so this is internal-only and
+ * reachable from the service-key HTTP route `/payments/apply-refund`. It must
+ * never be exposed without the service key: it moves money-adjacent state.
+ *
+ * `refundAmount` is the DELTA for this event, computed by the caller from the
+ * provider's cumulative `amount_refunded`. The caller must skip the call when
+ * the delta is zero. The over-refund cap still protects a duplicate that slips
+ * through: it throws instead of double-counting.
+ */
+export const applyProviderRefundInternal = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    refundAmount: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await applyRefundCumulative(ctx, "stripe:webhook", args, "system");
   },
 });
 
@@ -374,5 +398,77 @@ export const migratePayment = internalMutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+/**
+ * Provider refunds arrive with Stripe's CUMULATIVE refunded total, which is
+ * the only concurrency-safe input: two deliveries of the same event both carry
+ * the same total, and computing the delta inside this mutation means the second
+ * one sees the first one's write and applies zero. Computing the delta in the
+ * Inngest function from a stale read let two deliveries add the same amount.
+ */
+export const applyProviderRefundTotalInternal = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    refundedTotal: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) throw new Error("Payment not found");
+
+    const original = Number(payment.amount);
+    const prior = Number(payment.refundedAmount || "0");
+    const total = Number(args.refundedTotal);
+
+    if (!Number.isFinite(total) || total < 0) {
+      throw new Error(`Invalid cumulative refund amount: ${args.refundedTotal}`);
+    }
+    if (!Number.isFinite(original) || !Number.isFinite(prior)) {
+      throw new Error("Payment has a non-numeric amount; refusing to refund");
+    }
+
+    const cappedTotal = Math.min(total, original);
+    const delta = Math.round((cappedTotal - prior) * 100) / 100;
+
+    if (delta <= 0) {
+      return {
+        payment,
+        applied: 0,
+        fullyRefunded: payment.status === "refunded",
+      };
+    }
+
+    const updated = await applyRefundCumulative(
+      ctx,
+      "stripe:webhook",
+      { paymentId: args.paymentId, refundAmount: delta.toFixed(2) },
+      "system"
+    );
+
+    return {
+      payment: updated,
+      applied: delta,
+      fullyRefunded: updated?.status === "refunded",
+    };
+  },
+});
+
+/** Internal, service-key read of a completed payment for an order + provider. */
+export const getCompletedPaymentByOrderAndProviderInternal = internalQuery({
+  args: {
+    orderId: v.id("orders"),
+    provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("payments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect();
+    return (
+      rows.find(
+        (row) => row.provider === args.provider && row.status === "completed"
+      ) ?? null
+    );
   },
 });

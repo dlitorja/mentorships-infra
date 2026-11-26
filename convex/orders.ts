@@ -555,3 +555,69 @@ export const migrateOrder = mutation({
     return { action: "inserted", id: insertResult };
   },
 });
+
+/**
+ * Aggregate fulfilment state for the checkout success page.
+ *
+ * The success page must not believe the provider redirect: PayPal returns an
+ * approved-but-uncaptured order, and Stripe can redirect before the webhook
+ * has created the pack. This query is the single read the page polls, and it
+ * stops at the same place the funnel does — "is there a session pack yet?".
+ *
+ * Internal-only because it walks order → payment → pack → seat → workspace
+ * with no per-user gate; the HTTP wrapper is capability-token style (the
+ * Convex order id) and deliberately returns no PII.
+ */
+export const getCheckoutStatus = internalQuery({
+  args: { id: v.id("orders") },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.id);
+    if (!order) return null;
+
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+      .collect();
+
+    const payment =
+      payments.find((row) => row.status === "completed" || row.status === "refunded") ??
+      payments[0] ??
+      null;
+
+    const pack = payment
+      ? await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_paymentId", (q) => q.eq("paymentId", payment._id))
+          .first()
+      : null;
+
+    const seat = pack
+      ? await ctx.db
+          .query("seatReservations")
+          .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+          .first()
+      : null;
+
+    const workspace = seat
+      ? await ctx.db
+          .query("workspaces")
+          .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+          .first()
+      : null;
+
+    return {
+      orderStatus: order.status,
+      provider: order.provider,
+      totalAmount: order.totalAmount,
+      currency: order.currency,
+      paymentStatus: payment?.status ?? null,
+      packStatus: pack?.status ?? null,
+      remainingSessions: pack?.remainingSessions ?? null,
+      totalSessions: pack?.totalSessions ?? null,
+      seatStatus: seat?.status ?? null,
+      hasWorkspace: Boolean(workspace && workspace.deletedAt === undefined),
+      /** Present once PR 3 wires checkout onboarding; null until then. */
+      onboardingId: null,
+    };
+  },
+});

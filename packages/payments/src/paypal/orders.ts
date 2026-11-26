@@ -72,6 +72,7 @@ export async function createPayPalOrder(
           value: amountValue,
         },
         customId,
+        invoiceId: metadata.paypalProductId,
         description: "Mentorship Session Pack",
       },
     ],

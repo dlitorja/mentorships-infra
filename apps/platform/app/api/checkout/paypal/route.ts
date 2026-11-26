@@ -160,9 +160,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           userId: userIdForOrder!,
           instructorId: pack.instructorId || "",
           productId: packId,
+          paypalProductId: pack.paypalProductId || undefined,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
+        // `order_id` is PayPal's order id (used by the capture call);
+        // `checkout_order_id` is our Convex order id (used to poll fulfilment).
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}&checkout_order_id=${encodeURIComponent(orderId)}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancelUrl
       );
 

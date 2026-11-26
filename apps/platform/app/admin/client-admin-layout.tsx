@@ -18,6 +18,7 @@ import {
   ScrollText,
   LogOut,
   Mail,
+  CalendarClock,
   Inbox,
 } from "lucide-react";
 
@@ -28,6 +29,7 @@ const navItems = [
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/onboardings", label: "Onboardings", icon: ListChecks },
+  { href: "/admin/packs-with-sessions", label: "Sessions Owed", icon: CalendarClock },
   { href: "/admin/kajabi-purchases", label: "Kajabi purchases", icon: Inbox },
   { href: "/admin/onboarding-reminders", label: "Reminder outbox", icon: Mail },
   { href: "/admin/workspaces", label: "Workspaces", icon: Folder },

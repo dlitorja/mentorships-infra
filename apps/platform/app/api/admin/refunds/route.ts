@@ -10,6 +10,7 @@ import { stripe } from "@/lib/stripe";
 import { createPayPalRefund } from "@mentorships/payments";
 import { buildRefundEmail } from "@/lib/emails/refund-email";
 import { sendEmail } from "@/lib/email";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 const refundReasons = [
   "Duplicate",
@@ -176,10 +177,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await convex.mutation(api.payments.adminProcessRefund, {
+    const updatedPayment = await convex.mutation(api.payments.adminProcessRefund, {
       paymentId: paymentId as Id<"payments">,
       refundAmount: refundAmountStr,
     });
+
+    // Close out the booking when the refund is complete. Previously the admin
+    // route touched only the payment, order, and email, so a fully refunded
+    // student kept their session pack, kept occupying an instructor seat, and
+    // left the inventory decremented — while the provider-webhook path did the
+    // opposite. Both paths now produce the same end state.
+    //
+    // Best-effort after the provider refund has already been issued: a failure
+    // here must not report the refund as failed (that would invite a retry and
+    // a double refund). It is logged and returned so support can finish by hand.
+    let bookingClosedOut = false;
+    if (updatedPayment?.status === "refunded") {
+      try {
+        const sessionPack = await convexServerCall<any>("/session-packs/get-by-payment-id", {
+          paymentId,
+        });
+
+        if (sessionPack) {
+          // Shared with the provider webhook. It owns the pack state, seat
+          // release, and inventory restore, and is idempotent — so the admin
+          // and webhook paths cannot each restore a seat for the same refund.
+          const closeOut = await convexServerCall<any>("/session-packs/refund-closeout", {
+            sessionPackId: sessionPack._id,
+          });
+          bookingClosedOut = Boolean(closeOut?.closed);
+        }
+      } catch (closeOutError) {
+        console.error("Refund recorded but booking close-out failed:", closeOutError);
+      }
+    }
 
     try {
       const order = await convex.query(api.orders.getOrderById, {
@@ -251,6 +282,7 @@ export async function POST(req: NextRequest) {
         customReason: customReason || null,
         providerRefundId,
         provider: payment.provider,
+        bookingClosedOut,
       },
     });
   } catch (error) {

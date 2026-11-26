@@ -614,10 +614,37 @@ export const createSession = mutation({
     ) {
       throw new Error("Forbidden");
     }
+    // Server-side eligibility (D6 / plan B12). The booking form filters by
+    // status and expiry, but the picker is not a security boundary: without
+    // these checks a student could book past the pack size and the counter
+    // would clamp at zero, silently handing out free sessions.
+    if (pack.status !== "active") {
+      throw new Error("This session pack is no longer active");
+    }
+    if (pack.remainingSessions <= 0) {
+      throw new Error("No sessions remain on this pack");
+    }
+
+    const existingSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .collect();
+    const scheduledCount = existingSessions.filter((s) => s.status === "scheduled").length;
+    if (scheduledCount >= pack.remainingSessions) {
+      throw new Error("All remaining sessions on this pack are already booked");
+    }
+
+    // Deliberately no `expiresAt` check: a pack with sessions left stays
+    // bookable past its access date (D6 — sessions are not forfeited).
+
     const workspace = await resolveWorkspaceForNewSession(ctx, args);
     if (!workspace) {
       throw new Error("No active workspace matches this session pack");
     }
+
+    // Scheduling counts as activity for the admin dormancy queue, so a student
+    // who books but has not yet met does not look abandoned.
+    await ctx.db.patch(pack._id, { lastSessionAt: Date.now() });
     // PR #4a: initialize both per-party consent fields to match the
     // booking-time default. Without this, the first party's modal
     // submission would see `otherParty ?? false` and flip the
@@ -669,6 +696,57 @@ export const updateSession = mutation({
   },
 });
 
+/**
+ * Pack bookkeeping for a session that just became `completed`.
+ *
+ * Shared by `completeSession` and `updateSession` so the instructor route
+ * (which sends `status: "completed"` through `updateSession`) cannot bypass
+ * the balance, grace, and reminder behaviour. Callers guard on the previous
+ * status so a duplicate completion cannot decrement twice.
+ */
+async function applySessionCompletion(
+  ctx: MutationCtx,
+  session: Doc<"sessions">
+): Promise<void> {
+  if (!session.sessionPackId) return;
+
+  const now = Date.now();
+  const pack = await ctx.db.get(session.sessionPackId);
+  if (!pack || pack.status === "refunded") return;
+
+  const newRemaining = Math.max(0, pack.remainingSessions - 1);
+
+  await ctx.db.patch(pack._id, {
+    remainingSessions: newRemaining,
+    status: newRemaining === 0 ? "depleted" : pack.status,
+    lastSessionAt: now,
+  });
+
+  if (newRemaining === 0) {
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+      .first();
+    if (seat && seat.status === "active") {
+      await ctx.db.patch(seat._id, {
+        status: "grace",
+        gracePeriodEndsAt: now + 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+  }
+
+  if (newRemaining === 1 || newRemaining === 0) {
+    await ctx.scheduler.runAfter(0, internal.sessions.handleRenewalReminder, {
+      sessionPackId: pack._id,
+      userId: pack.userId,
+      kind: newRemaining === 1 ? "last_session" : "pack_complete",
+      remainingSessions: newRemaining,
+      gracePeriodEndsAt:
+        newRemaining === 0 ? now + 7 * 24 * 60 * 60 * 1000 : undefined,
+    });
+  }
+}
+
 /** Marks a session as completed with a timestamp and optional recording/notes. */
 export const completeSession = mutation({
   args: { 
@@ -691,6 +769,7 @@ export const completeSession = mutation({
       }
     }
 
+    const wasCompleted = session.status === "completed";
     const { id, ...updates } = args;
     const patch: Partial<Doc<"sessions">> = {
       status: "completed",
@@ -698,6 +777,13 @@ export const completeSession = mutation({
       ...updates,
     };
     await ctx.db.patch(id, patch);
+
+    // Completion used to patch the row and stop; the old action had no
+    // caller, so packs never depleted and no renewal notice was sent.
+    if (!wasCompleted) {
+      await applySessionCompletion(ctx, session);
+    }
+
     return await ctx.db.get(id);
   },
 });
@@ -938,24 +1024,45 @@ export const handleRenewalReminder = internalAction({
   args: {
     sessionPackId: v.string(),
     userId: v.string(),
-    sessionNumber: v.number(),
+    kind: v.union(v.literal("last_session"), v.literal("pack_complete")),
     remainingSessions: v.number(),
     gracePeriodEndsAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { sessionPackId, userId, sessionNumber, remainingSessions, gracePeriodEndsAt } = args;
+    const { sessionPackId, userId, kind, remainingSessions, gracePeriodEndsAt } = args;
 
-    if (sessionNumber === 3) {
+    // Resolve the instructor's public slug so the CTA lands on a checkout for
+    // this mentorship. The previous CTA pointed at `/instructors`, a generic
+    // list, which is not a renewal path.
+    let renewalPath: string | undefined;
+    try {
+      const pack = await ctx.runQuery(internal.sessions.getSessionPackByIdInternal, {
+        sessionPackId: sessionPackId as Id<"sessionPacks">,
+      });
+      if (pack) {
+        const instructor = await ctx.runQuery(internal.instructors.getInstructorByIdInternal, {
+          instructorId: pack.instructorId,
+        });
+        if (instructor?.slug) {
+          renewalPath = `/checkout?instructor=${encodeURIComponent(instructor.slug)}&renew=1`;
+        }
+      }
+    } catch (error) {
+      // The reminder is still worth sending without a deep link.
+      console.error("Failed to resolve renewal path for reminder:", error);
+    }
+
+    if (kind === "last_session") {
       await ctx.runAction(internal.notifications.handleNotificationSend, {
         payload: {
           type: "renewal_reminder",
           userId,
           sessionPackId,
-          message: "You have 1 session remaining. Renew now to continue your mentorship.",
-          sessionNumber: 3,
+          renewalPath,
+          message: `You have ${remainingSessions} session remaining. Renew now to keep your mentorship going.`,
         },
       });
-    } else if (sessionNumber === 4) {
+    } else {
       const graceDate = gracePeriodEndsAt
         ? new Date(gracePeriodEndsAt).toLocaleString("en-US", { timeZone: "UTC" })
         : "in 7 days";
@@ -965,8 +1072,8 @@ export const handleRenewalReminder = internalAction({
           type: "final_renewal_reminder",
           userId,
           sessionPackId,
+          renewalPath,
           message: `Your pack is complete. Renew within 7 days to keep your seat. Grace period ends: ${graceDate}`,
-          sessionNumber: 4,
           gracePeriodEndsAt,
         },
       });
@@ -976,7 +1083,8 @@ export const handleRenewalReminder = internalAction({
       success: true,
       sessionPackId,
       userId,
-      sessionNumber,
+      kind,
+      remainingSessions,
     };
   },
 });
@@ -1091,7 +1199,11 @@ export const listExpiredPacks = internalQuery({
       .withIndex("by_status", (q) => q.eq("status", "expired"))
       .collect();
 
-    return [...expiredPacks, ...expiredWithDepletedStatus].map(pack => ({
+    // Never release a seat for a pack that still has sessions: those are
+    // paid-for and may be resumed (D6). Only fully-used packs end here.
+    return [...expiredPacks, ...expiredWithDepletedStatus]
+      .filter((pack) => pack.remainingSessions === 0)
+      .map(pack => ({
       packId: pack._id,
       userId: pack.userId,
       instructorId: pack.instructorId,
@@ -1194,19 +1306,24 @@ export const handleSessionCompleted = internalAction({
       });
     }
 
-    if (completedCount === 3) {
+    // Drive reminders from the pack's remaining sessions, not from a
+    // hardcoded session number. The previous checks (`completedCount === 3`
+    // and `=== 4`) only worked for a four-session pack: a 2-, 5-, or 8-session
+    // pack either never notified or notified at the wrong point.
+    const remainingAfterCompletion = updatedPack?.remainingSessions ?? 0;
+    if (remainingAfterCompletion === 1) {
       await ctx.runAction(internal.sessions.handleRenewalReminder, {
         sessionPackId,
         userId,
-        sessionNumber: 3,
-        remainingSessions: updatedPack?.remainingSessions ?? 0,
+        kind: "last_session",
+        remainingSessions: 1,
       });
-    } else if (completedCount === 4) {
+    } else if (remainingAfterCompletion === 0) {
       const gracePeriodEndsAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
       await ctx.runAction(internal.sessions.handleRenewalReminder, {
         sessionPackId,
         userId,
-        sessionNumber: 4,
+        kind: "pack_complete",
         remainingSessions: 0,
         gracePeriodEndsAt,
       });
@@ -1255,13 +1372,26 @@ export const checkSeatExpiration = internalAction({
         );
 
         if (seat) {
+          // A pack that just depleted starts seven days of grace. If its
+          // `expiresAt` is already in the past, this sweep would otherwise
+          // release the seat within the hour despite the promise.
+          if (
+            seat.status === "grace" &&
+            typeof seat.gracePeriodEndsAt === "number" &&
+            seat.gracePeriodEndsAt > Date.now()
+          ) {
+            continue;
+          }
+
           try {
             await ctx.runMutation(internal.seatReservations.releaseSeatById, {
               seatId: seat._id,
             });
+            // Expiry is not a refund. The old value corrupted revenue
+            // reporting and any logic that treats `refunded` as a money event.
             await ctx.runMutation(internal.sessions.updateSessionPackStatusInternal, {
               sessionPackId: pack.packId,
-              status: "refunded",
+              status: "expired",
             });
             releasedCount++;
           } catch (error) {

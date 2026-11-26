@@ -717,6 +717,13 @@ const httpGetOrderPublicStatus = httpAction(async (ctx, request) => {
  * internal query via `ctx.runQuery` and gates on the bearer token, so only
  * callers with `CONVEX_HTTP_KEY` can fetch the full order.
  */
+const httpGetCheckoutStatus = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(internal.orders.getCheckoutStatus, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpGetOrderByIdInternal = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
@@ -772,6 +779,25 @@ const httpRefundPayment = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id, refundedAmount } = await request.json();
   const result = await ctx.runMutation(internal.payments.refundPaymentInternal, { id, refundedAmount });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+const httpApplyProviderRefund = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { paymentId, refundedTotal, refundAmount } = await request.json();
+
+  // `refundedTotal` is the concurrency-safe form (Stripe's cumulative amount).
+  // `refundAmount` is kept for older callers that send a delta.
+  const result = refundedTotal !== undefined
+    ? await ctx.runMutation(internal.payments.applyProviderRefundTotalInternal, {
+        paymentId,
+        refundedTotal,
+      })
+    : await ctx.runMutation(internal.payments.applyProviderRefundInternal, {
+        paymentId,
+        refundAmount,
+      });
+
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -1098,6 +1124,12 @@ http.route({
 });
 
 http.route({
+  path: "/orders/checkout-status",
+  method: "POST",
+  handler: httpGetCheckoutStatus,
+});
+
+http.route({
   path: "/orders/complete",
   method: "POST",
   handler: httpCompleteOrder,
@@ -1131,6 +1163,28 @@ http.route({
   path: "/payments/refund",
   method: "POST",
   handler: httpRefundPayment,
+});
+
+http.route({
+  path: "/payments/apply-refund",
+  method: "POST",
+  handler: httpApplyProviderRefund,
+});
+
+http.route({
+  path: "/payments/get-completed-by-order",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { orderId, provider } = await request.json();
+    const result = await ctx.runQuery(
+      internal.payments.getCompletedPaymentByOrderAndProviderInternal,
+      { orderId, provider }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
 });
 
 http.route({
@@ -1187,6 +1241,49 @@ http.route({
   handler: httpUpsertUserIdentity,
 });
 
+const httpReleaseSeatBySessionPack = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { sessionPackId } = await request.json();
+  const result = await ctx.runMutation(internal.seatReservations.releaseSeatBySessionPackId, {
+    sessionPackId,
+  });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+http.route({
+  path: "/seat-reservations/release-by-pack",
+  method: "POST",
+  handler: httpReleaseSeatBySessionPack,
+});
+
+const httpRolloverPriorPacks = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.sessionPacks.rolloverPriorPacks, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+http.route({
+  path: "/session-packs/rollover",
+  method: "POST",
+  handler: httpRolloverPriorPacks,
+});
+
+http.route({
+  path: "/session-packs/refund-closeout",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { sessionPackId } = await request.json();
+    const result = await ctx.runMutation(internal.sessionPacks.closeOutRefund, {
+      sessionPackId,
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
 http.route({
   path: "/seat-reservations/get-by-session-pack",
   method: "POST",
@@ -1200,6 +1297,19 @@ http.route({
 });
 
 http.route({
+  path: "/instructors/get-by-id",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { id } = await request.json();
+    const result = await ctx.runQuery(internal.instructors.getInstructorByIdInternal, { instructorId: id });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
   path: "/instructors/google-credentials",
   method: "POST",
   handler: httpGetInstructorGoogleCredentials,
@@ -1209,6 +1319,34 @@ http.route({
  * Ensure an admin-student workspace exists for a given student user.
  * Protected by CONVEX_HTTP_KEY. Returns { id, created }.
  */
+http.route({
+  path: "/workspaces/by-seat",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { seatReservationId } = await request.json();
+    const result = await ctx.runQuery(internal.workspaces.getWorkspaceBySeatReservationInternal, {
+      seatReservationId,
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
+  path: "/workspaces/onboarding-kickoff",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const args = await request.json();
+    const result = await ctx.runMutation(internal.workspaces.postOnboardingKickoff, args);
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
 http.route({
   path: "/workspaces/ensure-admin-student",
   method: "POST",
@@ -3023,6 +3161,21 @@ const httpReleasePlaceholderInventoryBatch = httpAction(async (ctx, request) => 
       headers: { "Content-Type": "application/json" },
     });
   }
+});
+
+const httpStartCheckoutOnboarding = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.adminOnboarding.startCheckoutOnboarding, args);
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/admin-onboarding/start-checkout",
+  method: "POST",
+  handler: httpStartCheckoutOnboarding,
 });
 
 /**

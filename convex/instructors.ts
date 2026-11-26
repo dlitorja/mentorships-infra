@@ -3608,6 +3608,33 @@ export const checkSeatAvailability = query({
   },
 });
 
+/**
+ * Adds one sellable 1-on-1 seat. Read and write happen in one transaction, so a
+ * concurrent sale cannot be overwritten by a stale absolute value from the
+ * admin UI.
+ */
+export const incrementOneOnOneSeat = mutation({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) throw new Error("Instructor not found");
+
+    await ctx.db.patch(args.id, {
+      oneOnOneInventory: (instructor.oneOnOneInventory ?? 0) + 1,
+    });
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** Updates inventory fields for an instructor. Requires admin role. */
 export const updateInstructorInventory = mutation({
   args: {

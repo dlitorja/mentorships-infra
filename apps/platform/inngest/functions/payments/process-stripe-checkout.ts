@@ -3,7 +3,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { convexServerCall } from "@/lib/convex-server-call";
 import { stripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/email";
-import { reportInfo } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { onboardingFlow } from "../onboarding";
 import {
@@ -182,6 +182,10 @@ export const processStripeCheckout = inngest.createFunction(
         remainingSessions: product.sessionsPerPack,
         expiresAt,
         paymentId: payment._id as Id<"payments">,
+        productId: packId as Id<"products">,
+        // Stored values are `oneOnOne | group`; the admin form submits
+        // `one-on-one`, and products.mentorshipType is a plain string.
+        mentorshipType: product.mentorshipType === "group" ? "group" : "oneOnOne",
       });
     });
 
@@ -238,7 +242,7 @@ export const processStripeCheckout = inngest.createFunction(
     }
 
     // Ensure an admin-student workspace exists (post-payment) for buyer ↔ admins
-    await step.run("ensure-admin-student-workspace", async () => {
+    const adminWorkspace = await step.run("ensure-admin-student-workspace", async () => {
       const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
       const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
       if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
@@ -275,9 +279,83 @@ export const processStripeCheckout = inngest.createFunction(
       });
     });
 
-    const sessionsCount = product.sessionsPerPack || 0;
+    // D6: carry any unused sessions from a prior pack with the same
+    // instructor into this one, and close the prior pack/seat. Runs after the
+    // seat exists so the shared workspace is already in place.
+    const rollover = await step.run("rollover-unused-sessions", async () => {
+      return await convexServerCall<any>("/session-packs/rollover", {
+        userId: sessionPack.userId,
+        instructorId: sessionPack.instructorId,
+        newSessionPackId: sessionPack._id,
+      });
+    });
+
+    // First message in both threads: the in-app replacement for the manual
+    // "add them on Discord and introduce them" step. Idempotent server-side.
+    await step.run("post-onboarding-kickoff", async () => {
+      const mentorshipWorkspace = await convexServerCall<any>("/workspaces/by-seat", {
+        seatReservationId: seatReservation._id,
+      });
+      if (!mentorshipWorkspace?._id) return { skipped: true } as const;
+
+      const adminWorkspaceId =
+        adminWorkspace && !("skipped" in adminWorkspace)
+          ? (adminWorkspace as { id: string }).id
+          : undefined;
+
+      return await convexServerCall<any>("/workspaces/onboarding-kickoff", {
+        mentorshipWorkspaceId: mentorshipWorkspace._id,
+        adminWorkspaceId,
+        instructorName,
+        sessions: rollover?.totalSessions ?? product.sessionsPerPack ?? 0,
+      });
+    });
+
+    const sessionsCount = rollover?.totalSessions ?? product.sessionsPerPack ?? 0;
     const pricePaid = fullSession.amount_total ? (fullSession.amount_total / 100).toFixed(2) : null;
     const currency = fullSession.currency?.toUpperCase() || "USD";
+
+    // Post-payment price audit. Checkout already refuses to create a session
+    // when the Convex price and the Stripe Price disagree, but a Stripe price
+    // can be edited between checkout creation and webhook delivery, and
+    // promotion codes legitimately reduce the total. Alert only on the
+    // dangerous direction (charged more than the catalog price) and record the
+    // discount case for reporting.
+    await step.run("audit-paid-amount", async () => {
+      const catalogCents = Math.round(Number(product.price) * 100);
+      const paidCents = fullSession.amount_total ?? 0;
+      if (!Number.isFinite(catalogCents) || catalogCents <= 0) return { skipped: true };
+
+      if (paidCents > catalogCents) {
+        await reportError({
+          source: "inngest:process-stripe-checkout",
+          error: new Error("Buyer charged more than the catalog price"),
+          message: "Stripe amount_total exceeds Convex product price",
+          level: "error",
+          context: {
+            orderId,
+            productId: packId,
+            paidCents,
+            catalogCents,
+            currency,
+          },
+        });
+      } else if (paidCents < catalogCents) {
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: "Buyer paid less than catalog price (discount or promotion)",
+          level: "info",
+          context: {
+            orderId,
+            productId: packId,
+            paidCents,
+            catalogCents,
+            discountCents: catalogCents - paidCents,
+          },
+        });
+      }
+      return { paidCents, catalogCents };
+    });
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
     await step.run("send-purchase-confirmation-email", async () => {

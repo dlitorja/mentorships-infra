@@ -1,5 +1,5 @@
 import { query, mutation, internalMutation, internalAction, internalQuery } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -489,7 +489,42 @@ export const createSeatReservation = internalMutation({
 
     const seatReservation = await ctx.db.get(seatId);
 
-    const workspaceId = await ctx.db.insert("workspaces", {
+    // Reuse the pair's existing workspace instead of starting a new one.
+    //
+    // A full refund releases the seat and ends the workspace, but the student
+    // often comes back (travel, a break, a later renewal). Creating a fresh
+    // workspace on every pack split the relationship: chat history, notes,
+    // files, and recordings stayed behind in an ended workspace the student
+    // could no longer post in. Reusing it keeps continuity and avoids orphan
+    // rows for the same student + instructor pair.
+    //
+    // Skip archived workspaces: the student deliberately hid that one, so
+    // resurfacing it on a re-purchase would override their choice.
+    const pairWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_ownerId", (q) =>
+        q.eq("instructorId", args.instructorId).eq("ownerId", args.userId)
+      )
+      .collect();
+
+    const reusableWorkspace = pairWorkspaces
+      .filter(
+        (workspace) =>
+          workspace.deletedAt === undefined &&
+          workspace.archivedAt === undefined &&
+          (workspace.type === undefined || workspace.type === "mentorship")
+      )
+      .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))[0];
+
+    if (reusableWorkspace) {
+      await ctx.db.patch(reusableWorkspace._id, {
+        seatReservationId: seatId,
+        endedAt: undefined,
+      });
+      return seatReservation;
+    }
+
+    await ctx.db.insert("workspaces", {
       name: `Mentorship Workspace`,
       description: `Workspace for mentorship with ${instructor.userId}`,
       ownerId: args.userId,
@@ -520,27 +555,72 @@ export const updateSeatReservation = internalMutation({
   },
 });
 
+/**
+ * Releases a seat and ends every workspace linked to it. Shared by the
+ * id-keyed and pack-keyed release mutations so both produce the same end
+ * state (status `released` + `workspaces.endedAt`).
+ *
+ * Refunds call the pack-keyed variant: a refunded pack must free the seat
+ * and close the workspace, which the admin refund path previously never did.
+ */
+async function releaseSeatImpl(
+  ctx: MutationCtx,
+  seatId: Id<"seatReservations">
+) {
+  const seat = await ctx.db.get(seatId);
+  if (!seat) {
+    throw new Error("Seat reservation not found");
+  }
+
+  await ctx.db.patch(seatId, { status: "released" });
+
+  const workspaces = await ctx.db
+    .query("workspaces")
+    .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seatId))
+    .collect();
+
+  for (const workspace of workspaces) {
+    await ctx.db.patch(workspace._id, { endedAt: Date.now() });
+  }
+
+  return await ctx.db.get(seatId);
+}
+
 /** Releases a seat reservation and ends its associated workspaces by setting endedAt. */
 export const releaseSeat = internalMutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
-    const seat = await ctx.db.get(args.id);
+    return await releaseSeatImpl(ctx, args.id);
+  },
+});
+
+/**
+ * Releases the seat attached to a session pack, if one exists. Called when a
+ * pack is fully refunded (admin route or provider webhook) so the refunded
+ * student does not keep occupying an instructor's capacity until natural
+ * expiry.
+ *
+ * Idempotent: a pack with no seat, or an already-released seat, returns
+ * `released: false` rather than throwing — refund retries must not fail on
+ * the second pass.
+ */
+export const releaseSeatBySessionPackId = internalMutation({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+
     if (!seat) {
-      throw new Error("Seat reservation not found");
+      return { released: false, reason: "no_seat" as const };
+    }
+    if (seat.status === "released") {
+      return { released: false, reason: "already_released" as const };
     }
 
-    await ctx.db.patch(args.id, { status: "released" });
-
-    const workspaces = await ctx.db
-      .query("workspaces")
-      .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", args.id))
-      .collect();
-
-    for (const workspace of workspaces) {
-      await ctx.db.patch(workspace._id, { endedAt: Date.now() });
-    }
-
-    return await ctx.db.get(args.id);
+    await releaseSeatImpl(ctx, seat._id);
+    return { released: true, seatId: seat._id };
   },
 });
 
