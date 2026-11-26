@@ -45,7 +45,7 @@ type Message = {
   // notices) carry a `systemEventKind` discriminator. The admin
   // Messages tab renders these distinctly so they are not mistaken
   // for ordinary chat messages from an "Unknown" author.
-  systemEventKind?: "joined" | "left" | null;
+  systemEventKind?: "joined" | "left" | "onboarding_kickoff" | null;
 };
 
 type AuditLog = {
@@ -280,7 +280,9 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
                                 <Badge variant="secondary">
                                   {message.systemEventKind === "joined"
                                     ? "Joined call"
-                                    : "Left call"}
+                                    : message.systemEventKind === "onboarding_kickoff"
+                                      ? "Mentorship intro"
+                                      : "Left call"}
                                 </Badge>
                               ) : null}
                             </>

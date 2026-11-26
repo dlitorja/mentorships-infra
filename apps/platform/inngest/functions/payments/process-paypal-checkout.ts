@@ -119,6 +119,8 @@ export const processPayPalCheckout = inngest.createFunction(
         remainingSessions: product.sessionsPerPack,
         expiresAt,
         paymentId: payment._id as Id<"payments">,
+        productId: packId as Id<"products">,
+        mentorshipType: product.mentorshipType,
       });
     });
 

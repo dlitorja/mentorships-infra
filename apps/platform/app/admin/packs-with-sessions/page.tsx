@@ -37,8 +37,8 @@ export default function PacksWithSessionsPage(): React.JSX.Element {
   const closePack = useMutation({
     mutationFn: useConvexMutation(api.packAttention.closePack),
   });
-  const updateInventory = useMutation({
-    mutationFn: useConvexMutation(api.instructors.updateInstructorInventory),
+  const addSeat = useMutation({
+    mutationFn: useConvexMutation(api.instructors.incrementOneOnOneSeat),
   });
 
   const refresh = () =>
@@ -77,10 +77,7 @@ export default function PacksWithSessionsPage(): React.JSX.Element {
 
   async function raiseCapacity(row: Row) {
     try {
-      await updateInventory.mutateAsync({
-        id: row.instructor.id,
-        oneOnOneInventory: row.capacity.inventory + 1,
-      });
+      await addSeat.mutateAsync({ id: row.instructor.id });
       toast.success(`Added one sellable seat for ${row.instructor.name}`);
       await refresh();
     } catch (err) {
@@ -199,7 +196,7 @@ export default function PacksWithSessionsPage(): React.JSX.Element {
                       size="sm"
                       variant="outline"
                       className="mt-2"
-                      disabled={updateInventory.isPending}
+                      disabled={addSeat.isPending}
                       onClick={() => raiseCapacity(row)}
                     >
                       <PlusCircle className="h-3.5 w-3.5 mr-1" /> {`Add a seat`}

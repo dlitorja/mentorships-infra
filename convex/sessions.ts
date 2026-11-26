@@ -696,6 +696,57 @@ export const updateSession = mutation({
   },
 });
 
+/**
+ * Pack bookkeeping for a session that just became `completed`.
+ *
+ * Shared by `completeSession` and `updateSession` so the instructor route
+ * (which sends `status: "completed"` through `updateSession`) cannot bypass
+ * the balance, grace, and reminder behaviour. Callers guard on the previous
+ * status so a duplicate completion cannot decrement twice.
+ */
+async function applySessionCompletion(
+  ctx: MutationCtx,
+  session: Doc<"sessions">
+): Promise<void> {
+  if (!session.sessionPackId) return;
+
+  const now = Date.now();
+  const pack = await ctx.db.get(session.sessionPackId);
+  if (!pack || pack.status === "refunded") return;
+
+  const newRemaining = Math.max(0, pack.remainingSessions - 1);
+
+  await ctx.db.patch(pack._id, {
+    remainingSessions: newRemaining,
+    status: newRemaining === 0 ? "depleted" : pack.status,
+    lastSessionAt: now,
+  });
+
+  if (newRemaining === 0) {
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+      .first();
+    if (seat && seat.status === "active") {
+      await ctx.db.patch(seat._id, {
+        status: "grace",
+        gracePeriodEndsAt: now + 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+  }
+
+  if (newRemaining === 1 || newRemaining === 0) {
+    await ctx.scheduler.runAfter(0, internal.sessions.handleRenewalReminder, {
+      sessionPackId: pack._id,
+      userId: pack.userId,
+      kind: newRemaining === 1 ? "last_session" : "pack_complete",
+      remainingSessions: newRemaining,
+      gracePeriodEndsAt:
+        newRemaining === 0 ? now + 7 * 24 * 60 * 60 * 1000 : undefined,
+    });
+  }
+}
+
 /** Marks a session as completed with a timestamp and optional recording/notes. */
 export const completeSession = mutation({
   args: { 
@@ -727,49 +778,10 @@ export const completeSession = mutation({
     };
     await ctx.db.patch(id, patch);
 
-    // Session completion used to patch the row and stop. `handleSessionCompleted`
-    // (which decrements the pack and fires renewal reminders) had no caller, so
-    // packs never depleted and no renewal notice was ever sent. The bookkeeping
-    // now happens in this mutation's transaction, guarded by the previous
-    // status so a duplicate completion cannot decrement twice.
-    if (!wasCompleted && session.sessionPackId) {
-      const now = Date.now();
-      const pack = await ctx.db.get(session.sessionPackId);
-
-      if (pack && pack.status !== "refunded") {
-        const newRemaining = Math.max(0, pack.remainingSessions - 1);
-
-        await ctx.db.patch(pack._id, {
-          remainingSessions: newRemaining,
-          status: newRemaining === 0 ? "depleted" : pack.status,
-          lastSessionAt: now,
-        });
-
-        if (newRemaining === 0) {
-          const seat = await ctx.db
-            .query("seatReservations")
-            .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
-            .first();
-          if (seat && seat.status === "active") {
-            await ctx.db.patch(seat._id, {
-              status: "grace",
-              gracePeriodEndsAt: now + 7 * 24 * 60 * 60 * 1000,
-            });
-          }
-        }
-
-        // Reminders run outside the transaction (they call Resend/Discord).
-        if (newRemaining === 1 || newRemaining === 0) {
-          await ctx.scheduler.runAfter(0, internal.sessions.handleRenewalReminder, {
-            sessionPackId: pack._id,
-            userId: pack.userId,
-            kind: newRemaining === 1 ? "last_session" : "pack_complete",
-            remainingSessions: newRemaining,
-            gracePeriodEndsAt:
-              newRemaining === 0 ? now + 7 * 24 * 60 * 60 * 1000 : undefined,
-          });
-        }
-      }
+    // Completion used to patch the row and stop; the old action had no
+    // caller, so packs never depleted and no renewal notice was sent.
+    if (!wasCompleted) {
+      await applySessionCompletion(ctx, session);
     }
 
     return await ctx.db.get(id);

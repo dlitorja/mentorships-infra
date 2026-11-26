@@ -247,3 +247,68 @@ test("rollover ignores a refunded prior pack", async () => {
   expect(result.carriedSessions).toBe(0);
   expect(result.totalSessions).toBe(4);
 });
+
+test("rollover moves booked sessions to the new pack", async () => {
+  const t = convexTest(schema, modules);
+  const s = await seed(t);
+
+  let sessionId: Id<"sessions"> | null = null;
+  let newPackId: Id<"sessionPacks"> | null = null;
+  await t.run(async (ctx) => {
+    sessionId = await ctx.db.insert("sessions", {
+      instructorId: s.instructorId,
+      studentId: "user_student",
+      sessionPackId: s.packId,
+      scheduledAt: Date.now() + 86400000,
+      status: "scheduled",
+      recordingConsent: true,
+    });
+    newPackId = await ctx.db.insert("sessionPacks", {
+      userId: "user_student",
+      instructorId: s.instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now(),
+      status: "active",
+    });
+  });
+
+  await t.mutation(internal.sessionPacks.rolloverPriorPacks, {
+    userId: "user_student",
+    instructorId: s.instructorId,
+    newSessionPackId: newPackId!,
+  });
+
+  const session = await t.run(async (ctx) => ctx.db.get(sessionId!));
+  expect(session?.sessionPackId).toBe(newPackId);
+});
+
+test("rollover never absorbs a newer pack", async () => {
+  const t = convexTest(schema, modules);
+  const s = await seed(t);
+
+  let newerPackId: Id<"sessionPacks"> | null = null;
+  await t.run(async (ctx) => {
+    newerPackId = await ctx.db.insert("sessionPacks", {
+      userId: "user_student",
+      instructorId: s.instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: Date.now() + 60_000,
+      status: "active",
+    });
+  });
+
+  // s.packId is older; treating it as the destination must not close the
+  // newer pack (that was the mutual-expiry bug).
+  const result = await t.mutation(internal.sessionPacks.rolloverPriorPacks, {
+    userId: "user_student",
+    instructorId: s.instructorId,
+    newSessionPackId: s.packId,
+  });
+
+  const newer = await t.run(async (ctx) => ctx.db.get(newerPackId!));
+  expect(result.carriedSessions).toBe(0);
+  expect(newer?.status).toBe("active");
+  expect(newer?.remainingSessions).toBe(4);
+});

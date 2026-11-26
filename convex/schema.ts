@@ -282,6 +282,16 @@ export default defineSchema({
     // Set on the OLD pack when its unused sessions were merged into a
     // renewal. Also the idempotency key for the merge.
     rolledIntoPackId: v.optional(v.id("sessionPacks")),
+    // Credit provenance for refunds. `carriedSessions` on the new pack is how
+    // many of its sessions came from a prior pack; on the old pack it is how
+    // many were moved out. Without this, refunding the new payment would close
+    // credits the student bought earlier (and vice versa).
+    carriedSessions: v.optional(v.number()),
+    carriedFromPackId: v.optional(v.id("sessionPacks")),
+    // Purchased product, so refund cleanup restores the right inventory pool
+    // instead of guessing from the (possibly merged) session count.
+    productId: v.optional(v.id("products")),
+    mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
@@ -715,6 +725,9 @@ export default defineSchema({
     // `CHAT_FILE_RETENTION_DAYS` (30 days).
     deletedAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"])
+    // Durable kickoff lookup: searching a fixed message window missed the
+    // kickoff in an old, busy thread and re-posted it on the next purchase.
+    .index("by_workspaceId_systemEventKind", ["workspaceId", "systemEventKind"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])

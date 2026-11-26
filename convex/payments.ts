@@ -400,3 +400,75 @@ export const migratePayment = internalMutation({
     return { action: "inserted", id: insertResult };
   },
 });
+
+/**
+ * Provider refunds arrive with Stripe's CUMULATIVE refunded total, which is
+ * the only concurrency-safe input: two deliveries of the same event both carry
+ * the same total, and computing the delta inside this mutation means the second
+ * one sees the first one's write and applies zero. Computing the delta in the
+ * Inngest function from a stale read let two deliveries add the same amount.
+ */
+export const applyProviderRefundTotalInternal = internalMutation({
+  args: {
+    paymentId: v.id("payments"),
+    refundedTotal: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) throw new Error("Payment not found");
+
+    const original = Number(payment.amount);
+    const prior = Number(payment.refundedAmount || "0");
+    const total = Number(args.refundedTotal);
+
+    if (!Number.isFinite(total) || total < 0) {
+      throw new Error(`Invalid cumulative refund amount: ${args.refundedTotal}`);
+    }
+    if (!Number.isFinite(original) || !Number.isFinite(prior)) {
+      throw new Error("Payment has a non-numeric amount; refusing to refund");
+    }
+
+    const cappedTotal = Math.min(total, original);
+    const delta = Math.round((cappedTotal - prior) * 100) / 100;
+
+    if (delta <= 0) {
+      return {
+        payment,
+        applied: 0,
+        fullyRefunded: payment.status === "refunded",
+      };
+    }
+
+    const updated = await applyRefundCumulative(
+      ctx,
+      "stripe:webhook",
+      { paymentId: args.paymentId, refundAmount: delta.toFixed(2) },
+      "system"
+    );
+
+    return {
+      payment: updated,
+      applied: delta,
+      fullyRefunded: updated?.status === "refunded",
+    };
+  },
+});
+
+/** Internal, service-key read of a completed payment for an order + provider. */
+export const getCompletedPaymentByOrderAndProviderInternal = internalQuery({
+  args: {
+    orderId: v.id("orders"),
+    provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("payments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .collect();
+    return (
+      rows.find(
+        (row) => row.provider === args.provider && row.status === "completed"
+      ) ?? null
+    );
+  },
+});

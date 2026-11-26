@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -18,6 +18,7 @@ import { writeAuditLog } from "./auditLog";
  */
 
 const DORMANT_DAYS = 45;
+/** Upper bound on rows returned to the admin table (scan is larger). */
 const MAX_ROWS = 500;
 
 async function requireStaff(ctx: QueryCtx | MutationCtx): Promise<string> {
@@ -63,18 +64,35 @@ export const listPacksNeedingAttention = query({
     const dormantCutoff = now - DORMANT_DAYS * 24 * 60 * 60 * 1000;
     const limit = Math.min(args.limit ?? 200, MAX_ROWS);
 
-    const activePacks = await ctx.db
-      .query("sessionPacks")
-      .withIndex("by_status", (q) => q.eq("status", "active"))
-      .take(MAX_ROWS);
+    // Page through active packs instead of taking a fixed first slice: a
+    // single `take(500)` silently hid qualifying students past that point,
+    // even when the visible queue was empty.
+    const candidates: Doc<"sessionPacks">[] = [];
+    let cursor: string | null = null;
 
-    const candidates = activePacks.filter((pack) => {
-      if (pack.remainingSessions <= 0 || pack.deletedAt !== undefined) return false;
-      const lastActivity = pack.lastSessionAt ?? pack.purchasedAt;
-      const expired = typeof pack.expiresAt === "number" && pack.expiresAt <= now;
-      const dormant = lastActivity <= dormantCutoff;
-      return expired || dormant;
-    });
+    for (let page = 0; page < 10; page += 1) {
+      const result = await ctx.db
+        .query("sessionPacks")
+        .withIndex("by_status", (q) => q.eq("status", "active"))
+        .paginate({ numItems: 200, cursor });
+
+      for (const pack of result.page) {
+        if (pack.remainingSessions <= 0 || pack.deletedAt !== undefined) continue;
+
+        const expired =
+          typeof pack.expiresAt === "number" && pack.expiresAt <= now;
+        // Until `backfillLastSessionAt` runs, a missing value must not mean
+        // "dormant": existing packs have no field, and using `purchasedAt`
+        // would flag students who attended yesterday.
+        const dormant =
+          pack.lastSessionAt !== undefined && pack.lastSessionAt <= dormantCutoff;
+
+        if (expired || dormant) candidates.push(pack);
+      }
+
+      cursor = result.continueCursor;
+      if (result.isDone || candidates.length >= limit * 2) break;
+    }
 
     // Stable order: oldest activity first, so the most-neglected student is at
     // the top of the queue.
@@ -253,6 +271,11 @@ export const closePack = mutation({
 
     const pack = await ctx.db.get(args.packId);
     if (!pack) throw new Error("Session pack not found");
+    if (pack.status !== "active") {
+      throw new Error(
+        `Pack is already ${pack.status}; refresh the queue before acting`
+      );
+    }
 
     await ctx.db.patch(pack._id, { status: "expired" });
 
@@ -319,5 +342,56 @@ export const getPackForAdmin = query({
       totalSessions: pack.totalSessions,
       expiresAt: pack.expiresAt ?? null,
     };
+  },
+});
+
+/**
+ * One-time backfill for `lastSessionAt` after deploy.
+ *
+ * Run until `remaining` is false:
+ *   npx convex run internal.packAttention.backfillLastSessionAt '{"batchSize":500}'
+ *
+ * Until it runs, the queue deliberately treats a missing value as "recent"
+ * rather than falling back to `purchasedAt`, which would mark an active student
+ * dormant and create needless follow-up work.
+ */
+export const backfillLastSessionAt = internalMutation({
+  args: { batchSize: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const batchSize = Math.min(Math.max(args.batchSize ?? 200, 1), 1000);
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+
+    let updated = 0;
+    let remaining = false;
+
+    for (const pack of packs) {
+      if (pack.lastSessionAt !== undefined) continue;
+      if (updated >= batchSize) {
+        remaining = true;
+        break;
+      }
+
+      const sessions = await ctx.db
+        .query("sessions")
+        .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+        .collect();
+
+      let latest = pack.purchasedAt;
+      for (const session of sessions) {
+        latest = Math.max(
+          latest,
+          session.scheduledAt ?? 0,
+          session.completedAt ?? 0
+        );
+      }
+
+      await ctx.db.patch(pack._id, { lastSessionAt: latest });
+      updated += 1;
+    }
+
+    return { updated, remaining };
   },
 });

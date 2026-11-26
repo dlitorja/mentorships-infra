@@ -2845,7 +2845,14 @@ export const startCheckoutOnboarding = internalMutation({
       row.perInstructor.some((pair) => pair.sessionPackId === args.sessionPackId)
     );
     if (alreadyLinked) {
-      return { onboardingId: alreadyLinked._id, created: false };
+      const pair = alreadyLinked.perInstructor.find(
+        (entry) => entry.sessionPackId === args.sessionPackId
+      );
+      return {
+        onboardingId: alreadyLinked._id,
+        created: false,
+        isRenewal: pair?.isRenewal ?? false,
+      };
     }
 
     // The pack and seat were just created, so a prior pack for the same pair
@@ -2898,6 +2905,6 @@ export const startCheckoutOnboarding = internalMutation({
       createdAt: now,
     });
 
-    return { onboardingId, created: true };
+    return { onboardingId, created: true, isRenewal };
   },
 });

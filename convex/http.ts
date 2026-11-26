@@ -784,11 +784,20 @@ const httpRefundPayment = httpAction(async (ctx, request) => {
 
 const httpApplyProviderRefund = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
-  const { paymentId, refundAmount } = await request.json();
-  const result = await ctx.runMutation(internal.payments.applyProviderRefundInternal, {
-    paymentId,
-    refundAmount,
-  });
+  const { paymentId, refundedTotal, refundAmount } = await request.json();
+
+  // `refundedTotal` is the concurrency-safe form (Stripe's cumulative amount).
+  // `refundAmount` is kept for older callers that send a delta.
+  const result = refundedTotal !== undefined
+    ? await ctx.runMutation(internal.payments.applyProviderRefundTotalInternal, {
+        paymentId,
+        refundedTotal,
+      })
+    : await ctx.runMutation(internal.payments.applyProviderRefundInternal, {
+        paymentId,
+        refundAmount,
+      });
+
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -1163,6 +1172,22 @@ http.route({
 });
 
 http.route({
+  path: "/payments/get-completed-by-order",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { orderId, provider } = await request.json();
+    const result = await ctx.runQuery(
+      internal.payments.getCompletedPaymentByOrderAndProviderInternal,
+      { orderId, provider }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
   path: "/products/get-public-by-id",
   method: "POST",
   handler: httpGetPublicProductById,
@@ -1245,6 +1270,21 @@ http.route({
 });
 
 http.route({
+  path: "/session-packs/refund-closeout",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { sessionPackId } = await request.json();
+    const result = await ctx.runMutation(internal.sessionPacks.closeOutRefund, {
+      sessionPackId,
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
   path: "/seat-reservations/get-by-session-pack",
   method: "POST",
   handler: httpGetSeatReservationBySessionPack,
@@ -1254,6 +1294,19 @@ http.route({
   path: "/instructors/get-name-by-id",
   method: "POST",
   handler: httpGetInstructorNameById,
+});
+
+http.route({
+  path: "/instructors/get-by-id",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { id } = await request.json();
+    const result = await ctx.runQuery(internal.instructors.getInstructorByIdInternal, { instructorId: id });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
 });
 
 http.route({

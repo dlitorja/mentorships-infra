@@ -199,30 +199,16 @@ export async function POST(req: NextRequest) {
         });
 
         if (sessionPack) {
-          const instructorProducts = await convexServerCall<any[]>(
-            "/products/get-by-instructor-id",
-            { instructorId: sessionPack.instructorId }
-          );
-          const product = instructorProducts.find(
-            (candidate) => candidate.sessionsPerPack === sessionPack.totalSessions
-          );
-          const inventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
-
-          await convexServerCall("/session-packs/refund", { id: sessionPack._id });
-          await convexServerCall("/inventory/increment", {
-            instructorId: sessionPack.instructorId,
-            type: inventoryType,
-          });
-          await convexServerCall("/seat-reservations/release-by-pack", {
+          // Shared with the provider webhook. It owns the pack state, seat
+          // release, and inventory restore, and is idempotent — so the admin
+          // and webhook paths cannot each restore a seat for the same refund.
+          const closeOut = await convexServerCall<any>("/session-packs/refund-closeout", {
             sessionPackId: sessionPack._id,
           });
-          bookingClosedOut = true;
+          bookingClosedOut = Boolean(closeOut?.closed);
         }
       } catch (closeOutError) {
-        console.error(
-          "Refund recorded but booking close-out failed (pack/inventory/seat):",
-          closeOutError
-        );
+        console.error("Refund recorded but booking close-out failed:", closeOutError);
       }
     }
 

@@ -4478,15 +4478,13 @@ export const postOnboardingKickoff = internalMutation({
     const now = Date.now();
 
     async function alreadyPosted(workspaceId: Id<"workspaces">) {
-      const messages = await ctx.db
+      const existing = await ctx.db
         .query("workspaceMessages")
-        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-        .take(50);
-      return messages.some(
-        (message) =>
-          message.type === "system" &&
-          message.systemEventKind === "onboarding_kickoff"
-      );
+        .withIndex("by_workspaceId_systemEventKind", (q) =>
+          q.eq("workspaceId", workspaceId).eq("systemEventKind", "onboarding_kickoff")
+        )
+        .first();
+      return existing !== null;
     }
 
     const mentorship = await ctx.db.get(args.mentorshipWorkspaceId);

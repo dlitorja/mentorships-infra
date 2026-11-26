@@ -20,7 +20,7 @@ import { queryKeys } from "@/lib/queries/query-keys";
 import { getCheckoutStatus } from "@/lib/queries/api-client";
 import { useUser } from "@clerk/nextjs";
 
-type Phase = "processing" | "ready" | "failed" | "timeout";
+type Phase = "processing" | "ready" | "closed" | "failed" | "timeout";
 
 const POLL_INTERVAL_MS = 2000;
 const GIVE_UP_MS = 60_000;
@@ -98,7 +98,18 @@ function CheckoutSuccessContent(): React.JSX.Element {
       const current = query.state.data;
 
       if (current) {
-        if (current.packStatus) return false;
+        const ready =
+          current.orderStatus === "paid" &&
+          current.paymentStatus === "completed" &&
+          current.packStatus === "active" &&
+          current.hasWorkspace &&
+          (current.seatStatus === "active" || current.seatStatus === "grace");
+        const closed =
+          current.packStatus === "refunded" ||
+          current.packStatus === "expired" ||
+          current.orderStatus === "refunded" ||
+          current.seatStatus === "released";
+        if (ready || closed) return false;
         if (current.orderStatus === "failed" || current.orderStatus === "canceled") return false;
       }
       if (Date.now() - startedAt.current > GIVE_UP_MS) {
@@ -111,10 +122,32 @@ function CheckoutSuccessContent(): React.JSX.Element {
   useEffect(() => {
     if (!status) return;
 
-    if (status.packStatus) {
+    // Ready means the whole funnel finished: paid, captured, active pack,
+    // workspace, and a usable seat. Checking only `packStatus` declared
+    // success while the seat/workspace steps were still pending — or after a
+    // refund had closed the pack.
+    const ready =
+      status.orderStatus === "paid" &&
+      status.paymentStatus === "completed" &&
+      status.packStatus === "active" &&
+      status.hasWorkspace &&
+      (status.seatStatus === "active" || status.seatStatus === "grace");
+
+    if (ready) {
       setPhase("ready");
       return;
     }
+
+    const closed =
+      status.packStatus === "refunded" ||
+      status.packStatus === "expired" ||
+      status.orderStatus === "refunded" ||
+      status.seatStatus === "released";
+    if (closed) {
+      setPhase("closed");
+      return;
+    }
+
     if (status.orderStatus === "failed" || status.orderStatus === "canceled") {
       setPhase("failed");
       return;
@@ -177,6 +210,15 @@ function CheckoutSuccessContent(): React.JSX.Element {
             <CardDescription>
               Your session pack is active
               {status?.totalSessions ? ` — ${status.totalSessions} sessions ready to book` : ""}
+            </CardDescription>
+          </>
+        ) : phase === "closed" ? (
+          <>
+            <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <CardTitle>This purchase is closed</CardTitle>
+            <CardDescription>
+              This order was refunded or its access has ended. If you think that is
+              wrong, contact support and we&apos;ll check it.
             </CardDescription>
           </>
         ) : phase === "timeout" ? (
@@ -285,6 +327,14 @@ function CheckoutSuccessContent(): React.JSX.Element {
               )}
             </div>
           </>
+        )}
+
+        {!missingOrder && phase === "closed" && (
+          <div className="flex flex-col gap-2">
+            <Button asChild className="w-full">
+              <a href="mailto:support@huckleberry.art">Contact support</a>
+            </Button>
+          </div>
         )}
 
         {!missingOrder && (phase === "failed" || phase === "timeout") && (

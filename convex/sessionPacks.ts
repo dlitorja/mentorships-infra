@@ -2,7 +2,7 @@ import { query, mutation, internalMutation, internalQuery } from "./_generated/s
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
@@ -255,6 +255,8 @@ const createSessionPackArgs = {
   remainingSessions: v.optional(v.number()),
   expiresAt: v.optional(v.number()),
   paymentId: v.optional(v.id("payments")),
+  productId: v.optional(v.id("products")),
+  mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
 };
 
 /**
@@ -285,6 +287,8 @@ export const createSessionPackInternal = internalMutation({
       expiresAt: args.expiresAt,
       status: "active",
       paymentId: args.paymentId ?? undefined,
+      productId: args.productId,
+      mentorshipType: args.mentorshipType,
     });
     return await ctx.db.get(id);
   },
@@ -775,13 +779,21 @@ export const rolloverPriorPacks = internalMutation({
       )
       .collect();
 
+    // Only merge OLDER packs into this one, and only while the destination is
+    // still active. Two concurrent purchases for the same pair would otherwise
+    // expire each other (A merges B, then B merges A), leaving both closed.
+    if (newPack.status !== "active" || newPack.deletedAt !== undefined) {
+      return { carriedSessions: 0, totalSessions: newPack.totalSessions };
+    }
+
     const mergeable = siblings.filter(
       (pack) =>
         pack._id !== args.newSessionPackId &&
         pack.status === "active" &&
         pack.remainingSessions > 0 &&
         pack.rolledIntoPackId === undefined &&
-        pack.deletedAt === undefined
+        pack.deletedAt === undefined &&
+        pack.purchasedAt <= newPack.purchasedAt
     );
 
     if (mergeable.length === 0) {
@@ -790,13 +802,27 @@ export const rolloverPriorPacks = internalMutation({
 
     let carriedSessions = 0;
 
+    // Move already-booked sessions to the new pack. Leaving them on the old
+    // pack let a student attend a booked session while keeping its credit in
+    // the new pack (the old pack decremented 0 → 0).
     for (const pack of mergeable) {
       carriedSessions += pack.remainingSessions;
+
+      const booked = await ctx.db
+        .query("sessions")
+        .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+        .collect();
+      for (const session of booked) {
+        if (session.status === "scheduled") {
+          await ctx.db.patch(session._id, { sessionPackId: args.newSessionPackId });
+        }
+      }
 
       await ctx.db.patch(pack._id, {
         status: "expired",
         remainingSessions: 0,
         rolledIntoPackId: args.newSessionPackId,
+        carriedSessions: pack.remainingSessions,
       });
 
       const seat = await ctx.db
@@ -814,8 +840,147 @@ export const rolloverPriorPacks = internalMutation({
     const totalSessions = newPack.totalSessions + carriedSessions;
     const remainingSessions = newPack.remainingSessions + carriedSessions;
 
-    await ctx.db.patch(newPack._id, { totalSessions, remainingSessions });
+    await ctx.db.patch(newPack._id, {
+      totalSessions,
+      remainingSessions,
+      carriedSessions: (newPack.carriedSessions ?? 0) + carriedSessions,
+      carriedFromPackId: newPack.carriedFromPackId ?? mergeable[0]?._id,
+    });
 
     return { carriedSessions, totalSessions };
+  },
+});
+
+async function releasePackSeat(ctx: MutationCtx, sessionPackId: Id<"sessionPacks">) {
+  const seat = await ctx.db
+    .query("seatReservations")
+    .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", sessionPackId))
+    .first();
+  if (!seat || seat.status === "released") return false;
+
+  await ctx.db.patch(seat._id, { status: "released" });
+  const workspaces = await ctx.db
+    .query("workspaces")
+    .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+    .collect();
+  for (const workspace of workspaces) {
+    await ctx.db.patch(workspace._id, { endedAt: Date.now() });
+  }
+  return true;
+}
+
+async function restoreInventoryOnce(ctx: MutationCtx, pack: Doc<"sessionPacks">) {
+  const instructor = await ctx.db.get(pack.instructorId);
+  if (!instructor) return false;
+
+  let type = pack.mentorshipType;
+  if (!type) {
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", pack.instructorId as any))
+      .collect();
+    const match = products.find((p) => p.sessionsPerPack === pack.totalSessions);
+    type = match?.mentorshipType === "group" ? "group" : "oneOnOne";
+  }
+
+  const field = type === "group" ? "groupInventory" : "oneOnOneInventory";
+  await ctx.db.patch(instructor._id, {
+    [field]: (instructor[field] ?? 0) + 1,
+  } as Partial<Doc<"instructors">>);
+  return true;
+}
+
+/**
+ * Single refund close-out used by both the admin route and the provider
+ * webhook, so one refund cannot add two seats or leave two different end
+ * states.
+ *
+ * Credit provenance:
+ * - A pack that was rolled into a newer one (refunding the OLD payment) removes
+ *   its carried credits from the destination, leaving the newer purchase's
+ *   credits intact.
+ * - A pack that carries credits (refunding the NEW payment) gives back only the
+ *   sessions that payment funded; carried credits stay usable.
+ * - An ordinary pack closes fully.
+ *
+ * Idempotent on `status === "refunded"`: the second caller returns without
+ * touching inventory or the seat.
+ */
+export const closeOutRefund = internalMutation({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) throw new Error("Session pack not found");
+
+    if (pack.status === "refunded") {
+      return { alreadyClosed: true, closed: true, seatReleased: false, inventoryRestored: false };
+    }
+
+    // Refunding the payment that funded an older, rolled-over pack.
+    if (pack.rolledIntoPackId) {
+      const destination = await ctx.db.get(pack.rolledIntoPackId);
+      const carried = pack.carriedSessions ?? 0;
+
+      if (destination && carried > 0) {
+        const remaining = Math.max(0, destination.remainingSessions - carried);
+        const total = Math.max(remaining, destination.totalSessions - carried);
+
+        if (remaining === 0) {
+          await ctx.db.patch(destination._id, { remainingSessions: 0, totalSessions: total, status: "depleted" });
+          const seat = await ctx.db
+            .query("seatReservations")
+            .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", destination._id))
+            .first();
+          if (seat && seat.status === "active") {
+            await ctx.db.patch(seat._id, {
+              status: "grace",
+              gracePeriodEndsAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+            });
+          }
+        } else {
+          await ctx.db.patch(destination._id, { remainingSessions: remaining, totalSessions: total });
+        }
+      }
+
+      await ctx.db.patch(pack._id, { status: "refunded" });
+      const inventoryRestored = await restoreInventoryOnce(ctx, pack);
+      return { alreadyClosed: false, closed: true, seatReleased: false, inventoryRestored };
+    }
+
+    // Refunding a pack that carries credits from an earlier purchase.
+    const carried = pack.carriedSessions ?? 0;
+    if (carried > 0) {
+      const purchased = Math.max(0, pack.totalSessions - carried);
+      const used = Math.max(0, pack.totalSessions - pack.remainingSessions);
+      const carriedUsed = Math.max(0, used - purchased);
+      const carriedLeft = Math.max(0, carried - carriedUsed);
+      const keepOpen = carriedLeft > 0;
+
+      await ctx.db.patch(pack._id, {
+        remainingSessions: carriedLeft,
+        totalSessions: Math.max(carriedLeft, carried),
+        status: keepOpen ? "active" : "expired",
+      });
+
+      if (keepOpen) {
+        return {
+          alreadyClosed: false,
+          closed: false,
+          seatReleased: false,
+          inventoryRestored: false,
+          keptOpen: true,
+          carriedLeft,
+        };
+      }
+
+      const seatReleased = await releasePackSeat(ctx, pack._id);
+      const inventoryRestored = await restoreInventoryOnce(ctx, pack);
+      return { alreadyClosed: false, closed: true, seatReleased, inventoryRestored };
+    }
+
+    await ctx.db.patch(pack._id, { status: "refunded" });
+    const seatReleased = await releasePackSeat(ctx, pack._id);
+    const inventoryRestored = await restoreInventoryOnce(ctx, pack);
+    return { alreadyClosed: false, closed: true, seatReleased, inventoryRestored };
   },
 });

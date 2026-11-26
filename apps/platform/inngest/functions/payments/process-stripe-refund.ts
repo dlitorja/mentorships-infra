@@ -65,9 +65,24 @@ export const processStripeRefund = inngest.createFunction(
         ? amountRefunded / 100
         : originalAmount;
 
-    const delta = Math.round((cumulativeRefunded - priorRefunded) * 100) / 100;
+    // Concurrency-safe: send the CUMULATIVE total and let the mutation compute
+    // the delta. Two deliveries of the same event then produce one write and
+    // one zero-delta no-op instead of adding the same refund twice.
+    const recorded = await step.run("record-refund", async () => {
+      return await convexServerCall<any>("/payments/apply-refund", {
+        paymentId: payment._id as Id<"payments">,
+        refundedTotal: cumulativeRefunded.toFixed(2),
+      });
+    });
 
-    if (!Number.isFinite(delta) || delta <= 0) {
+    if (!recorded?.payment) {
+      throw new Error("Failed to record refund on payment");
+    }
+
+    const updatedPayment = recorded.payment;
+    const appliedDelta = Number(recorded.applied ?? 0);
+
+    if (!Number.isFinite(appliedDelta) || appliedDelta <= 0) {
       await reportInfo({
         source: "inngest:process-stripe-refund",
         message: "Refund already recorded; skipping",
@@ -85,17 +100,6 @@ export const processStripeRefund = inngest.createFunction(
         paymentId: payment._id,
         refundedAmount: priorRefunded.toFixed(2),
       };
-    }
-
-    const updatedPayment = await step.run("record-refund", async () => {
-      return await convexServerCall<any>("/payments/apply-refund", {
-        paymentId: payment._id as Id<"payments">,
-        refundAmount: delta.toFixed(2),
-      });
-    });
-
-    if (!updatedPayment) {
-      throw new Error("Failed to record refund on payment");
     }
 
     await step.run("sync-payment-updated", async () => {
@@ -157,7 +161,9 @@ export const processStripeRefund = inngest.createFunction(
         const content = buildRefundEmail({
           studentName: studentName ?? email,
           instructorName: instructorName ?? "your instructor",
-          refundAmount: (updatedPayment.refundedAmount ?? delta.toFixed(2)).toString(),
+          // The amount returned by THIS refund, not the running total: a second
+          // $10 refund must not read as "$20 refunded" to the student.
+          refundAmount: appliedDelta.toFixed(2),
           currency: (updatedPayment.currency ?? "usd").toString(),
           reason: "Other",
           customReason: "Refunded by Stripe",
@@ -220,7 +226,7 @@ export const processStripeRefund = inngest.createFunction(
         context: {
           paymentIntentId,
           paymentId: updatedPayment._id,
-          delta,
+          appliedDelta,
           refundedAmount: updatedPayment.refundedAmount,
           originalAmount,
         },
@@ -234,52 +240,25 @@ export const processStripeRefund = inngest.createFunction(
       };
     }
 
-    // Fully refunded: now (and only now) close the pack, restore inventory,
-    // and release the seat. Order status was already flipped to "refunded"
-    // inside `applyRefundCumulative`.
+    // Fully refunded: one shared close-out decides whether the pack closes,
+    // keeps carried credits, or removes rolled-over credits. It also owns the
+    // seat release and inventory restore, so the admin and webhook paths
+    // cannot each add a seat for the same refund.
     if (sessionPack) {
-      const instructorProducts = await step.run("get-instructor-products", async () => {
-        return await convexServerCall<any>("/products/get-by-instructor-id", {
-          instructorId: sessionPack.instructorId as Id<"instructors">,
+      const closeOut = await step.run("close-out-refund", async () => {
+        return await convexServerCall<any>("/session-packs/refund-closeout", {
+          sessionPackId: sessionPack._id,
         });
       });
-
-      const product = instructorProducts.find(
-        (p: any) => p.sessionsPerPack === sessionPack.totalSessions
-      );
-      const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
-
-      const refundedSessionPack = await step.run("refund-session-pack", async () => {
-        return await convexServerCall<any>("/session-packs/refund", {
-          id: sessionPack._id,
-        });
-      });
-
-      if (!refundedSessionPack) {
-        throw new Error("Failed to refund session pack");
-      }
 
       await step.run("sync-session-pack-updated", async () => {
         await inngest.send({
           name: "data.sync/sessionPack.updated",
           data: {
-            id: refundedSessionPack._id,
-            status: refundedSessionPack.status,
+            id: sessionPack._id,
+            status: closeOut?.closed ? "refunded" : "active",
             updatedAt: Date.now(),
           },
-        });
-      });
-
-      await step.run("increment-inventory", async () => {
-        await convexServerCall<any>("/inventory/increment", {
-          instructorId: sessionPack.instructorId as Id<"instructors">,
-          type: refundInventoryType,
-        });
-      });
-
-      await step.run("release-seat", async () => {
-        return await convexServerCall<any>("/seat-reservations/release-by-pack", {
-          sessionPackId: sessionPack._id as Id<"sessionPacks">,
         });
       });
     }
