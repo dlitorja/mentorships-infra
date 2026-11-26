@@ -212,7 +212,18 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
-    const sessionsCount = product.sessionsPerPack || 0;
+    // D6: carry any unused sessions from a prior pack with the same
+    // instructor into this one, and close the prior pack/seat. Runs after the
+    // seat exists so the shared workspace is already in place.
+    const rollover = await step.run("rollover-unused-sessions", async () => {
+      return await convexServerCall<any>("/session-packs/rollover", {
+        userId: sessionPack.userId,
+        instructorId: sessionPack.instructorId,
+        newSessionPackId: sessionPack._id,
+      });
+    });
+
+    const sessionsCount = rollover?.totalSessions ?? product.sessionsPerPack ?? 0;
     const pricePaid = order.totalAmount || null;
     const currency = (order.currency ?? "USD").toUpperCase();
 

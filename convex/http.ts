@@ -1231,6 +1231,19 @@ http.route({
   handler: httpReleaseSeatBySessionPack,
 });
 
+const httpRolloverPriorPacks = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.sessionPacks.rolloverPriorPacks, args);
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+http.route({
+  path: "/session-packs/rollover",
+  method: "POST",
+  handler: httpRolloverPriorPacks,
+});
+
 http.route({
   path: "/seat-reservations/get-by-session-pack",
   method: "POST",

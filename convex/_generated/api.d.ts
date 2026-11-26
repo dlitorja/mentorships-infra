@@ -70,6 +70,7 @@ import type * as onboardingQuestionnaireActions from "../onboardingQuestionnaire
 import type * as onboardingWorkExamples from "../onboardingWorkExamples.js";
 import type * as onboardingWorkExamplesActions from "../onboardingWorkExamplesActions.js";
 import type * as orders from "../orders.js";
+import type * as packAttention from "../packAttention.js";
 import type * as payments from "../payments.js";
 import type * as products from "../products.js";
 import type * as queries_emailHealth from "../queries/emailHealth.js";
@@ -166,6 +167,7 @@ declare const fullApi: ApiFromModules<{
   onboardingWorkExamples: typeof onboardingWorkExamples;
   onboardingWorkExamplesActions: typeof onboardingWorkExamplesActions;
   orders: typeof orders;
+  packAttention: typeof packAttention;
   payments: typeof payments;
   products: typeof products;
   "queries/emailHealth": typeof queries_emailHealth;

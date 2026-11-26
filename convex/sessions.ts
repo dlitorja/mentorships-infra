@@ -614,10 +614,37 @@ export const createSession = mutation({
     ) {
       throw new Error("Forbidden");
     }
+    // Server-side eligibility (D6 / plan B12). The booking form filters by
+    // status and expiry, but the picker is not a security boundary: without
+    // these checks a student could book past the pack size and the counter
+    // would clamp at zero, silently handing out free sessions.
+    if (pack.status !== "active") {
+      throw new Error("This session pack is no longer active");
+    }
+    if (pack.remainingSessions <= 0) {
+      throw new Error("No sessions remain on this pack");
+    }
+
+    const existingSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .collect();
+    const scheduledCount = existingSessions.filter((s) => s.status === "scheduled").length;
+    if (scheduledCount >= pack.remainingSessions) {
+      throw new Error("All remaining sessions on this pack are already booked");
+    }
+
+    // Deliberately no `expiresAt` check: a pack with sessions left stays
+    // bookable past its access date (D6 — sessions are not forfeited).
+
     const workspace = await resolveWorkspaceForNewSession(ctx, args);
     if (!workspace) {
       throw new Error("No active workspace matches this session pack");
     }
+
+    // Scheduling counts as activity for the admin dormancy queue, so a student
+    // who books but has not yet met does not look abandoned.
+    await ctx.db.patch(pack._id, { lastSessionAt: Date.now() });
     // PR #4a: initialize both per-party consent fields to match the
     // booking-time default. Without this, the first party's modal
     // submission would see `otherParty ?? false` and flip the
@@ -691,6 +718,7 @@ export const completeSession = mutation({
       }
     }
 
+    const wasCompleted = session.status === "completed";
     const { id, ...updates } = args;
     const patch: Partial<Doc<"sessions">> = {
       status: "completed",
@@ -698,6 +726,52 @@ export const completeSession = mutation({
       ...updates,
     };
     await ctx.db.patch(id, patch);
+
+    // Session completion used to patch the row and stop. `handleSessionCompleted`
+    // (which decrements the pack and fires renewal reminders) had no caller, so
+    // packs never depleted and no renewal notice was ever sent. The bookkeeping
+    // now happens in this mutation's transaction, guarded by the previous
+    // status so a duplicate completion cannot decrement twice.
+    if (!wasCompleted && session.sessionPackId) {
+      const now = Date.now();
+      const pack = await ctx.db.get(session.sessionPackId);
+
+      if (pack && pack.status !== "refunded") {
+        const newRemaining = Math.max(0, pack.remainingSessions - 1);
+
+        await ctx.db.patch(pack._id, {
+          remainingSessions: newRemaining,
+          status: newRemaining === 0 ? "depleted" : pack.status,
+          lastSessionAt: now,
+        });
+
+        if (newRemaining === 0) {
+          const seat = await ctx.db
+            .query("seatReservations")
+            .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+            .first();
+          if (seat && seat.status === "active") {
+            await ctx.db.patch(seat._id, {
+              status: "grace",
+              gracePeriodEndsAt: now + 7 * 24 * 60 * 60 * 1000,
+            });
+          }
+        }
+
+        // Reminders run outside the transaction (they call Resend/Discord).
+        if (newRemaining === 1 || newRemaining === 0) {
+          await ctx.scheduler.runAfter(0, internal.sessions.handleRenewalReminder, {
+            sessionPackId: pack._id,
+            userId: pack.userId,
+            kind: newRemaining === 1 ? "last_session" : "pack_complete",
+            remainingSessions: newRemaining,
+            gracePeriodEndsAt:
+              newRemaining === 0 ? now + 7 * 24 * 60 * 60 * 1000 : undefined,
+          });
+        }
+      }
+    }
+
     return await ctx.db.get(id);
   },
 });

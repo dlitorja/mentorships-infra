@@ -272,6 +272,16 @@ export default defineSchema({
     paymentId: v.optional(v.id("payments")),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
+    // --- D6 unused-session rollover / admin attention queue (PR 5) ---
+    // Last completed or scheduled session. Dormancy is computed from this
+    // instead of scanning `sessions` for every pack in the admin queue.
+    lastSessionAt: v.optional(v.number()),
+    // Set by the admin "contact student" action in the queue.
+    lastContactedAt: v.optional(v.number()),
+    lastContactedBy: v.optional(v.string()),
+    // Set on the OLD pack when its unused sessions were merged into a
+    // renewal. Also the idempotency key for the merge.
+    rolledIntoPackId: v.optional(v.id("sessionPacks")),
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])

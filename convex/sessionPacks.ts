@@ -742,3 +742,80 @@ export const linkSessionPacksByEmail = internalMutation({
     return { linked: packsToLink.length };
   },
 });
+
+/**
+ * Merges unused sessions from a student's prior pack(s) with the same
+ * instructor into a newly purchased pack (D6 rollover).
+ *
+ * Runs after fulfilment has created the new pack, seat, and workspace. Prior
+ * seats are marked `released` (not via `releaseSeat`, which would end the
+ * shared workspace) so the student does not occupy two seats for the same
+ * mentorship. The prior pack keeps its row for history and records
+ * `rolledIntoPackId`, which is also the idempotency key.
+ *
+ * Only `active` packs with sessions remaining are merged. Refunded packs are
+ * excluded on purpose: a refund cannot resurrect sessions that were paid back.
+ */
+export const rolloverPriorPacks = internalMutation({
+  args: {
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    newSessionPackId: v.id("sessionPacks"),
+  },
+  handler: async (ctx, args) => {
+    const newPack = await ctx.db.get(args.newSessionPackId);
+    if (!newPack) {
+      throw new Error("Session pack not found");
+    }
+
+    const siblings = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId_instructorId_status", (q) =>
+        q.eq("userId", args.userId).eq("instructorId", args.instructorId)
+      )
+      .collect();
+
+    const mergeable = siblings.filter(
+      (pack) =>
+        pack._id !== args.newSessionPackId &&
+        pack.status === "active" &&
+        pack.remainingSessions > 0 &&
+        pack.rolledIntoPackId === undefined &&
+        pack.deletedAt === undefined
+    );
+
+    if (mergeable.length === 0) {
+      return { carriedSessions: 0, totalSessions: newPack.totalSessions };
+    }
+
+    let carriedSessions = 0;
+
+    for (const pack of mergeable) {
+      carriedSessions += pack.remainingSessions;
+
+      await ctx.db.patch(pack._id, {
+        status: "expired",
+        remainingSessions: 0,
+        rolledIntoPackId: args.newSessionPackId,
+      });
+
+      const seat = await ctx.db
+        .query("seatReservations")
+        .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", pack._id))
+        .first();
+
+      if (seat && seat.status !== "released") {
+        // Status only: the workspace is shared with the new seat, so ending it
+        // would close the thread the student is meant to keep using.
+        await ctx.db.patch(seat._id, { status: "released" });
+      }
+    }
+
+    const totalSessions = newPack.totalSessions + carriedSessions;
+    const remainingSessions = newPack.remainingSessions + carriedSessions;
+
+    await ctx.db.patch(newPack._id, { totalSessions, remainingSessions });
+
+    return { carriedSessions, totalSessions };
+  },
+});
