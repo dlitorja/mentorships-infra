@@ -489,7 +489,42 @@ export const createSeatReservation = internalMutation({
 
     const seatReservation = await ctx.db.get(seatId);
 
-    const workspaceId = await ctx.db.insert("workspaces", {
+    // Reuse the pair's existing workspace instead of starting a new one.
+    //
+    // A full refund releases the seat and ends the workspace, but the student
+    // often comes back (travel, a break, a later renewal). Creating a fresh
+    // workspace on every pack split the relationship: chat history, notes,
+    // files, and recordings stayed behind in an ended workspace the student
+    // could no longer post in. Reusing it keeps continuity and avoids orphan
+    // rows for the same student + instructor pair.
+    //
+    // Skip archived workspaces: the student deliberately hid that one, so
+    // resurfacing it on a re-purchase would override their choice.
+    const pairWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_ownerId", (q) =>
+        q.eq("instructorId", args.instructorId).eq("ownerId", args.userId)
+      )
+      .collect();
+
+    const reusableWorkspace = pairWorkspaces
+      .filter(
+        (workspace) =>
+          workspace.deletedAt === undefined &&
+          workspace.archivedAt === undefined &&
+          (workspace.type === undefined || workspace.type === "mentorship")
+      )
+      .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))[0];
+
+    if (reusableWorkspace) {
+      await ctx.db.patch(reusableWorkspace._id, {
+        seatReservationId: seatId,
+        endedAt: undefined,
+      });
+      return seatReservation;
+    }
+
+    await ctx.db.insert("workspaces", {
       name: `Mentorship Workspace`,
       description: `Workspace for mentorship with ${instructor.userId}`,
       ownerId: args.userId,
