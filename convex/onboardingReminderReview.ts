@@ -113,7 +113,12 @@ export const enqueue = internalMutation({
         kind: item.kind,
         recipient: item.recipient,
         status: "pending_review",
-        createdAt: base + (index + Math.random()) / 1000,
+        // Deterministic sub-millisecond offset. `Math.random()` could put an
+        // adjacent pair closer than a double's ulp at `base` (~2.4e-4 for a
+        // 2026 epoch), so two rows occasionally rounded to the same value and
+        // the `createdAt` cursor skipped one across a page boundary. A fixed
+        // 1ms/1000 step is always several ulps apart.
+        createdAt: base + (index + 1) / 1000,
         recipientName: item.recipientName,
         recipientKind: item.recipientKind,
         subject: item.subject,
