@@ -3,7 +3,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { convexServerCall } from "@/lib/convex-server-call";
 import { stripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/email";
-import { reportInfo } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { onboardingFlow } from "../onboarding";
 import {
@@ -278,6 +278,48 @@ export const processStripeCheckout = inngest.createFunction(
     const sessionsCount = product.sessionsPerPack || 0;
     const pricePaid = fullSession.amount_total ? (fullSession.amount_total / 100).toFixed(2) : null;
     const currency = fullSession.currency?.toUpperCase() || "USD";
+
+    // Post-payment price audit. Checkout already refuses to create a session
+    // when the Convex price and the Stripe Price disagree, but a Stripe price
+    // can be edited between checkout creation and webhook delivery, and
+    // promotion codes legitimately reduce the total. Alert only on the
+    // dangerous direction (charged more than the catalog price) and record the
+    // discount case for reporting.
+    await step.run("audit-paid-amount", async () => {
+      const catalogCents = Math.round(Number(product.price) * 100);
+      const paidCents = fullSession.amount_total ?? 0;
+      if (!Number.isFinite(catalogCents) || catalogCents <= 0) return { skipped: true };
+
+      if (paidCents > catalogCents) {
+        await reportError({
+          source: "inngest:process-stripe-checkout",
+          error: new Error("Buyer charged more than the catalog price"),
+          message: "Stripe amount_total exceeds Convex product price",
+          level: "error",
+          context: {
+            orderId,
+            productId: packId,
+            paidCents,
+            catalogCents,
+            currency,
+          },
+        });
+      } else if (paidCents < catalogCents) {
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: "Buyer paid less than catalog price (discount or promotion)",
+          level: "info",
+          context: {
+            orderId,
+            productId: packId,
+            paidCents,
+            catalogCents,
+            discountCents: catalogCents - paidCents,
+          },
+        });
+      }
+      return { paidCents, catalogCents };
+    });
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
     await step.run("send-purchase-confirmation-email", async () => {

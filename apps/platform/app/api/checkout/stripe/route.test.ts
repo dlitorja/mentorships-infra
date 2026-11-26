@@ -16,6 +16,9 @@ vi.mock("@/lib/stripe", () => ({
         create: vi.fn(),
       },
     },
+    prices: {
+      retrieve: vi.fn(),
+    },
   },
 }));
 
@@ -39,6 +42,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 
 const mockGetConvexClient = vi.mocked(getConvexClient);
 const mockStripeCheckoutCreate = vi.mocked(stripe.checkout.sessions.create);
+const mockStripePricesRetrieve = vi.mocked(stripe.prices.retrieve);
 const mockConvexServerCall = vi.mocked(convexServerCall);
 
 vi.mock("@/lib/convex-server-call", () => ({
@@ -59,7 +63,8 @@ const validBody = {
 const pack = {
   _id: "pack_1",
   name: "5 Pack",
-  price: 50000,
+  price: "500.00",
+  currency: "usd",
   stripePriceId: "price_123",
 };
 
@@ -84,6 +89,10 @@ describe("POST /api/checkout/stripe", () => {
       return null;
     });
     mockConvexServerCall.mockResolvedValue(order);
+    mockStripePricesRetrieve.mockResolvedValue({
+      unit_amount: 50000,
+      currency: "usd",
+    });
     mockStripeCheckoutCreate.mockResolvedValue({
       url: "https://checkout.stripe.com/session_123",
     });
@@ -118,6 +127,18 @@ describe("POST /api/checkout/stripe", () => {
     expect(await response.json()).toEqual({
       error: "Email and full name are required",
     });
+  });
+
+  it("refuses checkout when the Convex price and Stripe price disagree", async () => {
+    mockStripePricesRetrieve.mockResolvedValueOnce({
+      unit_amount: 45000,
+      currency: "usd",
+    });
+
+    const response = await POST(makeCheckoutRequest());
+
+    expect(response.status).toBe(409);
+    expect(mockStripeCheckoutCreate).not.toHaveBeenCalled();
   });
 
   it("creates Stripe checkout session for guest user", async () => {

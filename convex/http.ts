@@ -775,6 +775,16 @@ const httpRefundPayment = httpAction(async (ctx, request) => {
   return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
 });
 
+const httpApplyProviderRefund = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { paymentId, refundAmount } = await request.json();
+  const result = await ctx.runMutation(internal.payments.applyProviderRefundInternal, {
+    paymentId,
+    refundAmount,
+  });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpGetPublicProductById = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
@@ -1134,6 +1144,12 @@ http.route({
 });
 
 http.route({
+  path: "/payments/apply-refund",
+  method: "POST",
+  handler: httpApplyProviderRefund,
+});
+
+http.route({
   path: "/products/get-public-by-id",
   method: "POST",
   handler: httpGetPublicProductById,
@@ -1185,6 +1201,21 @@ http.route({
   path: "/user-identities/upsert",
   method: "POST",
   handler: httpUpsertUserIdentity,
+});
+
+const httpReleaseSeatBySessionPack = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { sessionPackId } = await request.json();
+  const result = await ctx.runMutation(internal.seatReservations.releaseSeatBySessionPackId, {
+    sessionPackId,
+  });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
+http.route({
+  path: "/seat-reservations/release-by-pack",
+  method: "POST",
+  handler: httpReleaseSeatBySessionPack,
 });
 
 http.route({
