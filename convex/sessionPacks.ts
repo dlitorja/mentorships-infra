@@ -793,7 +793,10 @@ export const rolloverPriorPacks = internalMutation({
         pack.remainingSessions > 0 &&
         pack.rolledIntoPackId === undefined &&
         pack.deletedAt === undefined &&
-        pack.purchasedAt <= newPack.purchasedAt
+        // Strict total order, not just `purchasedAt <=`: two purchases in the
+        // same millisecond would otherwise each absorb the other.
+        (pack.purchasedAt < newPack.purchasedAt ||
+          (pack.purchasedAt === newPack.purchasedAt && pack._id < newPack._id))
     );
 
     if (mergeable.length === 0) {
