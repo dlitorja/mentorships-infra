@@ -178,6 +178,25 @@ export const onboardingFlow = createDefer(
       throw new Error(`No email found for Clerk user ${clerkId}`);
     }
 
+    // Create the onboarding record the questionnaire, its reminders, and the
+    // instructor review surface all depend on. Kajabi and admin enrollments
+    // got this from `adminOnboardStudent`; native checkout did not, which is
+    // why native buyers were pushed through the manual invite form. Idempotent
+    // on the session pack, so an Inngest retry returns the same row.
+    const checkoutOnboarding = await step.run("start-checkout-onboarding", async () => {
+      return await convexServerCall<{ onboardingId: string; created: boolean }>(
+        "/admin-onboarding/start-checkout",
+        {
+          email: studentEmail,
+          userId: clerkId,
+          instructorId: pack.instructorId,
+          sessionPackId: pack._id,
+          totalSessions: pack.totalSessions,
+          expiresAt: pack.expiresAt,
+        }
+      );
+    });
+
     const studentName =
       (clerkStudent.firstName ? `${clerkStudent.firstName}` : null) ??
       (clerkStudent.username ? `${clerkStudent.username}` : null);
@@ -210,7 +229,10 @@ export const onboardingFlow = createDefer(
 
     const baseUrl = getBaseUrl();
     const dashboardUrl = `${baseUrl}/dashboard`;
-    const onboardingUrl = `${baseUrl}/dashboard/onboarding`;
+    // `/dashboard/onboarding` does not exist in apps/platform (it was a web-app
+    // route), so the highest-intent link in the funnel used to 404. Point at
+    // the real questionnaire for the row we just created.
+    const onboardingUrl = `${baseUrl}/onboarding/${checkoutOnboarding.onboardingId}/questionnaire`;
     const discordServerInviteUrl = process.env.DISCORD_SERVER_INVITE_URL || null;
 
     const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";

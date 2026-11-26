@@ -53,7 +53,8 @@ export type AdminOnboarding = {
   _id: Id<"adminOnboardings">;
   _creationTime: number;
   email: string;
-  source: "kajabi" | "manual" | "import" | "api";
+  // `checkout` = self-serve Stripe/PayPal purchase (PR 3 onboarding parity).
+  source: "kajabi" | "manual" | "import" | "api" | "checkout";
   status: OnboardingStatus;
   failureReason?: string;
   attemptCount: number;

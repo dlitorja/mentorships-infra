@@ -1544,7 +1544,12 @@ export default defineSchema({
       v.literal("kajabi"),
       v.literal("manual"),
       v.literal("import"),
-      v.literal("api")
+      v.literal("api"),
+      // Self-serve Stripe/PayPal purchase. Before this, a native purchase
+      // created a pack, seat, and workspace but no onboarding row, so the
+      // questionnaire, its reminders, and the instructor review surface never
+      // applied to the buyers who did not come through Kajabi or an admin.
+      v.literal("checkout")
     ),
     submittedByUserId: v.string(),                    // Clerk userId of the admin who submitted
 

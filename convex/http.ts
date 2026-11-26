@@ -3069,6 +3069,21 @@ const httpReleasePlaceholderInventoryBatch = httpAction(async (ctx, request) => 
   }
 });
 
+const httpStartCheckoutOnboarding = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.adminOnboarding.startCheckoutOnboarding, args);
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/admin-onboarding/start-checkout",
+  method: "POST",
+  handler: httpStartCheckoutOnboarding,
+});
+
 http.route({
   path: "/admin-onboarding/get",
   method: "POST",
