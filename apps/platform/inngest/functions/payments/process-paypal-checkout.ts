@@ -1,3 +1,4 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import { inngest } from "../../client";
 import { Id } from "@/convex/_generated/dataModel";
 import { convexServerCall } from "@/lib/convex-server-call";
@@ -228,7 +229,29 @@ export const processPayPalCheckout = inngest.createFunction(
     const currency = (order.currency ?? "USD").toUpperCase();
 
     await step.run("send-purchase-confirmation-email", async () => {
-      const email = ((event.data as any)?.studentEmail as string | undefined)?.trim().toLowerCase() || "";
+      // The capture route forwards the payer email, but the webhook path does
+      // not carry one. Whichever delivery wins the Inngest dedupe race, the
+      // buyer must still get a confirmation, so fall back to the order owner.
+      const email = await (async () => {
+        const fromEvent = ((event.data as any)?.studentEmail as string | undefined)
+          ?.trim()
+          .toLowerCase();
+        if (fromEvent) return fromEvent;
+
+        const ownerId = typeof order.userId === "string" ? order.userId : "";
+        if (ownerId.startsWith("email:")) return ownerId.slice("email:".length);
+        if (ownerId.startsWith("user_")) {
+          try {
+            const clerk = await clerkClient();
+            const user = await clerk.users.getUser(ownerId);
+            return user.emailAddresses[0]?.emailAddress?.toLowerCase() ?? "";
+          } catch {
+            return "";
+          }
+        }
+        return "";
+      })();
+
       if (!email) return { skipped: true } as const;
 
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");

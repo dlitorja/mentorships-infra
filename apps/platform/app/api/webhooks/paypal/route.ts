@@ -242,6 +242,9 @@ export async function POST(req: NextRequest) {
         }
 
         await inngest.send({
+          // Same id as the capture route, so a webhook + return-path race
+          // dedupes in Inngest instead of fulfilling twice.
+          id: `paypal-capture-completed-${captureId}`,
           name: "paypal/payment.capture.completed",
           data: {
             captureId,
@@ -304,6 +307,7 @@ export async function POST(req: NextRequest) {
         const captureId = captureIdMatch[1];
 
         await inngest.send({
+          id: `paypal-refund-${refundId}`,
           name: "paypal/payment.capture.refunded",
           data: {
             captureId,

@@ -160,6 +160,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           userId: userIdForOrder!,
           instructorId: pack.instructorId || "",
           productId: packId,
+          paypalProductId: pack.paypalProductId || undefined,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
         // `order_id` is PayPal's order id (used by the capture call);

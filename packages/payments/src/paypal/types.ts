@@ -6,6 +6,13 @@ export interface PayPalOrderMetadata {
   userId: string; // Clerk user ID
   instructorId: string; // Instructor UUID
   productId?: string; // Mentorship product UUID (optional)
+  /**
+   * PayPal catalog product id for this pack (`products.paypalProductId`).
+   * Sent as the purchase unit's `invoice_id` so it appears in PayPal's
+   * transaction and settlement reports. Before this, the field only gated the
+   * checkout button and never reached PayPal.
+   */
+  paypalProductId?: string;
   orderId?: string; // Order UUID (optional, if order created before checkout)
 }
 
