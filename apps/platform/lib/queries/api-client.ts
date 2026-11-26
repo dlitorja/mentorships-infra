@@ -243,6 +243,33 @@ export async function verifyCheckoutSession(sessionId: string) {
   );
 }
 
+export type CheckoutStatus = {
+  orderStatus: "pending" | "paid" | "refunded" | "failed" | "canceled";
+  provider: "stripe" | "paypal";
+  totalAmount: string;
+  currency: string;
+  paymentStatus: "pending" | "completed" | "refunded" | "failed" | null;
+  packStatus: "active" | "depleted" | "expired" | "refunded" | null;
+  remainingSessions: number | null;
+  totalSessions: number | null;
+  seatStatus: "active" | "grace" | "released" | null;
+  hasWorkspace: boolean;
+  onboardingId: string | null;
+};
+
+/**
+ * Read the fulfilment state for a checkout order.
+ *
+ * The success page polls this instead of treating the provider redirect as
+ * proof of purchase: fulfilment runs asynchronously in Inngest and can trail
+ * the redirect by a couple of seconds.
+ */
+export async function getCheckoutStatus(orderId: string): Promise<CheckoutStatus> {
+  return apiFetch<CheckoutStatus>(
+    `${ApiRoutes.checkoutStatus}?order_id=${encodeURIComponent(orderId)}`
+  );
+}
+
 /**
  * Get instructor availability
  */

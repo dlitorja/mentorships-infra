@@ -57,6 +57,7 @@ export const queryKeys = {
    */
   checkout: {
     verify: (sessionId: string) => ["checkout", "verify", sessionId] as const,
+    status: (orderId: string) => ["checkout", "status", orderId] as const,
   },
 
   /**

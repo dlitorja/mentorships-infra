@@ -717,6 +717,13 @@ const httpGetOrderPublicStatus = httpAction(async (ctx, request) => {
  * internal query via `ctx.runQuery` and gates on the bearer token, so only
  * callers with `CONVEX_HTTP_KEY` can fetch the full order.
  */
+const httpGetCheckoutStatus = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const { id } = await request.json();
+  const result = await ctx.runQuery(internal.orders.getCheckoutStatus, { id });
+  return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+});
+
 const httpGetOrderByIdInternal = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
   const { id } = await request.json();
@@ -1105,6 +1112,12 @@ http.route({
   path: "/orders/get-by-id-internal",
   method: "POST",
   handler: httpGetOrderByIdInternal,
+});
+
+http.route({
+  path: "/orders/checkout-status",
+  method: "POST",
+  handler: httpGetCheckoutStatus,
 });
 
 http.route({

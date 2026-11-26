@@ -232,7 +232,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
+        // `checkout_order_id` is our Convex order id; `session_id` is Stripe's.
+        // The success page needs ours to poll fulfilment, and must never
+        // treat Stripe's redirect alone as proof of a completed purchase.
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&checkout_order_id=${encodeURIComponent(orderId)}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancel_url: cancelUrl,
         metadata: {
           order_id: orderId!,
