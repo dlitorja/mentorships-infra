@@ -938,24 +938,45 @@ export const handleRenewalReminder = internalAction({
   args: {
     sessionPackId: v.string(),
     userId: v.string(),
-    sessionNumber: v.number(),
+    kind: v.union(v.literal("last_session"), v.literal("pack_complete")),
     remainingSessions: v.number(),
     gracePeriodEndsAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { sessionPackId, userId, sessionNumber, remainingSessions, gracePeriodEndsAt } = args;
+    const { sessionPackId, userId, kind, remainingSessions, gracePeriodEndsAt } = args;
 
-    if (sessionNumber === 3) {
+    // Resolve the instructor's public slug so the CTA lands on a checkout for
+    // this mentorship. The previous CTA pointed at `/instructors`, a generic
+    // list, which is not a renewal path.
+    let renewalPath: string | undefined;
+    try {
+      const pack = await ctx.runQuery(internal.sessions.getSessionPackByIdInternal, {
+        sessionPackId: sessionPackId as Id<"sessionPacks">,
+      });
+      if (pack) {
+        const instructor = await ctx.runQuery(internal.instructors.getInstructorByIdInternal, {
+          instructorId: pack.instructorId,
+        });
+        if (instructor?.slug) {
+          renewalPath = `/checkout?instructor=${encodeURIComponent(instructor.slug)}&renew=1`;
+        }
+      }
+    } catch (error) {
+      // The reminder is still worth sending without a deep link.
+      console.error("Failed to resolve renewal path for reminder:", error);
+    }
+
+    if (kind === "last_session") {
       await ctx.runAction(internal.notifications.handleNotificationSend, {
         payload: {
           type: "renewal_reminder",
           userId,
           sessionPackId,
-          message: "You have 1 session remaining. Renew now to continue your mentorship.",
-          sessionNumber: 3,
+          renewalPath,
+          message: `You have ${remainingSessions} session remaining. Renew now to keep your mentorship going.`,
         },
       });
-    } else if (sessionNumber === 4) {
+    } else {
       const graceDate = gracePeriodEndsAt
         ? new Date(gracePeriodEndsAt).toLocaleString("en-US", { timeZone: "UTC" })
         : "in 7 days";
@@ -965,8 +986,8 @@ export const handleRenewalReminder = internalAction({
           type: "final_renewal_reminder",
           userId,
           sessionPackId,
+          renewalPath,
           message: `Your pack is complete. Renew within 7 days to keep your seat. Grace period ends: ${graceDate}`,
-          sessionNumber: 4,
           gracePeriodEndsAt,
         },
       });
@@ -976,7 +997,8 @@ export const handleRenewalReminder = internalAction({
       success: true,
       sessionPackId,
       userId,
-      sessionNumber,
+      kind,
+      remainingSessions,
     };
   },
 });
@@ -1091,7 +1113,11 @@ export const listExpiredPacks = internalQuery({
       .withIndex("by_status", (q) => q.eq("status", "expired"))
       .collect();
 
-    return [...expiredPacks, ...expiredWithDepletedStatus].map(pack => ({
+    // Never release a seat for a pack that still has sessions: those are
+    // paid-for and may be resumed (D6). Only fully-used packs end here.
+    return [...expiredPacks, ...expiredWithDepletedStatus]
+      .filter((pack) => pack.remainingSessions === 0)
+      .map(pack => ({
       packId: pack._id,
       userId: pack.userId,
       instructorId: pack.instructorId,
@@ -1194,19 +1220,24 @@ export const handleSessionCompleted = internalAction({
       });
     }
 
-    if (completedCount === 3) {
+    // Drive reminders from the pack's remaining sessions, not from a
+    // hardcoded session number. The previous checks (`completedCount === 3`
+    // and `=== 4`) only worked for a four-session pack: a 2-, 5-, or 8-session
+    // pack either never notified or notified at the wrong point.
+    const remainingAfterCompletion = updatedPack?.remainingSessions ?? 0;
+    if (remainingAfterCompletion === 1) {
       await ctx.runAction(internal.sessions.handleRenewalReminder, {
         sessionPackId,
         userId,
-        sessionNumber: 3,
-        remainingSessions: updatedPack?.remainingSessions ?? 0,
+        kind: "last_session",
+        remainingSessions: 1,
       });
-    } else if (completedCount === 4) {
+    } else if (remainingAfterCompletion === 0) {
       const gracePeriodEndsAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
       await ctx.runAction(internal.sessions.handleRenewalReminder, {
         sessionPackId,
         userId,
-        sessionNumber: 4,
+        kind: "pack_complete",
         remainingSessions: 0,
         gracePeriodEndsAt,
       });
@@ -1259,9 +1290,11 @@ export const checkSeatExpiration = internalAction({
             await ctx.runMutation(internal.seatReservations.releaseSeatById, {
               seatId: seat._id,
             });
+            // Expiry is not a refund. The old value corrupted revenue
+            // reporting and any logic that treats `refunded` as a money event.
             await ctx.runMutation(internal.sessions.updateSessionPackStatusInternal, {
               sessionPackId: pack.packId,
-              status: "refunded",
+              status: "expired",
             });
             releasedCount++;
           } catch (error) {
