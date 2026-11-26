@@ -14,7 +14,7 @@ export interface Message {
   // left). Used by `ChatMessageList` to render the appropriate label
   // and to skip the avatar / bubble / ShareLink affordances that
   // apply to user-authored messages.
-  systemEventKind?: 'joined' | 'left';
+  systemEventKind?: 'joined' | 'left' | 'onboarding_kickoff';
   senderRole?: 'student' | 'instructor' | 'admin';
   authorDisplayName: string;
   sessionId?: Id<'sessions'>;

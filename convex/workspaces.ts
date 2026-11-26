@@ -4419,3 +4419,98 @@ function recordingContentType(key: string): string {
   if (lower.endsWith(".mkv")) return "video/x-matroska";
   return "video/mp4";
 }
+
+/** Internal lookup for a workspace by its seat reservation (service-key HTTP only). */
+export const getWorkspaceBySeatReservationInternal = internalQuery({
+  args: { seatReservationId: v.id("seatReservations") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("workspaces")
+      .withIndex("by_seatReservationId", (q) =>
+        q.eq("seatReservationId", args.seatReservationId)
+      )
+      .first();
+  },
+});
+
+/**
+ * Posts the first message in a purchased mentorship (and optionally the
+ * admin↔student thread) so neither party faces an empty workspace.
+ *
+ * This is the in-app replacement for the manual "add the student on Discord and
+ * create a group DM" step: the student and instructor land in a thread that
+ * already names the pair, states the pack size, and gives one next action.
+ * Admins can already read and post in the mentorship workspace, so no extra
+ * membership is needed.
+ *
+ * Idempotent: a second call for the same workspace is a no-op.
+ */
+export const postOnboardingKickoff = internalMutation({
+  args: {
+    mentorshipWorkspaceId: v.id("workspaces"),
+    adminWorkspaceId: v.optional(v.id("workspaces")),
+    instructorName: v.string(),
+    sessions: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    async function alreadyPosted(workspaceId: Id<"workspaces">) {
+      const messages = await ctx.db
+        .query("workspaceMessages")
+        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
+        .take(50);
+      return messages.some(
+        (message) =>
+          message.type === "system" &&
+          message.systemEventKind === "onboarding_kickoff"
+      );
+    }
+
+    const mentorship = await ctx.db.get(args.mentorshipWorkspaceId);
+    if (!mentorship || mentorship.deletedAt !== undefined) {
+      return { posted: 0 };
+    }
+
+    let posted = 0;
+
+    if (!(await alreadyPosted(mentorship._id))) {
+      await ctx.db.insert("workspaceMessages", {
+        workspaceId: mentorship._id,
+        userId: "system",
+        type: "system",
+        systemEventKind: "onboarding_kickoff",
+        senderRole: "admin",
+        content:
+          `You're matched with ${args.instructorName}. ` +
+          `You have ${args.sessions} session${args.sessions === 1 ? "" : "s"} to book from the Calendar. ` +
+          `${args.instructorName} has been notified — say hello here and book your first session.`,
+      });
+      posted += 1;
+    }
+
+    if (args.adminWorkspaceId) {
+      const adminWorkspace = await ctx.db.get(args.adminWorkspaceId);
+      if (
+        adminWorkspace &&
+        adminWorkspace.deletedAt === undefined &&
+        !(await alreadyPosted(adminWorkspace._id))
+      ) {
+        await ctx.db.insert("workspaceMessages", {
+          workspaceId: adminWorkspace._id,
+          userId: "system",
+          type: "system",
+          systemEventKind: "onboarding_kickoff",
+          senderRole: "admin",
+          content:
+            `Your mentorship with ${args.instructorName} is set up. ` +
+            `Use this thread for anything administrative — billing, scheduling changes, or support. ` +
+            `Your instructor conversations stay in the mentorship workspace.`,
+        });
+        posted += 1;
+      }
+    }
+
+    return { posted };
+  },
+});

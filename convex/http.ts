@@ -1267,6 +1267,34 @@ http.route({
  * Protected by CONVEX_HTTP_KEY. Returns { id, created }.
  */
 http.route({
+  path: "/workspaces/by-seat",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const { seatReservationId } = await request.json();
+    const result = await ctx.runQuery(internal.workspaces.getWorkspaceBySeatReservationInternal, {
+      seatReservationId,
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
+  path: "/workspaces/onboarding-kickoff",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+    const args = await request.json();
+    const result = await ctx.runMutation(internal.workspaces.postOnboardingKickoff, args);
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }),
+});
+
+http.route({
   path: "/workspaces/ensure-admin-student",
   method: "POST",
   handler: httpAction(async (ctx, request) => {

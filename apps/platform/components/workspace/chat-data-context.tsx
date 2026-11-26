@@ -10,7 +10,7 @@ export interface ChatMessageRow {
   userId: string;
   content: string;
   type: "text" | "image" | "file" | "system";
-  systemEventKind?: "joined" | "left";
+  systemEventKind?: "joined" | "left" | "onboarding_kickoff";
   senderRole?: "student" | "instructor" | "admin";
   authorDisplayName: string;
   sessionId?: Id<"sessions">;

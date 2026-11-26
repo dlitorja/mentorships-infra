@@ -238,7 +238,7 @@ export const processStripeCheckout = inngest.createFunction(
     }
 
     // Ensure an admin-student workspace exists (post-payment) for buyer ↔ admins
-    await step.run("ensure-admin-student-workspace", async () => {
+    const adminWorkspace = await step.run("ensure-admin-student-workspace", async () => {
       const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
       const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
       if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
@@ -283,6 +283,27 @@ export const processStripeCheckout = inngest.createFunction(
         userId: sessionPack.userId,
         instructorId: sessionPack.instructorId,
         newSessionPackId: sessionPack._id,
+      });
+    });
+
+    // First message in both threads: the in-app replacement for the manual
+    // "add them on Discord and introduce them" step. Idempotent server-side.
+    await step.run("post-onboarding-kickoff", async () => {
+      const mentorshipWorkspace = await convexServerCall<any>("/workspaces/by-seat", {
+        seatReservationId: seatReservation._id,
+      });
+      if (!mentorshipWorkspace?._id) return { skipped: true } as const;
+
+      const adminWorkspaceId =
+        adminWorkspace && !("skipped" in adminWorkspace)
+          ? (adminWorkspace as { id: string }).id
+          : undefined;
+
+      return await convexServerCall<any>("/workspaces/onboarding-kickoff", {
+        mentorshipWorkspaceId: mentorshipWorkspace._id,
+        adminWorkspaceId,
+        instructorName,
+        sessions: rollover?.totalSessions ?? product.sessionsPerPack ?? 0,
       });
     });
 

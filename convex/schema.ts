@@ -675,7 +675,13 @@ export default defineSchema({
     // optional so existing rows are unaffected; the Chat tab only
     // reads it for `type === "system"`.
     systemEventKind: v.optional(
-      v.union(v.literal("joined"), v.literal("left"))
+      v.union(
+        v.literal("joined"),
+        v.literal("left"),
+        // Posted once at purchase: the first message in the thread, so the
+        // student and instructor have a place to start without a manual intro.
+        v.literal("onboarding_kickoff")
+      )
     ),
     senderRole: v.optional(v.union(v.literal("instructor"), v.literal("student"), v.literal("admin"))),
     // Set when a chat message is posted while a video call is active
