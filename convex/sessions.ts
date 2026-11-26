@@ -1372,6 +1372,17 @@ export const checkSeatExpiration = internalAction({
         );
 
         if (seat) {
+          // A pack that just depleted starts seven days of grace. If its
+          // `expiresAt` is already in the past, this sweep would otherwise
+          // release the seat within the hour despite the promise.
+          if (
+            seat.status === "grace" &&
+            typeof seat.gracePeriodEndsAt === "number" &&
+            seat.gracePeriodEndsAt > Date.now()
+          ) {
+            continue;
+          }
+
           try {
             await ctx.runMutation(internal.seatReservations.releaseSeatById, {
               seatId: seat._id,

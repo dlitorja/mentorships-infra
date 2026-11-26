@@ -912,9 +912,11 @@ export const closeOutRefund = internalMutation({
     const pack = await ctx.db.get(args.sessionPackId);
     if (!pack) throw new Error("Session pack not found");
 
-    if (pack.status === "refunded") {
+    if (pack.refundClosedAt !== undefined || pack.status === "refunded") {
       return { alreadyClosed: true, closed: true, seatReleased: false, inventoryRestored: false };
     }
+
+    const closedAt = Date.now();
 
     // Refunding the payment that funded an older, rolled-over pack.
     if (pack.rolledIntoPackId) {
@@ -942,7 +944,7 @@ export const closeOutRefund = internalMutation({
         }
       }
 
-      await ctx.db.patch(pack._id, { status: "refunded" });
+      await ctx.db.patch(pack._id, { status: "refunded", refundClosedAt: closedAt });
       const inventoryRestored = await restoreInventoryOnce(ctx, pack);
       return { alreadyClosed: false, closed: true, seatReleased: false, inventoryRestored };
     }
@@ -960,6 +962,7 @@ export const closeOutRefund = internalMutation({
         remainingSessions: carriedLeft,
         totalSessions: Math.max(carriedLeft, carried),
         status: keepOpen ? "active" : "expired",
+        refundClosedAt: closedAt,
       });
 
       if (keepOpen) {
@@ -978,7 +981,7 @@ export const closeOutRefund = internalMutation({
       return { alreadyClosed: false, closed: true, seatReleased, inventoryRestored };
     }
 
-    await ctx.db.patch(pack._id, { status: "refunded" });
+    await ctx.db.patch(pack._id, { status: "refunded", refundClosedAt: closedAt });
     const seatReleased = await releasePackSeat(ctx, pack._id);
     const inventoryRestored = await restoreInventoryOnce(ctx, pack);
     return { alreadyClosed: false, closed: true, seatReleased, inventoryRestored };

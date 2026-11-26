@@ -64,35 +64,28 @@ export const listPacksNeedingAttention = query({
     const dormantCutoff = now - DORMANT_DAYS * 24 * 60 * 60 * 1000;
     const limit = Math.min(args.limit ?? 200, MAX_ROWS);
 
-    // Page through active packs instead of taking a fixed first slice: a
-    // single `take(500)` silently hid qualifying students past that point,
-    // even when the visible queue was empty.
-    const candidates: Doc<"sessionPacks">[] = [];
-    let cursor: string | null = null;
+    // Read every active pack instead of a fixed slice. `active` is a small
+    // set (hundreds to low thousands), and the admin queue is a low-frequency
+    // read, so a scan here is cheaper than a paginated UI and cannot hide a
+    // qualifying student past a page boundary.
+    const activePacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
 
-    for (let page = 0; page < 10; page += 1) {
-      const result = await ctx.db
-        .query("sessionPacks")
-        .withIndex("by_status", (q) => q.eq("status", "active"))
-        .paginate({ numItems: 200, cursor });
+    const candidates = activePacks.filter((pack) => {
+      if (pack.remainingSessions <= 0 || pack.deletedAt !== undefined) return false;
 
-      for (const pack of result.page) {
-        if (pack.remainingSessions <= 0 || pack.deletedAt !== undefined) continue;
+      const expired =
+        typeof pack.expiresAt === "number" && pack.expiresAt <= now;
+      // Until `backfillLastSessionAt` runs, a missing value must not mean
+      // "dormant": existing packs have no field, and using `purchasedAt`
+      // would flag students who attended yesterday.
+      const dormant =
+        pack.lastSessionAt !== undefined && pack.lastSessionAt <= dormantCutoff;
 
-        const expired =
-          typeof pack.expiresAt === "number" && pack.expiresAt <= now;
-        // Until `backfillLastSessionAt` runs, a missing value must not mean
-        // "dormant": existing packs have no field, and using `purchasedAt`
-        // would flag students who attended yesterday.
-        const dormant =
-          pack.lastSessionAt !== undefined && pack.lastSessionAt <= dormantCutoff;
-
-        if (expired || dormant) candidates.push(pack);
-      }
-
-      cursor = result.continueCursor;
-      if (result.isDone || candidates.length >= limit * 2) break;
-    }
+      return expired || dormant;
+    });
 
     // Stable order: oldest activity first, so the most-neglected student is at
     // the top of the queue.

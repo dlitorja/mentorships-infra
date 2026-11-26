@@ -288,6 +288,10 @@ export default defineSchema({
     // credits the student bought earlier (and vice versa).
     carriedSessions: v.optional(v.number()),
     carriedFromPackId: v.optional(v.id("sessionPacks")),
+    // Stamped by the shared refund close-out. `status` alone is not enough:
+    // a pack that keeps carried credits stays `active`, and a retry of the
+    // refund step must not restore inventory a second time.
+    refundClosedAt: v.optional(v.number()),
     // Purchased product, so refund cleanup restores the right inventory pool
     // instead of guessing from the (possibly merged) session count.
     productId: v.optional(v.id("products")),

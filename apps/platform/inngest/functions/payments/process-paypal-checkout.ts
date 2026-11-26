@@ -120,7 +120,9 @@ export const processPayPalCheckout = inngest.createFunction(
         expiresAt,
         paymentId: payment._id as Id<"payments">,
         productId: packId as Id<"products">,
-        mentorshipType: product.mentorshipType,
+        // Stored values are `oneOnOne | group`; the admin form submits
+        // `one-on-one`, and products.mentorshipType is a plain string.
+        mentorshipType: product.mentorshipType === "group" ? "group" : "oneOnOne",
       });
     });
 

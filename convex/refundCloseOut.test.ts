@@ -194,3 +194,23 @@ test("provider refund total is applied once even when delivered twice", async ()
   expect(payment?.refundedAmount).toBe("10.00");
   expect(payment?.status).toBe("completed");
 });
+
+test("a carried-credit pack that ends closed still only restores one seat", async () => {
+  const t = convexTest(schema, modules);
+  // 6 total = 4 purchased + 2 carried; 0 remaining means every credit,
+  // including the carried ones, was used.
+  const s = await seed(t, { total: 6, remaining: 0, carried: 2 });
+
+  await t.mutation(internal.sessionPacks.closeOutRefund, { sessionPackId: s.packId });
+  const second = await t.mutation(internal.sessionPacks.closeOutRefund, {
+    sessionPackId: s.packId,
+  });
+
+  const instructor = await t.run(async (ctx) => ctx.db.get(s.instructorId));
+  const pack = await t.run(async (ctx) => ctx.db.get(s.packId));
+
+  expect(pack?.status).toBe("expired");
+  expect(pack?.refundClosedAt).toBeTypeOf("number");
+  expect(second.alreadyClosed).toBe(true);
+  expect(instructor?.groupInventory).toBe(1);
+});
