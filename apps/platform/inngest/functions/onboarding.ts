@@ -245,6 +245,20 @@ export const onboardingFlow = createDefer(
     // the real questionnaire for the row we just created.
     const onboardingUrl = `${baseUrl}/onboarding/${checkoutOnboarding.onboardingId}/questionnaire`;
 
+    // In-app twin of the instructor email. The bell is the durable record; the
+    // email can be missed or filtered.
+    await step.run("notify-instructor-in-app", async () => {
+      if (!instructor.userId) return { skipped: true } as const;
+      return await convexServerCall("/notifications/create", {
+        userId: instructor.userId,
+        kind: "new_student",
+        title: `New student: ${studentName ?? studentEmail}`,
+        body: `${pack.totalSessions} sessions · ${instructorName}`,
+        href: "/instructor/students",
+        dedupeKey: `new_student:${pack._id}:${instructor.userId}`,
+      });
+    });
+
     const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
     const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 

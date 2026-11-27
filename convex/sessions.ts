@@ -15,6 +15,7 @@ import {
 import { DEFAULT_RECORDING_RETENTION_DAYS } from "./recordingRetention";
 import { isAdminUser } from "./admin";
 import { assertSessionCanOutliveCall } from "./videoSessionExpiry";
+import { createNotification } from "./notificationsCenter";
 
 /**
  * Identity comparison convention used throughout this file.
@@ -731,6 +732,14 @@ async function applySessionCompletion(
       await ctx.db.patch(seat._id, {
         status: "grace",
         gracePeriodEndsAt: now + 7 * 24 * 60 * 60 * 1000,
+      });
+      await createNotification(ctx, {
+        userId: pack.userId,
+        kind: "seat_grace",
+        title: "Your pack is complete",
+        body: "You have 7 days to renew before your seat is released.",
+        href: "/dashboard",
+        dedupeKey: `seat_grace:${pack._id}`,
       });
     }
   }

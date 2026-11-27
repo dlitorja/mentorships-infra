@@ -321,6 +321,20 @@ export const handleNotificationSend = internalAction({
 
     const discordUserId = discordIdentity?.providerUserId ?? null;
 
+    // Write the durable in-app row BEFORE any send. If this throws, the
+    // action fails and retries before an email goes out; if it succeeds, the
+    // dedupe key makes a later retry a no-op. Catching the error here used to
+    // mark the warning as sent while silently dropping the bell item.
+    const isGrace = payload.type === "grace_period_final_warning";
+    await ctx.runMutation(internal.notificationsCenter.create, {
+      userId: payload.userId,
+      kind: isGrace ? "seat_grace" : "renewal_due",
+      title: isGrace ? "Your seat is ending soon" : "Time to renew",
+      body: payload.message,
+      href: payload.renewalPath ?? "/dashboard",
+      dedupeKey: `lifecycle:${payload.type}:${payload.sessionPackId}`,
+    });
+
     const emailContent = buildNotificationEmail({
       type: payload.type,
       message: payload.message,

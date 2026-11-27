@@ -14,6 +14,7 @@ import { Doc, Id } from "./_generated/dataModel";
 // `internal` as a per-module constant from `_generated/api.ts`
 // per Convex file-routing convention.
 import { internal } from "./_generated/api";
+import { createNotification } from "./notificationsCenter";
 
 import {
   MAX_WORK_EXAMPLES_PER_ONBOARDING,
@@ -480,6 +481,21 @@ export const submitQuestionnaire = mutation({
     //     consumer errors, Inngest retries the consumer;
     //     Resend's per-recipient `idempotencyKey` dedupes any
     //     double-send.
+    // In-app twin of the instructor email (HUC-95 only sends email). One row
+    // per assigned instructor, deduped on submission + instructor so a retry
+    // of the scheduler action cannot post twice.
+    for (const pair of row.perInstructor) {
+      const instructor = await ctx.db.get(pair.instructorId);
+      if (!instructor?.userId) continue;
+      await createNotification(ctx, {
+        userId: instructor.userId,
+        kind: "questionnaire_submitted",
+        title: `${row.email} submitted their questionnaire`,
+        href: `/onboarding/${args.onboardingId}`,
+        dedupeKey: `questionnaire:${submissionId}:${instructor.userId}`,
+      });
+    }
+
     ctx.scheduler.runAfter(
       0,
       internal.onboardingQuestionnaireActions.notifyInstructorOnSubmission,

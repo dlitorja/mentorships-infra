@@ -1147,6 +1147,21 @@ http.route({
   handler: httpCreateOrder,
 });
 
+const httpCreateNotification = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  const args = await request.json();
+  const result = await ctx.runMutation(internal.notificationsCenter.create, args);
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/notifications/create",
+  method: "POST",
+  handler: httpCreateNotification,
+});
+
 http.route({
   path: "/payments/create",
   method: "POST",
