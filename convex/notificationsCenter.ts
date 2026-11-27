@@ -67,6 +67,7 @@ export async function createNotification(
     body: args.body,
     href: args.href,
     dedupeKey: args.dedupeKey,
+    read: false,
     createdAt: Date.now(),
   });
 
@@ -97,13 +98,18 @@ export const listUnreadForUser = query({
 
     const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
 
+    // Read straight from the unread index. Taking the newest N of ALL rows
+    // first (read + unread) hid older unread items once the new ones were
+    // marked read.
     const rows = await ctx.db
       .query("notifications")
-      .withIndex("by_userId_createdAt", (q) => q.eq("userId", identity.subject))
+      .withIndex("by_userId_read_createdAt", (q) =>
+        q.eq("userId", identity.subject).eq("read", false)
+      )
       .order("desc")
-      .take(limit * 3);
+      .collect();
 
-    return rows.filter((row) => row.readAt === undefined).slice(0, limit);
+    return rows.slice(0, limit);
   },
 });
 
@@ -117,9 +123,9 @@ export const markRead = mutation({
     const row = await ctx.db.get(args.notificationId);
     if (!row) return null;
     if (row.userId !== identity.subject) throw new Error("Forbidden");
-    if (row.readAt !== undefined) return row;
+    if (row.read) return row;
 
-    await ctx.db.patch(row._id, { readAt: Date.now() });
+    await ctx.db.patch(row._id, { read: true, readAt: Date.now() });
     return await ctx.db.get(row._id);
   },
 });
@@ -131,20 +137,20 @@ export const markAllRead = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    // Collect every unread row instead of the newest 200: a busy bell could
+    // leave older rows permanently unread behind the cap.
     const rows = await ctx.db
       .query("notifications")
-      .withIndex("by_userId_createdAt", (q) => q.eq("userId", identity.subject))
-      .order("desc")
-      .take(200);
+      .withIndex("by_userId_read_createdAt", (q) =>
+        q.eq("userId", identity.subject).eq("read", false)
+      )
+      .collect();
 
     const now = Date.now();
-    let updated = 0;
     for (const row of rows) {
-      if (row.readAt !== undefined) continue;
-      await ctx.db.patch(row._id, { readAt: now });
-      updated += 1;
+      await ctx.db.patch(row._id, { read: true, readAt: now });
     }
-    return { updated };
+    return { updated: rows.length };
   },
 });
 
@@ -157,8 +163,10 @@ export const countUnreadForUser = query({
 
     const rows = await ctx.db
       .query("notifications")
-      .withIndex("by_userId_createdAt", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId_read_createdAt", (q) =>
+        q.eq("userId", args.userId).eq("read", false)
+      )
       .collect();
-    return rows.filter((row) => row.readAt === undefined).length;
+    return rows.length;
   },
 });

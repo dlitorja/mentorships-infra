@@ -2,7 +2,7 @@ import { query, mutation, internalMutation, internalAction, internalQuery } from
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
 import { createNotification } from "./notificationsCenter";
 
@@ -564,6 +564,27 @@ export const updateSeatReservation = internalMutation({
  * Refunds call the pack-keyed variant: a refunded pack must free the seat
  * and close the workspace, which the admin refund path previously never did.
  */
+/**
+ * Writes the student-facing "seat ended" notification once per seat.
+ *
+ * Both release paths must call this: `releaseSeatImpl` (admin/refund/expiry
+ * sweep) and `releaseSeatById` (the hourly `checkSeatExpiration` action).
+ * Missing it on the sweep path left normal grace expiry silent.
+ */
+async function notifySeatReleased(
+  ctx: MutationCtx,
+  seat: Pick<Doc<"seatReservations">, "_id" | "userId">
+): Promise<void> {
+  await createNotification(ctx, {
+    userId: seat.userId,
+    kind: "seat_released",
+    title: "Your mentorship seat has ended",
+    body: "You can rejoin at any time by purchasing a new session pack.",
+    href: "/instructors",
+    dedupeKey: `seat_released:${seat._id}`,
+  });
+}
+
 async function releaseSeatImpl(
   ctx: MutationCtx,
   seatId: Id<"seatReservations">
@@ -584,14 +605,7 @@ async function releaseSeatImpl(
     await ctx.db.patch(workspace._id, { endedAt: Date.now() });
   }
 
-  await createNotification(ctx, {
-    userId: seat.userId,
-    kind: "seat_released",
-    title: "Your mentorship seat has ended",
-    body: "You can rejoin at any time by purchasing a new session pack.",
-    href: "/instructors",
-    dedupeKey: `seat_released:${seatId}`,
-  });
+  await notifySeatReleased(ctx, seat);
 
   return await ctx.db.get(seatId);
 }
@@ -789,7 +803,9 @@ export const getSeatBySessionPackId = internalQuery({
 export const releaseSeatById = internalMutation({
   args: { seatId: v.id("seatReservations") },
   handler: async (ctx, args) => {
+    const seat = await ctx.db.get(args.seatId);
     await ctx.db.patch(args.seatId, { status: "released" });
+    if (seat) await notifySeatReleased(ctx, seat);
     return { success: true };
   },
 });

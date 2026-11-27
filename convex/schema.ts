@@ -1860,9 +1860,13 @@ export default defineSchema({
     href: v.optional(v.string()),
     /** Stable key so retries and duplicate events produce one row. */
     dedupeKey: v.string(),
+    // Non-optional so the unread index can filter without scanning history.
+    // `readAt` keeps the timestamp for display/audit.
+    read: v.boolean(),
     readAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_userId_read_createdAt", ["userId", "read", "createdAt"])
     .index("by_dedupeKey", ["dedupeKey"]),
 
   suppressionEvents: defineTable({

@@ -104,3 +104,71 @@ test("mark all read clears only the caller's unread rows", async () => {
   expect(oneUnread).toHaveLength(0);
   expect(twoUnread).toHaveLength(1);
 });
+
+test("older unread rows stay visible behind read history", async () => {
+  const t = convexTest(schema, modules);
+
+  await t.run(async (ctx) => {
+    for (let i = 0; i < 8; i += 1) {
+      await ctx.db.insert("notifications", {
+        userId: "user_one",
+        kind: "renewal_due",
+        title: `row-${i}`,
+        dedupeKey: `row-${i}`,
+        read: i > 0,
+        readAt: i > 0 ? 1000 : undefined,
+        createdAt: i,
+      });
+    }
+  });
+
+  const unread = await t.withIdentity(one).query(
+    api.notificationsCenter.listUnreadForUser,
+    { limit: 2 }
+  );
+
+  expect(unread).toHaveLength(1);
+  expect(unread[0]?.title).toBe("row-0");
+});
+
+test("the hourly sweep's release path also notifies the student", async () => {
+  const t = convexTest(schema, modules);
+
+  let seatId: import("./_generated/dataModel").Id<"seatReservations"> | null = null;
+  await t.run(async (ctx) => {
+    const instructorId = await ctx.db.insert("instructors", {
+      name: "Sweep Instructor",
+      slug: "sweep-instructor",
+      email: "sweep@example.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 1,
+      groupInventory: 0,
+    });
+    const packId = await ctx.db.insert("sessionPacks", {
+      userId: "user_one",
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 0,
+      purchasedAt: Date.now(),
+      status: "depleted",
+    });
+    seatId = await ctx.db.insert("seatReservations", {
+      instructorId,
+      userId: "user_one",
+      sessionPackId: packId,
+      seatExpiresAt: Date.now() - 1000,
+      status: "grace",
+      gracePeriodEndsAt: Date.now() - 1000,
+    });
+  });
+
+  await t.mutation(internal.seatReservations.releaseSeatById, { seatId: seatId! });
+
+  const unread = await t.withIdentity(one).query(
+    api.notificationsCenter.listUnreadForUser,
+    {}
+  );
+  expect(unread).toHaveLength(1);
+  expect(unread[0]?.kind).toBe("seat_released");
+});
