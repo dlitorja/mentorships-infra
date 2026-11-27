@@ -101,15 +101,15 @@ export const listUnreadForUser = query({
     // Read straight from the unread index. Taking the newest N of ALL rows
     // first (read + unread) hid older unread items once the new ones were
     // marked read.
-    const rows = await ctx.db
+    // `.take` after the index + order: the bell subscribes while closed, so
+    // collecting a large unread backlog on every update is wasted reads.
+    return await ctx.db
       .query("notifications")
       .withIndex("by_userId_read_createdAt", (q) =>
         q.eq("userId", identity.subject).eq("read", false)
       )
       .order("desc")
-      .collect();
-
-    return rows.slice(0, limit);
+      .take(limit);
   },
 });
 
