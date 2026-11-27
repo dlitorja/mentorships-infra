@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
+import { createNotification } from "./notificationsCenter";
 
 /**
  * Reads the caller's private alias for a workspace, returning `null`
@@ -582,6 +583,15 @@ async function releaseSeatImpl(
   for (const workspace of workspaces) {
     await ctx.db.patch(workspace._id, { endedAt: Date.now() });
   }
+
+  await createNotification(ctx, {
+    userId: seat.userId,
+    kind: "seat_released",
+    title: "Your mentorship seat has ended",
+    body: "You can rejoin at any time by purchasing a new session pack.",
+    href: "/instructors",
+    dedupeKey: `seat_released:${seatId}`,
+  });
 
   return await ctx.db.get(seatId);
 }

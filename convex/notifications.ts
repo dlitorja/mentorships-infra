@@ -355,6 +355,21 @@ export const handleNotificationSend = internalAction({
       }
     }
 
+    // In-app twin: the bell is durable, the email can be missed.
+    try {
+      const isGrace = payload.type === "grace_period_final_warning";
+      await ctx.runMutation(internal.notificationsCenter.create, {
+        userId: payload.userId,
+        kind: isGrace ? "seat_grace" : "renewal_due",
+        title: isGrace ? "Your seat is ending soon" : "Time to renew",
+        body: payload.message,
+        href: payload.renewalPath ?? "/dashboard",
+        dedupeKey: `lifecycle:${payload.type}:${payload.sessionPackId}`,
+      });
+    } catch (error) {
+      console.error("Failed to write in-app notification:", error);
+    }
+
     return {
       success: emailResult.ok || discordResult.ok,
       type: payload.type,

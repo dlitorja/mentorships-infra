@@ -54,6 +54,9 @@ type InCallNotification = FunctionReturnType<
 type RecordingReadyNotification = FunctionReturnType<
   typeof api.recordingReadyNotifications.listUnreadForUser
 >[number];
+type LifecycleNotification = FunctionReturnType<
+  typeof api.notificationsCenter.listUnreadForUser
+>[number];
 
 type BellItem =
   | {
@@ -73,6 +76,16 @@ type BellItem =
         title: string;
         href: string;
       };
+    }
+  | {
+      kind: "lifecycle";
+      _id: LifecycleNotification["_id"];
+      timestamp: number;
+      render: {
+        title: string;
+        href: string;
+        body?: string;
+      };
     };
 
 export function NotificationBell() {
@@ -84,6 +97,10 @@ export function NotificationBell() {
     convexQuery(api.recordingReadyNotifications.listUnreadForUser, {})
   );
 
+  const { data: lifecycle } = useQuery(
+    convexQuery(api.notificationsCenter.listUnreadForUser, {})
+  );
+
   const markReadMany = useMutation({
     mutationFn: useConvexMutation(api.inCallNotifications.markReadMany),
   });
@@ -91,6 +108,12 @@ export function NotificationBell() {
     mutationFn: useConvexMutation(
       api.recordingReadyNotifications.markAcknowledged
     ),
+  });
+  const markLifecycleRead = useMutation({
+    mutationFn: useConvexMutation(api.notificationsCenter.markRead),
+  });
+  const markAllLifecycleRead = useMutation({
+    mutationFn: useConvexMutation(api.notificationsCenter.markAllRead),
   });
 
   const [open, setOpen] = useState(false);
@@ -167,10 +190,20 @@ export function NotificationBell() {
           href: `/workspace/${n.workspaceId}?videos=${n.sessionId}`,
         },
       }));
-    return [...callItems, ...recordingItems].sort(
+    const lifecycleItems: BellItem[] = (lifecycle ?? []).map((n) => ({
+      kind: "lifecycle" as const,
+      _id: n._id,
+      timestamp: n.createdAt,
+      render: {
+        title: n.title,
+        href: n.href ?? "/dashboard",
+        body: n.body,
+      },
+    }));
+    return [...callItems, ...recordingItems, ...lifecycleItems].sort(
       (a, b) => b.timestamp - a.timestamp
     );
-  }, [callInvites, recordings]);
+  }, [callInvites, recordings, lifecycle]);
 
   const unreadCount = merged.length;
   const callInviteIds = useMemo(
@@ -187,6 +220,15 @@ export function NotificationBell() {
       merged
         .filter((m): m is Extract<BellItem, { kind: "recording_ready" }> =>
           m.kind === "recording_ready"
+        )
+        .map((m) => m._id),
+    [merged]
+  );
+  const lifecycleIds = useMemo(
+    () =>
+      merged
+        .filter((m): m is Extract<BellItem, { kind: "lifecycle" }> =>
+          m.kind === "lifecycle"
         )
         .map((m) => m._id),
     [merged]
@@ -257,6 +299,19 @@ export function NotificationBell() {
                       })
                     );
                   }
+                  if (lifecycleIds.length > 0) {
+                    ops.push(
+                      new Promise((resolve, reject) => {
+                        markAllLifecycleRead.mutate(
+                          {},
+                          {
+                            onSuccess: () => resolve(undefined),
+                            onError: (err) => reject(err),
+                          }
+                        );
+                      })
+                    );
+                  }
                   Promise.all(ops).then(
                     () => setOpen(false),
                     () => {
@@ -284,6 +339,9 @@ export function NotificationBell() {
                   <Link
                     href={item.render.href}
                     onClick={() => {
+                      if (item.kind === "lifecycle") {
+                        markLifecycleRead.mutate({ notificationId: item._id });
+                      }
                       setOpen(false);
                     }}
                     className="block text-sm hover:underline"
@@ -297,6 +355,11 @@ export function NotificationBell() {
                       ) : null}
                       <span>{item.render.title}</span>
                     </div>
+                    {item.kind === "lifecycle" && item.render.body ? (
+                      <div className="text-xs text-muted-foreground line-clamp-2">
+                        {item.render.body}
+                      </div>
+                    ) : null}
                     <div className="text-xs text-muted-foreground">
                       {formatRelativeTime(now - item.timestamp)}
                     </div>

@@ -1835,6 +1835,36 @@ export default defineSchema({
     .index("by_kind_sentAt", ["kind", "sentAt"])
     .index("by_status_createdAt", ["status", "createdAt"]),
 
+  /**
+   * In-app lifecycle notifications (PR: notification centre).
+   *
+   * Separate from `inCallNotifications` and `recordingReadyNotifications`:
+   * those cover ephemeral call state and keep their own read semantics. This
+   * table is for durable lifecycle items (new student, questionnaire
+   * submitted, renewal due, seat grace/released) that the bell merges into one
+   * list.
+   */
+  notifications: defineTable({
+    userId: v.string(),
+    kind: v.union(
+      v.literal("new_student"),
+      v.literal("questionnaire_submitted"),
+      v.literal("renewal_due"),
+      v.literal("seat_grace"),
+      v.literal("seat_released"),
+      v.literal("fulfilment_problem")
+    ),
+    title: v.string(),
+    body: v.optional(v.string()),
+    /** In-app path to open when the item is clicked. */
+    href: v.optional(v.string()),
+    /** Stable key so retries and duplicate events produce one row. */
+    dedupeKey: v.string(),
+    readAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_userId_createdAt", ["userId", "createdAt"])
+    .index("by_dedupeKey", ["dedupeKey"]),
+
   suppressionEvents: defineTable({
     kind: v.union(
       v.literal("bounce"),
